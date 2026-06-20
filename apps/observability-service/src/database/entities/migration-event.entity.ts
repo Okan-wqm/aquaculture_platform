@@ -18,7 +18,7 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
  * Records that survive past a tenant's lifetime (audit trail does, by
  * definition) cannot contain a reversible identifier. v3 R3 + ADR-022:
  * pseudonymise via `hmacTenantHash(pepper, tenant_schema)` with the
- * per-environment pepper held in Vault. On TenantErased event,
+ * per-environment pepper held in Vault. During tenant erasure,
  * observability-service deletes WHERE tenant_id_hash = hmac(pepper, schema)
  * — explicit cascade, no time-based purge.
  *

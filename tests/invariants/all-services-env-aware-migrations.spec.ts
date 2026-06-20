@@ -27,41 +27,65 @@
  * fails closed when any app module drops that declaration.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
-const SERVICES_REQUIRING_ENV_AWARE_MIGRATIONS: readonly string[] = [
-  'farm-service',
-  'sensor-service',
-  'hr-service',
-  'messaging-service',
-  'alert-engine',
-  'billing-service',
-  'notification-service',
-  'config-service',
-  'hydroponics-service',
-  'ai-service',
-  'admin-api-service',
-  'event-store-service',
-  'auth-service',
-  'observability-service',
-];
+function repoFile(relPath: string): string {
+  return readFileSync(resolve(REPO_ROOT, relPath), 'utf8');
+}
+
+function runtimeServicesWithTypeOrmDataSource(): readonly string[] {
+  return readdirSync(resolve(REPO_ROOT, 'apps'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((service) => existsSync(resolve(REPO_ROOT, 'apps', service, 'src/app.module.ts')))
+    .filter((service) =>
+      existsSync(resolve(REPO_ROOT, 'apps', service, 'src/database/data-source.ts')),
+    )
+    .sort();
+}
+
+const DATABASE_MIGRATIONS_RUN_TRUE_RE =
+  /migrationsRunFromEnv\s*:\s*\([^)]*\)\s*=>\s*[^=]*\.get(?:<string>)?\(\s*['"]DATABASE_MIGRATIONS_RUN['"]\s*,\s*['"]false['"]\s*\)\s*===\s*['"]true['"]/s;
 
 describe('INVARIANT (INFRA-CRITICAL-020 propagation): every service declares migration timing', () => {
-  for (const service of SERVICES_REQUIRING_ENV_AWARE_MIGRATIONS) {
-    it(`${service} satisfies the migrationsRunFromEnv contract`, () => {
-      const path = resolve(REPO_ROOT, 'apps', service, 'src/app.module.ts');
-      const src = readFileSync(path, 'utf8');
+  const services = runtimeServicesWithTypeOrmDataSource();
 
-      if (!/migrationsRunFromEnv\s*:/.test(src)) {
+  it('derives the service roster from the generated deployment catalog', () => {
+    expect(services).toEqual([
+      'admin-api-service',
+      'ai-service',
+      'alert-engine',
+      'auth-service',
+      'billing-service',
+      'config-service',
+      'event-store-service',
+      'farm-service',
+      'hr-service',
+      'hydroponics-service',
+      'messaging-service',
+      'notification-service',
+      'observability-service',
+      'sensor-service',
+    ]);
+  });
+
+  for (const service of services) {
+    it(`${service} satisfies the migrationsRunFromEnv contract`, () => {
+      const appModule = repoFile(`apps/${service}/src/app.module.ts`);
+      const dataSource = repoFile(`apps/${service}/src/database/data-source.ts`);
+
+      if (!DATABASE_MIGRATIONS_RUN_TRUE_RE.test(appModule)) {
         throw new Error(
-          `${service}/src/app.module.ts: missing migrationsRunFromEnv declaration. ` +
-            `Add the env-aware migration timing block (see messaging-service for the canonical shape) ` +
-            `so E2E tests can run TypeORM's built-in migration runner before SourceSchemaBootstrapService fires.`,
+          `${service}/src/app.module.ts: missing canonical migrationsRunFromEnv declaration. ` +
+            `Use the SSoT shape \`migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true'\`.`,
         );
       }
+
+      expect(dataSource).toMatch(/migrationsRun\s*:\s*false/);
+      expect(dataSource).toMatch(/synchronize\s*:\s*false/);
     });
   }
 });

@@ -47,6 +47,22 @@ No active CRITICAL finding remains in `already-fixed-needs-close` after the
 2026-06-20 registry close follow-up. Reconciled items moved to
 `Resolved Evidence`.
 
+## Implementation Evidence Pending Registry Close
+
+- `COMPLIANCE-CRITICAL-001`: implementation branch
+  `codex/ssot-critical-implementation` now carries the GDPR tenant-erasure
+  SSoT architecture, but the registry row remains OPEN until the branch is
+  committed, CI evidence is attached, and the registry CLI records the closing
+  commit. The architectural proof is not service-local: the target roster lives
+  in `libs/event-contracts/src/tenant-erasure-targets.ts`; reusable target
+  execution lives under
+  `libs/backend-common/src/compliance/tenant-erasure/`; every target service is
+  wired through the shared module or the farm-specific domain handler; admin-api
+  owns the operation ledger, proof aggregation, db-migrate schema-deletion
+  request, and final `TenantErased` event. The guardrail is
+  `tests/invariants/tenant-erasure-ssot.spec.ts` plus the strengthened
+  outbox/infrastructure and migration-timing invariants.
+
 ## Resolved Evidence
 
 - `INFRA-CRITICAL-021`: registry state is `RESOLVED` with closing commit

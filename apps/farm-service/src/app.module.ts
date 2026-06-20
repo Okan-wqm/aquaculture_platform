@@ -10,6 +10,7 @@ import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -352,6 +353,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     // concurrent handlers patch DIFFERENT keys of the same JSONB
     // column without tripping each other's @VersionColumn.
     JsonbPatchModule,
+
+    // Canonical legal-hold registry. Tenant erasure and every destructive
+    // compliance path fail closed if this provider cannot answer.
+    LegalHoldModule.forRoot(),
 
     // GDPR primitives — phase 6.3. Tenant export (right-of-access)
     // and two-step erasure (right-to-erasure) with audit-row

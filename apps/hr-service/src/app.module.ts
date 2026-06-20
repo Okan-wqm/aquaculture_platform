@@ -7,6 +7,7 @@ import {
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -305,6 +306,7 @@ interface ApolloGraphQLContext {
      * The OutboxWorkerService polls hr_outbox and publishes to NATS.
      */
     HrOutboxModule,
+    TenantErasureTargetModule.forService('hr-service'),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

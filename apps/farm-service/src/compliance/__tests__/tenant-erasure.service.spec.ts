@@ -64,6 +64,32 @@ function legalHoldServiceDouble(
   return service as LegalHoldService;
 }
 
+function allowLegalHoldServiceDouble(): LegalHoldService {
+  return legalHoldServiceDouble({
+    assertNoHold: jest.fn().mockResolvedValue(undefined),
+  });
+}
+
+function noopOutboxPublisherDouble(): OutboxPublisher {
+  return outboxPublisherDouble({
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  });
+}
+
+function makeTenantErasureService(
+  dataSource: DataSource,
+  options: {
+    publisher?: OutboxPublisher;
+    legalHoldService?: LegalHoldService;
+  } = {},
+): TenantErasureService {
+  return new TenantErasureService(
+    dataSource,
+    options.publisher ?? noopOutboxPublisherDouble(),
+    options.legalHoldService ?? allowLegalHoldServiceDouble(),
+  );
+}
+
 function makeDs(opts: {
   entities: EntityMetadataDouble[];
   deleteResults?: Record<string, number>;
@@ -104,20 +130,38 @@ function makeDs(opts: {
   // for the audit anonymise step. The `update` method here delegates to
   // auditQb so the UPDATE assertions (set / where / execute) remain
   // observable through the auditQb spy.
+  let countMode = false;
+  let countTable: string | undefined;
   const qb: {
+    select: jest.Mock;
     delete: jest.Mock;
     from: jest.Mock;
     where: jest.Mock;
+    getRawOne: jest.Mock;
     execute: jest.Mock;
     update: jest.Mock;
   } = {
+    select: jest.fn().mockImplementation(() => {
+      countMode = true;
+      return qb;
+    }),
     delete: jest.fn().mockReturnThis(),
     from: jest.fn().mockImplementation((target: unknown) => {
       const meta = opts.entities.find((e) => e.target === target);
-      if (meta) executed.push(meta.tableName);
+      if (meta && countMode) {
+        countTable = meta.tableName;
+      } else if (meta) {
+        executed.push(meta.tableName);
+      }
       return qb;
     }),
     where: jest.fn().mockReturnThis(),
+    getRawOne: jest.fn().mockImplementation(async () => {
+      const count = deleteAffected(countTable ?? '');
+      countMode = false;
+      countTable = undefined;
+      return { count: String(count) };
+    }),
     execute: jest.fn().mockImplementation(async () => {
       if (opts.deleteError) throw opts.deleteError;
       const last = executed[executed.length - 1] ?? '';
@@ -142,6 +186,15 @@ function makeDs(opts: {
   const managerDouble = {
     createQueryBuilder,
     queryRunner: { isTransactionActive: true },
+    query: jest.fn().mockImplementation(async (sql: string) => {
+      if (sql.includes('farm.farm_audit_logs')) {
+        return [{ count: String(opts.auditAnonAffected ?? 0) }];
+      }
+      if (sql.includes('COUNT(*)::text AS count')) {
+        return [{ count: '0' }];
+      }
+      return [];
+    }),
     insert: jest.fn().mockImplementation(
       async (entity: unknown, row: unknown) => {
         insertCalls.push({ entity, row });
@@ -191,7 +244,7 @@ describe('TenantErasureService ticket flow', () => {
   it('initiate returns a 32-hex token with 5-minute expiry', () => {
     const { dataSource } = makeDs({ entities: [] });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const before = Date.now();
     const ticket = service.initiate(TENANT, USER);
     expect(ticket.tenantId).toBe(TENANT);
@@ -205,7 +258,7 @@ describe('TenantErasureService ticket flow', () => {
   it('confirm without an initiate throws NotFoundException', async () => {
     const { dataSource } = makeDs({ entities: [] });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     await expect(service.confirm(TENANT, 'x')).rejects.toThrow(
       NotFoundException,
     );
@@ -214,7 +267,7 @@ describe('TenantErasureService ticket flow', () => {
   it('confirm with a wrong token rejects with BadRequestException', async () => {
     const { dataSource } = makeDs({ entities: [] });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     service.initiate(TENANT, USER);
     await expect(
       service.confirm(TENANT, 'not-the-token'),
@@ -224,7 +277,7 @@ describe('TenantErasureService ticket flow', () => {
   it('confirm with a wrong tenant rejects (no ticket for that tenant)', async () => {
     const { dataSource } = makeDs({ entities: [] });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     await expect(
       service.confirm(OTHER_TENANT, ticket.token),
@@ -234,7 +287,7 @@ describe('TenantErasureService ticket flow', () => {
   it('confirm after expiry throws BadRequestException and consumes the ticket', async () => {
     const { dataSource } = makeDs({ entities: [] });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     // Mutate the expiry so the ticket is stale without actually
     // waiting 5 minutes. The private map is reachable via the
@@ -250,7 +303,7 @@ describe('TenantErasureService ticket flow', () => {
   it('second initiate replaces the first (single pending per tenant)', () => {
     const { dataSource } = makeDs({ entities: [] });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const t1 = service.initiate(TENANT, USER);
     const t2 = service.initiate(TENANT, USER);
     expect(t1.token).not.toBe(t2.token);
@@ -271,7 +324,7 @@ describe('TenantErasureService ticket flow', () => {
       auditAnonAffected: 0,
     });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     await service.confirm(TENANT, ticket.token);
     expect(service.getPendingTicket(TENANT)).toBeUndefined();
@@ -302,7 +355,7 @@ describe('TenantErasureService DELETE cascade', () => {
       auditAnonAffected: 12,
     });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
@@ -332,7 +385,7 @@ describe('TenantErasureService DELETE cascade', () => {
       deleteResults: { child: 2, parent: 1 },
     });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     await service.confirm(TENANT, ticket.token);
     // Parent has 1 inbound FK (from child); child has 0.
@@ -341,8 +394,8 @@ describe('TenantErasureService DELETE cascade', () => {
   });
 });
 
-describe('TenantErasureService TenantErased event emission', () => {
-  it('enqueues a TenantErased event on the outbox inside the same transaction', async () => {
+describe('TenantErasureService TenantDataErased proof emission', () => {
+  it('enqueues a TenantDataErased proof on the outbox inside the same transaction', async () => {
     const { dataSource, transaction } = makeDs({
       entities: [
         {
@@ -363,7 +416,7 @@ describe('TenantErasureService TenantErased event emission', () => {
     });
     const enqueue = jest.fn().mockResolvedValue(undefined);
     const publisher = outboxPublisherDouble({ enqueue });
-    const service = new TenantErasureService(dataSource, publisher);
+    const service = makeTenantErasureService(dataSource, { publisher });
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
@@ -372,41 +425,21 @@ describe('TenantErasureService TenantErased event emission', () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(enqueue).toHaveBeenCalledTimes(1);
     const [event, mgrArg] = enqueue.mock.calls[0]!;
-    expect(event.eventType).toBe('TenantErased');
+    expect(event.eventType).toBe('TenantDataErased');
     expect(event.tenantId).toBe(TENANT);
-    expect(event.requestedBy).toBe(USER);
-    expect(event.totalDeleted).toBe(7);
-    expect(event.auditRowsAnonymised).toBe(4);
-    expect(event.tableCount).toBe(1); // batches_v2 only; audit skipped
+    expect(event.operationId).toBe(ticket.operationId);
+    expect(event.targetService).toBe('farm-service');
+    expect(event.matchedRecordCount).toBe(11);
+    expect(event.erasedRecordCount).toBe(7);
+    expect(event.proofHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(event.aggregateId).toBe(TENANT);
     expect(event.aggregateType).toBe('Tenant');
-    expect(event.confirmedAt).toBe(result.confirmedAt);
+    expect(event.erasedAt).toBe(result.confirmedAt);
     // The `mgr` passed to enqueue is the transaction-scoped
     // EntityManager double — the publisher asserts an active
     // transaction so the outbox row commits with the domain writes.
     expect(mgrArg).toBeDefined();
     expect(mgrArg.queryRunner.isTransactionActive).toBe(true);
-  });
-
-  it('absent outbox publisher still completes the erasure (test harness path)', async () => {
-    const { dataSource, transaction } = makeDs({
-      entities: [
-        {
-          tableName: 'batches_v2',
-          target: class Batch {},
-          columns: [{ propertyName: 'tenantId' }],
-          foreignKeys: [],
-        },
-      ],
-      deleteResults: { batches_v2: 2 },
-    });
-    const service = new TenantErasureService(dataSource);
-    const ticket = service.initiate(TENANT, USER);
-    const result = await service.confirm(TENANT, ticket.token);
-    expect(result.totalDeleted).toBe(2);
-    // Transaction still opens — erasure atomicity doesn't depend on
-    // the publisher being present.
-    expect(transaction).toHaveBeenCalledTimes(1);
   });
 
   it('DELETE failure rolls back the transaction and suppresses the event', async () => {
@@ -423,7 +456,7 @@ describe('TenantErasureService TenantErased event emission', () => {
     });
     const enqueue = jest.fn();
     const publisher = outboxPublisherDouble({ enqueue });
-    const service = new TenantErasureService(dataSource, publisher);
+    const service = makeTenantErasureService(dataSource, { publisher });
     const ticket = service.initiate(TENANT, USER);
     await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
       /FK violation/,
@@ -456,7 +489,7 @@ describe('TenantErasureService.hashUserId', () => {
  * Pin the contract: a re-invocation on a tenantId that's already
  * been erased returns the original ErasureResult tagged
  * `state: 'ALREADY_PURGED'`. The cascade does NOT re-run; the
- * TenantErased event does NOT re-emit; the audit-row INSERT
+ * TenantDataErased proof does NOT re-emit; the audit-row INSERT
  * does NOT re-fire (so the immutability trigger never sees
  * a duplicate-key conflict).
  */
@@ -477,7 +510,7 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
       },
     });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
 
     // Caller submits a token that doesn't even need to be valid;
     // the idempotency check short-circuits before token
@@ -508,7 +541,7 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
       existingErasureAuditRow: null,
     });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
@@ -534,7 +567,7 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
       },
     });
 
-    const service = new TenantErasureService(dataSource);
+    const service = makeTenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     // The stale in-memory ticket is still valid token-wise. With
     // a pre-existing erasure row, the idempotency check wins and
@@ -566,11 +599,9 @@ describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () 
         })(),
       ),
     };
-    const service = new TenantErasureService(
-      dataSource,
-      undefined,
-      legalHoldServiceDouble(legalHoldService),
-    );
+    const service = makeTenantErasureService(dataSource, {
+      legalHoldService: legalHoldServiceDouble(legalHoldService),
+    });
     const ticket = service.initiate(TENANT, USER);
     await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
       /LegalHold active/i,
@@ -589,11 +620,9 @@ describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () 
     const legalHoldService = {
       assertNoHold: jest.fn().mockResolvedValue(undefined),
     };
-    const service = new TenantErasureService(
-      dataSource,
-      undefined,
-      legalHoldServiceDouble(legalHoldService),
-    );
+    const service = makeTenantErasureService(dataSource, {
+      legalHoldService: legalHoldServiceDouble(legalHoldService),
+    });
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
     expect(result.state).toBe('PURGED');
@@ -603,13 +632,4 @@ describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () 
     );
   });
 
-  it('skips the legal-hold check when LegalHoldService is not injected (test-harness/local-dev path)', async () => {
-    const { dataSource } = makeDs({ entities: [] });
-    // No legal-hold service injected.
-
-    const service = new TenantErasureService(dataSource);
-    const ticket = service.initiate(TENANT, USER);
-    const result = await service.confirm(TENANT, ticket.token);
-    expect(result.state).toBe('PURGED');
-  });
 });

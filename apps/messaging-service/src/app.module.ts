@@ -23,6 +23,7 @@ import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
@@ -319,6 +320,7 @@ type QueryComplexityOperationContext = {
     PresenceModule,
     PartitionModule,
     MessagingOutboxModule,
+    TenantErasureTargetModule.forService('messaging-service'),
     GdprModule,
     ComplianceModule,
     EventHandlersModule,
@@ -341,7 +343,8 @@ type QueryComplexityOperationContext = {
       // See P4 migration docblock for rationale:
       // - messaging_outbox: cross-tenant worker reads (BypassRls)
       // - embeddings_metadata: platform-wide reference data (no tenantId)
-      excludeTables: ['messaging_outbox', 'embeddings_metadata'],
+      // - message_send_idempotency: source-schema idempotency ledger
+      excludeTables: ['messaging_outbox', 'embeddings_metadata', 'message_send_idempotency'],
       tenantIdColumns: ['tenantId'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

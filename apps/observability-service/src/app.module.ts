@@ -79,9 +79,9 @@ const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', 
     // events + drift validator emissions. Exposes RecordMigrationEventCommand
     // via the CQRS bus; the orchestrator (Phase 6) dispatches against it.
     MigrationAuditModule,
-    // Plan v3 Phase 9 — GDPR Art 17 erasure + Art 15/20 DSAR handlers
-    // for observability's tenant-scoped audit rows. 11th service in the
-    // platform erasure cascade roster.
+    // DSAR Art 15/20 export for observability audit rows. Tenant erasure is
+    // deliberately not wired here; the canonical erasure target roster lives
+    // in @platform/event-contracts and excludes observability.
     GdprModule,
     // Plan v3 R17 — single-enforcer-many-policies retention. Registers
     // migration_events (13mo) + schema_object_history (7y) +

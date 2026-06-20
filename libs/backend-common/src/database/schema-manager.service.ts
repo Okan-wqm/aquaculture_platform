@@ -83,7 +83,10 @@ export interface SyncTenantSchemaOptions {
 
 const cleanupDropProofBrand: unique symbol = Symbol('CleanupDropProof');
 
-export type CleanupDropProofPurpose = 'provisioning_rollback' | 'tenant_deprovision';
+export type CleanupDropProofPurpose =
+  | 'provisioning_rollback'
+  | 'tenant_deprovision'
+  | 'tenant_erasure';
 
 export interface CleanupDropProofBackupEvidence {
   id?: string;
@@ -161,10 +164,12 @@ function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: s
   if (!proof.operationId || !proof.actorId || !proof.reason || !proof.purpose) {
     throw new BadRequestException('CleanupDropProof is incomplete');
   }
-  if (proof.purpose === 'tenant_deprovision') {
+  if (proof.purpose === 'tenant_deprovision' || proof.purpose === 'tenant_erasure') {
     if (!proof.legalHoldCheckedAt) {
       throw new BadRequestException('CleanupDropProof requires legal-hold evidence');
     }
+  }
+  if (proof.purpose === 'tenant_deprovision') {
     if (
       !proof.backup
       || !proof.backup.checksum
@@ -201,7 +206,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
-    infrastructureTables: ['migrations', 'sensor_audit_logs'],
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox'],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -517,16 +522,16 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // mode that hit `farm` historically (cross-module entity transitive
     // imports synchronizing rogue tables into the source schema).
     strictOwnership: true,
-    // No infrastructure tables yet (no outbox, no migration ledger
-    // outside the standard `migrations` table managed by TypeORM).
-    infrastructureTables: ['migrations'],
+    // `hydroponics_outbox` is source-only delivery infrastructure and is
+    // never copied into tenant schemas.
+    infrastructureTables: ['migrations', 'hydroponics_outbox'],
     referenceDataTables: [],
     tables: ['hydroponics_config'],
   },
   {
     moduleName: 'alert',
     sourceSchema: 'alert',
-    infrastructureTables: ['migrations', 'alert_audit_log'],
+    infrastructureTables: ['migrations', 'alert_audit_log', 'alert_outbox'],
     referenceDataTables: [],
     tables: ['alert_rules', 'alert_incidents', 'escalation_policies', 'alert_history'],
   },
@@ -598,6 +603,85 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     ],
   },
   {
+    moduleName: 'billing',
+    sourceSchema: 'billing',
+    infrastructureTables: ['migrations', 'billing_outbox'],
+    referenceDataTables: [],
+    tables: [
+      'subscriptions',
+      'subscription_module_items',
+      'invoices',
+      'payments',
+      'tenant_usage_metrics',
+      'scheduled_plan_changes',
+      'usage_aggregations',
+      'usage_hourly_data',
+      'subscription_provisioning_retries',
+      'command_receipts',
+    ],
+  },
+  {
+    moduleName: 'admin',
+    sourceSchema: 'admin',
+    infrastructureTables: [
+      'migrations',
+      'admin_outbox',
+      'tenant_erasure_operations',
+      'tenant_schemas',
+      'schema_migrations',
+      'schema_backups',
+      'schema_restores',
+      'cleanup_runs',
+      'cleanup_run_steps',
+      'cleanup_run_events',
+      'cleanup_run_evidence',
+    ],
+    referenceDataTables: [],
+    tables: [
+      'tenant_activities',
+      'tenant_notes',
+      'tenant_billing_info',
+      'impersonation_sessions',
+      'impersonation_permissions',
+      'debug_sessions',
+      'captured_queries',
+      'captured_api_calls',
+      'cache_entries_snapshot',
+      'feature_flag_overrides',
+      'discount_redemptions',
+      'custom_plans',
+      'message_threads',
+      'messages',
+      'announcement_acknowledgments',
+      'support_tickets',
+      'ticket_comments',
+      'onboarding_progress',
+      'analytics_snapshots',
+      'report_definitions',
+      'report_executions',
+      'background_jobs',
+      'job_execution_logs',
+      'performance_metrics',
+      'performance_snapshots',
+      'audit_logs',
+      'error_occurrences',
+      'error_groups',
+      'error_alert_rules',
+      'maintenance_modes',
+      'feature_toggles',
+      'email_templates',
+      'ip_access_rules',
+      'activity_logs',
+      'security_events',
+      'security_incidents',
+      'data_requests',
+      'compliance_reports',
+      'login_attempts',
+      'api_usage_logs',
+      'user_sessions',
+    ],
+  },
+  {
     moduleName: 'auth',
     sourceSchema: 'auth',
     referenceDataTables: [],
@@ -611,8 +695,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // and table-presence checks have a declarative truth source.
     moduleName: 'notification',
     sourceSchema: 'notification',
+    infrastructureTables: ['migrations', 'notification_outbox'],
     referenceDataTables: [],
-    tables: ['device_tokens', 'notification_logs'],
+    tables: ['device_tokens', 'notification_logs', 'command_receipts'],
   },
 ];
 
@@ -644,7 +729,11 @@ export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set([
   'messaging',
 ]);
 
-export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set(['auth', 'notification']);
+export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
+  'admin',
+  'auth',
+  'notification',
+]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>
   TENANT_SCOPED_MODULES.has(m.moduleName),

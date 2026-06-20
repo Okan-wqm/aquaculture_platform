@@ -34,6 +34,7 @@ import {
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
 
@@ -60,6 +61,7 @@ const AlertMigrationRunnerService = createSchemaVersionGate('alert');
 const alertSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
+import { AlertOutboxModule } from './outbox/alert-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
@@ -156,6 +158,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    AlertOutboxModule,
+    TenantErasureTargetModule.forService('alert-engine'),
 
     // Redis for distributed state management
     RedisModule.forRootAsync({

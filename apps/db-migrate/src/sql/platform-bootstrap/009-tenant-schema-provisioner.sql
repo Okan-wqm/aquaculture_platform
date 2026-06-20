@@ -249,17 +249,20 @@ BEGIN
     RAISE EXCEPTION 'Tenant schema deletion cleanupProof does not match the requested operation/tenant';
   END IF;
 
-  IF p_payload->'cleanupProof'->>'purpose' IS DISTINCT FROM 'tenant_deprovision' THEN
-    RAISE EXCEPTION 'Tenant schema deletion requires tenant_deprovision cleanupProof';
+  IF p_payload->'cleanupProof'->>'purpose' NOT IN ('tenant_deprovision', 'tenant_erasure') THEN
+    RAISE EXCEPTION 'Tenant schema deletion requires tenant_deprovision or tenant_erasure cleanupProof';
   END IF;
 
   IF COALESCE(p_payload->'cleanupProof'->>'legalHoldCheckedAt', '') = '' THEN
     RAISE EXCEPTION 'Tenant schema deletion requires legal-hold evidence';
   END IF;
 
-  IF COALESCE((p_payload->'cleanupProof'->'backup'->>'isEncrypted')::boolean, false) IS DISTINCT FROM true
-     OR COALESCE(p_payload->'cleanupProof'->'backup'->>'checksum', '') = ''
-     OR COALESCE((p_payload->'cleanupProof'->'backup'->>'sizeBytes')::numeric, 0) <= 0 THEN
+  IF p_payload->'cleanupProof'->>'purpose' = 'tenant_deprovision'
+     AND (
+       COALESCE((p_payload->'cleanupProof'->'backup'->>'isEncrypted')::boolean, false) IS DISTINCT FROM true
+       OR COALESCE(p_payload->'cleanupProof'->'backup'->>'checksum', '') = ''
+       OR COALESCE((p_payload->'cleanupProof'->'backup'->>'sizeBytes')::numeric, 0) <= 0
+     ) THEN
     RAISE EXCEPTION 'Tenant schema deletion requires encrypted backup evidence';
   END IF;
 

@@ -20,10 +20,10 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | already-fixed-needs-close |
 | `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-025`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
+| `INFRA-CRITICAL-025`      | IN-PROGRESS    | 1.1          | messaging-expert         | already-fixed-needs-close |
 | `INFRA-CRITICAL-026`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-027`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-028`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -31,8 +31,8 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
-| `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
+| `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | already-fixed-needs-close |
+| `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -47,9 +47,43 @@ Allowed truth buckets:
 
 ## Already-Fixed Evidence
 
-No active CRITICAL finding remains in `already-fixed-needs-close` after the
-2026-06-18 Wave 0 registry reconciliation. Reconciled items moved to
-`Resolved Evidence`.
+- `INFRA-CRITICAL-021`: source validation on 2026-06-20 showed the main
+  backend-common barrel no longer re-exports entity-bearing audit/GDPR/finding
+  modules. The activated invariant
+  `tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts`
+  permits only the token-only `../audit/audit-log.tokens` deep import and
+  rejects concrete entity-bearing paths. Pending action: after the closing
+  commit is reachable from `main`, run the registry close command with that
+  commit.
+- `INFRA-CRITICAL-025`: `apps/messaging-service/test/e2e-setup.ts` now
+  re-exports canonical
+  `@aquaculture/backend-common/context.withTenantContext` instead of defining a
+  local AsyncLocalStorage helper. The active invariant
+  `tests/invariants/messaging-e2e-tenant-context.spec.ts` rejects local
+  `requestContextStorage`, `AsyncLocalStorage`, `getStore()`, and local
+  `withTenantContext` definitions in the E2E harness. Pending action: registry
+  close after merge/main reachability.
+- `FARM-CRITICAL-001`: farm MinIO orphan cleanup already runs per tenant with
+  canonical `withTenantContext` and `${tenantId}/` object prefixes; the new
+  `tests/invariants/farm-minio-orphan-cleanup-ssot.spec.ts` pins that contract
+  and the storage primitive's empty-live-set fail-closed gate. Pending action:
+  registry close after merge/main reachability.
+- `FARM-CRITICAL-050`: all mortality/cull stock mutation entry points now route
+  through `MortalityCullPolicyService`, including the legacy
+  `BatchService.recordOperation` path and cleaner-fish mortality handler. The
+  new `tests/invariants/farm-stock-mutation-ssot.spec.ts` pins policy wiring
+  before stock counter mutation. Pending action: registry close after
+  merge/main reachability.
+
+2026-06-20 local evidence for the four rows above:
+
+```bash
+./node_modules/.bin/jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts tests/invariants/messaging-e2e-tenant-context.spec.ts tests/invariants/farm-minio-orphan-cleanup-ssot.spec.ts tests/invariants/farm-stock-mutation-ssot.spec.ts --runInBand
+./node_modules/.bin/jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/invariant-reachability.spec.ts --runInBand
+./node_modules/.bin/jest --config apps/farm-service/jest.config.ts apps/farm-service/src/batch/__tests__/services/batch.service.spec.ts apps/farm-service/src/batch/__tests__/handlers/record-cleaner-mortality.handler.spec.ts --runInBand
+npm run findings:verify
+./node_modules/.bin/eslint apps/messaging-service/test/e2e-setup.ts apps/farm-service/src/batch/services/batch.service.ts apps/farm-service/src/batch/handlers/record-cleaner-mortality.handler.ts apps/farm-service/src/batch/__tests__/services/batch.service.spec.ts apps/farm-service/src/batch/__tests__/handlers/record-cleaner-mortality.handler.spec.ts tests/invariants/messaging-e2e-tenant-context.spec.ts tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts tests/invariants/farm-minio-orphan-cleanup-ssot.spec.ts tests/invariants/farm-stock-mutation-ssot.spec.ts
+```
 
 ## Resolved Evidence
 

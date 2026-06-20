@@ -7,7 +7,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 
 import { BatchService, CreateBatchInput, AllocateBatchInput, RecordOperationInput } from '../../services/batch.service';
@@ -16,6 +16,7 @@ import { TankAllocation, AllocationType } from '../../entities/tank-allocation.e
 import { TankBatch } from '../../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../entities/tank-operation.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
+import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
 
 describe('BatchService', () => {
   let service: BatchService;
@@ -62,6 +63,8 @@ describe('BatchService', () => {
     calculateSGR: jest.fn().mockReturnValue(2.5),
     getDaysInProduction: jest.fn().mockReturnValue(90),
     getCurrentBiomass: jest.fn().mockReturnValue(1377.5),
+    isOperational: jest.fn().mockReturnValue(true),
+    isStockMutable: jest.fn().mockReturnValue(true),
     ...overrides,
   } as unknown as Batch);
 
@@ -187,6 +190,7 @@ describe('BatchService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BatchService,
+        MortalityCullPolicyService,
         { provide: DataSource, useValue: mockDataSource },
         { provide: getRepositoryToken(Batch), useValue: mockBatchRepository },
         { provide: getRepositoryToken(TankAllocation), useValue: mockAllocationRepository },
@@ -642,6 +646,33 @@ describe('BatchService', () => {
           }),
         );
       });
+
+      it('rejects mortality on a terminal batch before writing an operation', async () => {
+        const mockBatch = createMockBatch({
+          status: BatchStatus.HARVESTED,
+          isActive: true,
+          isOperational: jest.fn().mockReturnValue(false),
+          isStockMutable: jest.fn().mockReturnValue(false),
+        });
+        const mockTank = createMockTank();
+
+        batchRepository.findOne.mockResolvedValue(mockBatch);
+        tankRepository.findOne.mockResolvedValue(mockTank);
+
+        const input: RecordOperationInput = {
+          tenantId: 'tenant-1',
+          tankId: 'tank-1',
+          batchId: 'batch-123',
+          operationType: OperationType.MORTALITY,
+          operationDate: new Date(),
+          quantity: 10,
+          performedBy: 'user-1',
+        };
+
+        await expect(service.recordOperation(input)).rejects.toThrow(ConflictException);
+        expect(operationRepository.save).not.toHaveBeenCalled();
+        expect(batchRepository.save).not.toHaveBeenCalled();
+      });
     });
 
     describe('recordOperation - Harvest', () => {
@@ -750,6 +781,36 @@ describe('BatchService', () => {
             transferReason: 'Density optimization',
           }),
         );
+      });
+    });
+
+    describe('recordOperation - Cull', () => {
+      it('rejects cull on a terminal batch before writing an operation', async () => {
+        const mockBatch = createMockBatch({
+          status: BatchStatus.CLOSED,
+          isActive: true,
+          isOperational: jest.fn().mockReturnValue(false),
+          isStockMutable: jest.fn().mockReturnValue(false),
+        });
+        const mockTank = createMockTank();
+
+        batchRepository.findOne.mockResolvedValue(mockBatch);
+        tankRepository.findOne.mockResolvedValue(mockTank);
+
+        const input: RecordOperationInput = {
+          tenantId: 'tenant-1',
+          tankId: 'tank-1',
+          batchId: 'batch-123',
+          operationType: OperationType.CULL,
+          operationDate: new Date(),
+          quantity: 10,
+          reason: 'other',
+          performedBy: 'user-1',
+        };
+
+        await expect(service.recordOperation(input)).rejects.toThrow(ConflictException);
+        expect(operationRepository.save).not.toHaveBeenCalled();
+        expect(batchRepository.save).not.toHaveBeenCalled();
       });
     });
   });

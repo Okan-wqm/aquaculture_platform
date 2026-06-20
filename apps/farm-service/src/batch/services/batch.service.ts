@@ -15,6 +15,7 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason, CullReason } from '../entities/tank-operation.entity';
 import { isMortalityReason, isCullReason } from '../entities/tank-operation.enums';
 import { Tank } from '../../tank/entities/tank.entity';
+import { MortalityCullPolicyService } from './mortality-cull-policy.service';
 
 // ============================================================================
 // DTOs
@@ -91,6 +92,7 @@ export class BatchService {
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly dataSource: DataSource,
+    private readonly mortalityCullPolicy: MortalityCullPolicyService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -668,6 +670,8 @@ export class BatchService {
       throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
     }
 
+    this.assertStockRemovalAllowed(batch, input);
+
     // Pre-operation state
     const tankBatch = await this.tankBatchRepository.findOne({
       where: { tenantId: input.tenantId, tankId: input.tankId },
@@ -795,6 +799,27 @@ export class BatchService {
     batch.retentionRate = batch.getRetentionRate();
 
     await this.batchRepository.save(batch);
+  }
+
+  private assertStockRemovalAllowed(batch: Batch, input: RecordOperationInput): void {
+    if (
+      input.operationType !== OperationType.MORTALITY &&
+      input.operationType !== OperationType.CULL
+    ) {
+      return;
+    }
+
+    const operation = input.operationType === OperationType.MORTALITY ? 'Mortality' : 'Cull';
+    this.mortalityCullPolicy.assertStockMutable(batch);
+    this.mortalityCullPolicy.assertQuantityWithinCurrent({
+      operation,
+      quantity: input.quantity,
+      currentQuantity: batch.currentQuantity,
+    });
+    this.mortalityCullPolicy.assertAggregateWithinInitial({
+      batch,
+      addedRemoval: input.quantity,
+    });
   }
 
   // -------------------------------------------------------------------------

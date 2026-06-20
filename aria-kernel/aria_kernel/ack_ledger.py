@@ -5,9 +5,9 @@ The autonomous-loop materialise gate (Phase A4) consumes one
 
   * **operator** — explicit CLI invocation
     ``aria-kernel ack mint --draft-id X --reason Y --operator-approval-ref Z``
-  * **autonomous_profile** — kernel auto-mint under the
-    ``autonomous`` profile on the ``L3-snowball`` lane when the
-    classifier+CI+review gates all pass (Phase B2).
+  * **autonomous_profile** — reserved primitive for a future executable
+    lane contract. Current mainline authority derives no live auto-ack
+    lane, so production materialization consumes operator-minted tokens.
 
 Custody discipline (locked by I-V3-19c/d/e/f):
 
@@ -398,11 +398,9 @@ def mint_auto_ack(
 ) -> AckLedgerRow:
     """Plan ARIA-V3 §B2 — autonomous-profile auto-mint.
 
-    Called by ``auto_action_gate`` (Phase A4) when profile ==
-    ``autonomous`` AND lane == ``L3-snowball`` AND classifier
-    passes AND breaker == ok. The auto-mint records its
-    classifier-decision hash so the audit trail can replay the
-    decision inputs (AUDITTRAIL-HIGH-007 closure).
+    Reserved primitive for a future executable lane contract. Current
+    mainline authority does not derive any autonomous auto-ack lane; callers
+    must consume an operator-minted ack token.
     """
     if kind not in ("agent", "skill"):
         raise GovernanceError(f"ack_mint_unknown_kind: {kind!r}")

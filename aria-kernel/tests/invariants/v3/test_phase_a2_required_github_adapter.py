@@ -100,7 +100,7 @@ class PhaseA2RequiredGithubAdapter(unittest.TestCase):
             # Every Protocol method records.
             adapter.get_pr(101)
             adapter.get_latest_head_sha(101)
-            adapter.get_required_checks("snowball")
+            adapter.get_required_checks("main")
             adapter.get_checks("abc123")
             adapter.get_reviews(101)
             adapter.get_unresolved_conversation_count(101)

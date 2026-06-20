@@ -135,7 +135,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
 
     // Start periodic timer check to handle missed escalations
     this.timerCheckInterval = setInterval(() => {
-      this.checkMissedEscalations();
+      void this.checkMissedEscalations();
     }, 60000); // Check every minute
   }
 
@@ -174,7 +174,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
             if (incident) {
               const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
               if (policy) {
-                this.setEscalationTimeout(incidentId, policy);
+                await this.setEscalationTimeout(incidentId, policy);
                 this.logger.log(`Restored timer for incident ${incidentId}`);
               }
             }
@@ -306,7 +306,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     await this.executeEscalationLevel(incident, policy, 1);
 
     // Set timeout for next level
-    this.setEscalationTimeout(incident.id, policy);
+    await this.setEscalationTimeout(incident.id, policy);
 
     return state;
   }
@@ -448,7 +448,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     const result = await this.executeEscalationLevel(incident, policy, nextLevel);
 
     // Set timeout for next level
-    this.setEscalationTimeout(incidentId, policy);
+    await this.setEscalationTimeout(incidentId, policy);
 
     return result;
   }
@@ -478,7 +478,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     await this.saveState(state);
 
     // Cancel timeout
-    this.cancelEscalationTimeout(incidentId);
+    await this.cancelEscalationTimeout(incidentId);
 
     // Update incident
     const incident = await this.incidentRepository.findOne({
@@ -513,7 +513,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
 
     state.isComplete = true;
     await this.saveState(state);
-    this.cancelEscalationTimeout(incidentId);
+    await this.cancelEscalationTimeout(incidentId);
 
     this.eventEmitter.emit(ESCALATION_EVENTS.COMPLETED, {
       incidentId,
@@ -576,7 +576,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    this.cancelEscalationTimeout(incidentId);
+    await this.cancelEscalationTimeout(incidentId);
     return true;
   }
 
@@ -609,7 +609,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    this.setEscalationTimeout(incidentId, policy);
+    await this.setEscalationTimeout(incidentId, policy);
 
     return true;
   }
@@ -770,7 +770,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     const nextEscalationAt = new Date(Date.now() + timeoutMs);
 
     // Clear existing timer
-    this.cancelEscalationTimeout(incidentId);
+    await this.cancelEscalationTimeout(incidentId);
 
     // Save timer info to Redis for recovery
     await this.redisService.setJson(

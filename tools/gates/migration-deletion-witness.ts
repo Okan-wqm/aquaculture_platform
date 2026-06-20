@@ -80,10 +80,15 @@ function parseArgs(): Args {
   const raw = process.argv.slice(2);
   let diffBase = 'origin/main';
   for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === '--diff-base' && raw[i + 1]) {
-      diffBase = raw[++i];
-    } else if (raw[i].startsWith('--diff-base=')) {
-      diffBase = raw[i].split('=')[1];
+    const arg = raw[i];
+    if (!arg) continue;
+    const next = raw[i + 1];
+    if (arg === '--diff-base' && next) {
+      diffBase = next;
+      i++;
+    } else if (arg.startsWith('--diff-base=')) {
+      const value = arg.slice('--diff-base='.length);
+      if (value) diffBase = value;
     }
   }
   return { diffBase };
@@ -112,19 +117,23 @@ interface DiffEntry {
 
 function diffEntries(base: string): DiffEntry[] {
   const out = git(`diff --name-status ${base}..HEAD`);
-  return out
-    .split('\n')
-    .filter((l) => l.trim().length > 0)
-    .map((line) => {
-      // Status is the leading non-tab char(s), then a tab, then the path.
-      // Renames have format `R100\tfrom\tto` — treat as A on `to`.
-      const parts = line.split('\t');
-      const status = parts[0];
-      if (status.startsWith('R') || status.startsWith('C')) {
-        return { status: 'A', path: parts[2] };
-      }
-      return { status, path: parts[1] };
+  const entries: DiffEntry[] = [];
+  for (const line of out.split('\n')) {
+    if (line.trim().length === 0) continue;
+    // Status is the leading non-tab char(s), then a tab, then the path.
+    // Renames have format `R100\tfrom\tto` — treat as A on `to`.
+    const parts = line.split('\t');
+    const status = parts[0];
+    if (!status) continue;
+    const path =
+      status.startsWith('R') || status.startsWith('C') ? parts[2] : parts[1];
+    if (!path) continue;
+    entries.push({
+      status: status.startsWith('R') || status.startsWith('C') ? 'A' : status,
+      path,
     });
+  }
+  return entries;
 }
 
 function isMigrationFile(path: string): boolean {
@@ -149,7 +158,9 @@ function extractCreateTables(source: string): readonly string[] {
   const out = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(source)) !== null) {
-    const ident = m[0]
+    const raw = m[0];
+    if (!raw) continue;
+    const ident = raw
       .replace(/^\bCREATE\s+(?:TEMP(?:ORARY)?\s+|UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?/i, '')
       .trim();
     out.add(ident.toLowerCase());
@@ -170,7 +181,7 @@ function extractCreateTables(source: string): readonly string[] {
 function timestampPrefix(path: string): string | null {
   const base = path.split(/[\\/]/).pop() ?? path;
   const m = /^(\d{10,})-/.exec(base);
-  return m ? m[1] : null;
+  return m?.[1] ?? null;
 }
 
 interface Witness {

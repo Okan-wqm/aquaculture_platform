@@ -21,7 +21,7 @@
  *      missing tank / batch / TankBatch, batch-not-in-tank) trip
  *      BEFORE the tx opens; the outbox is never touched.
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
 
 import { RecordCleanerMortalityHandler } from '../../handlers/record-cleaner-mortality.handler';
@@ -33,6 +33,7 @@ import { MortalityRecord } from '../../entities/mortality-record.entity';
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
 
 interface HarnessOpts {
   cleanerBatch?: Partial<Batch> | null;
@@ -56,6 +57,8 @@ function makeHarness(opts: HarnessOpts = {}) {
           currentQuantity: 900,
           totalMortality: 100,
           isActive: true,
+          isOperational: jest.fn().mockReturnValue(true),
+          isStockMutable: jest.fn().mockReturnValue(true),
           ...(opts.cleanerBatch ?? {}),
         };
 
@@ -159,6 +162,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     speciesRepository as unknown as Repository<Species>,
     dataSource as DataSource,
     outboxPublisher,
+    new MortalityCullPolicyService(),
   );
 
   return { handler, enqueue, commit, rollback };
@@ -270,6 +274,21 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
     });
     await expect(handler.execute(makeCommand())).rejects.toThrow(
       BadRequestException,
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('ConflictException on terminal cleaner batch — no tx opened', async () => {
+    const { handler, enqueue } = makeHarness({
+      cleanerBatch: {
+        isActive: true,
+        isOperational: jest.fn().mockReturnValue(false),
+        isStockMutable: jest.fn().mockReturnValue(false),
+      } as Partial<Batch>,
+    });
+
+    await expect(handler.execute(makeCommand())).rejects.toThrow(
+      ConflictException,
     );
     expect(enqueue).not.toHaveBeenCalled();
   });

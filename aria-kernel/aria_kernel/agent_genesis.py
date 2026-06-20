@@ -394,8 +394,8 @@ def materialize_agent_draft(
     ``AutoActionGate`` (Plan ARIA-V3 §A4) which encapsulates:
       * The runtime profile + lane + classifier decision.
       * The ack-token consumption (operator-minted via
-        ``aria-kernel ack mint`` OR autonomous auto-mint under
-        autonomous profile on L3-snowball).
+        ``aria-kernel ack mint``. Autonomous auto-mint has no live lane
+        in current mainline authority).
       * The ``materialize_event_id`` UUID that links the
         three-event audit chain (draft_validated → ack_consumed
         → materialize_committed).
@@ -487,7 +487,7 @@ def materialize_agent_draft(
             ),
             evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
             diff_classifier_lane=intent_dict.get(
-                "diff_classifier_lane", "L3-snowball",
+                "diff_classifier_lane", "L0-main",
             ),
             banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
             related_existing_agents=tuple(
@@ -817,7 +817,7 @@ def _render_agent_intent(draft: dict[str, Any]) -> AgentDraftIntent:
         output_schema=dict(draft["output_schema"]),
         acceptance_tests=fixtures,
         evidence_allowlist=tuple(draft.get("evidence_refs") or ()),
-        diff_classifier_lane="L3-snowball",
+        diff_classifier_lane="L0-main",
         related_existing_agents=tuple(
             draft.get("related_existing_agents") or ()
         ),

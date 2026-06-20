@@ -89,7 +89,7 @@ class AgentDraftIntent:
     output_schema: dict[str, Any]
     acceptance_tests: tuple[AcceptanceTest, ...]
     evidence_allowlist: tuple[str, ...]
-    diff_classifier_lane: str  # "L3-snowball" or "L0-main"
+    diff_classifier_lane: str  # current live default: "L0-main"
     banned_phrases: tuple[str, ...] = BANNED_PHRASES_DEFAULT
     related_existing_agents: tuple[str, ...] = field(default_factory=tuple)
     schema_version: int = 1

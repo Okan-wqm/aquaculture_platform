@@ -10,13 +10,12 @@ Field semantics:
   ``ack_id`` — UUID4 minted at ack creation; primary key.
   ``event_time`` — ISO-8601 UTC at mint.
   ``actor_kind`` — ``"operator"`` (CLI mint with explicit reason) or
-    ``"autonomous_profile"`` (kernel auto-mint under autonomous +
-    L3-snowball + classifier_pass).
+    ``"autonomous_profile"`` (reserved auto-mint primitive; no live lane
+    derives this path today).
   ``actor_user_id`` — operator user ID (or ``None`` for autonomous).
   ``profile_name`` — runtime profile at mint time (always present;
     for operator mints this is "standard"/"strict" usually).
-  ``lane`` — kernel-derived lane decision string (``L3-snowball`` /
-    ``L0-main`` / ``None``).
+  ``lane`` — kernel-derived lane decision string (``L0-main`` / ``None``).
   ``classifier_decision_hash`` — SHA256 of the L3 classifier decision
     inputs (autonomous mints only); ``None`` for operator mints.
   ``draft_id`` — target genesis draft id.

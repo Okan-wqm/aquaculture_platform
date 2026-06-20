@@ -38,11 +38,6 @@ _ALLOWLIST_PATTERNS: frozenset[str] = frozenset({
     "aria-tools/repo_identity.json",
     "aria-tools/agent-evals/fixtures/*.json",
     "aria-tools/reports/daily/*.md",
-    # Plan ARIA-V3 §A0 — pre-flight evidence (branch protection capture,
-    # gh api snapshot, operator acknowledgement). Tracked so CI can verify
-    # the operator pre-flight decisions; immutable history per
-    # Plan ARIA-V3 §6 INFRA-HIGH-006 acknowledgement path.
-    "aria-tools/preflight/*.json",
 })
 
 
@@ -106,6 +101,15 @@ class AriaToolsTrackedAllowlist(unittest.TestCase):
                 f"Either restore the missing file or drop the pattern."
             ),
         )
+
+    def test_no_preflight_capture_files_tracked(self) -> None:
+        result = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "ls-files", "aria-tools/preflight"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_no_runtime_ledger_files_tracked(self) -> None:
         """Defensive: explicit ban-list of ledger names that MUST be

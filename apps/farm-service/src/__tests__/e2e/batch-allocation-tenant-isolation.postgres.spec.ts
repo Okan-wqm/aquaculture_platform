@@ -23,6 +23,7 @@ import { TankOperation, OperationType } from '../../batch/entities/tank-operatio
 import { ListBatchesHandler } from '../../batch/query-handlers/list-batches.handler';
 import { ListBatchesQuery } from '../../batch/queries/list-batches.query';
 import { BatchService } from '../../batch/services/batch.service';
+import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import { Department, DepartmentStatus, DepartmentType } from '../../department/entities/department.entity';
 import {
   Species,
@@ -111,6 +112,7 @@ describe('Batch allocation tenant isolation on real Postgres', () => {
       operationRepository,
       tankRepository,
       dataSource,
+      new MortalityCullPolicyService(),
     );
     listBatches = new ListBatchesHandler(batchRepository, tankBatchRepository);
   });

@@ -93,13 +93,13 @@ class WorkflowPreflightVerdict:
 # arbiter approval + invariant update. The list ordering MUST stay
 # stable (governance rows reference these keys).
 #
-# V10.3-B prereq amendment (2026-05-19, operator-acknowledged via
-# aria-tools/preflight/snowball-branch-protection-v4.json): the
+# V10.3-B prereq amendment (2026-05-19, operator-acknowledged for
+# the mainline branch-protection decision): the
 # original V9.0-C 4-rule list included `restrictions.users` non-empty
 # (push-restriction list). GitHub's classic Branch Protection UI
 # exposes this checkbox conditionally — Free-plan public repos may
-# not surface it depending on rolling UI changes. Snowball is the
-# ARIA experimental branch (not production), and the remaining Tier-1
+# not surface it depending on rolling UI changes. Main is the
+# current ARIA target branch, and the remaining Tier-1
 # anchors (required_signatures + required_status_checks.strict +
 # enforce_admins) PLUS Tier-2 anchors that are checked via
 # `verify_preflight()` independently (required_pull_request_reviews

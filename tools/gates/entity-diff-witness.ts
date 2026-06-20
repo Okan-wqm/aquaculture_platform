@@ -69,10 +69,15 @@ function parseArgs(): Args {
   const raw = process.argv.slice(2);
   let diffBase = 'origin/main';
   for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === '--diff-base' && raw[i + 1]) {
-      diffBase = raw[++i];
-    } else if (raw[i].startsWith('--diff-base=')) {
-      diffBase = raw[i].split('=')[1];
+    const arg = raw[i];
+    if (!arg) continue;
+    const next = raw[i + 1];
+    if (arg === '--diff-base' && next) {
+      diffBase = next;
+      i++;
+    } else if (arg.startsWith('--diff-base=')) {
+      const value = arg.slice('--diff-base='.length);
+      if (value) diffBase = value;
     }
   }
   return { diffBase };
@@ -104,12 +109,12 @@ function listDiff(base: string): readonly DiffEntry[] {
   const entries: DiffEntry[] = [];
   for (const line of out.split('\n').filter(Boolean)) {
     const parts = line.split('\t');
-    const status = parts[0] ?? '';
+    const status = parts[0];
+    if (!status) continue;
     // For renames "R100\tsrc/old\tsrc/new" — record the new path with M status
     // (the file effectively MOVED; if the entity body changed too, the M will
     // show up as MM in subsequent runs, but the rename alone implies edit).
-    const path =
-      status.startsWith('R') && parts[2] ? parts[2] : parts[1] ?? '';
+    const path = status.startsWith('R') && parts[2] ? parts[2] : parts[1];
     if (!path) continue;
     entries.push({ status: status.charAt(0), path });
   }
@@ -131,6 +136,7 @@ function groupByService(entries: readonly DiffEntry[]): Map<string, ServiceState
     const entityMatch = ENTITY_FILE_RE.exec(e.path);
     if (entityMatch) {
       const svc = entityMatch[1];
+      if (!svc) continue;
       // Edits, additions, renames all count as "entity touched". Pure deletions
       // (D) are NOT a drift class — the migration for the dropped entity should
       // also be in the diff (covered by migration-deletion-witness).
@@ -145,6 +151,7 @@ function groupByService(entries: readonly DiffEntry[]): Map<string, ServiceState
     const migrationMatch = MIGRATION_FILE_RE.exec(e.path);
     if (migrationMatch && e.status === 'A') {
       const svc = migrationMatch[1];
+      if (!svc) continue;
       const cur =
         services.get(svc) ?? { entitiesEdited: [], newMigrations: [] };
       cur.newMigrations.push(e.path);
@@ -163,7 +170,8 @@ function readWaiveredServices(): Set<string> {
   let match: RegExpExecArray | null;
   WAIVER_RE.lastIndex = 0;
   while ((match = WAIVER_RE.exec(body)) !== null) {
-    waived.add(match[1]);
+    const service = match[1];
+    if (service) waived.add(service);
   }
   return waived;
 }

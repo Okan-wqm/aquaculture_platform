@@ -40,6 +40,7 @@ const LIVE_DOCS = [
 
 const ARCHITECTURE_DOC = 'docs/aria/ARCHITECTURE.md';
 const ENTERPRISE_AUTONOMY_DOC = 'docs/aria/ENTERPRISE_AUTONOMY_SSOT.md';
+const SNOWBALL_CURATION_RECORD = 'docs/aria/reviews/2026-06-19-snowball-curation-audit.md';
 const BURN_IN_SCHEMA = 'docs/aria/schemas/autonomy-burn-in-report.schema.json';
 const PLAN_MARKERS = ['ARIA-HISTORICAL', 'ARIA-SUPERSEDED', 'ARIA-LIVE-AUTHORITY'];
 const STALE_LIVE_PLAN_PATTERNS = [
@@ -425,6 +426,21 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(contract).toContain('verification_mode: runtime-preflight');
     expect(contract).toContain('ChatGPT-managed Codex CLI login');
     expect(contract).not.toMatch(/PENDING-CODEX-CONTRACT-TESTS|codex_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/);
+  });
+
+  it('snowball curation is SSoT-bound and rejects duplicate runtime ownership', () => {
+    const body = read(SNOWBALL_CURATION_RECORD);
+    expect(body).toContain('Do not merge either snowball branch directly into `main`.');
+    expect(body).toContain('## SSOT Integration Contract');
+    expect(body).toContain('Snowball is evidence, not a second architecture line.');
+    expect(body).toContain('## Duplicate And Cleanup Gate');
+    expect(body).toContain('SSOT-GAP-CANDIDATE');
+    expect(body).not.toMatch(/^\| `CANDIDATE`/m);
+    expect(body).toContain('Reject any duplicate module, duplicate schema, duplicate CLI path');
+    expect(body).toContain('Remove or mark obsolete legacy material');
+    expect(body).toContain('one owner per behavior');
+    expect(body).toContain('no generated runtime state');
+    expect(body).toMatch(/no direct branch\s+merge/);
   });
 
   it('live ARIA workflows target main and enforce the Codex CLI floor', () => {

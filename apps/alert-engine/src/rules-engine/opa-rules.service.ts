@@ -640,7 +640,7 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
     if (path.includes('..') || path.includes('%') || path.includes('\\')) {
       throw new Error('OPA path contains forbidden characters');
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9_/\-]*$/.test(path)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_/-]*$/.test(path)) {
       throw new Error('OPA path contains invalid characters (must match ^[a-zA-Z][a-zA-Z0-9_/-]*)');
     }
     return path;
@@ -779,7 +779,7 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
     if (!policy) {
       throw new Error(`Policy not found: ${policyId}`);
     }
-    return JSON.stringify(policy, null, 2);
+    return JSON.stringify(policy);
   }
 
   /**

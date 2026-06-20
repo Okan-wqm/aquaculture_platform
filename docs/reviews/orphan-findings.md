@@ -4674,3 +4674,31 @@ Severity: HIGH (caused a production app outage). Discovered 2026-06-17 during pr
 Status: RESOLVED (2026-06-17; fix branch `fix/farm-cull-enum-migration-tenant-guard`). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-133 - root stabilization gates passed without toolchain, manifest, generated-output, and gate-tool type SSoT coverage
+
+Severity: HIGH. Discovered 2026-06-20 during the 6-agent SSoT stabilization audit.
+
+**Problem:** `gates:all` did not execute a toolchain contract check, did not run a root stabilization manifest invariant, and did not type-check the gate tooling itself. The result was a control-plane false pass: the package scripts claimed root SSoT stabilization coverage while toolchain versions, the implementation-wave manifest, generated-output ownership, and gate TypeScript soundness were not all producer-owned and verified by the aggregate gate. Separately, generated service-catalog artifacts had a stale catalog hash, and `codegen:check` showed `web/shared-ui/src/generated/graphql-types.ts` was stale after the supergraph producer ran. Root `type-check` also depended on farm-module's `react-leaflet` package without a workspace-level dependency, so the full repo gate could fail outside the package-local install path.
+
+**Resolution (this PR):** added `tools/toolchain/versions.json` and `tools/toolchain/check-versions.mjs`, wired `toolchain:check`, `gates:tools-typecheck`, and `gates:root-ssot-stabilization` into `gates:all`, and added the machine-readable stabilization manifest plus invariant tests that enforce explicit finding scope, producer-file existence, non-editable generated outputs, and the final registry sweep as the only pattern-scope escape hatch. Gate-tool TypeScript fixes remove the compile gaps without suppressions. Service-catalog artifacts were regenerated through `npm run service-catalog:generate`; GraphQL types were regenerated through the supergraph producer plus `npm run codegen`; `react-leaflet` is now a root dependency so repo-wide type-check resolves the farm-module tile package from the same workspace dependency graph.
+
+**Verification:** `npm run type-check`, `node scripts/apollo-router/build-supergraph.mjs`, `npm run codegen:check`, `npm run toolchain:check`, `npm run gates:tools-typecheck`, `npm run gates:root-ssot-stabilization`, `npm run service-catalog:check`, `npm run gates:all`, targeted ESLint for the files changed by this PR, and `git diff --check` all passed in the clean control-plane worktree. Full `npx nx affected --target=lint` was also run and correctly failed on broader pre-existing repo-wide lint closure debt outside this slice; that is tracked as [[ORPHAN-HIGH-134]] instead of being hidden or bypassed.
+
+Status: RESOLVED (2026-06-20; fix branch `codex/root-ssot-control-plane`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-134 - full affected lint is not a usable merge gate because repo-wide closure debt is already red
+
+Severity: HIGH. Discovered 2026-06-20 while verifying the root SSoT control-plane slice.
+
+**Problem:** `npx nx affected --target=lint` fans out to broad repo scope after root `package.json` / lockfile changes and fails on existing lint debt across multiple owners, including `libs/migration-harness`, `web/modules/sensor-module`, `apps/admin-api-service`, `apps/auth-service`, `apps/billing-service`, `aqua-scripts`, and `e2e`. The failures are not one isolated style issue: they include unsafe `any` access, forbidden non-null assertions, hook-order violations, `Function` constructor usage, stale eslint-disable suppressions, floating promises, structured-logging JSON formatting, forbidden imports, and import-order drift. This means affected lint is fail-closed but currently too red to serve as a clean signal for unrelated root producer changes.
+
+**Immediate containment in this PR:** fixed the lint defects directly touched by this verification pass where the blast radius was small and behavior-preserving: alert-engine floating promises / async timer cleanup / JSON export formatting, hydroponics stale eslint-disable directives, and farm-shared import ordering. Targeted ESLint for those changed files passes.
+
+**Fix direction:** split a dedicated repo-wide closure branch by owner boundary: migration-harness typed test helpers first, sensor-module hook/script execution cleanup second, backend service stale suppressions/floating promises third, then e2e typed fixture/client cleanup. Each slice must remove suppressions and unsafe assertions by replacing them with typed helpers or corrected control flow, not by disabling rules.
+
+Status: OPEN (2026-06-20; owner: repo-wide closure / lint gate). Registry: orphan-findings.md only.
+
+---

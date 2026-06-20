@@ -156,14 +156,14 @@ class PhaseA5AckLedger(unittest.TestCase):
                 target_path=".claude/agents/aria-auto.md",
                 kind="agent",
                 profile_name="autonomous",
-                lane="L3-snowball",
+                lane="L0-main",
                 classifier_decision_hash="hash-abc",
                 auto_reason_code="classifier_pass",
                 profile_state_at_mint="autonomous:v1",
                 commit_sha_at_mint="cafef00d",
             )
             self.assertEqual(auto_row.actor_kind, "autonomous_profile")
-            self.assertEqual(auto_row.lane, "L3-snowball")
+            self.assertEqual(auto_row.lane, "L0-main")
             self.assertIsNone(auto_row.actor_user_id)
             self.assertIsNone(auto_row.reason)
             self.assertEqual(auto_row.auto_reason_code, "classifier_pass")

@@ -69,7 +69,10 @@ def _read_governance_rows(tools_dir: Path) -> list[dict]:
 
 class PhaseA4GateConsolidation(unittest.TestCase):
     def test_i_v3_14_gate_honours_policy_flag_and_profile(self) -> None:
-        from aria_kernel.auto_action_gate import gate_from_test_fixture
+        from aria_kernel.auto_action_gate import (
+            AUTONOMOUS_AUTO_ACK_LANES,
+            gate_from_test_fixture,
+        )
 
         # Standard profile — always human-ack regardless of policy.
         g1 = gate_from_test_fixture(
@@ -77,19 +80,21 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         )
         self.assertTrue(g1.human_ack_required)
 
-        # Autonomous + L3 + classifier_pass + ok + policy_false → auto-ack.
+        self.assertEqual(AUTONOMOUS_AUTO_ACK_LANES, frozenset())
+
+        # Historical snowball lane cannot auto-ack.
         g2 = gate_from_test_fixture(
             profile="autonomous", lane="L3-snowball",
             classifier_passed=True,
             policy_requires_acknowledge=False,
         )
-        self.assertFalse(g2.human_ack_required)
+        self.assertTrue(g2.human_ack_required)
 
-        # Autonomous + L3 + policy_TRUE → operator gate (flag wins).
+        # Live main lane still requires operator ack.
         g3 = gate_from_test_fixture(
-            profile="autonomous", lane="L3-snowball",
+            profile="autonomous", lane="L0-main",
             classifier_passed=True,
-            policy_requires_acknowledge=True,
+            policy_requires_acknowledge=False,
         )
         self.assertTrue(g3.human_ack_required)
 
@@ -119,7 +124,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         self.assertTrue(g6.human_ack_required)
 
     def test_i_v3_15_gate_rejects_unknown_ack_token(self) -> None:
-        from aria_kernel.ack_ledger import init_ack_ledger
+        from aria_kernel.ack_ledger import init_ack_ledger, mint_operator_ack
         from aria_kernel.auto_action_gate import gate_from_test_fixture
         from aria_kernel.tool_registry import GovernanceError
 
@@ -184,7 +189,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
         fires 2 of 3 events: ack_consumed + materialize_committed).
         """
         from unittest.mock import patch
-        from aria_kernel.ack_ledger import init_ack_ledger
+        from aria_kernel.ack_ledger import init_ack_ledger, mint_operator_ack
         from aria_kernel.agent_genesis import materialize_agent_draft
         from aria_kernel.auto_action_gate import gate_from_test_fixture
         from aria_kernel.runtime_profile import set_profile
@@ -199,9 +204,21 @@ class PhaseA4GateConsolidation(unittest.TestCase):
             )
             worktree = Path(tmp) / "wt"
             worktree.mkdir()
+            ack = mint_operator_ack(
+                base_dir=base,
+                draft_id="drf-evt",
+                intent_id="intent-evt",
+                target_path=".claude/agents/aria-evt.md",
+                kind="agent",
+                operator_user_id="test-operator",
+                reason="explicit ack for materialize chain invariant",
+                profile_name="autonomous",
+                profile_state_at_mint="autonomous:v1",
+                commit_sha_at_mint="test-head",
+            )
             gate = gate_from_test_fixture(
                 profile="autonomous",
-                lane="L3-snowball",
+                lane="L0-main",
                 classifier_passed=True,
                 policy_requires_acknowledge=False,
             )
@@ -233,12 +250,12 @@ class PhaseA4GateConsolidation(unittest.TestCase):
                     workspace_root=Path(tmp),
                     gate=gate,
                     base_dir=base,
+                    ack_id=ack.ack_id,
                 )
 
             self.assertEqual(result["materialize_event_id"], gate.materialize_event_id)
             kinds = _read_governance_kinds(base)
             self.assertIn("materialize_committed", kinds)
-            self.assertIn("ack_token_minted", kinds)
             self.assertIn("ack_token_consumed", kinds)
 
             # Three-event linkage: every linked event row carries

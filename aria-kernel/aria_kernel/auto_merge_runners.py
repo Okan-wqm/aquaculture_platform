@@ -13,8 +13,8 @@ typed runners selected by runtime profile:
   auto-merge is structurally not permitted.
 * :class:`RealAutoMergeRunner` — wraps ``auto_merge.merge_if_green``.
   Used for ``strict`` (shadow / dry_run=True observation) and
-  ``autonomous`` (Phase B2; real merge with dry_run=False on the L3
-  snowball lane only).
+  ``autonomous`` (real merge authority still requires readiness claims
+  and ``merge_authority.merge_pr_if_ready``).
 
 The factory :func:`select_auto_merge_runner` does the profile →
 runner mapping. Adding a new profile requires explicit code change
@@ -96,8 +96,8 @@ class RealAutoMergeRunner:
     with ``dry_run=True`` so the evaluation chain runs (decision
     logged, eligibility checked, audit emitted) but no actual ``gh pr
     merge --squash`` fires. Phase B2 introduces the ``autonomous``
-    profile, at which point this runner flips ``dry_run=False`` for
-    the L3-snowball lane (and ONLY that lane, via the lane classifier).
+    profile, at which point this runner flips ``dry_run=False`` and still
+    routes through enterprise readiness plus merge authority.
 
     The runner depends on a :class:`GitHubAdapter` factory plumbed
     through from Phase A2. Until A2 lands its factory, this runner
@@ -147,8 +147,9 @@ class RealAutoMergeRunner:
 
         adapter = self.adapter_factory()
         candidate_prs = self.pr_enumerator(adapter)
-        # Plan ARIA-V3 §B2 — under ``autonomous`` profile + lane=L3-snowball
-        # this MUST be False. Until B2 lands, strict observes (dry_run=True).
+        # Strict observes (dry_run=True); autonomous enters the real merge
+        # authority path, which remains disabled-by-default through policy,
+        # readiness, and runtime profile gates.
         dry_run = self.profile != "autonomous"
         merges_completed = 0
         decisions: list[dict[str, Any]] = []

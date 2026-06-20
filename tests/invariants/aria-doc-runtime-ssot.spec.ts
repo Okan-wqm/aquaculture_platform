@@ -154,9 +154,9 @@ function planMarkerCount(body: string): number {
 describe('ARIA live runtime/documentation SSoT', () => {
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    expect(current).toContain('Date: 2026-06-06');
+    expect(current).toContain('Date: 2026-06-20');
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
-    expect(target).toBe('aria/context-proof-20260605');
+    expect(target).toBe('origin/main');
     const verifiedHash = current.match(
       /Last verified ARIA authority hash: `([a-f0-9]{64})`/,
     )?.[1];
@@ -185,6 +185,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(current).toContain('autonomy burn-in observe');
     expect(current).toContain('It is not a full autonomous merge proof');
     expect(current).toContain(ENTERPRISE_AUTONOMY_DOC);
+    expect(current).toContain('production-autonomy target decisions');
+    expect(current).toContain('hybrid GitHub Actions plus private-runner runtime');
+    expect(current).toContain('hybrid ledger/state authority');
+    expect(current).toContain('not live merge');
   });
 
   it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
@@ -320,6 +324,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(body).toContain(BURN_IN_SCHEMA);
     expect(body).toContain('## EN');
     expect(body).toContain('## TR');
+    expect(body).toContain(
+      '## Production Autonomy Target Decisions (2026-06-20) / Production Otonomi Hedef Kararları (2026-06-20)',
+    );
     for (const required of [
       '30-attempt observe burn-in',
       'No Action Surfaces',
@@ -331,6 +338,18 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'ACTIVE',
       'global workflow kill switch',
       'remote CAS lease proof',
+      'Full production autonomy',
+      'Whole repo, risk-gated',
+      'Hybrid runtime',
+      'Hybrid token model',
+      'Hybrid policy SSoT',
+      'Hybrid ledger/state',
+      'Prose does not grant runtime',
+      'docs/aria/policy/*.json',
+      'aria-merge-authority',
+      'CODEOWNERS-protected policy files',
+      'state_manifest.py',
+      'declared JSONL writers',
     ]) {
       expect(body).toContain(required);
     }
@@ -343,6 +362,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'aria-kernel/aria_kernel/memory.py',
       'aria-kernel/aria_kernel/pressure.py',
       'aria-kernel/aria_kernel/triage.py',
+      'risk_policy.py',
+      'autonomy_unlock.py',
+      'policy_approval.py',
+      'rollback_bundle.py',
+      'incident_ledger.py',
+      'merge_authority.py',
     ]) {
       expect(body).toContain(anchor);
     }

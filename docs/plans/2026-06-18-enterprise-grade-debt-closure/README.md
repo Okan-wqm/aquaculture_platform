@@ -18,11 +18,11 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
 - Registry entries: 459
-- Registry tip hash: `4dcff4016d76bf4571558ae2649a23a949e5cb98b56a8bdbd3cd8409d4adfd19`
-- OPEN findings: 170
-- IN-PROGRESS findings: 43
-- Active CRITICAL findings: 20
-- `npm run findings:verify`: passing after the INFRA-CRITICAL-012 closure update
+- Registry tip hash: `7c3a1e2ef9c2e2e4105240096c84a9d20441a6a083ed117a632a939e4ba9564c`
+- OPEN findings: 169
+- IN-PROGRESS findings: 34
+- Active CRITICAL findings: 10
+- `npm run findings:verify`: passing against registry tip `7c3a1e2ef9c2e2e4105240096c84a9d20441a6a083ed117a632a939e4ba9564c`
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 
@@ -192,6 +192,20 @@ These are not optional work items. They block normal domain execution:
 
 ## Closure Ledger
 
+- 2026-06-20: first implementation slice for the active CRITICAL truth table
+  closed `INFRA-CRITICAL-021`, `INFRA-CRITICAL-025`, `FARM-CRITICAL-001`, and
+  `FARM-CRITICAL-050` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb` after PR #560 merged to `main`.
+  Code changes converged messaging E2E tenant context on
+  `@aquaculture/backend-common/context.withTenantContext`; routed legacy farm
+  `BatchService.recordOperation` and cleaner-fish mortality through
+  `MortalityCullPolicyService`; activated
+  `no-shared-entity-decorators-via-main-barrel` and
+  `messaging-e2e-tenant-context`; added farm MinIO cleanup and stock-mutation
+  SSoT invariants; and removed active specs from the dormant manifest. GitHub
+  Actions on PR #560 passed, including `invariants-fast`, `validate-closes`,
+  E2E, build, lint, type-check, test, `sens-api-gateway-rust`,
+  `sens-enterprise-summary`, and `merge-gate`.
 - 2026-06-19: `INFRA-CRITICAL-011` closed by PR #544, merge commit
   `1264a3060042861dd2e29fd145223a1211651323`. The messaging schema DDL
   authority is now TypeORM migrations plus platform bootstrap only; the stale

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f8acbaa670908353114d19242a0179a51860418985f5b01169854bdc6a0364eb`
+Registry tip: `7c3a1e2ef9c2e2e4105240096c84a9d20441a6a083ed117a632a939e4ba9564c`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,10 +20,8 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-025`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-026`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-027`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-028`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -31,8 +29,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
-| `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
 
 ## Mutation Rules
 
@@ -48,11 +44,33 @@ Allowed truth buckets:
 ## Already-Fixed Evidence
 
 No active CRITICAL finding remains in `already-fixed-needs-close` after the
-2026-06-18 Wave 0 registry reconciliation. Reconciled items moved to
+2026-06-20 registry close follow-up. Reconciled items moved to
 `Resolved Evidence`.
 
 ## Resolved Evidence
 
+- `INFRA-CRITICAL-021`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 activated
+  `tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts`,
+  allowing only token-only audit deep imports while rejecting concrete
+  entity-bearing backend-common barrel paths.
+- `INFRA-CRITICAL-025`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 changed
+  `apps/messaging-service/test/e2e-setup.ts` to re-export canonical
+  `@aquaculture/backend-common/context.withTenantContext`; the active
+  `tests/invariants/messaging-e2e-tenant-context.spec.ts` rejects local
+  AsyncLocalStorage helpers in the E2E harness.
+- `FARM-CRITICAL-001`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 pins tenant-scoped MinIO
+  cleanup through `tests/invariants/farm-minio-orphan-cleanup-ssot.spec.ts`,
+  covering per-tenant `withTenantContext`, `${tenantId}/` prefixes, and the
+  storage primitive's empty-live-set fail-closed behavior.
+- `FARM-CRITICAL-050`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 routed legacy
+  `BatchService.recordOperation` and cleaner-fish mortality through
+  `MortalityCullPolicyService`; recurrence is pinned by
+  `tests/invariants/farm-stock-mutation-ssot.spec.ts` plus farm unit
+  regression tests.
 - `CLAUDE-CRITICAL-004`: registry state is `RESOLVED` with closing commit
   `7414faac`. `npx jest --config tests/invariants/jest.config.ts
 tests/invariants/agent-ownership-uniqueness.spec.ts

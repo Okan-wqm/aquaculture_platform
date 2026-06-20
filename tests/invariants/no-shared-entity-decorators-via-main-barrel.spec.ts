@@ -79,7 +79,11 @@ const MAIN_BARREL_GUARD_FILES = [
 ];
 
 const ENTITY_BEARING_IMPORT_RE =
-  /from\s+['"](\.\.?\/)+(audit|finding-registry|security\/gdpr)(\/[^'"]+)?['"]/;
+  /from\s+['"](?<path>(\.\.?\/)+(audit|finding-registry|security\/gdpr)(\/[^'"]+)?)['"]/;
+
+const MAIN_BARREL_SAFE_DEEP_IMPORTS = new Set([
+  '../audit/audit-log.tokens',
+]);
 
 describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity decorators', () => {
   it('forbids `export *` from entity-bearing submodules in the index files', () => {
@@ -119,7 +123,10 @@ describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity 
       const content = readFileSync(path, 'utf8');
       const lines = content.split('\n');
       lines.forEach((line, idx) => {
-        if (ENTITY_BEARING_IMPORT_RE.test(line)) {
+        const match = line.match(ENTITY_BEARING_IMPORT_RE);
+        if (match) {
+          const importPath = match.groups?.['path'];
+          if (importPath && MAIN_BARREL_SAFE_DEEP_IMPORTS.has(importPath)) return;
           // Allow `import type` (erased at runtime, no decorator load).
           if (/^\s*import\s+type\s/.test(line)) return;
           violations.push(`${file}:${idx + 1}: ${line.trim()}`);
@@ -131,7 +138,9 @@ describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity 
         `INFRA-CRITICAL-021 invariant VIOLATED — main-barrel-reachable file imports entity-bearing submodule:\n  ` +
           violations.join('\n  ') +
           `\n\nDepend on the audit DI token + interface (AUDIT_LOG_SERVICE / IAuditLogService from ` +
-          `'../audit/audit-log.tokens') instead of importing the AuditLogService class. The token-based ` +
+          `'../audit/audit-log.tokens') instead of importing the AuditLogService class. Token-only deep ` +
+          `imports are the allowed main-barrel-safe exception; concrete audit/gdpr/finding modules remain ` +
+          `forbidden here. The token-based ` +
           `pattern is documented in libs/backend-common/src/audit/audit-log.tokens.ts.`,
       );
     }

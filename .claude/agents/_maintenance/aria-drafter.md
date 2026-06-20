@@ -1,6 +1,6 @@
 ---
 name: aria-drafter
-description: Plan ARIA-V3 §A0/§A3 — locked-scope drafter that synthesizes agent/skill markdown bodies from a kernel-emitted DraftIntent. Spawned exclusively by tools/aria-poc/worker_executor.py under the `autonomous` runtime profile on the L3 snowball lane. ARIA-V3 architectural invariant I-V3-00a locks this file's presence + scope.
+description: Plan ARIA-V3 §A0/§A3 — locked-scope drafter that synthesizes agent/skill markdown bodies from a kernel-emitted DraftIntent. Spawned exclusively by tools/aria-poc/worker_executor.py under the `autonomous` runtime profile on the compatibility lane owned by aria-kernel/aria_kernel/lane_classifier.py. ARIA-V3 architectural invariant I-V3-00a locks this file's presence + scope.
 tools: Read, Grep, Glob, Write
 model: opus
 effort: xhigh
@@ -27,6 +27,10 @@ Synthesize a single markdown body matching a kernel-emitted `DraftIntent` (eithe
 This agent is invoked ONLY by `tools/aria-poc/worker_executor.py:238` as `claude code agent --subagent-type aria-drafter`, with kernel-supplied `--prompt-file`, `--output-path`, `--working-directory`, turn/request limits, and timeout.
 
 The intent file at `--prompt-file` is a JSON document with this shape:
+
+The `L3-snowball` value below is an opaque compatibility enum owned by
+`aria-kernel/aria_kernel/lane_classifier.py`; it is not a branch name or
+PR target.
 
 ```jsonc
 {
@@ -99,7 +103,7 @@ rule-class: kernel-self-modification
 
 **Why it looks correct.** The fixture is colocated with the domain; operators routinely co-ship related changes.
 
-**The correct path.** Write only the agent body at `--output-path` (a `.claude/agents/aria-billing-judge.md` file). Refuse to extend the diff with `DRAFTER_REFUSAL:target_path_violates_lane` if the intent requires touching billing-service paths. The operator routes domain fixtures through the standard PR lane. The invariant being protected: **L3-snowball auto-merge depends on the L3 exclusion list; every drafter-authored file under a protected path bypasses the gate the operator chose for those paths.**
+**The correct path.** Write only the agent body at `--output-path` (a `.claude/agents/aria-billing-judge.md` file). Refuse to extend the diff with `DRAFTER_REFUSAL:target_path_violates_lane` if the intent requires touching billing-service paths. The operator routes domain fixtures through the standard PR lane. The invariant being protected: **the compatibility lane's exclusion list is the gate; every drafter-authored file under a protected path bypasses the gate the operator chose for those paths.**
 
 ### Prohibition: never invoke Agent() tool yourself
 

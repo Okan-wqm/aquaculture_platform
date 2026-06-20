@@ -12,11 +12,15 @@
   - `TEST-*` — test-runner
   - `ARCH-*` — architectural-arbiter
   - `PRODUCT-{AGENT-PREFIX}-*` — Lane-B product-audit agents
-  - `PLAT-*` — platform-kernel-expert / platform-services (billing/notification/config/event-store/observability)
+  - `PLAT-*` — platform-kernel-expert only; retired platform service aliases are invalid
+  - `BILLING-*` — billing-expert
+  - `ALERT-*` — alert-engine-expert
+  - `OBS-*` — observability-expert
+  - `MSG-*` — messaging-expert
   - `FE-*` — frontend-expert
   - `EDGE-*` — edge-expert
   - `MT-*` — multi-tenant-saas-expert
-  - `FARM-*`, `SENSOR-*`, `HR-*`, `MSG-*`, `ADMIN-*` — respective domain experts
+  - `FARM-*`, `SENSOR-*`, `HR-*`, `ADMIN-*` — respective domain experts
   - `ANTI-*` — anti-pattern scan (general-purpose repo-wide cycles)
   - `ADR-*` — ADR drift matrix entries
   - `AUDIT-*` — root-cause-auditor (active 2026-04-16, Phase 5 of abstract-brewing-mochi plan). Sub-kinds: `OVER_CLAIMED`, `RULING_PARTIAL_APPLICATION`, `RULING_MISSED_DEADLINE`, `OVERRIDE_UNSUPPORTED`, `BOUNDARY_EXPIRED`, `BANNED_PHRASE_IN_CLAIM`.

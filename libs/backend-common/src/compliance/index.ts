@@ -7,3 +7,4 @@
  */
 
 export * from './legal-hold';
+export * from './tenant-erasure';

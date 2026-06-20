@@ -434,6 +434,7 @@ async function processDeleteJob(
     await queryRunner.connect();
     assertDeleteProof(job);
     await setJobStatus(queryRunner, job, 'DELETING_SCHEMA', lease);
+    await queryRunner.startTransaction();
     beforeTableCount = await countTenantTables(queryRunner, job.schemaName);
     await renewJobLease(queryRunner, job, lease);
     await queryRunner.query(`DROP SCHEMA IF EXISTS ${quoteIdent(job.schemaName)} CASCADE`);
@@ -473,6 +474,7 @@ async function processDeleteJob(
         capturedAt: new Date().toISOString(),
       },
     });
+    await queryRunner.commitTransaction();
     options.log({
       level: 'info',
       message: 'Tenant schema provisioner deleted tenant schema',
@@ -484,6 +486,9 @@ async function processDeleteJob(
       beforeTableCount,
     });
   } catch (error: unknown) {
+    if (queryRunner.isTransactionActive) {
+      await queryRunner.rollbackTransaction();
+    }
     const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
       residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
     }));
@@ -522,6 +527,7 @@ function assertDeleteProof(job: TenantSchemaJob): void {
   const backup = asRecord(proof?.['backup']);
   const tombstone = asRecord(payload?.['tombstone']);
   const preCounts = asRecord(proof?.['preCounts']);
+  const existingSchemas = preCounts?.['existingSchemas'];
 
   if (!proof) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} is missing cleanupProof`);
@@ -529,23 +535,33 @@ function assertDeleteProof(job: TenantSchemaJob): void {
   if (proof['operationId'] !== job.operationId || proof['tenantId'] !== job.tenantId) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} cleanupProof does not match job`);
   }
-  if (proof['purpose'] !== 'tenant_deprovision') {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires tenant_deprovision proof`);
+  if (proof['purpose'] !== 'tenant_deprovision' && proof['purpose'] !== 'tenant_erasure') {
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires tenant_deprovision or tenant_erasure proof`,
+    );
   }
   if (typeof proof['legalHoldCheckedAt'] !== 'string' || proof['legalHoldCheckedAt'].length === 0) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`);
   }
   if (
+    proof['purpose'] === 'tenant_deprovision'
+    && (
     !backup
     || backup['isEncrypted'] !== true
     || typeof backup['checksum'] !== 'string'
     || backup['checksum'].length === 0
     || Number(backup['sizeBytes']) <= 0
+    )
   ) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`);
   }
-  if (!preCounts || !Array.isArray(preCounts['existingSchemas'])) {
+  if (!preCounts || !Array.isArray(existingSchemas)) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires pre-delete count evidence`);
+  }
+  if (!existingSchemas.includes(job.schemaName)) {
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} pre-delete evidence must include target schema ${job.schemaName}`,
+    );
   }
   if (!tombstone || tombstone['cleanupRunId'] !== proof['operationId']) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires matching tombstone evidence`);

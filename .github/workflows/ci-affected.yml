@@ -68,6 +68,7 @@ jobs:
               - 'scripts/apollo-router/**'
               - '.github/workflows/deploy-digitalocean.yml'
               - '.github/workflows/deploy-staging.yml'
+              - '.github/workflows/production-post-deploy-verify.yml'
               - '.github/workflows/ci-affected.yml'
               - '.github/actions/**'
               - '.github/manifests/**'
@@ -864,6 +865,86 @@ jobs:
 
       - name: Phase A5 — deploy SSOT immutability gates
         run: bash scripts/ci/validate-deploy-ssot.sh
+
+  # ---------------------------------------------------------------------------
+  # Main release orchestration
+  #
+  # deploy-staging.yml, deploy-digitalocean.yml, and
+  # production-post-deploy-verify.yml are reusable workflows. CI Affected is the
+  # SSoT release control plane on push to main: the same quality gates that keep
+  # main deployable also decide whether the DigitalOcean image/deploy workflow
+  # is invoked. This prevents the historical split-brain where deploy workflows
+  # documented a workflow_call path but no caller existed.
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - farm-water-chemistry-e2e
+      - build
+      - pre-flight
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.install.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.type-check.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.farm-water-chemistry-e2e.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.pre-flight.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/deploy-staging.yml
+    secrets: inherit
+
+  deploy-production:
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - farm-water-chemistry-e2e
+      - build
+      - pre-flight
+      - deploy-staging
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.install.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.type-check.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.farm-water-chemistry-e2e.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.pre-flight.result == 'success' &&
+      needs.deploy-staging.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-digitalocean.yml
+    with:
+      services: auto
+    secrets: inherit
+
+  production-post-deploy-verify:
+    needs:
+      - deploy-production
+    if: needs.deploy-production.outputs.deployed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/production-post-deploy-verify.yml
+    with:
+      target_sha: ${{ github.sha }}
+    secrets: inherit
 
   # ---------------------------------------------------------------------------
   # PR-time infrastructure image build gate

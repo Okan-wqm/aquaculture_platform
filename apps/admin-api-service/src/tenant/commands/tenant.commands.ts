@@ -41,6 +41,15 @@ export class ArchiveTenantCommand {
   ) {}
 }
 
+export class RequestTenantErasureCommand {
+  constructor(
+    public readonly tenantId: string,
+    public readonly reason: string,
+    public readonly requestedBy: string,
+    public readonly dryRun = false,
+  ) {}
+}
+
 export class UpdateTenantLimitsCommand {
   constructor(
     public readonly tenantId: string,

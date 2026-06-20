@@ -15,3 +15,14 @@ export { OutboxPublisher } from './outbox-publisher.service';
 export { OutboxWorkerService } from './outbox-worker.service';
 export { OutboxMetricsService } from './outbox-metrics.service';
 export { OutboxModule } from './outbox.module';
+export {
+  buildTenantErasureTargetProofLedgerDownSql,
+  buildTenantErasureTargetProofLedgerUpSql,
+  buildTransactionalOutboxDownSql,
+  buildTransactionalOutboxUpSql,
+  TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE,
+} from './outbox-migration';
+export type {
+  TenantErasureTargetProofLedgerDdlOptions,
+  TransactionalOutboxDdlOptions,
+} from './outbox-migration';

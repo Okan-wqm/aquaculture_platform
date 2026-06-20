@@ -26,8 +26,13 @@ import {
   ActivateTenantCommand,
   DeactivateTenantCommand,
   ArchiveTenantCommand,
+  RequestTenantErasureCommand,
 } from './commands/tenant.commands';
 import { DeactivateTenantDto } from './dto/deactivate-tenant.dto';
+import {
+  RequestTenantErasureDto,
+  TenantErasureOperationAcceptedResponse,
+} from './dto/request-tenant-erasure.dto';
 import {
   TenantDetailDto,
   BulkSuspendDto,
@@ -380,5 +385,19 @@ export class TenantAdminController {
     @CurrentUser() user: AdminUser,
   ): Promise<void> {
     await this.commandBus.execute(new ArchiveTenantCommand(id, user.id));
+  }
+
+  @ThrottleSensitive()
+  @Post(':id/erasure')
+  @ApiOperation({ summary: 'Request irreversible GDPR tenant erasure' })
+  @HttpCode(HttpStatus.ACCEPTED)
+  async requestTenantErasure(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RequestTenantErasureDto,
+    @CurrentUser() user: AdminUser,
+  ): Promise<TenantErasureOperationAcceptedResponse> {
+    return this.commandBus.execute(
+      new RequestTenantErasureCommand(id, dto.reason, user.id, dto.dryRun ?? false),
+    );
   }
 }

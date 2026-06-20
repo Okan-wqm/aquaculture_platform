@@ -1,3 +1,7 @@
+import {
+  validateSqlIdentifier,
+  type SqlIdentifierKind,
+} from '@aquaculture/backend-common/database';
 import type { EntityMetadata } from 'typeorm';
 
 const HR_SOURCE_SCHEMA = 'hr';
@@ -20,12 +24,12 @@ export function listHrOwnedEntities(metas: readonly EntityMetadata[]): EntityMet
   return metas.filter(isHrOwnedEntity);
 }
 
-export function quoteIdent(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
+export function quoteIdent(identifier: string, kind: SqlIdentifierKind = 'schema'): string {
+  return `"${validateSqlIdentifier(identifier, kind)}"`;
 }
 
 export function quoteQualified(schema: string, table: string): string {
-  return `${quoteIdent(schema)}.${quoteIdent(table)}`;
+  return `${quoteIdent(schema, 'schema')}.${quoteIdent(table, 'table')}`;
 }
 
 export function toSnakeCase(name: string): string {

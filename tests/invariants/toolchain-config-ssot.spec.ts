@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
@@ -26,8 +27,9 @@ describe('Toolchain Config SSoT', () => {
     expect(runtime).toContain("NX_PREFER_NODE_STRIP_TYPES: 'true'");
     expect(runtime).toContain("NX_ISOLATE_PLUGINS: 'false'");
     expect(runtime).toContain('delete env.NX_PREFER_NODE_STRIP_TYPES;');
-    expect(runtime).toContain("'--max-old-space-size=4096'");
-    expect(runtime).toContain("entry.startsWith('--max-old-space-size=')");
+    expect(runtime).toContain('TOOLCHAIN_NODE_HEAP_FLOOR_MB = 4096');
+    expect(runtime).toContain("NODE_HEAP_OPTION_PREFIX = '--max-old-space-size='");
+    expect(runtime).toContain('Math.max(heapFloorMb, parsedHeapMb)');
     expect(runtime).toContain('delete env.NO_COLOR;');
     expect(eslintConfig).toContain(
       "import { applyToolchainRuntimeEnv } from './tools/toolchain/toolchain-runtime.mjs';",
@@ -37,6 +39,34 @@ describe('Toolchain Config SSoT', () => {
     expect(eslintConfig.indexOf('applyToolchainRuntimeEnv();')).toBeLessThan(
       eslintConfig.indexOf("import('@nx/eslint-plugin')"),
     );
+  });
+
+  it('preserves caller-owned Node heap ceilings above the toolchain floor', () => {
+    const script = `
+      import { applyEslintRuntimeEnv } from './tools/toolchain/toolchain-runtime.mjs';
+
+      const inheritedEnv = {
+        NODE_OPTIONS: '--trace-warnings --max-old-space-size=6144',
+      };
+      applyEslintRuntimeEnv(inheritedEnv);
+      if (!inheritedEnv.NODE_OPTIONS.includes('--max-old-space-size=6144')) {
+        throw new Error(inheritedEnv.NODE_OPTIONS);
+      }
+      if (!inheritedEnv.NODE_OPTIONS.includes('--trace-warnings')) {
+        throw new Error(inheritedEnv.NODE_OPTIONS);
+      }
+
+      const defaultEnv = {};
+      applyEslintRuntimeEnv(defaultEnv);
+      if (!defaultEnv.NODE_OPTIONS.includes('--max-old-space-size=4096')) {
+        throw new Error(defaultEnv.NODE_OPTIONS);
+      }
+    `;
+
+    execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
   });
 
   it('ties Nx lint cache inputs to the toolchain runtime owner', () => {

@@ -3,29 +3,22 @@ import { CqrsModule } from '@platform/cqrs';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { MigrationEventEntity } from '../database/entities/migration-event.entity';
-import { EraseObservabilityTenantDataHandler } from './handlers/erase-observability-tenant-data.handler';
 import { ExportObservabilityTenantDataHandler } from './handlers/export-observability-tenant-data.handler';
 
 /**
- * GdprModule — observability-service consumer of the platform GDPR
- * cascade (Art 17 erasure + Art 15/20 access/portability).
+ * GdprModule — observability-service DSAR access/portability surface.
  *
- * Registers two CommandHandlers:
- *   - EraseObservabilityTenantDataHandler — deletes tenant-scoped
- *     migration_events rows identified by HMAC hash.
+ * Registers one CommandHandler:
  *   - ExportObservabilityTenantDataHandler — exports tenant-scoped
  *     audit records for DSAR.
  *
- * The platform orchestrator (apps/admin-api-service or the compliance
- * service, per plan v3 Phase 9) dispatches these commands via the
- * CQRS bus. Observability is the 11th service in the erasure cascade
- * roster (see plan v3 §R19).
+ * Tenant erasure is owned by the canonical TenantErasureRequested roster
+ * in @platform/event-contracts. Observability is intentionally not a target
+ * service there; keeping a second CQRS erasure entrypoint would create an
+ * untracked cascade outside the orchestrator proof ledger.
  */
 @Module({
   imports: [CqrsModule, TypeOrmModule.forFeature([MigrationEventEntity])],
-  providers: [
-    EraseObservabilityTenantDataHandler,
-    ExportObservabilityTenantDataHandler,
-  ],
+  providers: [ExportObservabilityTenantDataHandler],
 })
 export class GdprModule {}

@@ -30,12 +30,16 @@
     "multi-tenant-saas-expert",
     "auth-security-expert",
     "security-reviewer",
+    "compliance-expert",
+    "legal-hold-auditor",
     "infra-expert",
     "performance-expert",
     "frontend-expert",
+    "product-realtime-mobile-attacker",
     "messaging-expert",
     "farm-expert",
-    "edge-expert"
+    "edge-expert",
+    "supply-chain-auditor"
   ],
   "reverse_engineering_attackers": [
     "architecture-attacker",

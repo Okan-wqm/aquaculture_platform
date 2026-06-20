@@ -148,10 +148,7 @@ function runEslintChunk(cwd, files, label) {
     {
       cwd,
       encoding: 'utf8',
-      env: {
-        ...process.env,
-        NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--max-old-space-size=4096',
-      },
+      env: process.env,
       maxBuffer: 256 * 1024 * 1024,
     },
   );

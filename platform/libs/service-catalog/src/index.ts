@@ -495,7 +495,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'warning',
     classification: 'subgraph',
-    requiredSignals: ['schema_drift_clean'],
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['HYDROPONICS_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
       'hydroponics',

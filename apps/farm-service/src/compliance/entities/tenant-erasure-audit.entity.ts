@@ -19,7 +19,7 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
  *     ALSO blocked by the immutability trigger AUDITTRAIL-HIGH-005
  *     installed — so the second pass crashes on a trigger that's
  *     supposed to be a safety net, not a control-flow gate).
- *   - The TenantDataErased outbox proof is re-emitted, leading to
+ *   - The TenantErased outbox event is re-emitted, leading to
  *     downstream cascade re-runs (Stripe void semantics differ on
  *     a re-issued cancel; messaging-service GDPR cascade idempotency
  *     becomes the next-down problem).
@@ -42,8 +42,8 @@ import { Column, Entity, PrimaryColumn } from 'typeorm';
  * # Why farm schema (not shared)
  *
  * The erasure cascade is farm-service-owned (operates on farm
- * schema entities). Even though tenant erasure is a cross-service
- * workflow, the *audit row* of the cascade is service-local. Cross-
+ * schema entities). Even though TenantErased is a cross-service
+ * event, the *audit row* of the cascade is service-local. Cross-
  * service erasure observers each maintain their own audit if
  * their cascades need idempotency.
  *

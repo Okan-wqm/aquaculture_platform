@@ -6,7 +6,8 @@ const TOOLCHAIN_NX_RUNTIME_ENV = Object.freeze({
   NX_ISOLATE_PLUGINS: 'false',
 });
 
-const TOOLCHAIN_NODE_OPTIONS = Object.freeze(['--max-old-space-size=4096']);
+const TOOLCHAIN_NODE_HEAP_FLOOR_MB = 4096;
+const NODE_HEAP_OPTION_PREFIX = '--max-old-space-size=';
 
 const FORBIDDEN_WARNING_SUPPRESSION_TOKENS = Object.freeze([
   'NODE_NO_WARNINGS',
@@ -14,12 +15,29 @@ const FORBIDDEN_WARNING_SUPPRESSION_TOKENS = Object.freeze([
   '--disable-warning=DeprecationWarning',
 ]);
 
+function parseNodeHeapMb(entry) {
+  if (!entry.startsWith(NODE_HEAP_OPTION_PREFIX)) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(entry.slice(NODE_HEAP_OPTION_PREFIX.length), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function normalizeNodeOptions(value) {
-  const withoutHeapLimit = value
-    .split(/\s+/)
-    .filter((entry) => entry.length > 0)
-    .filter((entry) => !entry.startsWith('--max-old-space-size='));
-  return [...withoutHeapLimit, ...TOOLCHAIN_NODE_OPTIONS].join(' ');
+  const withoutHeapLimit = [];
+  let heapFloorMb = TOOLCHAIN_NODE_HEAP_FLOOR_MB;
+
+  for (const entry of value.split(/\s+/).filter((item) => item.length > 0)) {
+    const parsedHeapMb = parseNodeHeapMb(entry);
+    if (parsedHeapMb === null) {
+      withoutHeapLimit.push(entry);
+      continue;
+    }
+    heapFloorMb = Math.max(heapFloorMb, parsedHeapMb);
+  }
+
+  return [...withoutHeapLimit, `${NODE_HEAP_OPTION_PREFIX}${heapFloorMb}`].join(' ');
 }
 
 function applyRuntimeEnvValues(values, env) {

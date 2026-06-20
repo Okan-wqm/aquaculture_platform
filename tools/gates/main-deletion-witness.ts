@@ -74,7 +74,7 @@ function parseArgs(): Args {
   const raw = process.argv.slice(2);
   const get = (name: string, dflt: string): string => {
     const hit = raw.find((a) => a.startsWith(`--${name}=`));
-    return hit ? hit.split('=')[1] : dflt;
+    return hit ? hit.slice(`--${name}=`.length) || dflt : dflt;
   };
   return {
     base: get('base', 'origin/main'),
@@ -134,9 +134,12 @@ function parseReject(reject: string): RejectedHunk[] {
   for (const line of lines) {
     const m = /^error: patch failed: (.+?):(\d+)$/.exec(line);
     if (m) {
+      const file = m[1];
+      const oldLine = m[2];
+      if (!file || !oldLine) continue;
       out.push({
-        file: m[1],
-        oldLine: parseInt(m[2], 10),
+        file,
+        oldLine: parseInt(oldLine, 10),
         trueDeletions: [],
       });
     }
@@ -177,7 +180,8 @@ function extractHunkInfo(patch: string, file: string, hunkStart: number): HunkDe
     const hm = /^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@/.exec(line);
     if (hm) {
       if (inHunk) break; // next hunk starts; our target hunk already scanned
-      inHunk = parseInt(hm[1], 10) === hunkStart;
+      const start = hm[1];
+      inHunk = start ? parseInt(start, 10) === hunkStart : false;
       continue;
     }
     if (!inHunk) continue;

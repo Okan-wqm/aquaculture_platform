@@ -298,7 +298,7 @@ export class TemplateRendererService {
     if (template === '{{json}}') {
       return typeof context['json'] === 'string'
         ? context['json']
-        : JSON.stringify(context['json'] ?? {}, null, 2);
+        : this.stringifyTemplateValue(context['json'] ?? {});
     }
 
     // Replace {{variable}} patterns
@@ -318,7 +318,7 @@ export class TemplateRendererService {
 
       const value = this.getNestedValue(context, trimmedPath);
       if (value === undefined) return match;
-      const str = String(value);
+      const str = this.stringifyTemplateValue(value);
       return escapeHtml ? this.escapeHtmlChars(str) : str;
     });
 
@@ -392,9 +392,19 @@ export class TemplateRendererService {
     }
 
     // Add a safe, restricted JSON export for webhooks — never the full internal context.
-    enriched['json'] = JSON.stringify(this.buildWebhookExport(context), null, 2);
+    enriched['json'] = JSON.stringify(this.buildWebhookExport(context));
 
     return enriched;
+  }
+
+  private stringifyTemplateValue(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return value.toString();
+    }
+    if (value === null) return '';
+    if (value instanceof Date) return value.toISOString();
+    return JSON.stringify(value);
   }
 
   /**

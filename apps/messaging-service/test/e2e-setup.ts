@@ -24,7 +24,6 @@ import {
   tenantMigrationLedgerTable,
 } from '@aquaculture/backend-common/database';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
-import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { NatsEventBus } from '@platform/event-bus';
@@ -44,6 +43,8 @@ import { CreateMessageSendIdempotencyLedger1800600000000 } from '../src/migratio
 import { AddMessagesEmbeddingColumn1800700000000 } from '../src/migrations/1800700000000-AddMessagesEmbeddingColumn';
 import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
+
+export { withTenantContext } from '@aquaculture/backend-common/context';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 
@@ -703,65 +704,9 @@ export async function flushAllTestRedisKeys(redis: Redis | undefined): Promise<v
 }
 
 // ── Tenant Context Helper (DEFECT-3 / INFRA-CRITICAL-025) ───────────────────
-
-/**
- * Run a test body inside a synthetic AsyncLocalStorage tenant context.
- *
- * Background: tenant routing in messaging-service is driven by ALS
- * (`requestContextStorage` from backend-common). Production requests get
- * the context populated by the middleware chain
- * (`UserContext → TenantContext → TenantSchema`). Tests that exercise the
- * GraphQL HTTP surface get the same path automatically via `gqlRequest()`.
- *
- * BUT: tests that perform direct `dataSource.getRepository().save(...)` /
- * `dataSource.query(...)` calls (typical for fixture-bootstrap, OUTBOX
- * inspection, or when assert helpers reach behind the GraphQL surface)
- * run OUTSIDE any request context. With no ALS, the patched pool falls
- * back to the source-schema default search_path → the write hits
- * `messaging.<table>` → `SourceSchemaWriteGuardService`'s BEFORE trigger
- * raises `TENANT_ISOLATION_VIOLATION`.
- *
- * This helper closes the gap by running the callback inside a synthetic
- * ALS frame that carries `schemaName = tenant_<uuid>`. The patched
- * `TenantConnectionBootstrap` reads that frame on every connection
- * checkout and pins the search_path to the tenant schema before
- * the caller receives the connection.
- *
- * # Example
- *
- * ```ts
- * await withTenantContext(TENANT_A, async () => {
- *   await dataSource.getRepository(Channel).save({ tenantId: TENANT_A, ... });
- * });
- * ```
- *
- * # When NOT to use
- *
- * - Inside a `gqlRequest(...).query(...)` chain — the request middleware
- *   already establishes the ALS frame; double-wrapping is harmless but
- *   unnecessary.
- * - Outside a test (production code uses the real middleware chain).
- *
- * # Invariant
- *
- * The wrapped function MUST NOT spawn detached promises (e.g.
- * `setImmediate(() => dataSource.query(...))`) — those run after the
- * ALS frame is unwound. If you need fire-and-forget within a tenant
- * context, capture the promise and `await` it inside the callback.
- */
-export async function withTenantContext<T>(
-  tenantId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const schemaName = getTenantSchemaName(tenantId);
-  const currentStore = requestContextStorage.getStore();
-  const newStore = {
-    ...(currentStore ?? {}),
-    tenantId,
-    schemaName,
-  };
-  return requestContextStorage.run(newStore, fn);
-}
+// Re-export the canonical helper from backend-common. This keeps the E2E harness
+// on the same request-context SSoT as production middleware and the tenant-aware
+// database bootstrap.
 
 // ── UUID Helper ─────────────────────────────────────────────────────────────
 

@@ -397,7 +397,7 @@ describe('Site tenant isolation on real Postgres', () => {
         new OutboxPublisher(FarmOutbox),
       ),
       getSite: new GetSiteHandler(siteRepository),
-      listSites: new ListSitesHandler(dataSource),
+      listSites: new ListSitesHandler(siteRepository),
       updateSite: new UpdateSiteHandler(
         dataSource,
         auditLogService,

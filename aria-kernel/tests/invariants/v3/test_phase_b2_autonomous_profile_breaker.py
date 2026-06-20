@@ -9,7 +9,7 @@ Closes:
 
 Locked invariants (13 cases, I-V3-24..29c):
 
-  * I-V3-24  — autonomous profile only on L3-snowball lane
+  * I-V3-24  — autonomous profile has no live auto-ack lane
   * I-V3-25  — circuit breaker trips on N failures (parametrized over
     all 6 failure kinds)
   * I-V3-25a — breaker atomic-with-event: failure row + governance
@@ -82,30 +82,16 @@ def _read_governance_kinds(base: Path) -> list[str]:
 
 
 class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
-    # I-V3-24 — autonomous on L3 only.
-    def test_i_v3_24_autonomous_profile_only_on_l3_snowball_lane(self) -> None:
+    # I-V3-24 — no current lane auto-mints ack tokens.
+    def test_i_v3_24_autonomous_profile_requires_ack_on_all_current_lanes(self) -> None:
         from aria_kernel.auto_action_gate import gate_from_test_fixture
 
-        # Autonomous + L3-snowball + classifier_pass → auto-mint OK.
-        g_l3 = gate_from_test_fixture(
-            profile="autonomous", lane="L3-snowball",
-            classifier_passed=True, policy_requires_acknowledge=False,
-        )
-        self.assertFalse(g_l3.human_ack_required)
-
-        # Autonomous + L0-main → human-ack required.
-        g_l0 = gate_from_test_fixture(
-            profile="autonomous", lane="L0-main",
-            classifier_passed=True, policy_requires_acknowledge=False,
-        )
-        self.assertTrue(g_l0.human_ack_required)
-
-        # Autonomous + lane=None → human-ack required.
-        g_none = gate_from_test_fixture(
-            profile="autonomous", lane=None,
-            classifier_passed=True, policy_requires_acknowledge=False,
-        )
-        self.assertTrue(g_none.human_ack_required)
+        for lane in ("L3-snowball", "L0-main", None):
+            gate = gate_from_test_fixture(
+                profile="autonomous", lane=lane,
+                classifier_passed=True, policy_requires_acknowledge=False,
+            )
+            self.assertTrue(gate.human_ack_required, msg=f"lane={lane!r}")
 
     # I-V3-25 — breaker trips on N failures across all 6 kinds.
     def test_i_v3_25_circuit_breaker_trips_after_n_failures_across_taxonomy(
@@ -271,12 +257,11 @@ class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
             ),
         )
 
-    # I-V3-28 — gate refuses non-L3 under autonomous.
-    def test_i_v3_28_gate_refuses_non_l3_under_autonomous(self) -> None:
+    # I-V3-28 — gate refuses every current lane under autonomous.
+    def test_i_v3_28_gate_requires_ack_for_every_current_lane(self) -> None:
         from aria_kernel.auto_action_gate import gate_from_test_fixture
 
-        # Various non-L3 lanes — all must require human ack.
-        for lane in ("L0-main", "L1-feature", "L2-other", None):
+        for lane in ("L3-snowball", "L0-main", "L1-feature", "L2-other", None):
             gate = gate_from_test_fixture(
                 profile="autonomous", lane=lane,
                 classifier_passed=True,

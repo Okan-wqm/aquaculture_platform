@@ -32,7 +32,7 @@ def _v3_test_gate():
     """
     return gate_from_test_fixture(
         profile="autonomous",
-        lane="L3-snowball",
+        lane="L0-main",
         classifier_passed=True,
         policy_requires_acknowledge=False,
     )

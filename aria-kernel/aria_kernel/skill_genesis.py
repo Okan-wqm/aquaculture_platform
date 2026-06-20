@@ -738,7 +738,7 @@ def materialize_skill(
                 if isinstance(t, dict)
             ),
             evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
-            diff_classifier_lane=intent_dict.get("diff_classifier_lane", "L3-snowball"),
+            diff_classifier_lane=intent_dict.get("diff_classifier_lane", "L0-main"),
             banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
         )
         policy_path = Path(__file__).resolve().parent / "data" / "auto_action_policy.json"
@@ -897,7 +897,7 @@ def _render_skill(
             ),
         ),
         evidence_allowlist=tuple(),
-        diff_classifier_lane="L3-snowball",
+        diff_classifier_lane="L0-main",
     )
     return mask_pii_in_intent(intent)  # type: ignore[return-value]
 

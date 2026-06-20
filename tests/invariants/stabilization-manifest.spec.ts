@@ -55,6 +55,18 @@ function hasForbiddenScopeToken(value: string): boolean {
   return value === 'ALL' || value.includes('*') || value.includes('..');
 }
 
+function packageScripts(): Record<string, string> {
+  const packageJson = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  return packageJson.scripts;
+}
+
+function scriptPathFromNodeCommand(command: string): string | undefined {
+  const match = command.match(/^node\s+([^\s]+\.mjs)\b/);
+  return match?.[1];
+}
+
 describe('root SSoT stabilization manifest', () => {
   const manifest = readManifest();
 
@@ -94,23 +106,43 @@ describe('root SSoT stabilization manifest', () => {
       expect(output.source).toBeTruthy();
       expect(output.command).toBeTruthy();
       expect(output.manual_edits_allowed).toBe(false);
+      expect(existsSync(resolve(REPO_ROOT, output.path))).toBe(true);
+      expect(existsSync(resolve(REPO_ROOT, output.source))).toBe(true);
+
+      const commandScript = scriptPathFromNodeCommand(output.command);
+      if (commandScript) {
+        expect(existsSync(resolve(REPO_ROOT, commandScript))).toBe(true);
+      }
     }
   });
 
   it('keeps control-plane producer files real and wired to package gates', () => {
-    const packageJson = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8')) as {
-      scripts: Record<string, string>;
-    };
+    const scripts = packageScripts();
 
     for (const producer of manifest.producer_files) {
       expect(existsSync(resolve(REPO_ROOT, producer))).toBe(true);
     }
-    expect(packageJson.scripts['toolchain:check']).toBe('node tools/toolchain/check-versions.mjs');
-    expect(packageJson.scripts['gates:root-ssot-stabilization']).toContain(
+    expect(scripts['toolchain:check']).toBe('node tools/toolchain/check-versions.mjs');
+    expect(scripts['gates:root-ssot-stabilization']).toContain(
       'tests/invariants/stabilization-manifest.spec.ts',
     );
-    expect(packageJson.scripts['gates:all']).toContain('npm run toolchain:check');
-    expect(packageJson.scripts['gates:all']).toContain('npm run gates:root-ssot-stabilization');
+    expect(scripts['gates:all']).toContain('npm run toolchain:check');
+    expect(scripts['gates:all']).toContain('npm run gates:root-ssot-stabilization');
+  });
+
+  it('keeps manifest gate commands backed by real package scripts', () => {
+    const scripts = packageScripts();
+    const gateCommands = [
+      ...manifest.waves.flatMap((wave) => wave.gate_commands),
+      ...manifest.final_registry_sweep.gate_commands,
+    ];
+
+    for (const command of gateCommands) {
+      const npmRun = command.match(/^npm run ([^\s]+)$/);
+      if (npmRun) {
+        expect(scripts[npmRun[1]!]).toBeTruthy();
+      }
+    }
   });
 
   it('keeps the final registry sweep as the only pattern-scope escape hatch', () => {

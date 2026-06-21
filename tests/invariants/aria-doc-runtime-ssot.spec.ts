@@ -154,7 +154,7 @@ function planMarkerCount(body: string): number {
 describe('ARIA live runtime/documentation SSoT', () => {
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    expect(current).toContain('Date: 2026-06-20');
+    expect(current).toContain('Date: 2026-06-21');
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
     const verifiedHash = current.match(

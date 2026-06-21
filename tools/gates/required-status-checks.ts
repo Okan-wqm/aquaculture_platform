@@ -190,7 +190,7 @@ function unexpectedValues(expected: string[], actual: string[]): string[] {
 
 function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   const errors: string[] = [];
-  const requiredContexts = ['sens-enterprise-summary', 'merge-gate'];
+  const requiredContexts = ['sens-enterprise-summary', 'merge-gate', 'aria-merge-authority'];
 
   if (manifest.schema_version !== 1) {
     errors.push(`schema_version must be 1, got ${manifest.schema_version}`);

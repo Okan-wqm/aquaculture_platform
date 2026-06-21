@@ -9,6 +9,10 @@ images locally or deploy mutable `latest` tags.
    migration, or restart. The release ledger records
    `rollback_skipped_reason=no_state_changed`.
 2. Inspect the failed `deploy / capacity-preflight` GitHub Actions job log.
+   The canonical report includes filesystem thresholds, Docker system summary,
+   same-filesystem top-level usage, and image inventory. Use that evidence
+   before deciding whether the fix is image GC, non-data log maintenance, or
+   droplet capacity growth.
 3. If a separate report or cleanup pass is needed, run the
    `Deploy Capacity Maintenance` workflow from GitHub Actions. Use `report`
    for inspection, `safe-image-gc` for image-only cleanup, or `gate` to run the

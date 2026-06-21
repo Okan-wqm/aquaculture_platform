@@ -81,6 +81,15 @@ describe('deploy SSOT contract', () => {
     expect(script).not.toMatch(/docker\s+system\s+prune[^#]*--volumes/);
   });
 
+  it('reports droplet capacity evidence without mutating data-bearing storage', () => {
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+
+    expect(capacity).toContain('Top-level disk usage (same filesystem only):');
+    expect(capacity).toContain('Docker image inventory:');
+    expect(capacity).toContain('du -x -B1 -d1');
+    expect(capacity).toContain('docker image ls --format');
+  });
+
   it('records deploy capacity and rollback metadata in the release ledger', () => {
     const sql = read('apps/db-migrate/src/sql/platform-bootstrap/007-bootstrap-signal.sql');
     const deploy = read('scripts/deploy/droplet-up.sh');

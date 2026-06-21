@@ -139,8 +139,10 @@ function parseArgs(): Args {
 
   for (let i = 0; i < raw.length; i++) {
     const arg = raw[i];
-    if (arg === '--service' && raw[i + 1]) {
-      service = raw[++i];
+    const nextArg = raw[i + 1];
+    if (arg === '--service' && nextArg) {
+      service = nextArg;
+      i += 1;
     } else if (arg === '--archive-old') {
       mode = 'archive-old';
     } else if (arg === '--generate') {

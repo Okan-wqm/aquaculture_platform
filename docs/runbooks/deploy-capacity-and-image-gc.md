@@ -12,8 +12,10 @@ images locally or deploy mutable `latest` tags.
    The canonical report includes filesystem thresholds, Docker system summary,
    bounded same-filesystem top-level usage, and image inventory. The deploy
    gate uses `CAPACITY_DISK_USAGE_MODE=summary` by default so diagnostics do
-   not repeatedly rescan nested runtime paths before the capacity thresholds
-   execute. Use that evidence before deciding whether the fix is image GC,
+   not scan nested runtime paths before the capacity thresholds execute. The
+   gate prints the fast threshold snapshot before running expensive
+   diagnostics, then runs bounded `du` evidence at most once for the final
+   verdict. Use that evidence before deciding whether the fix is image GC,
    non-data log maintenance, or droplet capacity growth.
 3. If a separate report or cleanup pass is needed, run the
    `Deploy Capacity Maintenance` workflow from GitHub Actions. Use `report`
@@ -29,10 +31,17 @@ trail for report, image-only GC, gate, and deploy reruns.
 For deeper disk attribution through the same audited control plane, run the
 maintenance workflow in report mode with `CAPACITY_DISK_USAGE_MODE=deep`. Deep
 mode may scan `/`, `/var`, Docker root, containerd, logs, repo state, and `/tmp`;
-the script bounds each `du` scope with `CAPACITY_DU_TIMEOUT_SECONDS` and emits a
-visible `disk_usage_unavailable` line if diagnostics cannot finish. Diagnostic
-collection is evidence only: capacity pass/fail still comes from the canonical
-filesystem, inode, projected-pull, and safe-image-GC gates.
+the script bounds each `du` scope with `CAPACITY_DU_TIMEOUT_SECONDS` (default
+60 seconds) and emits a visible `disk_usage_unavailable` line if diagnostics
+cannot finish. Diagnostic collection is evidence only: capacity pass/fail still
+comes from the canonical filesystem, inode, projected-pull, and safe-image-GC
+gates.
+
+If capacity-preflight fails by GitHub Actions timeout instead of an explicit
+capacity threshold, do not lower hard reserves or bypass the gate. Treat it as a
+deploy-control-plane defect: the workflow job timeout must exceed the SSH
+command timeout, and the SSH command timeout must exceed the bounded diagnostic
+budget. The invariant suite pins that relationship.
 
 ## Forbidden Cleanup
 

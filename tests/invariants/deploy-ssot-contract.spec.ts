@@ -90,11 +90,46 @@ describe('deploy SSOT contract', () => {
     expect(capacity).toContain('docker image ls --format');
     expect(capacity).toContain('CAPACITY_DISK_USAGE_MODE');
     expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"');
     expect(capacity).toContain('disk_usage_unavailable');
     expect(capacity).toContain('detect_docker_root');
     expect(capacity).toContain("awk 'NF {print; exit}'");
     expect(capacity).toContain("awk 'NR <= 20");
     expect(capacity).not.toContain('head -20');
+  });
+
+  it('keeps capacity diagnostics bounded below the deploy preflight timeout', () => {
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const capacityJobBlock =
+      /\n  capacity-preflight:\n[\s\S]*?\n  # ===========================================================================/.exec(
+        workflow,
+      )?.[0] ?? '';
+    const runGateStart = capacity.indexOf('run_gate() {');
+    const runGateEnd = capacity.indexOf('case "${command}"');
+    const runGateBlock =
+      runGateStart >= 0 && runGateEnd > runGateStart
+        ? capacity.slice(runGateStart, runGateEnd)
+        : '';
+
+    expect(capacityJobBlock).not.toEqual('');
+    expect(runGateBlock).not.toEqual('');
+    expect(runGateBlock).toContain('capacity_core_snapshot');
+    expect(runGateBlock).toContain('capacity_diagnostic_snapshot');
+    expect(runGateBlock).not.toContain('capacity_snapshot');
+    expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(2);
+
+    const duTimeoutSeconds = Number(
+      /CAPACITY_DU_TIMEOUT_SECONDS="\$\{CAPACITY_DU_TIMEOUT_SECONDS:-(\d+)\}"/.exec(
+        capacity,
+      )?.[1],
+    );
+    const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
+    const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);
+
+    expect(duTimeoutSeconds).toBe(60);
+    expect(commandTimeoutMinutes).toBeLessThan(jobTimeoutMinutes);
+    expect(duTimeoutSeconds * 2).toBeLessThan(commandTimeoutMinutes * 60);
   });
 
   it('records deploy capacity and rollback metadata in the release ledger', () => {

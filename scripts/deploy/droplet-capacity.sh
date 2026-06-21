@@ -15,7 +15,7 @@ ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
 CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
 CAPACITY_DISK_USAGE_MODE="${CAPACITY_DISK_USAGE_MODE:-summary}" # summary | deep | off
-CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-600}"
+CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"
 
 GIB=$((1024 * 1024 * 1024))
 FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
@@ -45,7 +45,7 @@ Environment:
   IMAGE_PREFIX=ghcr.io/owner/repo
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
-  CAPACITY_DU_TIMEOUT_SECONDS=600
+  CAPACITY_DU_TIMEOUT_SECONDS=60
   GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
@@ -213,7 +213,7 @@ thresholds() {
   fi
 }
 
-capacity_snapshot() {
+capacity_core_snapshot() {
   local pull_estimate
   pull_estimate="$(projected_pull_bytes)"
 
@@ -255,8 +255,16 @@ capacity_snapshot() {
 
   echo ""
   docker system df 2>/dev/null || true
+}
+
+capacity_diagnostic_snapshot() {
   disk_usage_snapshot
   docker_image_inventory
+}
+
+capacity_snapshot() {
+  capacity_core_snapshot
+  capacity_diagnostic_snapshot
 }
 
 write_capacity_json() {
@@ -501,7 +509,7 @@ safe_image_gc() {
 }
 
 run_gate() {
-  capacity_snapshot
+  capacity_core_snapshot
   write_capacity_json
 
   set +e
@@ -510,6 +518,7 @@ run_gate() {
   set -e
 
   if [ "${rc}" -eq 0 ]; then
+    capacity_diagnostic_snapshot
     echo "Capacity preflight: PASS"
     return 0
   fi
@@ -517,13 +526,15 @@ run_gate() {
   if [ "${CAPACITY_GC_MODE}" = "auto" ]; then
     echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
     safe_image_gc
-    capacity_snapshot
+    capacity_core_snapshot
     write_capacity_json
     set +e
     capacity_failures
     rc=$?
     set -e
   fi
+
+  capacity_diagnostic_snapshot
 
   if [ "${rc}" -eq 0 ]; then
     echo "Capacity preflight: PASS after safe GC"

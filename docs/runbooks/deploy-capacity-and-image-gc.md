@@ -10,9 +10,11 @@ images locally or deploy mutable `latest` tags.
    `rollback_skipped_reason=no_state_changed`.
 2. Inspect the failed `deploy / capacity-preflight` GitHub Actions job log.
    The canonical report includes filesystem thresholds, Docker system summary,
-   same-filesystem top-level usage, and image inventory. Use that evidence
-   before deciding whether the fix is image GC, non-data log maintenance, or
-   droplet capacity growth.
+   bounded same-filesystem top-level usage, and image inventory. The deploy
+   gate uses `CAPACITY_DISK_USAGE_MODE=summary` by default so diagnostics do
+   not repeatedly rescan nested runtime paths before the capacity thresholds
+   execute. Use that evidence before deciding whether the fix is image GC,
+   non-data log maintenance, or droplet capacity growth.
 3. If a separate report or cleanup pass is needed, run the
    `Deploy Capacity Maintenance` workflow from GitHub Actions. Use `report`
    for inspection, `safe-image-gc` for image-only cleanup, or `gate` to run the
@@ -23,6 +25,14 @@ images locally or deploy mutable `latest` tags.
 Operators must not SSH into the droplet to run capacity scripts manually.
 GitHub Actions is the deploy remediation control plane and provides the audit
 trail for report, image-only GC, gate, and deploy reruns.
+
+For deeper disk attribution through the same audited control plane, run the
+maintenance workflow in report mode with `CAPACITY_DISK_USAGE_MODE=deep`. Deep
+mode may scan `/`, `/var`, Docker root, containerd, logs, repo state, and `/tmp`;
+the script bounds each `du` scope with `CAPACITY_DU_TIMEOUT_SECONDS` and emits a
+visible `disk_usage_unavailable` line if diagnostics cannot finish. Diagnostic
+collection is evidence only: capacity pass/fail still comes from the canonical
+filesystem, inode, projected-pull, and safe-image-GC gates.
 
 ## Forbidden Cleanup
 

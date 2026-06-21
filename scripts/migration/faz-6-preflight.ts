@@ -22,7 +22,6 @@
  * operator triage.
  */
 
-/* eslint-disable no-console */
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

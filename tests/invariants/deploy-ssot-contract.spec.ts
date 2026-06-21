@@ -88,6 +88,13 @@ describe('deploy SSOT contract', () => {
     expect(capacity).toContain('Docker image inventory:');
     expect(capacity).toContain('du -x -B1 -d1');
     expect(capacity).toContain('docker image ls --format');
+    expect(capacity).toContain('CAPACITY_DISK_USAGE_MODE');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS');
+    expect(capacity).toContain('disk_usage_unavailable');
+    expect(capacity).toContain('detect_docker_root');
+    expect(capacity).toContain("awk 'NF {print; exit}'");
+    expect(capacity).toContain("awk 'NR <= 20");
+    expect(capacity).not.toContain('head -20');
   });
 
   it('records deploy capacity and rollback metadata in the release ledger', () => {

@@ -86,7 +86,6 @@
  * existing migration history.
  */
 
-/* eslint-disable no-console */
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { resolve, join, basename, dirname } from 'node:path';

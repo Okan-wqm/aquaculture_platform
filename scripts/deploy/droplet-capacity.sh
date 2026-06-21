@@ -90,6 +90,31 @@ df_inode_row() {
   df -Pi "${path}" 2>/dev/null | awk 'NR==2 {print $2 "\t" $4}'
 }
 
+disk_usage_paths() {
+  unique_paths "/" "/var" "/var/lib" "$(docker_root)" "/var/lib/containerd" "/var/log" "/var/aqua-saas" "/tmp"
+}
+
+disk_usage_snapshot() {
+  echo ""
+  echo "Top-level disk usage (same filesystem only):"
+  local path
+  while IFS= read -r path; do
+    [ -n "${path}" ] || continue
+    [ -d "${path}" ] || continue
+    echo "  scope=${path}"
+    du -x -B1 -d1 "${path}" 2>/dev/null |
+      sort -nr |
+      head -20 |
+      awk '{printf "    bytes=%s path=%s\n", $1, $2}'
+  done < <(disk_usage_paths)
+}
+
+docker_image_inventory() {
+  echo ""
+  echo "Docker image inventory:"
+  docker image ls --format '  repository={{.Repository}} tag={{.Tag}} id={{.ID}} size={{.Size}}' 2>/dev/null || true
+}
+
 service_count() {
   if [ "${FULL_DEPLOY}" = "true" ]; then
     echo 0
@@ -173,6 +198,8 @@ capacity_snapshot() {
 
   echo ""
   docker system df 2>/dev/null || true
+  disk_usage_snapshot
+  docker_image_inventory
 }
 
 write_capacity_json() {

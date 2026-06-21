@@ -5,11 +5,12 @@
  * - Lumpfish (0-50g): 4 feed alternatives
  * - Halibut (0-10g): 4 feed alternatives
  */
-import http from 'node:http';
+import { createGraphqlRequester } from './lib/graphql-http-client.mjs';
 
-const GRAPHQL_URL = 'http://localhost:3000/graphql';
 const TENANT_ID = 'ad6ca8fd-cdf7-4e6b-b68e-f17ad6484490';
 const SITE_ID = '11111111-1111-4111-8111-111111111111'; // Bodrum RAS
+const GRAPHQL_ENDPOINT =
+  process.env.FEED_GRAPHQL_URL ?? process.env.GRAPHQL_URL ?? 'http://localhost:3000/graphql';
 
 // Existing supplier IDs
 const SKRETTING_ID = 'e1111111-1111-1111-8111-111111111112';
@@ -17,43 +18,11 @@ const BIOMAR_ID = 'e1111111-1111-1111-8111-111111111113';
 
 let TOKEN = '';
 
-function gqlRequest(query, variables = {}) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ query, variables });
-    const options = {
-      hostname: 'localhost',
-      port: 3000,
-      path: '/graphql',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${TOKEN}`,
-        'x-tenant-id': TENANT_ID,
-        'Content-Length': Buffer.byteLength(body),
-      },
-    };
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.errors) {
-            console.error('GQL Error:', JSON.stringify(parsed.errors[0].message));
-            reject(new Error(parsed.errors[0].message));
-          } else {
-            resolve(parsed.data);
-          }
-        } catch (e) {
-          reject(new Error('Failed to parse: ' + data.substring(0, 200)));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
+const gqlRequest = createGraphqlRequester({
+  endpoint: GRAPHQL_ENDPOINT,
+  tenantId: TENANT_ID,
+  getToken: () => TOKEN,
+});
 
 async function login() {
   const data = await gqlRequest(`

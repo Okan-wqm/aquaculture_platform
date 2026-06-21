@@ -2,47 +2,18 @@
  * Update existing feeds with maxFishWeightG
  * Maps known feed codes to their max weight based on species weight ranges
  */
-import http from 'node:http';
+import { createGraphqlRequester } from './lib/graphql-http-client.mjs';
 
 const TENANT_ID = 'ad6ca8fd-cdf7-4e6b-b68e-f17ad6484490';
+const GRAPHQL_ENDPOINT =
+  process.env.FEED_GRAPHQL_URL ?? process.env.GRAPHQL_URL ?? 'http://localhost:3000/graphql';
 let TOKEN = '';
 
-function gqlRequest(query, variables = {}) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ query, variables });
-    const options = {
-      hostname: 'localhost',
-      port: 3000,
-      path: '/graphql',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${TOKEN}`,
-        'x-tenant-id': TENANT_ID,
-        'Content-Length': Buffer.byteLength(body),
-      },
-    };
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.errors) {
-            reject(new Error(parsed.errors[0].message));
-          } else {
-            resolve(parsed.data);
-          }
-        } catch (e) {
-          reject(new Error('Parse error: ' + data.substring(0, 200)));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
+const gqlRequest = createGraphqlRequester({
+  endpoint: GRAPHQL_ENDPOINT,
+  tenantId: TENANT_ID,
+  getToken: () => TOKEN,
+});
 
 async function login() {
   const data = await gqlRequest(`

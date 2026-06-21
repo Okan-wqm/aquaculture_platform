@@ -42,7 +42,7 @@ assertContains(initSql, '"id"               UUID PRIMARY KEY DEFAULT gen_random_
 assertContains(entity, "@PrimaryGeneratedColumn('uuid')", entityPath);
 
 const messagingSection = schemaManager.match(
-  /moduleName: 'messaging'[\s\S]*?tables: \[([\s\S]*?)\n    \],/,
+  /moduleName: 'messaging'[\s\S]*?tables: \[([\s\S]*?)\n {4}\],/,
 );
 if (!messagingSection) {
   fail(`${schemaManagerPath} messaging schema section not found`);

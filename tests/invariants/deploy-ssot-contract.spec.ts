@@ -102,7 +102,7 @@ describe('deploy SSOT contract', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
     const capacityJobBlock =
-      /\n  capacity-preflight:\n[\s\S]*?\n  # ===========================================================================/.exec(
+      /\n {2}capacity-preflight:\n[\s\S]*?\n {2}# ===========================================================================/.exec(
         workflow,
       )?.[0] ?? '';
     const runGateStart = capacity.indexOf('run_gate() {');

@@ -1,3 +1,7 @@
+import {
+  buildTenantErasureTargetProofLedgerDownSql,
+  buildTenantErasureTargetProofLedgerUpSql,
+} from '@platform/outbox';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreateCanonicalOutboxInbox1800700000000 implements MigrationInterface {
@@ -65,6 +69,14 @@ export class CreateCanonicalOutboxInbox1800700000000 implements MigrationInterfa
         ON farm.outbox_events ("tenantId", "idempotencyKey")
         WHERE "idempotencyKey" IS NOT NULL
     `);
+    for (const sql of buildTenantErasureTargetProofLedgerUpSql({
+      schema: 'farm',
+      tenantIndexName: 'idx_farm_erasure_proofs_tenant',
+      eventIndexName: 'idx_farm_erasure_proofs_event',
+      targetIndexName: 'idx_farm_erasure_proofs_target',
+    })) {
+      await queryRunner.query(sql);
+    }
 
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS farm.inbox_messages (
@@ -159,6 +171,14 @@ export class CreateCanonicalOutboxInbox1800700000000 implements MigrationInterfa
     await queryRunner.query(`DROP FUNCTION IF EXISTS farm.notify_outbox_events_new()`);
     await queryRunner.query(`DROP TRIGGER IF EXISTS "farm_outbox_bridge_to_outbox_events" ON farm.farm_outbox`);
     await queryRunner.query(`DROP FUNCTION IF EXISTS farm.bridge_farm_outbox_to_outbox_events()`);
+    for (const sql of buildTenantErasureTargetProofLedgerDownSql({
+      schema: 'farm',
+      tenantIndexName: 'idx_farm_erasure_proofs_tenant',
+      eventIndexName: 'idx_farm_erasure_proofs_event',
+      targetIndexName: 'idx_farm_erasure_proofs_target',
+    })) {
+      await queryRunner.query(sql);
+    }
     await queryRunner.query(`DROP TABLE IF EXISTS farm.event_dlq`);
     await queryRunner.query(`DROP TABLE IF EXISTS farm.inbox_messages`);
     await queryRunner.query(`DROP TABLE IF EXISTS farm.outbox_events`);

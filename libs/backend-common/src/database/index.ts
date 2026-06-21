@@ -80,6 +80,10 @@ export type {
 // earlier migrations. See migration-helpers.ts docblock for rationale.
 export { columnExists, tableExists } from './migration-helpers';
 
+// Transactional outbox DDL — one SQL shape for every service-local
+// outbox table that backs @platform/outbox. Migrations pass only schema,
+// table, and object names; column/index contract stays centralized.
+
 // SQL fragments — compile-time SQL injection prevention. Branded SqlIdent
 // + SqlFragment types make raw-string interpolation a TypeScript compile
 // error. Prereq for Phase 3 primitives rewrite (plan v3 R2 CRITICAL).

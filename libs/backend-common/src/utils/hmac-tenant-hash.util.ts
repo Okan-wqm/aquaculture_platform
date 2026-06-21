@@ -58,7 +58,7 @@
  *
  * # Cascade / erasure contract
  *
- * On a `TenantErased` event, the erasure handler re-computes
+ * During tenant erasure, the target handler re-computes
  * `hmacTenantHash(erased_schema)` and issues a direct `DELETE ... WHERE
  * tenant_id_hash = $1` against every retention-bearing table
  * (observability.migration_events, observability.schema_object_history,

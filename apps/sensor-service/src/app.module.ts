@@ -9,6 +9,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
@@ -65,6 +66,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
+import { SensorOutboxModule } from './outbox/sensor-outbox.module';
 import {
   createTenantConnectionBootstrap,
   createSchemaVersionGate,
@@ -324,6 +326,8 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    SensorOutboxModule,
+    TenantErasureTargetModule.forService('sensor-service'),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. sensor-service is a token CONSUMER, not an issuer.

@@ -12,6 +12,7 @@ import {
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -50,6 +51,7 @@ const notificationSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(proces
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
+import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
@@ -187,6 +189,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    NotificationOutboxModule,
+    TenantErasureTargetModule.forService('notification-service'),
 
     // Redis Module (global – used for distributed rate limiting, etc.)
     RedisModule.forRootAsync({
@@ -227,6 +231,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     RlsModule.forPoolService({
       serviceName: 'notification',
       autoApply: !notificationSchemaDdlOwnedByDbMigrate,
+      excludeTables: ['notification_outbox'],
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.

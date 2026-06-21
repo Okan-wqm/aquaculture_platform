@@ -196,22 +196,27 @@ describe('deploy SSOT contract', () => {
     }
   });
 
-  it('keeps the deployment mutation output explicit while CI-Affected stays code-health only', () => {
+  it('keeps CI-Affected as the main release orchestrator with explicit deploy mutation proof', () => {
     // A reusable-workflow caller's `result == success` only proves the called
     // workflow did not fail. The production deploy workflow keeps an explicit
-    // mutation output for callers that need it, while CI-Affected no longer
-    // calls deploy/post-deploy jobs from ordinary PR/main code-health checks.
+    // mutation output and CI-Affected uses that output as the single release
+    // orchestration contract: quality gates -> staging -> production -> proof.
     const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
     const ciAffected = read('.github/workflows/ci-affected.yml');
     expect(deployWorkflow).toContain('deployed:');
     expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
     expect(deployWorkflow).toContain('Mark deployment performed');
-    expect(ciAffected).toContain(
-      'Push-to-main runs affected lint/type-check/test/build as code-health',
-    );
-    expect(ciAffected).not.toContain("needs.deploy.outputs.deployed == 'true'");
-    expect(ciAffected).not.toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
-    expect(ciAffected).not.toContain('deploy-staging:');
+    expect(ciAffected).toContain('deploy-staging:');
+    expect(ciAffected).toContain('deploy-production:');
+    expect(ciAffected).toContain('production-post-deploy-verify:');
+    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-staging.yml');
+    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
+    expect(ciAffected).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
+    expect(ciAffected).toContain('services: auto');
+    expect(ciAffected).toContain("needs.deploy-production.outputs.deployed == 'true'");
+    expect(ciAffected).toContain("needs.deploy-staging.result == 'success'");
+    expect(ciAffected).toContain("needs.pre-flight.result == 'success'");
+    expect(ciAffected).toContain("- '.github/workflows/production-post-deploy-verify.yml'");
   });
 
   it('verifies SHA images and capacity before SSH mutation', () => {

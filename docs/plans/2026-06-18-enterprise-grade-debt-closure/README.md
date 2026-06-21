@@ -192,6 +192,28 @@ These are not optional work items. They block normal domain execution:
 
 ## Closure Ledger
 
+- 2026-06-20: DigitalOcean release orchestration SSoT was corrected on branch
+  `codex/ssot-critical-implementation`. `.github/workflows/ci-affected.yml`
+  now owns the push-to-main release chain: quality gates, staging reusable
+  workflow, production `Deploy to DigitalOcean` reusable workflow with
+  `services: auto`, and `Production Post-Deploy Verify` only when production
+  reports `deployed == true`. The deploy-config path filter now includes
+  `.github/workflows/production-post-deploy-verify.yml`, and recurrence is
+  pinned by `tests/invariants/deploy-ssot-contract.spec.ts` plus
+  `tests/invariants/production-ops-proof-contract.spec.ts`.
+- 2026-06-20: `COMPLIANCE-CRITICAL-001` implementation evidence was prepared
+  on branch `codex/ssot-critical-implementation`; registry closure is still
+  pending commit SHA, `npm run findings:verify`, and CI evidence. The slice
+  establishes `TENANT_ERASURE_TARGET_SERVICES` as the event-contract SSoT,
+  adds a shared `TenantErasureTargetModule`/registry/executor in
+  `backend-common`, wires all 10 tenant-data target services, adds the missing
+  durable outbox modules/migrations, and makes admin-api the only final
+  orchestrator. Final `TenantErased` is emitted only after every target proof is
+  recorded and db-migrate proves tenant-schema deletion through the
+  `tenant_erasure` cleanup proof path. Recurrence gates were added through
+  `tests/invariants/tenant-erasure-ssot.spec.ts`, strengthened critical infra
+  and env-aware migration invariants, targeted event-contract, admin, farm, and
+  db-migrate tests, and per-service type-checks.
 - 2026-06-20: first implementation slice for the active CRITICAL truth table
   closed `INFRA-CRITICAL-021`, `INFRA-CRITICAL-025`, `FARM-CRITICAL-001`, and
   `FARM-CRITICAL-050` with closing commit

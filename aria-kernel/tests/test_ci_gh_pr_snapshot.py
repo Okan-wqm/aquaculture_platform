@@ -97,16 +97,22 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
     def test_required_check_without_run_surfaces_as_in_progress(self) -> None:
         # Required check name listed but no entry in checks payload (rare
         # gh state) -> must NOT default to success.
-        with patch("aria_kernel.ci._gh_json") as mock_gh:
+        with patch("aria_kernel.ci._gh_json") as mock_gh, patch(
+            "aria_kernel.ci._fetch_branch_protection_contexts",
+            return_value=(["ci-required"], None),
+        ):
             mock_gh.side_effect = lambda root, argv: (
                 {"number": 1, "baseRefName": "main", "headRefOid": "abc", "files": []}
                 if "view" in argv else
-                # Empty checks: required_checks list will be empty too.
+                # Empty checks payload: branch protection still declares
+                # a required check that has not produced a run yet.
                 []
             )
             snap = _gh_pr_snapshot(pr_number=1, workspace_root=".")
-        # No required checks, no runs -> the snapshot stays consistent.
-        self.assertEqual(snap["github"]["checks"]["runs"], [])
+        self.assertEqual(
+            snap["github"]["checks"]["runs"],
+            [{"name": "ci-required", "status": "in_progress", "conclusion": None}],
+        )
 
     def test_pre_fix_synthetic_success_is_gone(self) -> None:
         # Pre-fix, ANY state would have been mapped to completed/success

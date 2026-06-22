@@ -302,7 +302,7 @@ export class TenantProvisioningService {
       saga.addStep(
         'create_schema',
         () => {
-          this.createTenantSchema(tenant);
+          return this.createTenantSchema(tenant);
         },
         async () => {
           const proof = createCleanupDropProof({
@@ -373,7 +373,7 @@ export class TenantProvisioningService {
     saga.addStep(
       'create_default_config',
       () => {
-        this.createDefaultConfiguration(tenant);
+        return this.createDefaultConfiguration(tenant);
       },
       () => {
         // Compensate: configuration cleanup is handled by TenantConfigurationService

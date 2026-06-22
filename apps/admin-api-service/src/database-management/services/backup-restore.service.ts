@@ -28,6 +28,7 @@ import {
   TenantSchema,
   SchemaStatus,
   SchemaBackup,
+  RetiredSchemaBackup,
   SchemaRestore,
   BackupStatus,
   RestoreStatus,
@@ -66,6 +67,8 @@ export class BackupRestoreService {
     private readonly schemaRepository: Repository<TenantSchema>,
     @InjectRepository(SchemaBackup)
     private readonly backupRepository: Repository<SchemaBackup>,
+    @InjectRepository(RetiredSchemaBackup)
+    private readonly retiredBackupRepository: Repository<RetiredSchemaBackup>,
     @InjectRepository(SchemaRestore)
     private readonly restoreRepository: Repository<SchemaRestore>,
     @InjectDataSource()
@@ -669,10 +672,11 @@ export class BackupRestoreService {
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async cleanupExpiredBackups(): Promise<void> {
     this.logger.log('Cleaning up expired backups');
+    const now = new Date();
 
     const expiredBackups = await this.backupRepository.find({
       where: {
-        expiresAt: LessThan(new Date()),
+        expiresAt: LessThan(now),
         status: 'completed' as BackupStatus,
       },
     });
@@ -694,6 +698,55 @@ export class BackupRestoreService {
         const error = err as Error;
         this.logger.error(`Failed to expire backup ${backup.id}: ${error.message}`);
       }
+    }
+
+    await this.cleanupExpiredRetiredBackups(now);
+  }
+
+  private async cleanupExpiredRetiredBackups(now: Date): Promise<void> {
+    const expiredRetiredBackups = (await this.retiredBackupRepository.find({
+      where: {
+        expiresAt: LessThan(now),
+      },
+    })).filter((backup) => backup.status !== 'expired');
+
+    for (const backup of expiredRetiredBackups) {
+      try {
+        const artifactDisposition = await this.disposeRetiredBackupArtifact(backup);
+        const disposedAt = new Date().toISOString();
+        backup.status = 'expired' as BackupStatus;
+        backup.metadata = {
+          ...(backup.metadata ?? {}),
+          plaintextArtifactDisposition: artifactDisposition,
+          plaintextArtifactDisposedAt: disposedAt,
+        };
+        await this.retiredBackupRepository.save(backup);
+        this.logger.log(`Expired retired plaintext backup ledger row: ${backup.backupId}`);
+      } catch (err) {
+        const error = err as Error;
+        this.logger.error(
+          `Failed to expire retired plaintext backup ${backup.backupId}: ${error.message}`,
+        );
+      }
+    }
+  }
+
+  private async disposeRetiredBackupArtifact(
+    backup: RetiredSchemaBackup,
+  ): Promise<'deleted' | 'missing' | 'no_file_path'> {
+    if (!backup.filePath) {
+      return 'no_file_path';
+    }
+
+    try {
+      await fs.promises.unlink(backup.filePath);
+      return 'deleted';
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        return 'missing';
+      }
+      throw error;
     }
   }
 

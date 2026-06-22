@@ -1860,7 +1860,7 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
- "opentelemetry 0.27.1",
+ "opentelemetry 0.32.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.32.1",
  "secrecy",

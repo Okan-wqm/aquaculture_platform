@@ -225,6 +225,39 @@ const perProjectBlocks = PROJECT_LINT_OVERRIDES.flatMap((p) => {
   return blocks;
 });
 
+// Non-provenance TS lint projects: Nx projects that own a (typed) ESLint lint
+// target but never carried a `root: true` .eslintrc.cjs, so they are ABSENT from
+// PROJECT_LINT_OVERRIDES. That list is parity-locked to the deleted .eslintrc.cjs
+// files (tools/lint-gates/eslintrc-flat-parity.spec.ts), so they cannot be added
+// there. WHAT THIS FIXES: without a scoped `parserOptions.project`, their *.ts
+// fall through to the broad TS_PROJECTS glob, which makes typescript-eslint build
+// a monorepo-sized type Program per file and OOM (V8 heap OOM observed on
+// migration-harness, aquaculture-engines, and service-catalog during
+// `nx affected --target=lint`, before any lint result was produced). WHY THIS
+// WORKS: pinning each project's parser to its own tsconfig.eslint.json keeps the
+// type Program project-sized — the same mechanism perProjectBlocks uses for the
+// provenance projects, and the aquamobil block (overrides 3-4) uses for that app.
+// Rules are intentionally NOT set here: these projects have no per-project policy,
+// so they inherit the shared strict/type-checked base presets (the prior behaviour);
+// only the parser `project` is narrowed.
+const NON_PROVENANCE_TS_PROJECTS = [
+  'libs/aquaculture-engines',
+  'libs/farm-shared',
+  'libs/migration-harness',
+  'libs/sensor-automation-types',
+  'libs/shared-contracts',
+  'platform/libs/service-catalog',
+  'tools/executors/cargo',
+];
+
+const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({
+  files: [`${dir}/**/*.ts`, `${dir}/**/*.tsx`],
+  languageOptions: {
+    parser: tsParser,
+    parserOptions: { project: [`${dir}/tsconfig.eslint.json`], tsconfigRootDir },
+  },
+}));
+
 export default [
   // ── ignorePatterns (.eslintrc.json lines 3-11) ──
   {
@@ -537,6 +570,12 @@ export default [
 
   // ── The 30 per-project policies (former root:true .eslintrc.cjs), verbatim. ──
   ...perProjectBlocks,
+
+  // ── Non-provenance TS lint projects: scoped parser pins (OOM root-cause fix).
+  //    See NON_PROVENANCE_TS_PROJECTS above. Placed after perProjectBlocks and
+  //    after the base TS_PROJECTS pin so `parserOptions.project` resolves to each
+  //    project's own tsconfig.eslint.json instead of the monorepo-wide glob. ──
+  ...nonProvenanceParserBlocks,
 
   // ── jsonc config files (migration-harness had its own .eslintrc) ──
   {

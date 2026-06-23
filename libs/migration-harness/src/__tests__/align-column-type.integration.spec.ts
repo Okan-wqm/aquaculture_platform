@@ -5,8 +5,14 @@ import {
   type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
 } from '../index';
+
+import {
+  expectHarnessContext,
+  queryRequiredRow,
+  queryRows,
+  withHarnessSchema,
+} from './test-helpers';
 
 @Entity({ name: 'secret', schema: 'type_test' })
 class SecretEnc {
@@ -30,7 +36,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   }, 30_000);
 
   it('aligns text → uuid (the 2026-04-14 RLS-break regression class)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         // Seed: tenant_id was historically provisioned as text.
@@ -50,11 +57,12 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
           columns: [{ name: 'tenant_id', targetType: 'uuid' }],
         });
         expect(result.aligned).toEqual(['tenant_id']);
-        const rows = await qr.query(
+        const row = await queryRequiredRow<{ data_type: string }>(
+          qr,
           `SELECT data_type FROM information_schema.columns
             WHERE table_schema = 'type_test' AND table_name = 'audit_logs' AND column_name = 'tenant_id'`,
         );
-        expect(rows[0].data_type).toBe('uuid');
+        expect(row.data_type).toBe('uuid');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS type_test CASCADE`);
       }
@@ -62,7 +70,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('is a no-op when the column already has the desired type', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         await qr.query(
@@ -85,7 +94,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('drops dependent partial indexes before ALTER (2026-04 enum-drift incident pattern)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         await qr.query(
@@ -117,7 +127,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('supports custom USING expression', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         await qr.query(
@@ -143,7 +154,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
             },
           ],
         });
-        const rows = await qr.query(
+        const rows = await queryRows<{ count_str: number }>(
+          qr,
           `SELECT count_str FROM type_test.widget ORDER BY id`,
         );
         expect(rows[0].count_str).toBe(42);
@@ -155,7 +167,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('REFUSES to alter an @EncryptedAtRest column', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         await qr.query(
@@ -179,7 +192,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('throws when target column does not exist', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         await qr.query(
@@ -199,7 +213,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('surfaces Class H incompat-cast failure as a PG error (no swallow)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS type_test`);
       try {
         await qr.query(
@@ -227,7 +242,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
   });
 
   it('returns empty result when columns=[]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       const result = await alignColumnType(qr, {
         schema: 'type_test',
         table: 'widget',

@@ -4702,3 +4702,39 @@ Severity: HIGH. Discovered 2026-06-20 while verifying the root SSoT control-plan
 Status: OPEN (2026-06-20; owner: repo-wide closure / lint gate). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-140 - opentelemetry dependency family is fragmented across two Rust workspaces (extends ORPHAN-001)
+
+Severity: MEDIUM. Discovered 2026-06-23 while triaging dependabot #576 (opentelemetry 0.27 -> 0.32) during the controlled branch-to-main merge sweep.
+
+**Problem:** The otel crates are pinned at incoherent versions in two separate workspaces. Root `/Cargo.toml` (the workspace that compiles `crates/observability`, which actually uses the OTLP exporter in `trace_propagation.rs`/`lib.rs`): `opentelemetry = 0.27`, `opentelemetry_sdk = 0.32`, `opentelemetry-otlp = 0.27`, `tracing-opentelemetry = 0.33` — the SDK is already two minor lines ahead of `opentelemetry`/`otlp`. The separate `sens-api-gateway/Cargo.toml` workspace is further behind: `opentelemetry = 0.27`, `opentelemetry-otlp = 0.27`, `opentelemetry_sdk = 0.27`, `tracing-opentelemetry = 0.28`. `opentelemetry-otlp 0.27` targets the `opentelemetry 0.27` trait API, so spans/exporters built across the 0.27 and 0.32 lines do not share types — a latent trace-incoherence, exactly what ORPHAN-001 first flagged in April. Dependabot #576 bumped only `opentelemetry` to 0.32 and left `otlp` at 0.27; CI passed because the gap is masked (feature-gating / cargo dedup), not because it is coherent. #576 was closed as a partial bump.
+
+**Fix direction:** One coordinated otel `0.27 -> 0.32` upgrade across BOTH workspaces — move `opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp` all to 0.32 and `tracing-opentelemetry` to 0.33 in the same change — and migrate the `crates/observability` OTLP exporter-builder calls to the 0.32 API (the `SpanExporter`/pipeline builder surface changed across 0.27->0.32). Add a `cargo build --features telemetry` job to CI so the otel path is actually exercised by the gate instead of dedup-masked.
+
+Status: OPEN (2026-06-23; owner: edge/observability Rust). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-141 - RustCrypto digest 0.10 -> 0.11 line cannot be bumped piecemeal (sha2/hmac)
+
+Severity: MEDIUM. Discovered 2026-06-23 while triaging dependabot #574 (hmac 0.13) and #575 (sha2 0.11) during the controlled merge sweep.
+
+**Problem:** `sens-api-gateway/Cargo.toml` pins `hmac = "0.12"` and `sha2 = "0.10"`, both built on the `digest 0.10` trait crate. `sha2 0.11` requires `digest 0.11`; `hmac 0.13` requires `digest 0.11`. Bumping either crate in isolation leaves the other on `digest 0.10`, so `Hmac<Sha256>` fails its trait bound (digest 0.10 vs 0.11 are distinct trait crates) — CI red on clippy, `cargo test --workspace`, and the musl cross-builds. This code is load-bearing: ADR-019/ADR-020 master-derived audit-hmac chains (`sqlcipher_db_key`, `audit_hmac_chain_key`, device attestation) and the R1 router-coprocessor HMAC-SHA256 parity contract all depend on it. #574 and #575 were closed (cannot land alone).
+
+**Fix direction:** Migrate the whole RustCrypto `digest 0.10 -> 0.11` set in one coordinated change (`sha2`, `hmac`, `hkdf`, and any other crate sharing the `digest` traits), then re-run golden-vector parity tests for the audit-hmac chain and the coprocessor HMAC-SHA256 vectors before/after to prove byte-for-byte equivalence. Do not bump any single member ahead of the set.
+
+Status: OPEN (2026-06-23; owner: edge/crypto Rust). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-142 - cargo audit advisory RUSTSEC-2026-0185 (quinn-proto) is not in the ignore-list and reds the advisory gate
+
+Severity: MEDIUM. Discovered 2026-06-23 while merging dependabot GHA bumps (#581 etc., which surfaced as UNSTABLE) during the controlled merge sweep.
+
+**Problem:** `cargo audit` fails on `RUSTSEC-2026-0185` in `quinn-proto` (a transitive dependency). The Rust CI ignore-list currently carries `RUSTSEC-2023-0071`, `RUSTSEC-2025-0141`, `RUSTSEC-2024-0388`, `RUSTSEC-2023-0089`, and `RUSTSEC-2026-0173` but not `RUSTSEC-2026-0185`, so the `cargo audit` / "Sens API Gateway summary" checks are red on every PR and on main. These are NON-required checks, so they do not block merges (PRs read UNSTABLE, not BLOCKED), but they degrade the advisory signal to noise.
+
+**Fix direction:** Triage `RUSTSEC-2026-0185` — bump `quinn`/`quinn-proto` to a patched release if one exists (preferred), otherwise add it to the `--ignore` list WITH an inline justification comment and a tracked re-review date. Do not silently suppress; the ignore-list must stay a reviewed, dated allowlist.
+
+Status: OPEN (2026-06-23; owner: edge/supply-chain Rust). Registry: orphan-findings.md only.
+
+---

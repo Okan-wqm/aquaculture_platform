@@ -111,7 +111,7 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
       const parsed = parseInt(urlLimit, 10);
       if (!isNaN(parsed) && pageSizeOptions.includes(parsed) && parsed !== limit) setLimitState(parsed);
     }
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams]);  
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
   const offset = useMemo(() => (page - 1) * limit, [page, limit]);

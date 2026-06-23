@@ -639,7 +639,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);  
 
   // Handle history selection
   const handleHistorySelect = useCallback((selectedQuery: string) => {

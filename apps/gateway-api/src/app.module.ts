@@ -18,7 +18,7 @@ import {
   RateLimitModule,
   RateLimitStore,
 } from '@aquaculture/backend-common/rate-limit';
-import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
+import { RedisModule, RedisService, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -423,13 +423,8 @@ function positiveIntConfig(
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
-        password: configService.get('REDIS_PASSWORD'),
-        db: parseInt(configService.get('REDIS_DB', '0'), 10),
-        keyPrefix: 'gateway:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'gateway', 'required'),
     }),
 
     // Platform rate-limit SSoT (D2 / CRITICAL-002). Edge mode: the gateway is a

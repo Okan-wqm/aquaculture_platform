@@ -11,13 +11,15 @@
  * Graceful degradation: renders nothing when no batch is active or AI unavailable.
  */
 
+import type { ReactElement } from 'react';
+
 import { useBatchGrowthPrediction } from '@/hooks/useAiInsights';
 
 interface GrowthPredictionCardProps {
   batchId: string | null | undefined;
 }
 
-export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps) {
+export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): ReactElement | null {
   const { data: prediction, isLoading, isError } = useBatchGrowthPrediction(batchId);
 
   // WHY: No skeleton for batch prediction — it only appears when a batch exists,

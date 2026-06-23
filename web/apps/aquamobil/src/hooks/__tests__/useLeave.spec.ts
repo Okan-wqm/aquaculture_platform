@@ -12,6 +12,7 @@
 
 import { webcrypto } from 'node:crypto';
 
+import { renderHook } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -122,7 +123,9 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 // Mock authenticated-fetch
-const mockGraphqlRequest = vi.fn();
+// SSoT: typed mock signature (matches the other hook specs) so the mocked
+// graphqlRequest returns Promise<unknown> instead of `any` (no-unsafe-return).
+const mockGraphqlRequest = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 
 vi.mock('@/services/authenticated-fetch', () => ({
   graphqlRequest: (...args: unknown[]) => mockGraphqlRequest(...args),
@@ -151,7 +154,6 @@ vi.mock('../useAuth', () => ({
 
 // Import after mocks
 import { useSubmitLeaveRequest, useCancelLeaveRequest } from '../useLeave';
-import { renderHook } from '@testing-library/react';
 
 // --------------------------------------------------------------------------
 // Tests
@@ -245,9 +247,22 @@ describe('useLeave — offline regression coverage', () => {
       const op = await getOperation('tenant-1', id);
 
       expect(op).toBeDefined();
-      expect(op!.type).toBe('createLeaveRequest');
+      if (!op) throw new Error('expected queued operation to be defined');
+      expect(op.type).toBe('createLeaveRequest');
       // Verify the decrypted payload has the required fields
-      const p = op!.payload as unknown as Record<string, unknown>;
+      const p = op.payload as {
+        employeeId?: unknown;
+        totalDays?: number;
+        leaveTypeId?: string;
+        startDate?: string;
+        endDate?: string;
+        clientCommandId?: string;
+        clientCreatedAt?: unknown;
+        deviceId?: unknown;
+        operationType?: string;
+        payloadHash?: unknown;
+        schemaVersion?: string;
+      };
       expect(p.employeeId).toBeUndefined();
       expect(p.totalDays).toBe(3);
       expect(p.leaveTypeId).toBe('lt-annual');

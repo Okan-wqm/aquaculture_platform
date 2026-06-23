@@ -15,8 +15,9 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChannelType } from '@/types/messaging';
+
 import type { AiActionStatus } from '@/components/messaging/AiActionCard';
+import type { ChannelType } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
 // Types

@@ -13,15 +13,7 @@
  * but adds AI-specific hooks (useAiChat, useAiConsent) and components.
  */
 
-import {
-  useState,
-  useCallback,
-  useMemo,
-  useEffect,
-  useRef,
-  type KeyboardEvent,
-} from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   ArrowLeft,
   Settings,
@@ -37,20 +29,30 @@ import {
   Clock,
   WifiOff,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  type JSX,
+  type KeyboardEvent,
+} from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
+import { AiActionCard } from '@/components/messaging/AiActionCard';
+import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
+import { MessageBubble } from '@/components/messaging/MessageBubble';
+import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
+import { useAiChat } from '@/hooks/useAiChat';
 import { useAuth } from '@/hooks/useAuth';
+import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useMessages } from '@/hooks/useMessages';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
-import { useSendMessage } from '@/hooks/useSendMessage';
-import { useChannelDetail } from '@/hooks/useChannelDetail';
-import { useAiChat } from '@/hooks/useAiChat';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { MessageBubble } from '@/components/messaging/MessageBubble';
-import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
-import { AiActionCard } from '@/components/messaging/AiActionCard';
-import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
-import { getDateLabel } from '@/utils/messaging-helpers';
+import { useSendMessage } from '@/hooks/useSendMessage';
 import type { Message } from '@/types/messaging';
+import { getDateLabel } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,7 +129,7 @@ function AiChannelHeader({
   personaId: string | null | undefined;
   onBack: () => void;
   onSettings: () => void;
-}) {
+}): JSX.Element {
   const [showCapabilities, setShowCapabilities] = useState(false);
   const meta = PERSONA_METADATA[personaId ?? 'general'] ?? PERSONA_METADATA['general'];
   const colors = PERSONA_HEADER_COLORS[meta.color] ?? PERSONA_HEADER_COLORS['purple'];
@@ -146,7 +148,15 @@ function AiChannelHeader({
 
           <div
             className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
+            role="button"
+            tabIndex={0}
             onClick={onSettings}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSettings();
+              }
+            }}
           >
             {/* AI Avatar with persona-colored border */}
             <div className={clsx(
@@ -217,7 +227,7 @@ function AiChannelHeader({
 // ---------------------------------------------------------------------------
 
 /** Banner showing AI has farm data access. */
-function AiContextBanner() {
+function AiContextBanner(): JSX.Element | null {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
@@ -246,7 +256,7 @@ function AiContextBanner() {
  * AiChatPage renders a full-screen AI chat interface for AI-type channels.
  * Extends the standard chat layout with AI-specific features.
  */
-export function AiChatPage() {
+export function AiChatPage(): JSX.Element {
   const navigate = useNavigate();
   const { channelId } = useParams<{ channelId: string }>();
   const { user } = useAuth();
@@ -333,7 +343,7 @@ export function AiChatPage() {
     const viewport = window.visualViewport;
     if (!viewport) return;
 
-    const handleResize = () => {
+    const handleResize = (): void => {
       const offset = window.innerHeight - viewport.height;
       document.documentElement.style.setProperty(
         '--keyboard-offset',
@@ -396,7 +406,7 @@ export function AiChatPage() {
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        handleSend();
+        void handleSend();
       }
     },
     [handleSend],
@@ -416,7 +426,10 @@ export function AiChatPage() {
   const handleCopy = useCallback((messageId: string) => {
     const msg = messages.find((m) => m.id === messageId);
     if (msg?.content) {
-      navigator.clipboard.writeText(msg.content).catch(() => {});
+      navigator.clipboard.writeText(msg.content).catch(() => {
+        /* intentional no-op: clipboard copy is a best-effort convenience;
+           a denied/unsupported Clipboard API must not surface an error. */
+      });
     }
   }, [messages]);
 
@@ -443,7 +456,7 @@ export function AiChatPage() {
       {/* Message list */}
       <div
         ref={scrollContainerRef}
-        onScroll={handleScroll}
+        onScroll={() => { void handleScroll(); }}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
         {/* Context banner */}
@@ -574,7 +587,7 @@ export function AiChatPage() {
           {/* WHY: When offline, the send button uses amber styling with a clock
            * icon to indicate "Queue" semantics, matching the MessageInput pattern. */}
           <button
-            onClick={handleSend}
+            onClick={() => { void handleSend(); }}
             disabled={!inputText.trim() || isSending || isAiThinking}
             className={clsx(
               'w-12 h-12 rounded-full flex items-center justify-center touch-feedback flex-shrink-0 transition-all',

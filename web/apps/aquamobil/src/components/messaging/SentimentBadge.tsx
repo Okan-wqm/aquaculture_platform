@@ -8,6 +8,7 @@
 
 import { clsx } from 'clsx';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import type { ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,7 +29,7 @@ interface SentimentBadgeProps {
 // ---------------------------------------------------------------------------
 
 /** SentimentBadge renders a color-coded pill with trend icon. */
-export function SentimentBadge({ trend, label }: SentimentBadgeProps) {
+export function SentimentBadge({ trend, label }: SentimentBadgeProps): ReactElement {
   const config: Record<SentimentTrend, { bg: string; text: string; Icon: typeof TrendingUp }> = {
     positive: { bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-600 dark:text-green-400', Icon: TrendingUp },
     neutral: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400', Icon: Minus },

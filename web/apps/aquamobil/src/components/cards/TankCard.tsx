@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import { Skull, Scissors, Package, ArrowLeftRight } from 'lucide-react';
+import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import type { Tank } from '@/types';
@@ -23,7 +24,7 @@ const STATUS_CONFIG: Record<string, { dot: string; gradient: string; label: stri
   INACTIVE: { dot: 'bg-gray-400', gradient: 'from-gray-400 to-gray-500', label: 'Inactive' },
 };
 
-export function TankCard({ tank }: TankCardProps) {
+export function TankCard({ tank }: TankCardProps): ReactElement {
   const navigate = useNavigate();
   // BUG-09: Check feature permissions so buttons that would redirect back to /
   // via FeatureRoute are not shown at all, avoiding the navigation flash.
@@ -44,7 +45,7 @@ export function TankCard({ tank }: TankCardProps) {
       ? 'bg-amber-500'
       : 'bg-emerald-500';
 
-  const formatNumber = (num: number) => {
+  const formatNumber = (num: number): string => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
     return num.toLocaleString();

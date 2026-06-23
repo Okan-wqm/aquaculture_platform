@@ -1,6 +1,7 @@
+import { clsx } from 'clsx';
 import type { LucideIcon } from 'lucide-react';
 import { Inbox } from 'lucide-react';
-import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +66,7 @@ function formatRelativeTime(isoDate: string): string {
 // ---------------------------------------------------------------------------
 
 /** Skeleton loading rows -- 3 rows matching the item height for layout stability. */
-function LoadingSkeleton() {
+function LoadingSkeleton(): ReactElement {
   return (
     <div className="space-y-2" aria-busy="true" aria-label="Loading activity">
       {[1, 2, 3].map((i) => (
@@ -76,7 +77,7 @@ function LoadingSkeleton() {
 }
 
 /** Empty state -- icon + message, following the existing empty state pattern. */
-function EmptyState({ message }: { message: string }) {
+function EmptyState({ message }: { message: string }): ReactElement {
   return (
     <div className="text-center py-8 text-gray-400 dark:text-gray-500">
       <Inbox size={36} className="mx-auto mb-2 opacity-30" />
@@ -107,7 +108,7 @@ export function ActivityList({
   emptyMessage,
   isLoading = false,
   maxItems = 5,
-}: ActivityListProps) {
+}: ActivityListProps): ReactElement {
   const displayItems = items.slice(0, maxItems);
 
   return (

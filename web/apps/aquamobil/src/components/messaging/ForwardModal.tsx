@@ -11,16 +11,18 @@
  * @see ADR-012 section 5.5 (Message Forwarding)
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
-import { clsx } from 'clsx';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { clsx } from 'clsx';
+import type { LucideIcon } from 'lucide-react';
+import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
+import { useState, useCallback, useMemo, type ReactElement } from 'react';
+
+import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import type { Channel, Message } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,7 +41,7 @@ interface ForwardModalProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getChannelIcon(type: Channel['type']) {
+function getChannelIcon(type: Channel['type']): LucideIcon {
   switch (type) {
     case 'direct':
       return MessageCircle;
@@ -75,7 +77,7 @@ export function ForwardModal({
   message,
   onClose,
   visible,
-}: ForwardModalProps) {
+}: ForwardModalProps): ReactElement | null {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -114,9 +116,11 @@ export function ForwardModal({
       return result.forwardMessage;
     },
     onSuccess: () => {
-      // Invalidate message queries for the target channel
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      // Invalidate message queries for the target channel. invalidateQueries
+      // returns a Promise; we intentionally fire-and-forget the refetch here, so
+      // mark it void to satisfy no-floating-promises without blocking onClose.
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages') });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       onClose();
     },
   });

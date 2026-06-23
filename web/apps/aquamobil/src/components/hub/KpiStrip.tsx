@@ -1,4 +1,5 @@
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,7 +49,7 @@ const GRID_COLS: Record<number, string> = {
  * Design: follows the exact glass-morphism pattern from HomePage's 4-column
  * stats row (bg-white/10 backdrop-blur-sm rounded-xl).
  */
-export function KpiStrip({ items }: KpiStripProps) {
+export function KpiStrip({ items }: KpiStripProps): ReactElement | null {
   if (items.length === 0) return null;
 
   const colClass = GRID_COLS[Math.min(items.length, 4)] ?? 'grid-cols-4';

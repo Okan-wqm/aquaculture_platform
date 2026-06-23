@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Cloud, Bell, LogOut, MoreHorizontal, ChevronRight, Fingerprint, Shield, Trash2, X } from 'lucide-react';
+import { useState, type JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 
 interface MenuItem {
@@ -18,7 +19,7 @@ interface MenuItem {
   subtitle?: string;
 }
 
-export function MorePage() {
+export function MorePage(): JSX.Element {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
   const { pendingCount } = useOfflineQueue();
@@ -38,7 +39,7 @@ export function MorePage() {
   const [deviceName, setDeviceName] = useState('');
   const [setupSuccess, setSetupSuccess] = useState(false);
 
-  const handleEnableBiometric = async () => {
+  const handleEnableBiometric = async (): Promise<void> => {
     clearBiometricError();
     setSetupSuccess(false);
     const name = deviceName.trim() || undefined;
@@ -53,7 +54,7 @@ export function MorePage() {
     }
   };
 
-  const handleRemoveCredential = async (credentialId: string) => {
+  const handleRemoveCredential = async (credentialId: string): Promise<void> => {
     clearBiometricError();
     await removeCredential(credentialId);
   };
@@ -95,13 +96,16 @@ export function MorePage() {
       id: 'logout',
       icon: LogOut,
       label: 'Log Out',
-      action: logout,
+      // WHY void-wrap: logout() returns a Promise but MenuItem.action expects a
+      // void-returning handler. Fire-and-forget the logout; the auth provider
+      // owns the teardown/redirect and any error surfacing.
+      action: () => { void logout(); },
       iconColor: 'text-red-600',
       iconBg: 'bg-red-50 dark:bg-red-900/30',
     },
   ];
 
-  const handlePress = (item: MenuItem) => {
+  const handlePress = (item: MenuItem): void => {
     if (item.action) {
       item.action();
     } else if (item.path) {
@@ -227,7 +231,7 @@ export function MorePage() {
                         </div>
                       </div>
                       <button
-                        onClick={() => handleRemoveCredential(cred.credentialId)}
+                        onClick={() => { void handleRemoveCredential(cred.credentialId); }}
                         className="p-2 text-red-400 hover:text-red-600 transition-colors"
                         title="Remove credential"
                       >
@@ -250,7 +254,7 @@ export function MorePage() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 text-sm"
               />
               <button
-                onClick={handleEnableBiometric}
+                onClick={() => { void handleEnableBiometric(); }}
                 disabled={isRegistering}
                 className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
               >

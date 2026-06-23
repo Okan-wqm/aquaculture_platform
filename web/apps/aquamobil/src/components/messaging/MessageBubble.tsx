@@ -14,13 +14,15 @@
  * @see ADR-012 section 5 (Messaging Features)
  */
 
-import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight, Pencil } from 'lucide-react';
 import { clsx } from 'clsx';
+import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight, Pencil } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
+
 import { ReadReceipt } from './ReadReceipt';
 import { VoicePlayer } from './VoicePlayer';
-import { isSafeUrl } from '@/utils/messaging-helpers';
+
 import type { MessageContentType, MessageAttachment } from '@/types/messaging';
+import { isSafeUrl } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -240,7 +242,7 @@ export function MessageBubble({
   onEdit,
   onDelete,
   onMentionTap,
-}: MessageBubbleProps) {
+}: MessageBubbleProps): ReactElement {
   const [showMenu, setShowMenu] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -270,7 +272,7 @@ export function MessageBubble({
   // Dismiss context menu on scroll
   useEffect(() => {
     if (!showMenu) return;
-    const handleScroll = () => setShowMenu(false);
+    const handleScroll = (): void => setShowMenu(false);
     window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
     return () => {
       window.removeEventListener('scroll', handleScroll, { capture: true });
@@ -462,11 +464,14 @@ export function MessageBubble({
       {/* Context menu overlay */}
       {showMenu && (
         <>
-          {/* Backdrop */}
-          <div
+          {/* Backdrop — native <button> so the dismiss target is keyboard
+              operable and focusable without extra key handlers. */}
+          <button
+            type="button"
             className="fixed inset-0 z-40"
             onClick={closeMenu}
             onTouchStart={closeMenu}
+            aria-label="Dismiss menu"
           />
           {/* Menu */}
           <div

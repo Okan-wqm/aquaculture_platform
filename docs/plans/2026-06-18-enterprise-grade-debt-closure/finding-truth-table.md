@@ -29,6 +29,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `DEPLOY-CRITICAL-008`     | OPEN           | 1.1          | infra-expert             | real-open    |
 
 ## Mutation Rules
 

@@ -17,7 +17,7 @@
  * @returns isFetchingNextPage — true while loading older messages
  */
 
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, type UseInfiniteQueryResult, type InfiniteData } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { useAuth } from './useAuth';
@@ -66,6 +66,28 @@ async function fetchMessages(
   return result.messages;
 }
 
+/** Socket.IO surface kept for API compatibility (no longer used here). */
+type MessagesSocketLike = {
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+  off: (event: string, handler: (...args: unknown[]) => void) => void;
+};
+
+/** Return shape of {@link useMessages}. */
+export interface UseMessagesReturn {
+  /** All loaded messages, oldest-first (empty until loaded). */
+  messages: Message[];
+  /** True during the initial fetch. */
+  isLoading: boolean;
+  /** GraphQL or network error, or null. */
+  error: Error | null;
+  /** Load the next (older) page of messages. */
+  fetchNextPage: UseInfiniteQueryResult<InfiniteData<MessagePage>, Error>['fetchNextPage'];
+  /** Whether older messages exist. */
+  hasNextPage: boolean;
+  /** True while loading older messages. */
+  isFetchingNextPage: boolean;
+}
+
 /**
  * Messages hook with cursor-based infinite scroll and offline cache.
  *
@@ -80,25 +102,25 @@ async function fetchMessages(
  */
 export function useMessages(
   channelId: string | undefined,
-  _socketRef?: React.RefObject<{
-    on: (event: string, handler: (...args: unknown[]) => void) => void;
-    off: (event: string, handler: (...args: unknown[]) => void) => void;
-  } | null>,
-) {
+  _socketRef?: React.RefObject<MessagesSocketLike | null>,
+): UseMessagesReturn {
   const { isAuthenticated, tenantId, user } = useAuth();
 
-  // WHY 2026-04-29: message pages participate in tenant-switch cleanup and
-  // offline-sync invalidation, so their keys must live under the tenant prefix.
-  // MT-CRITICAL-051: channel messages are membership-scoped, so user.id is part
-  // of both the React Query key and the IndexedDB cache namespace below.
-  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', user?.id, channelId);
-
   const query = useInfiniteQuery({
-    queryKey,
+    // WHY 2026-04-29: message pages participate in tenant-switch cleanup and
+    // offline-sync invalidation, so their keys must live under the tenant prefix.
+    // MT-CRITICAL-051: channel messages are membership-scoped, so user.id is part
+    // of both the React Query key and the IndexedDB cache namespace below.
+    // WHY inlined: no-bare-tenant-query-key verifies the factory call at the
+    // queryKey property; a local variable cannot be statically proven.
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', user?.id, channelId),
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const userId = user?.id;
+      // WHY guard-throw: `enabled` gates execution on channelId but does not
+      // narrow its type. An explicit throw narrows it without a non-null assertion.
+      if (!channelId) throw new Error('useMessages: channelId is required');
       try {
-        const page = await fetchMessages(channelId!, pageParam);
+        const page = await fetchMessages(channelId, pageParam);
         // Cache first page in IndexedDB for offline. MT-CRITICAL-051: the cache
         // namespace embeds user.id — the offline fallback below serves cached
         // messages WITHOUT re-checking channel membership, so a tenant+channel

@@ -1,7 +1,10 @@
-import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
 import { get, set } from 'idb-keyval';
+import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, type ReactElement, type ReactNode } from 'react';
+
 import { useAuth } from './useAuth';
+
 import { authenticatedFetch } from '@/services/authenticated-fetch';
+import { readGraphQLResponse } from '@/utils/graphql-response';
 
 export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer' | 'storage';
 
@@ -23,6 +26,15 @@ interface MobileAllowedFeatures {
 interface MobileSettings {
   isMobileEnabled: boolean;
   allowedFeatures: MobileAllowedFeatures;
+}
+
+/**
+ * Wire shape of the `getMyMobileSettings` GraphQL query result. The server
+ * returns the same MobileSettings fields; typing the response end-to-end keeps
+ * the `.json()` payload off the `any` path (no-unsafe-* discipline).
+ */
+interface MobileSettingsQueryData {
+  getMyMobileSettings: MobileSettings | null;
 }
 
 /**
@@ -113,7 +125,7 @@ const MobilePermissionsContext = createContext<MobilePermissionsContextValue | n
 
 // PERF-03: Single provider at app root — fetch happens exactly once per auth session,
 // shared via context to all consumers (FeatureRoute, MobileLayout, HomePage, TankCard).
-export function MobilePermissionsProvider({ children }: { children: ReactNode }) {
+export function MobilePermissionsProvider({ children }: { children: ReactNode }): ReactElement {
   const { accessToken, isAuthenticated, isLoading: authLoading, user, tenantId } = useAuth();
   const [settings, setSettings] = useState<MobileSettings>(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -123,8 +135,11 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
   const [permissionsDegraded, setPermissionsDegraded] = useState(false);
 
   // BUG-16: Use ref to hold latest fetchSettings so the effect only re-runs when
-  // isAuthenticated transitions, not on every token refresh.
-  const fetchSettingsRef = useRef<() => Promise<void>>(async () => {});
+  // isAuthenticated transitions, not on every token refresh. The initial value is
+  // a no-op resolved promise (replaced by the real fetchSettings on first effect
+  // run) — written as `() => Promise.resolve()` so it is neither an empty function
+  // body nor an async function with no await.
+  const fetchSettingsRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   const fetchSettings = useCallback(async () => {
     if (!accessToken || !user?.id) return;
@@ -149,10 +164,10 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
         return;
       }
 
-      const result = await response.json();
+      const result = await readGraphQLResponse<MobileSettingsQueryData>(response);
+      const fetched = result.data?.getMyMobileSettings;
 
-      if (result.data?.getMyMobileSettings) {
-        const fetched = result.data.getMyMobileSettings;
+      if (fetched) {
         const newSettings: MobileSettings = {
           isMobileEnabled: fetched.isMobileEnabled,
           allowedFeatures: fetched.allowedFeatures,
@@ -239,7 +254,10 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
 
     const cacheKey = getCacheKey(user.id, tenantId);
 
-    (async () => {
+    // WHY void on the IIFE: the cache-then-fetch sequence is fire-and-forget
+    // within the effect; the Promise is explicitly discarded so it is not a
+    // floating promise.
+    void (async () => {
       // BUG-07: Load cached first for instant UI (tenant+user key).
       // Accept stale cache too — show something immediately while fresh data loads.
       try {
@@ -254,12 +272,14 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
       } catch {
         // IndexedDB read failed — continue to fetch from server
       }
-      // Then fetch fresh from server
+      // Then fetch fresh from server (via the ref so the effect re-runs only on
+      // the auth-identity transitions below, never on every token refresh — BUG-16).
       await fetchSettingsRef.current();
     })();
-  // Intentionally only depends on isAuthenticated/authLoading/user?.id/tenantId to avoid
-  // re-fetching on every token refresh (BUG-16).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // BUG-16: depend only on the auth-identity transitions. fetchSettings is read
+    // through fetchSettingsRef (kept current by the effect above), so it is
+    // deliberately not a dependency — and react-hooks/exhaustive-deps does not
+    // run on this .ts file, so no suppression directive is needed.
   }, [isAuthenticated, authLoading, user?.id, tenantId]);
 
   const canAccess = useCallback(

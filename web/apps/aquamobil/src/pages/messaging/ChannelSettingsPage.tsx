@@ -11,8 +11,7 @@
  * change their notification preference and leave.
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   ArrowLeft,
   UserPlus,
@@ -29,18 +28,20 @@ import {
   Brain,
   Sparkles,
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { useAuth } from '@/hooks/useAuth';
-import { useChannelDetail } from '@/hooks/useChannelDetail';
-import { useChannelActions } from '@/hooks/useChannelActions';
-import { useTenantUsers } from '@/hooks/useTenantUsers';
+import { useState, useCallback, useMemo, type JSX } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { ConfirmDialog } from '@/components/messaging/ConfirmDialog';
 import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
-import { useAiConsent } from '@/hooks/useAiConsent';
-import type { NotificationPreference } from '@/types/messaging';
 import type { SentimentTrend } from '@/components/messaging/SentimentBadge';
+import { useAiConsent } from '@/hooks/useAiConsent';
+import { useAuth } from '@/hooks/useAuth';
+import { useChannelActions } from '@/hooks/useChannelActions';
+import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useTenantUsers } from '@/hooks/useTenantUsers';
+import type { NotificationPreference } from '@/types/messaging';
 
 const NOTIFICATION_OPTIONS: Array<{
   value: NotificationPreference;
@@ -77,7 +78,7 @@ const NOTIFICATION_OPTIONS: Array<{
  * ChannelSettingsPage shows channel details, member list, notification
  * preferences, and channel management actions (leave, delete).
  */
-export function ChannelSettingsPage() {
+export function ChannelSettingsPage(): JSX.Element {
   const navigate = useNavigate();
   const { channelId } = useParams<{ channelId: string }>();
   const { user } = useAuth();
@@ -329,7 +330,7 @@ export function ChannelSettingsPage() {
                 return (
                   <button
                     key={option.value}
-                    onClick={() => handleNotifChange(option.value)}
+                    onClick={() => { void handleNotifChange(option.value); }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 touch-feedback transition-all border-b border-gray-50 dark:border-gray-800 last:border-0"
                   >
                     <OptIcon
@@ -539,7 +540,7 @@ export function ChannelSettingsPage() {
           message="Are you sure you want to leave this channel? You will no longer receive messages."
           confirmLabel="Leave"
           confirmColor="bg-red-600"
-          onConfirm={handleLeave}
+          onConfirm={() => { void handleLeave(); }}
           onCancel={() => setShowLeaveDialog(false)}
         />
       )}
@@ -550,7 +551,7 @@ export function ChannelSettingsPage() {
           message="This will permanently delete the channel and all its messages for all members. This action cannot be undone."
           confirmLabel="Delete"
           confirmColor="bg-red-600"
-          onConfirm={handleDelete}
+          onConfirm={() => { void handleDelete(); }}
           onCancel={() => setShowDeleteDialog(false)}
         />
       )}
@@ -611,7 +612,7 @@ export function ChannelSettingsPage() {
                   {availableUsers.map((u) => (
                     <button
                       key={u.id}
-                      onClick={() => handleAddMember(u.id)}
+                      onClick={() => { void handleAddMember(u.id); }}
                       disabled={actionLoading}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 touch-feedback transition-colors"
                     >

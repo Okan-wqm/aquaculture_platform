@@ -1,6 +1,6 @@
-import React from 'react';
-import { Clock, Check, CheckCheck } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Clock, Check, CheckCheck } from 'lucide-react';
+import React from 'react';
 
 // ---------------------------------------------------------------------------
 // Types

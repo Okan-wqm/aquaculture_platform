@@ -1,7 +1,37 @@
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
-import { useNotifications } from '@/hooks/useNotifications';
 import { clsx } from 'clsx';
+import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import type { JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { useNotifications } from '@/hooks/useNotifications';
+import type { InAppNotification } from '@/types';
+
+/**
+ * Notification deep-link payload. The backend serializes a JSON blob into
+ * InAppNotification.data; the only field this page navigates on is taskId.
+ * Parsing through this type keeps the JSON.parse result typed end-to-end
+ * (no `any` member access) and documents the contract.
+ */
+interface NotificationDeepLink {
+  taskId?: string;
+}
+
+function parseNotificationDeepLink(data: string | undefined): NotificationDeepLink | null {
+  if (!data) return null;
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (typeof parsed === 'object' && parsed !== null && 'taskId' in parsed) {
+      const taskId: unknown = parsed.taskId;
+      if (typeof taskId === 'string') {
+        return { taskId };
+      }
+    }
+    return {};
+  } catch {
+    // invalid JSON — no deep link to follow
+    return null;
+  }
+}
 
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();
@@ -18,26 +48,19 @@ function formatTimeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US');
 }
 
-export function NotificationsPage() {
+export function NotificationsPage(): JSX.Element {
   const navigate = useNavigate();
   const { notifications, loading, error, markAsRead, markAllAsRead, unreadCount, refetch } = useNotifications();
 
-  const handleNotificationPress = async (notification: typeof notifications[0]) => {
+  const handleNotificationPress = async (notification: InAppNotification): Promise<void> => {
     if (!notification.isRead) {
       await markAsRead(notification.id);
     }
 
-    // Navigate based on notification data
-    if (notification.data) {
-      try {
-        const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data;
-        if (data.taskId) {
-          navigate(`/tasks/${data.taskId}`);
-          return;
-        }
-      } catch {
-        // invalid data, ignore
-      }
+    // Navigate based on notification deep-link data
+    const deepLink = parseNotificationDeepLink(notification.data);
+    if (deepLink?.taskId) {
+      navigate(`/tasks/${deepLink.taskId}`);
     }
   };
 
@@ -57,7 +80,9 @@ export function NotificationsPage() {
           </div>
           {unreadCount > 0 && (
             <button
-              onClick={markAllAsRead}
+              onClick={() => {
+                void markAllAsRead();
+              }}
               className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
             >
               <CheckCheck size={16} />
@@ -83,7 +108,9 @@ export function NotificationsPage() {
             </p>
             <p className="text-sm text-gray-400 mt-1">Please try again later</p>
             <button
-              onClick={() => refetch()}
+              onClick={() => {
+                void refetch();
+              }}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
             >
               <RefreshCw size={16} />
@@ -100,7 +127,9 @@ export function NotificationsPage() {
           notifications.map((notification) => (
             <button
               key={notification.id}
-              onClick={() => handleNotificationPress(notification)}
+              onClick={() => {
+                void handleNotificationPress(notification);
+              }}
               className={clsx(
                 'w-full bg-white dark:bg-gray-900 rounded-xl p-4 border text-left touch-feedback transition-all',
                 notification.isRead

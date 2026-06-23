@@ -80,11 +80,21 @@ async function fetchTenantUsers(): Promise<TenantUserItem[]> {
   }));
 }
 
+/** Return shape of {@link useTenantUsers}. */
+export interface UseTenantUsersReturn {
+  /** Tenant users normalized for the picker (empty until loaded). */
+  users: TenantUserItem[];
+  /** True during the initial fetch. */
+  isLoading: boolean;
+  /** Query error, or null. */
+  error: Error | null;
+}
+
 /**
  * Tenant user list hook for the user picker.
  * Returns all users in the current tenant excluding the current user.
  */
-export function useTenantUsers() {
+export function useTenantUsers(): UseTenantUsersReturn {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({

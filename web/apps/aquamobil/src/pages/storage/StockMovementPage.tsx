@@ -28,7 +28,8 @@ import {
   Search,
   Package,
 } from 'lucide-react';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import type { JSX } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -152,7 +153,7 @@ function toStorageItems(inventory: StorageInventoryItem[]): StorageItem[] {
 // COMPONENT
 // ============================================================================
 
-export function StockMovementPage() {
+export function StockMovementPage(): JSX.Element {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
@@ -180,6 +181,15 @@ export function StockMovementPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // WHY refs + focus effect (not autoFocus): each wizard step renders a single
+  // field meant to receive focus the moment its step opens, so the worker can
+  // type immediately one-handed. The autoFocus attribute is an a11y anti-pattern
+  // (jsx-a11y/no-autofocus); the step-keyed focus effect below reproduces the
+  // exact behaviour without the lint violation.
+  const quantityInputRef = useRef<HTMLInputElement>(null);
+  const lotNumberInputRef = useRef<HTMLInputElement>(null);
+  const notesInputRef = useRef<HTMLTextAreaElement>(null);
+
   // ---- Data fetching -------------------------------------------------------
 
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
@@ -198,7 +208,10 @@ export function StockMovementPage() {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const items = itemsData ?? [];
+  // WHY useMemo: a fresh `?? []` literal each render gives `items` a new identity,
+  // which would force every downstream useMemo that depends on it to recompute on
+  // every render. Memoizing on `itemsData` keeps the reference stable.
+  const items = useMemo(() => itemsData ?? [], [itemsData]);
 
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
@@ -213,7 +226,9 @@ export function StockMovementPage() {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const locations = locationsData ?? [];
+  // WHY useMemo: same stable-identity rationale as `items` above — keeps the
+  // `locations` reference stable across renders for the downstream useMemo deps.
+  const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   // Derived values
   const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId), [items, selectedItemId]);
@@ -232,6 +247,15 @@ export function StockMovementPage() {
   const needsLot = selectedItemType ? LOT_REQUIRED_TYPES.includes(selectedItemType) : false;
   const needsExpiry = selectedItemType ? EXPIRY_REQUIRED_TYPES.includes(selectedItemType) : false;
   const needsNotes = movementType === 'WASTE';
+
+  // Focus the active step's primary field on entry (replaces removed autoFocus).
+  useEffect(() => {
+    if (step === 3) quantityInputRef.current?.focus();
+    else if (step === 5 && needsLot) lotNumberInputRef.current?.focus();
+    else if (step === 6) notesInputRef.current?.focus();
+    // WHY depend on needsLot: the lot field only mounts on step 5 when a lot is
+    // required, so focus must only be attempted under that same condition.
+  }, [step, needsLot]);
 
   // ---- Navigation helpers --------------------------------------------------
 
@@ -309,7 +333,13 @@ export function StockMovementPage() {
   // ---- Submit handler ------------------------------------------------------
 
   const handleSubmit = useCallback(async () => {
-    if (!selectedItem || !selectedLocation) return;
+    // WHY guard selectedItemType here: the wizard cannot reach the confirm step
+    // without a chosen item type (step 1's canAdvance requires it), but the type
+    // system can't see that invariant. Narrowing it to a non-null const both
+    // satisfies the type checker and fails loudly if the precondition is ever
+    // violated by a future refactor.
+    if (!selectedItem || !selectedLocation || selectedItemType === null) return;
+    const itemType = selectedItemType;
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -319,7 +349,7 @@ export function StockMovementPage() {
     // - OUT / WASTE: stock leaves fromLocationId (source warehouse)
     const input: StockMovementInput = {
       movementType,
-      itemType: selectedItemType!,
+      itemType,
       itemId: selectedItemId,
       quantity: parseFloat(quantity),
       ...(movementType === 'IN'
@@ -539,13 +569,13 @@ export function StockMovementPage() {
             </p>
             <div className="relative">
               <input
+                ref={quantityInputRef}
                 type="number"
                 inputMode="decimal"
                 placeholder="0"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
                 className="w-full text-center text-4xl font-bold py-6 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                autoFocus
               />
               {selectedItem && (
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 font-medium">
@@ -621,12 +651,12 @@ export function StockMovementPage() {
                   Lot / Batch Number {needsLot && <span className="text-red-500">*</span>}
                 </label>
                 <input
+                  ref={lotNumberInputRef}
                   type="text"
                   placeholder="e.g. LOT-2026-0328-A"
                   value={lotNumber}
                   onChange={(e) => setLotNumber(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  autoFocus
                 />
               </div>
             )}
@@ -658,12 +688,12 @@ export function StockMovementPage() {
                 : 'Add any additional notes about this movement.'}
             </p>
             <textarea
+              ref={notesInputRef}
               placeholder={needsNotes ? 'e.g. Feed damaged by water ingress...' : 'Optional notes...'}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
               className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
-              autoFocus
             />
           </div>
         )}
@@ -721,7 +751,7 @@ export function StockMovementPage() {
             )}
 
             <button
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
               disabled={isSubmitting}
               className={clsx(
                 'w-full mt-6 py-4 rounded-2xl font-bold text-white text-base shadow-card transition-all active:scale-[0.98] touch-feedback',

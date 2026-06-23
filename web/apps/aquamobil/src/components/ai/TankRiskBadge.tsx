@@ -11,8 +11,10 @@
  * so the tank detail page works identically with or without MCP.
  */
 
-import { useTankRiskAssessment } from '@/hooks/useAiInsights';
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
+
+import { useTankRiskAssessment } from '@/hooks/useAiInsights';
 
 interface TankRiskBadgeProps {
   tankId: string;
@@ -50,7 +52,7 @@ const RISK_COLORS: Record<string, { bg: string; text: string; border: string; do
 
 const DEFAULT_COLORS = RISK_COLORS.LOW;
 
-export function TankRiskBadge({ tankId }: TankRiskBadgeProps) {
+export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | null {
   const { data: risk, isLoading, isError } = useTankRiskAssessment(tankId);
 
   // WHY: Skeleton shown only during initial load — subtle enough to not distract

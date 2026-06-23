@@ -16,7 +16,7 @@
  * @returns fetchMore — load the next page of channels
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from './useAuth';
@@ -73,23 +73,48 @@ async function fetchChannels(limit: number, offset: number): Promise<ChannelPage
  *                    channelUpdated events. If not provided, real-time updates
  *                    are skipped and polling is the only refresh mechanism.
  */
-export function useChannels(socketRef?: React.RefObject<{ on: (event: string, handler: () => void) => void; off: (event: string, handler: () => void) => void } | null>) {
+/** Socket.IO surface this hook needs for channelUpdated subscriptions. */
+type ChannelSocketLike = {
+  on: (event: string, handler: () => void) => void;
+  off: (event: string, handler: () => void) => void;
+};
+
+/** Return shape of {@link useChannels}. */
+export interface UseChannelsReturn {
+  /** Accumulated channels across loaded pages (empty until loaded). */
+  channels: ChannelPage['items'];
+  /** True during the initial fetch. */
+  isLoading: boolean;
+  /** GraphQL or network error, or null. */
+  error: Error | null;
+  /** Manually re-run the underlying query (TanStack Query refetch). */
+  refetch: UseQueryResult<ChannelPage, Error>['refetch'];
+  /** Whether more channels exist beyond the current page. */
+  hasMore: boolean;
+  /** Load the next page of channels. */
+  fetchMore: () => void;
+}
+
+export function useChannels(
+  socketRef?: React.RefObject<ChannelSocketLike | null>,
+): UseChannelsReturn {
   const { isAuthenticated, tenantId, user } = useAuth();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
 
   const accumulatedChannelsRef = useRef<ChannelPage['items']>([]);
 
-  // MT-CRITICAL-051: `myChannels` is membership-scoped — it returns the CURRENT
-  // USER's channels — so user.id is part of BOTH the React Query key (this line)
-  // AND the IndexedDB cache namespace (userScopedCacheKey below). Without the
-  // user dimension, user A's channel list (sender names, unread state) is served
-  // to user B on the same tenant/device after a logout→login. WHY 2026-04-29: the
-  // tenant factory keeps tenant switches and sync invalidation on one cache tree.
-  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'channels', user?.id, offset);
-
   const query = useQuery({
-    queryKey,
+    // MT-CRITICAL-051: `myChannels` is membership-scoped — it returns the CURRENT
+    // USER's channels — so user.id is part of BOTH the React Query key (this line)
+    // AND the IndexedDB cache namespace (userScopedCacheKey below). Without the
+    // user dimension, user A's channel list (sender names, unread state) is served
+    // to user B on the same tenant/device after a logout→login. WHY 2026-04-29: the
+    // tenant factory keeps tenant switches and sync invalidation on one cache tree.
+    // WHY inlined: the no-bare-tenant-query-key rule statically verifies the key
+    // goes through createTenantQueryKey at the queryKey property; a local variable
+    // cannot be proven, so the factory call must appear inline.
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels', user?.id, offset),
     queryFn: async () => {
       const userId = user?.id;
       try {
@@ -123,8 +148,8 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
     const socket = socketRef?.current;
     if (!socket) return;
 
-    const handleChannelUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+    const handleChannelUpdated = (): void => {
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
     };
 
     socket.on('channelUpdated', handleChannelUpdated);

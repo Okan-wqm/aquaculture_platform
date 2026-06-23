@@ -248,11 +248,13 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
   private startCleanup(): void {
     // Cleanup every minute
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
+    this.cleanupInterval.unref();
   }
 
   onModuleDestroy(): void {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
     }
   }
 }

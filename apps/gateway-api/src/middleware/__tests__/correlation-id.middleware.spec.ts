@@ -1,14 +1,14 @@
-/* eslint-disable @typescript-eslint/unbound-method */
-/* eslint-disable @typescript-eslint/no-dynamic-delete */
-/* eslint-disable @typescript-eslint/no-empty-function */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
 /**
  * CorrelationIdMiddleware Tests
@@ -229,7 +229,7 @@ describe('CorrelationIdMiddleware', () => {
       middleware.use(req, res, next);
 
       const correlatedReq = req as CorrelatedRequest;
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+       
       const setHeaderMock = res.setHeader as jest.Mock;
       expect(setHeaderMock.mock.calls).toEqual(
         expect.arrayContaining([

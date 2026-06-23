@@ -1,3 +1,5 @@
+import { clearManagedTimer, createManagedInterval, type ManagedInterval } from '../utils';
+
 import { RateLimitEntry, RateLimitIncrementResult, RateLimitStore } from './rate-limit.types';
 
 /**
@@ -12,13 +14,10 @@ import { RateLimitEntry, RateLimitIncrementResult, RateLimitStore } from './rate
  */
 export class InMemoryRateLimitStore implements RateLimitStore {
   private readonly windows = new Map<string, RateLimitEntry>();
-  private readonly cleanupInterval: NodeJS.Timeout;
+  private cleanupInterval: ManagedInterval | null;
 
   constructor(cleanupIntervalMs = 60_000) {
-    this.cleanupInterval = setInterval(() => this.cleanup(), cleanupIntervalMs);
-    // WHY unref: a counter-GC timer must never keep the process (or a jest
-    // worker) alive on its own.
-    this.cleanupInterval.unref();
+    this.cleanupInterval = createManagedInterval(() => this.cleanup(), cleanupIntervalMs);
   }
 
   // WHAT atomicity means here: Node executes this method body without
@@ -49,7 +48,8 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 
   destroy(): void {
-    clearInterval(this.cleanupInterval);
+    clearManagedTimer(this.cleanupInterval);
+    this.cleanupInterval = null;
     this.windows.clear();
   }
 

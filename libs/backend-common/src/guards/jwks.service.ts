@@ -1,5 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as crypto from 'crypto';
+
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+
+import { clearManagedTimer, createManagedInterval, type ManagedInterval } from '../utils';
 
 /**
  * JSON Web Key interface for RSA keys.
@@ -48,7 +51,7 @@ export class JwksService implements OnModuleDestroy {
   private cacheTtlMs: number;
   private jwksUrl: string;
   private pendingFetch: Promise<void> | null = null;
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private refreshTimer: ManagedInterval | null = null;
 
   constructor() {
     // Defaults — configure via init()
@@ -68,9 +71,11 @@ export class JwksService implements OnModuleDestroy {
 
     this.logger.log(`JWKS service initialized: url=${jwksUrl}, cacheTtl=${this.cacheTtlMs}ms`);
 
+    clearManagedTimer(this.refreshTimer);
+
     // Proactive background refresh at 75% of TTL
     const refreshInterval = Math.floor(this.cacheTtlMs * 0.75);
-    this.refreshTimer = setInterval(() => {
+    this.refreshTimer = createManagedInterval(() => {
       void this.refreshKeys().catch((err) =>
         this.logger.warn(`Background JWKS refresh failed: ${(err as Error).message}`),
       );
@@ -78,10 +83,8 @@ export class JwksService implements OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = null;
-    }
+    clearManagedTimer(this.refreshTimer);
+    this.refreshTimer = null;
   }
 
   /**
@@ -95,7 +98,7 @@ export class JwksService implements OnModuleDestroy {
   async getSigningKey(kid: string): Promise<string> {
     // Check cache first
     const cached = this.cache.get(kid);
-    if (cached && (Date.now() - cached.fetchedAt) < this.cacheTtlMs) {
+    if (cached && Date.now() - cached.fetchedAt < this.cacheTtlMs) {
       return cached.pem;
     }
 

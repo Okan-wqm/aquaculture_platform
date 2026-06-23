@@ -131,6 +131,7 @@ export default {
         '<rootDir>/repo-hygiene-invariants.spec.ts',
         '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
         '<rootDir>/stabilization-manifest.spec.ts',
+        '<rootDir>/runtime-lifecycle-timer-ssot.spec.ts',
       ],
     },
     {

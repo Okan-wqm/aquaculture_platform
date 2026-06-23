@@ -14,10 +14,11 @@
  * @see ADR-012 section 5.4 (Mentions)
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { clsx } from 'clsx';
-import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';
+
 import type { ChannelMember } from '@/types/messaging';
+import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +90,7 @@ export function MentionPicker({
   onSelect,
   onDismiss,
   visible,
-}: MentionPickerProps) {
+}: MentionPickerProps): ReactElement | null {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 

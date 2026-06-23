@@ -1,4 +1,5 @@
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,7 +24,7 @@ interface TypingIndicatorProps {
  * WHY max 3 names: Showing more than 3 names overflows the single-line
  * layout on narrow mobile screens. "3 people are typing..." is sufficient.
  */
-export function TypingIndicator({ typingUsers }: TypingIndicatorProps) {
+export function TypingIndicator({ typingUsers }: TypingIndicatorProps): ReactElement | null {
   if (typingUsers.length === 0) return null;
 
   let label: string;

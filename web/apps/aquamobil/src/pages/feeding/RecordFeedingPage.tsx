@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, Package, CheckCircle, AlertCircle, Hand, Settings, Radio } from 'lucide-react';
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 
@@ -156,7 +156,7 @@ function useTodaysFeedingPlan(): {
 // COMPONENT
 // ============================================================================
 
-export function RecordFeedingPage() {
+export function RecordFeedingPage(): JSX.Element {
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
   const { data: tanks } = useTanks();
@@ -211,7 +211,7 @@ export function RecordFeedingPage() {
     return Object.keys(newErrors).length === 0;
   }, [selectedTankId, selectedExecution, actualKg, parsedActual]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (): Promise<void> => {
     if (!validateForm()) return;
     if (!selectedExecution) return;
 
@@ -236,7 +236,7 @@ export function RecordFeedingPage() {
     }
   };
 
-  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>) => {
+  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>): void => {
     setSelectedTankId(e.target.value);
     setActualKg('');
     setErrors((prev) => ({ ...prev, tank: undefined }));
@@ -372,7 +372,7 @@ export function RecordFeedingPage() {
       {selectedTankId && !planLoading && !selectedExecution && (
         <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
           <p className="text-amber-700 dark:text-amber-300 font-medium">No feeding plan for this tank today</p>
-          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">This tank doesn't have a feeding program assigned.</p>
+          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">This tank doesn&apos;t have a feeding program assigned.</p>
         </div>
       )}
 
@@ -460,7 +460,7 @@ export function RecordFeedingPage() {
       {selectedExecution && (
         <div className="px-4 pb-28">
           <button
-            onClick={handleSubmit}
+            onClick={() => { void handleSubmit(); }}
             disabled={!selectedTankId || !selectedExecution || parsedActual <= 0 || isSubmitting}
             className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
           >

@@ -13,9 +13,10 @@
  * @see ADR-012 section 5.3 (Voice Notes)
  */
 
-import { useCallback, useMemo } from 'react';
-import { Mic, Square, X } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Mic, Square, X } from 'lucide-react';
+import { useCallback, useMemo, type ReactElement } from 'react';
+
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ function formatTimer(seconds: number): string {
  * Animated waveform visualization using CSS animations.
  * Each bar has a randomized delay and height to simulate audio waveform.
  */
-function WaveformBars({ isAnimating }: { isAnimating: boolean }) {
+function WaveformBars({ isAnimating }: { isAnimating: boolean }): ReactElement {
   // Generate stable random heights for bars (seeded by index)
   const bars = useMemo(
     () =>
@@ -112,7 +113,7 @@ export function VoiceRecorder({
   onRecordingComplete,
   onCancel,
   disabled = false,
-}: VoiceRecorderProps) {
+}: VoiceRecorderProps): ReactElement {
   const {
     state,
     elapsedSeconds,
@@ -220,7 +221,9 @@ export function VoiceRecorder({
 
       {/* Record / Stop button */}
       <button
-        onClick={handleToggleRecord}
+        onClick={() => {
+          void handleToggleRecord();
+        }}
         disabled={disabled}
         className={clsx(
           'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',

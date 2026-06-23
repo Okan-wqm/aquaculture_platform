@@ -1,10 +1,12 @@
+import { List, ListInput, BlockTitle } from 'konsta/react';
+import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
+import type { JSX } from 'react';
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { useTanks } from '@/hooks/useTanks';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTanks } from '@/hooks/useTanks';
 import type { TransferInput } from '@/types';
 
 interface FormErrors {
@@ -18,7 +20,7 @@ interface FormErrors {
 // is operationally significant and cannot be easily reversed.
 type FormStep = 'entry' | 'confirm';
 
-export function RecordTransferPage() {
+export function RecordTransferPage(): JSX.Element {
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
   const { data: tanks } = useTanks();
@@ -75,7 +77,7 @@ export function RecordTransferPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleReview = () => {
+  const handleReview = (): void => {
     if (!validateForm()) return;
     setStep('confirm');
   };
@@ -97,7 +99,7 @@ export function RecordTransferPage() {
     transferredAt: new Date().toISOString(),
   });
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (): Promise<void> => {
     if (!validateForm()) return;
     if (!sourceMetrics?.batchId) return;
 
@@ -208,7 +210,7 @@ export function RecordTransferPage() {
 
         <div className="px-4 mt-6 space-y-3 pb-28">
           <button
-            onClick={handleSubmit}
+            onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
             className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
           >

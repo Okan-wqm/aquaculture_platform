@@ -14,22 +14,24 @@
  *     interpret null as "AI unavailable" and show a subtle fallback message.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import {
   FARM_DASHBOARD_INSIGHTS_QUERY,
   TANK_RISK_ASSESSMENT_QUERY,
   BATCH_GROWTH_PREDICTION_QUERY,
   FEEDING_ADVICE_QUERY,
 } from '@/graphql/ai-insights.queries';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type {
   FarmDashboardInsights,
   TankRiskAssessment,
   BatchGrowthPrediction,
   FeedingAdvice,
 } from '@/types/ai-insights.types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * WHY: 5-minute staleTime matches the backend Redis cache TTL for AI predictions.
@@ -46,7 +48,7 @@ const AI_RETRY_COUNT = 1; // WHY: Fast fail when MCP is down — no point retryi
  * Returns the aggregated farm-wide AI summary in a single query to avoid
  * N+1 requests when rendering the dashboard.
  */
-export function useAiDashboardInsights() {
+export function useAiDashboardInsights(): UseQueryResult<FarmDashboardInsights | null, Error> {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
@@ -74,7 +76,9 @@ export function useAiDashboardInsights() {
  * WHY: Per-tank risk assessment hook for the tank detail page. Shows risk score,
  * contributing factors, and recommendations for a specific tank.
  */
-export function useTankRiskAssessment(tankId: string | undefined) {
+export function useTankRiskAssessment(
+  tankId: string | undefined,
+): UseQueryResult<TankRiskAssessment | null, Error> {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
@@ -100,7 +104,9 @@ export function useTankRiskAssessment(tankId: string | undefined) {
  * when a batch is active (batchId is provided), since growth predictions require
  * historical batch data to compute.
  */
-export function useBatchGrowthPrediction(batchId: string | null | undefined) {
+export function useBatchGrowthPrediction(
+  batchId: string | null | undefined,
+): UseQueryResult<BatchGrowthPrediction | null, Error> {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
@@ -125,7 +131,9 @@ export function useBatchGrowthPrediction(batchId: string | null | undefined) {
  * WHY: Per-tank feeding advice hook for the tank detail page. Provides precision
  * feeding recommendations — the #1 operational cost lever in aquaculture.
  */
-export function useFeedingAdvice(tankId: string | undefined) {
+export function useFeedingAdvice(
+  tankId: string | undefined,
+): UseQueryResult<FeedingAdvice | null, Error> {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({

@@ -1,7 +1,10 @@
-import { useNavigate } from 'react-router-dom';
-import { MapPin, CalendarOff, Clock, Users } from 'lucide-react';
-import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { clsx } from 'clsx';
+import { MapPin, CalendarOff, Clock, Users } from 'lucide-react';
+import type { JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
+
 
 interface HrCard {
   feature: MobileFeature;
@@ -43,7 +46,7 @@ const hrCards: HrCard[] = [
   },
 ];
 
-export function HrHubPage() {
+export function HrHubPage(): JSX.Element {
   const navigate = useNavigate();
   const { canAccess } = useMobilePermissions();
 

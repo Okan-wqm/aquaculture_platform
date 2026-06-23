@@ -18,7 +18,18 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+
 import type { TypingEvent } from '@/types/messaging';
+
+/** Return shape of {@link useTypingIndicator}. */
+export interface UseTypingIndicatorReturn {
+  /** Call on each keystroke; internally throttled to 1 emit / 3 s. */
+  startTyping: () => void;
+  /** Call when the user clears input or sends a message. */
+  stopTyping: () => void;
+  /** User IDs currently typing in the channel (excluding the current user). */
+  typingUsers: string[];
+}
 
 /** Minimum interval between outgoing typing events. */
 const THROTTLE_INTERVAL_MS = 3_000;
@@ -47,7 +58,7 @@ export function useTypingIndicator(
   channelId: string | undefined,
   socketRef: React.RefObject<SocketLike | null>,
   currentUserId: string | undefined,
-) {
+): UseTypingIndicatorReturn {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const lastEmitRef = useRef(0);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,7 +111,7 @@ export function useTypingIndicator(
     const socket = socketRef.current;
     if (!socket || !channelId) return;
 
-    const handleTyping = (...args: unknown[]) => {
+    const handleTyping = (...args: unknown[]): void => {
       const event = args[0] as TypingEvent | undefined;
       if (!event || event.channelId !== channelId) return;
       // Ignore own typing events

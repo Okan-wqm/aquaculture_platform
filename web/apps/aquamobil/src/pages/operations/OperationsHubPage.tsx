@@ -15,6 +15,7 @@
 
 import { clsx } from 'clsx';
 import { ClipboardList, ChevronRight } from 'lucide-react';
+import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
@@ -29,7 +30,7 @@ import { useFeatureAccess } from '@/utils/feature-access';
 // ---------------------------------------------------------------------------
 
 /** Skeleton pulse placeholder for a single metric cell while data loads. */
-function MetricSkeleton() {
+function MetricSkeleton(): JSX.Element {
   return <div className="h-5 w-12 mx-auto rounded skeleton" />;
 }
 
@@ -53,7 +54,7 @@ interface MetricCellProps {
 }
 
 /** Single metric cell inside a summary card's 3-column grid. */
-function MetricCell({ label, value, isLoading }: MetricCellProps) {
+function MetricCell({ label, value, isLoading }: MetricCellProps): JSX.Element {
   return (
     <div>
       <p className="text-xs text-gray-400 dark:text-gray-500">{label}</p>
@@ -78,7 +79,7 @@ interface SummaryCardProps {
  * Reusable summary card shell: gradient header pill + white body + chevron.
  * WHY button (not div): keyboard accessibility — tab-focusable + enter activates.
  */
-function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryCardProps) {
+function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryCardProps): JSX.Element {
   return (
     <button
       onClick={onClick}
@@ -112,7 +113,7 @@ function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryC
 // Page component
 // ---------------------------------------------------------------------------
 
-export function OperationsHubPage() {
+export function OperationsHubPage(): JSX.Element {
   const navigate = useNavigate();
   const { canAccess } = useMobilePermissions();
   // SEC-MEDIUM-050: canReach enforces the harvest MODULE_MANAGER role floor, so a

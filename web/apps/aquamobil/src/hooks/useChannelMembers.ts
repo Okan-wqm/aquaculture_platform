@@ -14,13 +14,16 @@
  * @returns onlineCount — number of currently online members
  */
 
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useMemo } from 'react';
+
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { GET_CHANNEL } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Channel, ChannelMember } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * Fetches a channel by ID and extracts its member list.
@@ -42,6 +45,18 @@ async function fetchChannelMembers(channelId: string): Promise<ChannelMember[]> 
   return result.channel.members.filter((m) => m.leftAt === null);
 }
 
+/** Return shape of {@link useChannelMembers}. */
+export interface UseChannelMembersReturn {
+  /** Active members, enriched with online status (empty until loaded). */
+  members: ChannelMember[];
+  /** True during the initial fetch. */
+  isLoading: boolean;
+  /** GraphQL or network error, or null. */
+  error: Error | null;
+  /** Number of members currently online. */
+  onlineCount: number;
+}
+
 /**
  * Channel members hook with online status enrichment.
  *
@@ -53,12 +68,18 @@ async function fetchChannelMembers(channelId: string): Promise<ChannelMember[]> 
 export function useChannelMembers(
   channelId: string | undefined,
   onlineUserIds?: Set<string>,
-) {
+): UseChannelMembersReturn {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', channelId, tenantId),
-    queryFn: () => fetchChannelMembers(channelId!),
+    // WHY guard-throw instead of `channelId!`: `enabled` gates execution on
+    // channelId but does not narrow the type. An explicit throw narrows it
+    // without a non-null assertion (the branch is unreachable while enabled).
+    queryFn: () => {
+      if (!channelId) throw new Error('useChannelMembers: channelId is required');
+      return fetchChannelMembers(channelId);
+    },
     enabled: isAuthenticated && !!tenantId && !!channelId,
     staleTime: 60_000, // 1 minute — member list changes infrequently
     gcTime: 10 * 60 * 1000, // 10 min in-memory

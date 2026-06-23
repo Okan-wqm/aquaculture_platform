@@ -10,16 +10,18 @@
  * "accidental double-entry" error rate observed in field testing.
  */
 
+import { clsx } from 'clsx';
 import {
   Package,
   Scissors,
   ArrowLeftRight,
   Skull,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import type { JSX } from 'react';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useStockEventsSummary } from '@/hooks/useStockEventsSummary';
 import type { StockEvent } from '@/types';
@@ -118,7 +120,7 @@ function formatRelativeTime(isoDate: string): string {
 // ---------------------------------------------------------------------------
 
 /** Loading skeleton for the event list. */
-function EventListSkeleton() {
+function EventListSkeleton(): JSX.Element {
   return (
     <div className="space-y-2" aria-busy="true" aria-label="Loading events">
       {[1, 2, 3].map((i) => (
@@ -129,7 +131,7 @@ function EventListSkeleton() {
 }
 
 /** Single event row with colored left border and type badge. */
-function EventRow({ event }: { event: StockEvent }) {
+function EventRow({ event }: { event: StockEvent }): JSX.Element {
   const config = EVENT_TYPE_CONFIG[event.type];
   const Icon = config.icon;
 
@@ -186,7 +188,7 @@ function EventRow({ event }: { event: StockEvent }) {
 // Page component
 // ---------------------------------------------------------------------------
 
-export function StockEventsHubPage() {
+export function StockEventsHubPage(): JSX.Element {
   const { isOnline } = useOfflineQueue();
   const { summary, isLoading } = useStockEventsSummary();
 

@@ -1,8 +1,8 @@
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import { ArrowLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { clsx } from 'clsx';
+import type { ReactElement, ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,10 +34,10 @@ interface HubHeaderProps {
  * approach avoids clip-path browser inconsistencies and renders crisply on all screen
  * densities.
  */
-export function HubHeader({ title, subtitle, icon: Icon, gradient, onBack, children }: HubHeaderProps) {
+export function HubHeader({ title, subtitle, icon: Icon, gradient, onBack, children }: HubHeaderProps): ReactElement {
   const navigate = useNavigate();
 
-  const handleBack = () => {
+  const handleBack = (): void => {
     if (onBack) {
       onBack();
       return;

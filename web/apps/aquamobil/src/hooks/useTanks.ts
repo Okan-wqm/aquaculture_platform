@@ -1,11 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
+
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Tank } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
 const TANK_PAGE_SIZE = 100;
@@ -134,7 +135,7 @@ export async function fetchAllTanks(): Promise<Tank[]> {
   return tanks;
 }
 
-export function useTanks() {
+export function useTanks(): UseQueryResult<Tank[], Error> {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   return useQuery({

@@ -1,8 +1,11 @@
-import { useState, useCallback } from 'react';
-import { CheckSquare, ClipboardList } from 'lucide-react';
-import { useMyTasks } from '@/hooks/useMyTasks';
-import { TaskCard } from '@/components/cards/TaskCard';
 import { clsx } from 'clsx';
+import { CheckSquare, ClipboardList } from 'lucide-react';
+import type { JSX } from 'react';
+import { useState, useCallback } from 'react';
+
+import { TaskCard } from '@/components/cards/TaskCard';
+import { useMyTasks } from '@/hooks/useMyTasks';
+
 
 type Segment = 'today' | 'upcoming' | 'overdue';
 
@@ -12,7 +15,7 @@ const SEGMENTS: { key: Segment; label: string }[] = [
   { key: 'overdue', label: 'Overdue' },
 ];
 
-export function MyTasksPage() {
+export function MyTasksPage(): JSX.Element {
   const [segment, setSegment] = useState<Segment>('today');
   const { tasks, loading, refetch } = useMyTasks(segment);
 
@@ -66,7 +69,7 @@ export function MyTasksPage() {
       {/* Pull to refresh button */}
       <div className="px-5 pt-3 flex justify-end">
         <button
-          onClick={handleRefresh}
+          onClick={() => { void handleRefresh(); }}
           disabled={isRefreshing}
           className="text-xs text-ocean-500 font-medium touch-feedback"
         >

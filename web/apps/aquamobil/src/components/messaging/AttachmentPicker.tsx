@@ -1,7 +1,7 @@
 import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '@aquaculture/shared-contracts';
 import { clsx } from 'clsx';
 import { Camera, Image as ImageIcon, FileText, X } from 'lucide-react';
-import { useRef, useCallback, useEffect, useState, type RefObject } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo, type ReactElement, type RefObject } from 'react';
 
 // MSG-LOW-051: the picker validates against the SAME shared MIME allowlist SSoT
 // the upload hook and the server enforce — no third hand-maintained list, so
@@ -75,31 +75,37 @@ const ATTACHMENT_OPTIONS = [
  * WHY backdrop tap to close: Prevents accidental attachment selection
  * and follows platform conventions (iOS action sheet, Android bottom sheet).
  */
-export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPickerProps) {
+export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPickerProps): ReactElement | null {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const inputRefs: Record<string, RefObject<HTMLInputElement | null>> = {
-    camera: cameraInputRef,
-    gallery: galleryInputRef,
-    file: fileInputRef,
-  };
+  // WHY useMemo: the ref-by-id lookup map must be referentially stable so it can
+  // be a correct dependency of handleOptionPress. The underlying ref objects are
+  // themselves stable across renders, so the map only needs to be built once.
+  const inputRefs = useMemo<Record<string, RefObject<HTMLInputElement | null>>>(
+    () => ({
+      camera: cameraInputRef,
+      gallery: galleryInputRef,
+      file: fileInputRef,
+    }),
+    [],
+  );
 
   // Close on Escape key
   useEffect(() => {
     if (!isOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
+    const handleKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen, onClose]);
 
-  const handleOptionPress = useCallback((optionId: string) => {
+  const handleOptionPress = useCallback((optionId: string): void => {
     const ref = inputRefs[optionId];
     ref?.current?.click();
-  }, []);
+  }, [inputRefs]);
 
   const [pickerError, setPickerError] = useState<string | null>(null);
 

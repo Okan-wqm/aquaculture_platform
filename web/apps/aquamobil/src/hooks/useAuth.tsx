@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactElement, type ReactNode } from 'react';
 
 import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
@@ -8,7 +8,7 @@ import { markAuthReady, resetAuthReady, syncAuthStore } from '@/services/authent
 import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
 import { normalizeRole } from '@/utils/normalize-role';
-import { TENANT_QUERY_KEY_ROOT } from '@/utils/tenant-query-keys';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 interface AuthContextValue extends AuthState {
   isLoading: boolean;
@@ -175,16 +175,16 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
     // SECURITY: Clear tenant-scoped, per-user, and legacy permission cache keys.
     // The tenant-scoped key is the current format; the others are legacy fallbacks.
     ...(userId && tenantId
-      ? [del(`mobile_permissions_${tenantId}_${userId}`).catch(() => {})]
+      ? [del(`mobile_permissions_${tenantId}_${userId}`).catch(() => undefined)]
       : []),
-    del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch(() => {}),
-    del('mobile_permissions').catch(() => {}),
+    del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch(() => undefined),
+    del('mobile_permissions').catch(() => undefined),
     // Clear service worker Cache Storage (CRIT-2 / SEC-02)
-    caches.delete('api-cache').catch(() => {}),
+    caches.delete('api-cache').catch(() => undefined),
   ]);
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }): ReactElement {
   // MT-CRITICAL-050: AuthProvider is mounted inside <QueryClientProvider> (main.tsx),
   // so it can reach the shared QueryClient. Logout AWAITS a full removal of the
   // in-memory React Query cache here — otherwise tenant-A's cached query data
@@ -202,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // On mount: attempt silent refresh via httpOnly cookie
   useEffect(() => {
-    const restoreSession = async () => {
+    const restoreSession = async (): Promise<void> => {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), SILENT_REFRESH_TIMEOUT_MS);
 
@@ -269,7 +269,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    restoreSession();
+    // WHY void: restoreSession owns its own try/catch/finally (it never rejects
+    // and unblocks the auth-ready barrier in finally), so it runs as a discarded
+    // background task on mount.
+    void restoreSession();
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -391,7 +394,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // failure: the local deleteToken in the teardown's `finally` plus the SW
     // userId backstop already prevent prior-tenant push from surfacing, so a
     // network hiccup deregistering the token must not strand the user logged in.
-    await runPushTeardown().catch(() => {});
+    await runPushTeardown().catch(() => undefined);
 
     // Call logout mutation to clear httpOnly cookie server-side. This is the only
     // step that may legitimately fail without compromising local-data safety
@@ -408,7 +411,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({
         query: `mutation { logout { success } }`,
       }),
-    }).catch(() => {});
+    }).catch(() => undefined);
 
     // MT-CRITICAL-050: abort in-flight fetches BEFORE clearing. React Query
     // clear() does NOT cancel running requests, so a query dispatched before
@@ -440,7 +443,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // removeQueries drops the tenant key space; clear() drops any residual
     // (untenanted) entry.
     if (currentTenantId) {
-      queryClient.removeQueries({ queryKey: [TENANT_QUERY_KEY_ROOT, currentTenantId] });
+      // SSoT: createTenantQueryKey(currentTenantId) returns exactly
+      // [TENANT_QUERY_KEY_ROOT, currentTenantId] — the whole tenant key space —
+      // so the wipe targets the same prefix every tenant-scoped hook writes under,
+      // using the factory rather than a hand-built array (no-bare-tenant-query-key).
+      queryClient.removeQueries({ queryKey: createTenantQueryKey(currentTenantId) });
     }
     queryClient.clear();
 

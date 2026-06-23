@@ -1,10 +1,9 @@
-import { type JSX, type ChangeEvent, useCallback, useEffect, useState } from 'react';
-import { ChevronRight, Package } from 'lucide-react';
-import { useParams } from 'react-router-dom';
-import { BlockTitle, List, ListInput } from 'konsta/react';
 import { clsx } from 'clsx';
-import { useTanks } from '@/hooks/useTanks';
-import type { HarvestInput, QualityGrade } from '@/types';
+import { BlockTitle, List, ListInput } from 'konsta/react';
+import { ChevronRight, Package } from 'lucide-react';
+import { type JSX, type ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+
 import {
   RecordEntityPage,
   type RecordEntityTheme,
@@ -12,6 +11,9 @@ import {
   SummaryRow,
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
+
+import { useTanks } from '@/hooks/useTanks';
+import type { HarvestInput, QualityGrade } from '@/types';
 
 interface HarvestFormErrors extends BaseFormErrors {
   avgWeight?: string;
@@ -80,18 +82,28 @@ export function RecordHarvestPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantityNum, avgWeightNum, maxQuantity]);
 
-  const buildPayload = (): HarvestInput => ({
-    batchId: metrics!.batchId!,
-    tankId: selectedTankId,
-    quantityHarvested: quantityNum,
-    averageWeight: avgWeightNum,
-    totalBiomass,
-    qualityGrade,
-    harvestDate: new Date().toISOString().split('T')[0],
-    pricePerKg: priceNum > 0 ? priceNum : undefined,
-    buyerName: buyerName.trim() || undefined,
-    notes: notes.trim() || undefined,
-  });
+  const buildPayload = (): HarvestInput => {
+    // Contract: the shell only invokes buildPayload after validate() passes AND
+    // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
+    // so batchId is present here. The guard narrows BatchMetrics['batchId']
+    // (string | null) to string without a non-null assertion.
+    const batchId = metrics?.batchId;
+    if (!batchId) {
+      throw new Error('Cannot record harvest: selected tank has no active batch');
+    }
+    return {
+      batchId,
+      tankId: selectedTankId,
+      quantityHarvested: quantityNum,
+      averageWeight: avgWeightNum,
+      totalBiomass,
+      qualityGrade,
+      harvestDate: new Date().toISOString().split('T')[0],
+      pricePerKg: priceNum > 0 ? priceNum : undefined,
+      buyerName: buyerName.trim() || undefined,
+      notes: notes.trim() || undefined,
+    };
+  };
 
   const gradeLabel = QUALITY_GRADES.find((g) => g.value === qualityGrade)?.label ?? qualityGrade;
 

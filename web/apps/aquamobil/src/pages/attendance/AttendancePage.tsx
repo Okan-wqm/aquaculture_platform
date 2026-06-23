@@ -1,11 +1,14 @@
+import { clsx } from 'clsx';
+import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
+import type { JSX } from 'react';
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { GeoLocation, AttendanceRecord } from '@/types';
-import { clsx } from 'clsx';
+
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-green-100 text-green-700',
@@ -29,7 +32,7 @@ function formatMinutes(mins: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function AttendancePage() {
+export function AttendancePage(): JSX.Element {
   const navigate = useNavigate();
   const { addToQueue, isOnline } = useOfflineQueue();
 
@@ -80,7 +83,7 @@ export function AttendancePage() {
     });
   }, []);
 
-  const handleClockIn = async () => {
+  const handleClockIn = async (): Promise<void> => {
     setIsSubmitting(true);
     setError(null);
     try {
@@ -96,7 +99,7 @@ export function AttendancePage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        refetchToday();
+        void refetchToday();
       }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clock in');
@@ -105,7 +108,7 @@ export function AttendancePage() {
     }
   };
 
-  const handleClockOut = async () => {
+  const handleClockOut = async (): Promise<void> => {
     setIsSubmitting(true);
     setError(null);
     try {
@@ -119,7 +122,7 @@ export function AttendancePage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        refetchToday();
+        void refetchToday();
       }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clock out');
@@ -177,7 +180,7 @@ export function AttendancePage() {
 
           {!isClockedIn ? (
             <button
-              onClick={handleClockIn}
+              onClick={() => { void handleClockIn(); }}
               disabled={isSubmitting || isGettingLocation}
               className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-3"
             >
@@ -195,7 +198,7 @@ export function AttendancePage() {
             </button>
           ) : (
             <button
-              onClick={handleClockOut}
+              onClick={() => { void handleClockOut(); }}
               disabled={isSubmitting || isGettingLocation}
               className="w-full py-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-3"
             >

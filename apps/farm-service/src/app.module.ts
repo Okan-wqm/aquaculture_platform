@@ -21,7 +21,7 @@ import {
   UserContextMiddleware,
   VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
@@ -100,6 +100,7 @@ import { InventoryModule } from './storage/storage.module';
 import { WorkerModule } from './worker/worker.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
+import { MarineDataModule } from './marine-data/marine-data.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
 import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
@@ -340,8 +341,13 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) =>
-        buildRedisOptions(configService, 'farm', 'optional'),
+      useFactory: (configService: ConfigService) => ({
+        host: configService.get('REDIS_HOST', 'localhost'),
+        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
+        password: configService.get('REDIS_PASSWORD'),
+        db: parseInt(configService.get('REDIS_DB', '0'), 10),
+        keyPrefix: 'farm:',
+      }),
     }),
 
     // Targeted jsonb_set UPDATE helper — phase 5.7. Lets
@@ -426,6 +432,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     WorkerModule,
     SystemModule,
     SentinelHubModule,
+    MarineDataModule,
     RegulatoryModule,
     WeatherModule,
     SchedulerModule,

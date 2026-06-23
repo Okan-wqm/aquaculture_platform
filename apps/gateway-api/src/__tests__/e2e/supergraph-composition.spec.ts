@@ -158,13 +158,13 @@ describe('supergraph composition guard (Scope B S1.4)', () => {
       // that record which subgraph owns which type. The presence
       // of `@join__type(graph: SENSOR_SERVICE, key: "id")` (or
       // similar) on Sensor proves the @key flowed through.
-      expect(sdl).toMatch(/type Sensor[\s\S]*?@join__type[^\)]*key:\s*"id"/);
+      expect(sdl).toMatch(/type Sensor[\s\S]*?@join__type[^)]*key:\s*"id"/);
     });
 
     it('SensorReading entity carries @key(fields: "id") in the composed supergraph', () => {
       const result = composeCanonicalSupergraph();
       const sdl = result.supergraphSdl ?? '';
-      expect(sdl).toMatch(/type SensorReading[\s\S]*?@join__type[^\)]*key:\s*"id"/);
+      expect(sdl).toMatch(/type SensorReading[\s\S]*?@join__type[^)]*key:\s*"id"/);
     });
 
     it('Tank entity carries @key(fields: "id") in the composed supergraph', () => {
@@ -174,7 +174,7 @@ describe('supergraph composition guard (Scope B S1.4)', () => {
       // SensorReading checks above.
       const result = composeCanonicalSupergraph();
       const sdl = result.supergraphSdl ?? '';
-      expect(sdl).toMatch(/type Tank[\s\S]*?@join__type[^\)]*key:\s*"id"/);
+      expect(sdl).toMatch(/type Tank[\s\S]*?@join__type[^)]*key:\s*"id"/);
     });
   });
 
@@ -228,8 +228,8 @@ describe('supergraph composition guard (Scope B S1.4)', () => {
       const sdl = result.supergraphSdl ?? '';
       // The non-keyed Sensor type does NOT carry the
       // `key: "id"` field on its @join__type directive.
-      const sensorTypeBlock = sdl.match(/type Sensor\s*[\s\S]*?(?=type |\Z)/)?.[0] ?? '';
-      expect(sensorTypeBlock).not.toMatch(/@join__type[^\)]*key:\s*"id"/);
+      const sensorTypeBlock = sdl.match(/type Sensor\s*[\s\S]*?(?=type |$)/)?.[0] ?? '';
+      expect(sensorTypeBlock).not.toMatch(/@join__type[^)]*key:\s*"id"/);
     });
   });
 });

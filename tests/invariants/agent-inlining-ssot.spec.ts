@@ -199,24 +199,23 @@ const ANTI_INLINING_ALLOWLIST: Record<string, AllowlistEntry> = {
     contractOwner:
       'aria-kernel/tests/invariants/v11/test_envelope_contract_ssot.py',
   },
-  // PRE-EXISTING — triage. root-cause-auditor.md restates the AUDIT-* sub-kind
-  // controlled vocabulary (OVER_CLAIMED, RULING_PARTIAL_APPLICATION,
+  // Deliberate, mirror-enforced inline (resolved like the ARIA-envelope case).
+  // root-cause-auditor is dispatched with only its own prompt as context and
+  // must emit AUDIT-* sub-kind tags (OVER_CLAIMED, RULING_PARTIAL_APPLICATION,
   // RULING_MISSED_DEADLINE, OVERRIDE_UNSUPPORTED, BOUNDARY_EXPIRED,
-  // BANNED_PHRASE_IN_CLAIM) that output-format.md also lists when documenting
-  // the AUDIT-* finding namespace. The agent OWNS and PRODUCES these sub-kinds,
-  // so the duplication is borderline-legitimate (controlled vocabulary, not
-  // prose), but it IS a verbatim run shared with the SSoT. Surfaced to the lead
-  // for a decision: either output-format.md should point at the agent as the
-  // sub-kind owner, or the agent should `@`-reference output-format.md. Held in
-  // the allowlist (not silenced by loosening R) so the lead can triage.
+  // BANNED_PHRASE_IN_CLAIM), so it restates the output-format.md SSoT list at
+  // its reading surface (show > tell). output-format.md remains the SSoT; the
+  // "AUDIT-* sub-kind mirror" describe-block below asserts the agent's inline
+  // list stays byte-equal to the SSoT list, so the deliberate duplication
+  // cannot drift. Same regime as the ARIA-envelope inlines above.
   '.claude/agents/root-cause-auditor.md': {
     ssot: '.claude/shared/output-format.md',
     reason:
-      'PRE-EXISTING — triage. AUDIT-* sub-kind controlled vocabulary restated in ' +
-      'both the producing agent and the output-format SSoT finding-namespace list. ' +
-      'Lead decides single-owner direction; allowlisted to keep the gate green ' +
-      'without over-loosening R.',
-    contractOwner: 'tests/invariants/output-format-ssot (lead triage WS3)',
+      'Deliberate inline — root-cause-auditor emits AUDIT-* sub-kind tags and ' +
+      'restates the output-format.md SSoT vocabulary at its prompt surface; the ' +
+      'AUDIT-* sub-kind mirror invariant keeps the two lists byte-equal.',
+    contractOwner:
+      'tests/invariants/agent-inlining-ssot.spec.ts (AUDIT-* sub-kind mirror)',
   },
 };
 
@@ -526,10 +525,12 @@ describe('agent anti-inlining SSoT invariant (WS3 Tier-3)', () => {
     }
   });
 
-  it('flags the known PRE-EXISTING inline so the allowlist stays load-bearing', () => {
-    // Regression guard: if the root-cause-auditor / output-format sub-kind
-    // duplication is ever removed (good — single-ownered), this assertion turns
-    // red and the allowlist entry must be deleted. That keeps the allowlist from
+  it('still detects the deliberate mirror-enforced inline so the allowlist stays load-bearing', () => {
+    // Regression guard: the root-cause-auditor / output-format AUDIT-* sub-kind
+    // restatement is a DELIBERATE, mirror-enforced inline (see the allowlist
+    // entry + the "AUDIT-* sub-kind mirror" describe below). If that inline is
+    // ever removed (agent switches to a pure @-reference), this assertion turns
+    // red and the allowlist entry must be deleted — keeping the allowlist from
     // silently outliving the duplication it documents.
     const rca = agents.find((a) => basename(a.relPath) === 'root-cause-auditor.md');
     expect(rca).toBeDefined();
@@ -542,6 +543,43 @@ describe('agent anti-inlining SSoT invariant (WS3 Tier-3)', () => {
           f.kind === 'contiguous-run',
       ),
     ).toBe(true);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// AUDIT-* sub-kind mirror (resolves the root-cause-auditor inline like the
+// ARIA-envelope pattern): output-format.md is the SSoT for the AUDIT-* finding
+// namespace sub-kind vocabulary; root-cause-auditor.md restates it inline
+// because the agent emits those tags and is dispatched with only its prompt as
+// context. This guard asserts the two lists are byte-equal so the deliberate,
+// allowlisted inline cannot drift from the SSoT.
+// ----------------------------------------------------------------------------
+const OUTPUT_FORMAT_SSOT = '.claude/shared/output-format.md';
+const ROOT_CAUSE_AUDITOR = '.claude/agents/root-cause-auditor.md';
+
+/**
+ * Extract the backtick-wrapped UPPER_SNAKE_CASE AUDIT-* sub-kind tokens from
+ * the segment introduced by a "Sub-kind(s)..:" label. Both the SSoT and the
+ * agent introduce the list that way; we read the same shape from each so the
+ * comparison is symmetric.
+ */
+function auditSubkinds(body: string): string[] {
+  const seg = body.match(/Sub-?kinds?\b[^\n]*?:\s*([^\n]*)/i);
+  if (!seg || !seg[1]) return [];
+  const tokens = seg[1].match(/`([A-Z][A-Z0-9_]+)`/g) ?? [];
+  return tokens.map((t) => t.replace(/`/g, '')).sort();
+}
+
+describe('AUDIT-* sub-kind mirror (output-format SSoT <-> root-cause-auditor inline)', () => {
+  it('the agent inline AUDIT-* sub-kind list is byte-equal to the output-format SSoT list', () => {
+    const ssot = auditSubkinds(readFileSync(join(REPO_ROOT, OUTPUT_FORMAT_SSOT), 'utf8'));
+    const agent = auditSubkinds(readFileSync(join(REPO_ROOT, ROOT_CAUSE_AUDITOR), 'utf8'));
+
+    // Floor: the SSoT must actually declare the vocabulary (guards a broken
+    // extraction / a renamed section silently emptying both sides).
+    expect(ssot.length).toBeGreaterThanOrEqual(6);
+
+    expect(agent).toEqual(ssot);
   });
 });
 

@@ -205,7 +205,7 @@ type ToolResult = { content: Array<{ type: 'text'; text: string }> };
 
 // ─── Handler ─────────────────────────────────────────────────────────────
 
-export async function handler(params: z.infer<typeof inputSchema>): Promise<ToolResult> {
+export async function handler(params: unknown): Promise<ToolResult> {
   const input = inputSchema.parse(params);
   const {
     morningTANmgL, morningPH, alkalinity, temperature: T, salinity: S, totalSulfide,

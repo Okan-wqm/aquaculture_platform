@@ -50,8 +50,8 @@
 //   - Beklenen iyilesme degerleri konfigure edilebilir
 // ============================================================================
 
-import { mean, linearRegressionSlope } from '../utils/stats.js';
 import { getThresholds, type SpeciesThresholds } from '../knowledge/thresholds.js';
+import { mean, linearRegressionSlope } from '../utils/stats.js';
 
 // ── Tip Tanimlari ─────────────────────────────────────────────────────────────
 

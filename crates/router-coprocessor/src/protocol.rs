@@ -171,7 +171,11 @@ pub struct CoprocessorPayload {
     pub sdl: Option<String>,
 
     /// Target subgraph name — present on `Subgraph*` stages, absent on router stages.
-    #[serde(rename = "serviceName", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "serviceName",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub service_name: Option<String>,
 
     /// Full request URI as the Router will dispatch it to the subgraph, when
@@ -195,7 +199,11 @@ pub struct CoprocessorPayload {
     /// subgraph requests, each with its own `subgraphRequestId`. Echoed back
     /// unchanged so the Router can correlate our response; defaults to `None` and
     /// is omitted from the wire when the flag is off.
-    #[serde(rename = "subgraphRequestId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "subgraphRequestId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub subgraph_request_id: Option<String>,
 }
 
@@ -262,7 +270,10 @@ impl CoprocessorPayload {
     /// always inserts each of its 14 header names exactly once, so in practice each
     /// list holds a single value.
     pub fn insert_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
-        self.headers.entry(name.into()).or_default().push(value.into());
+        self.headers
+            .entry(name.into())
+            .or_default()
+            .push(value.into());
     }
 }
 
@@ -327,15 +338,21 @@ mod tests {
     }
 
     #[test]
-    fn continue_response_echoes_id_and_stage_and_omits_empty_fields() -> Result<(), serde_json::Error>
-    {
+    fn continue_response_echoes_id_and_stage_and_omits_empty_fields()
+    -> Result<(), serde_json::Error> {
         let resp = CoprocessorPayload::continue_response("req-9", "SubgraphRequest");
         let json = serde_json::to_value(&resp)?;
         // `.get(..).and_then(Value::as_str)` — not `json[..]`, whose Index impl the
         // workspace clippy `indexing_slicing` lint denies (applies to test code too).
         assert_eq!(json.get("id").and_then(Value::as_str), Some("req-9"));
-        assert_eq!(json.get("stage").and_then(Value::as_str), Some("SubgraphRequest"));
-        assert_eq!(json.get("control").and_then(Value::as_str), Some("continue"));
+        assert_eq!(
+            json.get("stage").and_then(Value::as_str),
+            Some("SubgraphRequest")
+        );
+        assert_eq!(
+            json.get("control").and_then(Value::as_str),
+            Some("continue")
+        );
         // Empty header map + None options are skipped from the wire.
         assert!(json.get("headers").is_none());
         assert!(json.get("body").is_none());

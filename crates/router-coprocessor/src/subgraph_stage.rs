@@ -26,7 +26,7 @@ use chrono::SecondsFormat;
 use uuid::Uuid;
 
 use crate::protocol::CoprocessorPayload;
-use crate::{build_canonical_v2, sha256_hex, sign_v2, CanonicalV2Input, SIG_VERSION_V2};
+use crate::{CanonicalV2Input, SIG_VERSION_V2, build_canonical_v2, sha256_hex, sign_v2};
 
 /// TS / Node default content-type for a GraphQL POST. The gateway sender signs the
 /// ACTUAL wire `content-type` (`authenticated-data-source.ts`), and the subgraph guard
@@ -248,10 +248,7 @@ pub fn sign_subgraph_request(
     // string). A subgraph GraphQL POST carries the op in the body and has no query
     // string, so this resolves to sha256("") — but it is derived, not baked in, so a
     // URI that DOES carry a query is bound correctly instead of being silently rejected.
-    let query_string = request
-        .uri
-        .as_deref()
-        .map_or("", query_string_from_uri);
+    let query_string = request.uri.as_deref().map_or("", query_string_from_uri);
     let query_hash = sha256_hex(query_string.as_bytes());
 
     // Content-type: the forwarded wire header, defaulting to application/json only when
@@ -263,7 +260,10 @@ pub fn sign_subgraph_request(
         .to_string();
 
     // --- TS `??` defaults ---
-    let key_id = ctx.key_id.clone().unwrap_or_else(|| DEFAULT_KEY_ID.to_string());
+    let key_id = ctx
+        .key_id
+        .clone()
+        .unwrap_or_else(|| DEFAULT_KEY_ID.to_string());
     let audience = ctx.audience.clone().unwrap_or_default();
     let assertion_hash = String::new();
     let effective_tenant_id = ctx.tenant_id.clone();
@@ -387,7 +387,11 @@ mod tests {
         for (name, _) in &signed.pairs {
             let values = response.headers.get(*name);
             assert!(values.is_some(), "header {name} must be present");
-            assert_eq!(values.map(Vec::len), Some(1), "header {name} must appear once");
+            assert_eq!(
+                values.map(Vec::len),
+                Some(1),
+                "header {name} must appear once"
+            );
         }
         assert_eq!(response.headers.len(), 14);
         Ok(())
@@ -417,7 +421,12 @@ mod tests {
             ]
         );
         let by_name = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         assert_eq!(by_name("X-Service-Identity"), "gateway-api");
         assert_eq!(by_name("X-Service-Sig-Version"), "v2");
@@ -437,9 +446,10 @@ mod tests {
         );
         // body-hash is DERIVED over the forwarded body (CRIT-B): it must be the real
         // sha256 of the compact JSON, never sha256("") when a body is present.
-        let expected_body_hash =
-            sha256_hex(&serde_json::to_vec(&json!({ "query": "{ me { id } }" }))
-                .map_err(SubgraphSignError::BodySerialize)?);
+        let expected_body_hash = sha256_hex(
+            &serde_json::to_vec(&json!({ "query": "{ me { id } }" }))
+                .map_err(SubgraphSignError::BodySerialize)?,
+        );
         assert_eq!(by_name("X-Service-Body-Hash"), expected_body_hash);
         assert_ne!(by_name("X-Service-Body-Hash"), sha256_hex(b""));
         // queryHash == sha256("") because this URI carries no query string — DERIVED
@@ -452,14 +462,19 @@ mod tests {
     fn ts_defaults_applied_when_context_fields_absent() -> Result<(), SubgraphSignError> {
         let ctx = SigningContext {
             service_name: "gateway-api".to_string(),
-            key_id: None,    // → "local-dev"
+            key_id: None, // → "local-dev"
             secret: b"s".to_vec(),
-            audience: None,  // → ""
+            audience: None, // → ""
             tenant_id: String::new(),
         };
         let (_response, signed) = sign_subgraph_request(&subgraph_request(), &ctx)?;
         let by_name = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         assert_eq!(by_name("X-Service-Key-Id"), "local-dev");
         assert_eq!(by_name("X-Service-Audience"), "");
@@ -474,7 +489,12 @@ mod tests {
         // subgraph guard reads re-derives the SAME canonical we signed.
         let (_response, signed) = sign_subgraph_request(&subgraph_request(), &ctx())?;
         let get = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         let body_bytes = serde_json::to_vec(&json!({ "query": "{ me { id } }" }))
             .map_err(SubgraphSignError::BodySerialize)?;
@@ -494,7 +514,8 @@ mod tests {
             nonce: get("X-Service-Nonce"),
         };
         let canonical = build_canonical_v2(&input);
-        let expected = sign_v2(&canonical, b"test-shared-secret").map_err(SubgraphSignError::Sign)?;
+        let expected =
+            sign_v2(&canonical, b"test-shared-secret").map_err(SubgraphSignError::Sign)?;
         assert_eq!(get("X-Service-Signature"), expected);
         assert_eq!(get("X-Service-Body-Hash"), sha256_hex(&body_bytes));
         Ok(())
@@ -526,8 +547,16 @@ mod tests {
     fn nonce_is_unique_per_call() -> Result<(), SubgraphSignError> {
         let (_r1, s1) = sign_subgraph_request(&subgraph_request(), &ctx())?;
         let (_r2, s2) = sign_subgraph_request(&subgraph_request(), &ctx())?;
-        let nonce1 = s1.pairs.iter().find(|(n, _)| *n == "X-Service-Nonce").map(|(_, v)| v.clone());
-        let nonce2 = s2.pairs.iter().find(|(n, _)| *n == "X-Service-Nonce").map(|(_, v)| v.clone());
+        let nonce1 = s1
+            .pairs
+            .iter()
+            .find(|(n, _)| *n == "X-Service-Nonce")
+            .map(|(_, v)| v.clone());
+        let nonce2 = s2
+            .pairs
+            .iter()
+            .find(|(n, _)| *n == "X-Service-Nonce")
+            .map(|(_, v)| v.clone());
         assert_ne!(nonce1, nonce2, "nonce must be fresh per request");
         Ok(())
     }
@@ -542,15 +571,20 @@ mod tests {
     }
 
     #[test]
-    fn content_type_falls_back_to_application_json_when_header_absent(
-    ) -> Result<(), SubgraphSignError> {
+    fn content_type_falls_back_to_application_json_when_header_absent()
+    -> Result<(), SubgraphSignError> {
         // A forwarded request with NO content-type header must sign the
         // application/json default — never the empty string (CRIT-A regression guard).
         let mut req = subgraph_request();
         req.headers.clear();
         let (_response, signed) = sign_subgraph_request(&req, &ctx())?;
         let by_name = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         assert_eq!(by_name("X-Service-Content-Type"), "application/json");
         Ok(())
@@ -565,9 +599,17 @@ mod tests {
         req.insert_header("Content-Type", "application/json; charset=utf-8");
         let (_response, signed) = sign_subgraph_request(&req, &ctx())?;
         let by_name = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
-        assert_eq!(by_name("X-Service-Content-Type"), "application/json; charset=utf-8");
+        assert_eq!(
+            by_name("X-Service-Content-Type"),
+            "application/json; charset=utf-8"
+        );
         Ok(())
     }
 
@@ -580,7 +622,12 @@ mod tests {
         req.uri = Some("http://auth-service:3000/graphql?op=me".to_string());
         let (_response, signed) = sign_subgraph_request(&req, &ctx())?;
         let by_name = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         assert_eq!(by_name("X-Service-Query-Hash"), sha256_hex(b"op=me"));
         assert_eq!(by_name("X-Service-Path"), "/graphql");
@@ -614,7 +661,12 @@ mod tests {
         req.body = None;
         let (_response, signed) = sign_subgraph_request(&req, &ctx())?;
         let by_name = |k: &str| -> String {
-            signed.pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap_or_default()
+            signed
+                .pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
         };
         assert_eq!(by_name("X-Service-Body-Hash"), sha256_hex(b""));
         Ok(())

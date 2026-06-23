@@ -94,6 +94,23 @@ export function SimulationDataProviderInner({
     };
   }, []);
 
+  const getTagSnapshot = useCallback((): Record<string, TagValueChange> => {
+    // Materialise the full simTagValues map into TagValueChange records.
+    // Used by the client-script sandbox to seed the worker tag snapshot
+    // at execution start, mirroring the live per-tag reads of getTagValue.
+    const now = Date.now();
+    const snapshot: Record<string, TagValueChange> = {};
+    for (const [tagId, raw] of Object.entries(simTagValuesRef.current)) {
+      if (raw === undefined || raw === null) continue;
+      const value =
+        typeof raw === 'number' || typeof raw === 'string' || typeof raw === 'boolean'
+          ? raw
+          : String(raw);
+      snapshot[tagId] = { tagId, value, timestamp: now, quality: 'good' };
+    }
+    return snapshot;
+  }, []);
+
   const queryHistory = useCallback(
     async (
       tagIds: string[],
@@ -120,10 +137,11 @@ export function SimulationDataProviderInner({
       unsubscribeFromTags,
       writeTagValue,
       getTagValue,
+      getTagSnapshot,
       queryHistory,
       connectionState: CONNECTION_STATE,
     }),
-    [subscribeToTags, unsubscribeFromTags, writeTagValue, getTagValue, queryHistory],
+    [subscribeToTags, unsubscribeFromTags, writeTagValue, getTagValue, getTagSnapshot, queryHistory],
   );
 
   return (

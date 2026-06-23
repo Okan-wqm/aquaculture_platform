@@ -10,6 +10,7 @@
 import * as crypto from 'crypto';
 
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
@@ -202,11 +203,18 @@ function toSchemaManagerError(error: unknown): Error {
  * - Call `SchemaManagerService.validateModuleSchemas()` in integration tests to detect drift
  *   between this list and the actual entity definitions.
  */
+// Tenant-erasure proof ledger (tenant_erasure_target_proofs) is source-schema
+// infrastructure created per service by the Ensure*TenantErasureProofLedger
+// migrations; declared here so strict-ownership bootstrap does not drop it.
+const TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES = [
+  TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE,
+] as const;
+
 export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox'],
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -317,6 +325,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'event_dlq',
       'tenant_erasure_audit',
       'farm_audit_logs',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     // Reference tables are exempt from SourceSchemaWriteGuardService so that
     // seed services (FarmSeedService) can write global/template rows that
@@ -463,7 +472,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                    never replicated per-tenant. Table is created
     //                    by infrastructure/docker/init-scripts/09-hr-outbox.sql
     //                    until the migration runner path replaces it.
-    infrastructureTables: ['migrations', 'hr_outbox', 'payroll_audit'],
+    infrastructureTables: ['migrations', 'hr_outbox', 'payroll_audit', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['leave_types', 'certification_types', 'shifts'],
     tables: [
       // Core Employee & Payroll
@@ -524,14 +533,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     strictOwnership: true,
     // `hydroponics_outbox` is source-only delivery infrastructure and is
     // never copied into tenant schemas.
-    infrastructureTables: ['migrations', 'hydroponics_outbox'],
+    infrastructureTables: ['migrations', 'hydroponics_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['hydroponics_config'],
   },
   {
     moduleName: 'alert',
     sourceSchema: 'alert',
-    infrastructureTables: ['migrations', 'alert_audit_log', 'alert_outbox'],
+    infrastructureTables: ['migrations', 'alert_audit_log', 'alert_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['alert_rules', 'alert_incidents', 'escalation_policies', 'alert_history'],
   },
@@ -564,7 +573,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                                 for operator analytics. Lives in
     //                                 `ai.tool_execution_audit` only — NOT
     //                                 cloned into tenant_<uuid> schemas.
-    infrastructureTables: ['migrations', 'ai_outbox', 'tool_execution_audit'],
+    infrastructureTables: ['migrations', 'ai_outbox', 'tool_execution_audit', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: [
       // Per-tenant template tables. Each is created as an unqualified
@@ -578,7 +587,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'messaging',
     sourceSchema: 'messaging',
-    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata', 'message_send_idempotency'],
+    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata', 'message_send_idempotency', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: [
       // Core messaging tables (migration 1711800000000)
@@ -605,7 +614,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'billing',
     sourceSchema: 'billing',
-    infrastructureTables: ['migrations', 'billing_outbox'],
+    infrastructureTables: ['migrations', 'billing_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: [
       'subscriptions',
@@ -635,6 +644,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'cleanup_run_steps',
       'cleanup_run_events',
       'cleanup_run_evidence',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
     tables: [
@@ -695,7 +705,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // and table-presence checks have a declarative truth source.
     moduleName: 'notification',
     sourceSchema: 'notification',
-    infrastructureTables: ['migrations', 'notification_outbox'],
+    infrastructureTables: ['migrations', 'notification_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['device_tokens', 'notification_logs', 'command_receipts'],
   },

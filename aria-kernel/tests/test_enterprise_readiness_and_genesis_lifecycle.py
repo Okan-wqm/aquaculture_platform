@@ -106,6 +106,7 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         target_ref = "refs/heads/main"
         head_ref = "aria/readiness"
         head_sha = "a" * 40
+        required_checks = ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
         artifact_ref = {
             "schema_version": 2,
             "artifact_id": "artifact-1",
@@ -133,9 +134,18 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
         }
         branch = {
             **common,
+            "$schema": "aria/branch-protection-proof/v3",
             "valid": True,
             "snapshot_hash": digest,
-            "required_checks": ["ci"],
+            "required_checks": required_checks,
+            "exact_required_checks": required_checks,
+            "signed_commits_required": True,
+            "reviews_required": True,
+            "conversation_resolution_required": True,
+            "ruleset_ids": [1],
+            "bypass_actors": [],
+            "force_push_disabled": True,
+            "delete_branch_disabled": True,
             "source_ledger_ref": self._source_ref("branch"),
         }
         rollback = {
@@ -170,6 +180,11 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "contract_hash": digest,
             "network_policy": "egress-denied",
             "runtime_write_paths": ["aria-tools/tmp"],
+            "scanner_results": {
+                "status": "passed",
+                "scanned_surfaces": ["diff", "prompt", "transcript", "logs", "artifacts"],
+                "scanner_output_sha256": digest,
+            },
             "source_ledger_ref": self._source_ref("dlp"),
         }
         token = {
@@ -183,6 +198,11 @@ class EnterpriseReadinessGateTests(unittest.TestCase):
             "contract_hash": digest,
             "network_policy": "egress-denied",
             "runtime_write_paths": ["aria-tools/tmp"],
+            "token_type": "github_app_installation_token",
+            "mutation_token": "github_app_installation_token",
+            "gh_token_fallback": False,
+            "github_token_fallback": False,
+            "pat_fallback": False,
             "source_ledger_ref": self._source_ref("token"),
         }
         return {

@@ -4,8 +4,8 @@ import { BaseTool } from '../core/base-tool';
 import { ToolExecutionContext } from '../core/tool.interface';
 import { REAGENTS, ReagentInfo } from '@platform/aquaculture-engines';
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-interface ReagentListInput {}
+/** This tool takes no input — it returns the static reagent catalogue. */
+type ReagentListInput = Record<string, never>;
 
 interface ReagentListOutput {
   reagents: Array<{

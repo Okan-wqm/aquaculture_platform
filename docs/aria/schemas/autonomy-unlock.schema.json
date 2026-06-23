@@ -1,0 +1,22 @@
+{
+  "$id": "aria/autonomy-unlock-policy/v1",
+  "type": "object",
+  "required": [
+    "$schema",
+    "schema_version",
+    "policy_id",
+    "critical_violation_limit",
+    "lane_requirements"
+  ],
+  "properties": {
+    "$schema": { "const": "aria/autonomy-unlock-policy/v1" },
+    "schema_version": { "const": 1 },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "critical_violation_limit": { "const": 0 },
+    "lane_requirements": {
+      "type": "object",
+      "required": ["L1", "L2", "L3"]
+    }
+  },
+  "additionalProperties": true
+}

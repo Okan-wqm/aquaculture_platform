@@ -242,7 +242,7 @@ export function sanitizeErrorMessage(error: unknown): string {
       // Strip Unix-style paths
       .replace(/\/[\w./\\-]+/g, '[path]')
       // Strip Windows-style paths (C:\..., D:\...)
-      .replace(/[A-Za-z]:[\\\/][\w.\\/:-]+/g, '[path]')
+      .replace(/[A-Za-z]:[\\/][\w.\\/:-]+/g, '[path]')
       // Strip tenant schema names
       .replace(/tenant_\w+/g, '[tenant]')
       // Strip SQL table/column references

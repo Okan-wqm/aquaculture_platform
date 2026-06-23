@@ -159,7 +159,7 @@ export interface GrowthMeasurementFilter {
 export async function fetchGrowthMeasurements(
   client: GraphQLClient,
   filter?: GrowthMeasurementFilter,
-  limit: number = 100,
+  limit = 100,
 ): Promise<GrowthMeasurementConnection> {
   const query = `
     query GrowthMeasurements($filter: GrowthMeasurementFilterInput, $pagination: GrowthPaginationInput) {
@@ -341,7 +341,7 @@ export async function fetchLatestGrowth(
 export async function fetchGrowthHistory(
   client: GraphQLClient,
   batchId: string,
-  limit: number = 50,
+  limit = 50,
 ): Promise<GrowthMeasurement[]> {
   const query = `
     query BatchGrowthHistory($batchId: ID!, $limit: Int) {

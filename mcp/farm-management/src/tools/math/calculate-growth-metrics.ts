@@ -192,7 +192,7 @@ const DEFAULT_INDUSTRY_FCR = 1.5;
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }> };
 
-export async function handler(params: z.infer<typeof inputSchema>): Promise<ToolResult> {
+export async function handler(params: unknown): Promise<ToolResult> {
   const input = inputSchema.parse(params);
 
   switch (input.mode) {

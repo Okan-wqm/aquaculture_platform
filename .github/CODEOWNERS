@@ -10,6 +10,7 @@
 # Modifying any of these paths can alter the behaviour of 22+ review agents.
 # A poisoned _shared/ fragment propagates to every agent via @-include.
 .claude/agents.legacy/           @Okan-wqm
+.claude/agents/                  @Okan-wqm
 .claude/agents-enterprise-v2/    @Okan-wqm
 .claude/test-agents/             @Okan-wqm
 .claude/knowledge/               @Okan-wqm
@@ -20,7 +21,16 @@
 # are one authority chain. Changes must be reviewed together so docs,
 # workflows, runtime gates, and tests cannot drift independently.
 aria-kernel/                    @Okan-wqm
+aria-kernel/aria_kernel/risk_policy.py              @Okan-wqm
+aria-kernel/aria_kernel/autonomy_unlock.py          @Okan-wqm
+aria-kernel/aria_kernel/policy_approval.py          @Okan-wqm
+aria-kernel/aria_kernel/rollback_bundle.py          @Okan-wqm
+aria-kernel/aria_kernel/incident_ledger.py          @Okan-wqm
+aria-kernel/aria_kernel/runner_attestation.py       @Okan-wqm
+aria-kernel/aria_kernel/capability_resolver.py      @Okan-wqm
 docs/aria/                      @Okan-wqm
+docs/aria/policy/               @Okan-wqm
+docs/aria/schemas/              @Okan-wqm
 tools/aria-poc/                @Okan-wqm
 aria-tools/preflight/           @Okan-wqm
 package.json                    @Okan-wqm

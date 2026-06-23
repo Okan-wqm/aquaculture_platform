@@ -179,7 +179,7 @@ const DEFAULT_INTERVAL_HOURS = 1;
 export function correlateTimeSeries(
   seriesA: TimeSeriesPoint[],
   seriesB: TimeSeriesPoint[],
-  maxLagHours: number = 48,
+  maxLagHours = 48,
 ): CorrelationResult {
   // ── Bos seri kontrolu ──────────────────────────────────────
   if (seriesA.length === 0 || seriesB.length === 0) {

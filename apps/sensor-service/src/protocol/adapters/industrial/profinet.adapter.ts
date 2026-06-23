@@ -27,22 +27,22 @@ export class ProfinetAdapter extends BaseProtocolAdapter<ProfinetConfiguration> 
   readonly displayName = 'PROFINET';
   readonly description = 'PROFINET industrial Ethernet standard for automation';
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: ProfinetConfiguration): Promise<ConnectionHandle> {
     return this.createConnectionHandle(config.sensorId ?? 'unknown', config.tenantId ?? 'unknown', { ...config });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async testConnection(_config: ProfinetConfiguration): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 0 };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
     return { timestamp: new Date(), values: {}, quality: 100, source: 'profinet' };
   }

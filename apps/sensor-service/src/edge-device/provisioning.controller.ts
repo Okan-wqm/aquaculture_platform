@@ -473,7 +473,7 @@ export class ProvisioningController {
     errorCode?: ActivationErrorCode,
   ): string {
     // Sanitize inputs for shell safety
-    const safeDeviceCode = deviceCode.replace(/[^a-zA-Z0-9._\-]/g, '');
+    const safeDeviceCode = deviceCode.replace(/[^a-zA-Z0-9._-]/g, '');
     const safeErrorMessage = errorMessage.replace(/[^a-zA-Z0-9._\- ]/g, '');
 
     return `#!/bin/bash

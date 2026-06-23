@@ -61,7 +61,7 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+       
       const piscinaModule = await import('piscina') as { default?: PiscinaLike };
       Piscina = (piscinaModule.default ?? piscinaModule) as PiscinaLike;
 

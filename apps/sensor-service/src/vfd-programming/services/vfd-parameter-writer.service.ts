@@ -318,7 +318,7 @@ export class VfdParameterWriterService {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms);
       promise.then((r) => { clearTimeout(timer); resolve(r); })
-        .catch((e) => { clearTimeout(timer); reject(e); });
+        .catch((e) => { clearTimeout(timer); reject(e instanceof Error ? e : new Error(String(e))); });
     });
   }
 

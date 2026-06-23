@@ -14,5 +14,5 @@ import { MqttSubscriberService } from './mqtt-subscriber.service';
   providers: [MqttSubscriberService],
   exports: [MqttSubscriberService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class MqttModule {}

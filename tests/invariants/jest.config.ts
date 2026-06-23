@@ -144,6 +144,7 @@ export default {
         '<rootDir>/agent-size-limit.spec.ts',
         '<rootDir>/agent-frontmatter-schema.spec.ts',
         '<rootDir>/agent-doc-shape.spec.ts',
+        '<rootDir>/agent-inlining-ssot.spec.ts',
         '<rootDir>/maintenance-isolation.spec.ts',
         '<rootDir>/settings-hook-coverage.spec.ts',
         '<rootDir>/active-path-hygiene.spec.ts',

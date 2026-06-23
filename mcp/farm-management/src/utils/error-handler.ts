@@ -27,6 +27,8 @@
 //   - handleToolError() içinde yeni hata türleri tanınabilir
 // ============================================================================
 
+import { ZodError } from 'zod';
+
 import { createLogger } from './logger.js';
 
 /** Hata yönetimi modülü için logger */
@@ -167,10 +169,13 @@ export function handleToolError(error: unknown, toolName: string): McpErrorRespo
   logger.error(`Tool hatası [${toolName}]:`, error);
 
   // ── ZodError İşleme ──────────────────────────────────────
-  // Zod doğrulama hataları — yapılandırılmış validasyon detaylarını korur
-  // Duck typing ile tanınır (ZodError'ın 'issues' dizisi)
-  if (error && typeof error === 'object' && 'issues' in error && Array.isArray((error as any).issues)) {
-    const issues = (error as any).issues.map((i: any) => `${(i.path || []).join('.')}: ${i.message}`).join('; ');
+  // Zod doğrulama hataları — yapılandırılmış validasyon detaylarını korur.
+  // instanceof ZodError ile tip-güvenli tanınır; issues dizisi tam tiplidir
+  // (her issue: { path: PropertyKey[]; message: string }).
+  if (error instanceof ZodError) {
+    const issues = error.issues
+      .map((i) => `${i.path.join('.')}: ${i.message}`)
+      .join('; ');
     return {
       content: [{ type: 'text', text: `Geçersiz parametreler: ${issues}` }],
       isError: true,
@@ -182,7 +187,7 @@ export function handleToolError(error: unknown, toolName: string): McpErrorRespo
   if (error instanceof McpError) {
     // Detaylar varsa mesaja ekle (hata ayıklama kolaylığı)
     const detailsStr = error.details
-      ? `\nDetaylar: ${JSON.stringify(error.details, null, 2)}`
+      ? `\nDetaylar: ${JSON.stringify(error.details)}`
       : '';
 
     return {

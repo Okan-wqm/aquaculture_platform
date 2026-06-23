@@ -117,17 +117,25 @@ interface TaskStatsWidgetProps {
 }
 
 const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isError, refetch }) => {
+  // Build simple chart data from stats.
+  // Hook must run on every render (Rules of Hooks) — placed before the early
+  // returns below; guarded against undefined `stats` (loading/empty states).
+  const chartData = useMemo(
+    () =>
+      stats
+        ? [
+            { day: 'Tamamlanan', value: stats.completedToday },
+            { day: 'Bekleyen', value: stats.totalToday - stats.completedToday },
+            { day: 'Geciken', value: stats.overdueCount },
+            { day: 'Yaklasan', value: stats.upcomingCount },
+          ]
+        : [],
+    [stats],
+  );
+
   if (isLoading) return <WidgetSkeleton />;
   if (isError) return <ErrorWidget title="Gorev Istatistikleri" onRetry={refetch} />;
   if (!stats) return <EmptyWidget title="Gorev Istatistikleri" message="Henuz gorev verisi yok" />;
-
-  // Build simple chart data from stats
-  const chartData = useMemo(() => [
-    { day: 'Tamamlanan', value: stats.completedToday },
-    { day: 'Bekleyen', value: stats.totalToday - stats.completedToday },
-    { day: 'Geciken', value: stats.overdueCount },
-    { day: 'Yaklasan', value: stats.upcomingCount },
-  ], [stats]);
 
   return (
     <Card className="p-4">
@@ -191,18 +199,17 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
   isError,
   refetch,
 }) => {
-  if (isLoading) return <WidgetSkeleton />;
-  if (isError) return <ErrorWidget title="Su Kalitesi" onRetry={refetch} />;
-
-  // Derive aggregate water quality from measurements
+  // Derive aggregate water quality from measurements.
+  // Hook must run on every render (Rules of Hooks) — placed before the early
+  // returns below; returns null for the empty-measurements case.
   const waterData = useMemo(() => {
     if (measurements.length === 0) return null;
 
     // Average across all critical measurements
-    const avg = (key: keyof WaterQualityMeasurement) => {
+    const avg = (key: keyof WaterQualityMeasurement): number | null => {
       const values = measurements
-        .map((m) => m[key] as number | null)
-        .filter((v): v is number => v !== null && v !== undefined);
+        .map((m) => m[key])
+        .filter((v): v is number => typeof v === 'number');
       if (values.length === 0) return null;
       return values.reduce((a, b) => a + b, 0) / values.length;
     };
@@ -214,6 +221,9 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
       salinity: avg('salinity'),
     };
   }, [measurements]);
+
+  if (isLoading) return <WidgetSkeleton />;
+  if (isError) return <ErrorWidget title="Su Kalitesi" onRetry={refetch} />;
 
   if (!waterData) {
     return <EmptyWidget title="Su Kalitesi" message="Kritik su kalitesi verisi yok" />;

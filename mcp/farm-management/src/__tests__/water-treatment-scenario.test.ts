@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import {
   // Ammonia
   fractionNH3, calcNH3, calcNH4, criticalPHforNH3, calcSafeTAN, uiaStatus,
@@ -13,6 +12,7 @@ import {
   // Deffeyes safe zone
   generateSafeZone, calcOperatingPoint,
 } from '@platform/aquaculture-engines';
+import { describe, it, expect } from 'vitest';
 
 // ============================================================================
 // SENARYO: Tatlı su RAS sistemi — Acil müdahale gerekiyor mu?

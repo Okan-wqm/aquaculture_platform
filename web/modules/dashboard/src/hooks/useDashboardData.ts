@@ -899,10 +899,11 @@ export function useAcknowledgeAlert() {
     },
     onSuccess: () => {
       if (!tenantId) return;
-      // Invalidate alert-related queries so the widget refreshes
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts(tenantId) });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats(tenantId) });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity(tenantId) });
+      // Invalidate alert-related queries so the widget refreshes.
+      // void: fire-and-forget background refresh (no need to block the mutation settle).
+      void queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts(tenantId) });
+      void queryClient.invalidateQueries({ queryKey: dashboardKeys.stats(tenantId) });
+      void queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity(tenantId) });
     },
   });
 }
@@ -922,10 +923,11 @@ export function useResolveAlert() {
     },
     onSuccess: () => {
       if (!tenantId) return;
-      // Invalidate alert-related queries so the widget refreshes
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts(tenantId) });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats(tenantId) });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity(tenantId) });
+      // Invalidate alert-related queries so the widget refreshes.
+      // void: fire-and-forget background refresh (no need to block the mutation settle).
+      void queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts(tenantId) });
+      void queryClient.invalidateQueries({ queryKey: dashboardKeys.stats(tenantId) });
+      void queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity(tenantId) });
     },
   });
 }

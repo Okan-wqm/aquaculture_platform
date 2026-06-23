@@ -137,10 +137,11 @@ export class AnalyzeSensorDataTool extends BaseTool<
 
     for (const sample of samples) {
       for (const [key, value] of Object.entries(sample.values)) {
-        if (!fieldStats.has(key)) {
-          fieldStats.set(key, { values: [], types: new Set() });
+        let stats = fieldStats.get(key);
+        if (!stats) {
+          stats = { values: [], types: new Set() };
+          fieldStats.set(key, stats);
         }
-        const stats = fieldStats.get(key)!;
         stats.values.push(value);
         stats.types.add(typeof value);
       }
@@ -214,8 +215,7 @@ export class AnalyzeSensorDataTool extends BaseTool<
     } else if (input.samples.length === 0) {
       errors.push('samples must contain at least one sample');
     } else {
-      for (let i = 0; i < input.samples.length; i++) {
-        const s = input.samples[i]!;
+      for (const [i, s] of input.samples.entries()) {
         if (!s.timestamp) errors.push(`samples[${i}].timestamp is required`);
         if (!s.values || typeof s.values !== 'object')
           errors.push(`samples[${i}].values must be an object`);

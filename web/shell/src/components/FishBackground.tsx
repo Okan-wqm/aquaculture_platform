@@ -311,8 +311,8 @@ function stepFish(fish: FishState, width: number, height: number): FishState {
   const newWobble = fish.wobble + fish.wobbleSpeed;
   const wobbleOffset = Math.sin(newWobble) * 0.2;
 
-  let newX = fish.x + newVx;
-  let newY = Math.max(40, Math.min(height - 40, fish.y + newVy + wobbleOffset));
+  const newX = fish.x + newVx;
+  const newY = Math.max(40, Math.min(height - 40, fish.y + newVy + wobbleOffset));
 
   const newFacingRight = newVx > 0.005 ? true : newVx < -0.005 ? false : fish.facingRight;
 

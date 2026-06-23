@@ -22,7 +22,6 @@ import { HealthService } from './health.service';
  */
 function safeRequireVersion(packageJsonPath: string): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require(packageJsonPath).version;
   } catch {
     return 'unknown';

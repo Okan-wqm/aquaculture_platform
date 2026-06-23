@@ -657,10 +657,23 @@ export async function createServiceApp(
   // BEFORE NestJS can swallow it, ensuring container logs always show
   // what went wrong during module initialization.
   // -----------------------------------------------------------------------
+  // SECURITY (R1 Path-alpha): GraphQL subgraph services re-verify a service-identity
+  // HMAC-v2 on every inbound request, binding sha256(body). The receiver must hash the
+  // RAW wire bytes — not a re-`JSON.stringify` of the parsed body — so its hash matches
+  // the sender's (gateway / Rust router coprocessor) byte-for-byte regardless of
+  // JS-vs-serde serialization differences. Enabling `rawBody` makes Nest's body parser
+  // capture `req.rawBody` (the pre-parse Buffer), which ServiceIdentityGuard prefers.
+  //
+  // Default ON for `hasGraphQL` (the subgraph-verifier surface); a service may still
+  // override via an explicit `nestFactoryOptions.rawBody` (e.g. gateway-api is the
+  // SENDER, not a verifier, and sets `rawBody: false`). The explicit value always wins
+  // because the spread below comes after this default.
+  const rawBodyDefault = hasGraphQL ? { rawBody: true } : {};
   let app: INestApplication;
   try {
     app = await NestFactory.create(appModule, {
       logger: new StructuredLoggerService(serviceName),
+      ...rawBodyDefault,
       ...nestFactoryOptions,
     });
   } catch (err: unknown) {

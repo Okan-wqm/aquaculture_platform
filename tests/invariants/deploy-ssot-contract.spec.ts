@@ -81,6 +81,74 @@ describe('deploy SSOT contract', () => {
     expect(script).not.toMatch(/docker\s+system\s+prune[^#]*--volumes/);
   });
 
+  it('builds production backend images from current-source artifacts only', () => {
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const provenance = read('scripts/deploy/verify-backend-dist-provenance.mjs');
+
+    expect(workflow).not.toContain('path: .nx/cache');
+    expect(workflow).toContain("NX_SKIP_NX_CACHE: 'true'");
+    expect(workflow).toContain('node scripts/deploy/verify-backend-dist-provenance.mjs "${PROJECTS}"');
+    expect(provenance).toContain('stale compiled app files detected');
+    expect(provenance).toContain('apps\', project, \'src');
+    expect(provenance).toContain('dist\', \'apps\', project');
+  });
+
+  it('expands manual selective deploys with migration owner services from the catalog', () => {
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const resolver = read('scripts/deploy/resolve-migration-owner-services.mjs');
+
+    expect(workflow).toContain('MIGRATION_OWNER_SERVICES="$(node scripts/deploy/resolve-migration-owner-services.mjs');
+    expect(workflow).toContain('append_backend_once "$svc"');
+    expect(resolver).toContain('service-catalog.generated.json');
+    expect(resolver).toContain('catalog.dbSchemas');
+    expect(resolver).toContain('schema.migrationGlobs');
+    expect(resolver).toContain('catalog.deploy?.backendImageTargets');
+  });
+
+  it('keeps Redis connection env single-source in droplet compose', () => {
+    const compose = read('docker-compose.droplet.yml');
+    const services = [
+      'gateway-api',
+      'auth-service',
+      'farm-service',
+      'sensor-service',
+      'billing-service',
+      'notification-service',
+      'admin-api-service',
+      'messaging-service',
+    ];
+
+    for (const service of services) {
+      const block = extractComposeServiceBlock(compose, service);
+      expect(block).toContain(`${service}:`);
+      const hasUrl = /^\s+REDIS_URL:/.test(block);
+      const hasHostStyle = /^\s+REDIS_(HOST|PORT|PASSWORD|DB):/m.test(block);
+      expect(hasUrl && hasHostStyle).toBe(false);
+    }
+  });
+
+  it('uses the shared Redis option builder for URL-aware backend Redis modules', () => {
+    const gateway = read('apps/gateway-api/src/app.module.ts');
+    const farm = read('apps/farm-service/src/app.module.ts');
+    const notification = read('apps/notification-service/src/app.module.ts');
+
+    for (const source of [gateway, farm, notification]) {
+      expect(source).toContain('buildRedisOptions');
+      expect(source).not.toContain("configService.get('REDIS_HOST', 'localhost')");
+      expect(source).not.toContain("configService.get<string>('REDIS_PASSWORD')");
+    }
+  });
+
+  it('scopes selective rollback to services changed by the current deploy', () => {
+    const deploy = read('scripts/deploy/droplet-up.sh');
+
+    expect(deploy).toContain('scope_services=()');
+    expect(deploy).toContain('done < <(restartable_deploy_services)');
+    expect(deploy).toContain('Rollback scope had no restorable images.');
+    expect(deploy).toContain('up -d --no-deps --no-build --force-recreate "${scope_services[@]}"');
+    expect(deploy).not.toContain('up -d --no-build --remove-orphans');
+  });
+
   it('reports droplet capacity evidence without mutating data-bearing storage', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
 

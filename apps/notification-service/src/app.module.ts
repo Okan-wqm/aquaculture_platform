@@ -30,7 +30,7 @@ import {
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 
 /**
@@ -196,13 +196,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: configService.get<number>('REDIS_PORT', 6379),
-        password: configService.get<string>('REDIS_PASSWORD'),
-        db: configService.get<number>('REDIS_DB', 0),
-        keyPrefix: 'aqua:notif:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'notification', 'optional'),
     }),
 
     // Schedule module — single forRoot() for the entire service

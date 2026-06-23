@@ -16,5 +16,5 @@ import { SupportService } from './services/support.service';
   providers: [SupportService, SupportResolver],
   exports: [SupportService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class SupportModule {}

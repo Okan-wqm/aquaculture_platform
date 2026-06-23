@@ -158,10 +158,31 @@ def classify_changed_files(
         risk_class = "unknown"
     else:
         risk_class = "low"
+    enterprise_risk: dict[str, Any]
+    try:
+        from .risk_policy import classify_change
+
+        verdict = classify_change(paths)
+        enterprise_risk = {
+            "valid": verdict.valid,
+            "lane": verdict.lane,
+            "policy_hash": verdict.policy_hash,
+            "reason_codes": list(verdict.reason_codes),
+            "matched_lanes": list(verdict.matched_lanes),
+        }
+    except Exception as exc:
+        enterprise_risk = {
+            "valid": False,
+            "lane": "blocked",
+            "policy_hash": None,
+            "reason_codes": [f"risk_policy_projection_failed:{exc}"],
+            "matched_lanes": [],
+        }
     return {
         "schema_version": 1,
         "risk_class": risk_class,
         "eligible": risk_class == "low",
+        "enterprise_risk": enterprise_risk,
         "changed_files": paths,
         "low_risk_files": low_risk,
         "forbidden_files": forbidden,
@@ -267,6 +288,11 @@ def evaluate_auto_merge(
         reasons.append("PR head SHA changed since evaluation target was recorded")
     if not risk["eligible"]:
         reasons.append(f"diff risk is {risk['risk_class']}")
+    enterprise_risk = risk.get("enterprise_risk")
+    if not isinstance(enterprise_risk, dict) or enterprise_risk.get("valid") is not True:
+        reasons.append("enterprise risk policy rejected diff")
+    elif enterprise_risk.get("lane") != "L1":
+        reasons.append(f"enterprise risk lane {enterprise_risk.get('lane')} is not auto-merge eligible")
 
     required = _required_checks(github)
     if not required["readable"]:

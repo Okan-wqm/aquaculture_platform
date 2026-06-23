@@ -12,8 +12,18 @@ from .auto_merge import (
     evaluate_auto_merge,
     record_pr_lifecycle,
 )
+from .autonomy_unlock import assert_autonomy_unlocked
 from .enterprise_readiness import verify_enterprise_readiness
+from .incident_ledger import (
+    ensure_pre_merge_incident_row,
+    finalize_merge_incident,
+    record_merge_failed_incident,
+)
+from .policy_approval import verify_policy_approval
+from .risk_policy import record_risk_decision_for_pr
+from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import enforce_profile_for_action
+from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -31,13 +41,42 @@ def merge_pr_if_ready(
 
     ``auto_merge.merge_if_green`` remains evaluation-only. This wrapper owns
     the real merge boundary: attempts must pass the runtime-profile gate,
-    ledger-bound enterprise readiness, auto-merge eligibility, the change-ledger
-    triple gate, and a final live re-evaluation immediately before invoking
-    ``adapter.merge_pr``.
+    enterprise risk policy, autonomy unlock thresholds, ledger-bound enterprise
+    readiness, runner and rollback evidence, incident pre-row, auto-merge
+    eligibility, the change-ledger triple gate, and a final live re-evaluation
+    immediately before invoking ``adapter.merge_pr``.
     """
     profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
     if not readiness_claim_id or not readiness_claim_id.strip():
         raise GovernanceError("merge_authority_requires_readiness_claim_id")
+    live_pr = adapter.get_pr(pr_number)
+    if not isinstance(live_pr, dict) or not live_pr:
+        raise GovernanceError("merge_authority_live_pr_required")
+    head_sha = _head_sha(live_pr)
+    if not head_sha:
+        raise GovernanceError("merge_authority_head_sha_required")
+
+    risk = record_risk_decision_for_pr(
+        live_pr,
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+    )
+    if risk.get("valid") is not True:
+        raise GovernanceError(
+            "risk_policy_required_for_merge: "
+            + "; ".join(str(item) for item in risk.get("reason_codes") or [])
+        )
+    lane = str(risk.get("lane") or "")
+    unlock = assert_autonomy_unlocked(lane=lane, base_dir=base_dir)
+    policy_approval: dict[str, Any] | None = None
+    if lane == "L3":
+        policy_approval = verify_policy_approval(
+            pr_number=pr_number,
+            head_sha=head_sha,
+            policy_hash=str(risk.get("policy_hash") or ""),
+            base_dir=base_dir,
+        )
+
     readiness = verify_enterprise_readiness(
         pr_number=pr_number,
         adapter=adapter,
@@ -48,6 +87,23 @@ def merge_pr_if_ready(
         raise GovernanceError(
             "enterprise_readiness_required_for_merge: " + "; ".join(readiness.reasons)
         )
+    runner = verify_runner_attestation(
+        pr_number=pr_number,
+        head_sha=head_sha,
+        readiness_claim_id=readiness_claim_id,
+        base_dir=base_dir,
+    )
+    rollback = verify_rollback_bundle(
+        pr_number=pr_number,
+        head_sha=head_sha,
+        readiness_claim_id=readiness_claim_id,
+        base_dir=base_dir,
+    )
+    incident_pre = ensure_pre_merge_incident_row(
+        pr=live_pr,
+        readiness_claim_id=readiness_claim_id,
+        base_dir=base_dir,
+    )
 
     decision = _merge_if_green_with_executor(
         adapter=adapter,
@@ -146,6 +202,12 @@ def merge_pr_if_ready(
                 try:
                     merge_result = adapter.merge_pr(pr_number, **merge_kwargs)
                 except Exception as exc:  # pragma: no cover - exercised by adapter fakes
+                    record_merge_failed_incident(
+                        pr=fresh_pr,
+                        readiness_claim_id=readiness_claim_id,
+                        reason=str(exc),
+                        base_dir=base_dir,
+                    )
                     result = dict(decision)
                     result.update(
                         {
@@ -167,21 +229,34 @@ def merge_pr_if_ready(
                         },
                     )
                     _append_decision(base_dir, result)
-                finally:
-                    if armed and hasattr(adapter, "clear_merge_authority"):
-                        adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
+                    finalize_merge_incident(
+                        pr=fresh_pr,
+                        readiness_claim_id=readiness_claim_id,
+                        merge_result=merge_result,
+                        base_dir=base_dir,
+                    )
                     record_pr_lifecycle(
                         fresh_pr,
                         event="merged",
                         base_dir=base_dir,
                         cycle_id=cycle_id,
                     )
+                finally:
+                    if armed and hasattr(adapter, "clear_merge_authority"):
+                        adapter.clear_merge_authority(authority_token)  # type: ignore[attr-defined]
     append_tools_governance(
         ensure_tools_dir(base_dir),
         "merge_authority_decision",
         {
             "profile": profile,
             "pr_number": pr_number,
+            "risk_lane": lane,
+            "risk_policy_hash": risk.get("policy_hash"),
+            "unlock_counts": unlock.counts,
+            "policy_approval": policy_approval,
+            "runner_attestation": runner,
+            "rollback_bundle": rollback,
+            "incident_pre_row_hash": incident_pre.get("ledger_hash"),
             "decision": result.get("decision"),
             "eligible": result.get("eligible"),
             "cycle_id": cycle_id,
@@ -190,6 +265,14 @@ def merge_pr_if_ready(
         },
     )
     return result
+
+
+def _head_sha(pr: dict[str, Any]) -> str:
+    for key in ("head_sha", "headRefOid", "head"):
+        value = pr.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
 
 
 __all__ = ["merge_pr_if_ready"]

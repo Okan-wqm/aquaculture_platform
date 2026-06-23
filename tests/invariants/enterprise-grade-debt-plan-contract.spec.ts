@@ -293,6 +293,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(parsed.required_status_checks.contexts).toEqual([
       'sens-enterprise-summary',
       'merge-gate',
+      'aria-merge-authority',
     ]);
   });
 });

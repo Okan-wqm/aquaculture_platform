@@ -259,6 +259,9 @@ describe('useLeave — offline regression coverage', () => {
         clientCommandId?: string;
         clientCreatedAt?: unknown;
         deviceId?: unknown;
+        operationType?: string;
+        payloadHash?: unknown;
+        schemaVersion?: string;
       };
       expect(p.employeeId).toBeUndefined();
       expect(p.totalDays).toBe(3);

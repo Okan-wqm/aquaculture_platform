@@ -21,27 +21,19 @@
 
 import * as crypto from 'crypto';
 
+import { deleteTenantById, getTenantById, getTenantBySlug } from './db.helper';
 import {
   graphqlMutation,
   graphqlQuery,
   graphqlRequest,
   type GraphQLResponse,
 } from './graphql-client';
-import { RestTestClient } from './rest-client';
-import { getTenantBySlug, getTenantById, deleteTenantById } from './db.helper';
 import { generateSuperAdminToken, generateTenantAdminToken } from './jwt.helper';
+import { RestTestClient } from './rest-client';
 
 // ============================================================================
 // Service URLs
 // ============================================================================
-
-/**
- * Gateway origin (federated GraphQL). Login + all user/role/myTenant GraphQL
- * operations flow through here. Mirrors graphql-client's DEFAULT_GATEWAY_URL
- * fallback chain.
- */
-const GATEWAY_URL =
-  process.env['GATEWAY_URL'] ?? process.env['BASE_URL'] ?? 'http://localhost:3000';
 
 /**
  * admin-api-service origin. Tenant lifecycle (create/suspend/activate) is

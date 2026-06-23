@@ -1,5 +1,6 @@
-import jwt, { SignOptions } from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+
+import jwt, { SignOptions } from 'jsonwebtoken';
 
 /**
  * JWT secret for E2E tests.

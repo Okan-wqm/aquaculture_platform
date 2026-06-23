@@ -23,7 +23,7 @@ export class EthernetIpAdapter extends BaseProtocolAdapter {
   readonly displayName = 'EtherNet/IP';
   readonly description = 'EtherNet/IP (CIP) protocol for Allen-Bradley and other PLCs';
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const cfg = config as Partial<EthernetIpConfiguration>;
     const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
@@ -31,19 +31,19 @@ export class EthernetIpAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     return { success: true, latencyMs: Date.now() - startTime };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
     return { timestamp: new Date(), values: {}, quality: 100, source: 'ethernet_ip' };

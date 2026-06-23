@@ -217,7 +217,7 @@ type ToolResult = { content: Array<{ type: 'text'; text: string }> };
  *      - Oran = (feedKg / biomassKg) × 100 (% vücut ağırlığı)
  *      - Değerlendirme: <0.5% düşük, 0.5-3% normal, 3-5% yüksek, >5% aşırı
  */
-export async function handler(params: z.infer<typeof inputSchema>): Promise<ToolResult> {
+export async function handler(params: unknown): Promise<ToolResult> {
   // ── Girdi Doğrulama ──────────────────────────────────────────
   const input = inputSchema.parse(params);
 

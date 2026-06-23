@@ -7,8 +7,9 @@ import {
   expectNoDriftAgainst,
   registerDriftMatcher,
   shutdownHarness,
-  withEphemeralSchema,
 } from '../index';
+
+import { expectHarnessContext, withHarnessSchema } from './test-helpers';
 
 registerDriftMatcher();
 
@@ -90,7 +91,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   }, 30_000);
 
   it('returns zero drift when DB matches entity exactly', async () => {
-    await withEphemeralSchema(ctx!, async (ephemeral, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (ephemeral, qr) => {
       // Use the ephemeral schema AS the entity's declared 'drifttest' schema
       // by creating a schema with that exact name too.
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
@@ -115,7 +117,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class D (missing column)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // MISSING 'score' column
@@ -139,7 +142,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class B (uuid type mismatch)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // id column is text, entity declares uuid
@@ -163,7 +167,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class C (nullability mismatch)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // name is nullable in DB but entity says NOT NULL
@@ -187,7 +192,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class E (orphan column — DB has column, entity does not)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // DB has an EXTRA 'legacy_flag' column the entity does not declare.
@@ -221,7 +227,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class F (enum label drift — entity has label DB lacks)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // DB enum is MISSING 'archived' — entity has 3 labels, DB has 2.
@@ -253,7 +260,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class F (enum label drift — DB has label entity lacks)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // DB has EXTRA 'deprecated' label not declared on the entity.
@@ -285,7 +293,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class F (enum type missing entirely)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // Table created with a plain text column instead of the declared enum.
@@ -314,7 +323,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Class F is clean when labels match exactly (order-insensitive set diff)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // Same labels, different order — set diff should show no drift.
@@ -339,7 +349,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Class G clean when both entity @Check count matches DB constraint count', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         await qr.query(
@@ -363,7 +374,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class G (entity declares CHECK the DB lacks)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // Only one CHECK present instead of the entity-declared two.
@@ -392,7 +404,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class G (DB has CHECK the entity does not)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // Three CHECKs in DB, entity declares two.
@@ -423,7 +436,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Class J clean when @EncryptedAtRest column is bytea', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         await qr.query(
@@ -445,7 +459,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class J when @EncryptedAtRest column is NOT bytea', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // national_id is text — should be bytea per @EncryptedAtRest
@@ -480,7 +495,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Class I clean when tenant clones match source schema shape', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       const tenant1 = 'tenant_1234567890abcdef';
       const tenant2 = 'tenant_fedcba0987654321';
@@ -510,7 +526,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class I (tenant clone has extra column vs source)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       const tenantGood = 'tenant_aaaaaaaaaaaaaaaa';
       const tenantBad = 'tenant_bbbbbbbbbbbbbbbb';
@@ -563,7 +580,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class I (tenant clone missing table entirely)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       const tenantMissing = 'tenant_cccccccccccccccc';
       await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenantMissing}`);
@@ -597,7 +615,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Class I suppresses allowlisted-prefix extra columns per @AllowTenantDelta (R24)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       const tenant = 'tenant_eeeeeeeeeeeeeeee';
       await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenant}`);
@@ -638,7 +657,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Class I is off when tenantScan flag is false (default)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       const tenant = 'tenant_dddddddddddddddd';
       await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenant}`);
@@ -664,7 +684,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('detects Class A (schema location — table in wrong schema)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       await qr.query(`CREATE SCHEMA IF NOT EXISTS other`);
       try {
@@ -690,7 +711,8 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
   });
 
   it('Jest matcher toHaveNoDrift renders per-class breakdown on failure', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
       try {
         // Seed multiple violations (missing column + uuid type + nullability)

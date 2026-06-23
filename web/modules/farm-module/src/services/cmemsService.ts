@@ -9,35 +9,10 @@
  * - Temperature
  * - Salinity
  *
- * Data source: CMEMS (Copernicus Marine Environment Monitoring Service)
- * API: WMS/WMTS
- *
- * Datasets used:
- * - GLOBAL_ANALYSISFORECAST_BGC_001_028: Bio-geochemical (DO, Chl, NO3, PO4, pH)
- * - GLOBAL_ANALYSISFORECAST_PHY_001_024: Physical (Temperature, Salinity)
- *
- * Resolution: ~25km (1/4 degree)
- * Update frequency: Daily
+ * Browser-owned scope: display names, legend labels, and UI availability hints.
+ * Dataset ids, upstream URLs, WMTS params, and point/tile requests are owned by
+ * the backend marine data module.
  */
-
-// CMEMS WMTS Base URL - Marine Data Store endpoint (public access)
-// Note: CMEMS uses WMTS protocol (not WMS) for tile serving
-const CMEMS_WMTS_BASE_URL = 'https://wmts.marine.copernicus.eu/teroWmts';
-
-// Product IDs - Using GLOBAL products for worldwide coverage
-// Global products cover all seas including Mediterranean, Baltic, North Sea, Norwegian Sea
-const CMEMS_GLOBAL_BGC_PRODUCT = 'GLOBAL_ANALYSISFORECAST_BGC_001_028';
-const CMEMS_GLOBAL_PHY_PRODUCT = 'GLOBAL_ANALYSISFORECAST_PHY_001_024';
-
-// Legacy Mediterranean-only products (kept for reference)
-const CMEMS_MED_BGC_PRODUCT = 'MEDSEA_ANALYSISFORECAST_BGC_006_014';
-const CMEMS_MED_PHY_PRODUCT = 'MEDSEA_ANALYSISFORECAST_PHY_006_013';
-
-// Tile size
-export const CMEMS_TILE_SIZE = 256;
-
-// Export WMTS base URL for components
-export const CMEMS_WMTS_URL = CMEMS_WMTS_BASE_URL;
 
 /**
  * CMEMS Layer Types
@@ -61,26 +36,14 @@ export interface CMEMSLayerInfo {
   icon: string;
   unit: string;
   description: string;
-  product: string;   // Product ID (e.g., MEDSEA_ANALYSISFORECAST_BGC_006_014)
-  dataset: string;   // Dataset ID including version (e.g., cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_202511)
-  variable: string;  // Variable name (e.g., no3)
   colorscale: string;
   minValue: number;
   maxValue: number;
 }
 
 /**
- * CMEMS Layer Definitions
- * Based on CMEMS Marine Data Store catalog
- *
- * Mediterranean Sea uses MEDSEA_ANALYSISFORECAST datasets (~4.2km resolution)
- * These datasets are accessible via WMTS without authentication
- *
- * WMTS URL format:
- * https://wmts.marine.copernicus.eu/teroWmts?SERVICE=WMTS&REQUEST=GetTile
- *   &LAYER={product}/{dataset}/{variable}
- *   &TILEMATRIXSET=EPSG:3857&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}
- *   &FORMAT=image/png&TIME={date}&ELEVATION={depth}
+ * CMEMS Layer Definitions for UI only. Backend marine-layer-catalog.ts owns
+ * product ids, datasets, variables, and cache policy.
  */
 export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
   {
@@ -90,9 +53,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '💨',
     unit: 'mmol/m³',
     description: 'Suda çözünmüş oksijen konsantrasyonu',
-    product: 'GLOBAL_ANALYSISFORECAST_BGC_001_028',
-    dataset: 'cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m_202311',
-    variable: 'o2',
     colorscale: 'rainbow',
     minValue: 150,
     maxValue: 350,
@@ -104,9 +64,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '🌿',
     unit: 'mg/m³',
     description: 'Model tabanlı klorofil tahmini',
-    product: 'GLOBAL_ANALYSISFORECAST_BGC_001_028',
-    dataset: 'cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m_202311',
-    variable: 'chl',
     colorscale: 'rainbow',
     minValue: 0,
     maxValue: 5,
@@ -118,9 +75,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '🧪',
     unit: 'mmol/m³',
     description: 'Nitrat konsantrasyonu (NO3)',
-    product: 'GLOBAL_ANALYSISFORECAST_BGC_001_028',
-    dataset: 'cmems_mod_glo_bgc-nut_anfc_0.25deg_P1D-m_202311',
-    variable: 'no3',
     colorscale: 'rainbow',
     minValue: 0,
     maxValue: 30,
@@ -132,9 +86,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '🔬',
     unit: 'mmol/m³',
     description: 'Fosfat konsantrasyonu (PO4)',
-    product: 'GLOBAL_ANALYSISFORECAST_BGC_001_028',
-    dataset: 'cmems_mod_glo_bgc-nut_anfc_0.25deg_P1D-m_202311',
-    variable: 'po4',
     colorscale: 'rainbow',
     minValue: 0,
     maxValue: 2,
@@ -146,9 +97,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '⚗️',
     unit: '',
     description: 'Deniz suyu pH değeri',
-    product: 'GLOBAL_ANALYSISFORECAST_BGC_001_028',
-    dataset: 'cmems_mod_glo_bgc-car_anfc_0.25deg_P1D-m_202311',
-    variable: 'ph',
     colorscale: 'rainbow',
     minValue: 7.6,
     maxValue: 8.4,
@@ -160,9 +108,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '🌡️',
     unit: '°C',
     description: 'Deniz yüzey sıcaklığı',
-    product: 'GLOBAL_ANALYSISFORECAST_PHY_001_024',
-    dataset: 'cmems_mod_glo_phy_anfc_0.083deg_P1D-m_202406',
-    variable: 'thetao',
     colorscale: 'rainbow',
     minValue: -2,
     maxValue: 32,
@@ -174,9 +119,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
     icon: '🧂',
     unit: 'PSU',
     description: 'Deniz yüzey tuzluluğu',
-    product: 'GLOBAL_ANALYSISFORECAST_PHY_001_024',
-    dataset: 'cmems_mod_glo_phy_anfc_0.083deg_P1D-m_202406',
-    variable: 'so',
     colorscale: 'rainbow',
     minValue: 0,
     maxValue: 40,
@@ -188,45 +130,6 @@ export const CMEMS_LAYERS: CMEMSLayerInfo[] = [
  */
 export function getCMEMSLayerInfo(layerId: CMEMSLayerType): CMEMSLayerInfo | undefined {
   return CMEMS_LAYERS.find((l) => l.id === layerId);
-}
-
-/**
- * Generate CMEMS WMTS tile URL template for Leaflet TileLayer
- *
- * @param layer - CMEMS layer type
- * @param date - Date for data
- * @param depth - Depth level in meters (default: 0 = surface)
- * @returns URL template for Leaflet TileLayer with {z}/{x}/{y} placeholders
- */
-export function getCMEMSWMTSTileUrl(
-  layer: CMEMSLayerType,
-  date: Date,
-  depth: number = 0
-): string | null {
-  const layerInfo = getCMEMSLayerInfo(layer);
-  if (!layerInfo) return null;
-
-  // Format date as YYYY-MM-DD
-  const dateStr = date.toISOString().split('T')[0];
-
-  // WMTS layer name format: product/dataset/variable
-  const wmtsLayer = `${layerInfo.product}/${layerInfo.dataset}/${layerInfo.variable}`;
-
-  // Build WMTS URL template
-  // Note: {z}, {x}, {y} are Leaflet placeholders
-  const params = new URLSearchParams({
-    SERVICE: 'WMTS',
-    REQUEST: 'GetTile',
-    VERSION: '1.0.0',
-    LAYER: wmtsLayer,
-    TILEMATRIXSET: 'EPSG:3857',
-    FORMAT: 'image/png',
-    TIME: dateStr,
-    ELEVATION: String(depth),
-  });
-
-  // Return URL with tile coordinate placeholders
-  return `${CMEMS_WMTS_BASE_URL}?${params.toString()}&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}`;
 }
 
 /**
@@ -367,173 +270,6 @@ export function getDataSource(
     return 'CMEMS';
   }
   return 'UNKNOWN';
-}
-
-// ============================================================================
-// POINT QUERY FUNCTIONS
-// ============================================================================
-
-/**
- * CMEMS Point Query Result
- */
-export interface CMEMSPointQueryResult {
-  lat: number;
-  lng: number;
-  value: number | null;
-  unit: string;
-  variableId: string;
-  datasetId: string;
-  timestamp?: string;
-}
-
-/**
- * Convert latitude/longitude to Web Mercator (EPSG:3857) coordinates
- */
-function latLngToWebMercator(lat: number, lng: number): { x: number; y: number } {
-  const x = lng * 20037508.34 / 180;
-  const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
-  return {
-    x,
-    y: y * 20037508.34 / 180,
-  };
-}
-
-/**
- * Calculate WMTS tile coordinates for a given lat/lng at a zoom level
- * Uses EPSG:3857 (Web Mercator) tile matrix
- */
-function calculateTileCoords(
-  lat: number,
-  lng: number,
-  zoom: number
-): { tileCol: number; tileRow: number; pixelI: number; pixelJ: number } {
-  const n = Math.pow(2, zoom);
-  const tileSize = CMEMS_TILE_SIZE;
-
-  // Convert to tile coordinates
-  const x = ((lng + 180) / 360) * n;
-  const latRad = (lat * Math.PI) / 180;
-  const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-
-  const tileCol = Math.floor(x);
-  const tileRow = Math.floor(y);
-
-  // Calculate pixel position within tile
-  const pixelI = Math.floor((x - tileCol) * tileSize);
-  const pixelJ = Math.floor((y - tileRow) * tileSize);
-
-  return { tileCol, tileRow, pixelI, pixelJ };
-}
-
-/**
- * Get point value from CMEMS WMTS GetFeatureInfo
- *
- * @param lat - Latitude (WGS84)
- * @param lng - Longitude (WGS84)
- * @param layer - CMEMS layer type
- * @param date - Optional date (defaults to latest available)
- * @param zoom - Tile zoom level (default: 8 for ~4km resolution)
- * @returns Point query result or null if request fails
- */
-export async function getCMEMSPointValue(
-  lat: number,
-  lng: number,
-  layer: CMEMSLayerType,
-  date?: Date,
-  zoom: number = 8
-): Promise<CMEMSPointQueryResult | null> {
-  const layerInfo = getCMEMSLayerInfo(layer);
-  if (!layerInfo) {
-    console.error(`Unknown CMEMS layer: ${layer}`);
-    return null;
-  }
-
-  // Calculate tile coordinates
-  const { tileCol, tileRow, pixelI, pixelJ } = calculateTileCoords(lat, lng, zoom);
-
-  // Build WMTS GetFeatureInfo URL
-  // Layer format: product/dataset/variable
-  const wmtsLayer = `${layerInfo.product}/${layerInfo.dataset}/${layerInfo.variable}`;
-  const params = new URLSearchParams({
-    SERVICE: 'WMTS',
-    REQUEST: 'GetFeatureInfo',
-    VERSION: '1.0.0',
-    LAYER: wmtsLayer,
-    TILEMATRIXSET: 'EPSG:3857',
-    TILEMATRIX: String(zoom),
-    TILEROW: String(tileRow),
-    TILECOL: String(tileCol),
-    I: String(pixelI),
-    J: String(pixelJ),
-    INFOFORMAT: 'application/json',
-  });
-
-  // Add time parameter if provided
-  if (date) {
-    params.append('TIME', date.toISOString().split('T')[0]);
-  }
-
-  const url = `${CMEMS_WMTS_BASE_URL}?${params.toString()}`;
-
-  try {
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      console.error(`CMEMS GetFeatureInfo failed: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-
-    // Parse GeoJSON FeatureCollection response
-    if (data.type === 'FeatureCollection' && data.features?.length > 0) {
-      const feature = data.features[0];
-      const props = feature.properties;
-
-      return {
-        lat: props.lat ?? lat,
-        lng: props.lon ?? lng,
-        value: props.value,
-        unit: props.units ?? layerInfo.unit,
-        variableId: props.variableId ?? layerInfo.variable,
-        datasetId: props.datasetId ?? layerInfo.dataset,
-        timestamp: date?.toISOString(),
-      };
-    }
-
-    return null;
-  } catch (error) {
-    console.error('CMEMS GetFeatureInfo error:', error);
-    return null;
-  }
-}
-
-/**
- * Get multiple CMEMS parameters for a single point
- *
- * @param lat - Latitude (WGS84)
- * @param lng - Longitude (WGS84)
- * @param layers - Array of CMEMS layer types to query
- * @param date - Optional date (defaults to latest available)
- * @returns Map of layer type to query result
- */
-export async function getCMEMSMultiPointValue(
-  lat: number,
-  lng: number,
-  layers: CMEMSLayerType[],
-  date?: Date
-): Promise<Map<CMEMSLayerType, CMEMSPointQueryResult | null>> {
-  const results = new Map<CMEMSLayerType, CMEMSPointQueryResult | null>();
-
-  // Query all layers in parallel
-  const promises = layers.map(async (layer) => {
-    const result = await getCMEMSPointValue(lat, lng, layer, date);
-    results.set(layer, result);
-  });
-
-  await Promise.all(promises);
-
-  return results;
 }
 
 /**

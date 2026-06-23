@@ -12,8 +12,63 @@ import {
   TENANT_ERASURE_TARGET_SERVICE_COUNT,
   TENANT_ERASURE_TARGET_SERVICES,
 } from '../../libs/event-contracts/src/tenant-erasure-targets';
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '../../platform/libs/outbox/src/outbox-migration';
+import { TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE } from '../../libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target-registry';
+import { MODULE_SCHEMAS } from '../../libs/backend-common/src/database/schema-manager.service';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
+const TARGET_PROOF_LEDGER_FORWARD_MIGRATIONS = [
+  {
+    service: 'admin-api-service',
+    schema: 'admin',
+    path: 'apps/admin-api-service/src/migrations/1801000000000-EnsureAdminTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'ai-service',
+    schema: 'ai',
+    path: 'apps/ai-service/src/database/migrations/1801000000000-EnsureAiTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'alert-engine',
+    schema: 'alert',
+    path: 'apps/alert-engine/src/database/migrations/1801000000000-EnsureAlertTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'billing-service',
+    schema: 'billing',
+    path: 'apps/billing-service/src/database/migrations/1801000000000-EnsureBillingTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'farm-service',
+    schema: 'farm',
+    path: 'apps/farm-service/src/database/migrations/1801500000000-EnsureFarmTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'hr-service',
+    schema: 'hr',
+    path: 'apps/hr-service/src/database/migrations/1801000000000-EnsureHrTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'hydroponics-service',
+    schema: 'hydroponics',
+    path: 'apps/hydroponics-service/src/database/migrations/1801000000000-EnsureHydroponicsTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'messaging-service',
+    schema: 'messaging',
+    path: 'apps/messaging-service/src/migrations/1801000000000-EnsureMessagingTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'notification-service',
+    schema: 'notification',
+    path: 'apps/notification-service/src/database/migrations/1801000000000-EnsureNotificationTenantErasureProofLedger.ts',
+  },
+  {
+    service: 'sensor-service',
+    schema: 'sensor',
+    path: 'apps/sensor-service/src/database/migrations/1801000000000-EnsureSensorTenantErasureProofLedger.ts',
+  },
+] as const;
 
 function repoFile(relPath: string): string {
   return readFileSync(resolve(REPO_ROOT, relPath), 'utf8');
@@ -159,7 +214,9 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     expect(targetModule).toContain("subscribeWildcard('TenantErasureRequested'");
     expect(targetModule).toContain('TenantErasureTargetExecutor');
 
-    const farmHandler = repoFile('apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts');
+    const farmHandler = repoFile(
+      'apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts',
+    );
     expect(farmHandler).toContain("subscribeWildcard('TenantErasureRequested'");
     expect(farmHandler).toContain('TenantErasureService');
   });
@@ -176,19 +233,15 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     expect(moduleSrc).toMatch(/legalHoldService:\s*LegalHoldService/);
     expect(executorSrc).toMatch(/readonly legalHoldService:\s*LegalHoldService/);
     expect(executorSrc).toContain(
-      'await this.deps.legalHoldService.assertNoHold(event.tenantId, \'tenant\')',
+      "await this.deps.legalHoldService.assertNoHold(event.tenantId, 'tenant')",
     );
     expect(executorSrc).toContain('error instanceof LegalHoldActiveError');
     expect(executorSrc).toContain(
       "createBaseEvent<TenantErasureBlockedEvent>('TenantErasureBlocked'",
     );
 
-    const holdOffset = executorSrc.indexOf(
-      'await this.deps.legalHoldService.assertNoHold',
-    );
-    const transactionOffset = executorSrc.indexOf(
-      'return await this.deps.dataSource.transaction',
-    );
+    const holdOffset = executorSrc.indexOf('await this.deps.legalHoldService.assertNoHold');
+    const transactionOffset = executorSrc.indexOf('return await this.deps.dataSource.transaction');
     expect(holdOffset).toBeGreaterThan(0);
     expect(holdOffset).toBeLessThan(transactionOffset);
   });
@@ -210,18 +263,43 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     expect(backendDatabaseIndex).not.toContain('buildTransactionalOutboxUpSql');
   });
 
+  it('declares every target proof ledger as source-schema infrastructure', () => {
+    for (const options of Object.values(TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE)) {
+      const moduleSchema = MODULE_SCHEMAS.find(
+        (entry) =>
+          entry.moduleName === options.moduleName && entry.sourceSchema === options.sourceSchema,
+      );
+      expect(moduleSchema).toBeDefined();
+      expect(moduleSchema?.infrastructureTables ?? []).toContain(options.proofLedger.table);
+      expect(moduleSchema?.tables ?? []).not.toContain(options.proofLedger.table);
+    }
+  });
+
+  it('creates target proof ledgers through forward migrations, not edited applied migrations', () => {
+    expect(TARGET_PROOF_LEDGER_FORWARD_MIGRATIONS.map((entry) => entry.service).sort()).toEqual(
+      [...TENANT_ERASURE_TARGET_SERVICES].sort(),
+    );
+
+    for (const entry of TARGET_PROOF_LEDGER_FORWARD_MIGRATIONS) {
+      const migration = repoFile(entry.path);
+      expect(migration).toContain('SourceOnlyMigration');
+      expect(migration).toContain('buildTenantErasureTargetProofLedgerUpSql');
+      expect(migration).toContain('buildTenantErasureTargetProofLedgerDownSql');
+      expect(migration).toContain(`schema: '${entry.schema}'`);
+      expect(migration).toContain(`idx_${entry.schema}_erasure_proofs_tenant`);
+      expect(migration).toContain(`idx_${entry.schema}_erasure_proofs_event`);
+      expect(migration).toContain(`idx_${entry.schema}_erasure_proofs_target`);
+    }
+  });
+
   it('admin erasure request validates legal hold before operation creation', () => {
     const src = repoFile('apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts');
 
     expect(src).toMatch(/private readonly legalHoldService:\s*LegalHoldService/);
     expect(src).not.toMatch(/@Optional\s*\(\s*\)[\s\S]{0,160}legalHoldService/);
-    expect(src).toContain(
-      "await this.legalHoldService.assertNoHold(command.tenantId, 'tenant')",
-    );
+    expect(src).toContain("await this.legalHoldService.assertNoHold(command.tenantId, 'tenant')");
 
-    const holdOffset = src.indexOf(
-      'await this.legalHoldService.assertNoHold(command.tenantId',
-    );
+    const holdOffset = src.indexOf('await this.legalHoldService.assertNoHold(command.tenantId');
     const runnerOffset = src.indexOf('const queryRunner = this.dataSource.createQueryRunner()');
     const insertOffset = src.indexOf('INSERT INTO admin.tenant_erasure_operations');
     expect(holdOffset).toBeGreaterThan(0);
@@ -240,12 +318,14 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
   });
 
   it('farm consumes orchestrator requests and returns service-scoped proof', () => {
-    const handler = repoFile('apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts');
+    const handler = repoFile(
+      'apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts',
+    );
     const service = repoFile('apps/farm-service/src/compliance/services/tenant-erasure.service.ts');
     expect(handler).toContain("subscribeWildcard('TenantErasureRequested'");
     expect(handler).toContain('eraseFromTenantErasureRequest(event)');
     expect(service).toContain('eraseFromTenantErasureRequest');
-    expect(service).toContain("idempotencyKey: `tenant-erasure:${operationId}:farm-service`");
+    expect(service).toContain('idempotencyKey: `tenant-erasure:${operationId}:farm-service`');
     expect(service).toContain('event.dryRun');
     expect(service).toContain('recordProofLedger(mgr, erasedEvent)');
     expect(service).toContain('createBaseEvent<TenantErasureBlockedEvent>');

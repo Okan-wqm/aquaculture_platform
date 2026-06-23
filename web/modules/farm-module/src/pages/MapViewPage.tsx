@@ -185,7 +185,7 @@ const MapController: React.FC<MapControllerProps> = ({
     zoomend: () => {
       onZoomChange?.(map.getZoom());
     },
-    click: (e) => {
+    click: (e: L.LeafletMouseEvent) => {
       // Only handle click if point query is enabled
       if (pointQueryEnabled && onMapClick) {
         onMapClick(e.latlng.lat, e.latlng.lng);
@@ -300,10 +300,8 @@ const MapViewPage: React.FC = () => {
         setLoading(true);
         setError(null);
         const data = await fetchSitesFromAPI();
-        console.log('[MapViewPage] Loaded sites:', data.length);
         setSites(data);
       } catch (err) {
-        console.error('[MapViewPage] Error loading sites:', err);
         setError(err instanceof Error ? err.message : 'Failed to load sites');
       } finally {
         setLoading(false);
@@ -503,11 +501,9 @@ const MapViewPage: React.FC = () => {
               />
             ) : null}
 
-            {/* Satellite Loading Overlay - Simple loading indicator for WMTS */}
+            {/* Satellite Loading Overlay */}
             {isSentinelLayer &&
               sentinel.isConfigured &&
-              sentinel.hasWmtsSupport &&
-              sentinel.token &&
               canShowSentinel &&
               sentinel.isLoading && (
                 <div className="absolute bottom-4 left-4 z-[500] bg-white/90 rounded-lg shadow px-3 py-2 flex items-center gap-2 pointer-events-none">
@@ -562,24 +558,6 @@ const MapViewPage: React.FC = () => {
               </div>
             )}
 
-            {/* WMTS Not Configured Message */}
-            {isSentinelLayer && sentinel.isConfigured && !sentinel.hasWmtsSupport && (
-              <div className="absolute bottom-4 left-4 z-[1000] max-w-sm">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                  <p className="text-sm text-yellow-800 mb-2">
-                    Hizli uydu goruntuleri icin WMTS Instance ID gerekli. Sentinel Hub Dashboard'da
-                    Configuration Instance olusturun.
-                  </p>
-                  <Link
-                    to="/sites/settings/sentinel-hub"
-                    className="text-sm text-yellow-700 font-medium hover:underline"
-                  >
-                    Ayarlara Git →
-                  </Link>
-                </div>
-              </div>
-            )}
-
             <MapContainer
               center={turkeyCenter}
               zoom={defaultZoom}
@@ -592,15 +570,10 @@ const MapViewPage: React.FC = () => {
               {/* Sentinel Hub Tile Layer - WMTS for fast loading */}
               {isSentinelLayer &&
                 sentinel.isConfigured &&
-                sentinel.hasWmtsSupport &&
-                sentinel.instanceId &&
-                sentinel.token &&
                 canShowSentinel && (
                   <SentinelTileLayer
-                    instanceId={sentinel.instanceId}
                     layer={sentinel.layer}
                     date={sentinel.date}
-                    token={sentinel.token}
                     opacity={sentinel.opacity}
                     minZoom={SENTINEL_MIN_ZOOM}
                     maxZoom={16}
@@ -703,12 +676,11 @@ const MapViewPage: React.FC = () => {
             </MapContainer>
 
             {/* AOI Analysis Panel - Phase 2 */}
-            {showAOIAnalysis && aoi.activeAOI && isSentinelLayer && sentinel.token && (
+            {showAOIAnalysis && aoi.activeAOI && isSentinelLayer && (
               <AOIAnalysisPanel
                 aoi={aoi.activeAOI}
                 layer={activeLayer as LayerType}
                 date={selectedDate}
-                token={sentinel.token}
                 onClose={() => {
                   setShowAOIAnalysis(false);
                   aoi.selectAOI(null);

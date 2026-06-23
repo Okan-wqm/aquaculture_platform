@@ -63,6 +63,7 @@ import { RequestValidatorMiddleware } from './middleware/request-validator.middl
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { AiRoutesModule } from './routes/v2/ai.routes';
+import { MarineRoutesModule } from './routes/marine.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
@@ -418,6 +419,10 @@ function positiveIntConfig(
 
     // AI service proxy routes (chat, conversations)
     AiRoutesModule,
+
+    // Backend-owned marine data REST gateway. Browser code talks to this
+    // route only; gateway signs the internal farm-service request.
+    MarineRoutesModule,
 
     // Redis for distributed rate limiting (optional, falls back to in-memory if not configured)
     RedisModule.forRootAsync({

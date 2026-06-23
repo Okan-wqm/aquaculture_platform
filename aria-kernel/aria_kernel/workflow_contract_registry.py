@@ -292,6 +292,13 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
+    "aria-merge-authority": AuditedWorkflowExclusion(
+        workflow_id="aria-merge-authority",
+        reason="required merge-gate check workflow; asserts ARIA merge authority via "
+        "`npm run gates:required-status-checks` and uploads no governed ARIA artifact",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
 }
 
 

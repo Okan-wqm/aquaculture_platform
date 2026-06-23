@@ -91,7 +91,7 @@ export default async function cargoRun(
             // Most common case: cargo not on PATH. Surface a hint so CI logs
             // are self-explanatory without sending the engineer hunting.
             process.stderr.write(
-                `[@aqua/cargo:run] Failed to spawn cargo: ${(err as Error).message}\n` +
+                `[@aqua/cargo:run] Failed to spawn cargo: ${err.message}\n` +
                     `Hint: install via rustup (https://rustup.rs) or use the rust-toolchain.toml at the workspace root.\n`,
             );
             resolveResult({ success: false });

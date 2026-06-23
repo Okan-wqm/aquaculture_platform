@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { calcDOSaturation, calcO2Consumption } from '../utils/formulas.js';
 
 // ============================================================================

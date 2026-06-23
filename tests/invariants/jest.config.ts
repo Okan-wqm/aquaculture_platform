@@ -84,6 +84,12 @@ const commonProjectOptions = {
   roots: ['<rootDir>'],
   testEnvironment: 'node' as const,
   moduleFileExtensions: ['ts', 'js', 'html'],
+  // schema-manager.service.ts (read by tenant-erasure-ssot.spec) imports the
+  // proof-ledger table constant via the @platform/outbox alias; map it so jest
+  // resolves the source the same way tsconfig.base paths do at build time.
+  moduleNameMapper: {
+    '^@platform/outbox$': '<rootDir>/../../platform/libs/outbox/src/index.ts',
+  },
   transform: baseTransform,
 };
 

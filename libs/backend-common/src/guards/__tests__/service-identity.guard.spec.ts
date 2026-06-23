@@ -63,10 +63,15 @@ function gqlContext(req: FakeReq): ExecutionContext {
   // resolves `req` from this mock with no library stubbing. Generic-returning host
   // methods widen through an `unknown`-typed value (never a double cast) to stay honest.
   const gqlArgs: unknown[] = [undefined, {}, { req }, undefined];
-  const graphqlType: string = 'graphql';
+  const graphqlType = 'graphql';
   const reqValue: unknown = req;
   const emptyValue: unknown = {};
-  const mockClass: unknown = class GqlContextMock {};
+  // getClass() must return a constructor; the guard never invokes it, so a stub
+  // resolver class stands in. The marker field keeps it a non-empty class (an
+  // empty class trips @typescript-eslint/no-extraneous-class).
+  const mockClass: unknown = class GqlResolverStub {
+    readonly isResolverStub = true;
+  };
   const httpHost: HttpArgumentsHost = {
     getRequest: <T = unknown>(): T => reqValue as T,
     getResponse: <T = unknown>(): T => emptyValue as T,
@@ -176,7 +181,7 @@ describe('ServiceIdentityGuard — R1 Path-alpha body-hash binding', () => {
       url: PATH,
       path: PATH,
       headers: signedHeaders(wireBytes),
-      body: { extra: 'reordered', ...((parsed as object) ?? {}) },
+      body: { extra: 'reordered', ...(parsed ?? {}) },
       rawBody: Buffer.from(wireBytes, 'utf8'),
     };
 

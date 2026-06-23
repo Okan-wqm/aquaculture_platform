@@ -10,6 +10,8 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 import { defineMigrationTest } from '../define-migration-test';
 
+import { queryRows } from './test-helpers';
+
 /**
  * Fixture migration — minimal real-world shape:
  *   - class (not lambda) so `new` works
@@ -35,14 +37,14 @@ defineMigrationTest({
   schema: 'fixture_schema',
   priorState: `CREATE TABLE thing (id uuid PRIMARY KEY, name text NOT NULL)`,
   assertions: async ({ qr, schema }) => {
-    const cols: Array<{ column_name: string; data_type: string }> =
-      await qr.query(
-        `SELECT column_name, data_type
+    const cols = await queryRows<{ column_name: string; data_type: string }>(
+      qr,
+      `SELECT column_name, data_type
            FROM information_schema.columns
           WHERE table_schema = $1 AND table_name = $2
           ORDER BY ordinal_position`,
-        [schema, 'thing'],
-      );
+      [schema, 'thing'],
+    );
     const names = cols.map((c) => c.column_name);
     expect(names).toEqual(['id', 'name', 'created_at', 'updated_at']);
     expect(cols).toHaveLength(4);

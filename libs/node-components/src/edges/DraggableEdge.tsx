@@ -12,6 +12,7 @@
 
 import { EdgeProps, Position, useReactFlow, type Edge } from '@xyflow/react';
 import { type JSX, useState, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
+
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */
@@ -44,7 +45,7 @@ const renderArrow = (
   targetY: number,
   prevX: number,
   prevY: number,
-  color: string = '#374151'
+  color = '#374151'
 ): JSX.Element => {
   const angle = Math.atan2(targetY - prevY, targetX - prevX) * (180 / Math.PI);
   return (

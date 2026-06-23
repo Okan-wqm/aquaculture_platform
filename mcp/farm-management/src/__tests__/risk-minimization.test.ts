@@ -297,7 +297,8 @@ describe('Risk Minimizasyonu — pH taraması', () => {
         S.vol,
         [{ reagentKey: 'Add CO₂', amountGrams: g }]
       );
-      if (Math.abs(res[res.length - 1].ph - safePH) < 0.01) { co2Dose = g; break; }
+      const lastStep = res[res.length - 1];
+      if (lastStep && Math.abs(lastStep.ph - safePH) < 0.01) { co2Dose = g; break; }
     }
 
     const safeNH3 = calcNH3(safeTAN, safePH, S.tempC, S.sal);

@@ -56,6 +56,11 @@ export type McpErrorCode =
  * isError: true — Claude'a bunun bir hata olduğunu bildirir
  */
 export interface McpErrorResponse {
+  // The MCP SDK Result base carries an open `[key: string]: unknown` index
+  // signature (plus optional _meta); without it this interface is not
+  // assignable to the SDK CallToolResult/ServerResult union, which breaks the
+  // setRequestHandler(CallToolRequestSchema, ...) call site (TS2345).
+  [key: string]: unknown;
   content: Array<{ type: 'text'; text: string }>;
   isError: true;
 }

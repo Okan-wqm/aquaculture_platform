@@ -1,5 +1,6 @@
-import { RateLimitEntry, RateLimitIncrementResult, RateLimitStore } from './rate-limit.types';
 import { clearManagedTimer, createManagedInterval, type ManagedInterval } from '../utils';
+
+import { RateLimitEntry, RateLimitIncrementResult, RateLimitStore } from './rate-limit.types';
 
 /**
  * Single-process fallback store.

@@ -1,5 +1,7 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as crypto from 'crypto';
+
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+
 import { clearManagedTimer, createManagedInterval, type ManagedInterval } from '../utils';
 
 /**

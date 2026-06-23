@@ -1,6 +1,14 @@
-export type ManagedTimeout = ReturnType<typeof setTimeout>;
-export type ManagedInterval = ReturnType<typeof setInterval>;
-export type ManagedTimer = ManagedTimeout | ManagedInterval;
+/**
+ * Canonical process-lifecycle timer handle. WHY a single type: in Node both
+ * setTimeout and setInterval return the identical NodeJS.Timeout handle, so a
+ * `ManagedTimeout | ManagedInterval` union duplicates one constituent
+ * (@typescript-eslint/no-duplicate-type-constituents). The timeout-vs-interval
+ * distinction lives in the create* function names, not the handle type; the two
+ * aliases below stay for call-site readability.
+ */
+export type ManagedTimer = ReturnType<typeof setTimeout>;
+export type ManagedTimeout = ManagedTimer;
+export type ManagedInterval = ManagedTimer;
 
 interface UnrefableTimer {
   unref?: () => void;
@@ -27,7 +35,7 @@ export function createManagedInterval(callback: () => void, intervalMs: number):
 
 export function clearManagedTimer(timer: ManagedTimer | null | undefined): void {
   if (!timer) return;
-  clearTimeout(timer as ManagedTimeout);
+  clearTimeout(timer);
 }
 
 export function createAbortSignalTimeout(timeoutMs: number): ManagedAbortTimeout {

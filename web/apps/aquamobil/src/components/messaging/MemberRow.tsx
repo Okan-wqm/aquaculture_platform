@@ -7,6 +7,7 @@
 
 import { clsx } from 'clsx';
 import { Crown, Shield, User } from 'lucide-react';
+import type { ReactElement } from 'react';
 
 import type { ChannelMember, ChannelMemberRole } from '@/types/messaging';
 import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
@@ -47,7 +48,7 @@ interface MemberRowProps {
  * MemberRow displays a single channel member with avatar, name, email,
  * online indicator, and role badge.
  */
-export function MemberRow({ member }: MemberRowProps) {
+export function MemberRow({ member }: MemberRowProps): ReactElement {
   const roleBadge = ROLE_BADGES[member.role];
   const RoleIcon = roleBadge.icon;
   const memberName = member.user ? getUserDisplayName(member.user) : 'Unknown User';

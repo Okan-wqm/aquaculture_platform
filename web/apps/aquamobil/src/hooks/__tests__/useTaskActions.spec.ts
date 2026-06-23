@@ -14,6 +14,7 @@
  *   fallback so the server dedups the retry.
  */
 
+import { renderHook } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -96,8 +97,6 @@ vi.stubGlobal('crypto', {
 
 // Import after mocks — useTaskActions uses plain useCallback hooks, no JSX rendering needed
 import { useTaskActions } from '../useTaskActions';
-
-import { renderHook } from '@testing-library/react';
 
 // --------------------------------------------------------------------------
 // Tests

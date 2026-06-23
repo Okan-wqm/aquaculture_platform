@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
 import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
-import { ReactNode } from 'react';
+import { ReactNode, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
@@ -34,7 +34,7 @@ interface TabItem {
 
 // WHY: MobileLayout is the single shell for all authenticated pages — consistent bottom nav,
 // offline banner, and safe area handling across all screens without duplication.
-export function MobileLayout({ children }: MobileLayoutProps) {
+export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   const location = useLocation();
   const navigate = useNavigate();
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
@@ -95,7 +95,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   // the tab's path directly, OR if it matches any of the tab's childPaths.
   // This is essential for the Operations tab which owns routes that don't
   // share a common URL prefix (e.g., /feeding/record, /attendance).
-  const isActive = (tab: TabItem) => {
+  const isActive = (tab: TabItem): boolean => {
     if (tab.path === '/' && location.pathname === '/') return true;
     if (tab.path !== '/' && location.pathname.startsWith(tab.path)) return true;
     if (tab.childPaths?.some(cp => location.pathname.startsWith(cp))) return true;

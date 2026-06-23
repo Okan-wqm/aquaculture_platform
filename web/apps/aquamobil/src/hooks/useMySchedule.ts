@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
 
@@ -110,7 +110,7 @@ async function fetchMySchedule(
   return items && items.length > 0 ? items[0] : null;
 }
 
-export function useMySchedule(weekOffset = 0) {
+export function useMySchedule(weekOffset = 0): UseQueryResult<WeeklyPlan | null, Error> {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   const targetDate = new Date();

@@ -34,7 +34,15 @@ const POLL_INTERVAL_MS = 60_000; // 60 seconds
  * is disconnected (e.g., backgrounded PWA) to ensure the badge eventually
  * catches up.
  */
-export function useUnreadCount() {
+/** Return shape of {@link useUnreadCount}. */
+export interface UseUnreadCountReturn {
+  /** Total unread messages across all channels (0 until loaded). */
+  unreadCount: number;
+  /** True during the initial fetch. */
+  isLoading: boolean;
+}
+
+export function useUnreadCount(): UseUnreadCountReturn {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({

@@ -9,7 +9,7 @@
 
 import { clsx } from 'clsx';
 import { Check, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, type ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,7 +48,7 @@ export function AiActionCard({
   resultMessage,
   onConfirm,
   onCancel,
-}: AiActionCardProps) {
+}: AiActionCardProps): ReactElement {
   const handleConfirm = useCallback(() => {
     onConfirm(actionId);
   }, [actionId, onConfirm]);

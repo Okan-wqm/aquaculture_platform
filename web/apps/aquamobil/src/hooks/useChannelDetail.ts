@@ -15,7 +15,7 @@
  * @returns refetch — manually trigger a refetch
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
 
@@ -48,17 +48,36 @@ async function fetchChannel(channelId: string): Promise<Channel> {
   return normalizeChannelType(result.channel);
 }
 
+/** Return shape of {@link useChannelDetail}. */
+export interface UseChannelDetailReturn {
+  /** The channel detail, or null until loaded / when disabled. */
+  channel: Channel | null;
+  /** True during the initial fetch. */
+  isLoading: boolean;
+  /** GraphQL or network error, or null. */
+  error: Error | null;
+  /** Manually re-run the underlying query (TanStack Query refetch). */
+  refetch: UseQueryResult<Channel, Error>['refetch'];
+}
+
 /**
  * Single channel detail hook for settings and header display.
  *
  * @param channelId - The channel ID to query. Pass undefined to disable the query.
  */
-export function useChannelDetail(channelId: string | undefined) {
+export function useChannelDetail(channelId: string | undefined): UseChannelDetailReturn {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId, tenantId),
-    queryFn: () => fetchChannel(channelId!),
+    // WHY guard-throw instead of `channelId!`: the query only runs when `enabled`
+    // is true (which requires channelId), but `enabled` does not narrow the type.
+    // Throwing on the impossible undefined case narrows it without a non-null
+    // assertion and keeps the failure mode explicit.
+    queryFn: () => {
+      if (!channelId) throw new Error('useChannelDetail: channelId is required');
+      return fetchChannel(channelId);
+    },
     enabled: isAuthenticated && !!tenantId && !!channelId,
     staleTime: 30_000,
     gcTime: 10 * 60 * 1000,

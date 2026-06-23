@@ -18,7 +18,7 @@
 
 import { clsx } from 'clsx';
 import { Send, Paperclip, Mic, X, Clock } from 'lucide-react';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, type ReactElement } from 'react';
 
 import { MentionPicker } from './MentionPicker';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -85,7 +85,7 @@ export function MessageInput({
   maxLength = DEFAULT_MAX_LENGTH,
   disabled = false,
   isOnline = true,
-}: MessageInputProps) {
+}: MessageInputProps): ReactElement {
   const [text, setText] = useState('');
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
@@ -124,7 +124,7 @@ export function MessageInput({
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const adjustPosition = () => {
+    const adjustPosition = (): void => {
       if (window.visualViewport) {
         const offset = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
         container.style.transform = offset > 0 ? `translateY(-${offset}px)` : '';
@@ -138,7 +138,7 @@ export function MessageInput({
     }
 
     // Fallback: window resize with 100ms debounce
-    const fallbackHandler = () => {
+    const fallbackHandler = (): void => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(adjustPosition, 100);
     };

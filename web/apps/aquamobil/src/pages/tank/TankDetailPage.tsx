@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import { ArrowLeft, Droplets, Fish, Activity, BarChart3, AlertTriangle } from 'lucide-react';
+import type { JSX } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import { TankRiskBadge, GrowthPredictionCard, FeedingAdviceCard } from '@/components/ai';
@@ -21,7 +22,7 @@ function StatCard({ icon: Icon, label, value, unit, warning }: {
   value: string | number;
   unit?: string;
   warning?: boolean;
-}) {
+}): JSX.Element {
   return (
     <div className={clsx(
       'bg-white dark:bg-gray-900 rounded-xl p-4 border',
@@ -44,7 +45,7 @@ function StatCard({ icon: Icon, label, value, unit, warning }: {
   );
 }
 
-export function TankDetailPage() {
+export function TankDetailPage(): JSX.Element {
   const { tankId } = useParams<{ tankId: string }>();
   const navigate = useNavigate();
   const { data: tanks, isLoading } = useTanks();
@@ -100,7 +101,7 @@ export function TankDetailPage() {
 
   const status = STATUS_CONFIG[tank.status] || STATUS_CONFIG.INACTIVE;
 
-  const formatNumber = (num: number) => {
+  const formatNumber = (num: number): string => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
     return num.toLocaleString();

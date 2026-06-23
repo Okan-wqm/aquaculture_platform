@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
 import { useAuth } from './useAuth';
@@ -135,7 +135,7 @@ export async function fetchAllTanks(): Promise<Tank[]> {
   return tanks;
 }
 
-export function useTanks() {
+export function useTanks(): UseQueryResult<Tank[], Error> {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   return useQuery({

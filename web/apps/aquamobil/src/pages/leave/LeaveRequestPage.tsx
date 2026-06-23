@@ -1,7 +1,7 @@
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -17,7 +17,7 @@ interface FormErrors {
   general?: string;
 }
 
-export function LeaveRequestPage() {
+export function LeaveRequestPage(): JSX.Element {
   const navigate = useNavigate();
   const { addToQueue, isOnline } = useOfflineQueue();
   // WHY no imperative fetch calls: React Query auto-fetches on mount when
@@ -250,7 +250,7 @@ export function LeaveRequestPage() {
       {/* Submit Button */}
       <div className="px-4 pb-28">
         <button
-          onClick={handleSubmit}
+          onClick={() => { void handleSubmit(); }}
           disabled={!selectedTypeId || !startDate || !endDate || isSubmitting}
           className="w-full py-4 bg-gradient-to-r from-violet-600 to-violet-500 text-white font-bold rounded-2xl shadow-lg shadow-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
         >

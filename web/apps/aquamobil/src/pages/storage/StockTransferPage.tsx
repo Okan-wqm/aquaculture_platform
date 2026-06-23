@@ -24,7 +24,8 @@ import {
   Search,
   Package,
 } from 'lucide-react';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -124,7 +125,7 @@ function toStorageItems(inventory: StorageInventoryItem[]): StorageItem[] {
 // COMPONENT
 // ============================================================================
 
-export function StockTransferPage() {
+export function StockTransferPage(): JSX.Element {
   const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
@@ -143,6 +144,17 @@ export function StockTransferPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // WHY ref + focus effect (not autoFocus): the quantity step renders a single
+  // field that should receive focus the moment the step opens so the worker can
+  // type immediately one-handed. autoFocus is a jsx-a11y/no-autofocus violation;
+  // the step-keyed focus effect below reproduces the behaviour cleanly.
+  const quantityInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the quantity field when entering step 4 (replaces removed autoFocus).
+  useEffect(() => {
+    if (step === 4) quantityInputRef.current?.focus();
+  }, [step]);
+
   // ---- Data fetching -------------------------------------------------------
 
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
@@ -160,7 +172,10 @@ export function StockTransferPage() {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const items = itemsData ?? [];
+  // WHY useMemo: a fresh `?? []` literal each render gives `items` a new identity,
+  // forcing every downstream useMemo that depends on it to recompute. Memoizing
+  // on `itemsData` keeps the reference stable across renders.
+  const items = useMemo(() => itemsData ?? [], [itemsData]);
 
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
@@ -175,7 +190,10 @@ export function StockTransferPage() {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const locations = locationsData ?? [];
+  // WHY useMemo: same stable-identity rationale as `items` above — keeps the
+  // `locations` reference stable for the downstream fromLocation/toLocation/
+  // toLocationOptions useMemo dependency arrays.
+  const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   // Derived values
   const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId), [items, selectedItemId]);
@@ -224,7 +242,13 @@ export function StockTransferPage() {
   // ---- Submit handler ------------------------------------------------------
 
   const handleSubmit = useCallback(async () => {
-    if (!selectedItem || !fromLocation || !toLocation) return;
+    // WHY guard selectedItemType here: the wizard cannot reach the confirm step
+    // without a chosen item type (step 1's canAdvance requires selectedItemType
+    // !== null), but the type system can't see that invariant. Narrowing it to a
+    // non-null const satisfies the type checker and fails loudly if a future
+    // refactor ever violates the precondition.
+    if (!selectedItem || !fromLocation || !toLocation || selectedItemType === null) return;
+    const itemType = selectedItemType;
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -233,7 +257,7 @@ export function StockTransferPage() {
     // envelope when queued; online direct submissions still need server-side
     // idempotency for timeout/retry safety.
     const input: StockTransferInput = {
-      itemType: selectedItemType!,
+      itemType,
       itemId: selectedItemId,
       fromLocationId,
       toLocationId,
@@ -515,13 +539,13 @@ export function StockTransferPage() {
             </p>
             <div className="relative">
               <input
+                ref={quantityInputRef}
                 type="number"
                 inputMode="decimal"
                 placeholder="0"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
                 className="w-full text-center text-4xl font-bold py-6 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                autoFocus
               />
               {selectedItem && (
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 font-medium">
@@ -567,7 +591,7 @@ export function StockTransferPage() {
             )}
 
             <button
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
               disabled={isSubmitting}
               className={clsx(
                 'w-full mt-6 py-4 rounded-2xl font-bold text-white text-base shadow-card transition-all active:scale-[0.98] touch-feedback',

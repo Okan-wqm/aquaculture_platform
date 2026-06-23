@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
@@ -17,7 +17,7 @@ interface MultiFeatureRouteProps {
 // Loading fallback — matches the PageLoader pattern from App.tsx
 // ---------------------------------------------------------------------------
 
-function PageLoader() {
+function PageLoader(): ReactElement {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
@@ -43,7 +43,7 @@ function PageLoader() {
  * Redirecting to the operations hub (not /) keeps the user in the correct
  * navigation context and avoids a confusing jump to the home screen.
  */
-export function MultiFeatureRoute({ features, children }: MultiFeatureRouteProps) {
+export function MultiFeatureRoute({ features, children }: MultiFeatureRouteProps): ReactElement {
   const { isLoaded } = useMobilePermissions();
   // SEC-MEDIUM-050: canReach folds in any feature role floor (harvest =>
   // MODULE_MANAGER), so a harvest-only MODULE_USER cannot enter a hub on the

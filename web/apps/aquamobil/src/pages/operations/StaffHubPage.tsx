@@ -18,6 +18,7 @@ import {
   Clock,
   ChevronRight,
 } from 'lucide-react';
+import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -66,7 +67,7 @@ function formatShortDate(isoDate: string | null): string {
 // ---------------------------------------------------------------------------
 
 /** Skeleton loading placeholder for the leave balance card. */
-function LeaveBalanceSkeleton() {
+function LeaveBalanceSkeleton(): JSX.Element {
   return (
     <div className="space-y-3" aria-busy="true" aria-label="Loading leave balance">
       <div className="h-20 rounded-xl skeleton" />
@@ -78,7 +79,7 @@ function LeaveBalanceSkeleton() {
 // Page component
 // ---------------------------------------------------------------------------
 
-export function StaffHubPage() {
+export function StaffHubPage(): JSX.Element {
   const navigate = useNavigate();
   const { isOnline } = useOfflineQueue();
   const { summary, isLoading } = useStaffSummary();

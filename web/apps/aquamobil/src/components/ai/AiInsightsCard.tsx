@@ -16,6 +16,7 @@
  */
 
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
 
 import { useAiDashboardInsights } from '@/hooks/useAiInsights';
 
@@ -47,7 +48,7 @@ function getRiskTier(score: number): number {
  * Visual gauges are faster to parse than numbers — a farm manager glancing
  * at the dashboard can assess overall health in under 1 second.
  */
-function RiskGauge({ score }: { score: number }) {
+function RiskGauge({ score }: { score: number }): ReactElement {
   const tier = getRiskTier(score);
   const colors = RISK_LEVEL_COLORS[tier];
   // WHY: SVG circle math — circumference = 2 * PI * radius. The dashoffset
@@ -103,7 +104,7 @@ function getSeverityColor(severity: string): string {
   }
 }
 
-export function AiInsightsCard() {
+export function AiInsightsCard(): ReactElement {
   const { data: insights, isLoading, isError } = useAiDashboardInsights();
 
   // WHY: Loading skeleton matches the app's existing skeleton pattern (pulse animation).

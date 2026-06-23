@@ -18,7 +18,7 @@ import {
   FileText,
   AlertCircle,
 } from 'lucide-react';
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useMessages } from '@/hooks/useMessages';
@@ -161,7 +161,7 @@ function formatMediaDate(isoString: string): string {
  *
  * Route: /messages/:channelId/media/:attachmentId
  */
-export function MediaViewerPage() {
+export function MediaViewerPage(): JSX.Element {
   const navigate = useNavigate();
   const { channelId, attachmentId } = useParams<{
     channelId?: string;
@@ -359,10 +359,19 @@ export function MediaViewerPage() {
       <div
         ref={imageContainerRef}
         className="flex-1 flex items-center justify-center overflow-hidden relative"
+        role="button"
+        tabIndex={0}
+        aria-label="Media viewer — activate to toggle zoom"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={handleTap}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleTap();
+          }
+        }}
       >
         {loading ? (
           <div className="flex flex-col items-center gap-3">

@@ -1,6 +1,7 @@
 import { clsx } from 'clsx';
 import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react';
 import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
+import type { JSX } from 'react';
 
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
@@ -35,11 +36,11 @@ const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {
   markMessagesRead: { label: 'Mark Read', icon: '👁️' },
 };
 
-export function SyncStatusPage() {
+export function SyncStatusPage(): JSX.Element {
   const { pendingOperations, pendingCount, isOnline, isSyncing, syncNow, removeFromQueue } =
     useOfflineQueue();
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
     return date.toLocaleString('en-US', {
       month: 'short',
@@ -95,7 +96,7 @@ export function SyncStatusPage() {
             <p className="text-gray-500">Pending Operations</p>
           </div>
           <Button
-            onClick={syncNow}
+            onClick={() => { void syncNow(); }}
             disabled={!isOnline || pendingCount === 0 || isSyncing}
             className="!bg-aqua-500"
           >
@@ -166,7 +167,7 @@ export function SyncStatusPage() {
                     <div className="flex items-center gap-2">
                       {statusIcon}
                       <button
-                        onClick={() => removeFromQueue(op.id)}
+                        onClick={() => { void removeFromQueue(op.id); }}
                         className="p-2 text-red-500 touch-feedback"
                       >
                         <Trash2 size={18} />

@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import type { LucideIcon } from 'lucide-react';
+import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import type { MobileFeature } from '@/hooks/useMobilePermissions';
@@ -38,7 +39,7 @@ interface QuickActionGridProps {
  * while showing enough options to minimize scrolling. This matches the
  * existing OperationsHubPage card grid pattern.
  */
-export function QuickActionGrid({ actions }: QuickActionGridProps) {
+export function QuickActionGrid({ actions }: QuickActionGridProps): ReactElement | null {
   const navigate = useNavigate();
   // SEC-MEDIUM-050: canReach enforces the entitlement flag AND any feature role
   // floor (harvest => MODULE_MANAGER), so a sub-floor user never sees the action.

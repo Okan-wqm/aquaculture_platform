@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactElement } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -18,7 +18,7 @@ import { isFeatureAccessible } from './utils/feature-access';
  * interpolate route parameters. This component reads the matched :tankId from useParams
  * and builds the correct target path dynamically.
  */
-function CullingToTankRedirect() {
+function CullingToTankRedirect(): ReactElement {
   const { tankId } = useParams<{ tankId: string }>();
   return <Navigate to={`/cull/record/${tankId}`} replace />;
 }
@@ -124,7 +124,7 @@ const StaffHubPage = lazy(() =>
   import('./pages/operations/StaffHubPage').then((m) => ({ default: m.StaffHubPage }))
 );
 
-function PageLoader() {
+function PageLoader(): ReactElement {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
@@ -132,7 +132,7 @@ function PageLoader() {
   );
 }
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children }: { children: React.ReactNode }): ReactElement {
   const { isAuthenticated, isLoading, isMobileDisabled, user } = useAuth();
 
   if (isLoading) {
@@ -157,7 +157,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function FeatureRoute({ feature, children }: { feature: MobileFeature; children: React.ReactNode }) {
+function FeatureRoute({ feature, children }: { feature: MobileFeature; children: React.ReactNode }): ReactElement {
   // PERF-03: Reads from context — no independent fetch per FeatureRoute instance.
   // BUG-05: isLoaded is only true after auth has resolved (authLoading guard in provider).
   const { canAccess, isLoaded } = useMobilePermissions();
@@ -178,7 +178,7 @@ function FeatureRoute({ feature, children }: { feature: MobileFeature; children:
   return <>{children}</>;
 }
 
-export function App() {
+export function App(): ReactElement {
   // WHY: Single registration point for all service-worker-to-client navigation
   // events. Must be inside BrowserRouter for useNavigate() access. The SW posts
   // NAVIGATE_TO_CHANNEL when a notification is clicked and an existing window is

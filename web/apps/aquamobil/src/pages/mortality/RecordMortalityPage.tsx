@@ -76,14 +76,24 @@ export function RecordMortalityPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
 
-  const buildPayload = (): MortalityInput => ({
-    batchId: metrics!.batchId!,
-    tankId: selectedTankId,
-    quantity,
-    reason,
-    notes: notes.trim() || undefined,
-    observedAt: new Date().toISOString(),
-  });
+  const buildPayload = (): MortalityInput => {
+    // Contract: the shell only invokes buildPayload after validate() passes AND
+    // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
+    // so batchId is present here. The guard narrows BatchMetrics['batchId']
+    // (string | null) to string without a non-null assertion.
+    const batchId = metrics?.batchId;
+    if (!batchId) {
+      throw new Error('Cannot record mortality: selected tank has no active batch');
+    }
+    return {
+      batchId,
+      tankId: selectedTankId,
+      quantity,
+      reason,
+      notes: notes.trim() || undefined,
+      observedAt: new Date().toISOString(),
+    };
+  };
 
   return (
     <RecordEntityPage<MortalityInput>

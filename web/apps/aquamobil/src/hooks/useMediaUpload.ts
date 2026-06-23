@@ -156,6 +156,20 @@ function uploadToPresignedUrl(
   });
 }
 
+/** Return shape of {@link useMediaUpload}. */
+export interface UseMediaUploadReturn {
+  /** Upload a file; resolves to the storageKey for sendMessage attachmentKeys. */
+  uploadMedia: (file: File) => Promise<string>;
+  /** Abort an in-progress upload. */
+  cancelUpload: () => void;
+  /** True while an upload is in flight. */
+  isUploading: boolean;
+  /** Upload progress, 0-100. */
+  progress: number;
+  /** The last upload error, or null. */
+  error: Error | null;
+}
+
 /**
  * Media upload hook with presigned URL, progress tracking, image compression,
  * and MIME type validation.
@@ -163,7 +177,7 @@ function uploadToPresignedUrl(
  * @param channelId - The channel this upload belongs to (required for the
  *                    presigned URL request). Pass undefined to disable.
  */
-export function useMediaUpload(channelId: string | undefined) {
+export function useMediaUpload(channelId: string | undefined): UseMediaUploadReturn {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<Error | null>(null);

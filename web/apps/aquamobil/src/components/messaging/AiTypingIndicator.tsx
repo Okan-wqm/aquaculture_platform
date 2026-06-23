@@ -8,6 +8,7 @@
 
 import { clsx } from 'clsx';
 import { Brain } from 'lucide-react';
+import type { ReactElement } from 'react';
 
 interface AiTypingIndicatorProps {
   /** Whether to show the indicator. */
@@ -20,7 +21,7 @@ interface AiTypingIndicatorProps {
  * AiTypingIndicator renders an animated brain icon with "AI is thinking..."
  * text. When `isDelayed` is true, it shows a fallback message.
  */
-export function AiTypingIndicator({ visible, isDelayed = false }: AiTypingIndicatorProps) {
+export function AiTypingIndicator({ visible, isDelayed = false }: AiTypingIndicatorProps): ReactElement | null {
   if (!visible) return null;
 
   return (

@@ -220,6 +220,18 @@ async function enqueueId(
   return result.id;
 }
 
+/**
+ * Narrows `T | null | undefined` to `T`, failing the test loudly if the value is
+ * nullish. Replaces non-null assertions (`!`) at test preconditions: getOperation
+ * returns `QueuedOperation | undefined`, so this both proves the op was written
+ * AND gives the test a typed, non-optional handle without a forbidden `!`.
+ */
+function assertDefined<T>(value: T | null | undefined, message: string): asserts value is T {
+  if (value === null || value === undefined) {
+    throw new Error(`assertDefined: ${message}`);
+  }
+}
+
 // --------------------------------------------------------------------------
 // Tests
 // --------------------------------------------------------------------------
@@ -862,12 +874,14 @@ describe('Offline Queue', () => {
 
       const mockExecutor = vi.fn().mockRejectedValue(new Error('Fail'));
       const op = await getOperation(TEST_QUEUE_TENANT, id);
+      assertDefined(op, 'enqueued op should exist before sync');
 
-      await syncOperation(op!, mockExecutor);
+      await syncOperation(op, mockExecutor);
 
       const updated = await getOperation(TEST_QUEUE_TENANT, id);
-      expect(updated!.retryCount).toBe(1);
-      expect(updated!.status).toBe('failed');
+      assertDefined(updated, 'op should still exist after a failed sync');
+      expect(updated.retryCount).toBe(1);
+      expect(updated.status).toBe('failed');
     });
 
     it('should skip operations with retryCount >= MAX_RETRY_COUNT (permanent fail)', async () => {
@@ -929,10 +943,13 @@ describe('Offline Queue', () => {
       const mockExecutor = vi.fn().mockRejectedValue(new Error(longError));
 
       const op = await getOperation(TEST_QUEUE_TENANT, id);
-      await syncOperation(op!, mockExecutor);
+      assertDefined(op, 'enqueued op should exist before sync');
+      await syncOperation(op, mockExecutor);
 
       const updated = await getOperation(TEST_QUEUE_TENANT, id);
-      expect(updated!.lastError!.length).toBeLessThanOrEqual(200);
+      assertDefined(updated, 'op should still exist after a failed sync');
+      assertDefined(updated.lastError, 'a failed sync should record lastError');
+      expect(updated.lastError.length).toBeLessThanOrEqual(200);
     });
 
     it('should remove operation on successful sync', async () => {
@@ -941,7 +958,8 @@ describe('Offline Queue', () => {
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
       const op = await getOperation(TEST_QUEUE_TENANT, id);
-      const success = await syncOperation(op!, mockExecutor);
+      assertDefined(op, 'enqueued op should exist before sync');
+      const success = await syncOperation(op, mockExecutor);
 
       expect(success).toBe(true);
       const removed = await getOperation(TEST_QUEUE_TENANT, id);

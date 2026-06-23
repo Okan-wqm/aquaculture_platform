@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets, Warehouse, ShieldAlert } from 'lucide-react';
+import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AiInsightsCard } from '@/components/ai';
@@ -98,7 +99,7 @@ const allQuickActions: QuickAction[] = [
   },
 ];
 
-export function HomePage() {
+export function HomePage(): JSX.Element {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { data: tanks, isLoading, refetch, isRefetching } = useTanks();
@@ -215,7 +216,7 @@ export function HomePage() {
       {permissionsDegraded && (
         <div className="px-5 pt-4">
           <button
-            onClick={() => { refreshPermissions().catch(() => {}); }}
+            onClick={() => { void refreshPermissions(); }}
             className="w-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-3.5 flex items-center gap-3 touch-feedback"
           >
             <div className="w-9 h-9 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -347,7 +348,7 @@ export function HomePage() {
             </h2>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={() => { void refetch(); }}
             disabled={isRefetching}
             className="p-2 text-ocean-500 touch-feedback rounded-lg hover:bg-ocean-50 dark:hover:bg-ocean-900/20 transition-colors"
           >

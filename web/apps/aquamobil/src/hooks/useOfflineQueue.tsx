@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactElement, type ReactNode } from 'react';
 
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
@@ -313,7 +313,7 @@ async function replayUploadAndSendMessage(
   return sent;
 }
 
-export function OfflineProvider({ children }: { children: ReactNode }) {
+export function OfflineProvider({ children }: { children: ReactNode }): ReactElement {
   const { accessToken, tenantId, user, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
   const isOnline = useNetworkStatus();
@@ -337,7 +337,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const lastArmedVersionRef = useRef(-1);
   // PERF-04: Hold syncNow in a ref so the auto-sync effect does not re-run when
   // syncNow changes due to pendingCount updates during a sync session.
-  const syncNowRef = useRef<() => Promise<SyncResult>>(async () => ({ success: 0, failed: 0 }));
+  // WHY no async: the placeholder needs no await — it just resolves the zero
+  // result. Written with Promise.resolve so it is not an async function lacking
+  // an await (require-await). It is replaced by the real syncNow on first effect run.
+  const syncNowRef = useRef<() => Promise<SyncResult>>(() => Promise.resolve({ success: 0, failed: 0 }));
 
   // SECURITY (C11): All queue operations are scoped to the current tenantId.
   // refreshQueue only shows the active tenant's operations, preventing
@@ -360,14 +363,24 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   // Refresh queue on mount
   useEffect(() => {
-    refreshQueue();
+    // WHY void: refreshQueue handles its own errors (logs internally) and never
+    // rejects, so it runs as a discarded background task here.
+    void refreshQueue();
   }, [refreshQueue]);
 
   // Listen for service worker sync messages
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SYNC_COMPLETE') {
-        refreshQueue();
+    const handleMessage = (event: MessageEvent): void => {
+      // WHY typed guard: MessageEvent.data is `any`; narrow to an object with a
+      // `type` field via `in` before reading it so the access is type-safe.
+      const data: unknown = event.data;
+      if (
+        typeof data === 'object' &&
+        data !== null &&
+        'type' in data &&
+        data.type === 'SYNC_COMPLETE'
+      ) {
+        void refreshQueue();
       }
     };
 
@@ -511,8 +524,18 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       // Ensure token is fresh before starting sync to avoid 401s mid-batch
       if (accessToken) {
         try {
-          const payload = JSON.parse(atob(accessToken.split('.')[1]));
-          const expiresAt = payload.exp * 1000;
+          // WHY typed parse: JSON.parse returns `any`; narrow to the one claim we
+          // read (`exp`) so the expiry math is type-safe. A malformed token (no
+          // numeric exp) falls through to the catch below, which refreshes anyway.
+          const payload: unknown = JSON.parse(atob(accessToken.split('.')[1]));
+          const exp =
+            typeof payload === 'object' && payload !== null && 'exp' in payload
+              ? payload.exp
+              : undefined;
+          if (typeof exp !== 'number') {
+            throw new Error('token has no numeric exp claim');
+          }
+          const expiresAt = exp * 1000;
           if (expiresAt - Date.now() < 60_000) { // less than 60s remaining
             await refreshAuth();
           }
@@ -645,7 +668,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       lastArmedVersionRef.current = queueVersion;
       // Small delay to ensure network is stable
       const timer = setTimeout(() => {
-        syncNowRef.current();
+        // WHY void: auto-sync is fire-and-forget; syncNow swallows its own errors
+        // (sets syncError state) and never rejects.
+        void syncNowRef.current();
       }, 1000);
       return () => clearTimeout(timer);
     }
@@ -668,7 +693,8 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
     const retryInterval = setInterval(() => {
       if (!isSyncingRef.current) {
-        syncNowRef.current();
+        // WHY void: periodic retry is fire-and-forget (syncNow handles its own errors).
+        void syncNowRef.current();
       }
     }, 30_000);
 

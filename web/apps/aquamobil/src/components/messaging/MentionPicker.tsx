@@ -15,7 +15,7 @@
  */
 
 import { clsx } from 'clsx';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactElement } from 'react';
 
 import type { ChannelMember } from '@/types/messaging';
 import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
@@ -90,7 +90,7 @@ export function MentionPicker({
   onSelect,
   onDismiss,
   visible,
-}: MentionPickerProps) {
+}: MentionPickerProps): ReactElement | null {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 

@@ -51,6 +51,10 @@ export function useWarehouseSummary(): {
     // in multi-tenant scenarios.
     queryKey: createTenantQueryKey(tenantId, 'warehouseSummary', tenantId),
     queryFn: async () => {
+      // WHY guard-throw: `enabled` gates execution on tenantId but does not
+      // narrow its type to string. An explicit throw narrows it for the
+      // tenant-isolated cache calls below without a non-null assertion.
+      if (!tenantId) throw new Error('useWarehouseSummary: tenantId is required');
       try {
         const result = await graphqlRequest<WarehouseSummaryResponse>(
           GET_WAREHOUSE_SUMMARY,
@@ -60,13 +64,13 @@ export function useWarehouseSummary(): {
         // WHY fire-and-forget cache write: IndexedDB serves as offline fallback
         // only. React Query's gcTime handles the in-memory caching layer.
         // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId!, cacheKey, summary, CACHE_TTL_1H);
+        await cacheData(tenantId, cacheKey, summary, CACHE_TTL_1H);
         return summary;
       } catch (error) {
         // WHY IndexedDB fallback first: warehouse staff on fish farms often
         // have spotty connectivity. Showing stale stock levels is better than
         // showing nothing.
-        const cached = await getCachedData<WarehouseSummary>(tenantId!, cacheKey);
+        const cached = await getCachedData<WarehouseSummary>(tenantId, cacheKey);
         if (cached) return cached;
 
         throw error;

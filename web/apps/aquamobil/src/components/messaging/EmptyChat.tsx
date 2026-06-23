@@ -1,4 +1,5 @@
 import { MessageCircle } from 'lucide-react';
+import type { ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -12,7 +13,7 @@ import { MessageCircle } from 'lucide-react';
  * The muted colors and simple copy avoid alarming the user -- this is a
  * normal state, not an error.
  */
-export function EmptyChat() {
+export function EmptyChat(): ReactElement {
   return (
     <div className="flex flex-col items-center justify-center flex-1 px-8 py-16">
       {/* WHY: ocean-50 circle with ocean icon -- uses the primary brand color

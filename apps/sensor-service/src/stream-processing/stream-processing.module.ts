@@ -23,5 +23,5 @@ import { KafkaStreamsService } from './kafka-streams.service';
     KafkaStreamsService,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class StreamProcessingModule {}

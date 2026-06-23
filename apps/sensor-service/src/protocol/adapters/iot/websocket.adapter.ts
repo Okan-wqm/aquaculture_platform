@@ -142,7 +142,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter<WebSocketConfiguration
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const socketData = this.sockets.get(handle.id);
     if (socketData) {
@@ -207,13 +207,13 @@ export class WebSocketAdapter extends BaseProtocolAdapter<WebSocketConfiguration
           this.updateLastActivity(handle);
           resolve(parsed);
         } catch (error) {
-          reject(error);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
       });
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async subscribeToData(
     handle: ConnectionHandle,
     onData: DataCallback,
@@ -237,7 +237,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter<WebSocketConfiguration
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,
-      // eslint-disable-next-line @typescript-eslint/require-await
+       
       unsubscribe: async () => {
         isActive = false;
         socketData.ws.removeListener('message', messageHandler);

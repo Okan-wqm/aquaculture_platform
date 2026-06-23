@@ -39,7 +39,7 @@ export class DdsAdapter extends BaseProtocolAdapter<DdsConfiguration> {
   readonly displayName = 'DDS';
   readonly description = 'Data Distribution Service - Real-time publish-subscribe middleware';
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: DdsConfiguration): Promise<ConnectionHandle> {
     const ddsConfig = config;
 
@@ -55,13 +55,13 @@ export class DdsAdapter extends BaseProtocolAdapter<DdsConfiguration> {
     return handle;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async testConnection(_config: DdsConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     const latencyMs = Date.now() - startTime;
@@ -74,7 +74,7 @@ export class DdsAdapter extends BaseProtocolAdapter<DdsConfiguration> {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
 

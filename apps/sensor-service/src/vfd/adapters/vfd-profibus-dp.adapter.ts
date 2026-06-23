@@ -51,7 +51,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     super('VfdProfibusAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -87,7 +87,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -227,7 +227,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -271,7 +271,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -436,7 +436,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async readCyclicData(connection: ProfibusConnectionHandle): Promise<Buffer> {
     // Read cyclic process data from PROFIBUS
     // This would interact with PROFIBUS master hardware

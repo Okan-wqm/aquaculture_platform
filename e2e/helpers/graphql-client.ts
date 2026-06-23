@@ -139,6 +139,15 @@ export class GraphQLTestClient {
   }
 
   /**
+   * Clear the bearer token so subsequent requests are sent unauthenticated.
+   * Symmetric counterpart to setToken — used by workflow specs in afterAll
+   * to release the per-suite fixture token.
+   */
+  clearToken(): void {
+    this.currentToken = '';
+  }
+
+  /**
    * Execute a GraphQL query. Throws GraphQLTestError if the response contains errors.
    *
    * @param query   - GraphQL query string

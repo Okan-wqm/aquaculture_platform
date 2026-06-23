@@ -241,6 +241,7 @@ const perProjectBlocks = PROJECT_LINT_OVERRIDES.flatMap((p) => {
 // so they inherit the shared strict/type-checked base presets (the prior behaviour);
 // only the parser `project` is narrowed.
 const NON_PROVENANCE_TS_PROJECTS = [
+  'e2e',
   'libs/aquaculture-engines',
   'libs/farm-shared',
   'libs/migration-harness',

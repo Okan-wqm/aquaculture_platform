@@ -262,6 +262,27 @@ export function generateTenantAdminToken(options: RoleTokenOptions = {}): string
 }
 
 /**
+ * Generate a SUPER_ADMIN token.
+ *
+ * Completes the role-wrapper SSoT (alongside generateTenantAdminToken /
+ * generateModuleUserToken). SUPER_ADMIN is a platform-level role with no
+ * tenant association, so tenantId is forced to null regardless of options —
+ * this mirrors generateTestToken's SUPER_ADMIN default and the real
+ * auth-service token shape (tenantId is null for SUPER_ADMIN).
+ */
+export function generateSuperAdminToken(options: RoleTokenOptions = {}): string {
+  return generateTestToken({
+    userId: options.sub ?? options.userId,
+    email: options.email,
+    role: 'SUPER_ADMIN',
+    tenantId: null,
+    modules: options.modules,
+    resourcePermissions: options.resourcePermissions,
+    expiresIn: options.expiresIn,
+  });
+}
+
+/**
  * Decode a JWT token without verification.
  * Assertion alias for integration tests that require a valid object payload.
  */

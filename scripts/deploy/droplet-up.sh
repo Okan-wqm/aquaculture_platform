@@ -342,18 +342,45 @@ rollback_deployed_services() {
     return 1
   fi
 
+  local scope_services=()
   local svc
+  if [ "${FULL_DEPLOY:-false}" = "true" ]; then
+    for svc in ${APPLICATION_IMAGE_SERVICES}; do
+      [ "$svc" = "db-migrate" ] && continue
+      scope_services+=("$svc")
+    done
+  else
+    while IFS= read -r svc; do
+      [ -n "$svc" ] || continue
+      scope_services+=("$svc")
+    done < <(restartable_deploy_services)
+  fi
+
+  if [ "${#scope_services[@]}" -eq 0 ]; then
+    echo "  No long-running service images were changed; rollback has no restart scope."
+    return 0
+  fi
+
   local image_id
-  while IFS="$(printf '\t')" read -r svc image_id; do
-    if [ -z "${svc}" ] || [ -z "${image_id}" ]; then
+  local restored=0
+  for svc in "${scope_services[@]}"; do
+    image_id="$(awk -F "$(printf '\t')" -v svc="${svc}" '$1 == svc {print $2; exit}' "${ROLLBACK_MANIFEST}")"
+    if [ -z "${image_id}" ]; then
+      echo "::warning::Rollback manifest has no prior image for ${svc}; leaving its current image tag unchanged."
       continue
     fi
     echo "  ${svc}: restoring $(image_ref_for_service "$svc") -> ${image_id}"
     docker tag "${image_id}" "$(image_ref_for_service "$svc")" 2>/dev/null || true
     docker tag "${image_id}" "$(deploy_tag_ref_for_service "$svc")" 2>/dev/null || true
-  done < "${ROLLBACK_MANIFEST}"
+    restored=$((restored + 1))
+  done
 
-  docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
+  if [ "${restored}" -eq 0 ]; then
+    echo "::error::Rollback scope had no restorable images."
+    return 1
+  fi
+
+  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate "${scope_services[@]}"
 }
 
 restartable_deploy_services() {

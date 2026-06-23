@@ -254,7 +254,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
   /* ---------- Initial bend points ----------------- */
   const initialBends: BendPoint[] = useMemo(() => {
     return data?.bendPoints ?? calculateOrthogonalPath(source, target, routingMode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   const [bendPoints, setBendPoints] = useState<BendPoint[]>(initialBends);
@@ -271,7 +271,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
     if (!data?.bendPoints || data.bendPoints.length === 0) {
       setBendPoints(calculateOrthogonalPath(source, target, routingMode));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [sourceX, sourceY, targetX, targetY, routingMode]);
 
   /* ---------- Build the path ----------------------- */

@@ -202,7 +202,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
   /* ---- Render ---- */
 
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+     
     <div
       className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-gray-50 border-b border-gray-200 text-xs"
       onClick={closeMenus}

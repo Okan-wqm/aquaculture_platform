@@ -96,7 +96,7 @@ export function useRealtimeData(tagIds: string[]): RealtimeDataResult {
       }
       provider.unsubscribeFromTags(currentTagIds);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [tagIdsKey, provider, scheduleFlush]);
 
   const isConnected = provider.connectionState === 'connected';

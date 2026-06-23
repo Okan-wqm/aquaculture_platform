@@ -482,7 +482,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         ],
       };
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [lines, options],
   );
 
@@ -510,7 +510,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
       realtimeBufferRef.current.clear();
     };
     // Recreate on lines or options change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [lines, options, buildUPlotOptions]);
 
   /* ---- ResizeObserver ---- */

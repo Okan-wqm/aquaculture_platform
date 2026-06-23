@@ -243,7 +243,7 @@ export function LiveDeviceDataProviderInner({
       // Clear tag cache.
       tagCacheRef.current.clear();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []); // Run once on mount; refs are stable.
 
   // ── IDataProvider implementation ──────────────────────────────────────────

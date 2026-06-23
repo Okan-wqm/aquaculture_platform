@@ -176,7 +176,7 @@ export function useTrendData(
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [tagIdsKey, rangeKey, aggKey, provider]);
 
   fetchRef.current = fetch;

@@ -123,7 +123,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         // lastError from useTagWrite is displayed
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [tagId, inputType, minVal, maxVal, writeTag, onCommand],
   );
 

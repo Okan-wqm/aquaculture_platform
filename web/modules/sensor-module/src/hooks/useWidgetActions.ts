@@ -187,7 +187,7 @@ export function useWidgetActions(
     }
 
     return result;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [tagValuesKey, actions]);
 
   // -----------------------------------------------------------------------
@@ -268,7 +268,7 @@ export function useWidgetActions(
       ? { fill: bp.fillB, stroke: bp.strokeB }
       : { fill: bp.fillA, stroke: bp.strokeA };
   // blinkParamsRef is a ref so we also depend on computed.isBlinking to re-evaluate
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [blinkState, computed.isBlinking, computed.currentColor]);
 
   return {

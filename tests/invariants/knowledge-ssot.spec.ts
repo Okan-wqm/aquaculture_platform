@@ -12,9 +12,12 @@
  *   This invariant asserts a LIGHTWEIGHT version of the BLOCKER-1 rule:
  *   specific factual claims in the knowledge layer are verified against
  *   the real repo state, preventing the SSoT from silently diverging from
- *   code. A full hash-based duplication test across all agent files is
- *   deferred to a later expansion of this file once the W3 conversion
- *   wave completes (Phase 1 of abstract-brewing-mochi).
+ *   code. The complementary half of BLOCKER-1 — the shingle/contiguous-run
+ *   duplication test that flags an agent inlining SSoT content instead of
+ *   `@`-referencing it — is now IMPLEMENTED in
+ *   `tests/invariants/agent-inlining-ssot.spec.ts` (WS3). That spec scans the
+ *   full agent corpus against the knowledge + shared SSoT corpus; this spec
+ *   remains the factual-claim half (counts / signatures stay code-aligned).
  *
  * # What this spec enforces
  *

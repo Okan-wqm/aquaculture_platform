@@ -2,7 +2,7 @@
 
 Date: 2026-06-21
 Target ref: `origin/main`
-Last verified ARIA authority hash: `2e17726798755d092578a63b1526bcbfa44d6d003789a0479bfe13e063895109`
+Last verified ARIA authority hash: `44de98c844385a1ff6df3e814b290b099e029c1e7d7cab63db8f70de35695fc9`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -30,6 +30,14 @@ When two sources disagree, the lower-priority source must be updated, generated 
 - Agent request/response contract: `aria-kernel/aria_kernel/agent_contract.py`
 - Transactional append/index primitive: `aria-kernel/aria_kernel/ledger.py`
 - Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready`
+- Enterprise risk policy owner: `aria-kernel/aria_kernel/risk_policy.py`
+- Enterprise autonomy unlock owner: `aria-kernel/aria_kernel/autonomy_unlock.py`
+- L3 policy approval owner: `aria-kernel/aria_kernel/policy_approval.py`
+- Rollback bundle owner: `aria-kernel/aria_kernel/rollback_bundle.py`
+- Incident ledger owner: `aria-kernel/aria_kernel/incident_ledger.py`
+- Runner attestation owner: `aria-kernel/aria_kernel/runner_attestation.py`
+- Capability resolution owner: `aria-kernel/aria_kernel/capability_resolver.py`
+- Required PR merge check: `.github/workflows/aria-merge-authority.yml`
 - Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 - Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`

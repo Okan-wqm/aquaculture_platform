@@ -1,0 +1,35 @@
+{
+  "$id": "aria/risk-policy/v1",
+  "type": "object",
+  "required": [
+    "$schema",
+    "schema_version",
+    "policy_id",
+    "base_branch",
+    "merge_method",
+    "auto_merge_candidate_lanes",
+    "blocked_globs",
+    "lanes"
+  ],
+  "properties": {
+    "$schema": { "const": "aria/risk-policy/v1" },
+    "schema_version": { "const": 1 },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "base_branch": { "const": "main" },
+    "merge_method": { "const": "squash" },
+    "auto_merge_candidate_lanes": {
+      "type": "array",
+      "items": { "enum": ["L1", "L2", "L3"] },
+      "uniqueItems": true
+    },
+    "blocked_globs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "lanes": {
+      "type": "object",
+      "required": ["L1", "L2", "L3"]
+    }
+  },
+  "additionalProperties": true
+}

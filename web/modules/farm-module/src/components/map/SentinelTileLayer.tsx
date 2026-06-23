@@ -1,273 +1,72 @@
 /**
  * SentinelTileLayer Component
  *
- * Renders Sentinel Hub imagery as a tile layer on the map.
- * Supports both WMTS (fast) and Processing API (accurate water quality).
- *
- * API Selection:
- * - WMTS: For TRUE-COLOR, NDVI, MOISTURE, NDWI (fast, pre-cached)
- * - Processing API: For CHLOROPHYLL, TURBIDITY, TSS, CDOM, CYANOBACTERIA, SECCHI (accurate algorithms)
- *
- * Requirements:
- * - Configuration Instance must be created in Sentinel Hub Dashboard (for WMTS)
- * - CDSE OAuth credentials must be configured (for Processing API)
+ * Renders Sentinel imagery through the backend-owned marine data contract.
+ * The browser never receives Sentinel credentials, processing scripts, or provider URLs.
  */
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { TileLayer, useMap, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
-import {
-  getWMTSTileUrl,
-  TILE_SIZE,
-  requiresProcessingAPI,
-  fetchTileAuto,
-  tileToBBox,
-  clearRequestQueue,
-} from '../../services/sentinelTileService';
-import { LayerType, getValidToken } from '../../services/sentinelHubService';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 
-type ApiMode = 'WMTS' | 'PROCESSING' | 'AUTO';
+import { type LayerType } from '../../services/sentinelHubService';
+import { toMarineLayerId } from '../../services/marineDataService';
+
+import { MarineAuthenticatedTileLayer } from './MarineAuthenticatedTileLayer';
 
 interface SentinelTileLayerProps {
-  /** Configuration Instance ID from Sentinel Hub Dashboard (for WMTS) */
-  instanceId?: string;
   /** Layer type to display */
   layer: LayerType;
   /** Date for satellite imagery */
   date: Date;
-  /** Access token for CDSE (optional - auto-fetched if not provided) */
-  token?: string;
   /** Layer opacity (0-1) */
   opacity?: number;
   /** Minimum zoom level to show layer */
   minZoom?: number;
   /** Maximum zoom level */
   maxZoom?: number;
-  /** API mode: WMTS (fast), PROCESSING (accurate), AUTO (auto-select) */
-  apiMode?: ApiMode;
   /** Callback when loading state changes */
   onLoadingChange?: (isLoading: boolean) => void;
   /** Callback when an error occurs */
   onError?: (error: string) => void;
 }
 
-/**
- * Processing API based custom tile layer
- * Uses canvas to render tiles fetched from Processing API
- */
-const ProcessingTileLayer: React.FC<{
-  layer: LayerType;
-  date: Date;
-  opacity: number;
-  minZoom: number;
-  maxZoom: number;
-  onLoadingChange?: (isLoading: boolean) => void;
-  onError?: (error: string) => void;
-}> = ({ layer, date, opacity, minZoom, maxZoom, onLoadingChange, onError }) => {
-  const map = useMap();
-  const tileLayerRef = useRef<L.GridLayer | null>(null);
-  const loadingCountRef = useRef(0);
-  const prevLayerRef = useRef<LayerType | null>(null);
-  const prevDateRef = useRef<Date | null>(null);
-
-  useEffect(() => {
-    // Only clear queue when layer/date actually changes (not on initial mount)
-    // This prevents "Queue cleared" errors on first render
-    const isInitialMount = prevLayerRef.current === null;
-    const layerChanged = !isInitialMount && prevLayerRef.current !== layer;
-    const dateChanged = !isInitialMount && prevDateRef.current?.getTime() !== date.getTime();
-
-    if (layerChanged || dateChanged) {
-      clearRequestQueue();
-    }
-
-    // Store current values for next comparison
-    prevLayerRef.current = layer;
-    prevDateRef.current = date;
-
-    // Custom GridLayer for Processing API tiles
-    const ProcessingGridLayer = L.GridLayer.extend({
-      createTile: function (coords: L.Coords, done: (error?: Error | null, tile?: HTMLElement) => void) {
-        const tile = document.createElement('img') as HTMLImageElement;
-        tile.alt = '';
-        tile.setAttribute('role', 'presentation');
-        tile.style.width = `${TILE_SIZE}px`;
-        tile.style.height = `${TILE_SIZE}px`;
-
-        // Track loading
-        loadingCountRef.current++;
-        onLoadingChange?.(true);
-
-        // Fetch tile from Processing API
-        fetchTileAuto(coords.x, coords.y, coords.z, layer, date)
-          .then((url) => {
-            if (url) {
-              tile.src = url;
-              tile.onload = () => {
-                loadingCountRef.current--;
-                if (loadingCountRef.current <= 0) {
-                  loadingCountRef.current = 0;
-                  onLoadingChange?.(false);
-                }
-                done(undefined, tile);
-              };
-              tile.onerror = () => {
-                loadingCountRef.current--;
-                if (loadingCountRef.current <= 0) {
-                  loadingCountRef.current = 0;
-                  onLoadingChange?.(false);
-                }
-                done(new Error('Tile load failed'), tile);
-              };
-            } else {
-              // No data - return transparent tile
-              tile.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-              loadingCountRef.current--;
-              if (loadingCountRef.current <= 0) {
-                loadingCountRef.current = 0;
-                onLoadingChange?.(false);
-              }
-              done(undefined, tile);
-            }
-          })
-          .catch((err) => {
-            console.error('Processing tile error:', err);
-            onError?.('Su kalitesi görüntüsü yüklenemedi');
-            loadingCountRef.current--;
-            if (loadingCountRef.current <= 0) {
-              loadingCountRef.current = 0;
-              onLoadingChange?.(false);
-            }
-            done(err, tile);
-          });
-
-        return tile;
-      },
-    });
-
-    // Create and add layer
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gridLayer = new (ProcessingGridLayer as any)({
-      tileSize: TILE_SIZE,
-      minZoom,
-      maxZoom,
-      opacity,
-      className: 'sentinel-processing-layer',
-    }) as L.GridLayer;
-
-    gridLayer.addTo(map);
-    tileLayerRef.current = gridLayer;
-
-    // Cleanup
-    return () => {
-      if (tileLayerRef.current) {
-        map.removeLayer(tileLayerRef.current);
-        tileLayerRef.current = null;
-      }
-    };
-  }, [map, layer, date, opacity, minZoom, maxZoom, onLoadingChange, onError]);
-
-  // Update opacity when it changes
-  useEffect(() => {
-    if (tileLayerRef.current) {
-      tileLayerRef.current.setOpacity(opacity);
-    }
-  }, [opacity]);
-
-  return null;
-};
-
-/**
- * Hybrid Sentinel Hub tile layer
- * Automatically selects WMTS or Processing API based on layer type
- */
 export const SentinelTileLayer: React.FC<SentinelTileLayerProps> = ({
-  instanceId,
   layer,
   date,
-  token,
   opacity = 0.9,
   minZoom = 10,
   maxZoom = 16,
-  apiMode = 'AUTO',
   onLoadingChange,
   onError,
 }) => {
-  const map = useMap();
   const [key, setKey] = useState(0);
-  const [autoToken, setAutoToken] = useState<string | null>(null);
-
-  // Determine which API to use
-  const useProcessingAPI = useMemo(() => {
-    if (apiMode === 'WMTS') return false;
-    if (apiMode === 'PROCESSING') return true;
-    // AUTO mode: use Processing API for water quality layers
-    return requiresProcessingAPI(layer);
-  }, [apiMode, layer]);
-
-  // Get token for WMTS if needed
-  useEffect(() => {
-    if (!useProcessingAPI && !token) {
-      getValidToken()
-        .then(setAutoToken)
-        .catch((err) => {
-          console.error('Failed to get token:', err);
-          onError?.('Token alınamadı');
-        });
-    }
-  }, [useProcessingAPI, token, onError]);
+  const marineLayerId = useMemo(() => toMarineLayerId(layer), [layer]);
 
   // Force refresh when layer or date changes
   useEffect(() => {
     setKey((prev) => prev + 1);
-  }, [layer, date, instanceId, useProcessingAPI]);
+  }, [layer, date, marineLayerId]);
 
-  // WMTS URL for non-water-quality layers
-  const wmtsUrl = useMemo(() => {
-    if (useProcessingAPI) return null;
-    const effectiveToken = token || autoToken;
-    if (!instanceId || !effectiveToken) return null;
-    return getWMTSTileUrl(instanceId, layer, date, effectiveToken);
-  }, [instanceId, layer, date, token, autoToken, useProcessingAPI]);
+  useEffect(() => {
+    if (!marineLayerId) {
+      onError?.(`${layer} katmanı marine veri sözleşmesinde desteklenmiyor`);
+    }
+  }, [layer, marineLayerId, onError]);
 
-  // Processing API for water quality layers
-  if (useProcessingAPI) {
-    return (
-      <ProcessingTileLayer
-        key={`processing-${key}`}
-        layer={layer}
-        date={date}
-        opacity={opacity}
-        minZoom={minZoom}
-        maxZoom={maxZoom}
-        onLoadingChange={onLoadingChange}
-        onError={onError}
-      />
-    );
-  }
-
-  // WMTS for base/analysis layers
-  if (!wmtsUrl) {
+  if (!marineLayerId) {
     return null;
   }
 
   return (
-    <TileLayer
-      key={`wmts-${key}`}
-      url={wmtsUrl}
+    <MarineAuthenticatedTileLayer
+      key={`sentinel-marine-${key}`}
+      layerId={marineLayerId}
+      date={date}
       opacity={opacity}
       minZoom={minZoom}
       maxZoom={maxZoom}
-      tileSize={TILE_SIZE}
-      className="sentinel-wmts-layer"
-      eventHandlers={{
-        loading: () => onLoadingChange?.(true),
-        load: () => onLoadingChange?.(false),
-        tileerror: (e) => {
-          console.error('WMTS tile error:', e);
-          onError?.('Uydu görüntüsü yüklenemedi');
-        },
-      }}
+      className="sentinel-marine-layer"
+      onLoadingChange={onLoadingChange}
+      onError={onError}
     />
   );
 };

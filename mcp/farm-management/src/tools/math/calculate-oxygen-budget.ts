@@ -126,7 +126,7 @@ type ToolResult = { content: Array<{ type: 'text'; text: string }> };
  *   5. Sıcaklık etkisi analizi
  *   6. Denge durumu değerlendirmesi
  */
-export async function handler(params: z.infer<typeof inputSchema>): Promise<ToolResult> {
+export async function handler(params: unknown): Promise<ToolResult> {
   const input = inputSchema.parse(params);
 
   const {

@@ -194,10 +194,14 @@ class AutoMergeTests(unittest.TestCase):
             record_token_proof,
             record_workflow_run_proof,
         )
+        from aria_kernel.autonomy_unlock import record_acceptance_event
+        from aria_kernel.rollback_bundle import record_rollback_bundle, record_rollback_simulation
+        from aria_kernel.runner_attestation import record_runner_attestation
 
         readiness_claim_id = f"ready-{pr_number}"
         repo = "example/aqua"
         head_ref = "feature/docs"
+        required_checks = ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
         common = {
             "repo": repo,
             "pr_number": pr_number,
@@ -263,9 +267,18 @@ class AutoMergeTests(unittest.TestCase):
         record_remote_cas_proof(cas, base_dir=self.tools_dir)
         branch = {
             **common,
+            "$schema": "aria/branch-protection-proof/v3",
             "valid": True,
             "snapshot_hash": artifact_sha,
-            "required_checks": ["ci/test", "ci/lint"],
+            "required_checks": required_checks,
+            "exact_required_checks": required_checks,
+            "signed_commits_required": True,
+            "reviews_required": True,
+            "conversation_resolution_required": True,
+            "ruleset_ids": [1],
+            "bypass_actors": [],
+            "force_push_disabled": True,
+            "delete_branch_disabled": True,
             "source_ledger_ref": source_ref("branch"),
         }
         record_branch_protection_proof(branch, base_dir=self.tools_dir)
@@ -318,6 +331,11 @@ class AutoMergeTests(unittest.TestCase):
             "contract_hash": artifact_sha,
             "network_policy": "egress-denied",
             "runtime_write_paths": ["aria-tools/tmp"],
+            "scanner_results": {
+                "status": "passed",
+                "scanned_surfaces": ["diff", "prompt", "transcript", "logs", "artifacts"],
+                "scanner_output_sha256": artifact_sha,
+            },
             "source_ledger_ref": source_ref("dlp"),
         }
         token = {
@@ -331,6 +349,11 @@ class AutoMergeTests(unittest.TestCase):
             "contract_hash": artifact_sha,
             "network_policy": "egress-denied",
             "runtime_write_paths": ["aria-tools/tmp"],
+            "token_type": "github_app_installation_token",
+            "mutation_token": "github_app_installation_token",
+            "gh_token_fallback": False,
+            "github_token_fallback": False,
+            "pat_fallback": False,
             "source_ledger_ref": source_ref("token"),
         }
         record_rollback_proof(rollback, base_dir=self.tools_dir)
@@ -361,6 +384,43 @@ class AutoMergeTests(unittest.TestCase):
             "token_proof": token,
         }
         record_enterprise_readiness_claim(claim, base_dir=self.tools_dir)
+        for index in range(30):
+            record_acceptance_event(
+                event_type="observe_success",
+                pr_number=pr_number,
+                head_sha=f"{index:040x}"[-40:],
+                base_dir=self.tools_dir,
+            )
+        record_runner_attestation(
+            {
+                **common,
+                "runner_id": f"runner-{pr_number}",
+                "runner_group": "aria-private",
+                "ephemeral_runner": True,
+                "approved_runner_group": True,
+                "sandbox_available": True,
+                "codex_auth": "chatgpt_managed_codex_cli",
+                "api_key_auth": False,
+            },
+            base_dir=self.tools_dir,
+        )
+        record_rollback_bundle(
+            {
+                **common,
+                "rollback_bundle_id": f"bundle-{pr_number}",
+                "rollback_plan_sha256": rollback_source,
+            },
+            base_dir=self.tools_dir,
+        )
+        record_rollback_simulation(
+            {
+                **common,
+                "rollback_bundle_id": f"bundle-{pr_number}",
+                "rollback_simulation_id": f"simulation-{pr_number}",
+                "status": "passed",
+            },
+            base_dir=self.tools_dir,
+        )
         return readiness_claim_id
 
     def test_policy_disabled_blocks_even_low_risk_green_pr(self):
@@ -481,6 +541,49 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": HEAD_SHA}])
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
         self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
+
+    def test_failed_merge_does_not_record_merged_lifecycle(self):
+        self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
+        readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
+        from aria_kernel.runtime_profile import set_profile
+        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        adapter = FakeGitHubAdapter(
+            pr(head_sha=HEAD_SHA),
+            github(
+                latest_head_sha=HEAD_SHA,
+                checks={
+                    "readable": True,
+                    "runs": [
+                        {"name": "ci/test", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                    ],
+                },
+            ),
+            latest_heads=[HEAD_SHA, HEAD_SHA],
+            fail_merge=True,
+        )
+        result = merge_pr_if_ready(
+            adapter=adapter,
+            pr_number=42,
+            policy=enabled_policy(),
+            base_dir=self.tools_dir,
+            cycle_id="cycle-merge",
+            readiness_claim_id=readiness_claim_id,
+        )
+        self.assertEqual(result["decision"], "failed")
+        lifecycle_path = self.tools_dir / "pr-lifecycle.jsonl"
+        lifecycle_rows = [
+            json.loads(line)
+            for line in lifecycle_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertNotIn("merged", [row.get("event") for row in lifecycle_rows])
+        incidents = [
+            json.loads(line)
+            for line in (self.tools_dir / "enterprise" / "incidents.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertIn("merge_failed", [row.get("incident_event") for row in incidents])
 
     def test_merge_command_not_called_when_checks_are_pending(self):
         from aria_kernel.runtime_profile import set_profile

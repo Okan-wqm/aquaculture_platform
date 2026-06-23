@@ -26,7 +26,7 @@
  * @param salinity - Salinity (ppt), default: 0
  * @returns DO saturation (mg/L)
  */
-export function calcDOSaturation(tempC: number, salinity: number = 0): number {
+export function calcDOSaturation(tempC: number, salinity = 0): number {
   const T = tempC + 273.15;
   const T100 = T / 100;
 

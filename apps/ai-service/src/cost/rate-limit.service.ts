@@ -94,8 +94,8 @@ export class RateLimitService {
     tenantId: string,
     limit: number,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
-    if (this.useRedis) {
-      return this.checkRateLimitRedis(tenantId, limit);
+    if (this.redisService) {
+      return this.checkRateLimitRedis(this.redisService, tenantId, limit);
     }
     return this.checkRateLimitLocal(tenantId, limit);
   }
@@ -110,6 +110,7 @@ export class RateLimitService {
    * is no risk of leaked counters consuming Redis memory.
    */
   private async checkRateLimitRedis(
+    redisService: RedisService,
     tenantId: string,
     limit: number,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
@@ -117,12 +118,12 @@ export class RateLimitService {
     const ttl = this.getSecondsUntilHourEnd();
 
     // INCR atomically creates the key with value 1 if it doesn't exist
-    const count = await this.redisService!.incr(key);
+    const count = await redisService.incr(key);
 
     // Set TTL only on first increment (when count is 1)
     // WHY: Setting TTL on every INCR would reset the expiry window
     if (count === 1) {
-      await this.redisService!.expire(key, ttl);
+      await redisService.expire(key, ttl);
     }
 
     const resetAt = new Date();

@@ -16,12 +16,12 @@ import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import type { AOI } from '../../hooks/useAOIDrawing';
 import type { LayerType } from '../../services/sentinelHubService';
+import { fetchMarineAoiImage, toMarineLayerId } from '../../services/marineDataService';
 
 interface AOIAnalysisPanelProps {
   aoi: AOI;
   layer: LayerType;
   date: Date;
-  token: string | null;
   onClose: () => void;
   onDateChange: (date: Date) => void;
 }
@@ -37,172 +37,6 @@ interface AnalysisResult {
     coverage: number; // % valid pixels
   };
 }
-
-// CDSE Processing API URL
-const CDSE_PROCESS_URL = 'https://sh.dataspace.copernicus.eu/api/v1/process';
-
-// Evalscript for high-res analysis
-const getAnalysisEvalscript = (layer: LayerType): string => {
-  const scripts: Record<LayerType, string> = {
-    'TRUE-COLOR': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B04", "B03", "B02", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        return [2.5 * sample.B04, 2.5 * sample.B03, 2.5 * sample.B02, sample.dataMask];
-      }
-    `,
-    'CHLOROPHYLL': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B02", "B03", "B04", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let ratio = sample.B03 / Math.max(sample.B02, 0.001);
-        let chl_a = 4.26 * Math.pow(ratio, 3.94);
-        let r, g, b;
-        if (chl_a < 5) { r = 0.1; g = 0.3; b = 0.8; }
-        else if (chl_a < 10) { r = 0.2; g = 0.6; b = 0.8; }
-        else if (chl_a < 20) { r = 0.3; g = 0.8; b = 0.3; }
-        else if (chl_a < 50) { r = 0.8; g = 0.8; b = 0.2; }
-        else if (chl_a < 100) { r = 0.9; g = 0.5; b = 0.1; }
-        else { r = 0.9; g = 0.2; b = 0.2; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'CYANOBACTERIA': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B02", "B03", "B04", "B05", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let cya = 115530.31 * Math.pow((sample.B03 * sample.B04) / Math.max(sample.B02, 0.001), 2.38);
-        let r, g, b;
-        if (cya < 10000) { r = 0.1; g = 0.4; b = 0.8; }
-        else if (cya < 50000) { r = 0.3; g = 0.7; b = 0.4; }
-        else if (cya < 100000) { r = 0.9; g = 0.9; b = 0.2; }
-        else if (cya < 500000) { r = 0.9; g = 0.5; b = 0.1; }
-        else { r = 0.9; g = 0.1; b = 0.1; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'TURBIDITY': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B01", "B03", "B04", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let turb = 8.93 * (sample.B03 / Math.max(sample.B01, 0.001)) - 6.39;
-        turb = Math.max(0, turb);
-        let r, g, b;
-        if (turb < 5) { r = 0.1; g = 0.5; b = 0.9; }
-        else if (turb < 10) { r = 0.3; g = 0.7; b = 0.8; }
-        else if (turb < 25) { r = 0.5; g = 0.8; b = 0.5; }
-        else if (turb < 50) { r = 0.8; g = 0.7; b = 0.3; }
-        else if (turb < 100) { r = 0.8; g = 0.5; b = 0.2; }
-        else { r = 0.6; g = 0.4; b = 0.3; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'CDOM': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B02", "B03", "B04", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let cdom = (sample.B04 - sample.B02) / Math.max(sample.B03, 0.001);
-        let r, g, b;
-        if (cdom < 0.1) { r = 0.2; g = 0.6; b = 0.9; }
-        else if (cdom < 0.3) { r = 0.4; g = 0.7; b = 0.6; }
-        else if (cdom < 0.5) { r = 0.6; g = 0.6; b = 0.3; }
-        else { r = 0.5; g = 0.3; b = 0.1; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'TSS': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B02", "B03", "B04", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let tss = 1.89 * Math.pow(sample.B04 / Math.max(sample.B02, 0.001), 1.17);
-        let r, g, b;
-        if (tss < 10) { r = 0.1; g = 0.4; b = 0.8; }
-        else if (tss < 25) { r = 0.3; g = 0.6; b = 0.7; }
-        else if (tss < 50) { r = 0.5; g = 0.7; b = 0.4; }
-        else if (tss < 100) { r = 0.7; g = 0.6; b = 0.3; }
-        else { r = 0.6; g = 0.4; b = 0.2; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'NDVI': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B04", "B08", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let ndvi = (sample.B08 - sample.B04) / Math.max(sample.B08 + sample.B04, 0.001);
-        let r, g, b;
-        if (ndvi < 0) { r = 0.5; g = 0; b = 0; }
-        else if (ndvi < 0.2) { r = 0.8; g = 0.4; b = 0.2; }
-        else if (ndvi < 0.4) { r = 1; g = 0.8; b = 0; }
-        else if (ndvi < 0.6) { r = 0.6; g = 0.9; b = 0.2; }
-        else { r = 0.1; g = 0.6; b = 0.1; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'MOISTURE': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B8A", "B11", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let ndmi = (sample.B8A - sample.B11) / Math.max(sample.B8A + sample.B11, 0.001);
-        let r, g, b;
-        if (ndmi < -0.4) { r = 0.8; g = 0.2; b = 0.2; }
-        else if (ndmi < 0) { r = 0.9; g = 0.6; b = 0.3; }
-        else if (ndmi < 0.2) { r = 1; g = 0.9; b = 0.5; }
-        else if (ndmi < 0.4) { r = 0.5; g = 0.8; b = 0.5; }
-        else { r = 0.2; g = 0.4; b = 0.8; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'NDWI': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B03", "B08", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let ndwi = (sample.B03 - sample.B08) / Math.max(sample.B03 + sample.B08, 0.001);
-        let r, g, b;
-        if (ndwi < -0.3) { r = 0.6; g = 0.4; b = 0.2; }
-        else if (ndwi < 0) { r = 0.8; g = 0.7; b = 0.5; }
-        else if (ndwi < 0.3) { r = 0.5; g = 0.7; b = 0.9; }
-        else { r = 0.2; g = 0.4; b = 0.9; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-    'SECCHI': `
-      //VERSION=3
-      function setup() {
-        return { input: ["B02", "B03", "dataMask"], output: { bands: 4 } };
-      }
-      function evaluatePixel(sample) {
-        let ratio = Math.log10(Math.max(sample.B03, 0.001) / Math.max(sample.B02, 0.001));
-        let secchi = 4.5 + 8.0 * ratio;
-        secchi = Math.max(0, Math.min(secchi, 30));
-        let r, g, b;
-        if (secchi < 3) { r = 0.5; g = 0.2; b = 0.1; }
-        else if (secchi < 6) { r = 0.7; g = 0.4; b = 0.2; }
-        else if (secchi < 12) { r = 0.5; g = 0.8; b = 0.9; }
-        else { r = 0.2; g = 0.4; b = 0.9; }
-        return [r, g, b, sample.dataMask];
-      }
-    `,
-  };
-  return scripts[layer] || scripts['TRUE-COLOR'];
-};
 
 // Layer display names
 const LAYER_NAMES: Record<LayerType, string> = {
@@ -222,7 +56,6 @@ export const AOIAnalysisPanel: React.FC<AOIAnalysisPanelProps> = ({
   aoi,
   layer,
   date,
-  token,
   onClose,
   onDateChange,
 }) => {
@@ -235,8 +68,13 @@ export const AOIAnalysisPanel: React.FC<AOIAnalysisPanelProps> = ({
 
   // Fetch high-res image for AOI
   const fetchAnalysis = useCallback(async () => {
-    if (!token) {
-      setResult({ imageUrl: null, isLoading: false, error: 'Token bulunamadi' });
+    const marineLayerId = toMarineLayerId(layer);
+    if (!marineLayerId) {
+      setResult({
+        imageUrl: null,
+        isLoading: false,
+        error: 'Bu katman AOI analizi icin desteklenmiyor',
+      });
       return;
     }
 
@@ -251,58 +89,15 @@ export const AOIAnalysisPanel: React.FC<AOIAnalysisPanelProps> = ({
     const fromDate = new Date(date);
     fromDate.setDate(fromDate.getDate() - 30);
 
-    const requestBody = {
-      input: {
-        bounds: {
-          bbox: aoi.bbox,
-          properties: {
-            crs: 'http://www.opengis.net/def/crs/EPSG/0/4326',
-          },
-        },
-        data: [
-          {
-            type: 'sentinel-2-l2a',
-            dataFilter: {
-              timeRange: {
-                from: fromDate.toISOString(),
-                to: date.toISOString(),
-              },
-              maxCloudCoverage: 30,
-              mosaickingOrder: 'leastCC',
-            },
-          },
-        ],
-      },
-      output: {
+    try {
+      const blob = await fetchMarineAoiImage({
+        layerId: marineLayerId,
+        bbox: aoi.bbox,
+        fromDate,
+        toDate: date,
         width: 1024,
         height: 1024,
-        responses: [
-          {
-            identifier: 'default',
-            format: {
-              type: 'image/png',
-            },
-          },
-        ],
-      },
-      evalscript: getAnalysisEvalscript(layer),
-    };
-
-    try {
-      const response = await fetch(CDSE_PROCESS_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestBody),
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       imageUrlRef.current = url;
 
@@ -311,15 +106,14 @@ export const AOIAnalysisPanel: React.FC<AOIAnalysisPanelProps> = ({
         isLoading: false,
         error: null,
       });
-    } catch (error) {
-      console.error('AOI analysis fetch error:', error);
+    } catch {
       setResult({
         imageUrl: null,
         isLoading: false,
         error: 'Goruntu alinamadi',
       });
     }
-  }, [aoi.bbox, date, layer, token]);
+  }, [aoi.bbox, date, layer]);
 
   // Fetch on mount and when dependencies change
   useEffect(() => {

@@ -7,9 +7,9 @@
  * transitions: proposed -> confirmed -> completed/failed.
  */
 
-import { useCallback } from 'react';
-import { Check, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Check, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useCallback } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types

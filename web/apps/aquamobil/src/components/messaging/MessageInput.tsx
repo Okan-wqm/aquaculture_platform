@@ -16,11 +16,13 @@
  * @see ADR-012 section 5 (Messaging Features)
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Paperclip, Mic, X, Clock } from 'lucide-react';
 import { clsx } from 'clsx';
-import { VoiceRecorder } from './VoiceRecorder';
+import { Send, Paperclip, Mic, X, Clock } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+
 import { MentionPicker } from './MentionPicker';
+import { VoiceRecorder } from './VoiceRecorder';
+
 import type { ChannelMember } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------

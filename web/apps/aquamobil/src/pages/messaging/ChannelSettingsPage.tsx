@@ -11,8 +11,7 @@
  * change their notification preference and leave.
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   ArrowLeft,
   UserPlus,
@@ -29,18 +28,20 @@ import {
   Brain,
   Sparkles,
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { useAuth } from '@/hooks/useAuth';
-import { useChannelDetail } from '@/hooks/useChannelDetail';
-import { useChannelActions } from '@/hooks/useChannelActions';
-import { useTenantUsers } from '@/hooks/useTenantUsers';
+import { useState, useCallback, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { ConfirmDialog } from '@/components/messaging/ConfirmDialog';
 import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
-import { useAiConsent } from '@/hooks/useAiConsent';
-import type { NotificationPreference } from '@/types/messaging';
 import type { SentimentTrend } from '@/components/messaging/SentimentBadge';
+import { useAiConsent } from '@/hooks/useAiConsent';
+import { useAuth } from '@/hooks/useAuth';
+import { useChannelActions } from '@/hooks/useChannelActions';
+import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useTenantUsers } from '@/hooks/useTenantUsers';
+import type { NotificationPreference } from '@/types/messaging';
 
 const NOTIFICATION_OPTIONS: Array<{
   value: NotificationPreference;

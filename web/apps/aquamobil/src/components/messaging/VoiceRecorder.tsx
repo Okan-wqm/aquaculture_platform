@@ -13,9 +13,10 @@
  * @see ADR-012 section 5.3 (Voice Notes)
  */
 
-import { useCallback, useMemo } from 'react';
-import { Mic, Square, X } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Mic, Square, X } from 'lucide-react';
+import { useCallback, useMemo } from 'react';
+
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 
 // ---------------------------------------------------------------------------

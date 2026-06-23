@@ -9,7 +9,7 @@
  * landing screen, reducing taps by ~60% for the most common morning routine.
  */
 
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   Clock,
   MapPin,
@@ -21,13 +21,14 @@ import {
   ChevronRight,
   Inbox,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import { useNavigate } from 'react-router-dom';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
 import { useMyTasks } from '@/hooks/useMyTasks';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { Task, TaskPriority } from '@/types';
 
 // ---------------------------------------------------------------------------

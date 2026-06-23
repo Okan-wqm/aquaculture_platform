@@ -1,8 +1,7 @@
-import { type JSX, useCallback, useState } from 'react';
 import { ChevronRight, Skull } from 'lucide-react';
+import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useTanks } from '@/hooks/useTanks';
-import type { MortalityReason, MortalityInput } from '@/types';
+
 import {
   NotesInput,
   QuantityStepper,
@@ -14,6 +13,9 @@ import {
   SummaryRow,
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
+
+import { useTanks } from '@/hooks/useTanks';
+import type { MortalityReason, MortalityInput } from '@/types';
 
 // WHY: All 13 MortalityReason enum values from the backend schema are present
 // (BUG-14 regression guard — AMMONIA/PREDATION/CANNIBALISM/STARVATION/GENETIC

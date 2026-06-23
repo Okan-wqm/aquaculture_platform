@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { X, Send } from 'lucide-react';
 import { clsx } from 'clsx';
+import { X, Send } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types

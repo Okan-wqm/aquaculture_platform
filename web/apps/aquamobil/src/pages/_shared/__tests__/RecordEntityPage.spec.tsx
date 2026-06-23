@@ -155,9 +155,10 @@ vi.mock('react-router-dom', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
+
 import { RecordCullPage } from '../../cull/RecordCullPage';
-import { RecordMortalityPage } from '../../mortality/RecordMortalityPage';
 import { RecordHarvestPage } from '../../harvest/RecordHarvestPage';
+import { RecordMortalityPage } from '../../mortality/RecordMortalityPage';
 
 function renderPage(page: React.ReactElement) {
   return render(page);

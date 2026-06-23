@@ -11,10 +11,8 @@
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { clsx } from 'clsx';
 import {
   ArrowLeft,
   Search,
@@ -31,15 +29,18 @@ import {
   Cpu,
   Sparkles,
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { useAuth } from '@/hooks/useAuth';
-import { useTenantUsers } from '@/hooks/useTenantUsers';
-import type { TenantUserItem } from '@/hooks/useTenantUsers';
-import { useCreateChannel } from '@/hooks/useCreateChannel';
-import { getInitials } from '@/utils/messaging-helpers';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+import { useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
+import { useAuth } from '@/hooks/useAuth';
+import { useCreateChannel } from '@/hooks/useCreateChannel';
+import type { TenantUserItem } from '@/hooks/useTenantUsers';
+import { useTenantUsers } from '@/hooks/useTenantUsers';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { AiPersona } from '@/types/messaging';
+import { getInitials } from '@/utils/messaging-helpers';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ---------------------------------------------------------------------------
 // AI Persona Helpers

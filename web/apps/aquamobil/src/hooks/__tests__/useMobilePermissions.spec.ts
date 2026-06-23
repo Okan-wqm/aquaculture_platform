@@ -11,9 +11,9 @@
  * - canAccess: feature-based control
  */
 
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks
@@ -61,7 +61,9 @@ vi.mock('../useAuth', () => ({
 // Import after mocks
 import { MobilePermissionsProvider, useMobilePermissions } from '../useMobilePermissions';
 import type { MobileFeature } from '../useMobilePermissions';
+
 import { set } from 'idb-keyval';
+
 import { syncAuthStore } from '@/services/authenticated-fetch';
 
 // --------------------------------------------------------------------------
@@ -118,8 +120,8 @@ describe('useMobilePermissions', () => {
   describe('Default Settings (Fail-Closed)', () => {
     it('should have isMobileEnabled = false by default', async () => {
       mockAuth.isAuthenticated = false;
-      mockAuth.accessToken = null as unknown as string;
-      mockAuth.user = null as unknown as typeof mockAuth.user;
+      mockAuth.accessToken = null;
+      mockAuth.user = null;
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -132,8 +134,8 @@ describe('useMobilePermissions', () => {
 
     it('should have all feature permissions false by default', async () => {
       mockAuth.isAuthenticated = false;
-      mockAuth.accessToken = null as unknown as string;
-      mockAuth.user = null as unknown as typeof mockAuth.user;
+      mockAuth.accessToken = null;
+      mockAuth.user = null;
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -166,8 +168,8 @@ describe('useMobilePermissions', () => {
 
       // Now simulate logout
       mockAuth.isAuthenticated = false;
-      mockAuth.accessToken = null as unknown as string;
-      mockAuth.user = null as unknown as typeof mockAuth.user;
+      mockAuth.accessToken = null;
+      mockAuth.user = null;
 
       rerender();
 
@@ -639,7 +641,7 @@ describe('useMobilePermissions', () => {
         role: 'MODULE_USER' as const,
         tenantId: 'tenant-2',
       };
-      (mockAuth as Record<string, unknown>).tenantId = 'tenant-2';
+      (mockAuth).tenantId = 'tenant-2';
 
       // Backend returns restricted permissions for tenant-2
       mockFetch.mockResolvedValue(createSuccessResponse({

@@ -15,21 +15,23 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import {
   FARM_DASHBOARD_INSIGHTS_QUERY,
   TANK_RISK_ASSESSMENT_QUERY,
   BATCH_GROWTH_PREDICTION_QUERY,
   FEEDING_ADVICE_QUERY,
 } from '@/graphql/ai-insights.queries';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type {
   FarmDashboardInsights,
   TankRiskAssessment,
   BatchGrowthPrediction,
   FeedingAdvice,
 } from '@/types/ai-insights.types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * WHY: 5-minute staleTime matches the backend Redis cache TTL for AI predictions.

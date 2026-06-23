@@ -1,9 +1,10 @@
+import { Cloud, Bell, LogOut, MoreHorizontal, ChevronRight, Fingerprint, Shield, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cloud, Bell, LogOut, MoreHorizontal, ChevronRight, Fingerprint, Shield, Trash2, X } from 'lucide-react';
+
 import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 
 interface MenuItem {

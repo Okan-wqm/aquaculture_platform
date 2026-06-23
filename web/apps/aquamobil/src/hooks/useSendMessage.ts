@@ -22,16 +22,19 @@
  * @returns error — mutation error, if any
  */
 
-import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback } from 'react';
+
+
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { SEND_MESSAGE } from '@/graphql/messaging-operations';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage, MessageContentType } from '@/types/messaging';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 interface SendMessageParams {
   content: string | null;
@@ -129,7 +132,7 @@ export function useSendMessage(channelId: string | undefined) {
               pageParams: [null],
             };
           }
-          const firstPage = old.pages[0]!;
+          const firstPage = old.pages[0];
           return {
             ...old,
             pages: [

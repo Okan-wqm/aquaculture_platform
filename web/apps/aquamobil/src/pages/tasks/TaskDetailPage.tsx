@@ -1,13 +1,15 @@
+import { clsx } from 'clsx';
+import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
-import { useTaskActions } from '@/hooks/useTaskActions';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { GET_TASK_DETAIL } from '@/graphql/operations';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTaskActions } from '@/hooks/useTaskActions';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task, ChecklistItem, TaskNote } from '@/types';
-import { GET_TASK_DETAIL } from '@/graphql/operations';
-import { clsx } from 'clsx';
+
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
   URGENT: { label: 'Urgent', color: 'bg-red-100 text-red-700' },
@@ -230,7 +232,7 @@ export function TaskDetailPage() {
   const checklistItems: ChecklistItem[] = Array.isArray(task.checklistItems)
     ? task.checklistItems.map((item) =>
         typeof item === 'object' && item !== null
-          ? (item as ChecklistItem)
+          ? (item)
           : { id: String(item), text: String(item), isCompleted: false },
       )
     : [];
@@ -238,7 +240,7 @@ export function TaskDetailPage() {
   const notes: TaskNote[] = Array.isArray(task.notes)
     ? task.notes.map((note) =>
         typeof note === 'object' && note !== null
-          ? (note as TaskNote)
+          ? (note)
           : { id: String(note), text: String(note), createdBy: '', createdAt: '' },
       )
     : [];

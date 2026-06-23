@@ -1,6 +1,7 @@
+import { Fish, Eye, EyeOff, AlertCircle, Waves, Fingerprint } from 'lucide-react';
 import { useState, useCallback, useEffect, ChangeEvent, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Fish, Eye, EyeOff, AlertCircle, Waves, Fingerprint } from 'lucide-react';
+
 import { useAuth } from '@/hooks/useAuth';
 import {
   isWebAuthnSupported,
@@ -44,7 +45,7 @@ function bufferToBase64url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
+    binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }

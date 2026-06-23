@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
+
 import { useTodaysAttendance } from './useAttendance';
 import { useMyLeaveBalances } from './useLeave';
 import { useMySchedule } from './useMySchedule';
+
 import type { StaffSummary } from '@/types';
 
 /**
@@ -56,7 +58,7 @@ export function useStaffSummary(): {
     // WHY search both weeks: if today is Friday and the next work entry is
     // Monday, it lives in next week's plan. Searching only the current week
     // would show null for the "next shift" on weekends.
-    const todayStr = new Date().toISOString().split('T')[0]!;
+    const todayStr = new Date().toISOString().split('T')[0];
     const allEntries = [
       ...(currentWeekPlan?.entries ?? []),
       ...(nextWeekPlan?.entries ?? []),
@@ -68,7 +70,7 @@ export function useStaffSummary(): {
       .filter((e) => e.date > todayStr && e.entryType === 'work' && !e.isOffDay && !e.isLeaveDay)
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const nextShiftDate = futureWorkEntries.length > 0 ? futureWorkEntries[0]!.date : null;
+    const nextShiftDate = futureWorkEntries.length > 0 ? futureWorkEntries[0].date : null;
 
     // WHY schedulePreviewDays: counts how many work days are visible in the
     // two-week window. The hub page uses this to show "X work days ahead".

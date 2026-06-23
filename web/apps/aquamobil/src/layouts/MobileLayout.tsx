@@ -1,15 +1,17 @@
+import { clsx } from 'clsx';
+import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
 import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
 // classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
 // These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
-import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
-import { clsx } from 'clsx';
+
 
 interface MobileLayoutProps {
   children: ReactNode;

@@ -1,11 +1,13 @@
+import { clsx } from 'clsx';
+import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { GeoLocation, AttendanceRecord } from '@/types';
-import { clsx } from 'clsx';
+
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-green-100 text-green-700',

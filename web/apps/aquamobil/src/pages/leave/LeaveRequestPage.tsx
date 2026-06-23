@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, CreateLeaveRequestInput } from '@/types';
-import { clsx } from 'clsx';
+
 
 interface FormErrors {
   leaveType?: string;
@@ -39,8 +41,8 @@ export function LeaveRequestPage() {
   useEffect(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    setStartDate(tomorrow.toISOString().split('T')[0]!);
-    setEndDate(tomorrow.toISOString().split('T')[0]!);
+    setStartDate(tomorrow.toISOString().split('T')[0]);
+    setEndDate(tomorrow.toISOString().split('T')[0]);
   }, []);
 
   const selectedBalance = balances.find((b) => b.leaveTypeId === selectedTypeId);

@@ -1,10 +1,9 @@
-import { type JSX, type ChangeEvent, useCallback, useEffect, useState } from 'react';
-import { ChevronRight, Package } from 'lucide-react';
-import { useParams } from 'react-router-dom';
-import { BlockTitle, List, ListInput } from 'konsta/react';
 import { clsx } from 'clsx';
-import { useTanks } from '@/hooks/useTanks';
-import type { HarvestInput, QualityGrade } from '@/types';
+import { BlockTitle, List, ListInput } from 'konsta/react';
+import { ChevronRight, Package } from 'lucide-react';
+import { type JSX, type ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+
 import {
   RecordEntityPage,
   type RecordEntityTheme,
@@ -12,6 +11,9 @@ import {
   SummaryRow,
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
+
+import { useTanks } from '@/hooks/useTanks';
+import type { HarvestInput, QualityGrade } from '@/types';
 
 interface HarvestFormErrors extends BaseFormErrors {
   avgWeight?: string;

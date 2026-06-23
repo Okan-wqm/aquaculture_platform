@@ -10,16 +10,17 @@
  * "accidental double-entry" error rate observed in field testing.
  */
 
+import { clsx } from 'clsx';
 import {
   Package,
   Scissors,
   ArrowLeftRight,
   Skull,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useStockEventsSummary } from '@/hooks/useStockEventsSummary';
 import type { StockEvent } from '@/types';

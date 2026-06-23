@@ -11,16 +11,17 @@
  * @see ADR-012 section 5.5 (Message Forwarding)
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
-import { clsx } from 'clsx';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { clsx } from 'clsx';
+import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+
+import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import type { Channel, Message } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ---------------------------------------------------------------------------
 // Types

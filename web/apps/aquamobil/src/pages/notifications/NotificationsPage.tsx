@@ -1,7 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
-import { useNotifications } from '@/hooks/useNotifications';
 import { clsx } from 'clsx';
+import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import { useNotifications } from '@/hooks/useNotifications';
+
 
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();

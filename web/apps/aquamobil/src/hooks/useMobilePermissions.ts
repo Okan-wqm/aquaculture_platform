@@ -1,6 +1,8 @@
-import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
 import { get, set } from 'idb-keyval';
+import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
+
 import { useAuth } from './useAuth';
+
 import { authenticatedFetch } from '@/services/authenticated-fetch';
 
 export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer' | 'storage';

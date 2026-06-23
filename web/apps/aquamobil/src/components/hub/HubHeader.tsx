@@ -1,8 +1,8 @@
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import { ArrowLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { clsx } from 'clsx';
+import { useNavigate } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
 // Types

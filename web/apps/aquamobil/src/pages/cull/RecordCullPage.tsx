@@ -1,8 +1,7 @@
-import { type JSX, useCallback, useState } from 'react';
 import { ChevronRight, Scissors } from 'lucide-react';
+import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useTanks } from '@/hooks/useTanks';
-import type { CullReason, CullInput } from '@/types';
+
 import {
   NotesInput,
   QuantityStepper,
@@ -14,6 +13,9 @@ import {
   SummaryRow,
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
+
+import { useTanks } from '@/hooks/useTanks';
+import type { CullReason, CullInput } from '@/types';
 
 const CULL_REASONS: ReadonlyArray<{ value: CullReason; label: string; emoji: string }> = [
   { value: 'SMALL_SIZE', label: 'Small Size', emoji: '📏' },

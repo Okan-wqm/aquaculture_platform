@@ -1,6 +1,7 @@
-import { useNavigate } from 'react-router-dom';
-import type { Task } from '@/types';
 import { clsx } from 'clsx';
+import { useNavigate } from 'react-router-dom';
+
+import type { Task } from '@/types';
 
 interface TaskCardProps {
   task: Task;

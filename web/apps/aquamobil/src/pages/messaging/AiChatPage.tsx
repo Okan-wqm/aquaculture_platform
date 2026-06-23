@@ -13,15 +13,7 @@
  * but adds AI-specific hooks (useAiChat, useAiConsent) and components.
  */
 
-import {
-  useState,
-  useCallback,
-  useMemo,
-  useEffect,
-  useRef,
-  type KeyboardEvent,
-} from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   ArrowLeft,
   Settings,
@@ -37,20 +29,29 @@ import {
   Clock,
   WifiOff,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+} from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
+import { AiActionCard } from '@/components/messaging/AiActionCard';
+import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
+import { MessageBubble } from '@/components/messaging/MessageBubble';
+import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
+import { useAiChat } from '@/hooks/useAiChat';
 import { useAuth } from '@/hooks/useAuth';
+import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useMessages } from '@/hooks/useMessages';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
-import { useSendMessage } from '@/hooks/useSendMessage';
-import { useChannelDetail } from '@/hooks/useChannelDetail';
-import { useAiChat } from '@/hooks/useAiChat';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { MessageBubble } from '@/components/messaging/MessageBubble';
-import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
-import { AiActionCard } from '@/components/messaging/AiActionCard';
-import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
-import { getDateLabel } from '@/utils/messaging-helpers';
+import { useSendMessage } from '@/hooks/useSendMessage';
 import type { Message } from '@/types/messaging';
+import { getDateLabel } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers

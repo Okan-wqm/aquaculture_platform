@@ -1,6 +1,7 @@
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import type { OperationType } from '@/types';
 import type { QueryClient } from '@tanstack/react-query';
+
+import type { OperationType } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // WHY: offline sync is the only write path when field users reconnect. Mapping
 // each synced mutation to tenant-scoped read models prevents DB-committed farm

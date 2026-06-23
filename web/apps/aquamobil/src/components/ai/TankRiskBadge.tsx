@@ -11,8 +11,9 @@
  * so the tank detail page works identically with or without MCP.
  */
 
-import { useTankRiskAssessment } from '@/hooks/useAiInsights';
 import { clsx } from 'clsx';
+
+import { useTankRiskAssessment } from '@/hooks/useAiInsights';
 
 interface TankRiskBadgeProps {
   tankId: string;

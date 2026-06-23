@@ -18,6 +18,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+
 import type { TypingEvent } from '@/types/messaging';
 
 /** Minimum interval between outgoing typing events. */

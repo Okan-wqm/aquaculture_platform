@@ -1,8 +1,9 @@
+import { clsx } from 'clsx';
 import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react';
 import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
+
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
-import { clsx } from 'clsx';
 
 // WHY: Every OperationType must have a friendly label so the sync status page
 // shows human-readable operation names. Without this, messaging and other operations

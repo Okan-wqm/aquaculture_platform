@@ -1,6 +1,6 @@
+import { clsx } from 'clsx';
 import type { LucideIcon } from 'lucide-react';
 import { Inbox } from 'lucide-react';
-import { clsx } from 'clsx';
 
 // ---------------------------------------------------------------------------
 // Types

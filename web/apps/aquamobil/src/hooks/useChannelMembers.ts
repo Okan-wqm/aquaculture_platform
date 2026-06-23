@@ -14,13 +14,16 @@
  * @returns onlineCount — number of currently online members
  */
 
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useMemo } from 'react';
+
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { GET_CHANNEL } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Channel, ChannelMember } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * Fetches a channel by ID and extracts its member list.

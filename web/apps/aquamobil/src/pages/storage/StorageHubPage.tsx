@@ -3,7 +3,7 @@
  * quick-access cards, low stock alerts, and recent movements feed.
  */
 
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -15,13 +15,14 @@ import {
   Inbox,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { KpiStrip } from '@/components/hub';
+import type { KpiItem } from '@/components/hub';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
-import { KpiStrip } from '@/components/hub';
-import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { clsx } from 'clsx';
 import type { LowStockItem, RecentStockMovement, StockMovementType } from '@/types';
 
 // WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.

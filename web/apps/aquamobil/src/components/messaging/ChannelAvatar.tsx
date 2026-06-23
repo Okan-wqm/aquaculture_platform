@@ -1,6 +1,6 @@
-import React from 'react';
-import { Bot } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Bot } from 'lucide-react';
+import React from 'react';
 
 // ---------------------------------------------------------------------------
 // Types

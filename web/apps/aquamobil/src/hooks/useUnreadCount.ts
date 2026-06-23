@@ -15,10 +15,12 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { TOTAL_UNREAD_MESSAGE_COUNT } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /** Polling interval as fallback when Socket.IO events are not available. */
 const POLL_INTERVAL_MS = 60_000; // 60 seconds

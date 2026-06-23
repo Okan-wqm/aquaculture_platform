@@ -5,10 +5,11 @@
  * @see ADR-012 section 3 (Channel domain)
  */
 
-import { Crown, Shield, User } from 'lucide-react';
 import { clsx } from 'clsx';
-import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
+import { Crown, Shield, User } from 'lucide-react';
+
 import type { ChannelMember, ChannelMemberRole } from '@/types/messaging';
+import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
 
 /**
  * WHY: Extracted from ChannelSettingsPage to reduce file size and enable

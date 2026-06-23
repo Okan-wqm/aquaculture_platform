@@ -12,9 +12,9 @@
  * @see ADR-012 section 5.3 (Voice Notes)
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Play, Pause } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Play, Pause } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types

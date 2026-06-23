@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
-import { CheckSquare, ClipboardList } from 'lucide-react';
-import { useMyTasks } from '@/hooks/useMyTasks';
-import { TaskCard } from '@/components/cards/TaskCard';
 import { clsx } from 'clsx';
+import { CheckSquare, ClipboardList } from 'lucide-react';
+import { useState, useCallback } from 'react';
+
+import { TaskCard } from '@/components/cards/TaskCard';
+import { useMyTasks } from '@/hooks/useMyTasks';
+
 
 type Segment = 'today' | 'upcoming' | 'overdue';
 

@@ -10,7 +10,6 @@
  * from 4+ taps to 1.
  */
 
-import { useNavigate } from 'react-router-dom';
 import {
   Users,
   MapPin,
@@ -19,9 +18,11 @@ import {
   Clock,
   ChevronRight,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useStaffSummary } from '@/hooks/useStaffSummary';
 

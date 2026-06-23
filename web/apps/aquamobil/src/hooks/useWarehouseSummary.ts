@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 import { useAuth } from './useAuth';
+
+import { GET_WAREHOUSE_SUMMARY } from '@/graphql/operations';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { GET_WAREHOUSE_SUMMARY } from '@/graphql/operations';
 import type { WarehouseSummary } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // WHY 1h TTL: warehouse data changes a few times per day (stock movements).
 // Keeping stale data available offline for 1 hour lets field workers see

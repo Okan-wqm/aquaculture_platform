@@ -14,10 +14,11 @@
  * @see ADR-012 section 5.4 (Mentions)
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { clsx } from 'clsx';
-import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+
 import type { ChannelMember } from '@/types/messaging';
+import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,8 +1,10 @@
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Droplets, Fish, Activity, BarChart3, AlertTriangle } from 'lucide-react';
-import { useTanks } from '@/hooks/useTanks';
-import { TankRiskBadge, GrowthPredictionCard, FeedingAdviceCard } from '@/components/ai';
 import { clsx } from 'clsx';
+import { ArrowLeft, Droplets, Fish, Activity, BarChart3, AlertTriangle } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+
+import { TankRiskBadge, GrowthPredictionCard, FeedingAdviceCard } from '@/components/ai';
+import { useTanks } from '@/hooks/useTanks';
+
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
   ACTIVE: { bg: 'bg-sea-100 dark:bg-sea-900/30', text: 'text-sea-700 dark:text-sea-300', label: 'Active' },

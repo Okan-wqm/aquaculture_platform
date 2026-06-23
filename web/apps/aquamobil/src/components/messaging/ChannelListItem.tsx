@@ -1,4 +1,5 @@
 import { clsx } from 'clsx';
+
 import { ChannelAvatar } from './ChannelAvatar';
 import { UnreadBadge } from './UnreadBadge';
 

@@ -15,18 +15,21 @@
  * @returns isLoading — true while any mutation is in flight
  */
 
-import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback, useState } from 'react';
+
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import {
   UPDATE_NOTIFICATION_PREFERENCE,
   REMOVE_CHANNEL_MEMBER,
   ARCHIVE_CHANNEL,
   ADD_CHANNEL_MEMBER,
 } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { NotificationPreference, ChannelMemberRole } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * Channel management actions hook.

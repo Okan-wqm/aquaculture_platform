@@ -1,9 +1,11 @@
+import { clsx } from 'clsx';
+import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
-import { clsx } from 'clsx';
+
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];

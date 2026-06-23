@@ -348,6 +348,33 @@ export async function findTenantById(tenantId: string): Promise<TenantRow | null
   return sharedDb.getTenantById(tenantId);
 }
 
+/**
+ * Look up a tenant by id from auth.tenants (ground-truth read).
+ * Alias of findTenantById used by the tenant fixture's lifecycle helpers.
+ */
+export async function getTenantById(tenantId: string): Promise<TenantRow | null> {
+  return sharedDb.getTenantById(tenantId);
+}
+
+/**
+ * Look up a tenant by slug from auth.tenants (ground-truth read).
+ * Used by createTestTenant to resolve the canonical tenant id after async
+ * REST provisioning (the 202 response does not surface the id).
+ */
+export async function getTenantBySlug(slug: string): Promise<TenantRow | null> {
+  return sharedDb.getTenantBySlug(slug);
+}
+
+/**
+ * Drop a tenant's schema (CASCADE) and delete its auth.tenants row plus its
+ * users (ground-truth teardown). Delegates to TestDatabase.deleteTenant +
+ * deleteTenantUsers so specs can tear down without holding a TestDatabase.
+ */
+export async function deleteTenantById(tenantId: string): Promise<void> {
+  await sharedDb.deleteTenantUsers(tenantId);
+  await sharedDb.deleteTenant(tenantId);
+}
+
 export async function findUserById(userId: string): Promise<UserRow | null> {
   return sharedDb.getUserById(userId);
 }

@@ -149,22 +149,30 @@ export class NatsEventBus
       'NATS_STREAM_NAME',
       'AQUACULTURE_EVENTS',
     );
-    const aquaEnv = this.configService.get<string>('AQUA_ENV', process.env['NODE_ENV'] ?? 'development');
-    const isProductionLike =
-      process.env['NODE_ENV'] === 'production' ||
-      aquaEnv === 'production' ||
-      aquaEnv === 'staging';
+    // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
+    // (how many nodes the cluster has), NOT of the application environment.
+    // Coupling it to NODE_ENV/AQUA_ENV (production ⇒ 3) was an architectural
+    // defect: a single-node production deployment (e.g. the self-contained
+    // droplet) then demanded a 3-replica stream its standalone server cannot
+    // host, leaving an unrecoverable stream that failed the JetStream health
+    // check and cascaded every dependent service into a stuck `Created` state.
+    //
+    // Durability is owned by the transactional outbox + event-store (the SSoT):
+    // every event is written to the outbox in the SAME DB transaction as the
+    // domain change and republished by the outbox worker, so nothing is lost if
+    // a JetStream message is. JetStream replication therefore provides transport
+    // HA, NOT durability — and R=1 is correct and complete on a single node.
+    //
+    // The DESIRED replica count comes from NATS_STREAM_REPLICAS (the
+    // deployment's topology profile), defaulting to 1 (always hostable). A
+    // clustered deployment opts into higher replication by setting it to the
+    // node count. setupStream() additionally CLAMPS the value to what the
+    // connected server can actually host (resolveEffectiveReplicas), so an
+    // over-specified count can never re-create the unrecoverable-stream outage.
     this.streamReplicas = parseStreamReplicas(
       this.configService.get<string | number>('NATS_STREAM_REPLICAS'),
-      isProductionLike ? 3 : 1,
+      1,
     );
-    if (isProductionLike && this.streamReplicas < 3) {
-      throw new Error(
-        `NATS_STREAM_REPLICAS must be at least 3 in production/staging ` +
-          `(got ${this.streamReplicas}). JetStream R=1 is not an acceptable ` +
-          'outbox durability contract.',
-      );
-    }
     // ARCH-020: Use SERVICE_NAME for stable consumer identity across pod restarts.
     // PID-based names caused orphan consumers and duplicate message processing.
     // Same SERVICE_NAME across scaled instances enables JetStream queue-group
@@ -751,6 +759,38 @@ export class NatsEventBus
   }
 
   /**
+   * Clamp the desired JetStream replica count to what the connected server can
+   * actually host. A standalone server (no cluster) can only host R=1 streams;
+   * requesting R>1 yields a stream that cannot be recovered on restart, which
+   * fails the JetStream health check and cascades every dependent service into
+   * a stuck `Created` state (the production droplet outage this fixes).
+   *
+   * Topology is read from the server's own ServerInfo (`cluster` is populated
+   * only when the node belongs to a cluster) — the authoritative source.
+   * Durability is unaffected: the transactional outbox + event-store is the
+   * SSoT, so JetStream replication is transport HA only, never the durability
+   * contract.
+   */
+  private resolveEffectiveReplicas(desired: number): number {
+    const info = this.connection?.info;
+    const clustered =
+      !!info && typeof info.cluster === 'string' && info.cluster.length > 0;
+    if (!clustered && desired > 1) {
+      this.logger.warn(
+        `NATS server is standalone (no cluster); clamping JetStream stream ` +
+          `replicas from ${desired} to 1. A standalone server cannot host a ` +
+          `replicated stream. Durability is guaranteed by the transactional ` +
+          `outbox + event-store, not JetStream replication. To run replicated ` +
+          `JetStream, deploy a NATS cluster and set NATS_STREAM_REPLICAS to the ` +
+          `node count.`,
+        { desiredReplicas: desired, effectiveReplicas: 1, clustered: false },
+      );
+      return 1;
+    }
+    return desired;
+  }
+
+  /**
    * Setup the NATS JetStream stream.
    * Creates the stream if missing, or updates existing stream config to enforce
    * current limits and prevent drift from server-side nats.conf changes.
@@ -760,7 +800,9 @@ export class NatsEventBus
       return;
     }
 
-    const streamConfig = this.getStreamConfig();
+    const streamConfig = this.getStreamConfig(
+      this.resolveEffectiveReplicas(this.streamReplicas),
+    );
 
     try {
       // ARCH-031: Always update existing stream config to enforce current limits.
@@ -784,7 +826,7 @@ export class NatsEventBus
    * max_bytes MUST be less than nats.conf max_file_store (2GB) to leave headroom
    * for metadata and potential additional streams.
    */
-  private getStreamConfig(): Partial<StreamConfig> {
+  private getStreamConfig(replicas: number): Partial<StreamConfig> {
     return {
       subjects: ['events.>', 'commands.>', 'queries.>'],
       retention: RetentionPolicy.Limits,
@@ -795,7 +837,7 @@ export class NatsEventBus
       max_msgs: 1_000_000, // 1M messages safety net
       discard: DiscardPolicy.Old,
       duplicate_window: 2 * 60 * 1_000_000_000, // 2 minutes for deduplication
-      num_replicas: this.streamReplicas,
+      num_replicas: replicas,
     };
   }
 

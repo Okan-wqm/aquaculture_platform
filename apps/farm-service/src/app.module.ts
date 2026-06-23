@@ -21,7 +21,7 @@ import {
   UserContextMiddleware,
   VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
@@ -341,13 +341,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
-        password: configService.get('REDIS_PASSWORD'),
-        db: parseInt(configService.get('REDIS_DB', '0'), 10),
-        keyPrefix: 'farm:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'farm', 'optional'),
     }),
 
     // Targeted jsonb_set UPDATE helper — phase 5.7. Lets

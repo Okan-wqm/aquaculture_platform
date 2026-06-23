@@ -288,7 +288,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
         dragHandle: undefined,
       };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [widgets, activeScreenId, handleWidgetResize, isPreview, scadaData, deviceCode]);
 
   /**

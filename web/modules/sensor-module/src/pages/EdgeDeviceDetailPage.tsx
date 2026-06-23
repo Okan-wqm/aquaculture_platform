@@ -1106,7 +1106,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
     } catch {
       // Error state handled by scanHardware.error
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [deviceId]);
 
   // v2.3: Import selected channels from auto-detect results
@@ -1116,7 +1116,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
       refetch(); // Refresh device data to show new I/O configs
       return result;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [deviceId, refetch],
   );
 

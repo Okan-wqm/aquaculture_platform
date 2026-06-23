@@ -17,7 +17,7 @@ import type { TagValueBus } from './TagValueBus';
  * Now a single wildcard ('*') subscription is used and React 18 automatic batching
  * merges setState calls within the same microtask.
  *
- * NOTE: The tagBus parameter is passed directly for now.
+ * NOTE: The tagBus parameter is currently passed directly.
  * Task 5 (ScadaRuntimeContext) will provide a context-based alternative.
  */
 export function useTagValues(tagNames: string[], tagBus: TagValueBus): Record<string, unknown> {
@@ -38,7 +38,7 @@ export function useTagValues(tagNames: string[], tagBus: TagValueBus): Record<st
 
   useEffect(() => {
     tagSetRef.current = new Set(tagNames);
-  }, [tagNames.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tagNames.join(',')]);  
 
   useEffect(() => {
     if (tagNames.length === 0) return;
@@ -72,7 +72,7 @@ export function useTagValues(tagNames: string[], tagBus: TagValueBus): Record<st
     });
 
     return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [tagBus, tagNames.join(',')]);
 
   return values;

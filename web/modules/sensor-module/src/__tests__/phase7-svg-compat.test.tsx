@@ -62,7 +62,7 @@ import type { AnimationState } from '../engine/animation/types';
 import { DEFAULT_ANIMATION_STATE } from '../engine/animation/types';
 
 // Lazy renderers cannot be imported directly with React.lazy -- we import them directly
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const SvgRectRenderer = (await import('../components/scada-builder/widget-renderers/SvgRectRenderer')).default;
 const SvgCircleRenderer = (await import('../components/scada-builder/widget-renderers/SvgCircleRenderer')).default;
 const SvgPathRenderer = (await import('../components/scada-builder/widget-renderers/SvgPathRenderer')).default;

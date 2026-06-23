@@ -308,7 +308,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
   // Load demo template handler — replaces current package data with built-in RAS demo
   const handleLoadDemo = useCallback(() => {
-    // eslint-disable-next-line no-restricted-globals
+     
     if (isDirty && !confirm('Loading the demo template will replace your current work. Continue?')) {
       return;
     }
@@ -447,7 +447,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
               onScriptsChange={setScripts}
               onTestScript={(scriptId) => {
                 // Phase 5B placeholder: the ScriptExecutor sandbox from Phase 5A
-                // will handle actual execution. For now, log to console.
+                // will handle actual execution; this currently logs to console.
                 console.log('[SCADA] Test script:', scriptId);
               }}
             />

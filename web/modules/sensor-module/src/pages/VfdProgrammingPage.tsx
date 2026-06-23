@@ -84,7 +84,7 @@ export function VfdProgrammingPage() {
     if (selectedVfdDeviceId) {
       changeSetHook.fetchChangeSets(selectedVfdDeviceId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedVfdDeviceId]);
 
   // Hooks — audit log
@@ -94,7 +94,7 @@ export function VfdProgrammingPage() {
     if (selectedVfdDeviceId) {
       auditHook.fetchLogs(selectedVfdDeviceId, auditParamFilter);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedVfdDeviceId, auditParamFilter]);
 
   // Hooks — automation rules
@@ -103,7 +103,7 @@ export function VfdProgrammingPage() {
     if (selectedVfdDeviceId) {
       automationHook.fetchRules(selectedVfdDeviceId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedVfdDeviceId]);
 
   // Available parameter names for audit filter

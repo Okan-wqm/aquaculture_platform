@@ -139,7 +139,7 @@ export const KioskMode = React.memo<KioskModeProps>(
           void exitFullscreen();
         }
       };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     }, [shouldRequestFullscreen]);
 
     // Listen for external fullscreen exit (ESC key, browser UI, etc.)

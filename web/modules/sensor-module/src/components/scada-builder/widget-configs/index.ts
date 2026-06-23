@@ -45,8 +45,8 @@ import { FuxaWidgetConfig } from './FuxaWidgetConfig';
 import { VfdDriveWidgetConfig } from './VfdDriveWidgetConfig';
 
 interface WidgetConfigProps {
-  config: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- legacy config components use any
-  onChange: (updates: Record<string, any>) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+  config: Record<string, any>;  
+  onChange: (updates: Record<string, any>) => void;  
   deviceId?: string | null;
 }
 

@@ -264,7 +264,7 @@ export function HybridDataProviderInner({
       subManager.reset();
       liveTagCacheRef.current.clear();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   // ── IDataProvider implementation ──────────────────────────────────────────

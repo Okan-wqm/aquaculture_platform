@@ -356,7 +356,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       grid.destroy(false);
       gridInstanceRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []); // PERF-002: run once on mount — add/remove is handled by makeWidget/removeWidget below
 
   // PERF-002: Register new DOM nodes with GridStack when localWidgets changes (instead of full re-init)

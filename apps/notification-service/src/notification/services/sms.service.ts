@@ -344,7 +344,7 @@ export class SmsService {
    * Clean phone number (remove spaces, dashes, etc.)
    */
   private cleanPhoneNumber(phoneNumber: string): string {
-    return phoneNumber.replace(/[\s().-]/g, '');
+    return phoneNumber.replace(/[\s\-().]/g, '');
   }
 
   /**

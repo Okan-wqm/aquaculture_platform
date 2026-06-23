@@ -13,6 +13,7 @@
 
 import { EdgeProps, Position, useReactFlow, type Edge } from '@xyflow/react';
 import { type JSX, useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
+
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /**
@@ -125,7 +126,7 @@ const buildOrthogonalPath = (source: Point, target: Point, bends: BendPoint[]): 
 /**
  * Render arrow head at the end of the path, rotated based on last segment direction
  */
-const renderArrow = (source: Point, target: Point, bends: BendPoint[], color: string = '#374151'): JSX.Element | null => {
+const renderArrow = (source: Point, target: Point, bends: BendPoint[], color = '#374151'): JSX.Element | null => {
   const allPoints = [source, ...bends, target];
   if (allPoints.length < 2) return null;
   const end = allPoints[allPoints.length - 1];
@@ -348,7 +349,7 @@ export default function OrthogonalEdge(props: OrthogonalEdgeProps) {
   }, [bendPoints, source, target]);
 
   /* ---------- Right-click to delete bend ---------- */
-  const handlePointRightClick = useCallback((e: ReactMouseEvent<SVGCircleElement>, idx: number) => {
+  const handlePointRightClick = useCallback((e: ReactMouseEvent<SVGRectElement>, idx: number) => {
     e.stopPropagation();
     e.preventDefault();
 
@@ -482,8 +483,8 @@ export default function OrthogonalEdge(props: OrthogonalEdgeProps) {
               cursor: 'grab',
               transition: 'all 0.1s ease-out',
             }}
-            onMouseDown={e => handleMouseDown(e as any, idx)}
-            onContextMenu={e => handlePointRightClick(e as any, idx)}
+            onMouseDown={e => handleMouseDown(e, idx)}
+            onContextMenu={e => handlePointRightClick(e, idx)}
             onMouseEnter={() => setHoveredPoint(idx)}
             onMouseLeave={() => setHoveredPoint(null)}
           />

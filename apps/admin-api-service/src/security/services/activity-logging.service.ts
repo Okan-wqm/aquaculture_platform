@@ -109,9 +109,15 @@ export class ActivityLoggingService implements OnModuleInit {
     private readonly sessionRepository: Repository<UserSession>,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    // Start periodic flush
-    setInterval(() => this.flushBuffer(), this.FLUSH_INTERVAL);
+  onModuleInit(): void {
+    // Start periodic flush. flushBuffer() is genuinely fire-and-forget here
+    // (it self-handles every error internally and re-queues failed batches),
+    // so the periodic invocation is explicitly voided: setInterval expects a
+    // void-returning callback, and passing an async fn that returns a Promise
+    // trips no-misused-promises and would orphan any rejection.
+    setInterval(() => {
+      void this.flushBuffer();
+    }, this.FLUSH_INTERVAL);
   }
 
   // ============================================================================

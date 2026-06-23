@@ -10,6 +10,13 @@
  */
 
 import { Repository, LessThanOrEqual, LessThan, In } from 'typeorm';
+import { Test } from '@nestjs/testing';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import {
+  createMockDataSource,
+  createMockRepository,
+  createMockEventBus,
+} from '@platform/testing';
 import { BillingSchedulerService } from '../../billing/billing-scheduler.service';
 import {
   Subscription,
@@ -18,6 +25,10 @@ import {
   PlanTier,
 } from '../../billing/entities/subscription.entity';
 import { Invoice, InvoiceStatus } from '../../billing/entities/invoice.entity';
+import {
+  ScheduledPlanChange,
+  ScheduledChangeStatus,
+} from '../../billing/entities/scheduled-plan-change.entity';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -747,5 +758,153 @@ describe('BillingSchedulerService', () => {
         expect(sub.currentPeriodEnd.getMonth()).toBe(expectedEnd.getMonth());
       },
     );
+  });
+
+  // ==========================================================================
+  // SCHEDULED PLAN CHANGES (applyScheduledPlanChanges)
+  //
+  // These tests pin the event-publish contract of the scheduled-change cron
+  // path. The publish runs AFTER the per-change transaction has committed, so
+  // a NATS failure must never roll back or block the applied plan change — the
+  // DB-committed state is durable and authoritative. They also guard the
+  // root-cause fix that the publish is awaited inside its try/catch: an
+  // unawaited rejection would escape the synchronous catch and surface as an
+  // unhandled rejection rather than the intended logged-and-tolerated warning.
+  // ==========================================================================
+
+  describe('applyScheduledPlanChanges — event publish contract', () => {
+    function buildScheduledChange(
+      overrides: Partial<ScheduledPlanChange> = {},
+    ): ScheduledPlanChange {
+      const change = new ScheduledPlanChange();
+      change.id = 'spc-001';
+      change.tenantId = 'tenant-001';
+      change.subscriptionId = 'sub-001';
+      change.currentPlanId = 'plan-pro';
+      change.currentPlanTier = PlanTier.PROFESSIONAL;
+      change.newPlanId = 'plan-starter';
+      change.newPlanTier = PlanTier.STARTER;
+      change.newPlanName = 'Starter';
+      change.newLimits = {
+        maxFarms: 2,
+        maxPonds: 10,
+        maxSensors: 40,
+        maxUsers: 5,
+        dataRetentionDays: 90,
+        alertsEnabled: true,
+        reportsEnabled: false,
+        apiAccessEnabled: false,
+        customIntegrationsEnabled: false,
+      };
+      change.newPricing = { basePrice: 49, currency: 'USD' };
+      change.status = ScheduledChangeStatus.PENDING;
+      change.effectiveDate = PAST;
+      change.scheduledBy = 'user-007';
+      change.createdAt = new Date();
+      change.updatedAt = new Date();
+      Object.assign(change, overrides);
+      return change;
+    }
+
+    /**
+     * Builds an isolated, DI-constructed service backed by the shared
+     * @platform/testing mock factories so the queryRunner-based transaction
+     * inside applyScheduledPlanChanges can run. The per-file beforeEach
+     * mockDataSource is invoice-path focused and does not wire
+     * createQueryRunner/getRepository.find, so the scheduled-change path needs
+     * its own harness. DI + useValue keeps construction cast-free; the typed
+     * coercion lives entirely inside the shared factories.
+     */
+    async function buildScheduledChangeHarness(
+      pendingChanges: ScheduledPlanChange[],
+      foundSubscription: Subscription | null,
+    ): Promise<{
+      svc: BillingSchedulerService;
+      publish: jest.Mock;
+      mockQueryRunner: ReturnType<typeof createMockDataSource>['mockQueryRunner'];
+    }> {
+      const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+
+      // Advisory lock: pg_try_advisory_lock must report acquired so the cron
+      // body proceeds; pg_advisory_unlock result is ignored by the service.
+      mockDataSource.query.mockResolvedValue([{ acquired: true }]);
+
+      // applyScheduledPlanChanges loads pending rows from the cron's
+      // ScheduledPlanChange repository via .find(...). A real typed repository
+      // mock keeps that repository's return type satisfied cast-free.
+      const changeRepo = createMockRepository<ScheduledPlanChange>();
+      changeRepo.find.mockResolvedValue(pendingChanges);
+      mockDataSource.getRepository.mockReturnValue(changeRepo);
+
+      mockManager.findOne.mockResolvedValue(foundSubscription);
+
+      const eventBus = createMockEventBus();
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          BillingSchedulerService,
+          { provide: getDataSourceToken(), useValue: mockDataSource },
+          { provide: getRepositoryToken(Subscription), useValue: createMockRepository<Subscription>() },
+          { provide: getRepositoryToken(Invoice), useValue: createMockRepository<Invoice>() },
+          { provide: 'EVENT_BUS', useValue: eventBus },
+        ],
+      }).compile();
+
+      const svc = moduleRef.get(BillingSchedulerService);
+      return { svc, publish: eventBus.publish, mockQueryRunner };
+    }
+
+    it('publishes a SubscriptionUpdated event after committing an applied plan change', async () => {
+      const change = buildScheduledChange();
+      const subscription = buildSubscription({
+        id: 'sub-001',
+        status: SubscriptionStatus.ACTIVE,
+        planTier: PlanTier.PROFESSIONAL,
+      });
+      const { svc, publish, mockQueryRunner } = await buildScheduledChangeHarness(
+        [change],
+        subscription,
+      );
+
+      await svc.applyScheduledPlanChanges();
+
+      // Transaction committed before publish — the durable, authoritative step.
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(change.status).toBe(ScheduledChangeStatus.APPLIED);
+
+      expect(publish).toHaveBeenCalledTimes(1);
+      const event = publish.mock.calls[0][0];
+      expect(event.eventType).toBe('SubscriptionUpdated');
+      expect(event.tenantId).toBe('tenant-001');
+      expect(event.subscriptionId).toBe('sub-001');
+      expect(event.tier).toBe(PlanTier.STARTER);
+      expect(event.previousPlanTier).toBe(PlanTier.PROFESSIONAL);
+      expect(event.isDowngrade).toBe(true);
+      expect(event.isScheduledChange).toBe(true);
+    });
+
+    it('tolerates a NATS publish failure without throwing or rolling back the committed change', async () => {
+      const change = buildScheduledChange();
+      const subscription = buildSubscription({
+        id: 'sub-001',
+        status: SubscriptionStatus.ACTIVE,
+      });
+      const { svc, publish, mockQueryRunner } = await buildScheduledChangeHarness(
+        [change],
+        subscription,
+      );
+      // A rejected publish: before the await fix this escaped the synchronous
+      // try/catch as an unhandled rejection; it must now be caught and tolerated.
+      publish.mockRejectedValue(new Error('NATS down'));
+
+      await expect(svc.applyScheduledPlanChanges()).resolves.toBeUndefined();
+
+      // The plan change stays committed and applied — publish failure is
+      // post-commit and never triggers a rollback.
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(mockQueryRunner.rollbackTransaction).not.toHaveBeenCalled();
+      expect(change.status).toBe(ScheduledChangeStatus.APPLIED);
+      expect(publish).toHaveBeenCalledTimes(1);
+    });
   });
 });

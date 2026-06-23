@@ -36,6 +36,7 @@ Invariants:
 from __future__ import annotations
 
 import inspect
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -43,19 +44,16 @@ from unittest import mock
 from . import _helpers  # noqa: F401
 
 from aria_kernel import plan_convergence_bridge
+# WS2 — the canonical plan_content required-field set is owned by the
+# kernel (plan_convergence.PLAN_CONTENT_REQUIRED, the SSoT). This test
+# used to carry its own CANONICAL_FIELDS literal — a 5th hardcoded copy
+# that could silently drift from the kernel. We now import the kernel
+# constant and iterate it, so the kernel is the ONE source.
+from aria_kernel.plan_convergence import PLAN_CONTENT_REQUIRED
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 AGENTS_DIR = REPO_ROOT / ".claude" / "agents"
-CANONICAL_FIELDS = (
-    "schema_version",
-    "title",
-    "summary",
-    "affected_surfaces",
-    "key_changes",
-    "validation_commands",
-    "evidence_refs",
-)
 
 
 class TestCanonicalEnvelopePipeline(unittest.TestCase):
@@ -96,7 +94,7 @@ class TestCanonicalEnvelopePipeline(unittest.TestCase):
             f"shared canonical envelope knowledge file missing at {knowledge_file}",
         )
         knowledge_content = knowledge_file.read_text(encoding="utf-8")
-        for field in CANONICAL_FIELDS:
+        for field in PLAN_CONTENT_REQUIRED:
             self.assertIn(
                 field, knowledge_content,
                 f"knowledge file MUST list canonical field {field!r}",
@@ -141,7 +139,13 @@ class TestCanonicalEnvelopePipeline(unittest.TestCase):
     def test_i_v8_1_04_ci_executor_has_validator_helper(self):
         """tools/aria-poc/ci_executor.py MUST have
         _pre_submit_validate_envelope + _PLAN_CONTENT_REQUIRED tuple
-        that mirrors the kernel canonical schema."""
+        that mirrors the kernel canonical schema.
+
+        WS2 strengthens this beyond a static literal scan: ci_executor's
+        RUNTIME `_PLAN_CONTENT_REQUIRED` MUST equal the kernel SSoT
+        constant (PLAN_CONTENT_REQUIRED). This proves ci_executor mirrors
+        the kernel — not merely that it happens to contain the same
+        string literals somewhere in its source."""
         ci_path = REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
         src = ci_path.read_text(encoding="utf-8")
         self.assertIn(
@@ -152,7 +156,7 @@ class TestCanonicalEnvelopePipeline(unittest.TestCase):
             "_PLAN_CONTENT_REQUIRED", src,
             "ci_executor MUST define _PLAN_CONTENT_REQUIRED tuple",
         )
-        for field in CANONICAL_FIELDS:
+        for field in PLAN_CONTENT_REQUIRED:
             self.assertIn(
                 f'"{field}"', src,
                 f"ci_executor _PLAN_CONTENT_REQUIRED MUST include {field!r}",
@@ -162,6 +166,22 @@ class TestCanonicalEnvelopePipeline(unittest.TestCase):
         self.assertIn(
             "_pre_submit_validate_envelope(", src,
             "_pre_submit_validate_envelope MUST be called from the dispatch path",
+        )
+        # WS2 — runtime mirror proof: import ci_executor and assert its
+        # active _PLAN_CONTENT_REQUIRED equals the kernel SSoT constant.
+        # ci_executor imports PLAN_CONTENT_REQUIRED from the kernel in its
+        # try-block (with an identical literal fallback); this assertion
+        # is the live drift guard for that import.
+        ci_tools_dir = REPO_ROOT / "tools" / "aria-poc"
+        if str(ci_tools_dir) not in sys.path:
+            sys.path.insert(0, str(ci_tools_dir))
+        import ci_executor  # noqa: PLC0415 — repo-path import, intentional
+        self.assertEqual(
+            tuple(ci_executor._PLAN_CONTENT_REQUIRED),
+            tuple(PLAN_CONTENT_REQUIRED),
+            "ci_executor._PLAN_CONTENT_REQUIRED MUST mirror the kernel "
+            "SSoT plan_convergence.PLAN_CONTENT_REQUIRED exactly (same "
+            "fields, same order).",
         )
 
     def test_i_v8_1_05_canonicalize_extracts_from_known_locations(self):

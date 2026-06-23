@@ -48,5 +48,5 @@ import { FarmNatsBridgeService } from './farm-nats-bridge.service';
     FarmGateway,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class WebSocketModule {}

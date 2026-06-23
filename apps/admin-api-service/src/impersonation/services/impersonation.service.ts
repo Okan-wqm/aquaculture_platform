@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   Optional,
+  OnModuleInit,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -70,7 +71,7 @@ export interface ImpersonationAuditSummary {
 // ============================================================================
 
 @Injectable()
-export class ImpersonationService {
+export class ImpersonationService implements OnModuleInit {
   private readonly logger = new Logger(ImpersonationService.name);
   /** In-memory fallback — single-instance only */
   private localActiveSessions: Map<string, ImpersonationSession> = new Map();
@@ -99,11 +100,24 @@ export class ImpersonationService {
         'Multi-instance deployments bypass rate limits.',
       );
     }
-    this.loadActiveSessions();
-    // Clean up in-memory rate limit map periodically (no-op when using Redis)
+    // Clean up in-memory rate limit map periodically (no-op when using Redis).
+    // This is synchronous setup and stays in the constructor; the async
+    // session warm-up moved to onModuleInit so its promise is awaited rather
+    // than floated out of the constructor (no-floating-promises).
     if (!this.useRedis) {
       setInterval(() => this.cleanupRateLimitMap(), 60000);
     }
+  }
+
+  /**
+   * Warm the in-memory active-session cache from persistence. Runs once at
+   * module init — async work does not belong in the constructor, where its
+   * promise would be unawaited (the rejected-promise + ordering hazard
+   * no-floating-promises guards against). Nest awaits this hook before the
+   * service is considered ready.
+   */
+  async onModuleInit(): Promise<void> {
+    await this.loadActiveSessions();
   }
 
   // ── Rate Limiting ─────────────────────────────────────────────────────────

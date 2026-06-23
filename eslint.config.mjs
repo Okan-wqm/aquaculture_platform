@@ -259,14 +259,24 @@ const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({
 }));
 
 export default [
-  // ── ignorePatterns (.eslintrc.json lines 3-11) ──
+  // ── ignorePatterns: generated/output dirs must never be linted, at ANY depth.
+  //    WHY depth-agnostic `**/<dir>/**`: ESLint flat-config bare names ('dist')
+  //    match only the top-level ./dist, NOT nested libs/*/dist or apps/*/dist
+  //    (the documented divergence from .eslintignore's gitignore-style matching).
+  //    A built per-project bundle (e.g. libs/node-components/dist/*.umd.js) was
+  //    therefore linted and flooded `no-undef` on bundle globals (window/self/
+  //    require/exports/define) whenever a project was built before linting.
+  //    `**/<dir>/**` makes every project's generated output un-lintable. No source
+  //    loss: nothing tracked lives under dist/build/coverage except the committed
+  //    compiled eslint plugin under tools/eslint-rules/dist (output, not source).
+  //    (Originally .eslintrc.json lines 3-11; the flat ignores are not parity-checked.) ──
   {
     ignores: [
-      'node_modules',
-      'dist',
-      'build',
-      'coverage',
-      '.nx',
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/coverage/**',
+      '**/.nx/**',
       '**/*.d.ts',
       '**/*.js.map',
       '**/.archive/**',

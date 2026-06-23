@@ -74,6 +74,18 @@ const DEFECT_CATALOG_EXEMPT = new Set<string>([
   '.claude/agents/product-audit/context-manager.md',
   '.claude/agents/edge-docs/architecture-writer.md',
   '.claude/agents/root-cause-auditor.md',
+  // architectural-arbiter reviews REVIEWS for cross-agent coherence, not source
+  // code for defects ("you do not review code for defects; you review REVIEWS").
+  // It consumes layer-2-patterns as the invariant set it arbitrates conflicting
+  // recommendations against — same process-meta posture as root-cause-auditor,
+  // which is already exempt. It is not a code-defect CATCHER.
+  '.claude/agents/architectural-arbiter.md',
+  // test-runner is a test-health quality gate (REVIEWER+Bash) that consumes
+  // layer-2-patterns as the patterns its mock-boundary + tenant-coverage rules
+  // assert against; it reviews TEST quality, not source for generic defect
+  // classes. Domain code-defect hunting routes to the owning expert per its
+  // Cross-Domain Dependencies. Not a code-defect CATCHER.
+  '.claude/agents/test-runner.md',
 ]);
 
 function gitList(cmd: string): string[] {

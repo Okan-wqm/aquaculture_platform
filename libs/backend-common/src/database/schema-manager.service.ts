@@ -10,10 +10,10 @@
 import * as crypto from 'crypto';
 
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
-import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@platform/outbox';
 import { SchemaLRUCache } from './schema-lru-cache';
 import {
   getTenantSchemaName as deriveTenantSchemaName,

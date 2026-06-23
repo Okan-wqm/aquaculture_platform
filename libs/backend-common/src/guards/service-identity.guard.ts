@@ -103,7 +103,7 @@ export class ServiceIdentityGuard implements CanActivate {
       observedQuery: this.canonicaliseQuery(req),
       observedContentType: getServiceIdentityHeader(headers, 'content-type') ?? '',
       observedAssertionHash: this.assertionHash(headers),
-      observedBody: this.serializeBodyForHash(req.body),
+      observedBody: this.serializeBodyForHash(req),
       secret: this.devSecret,
       keyring: this.keyring,
       allowUnscopedDevKey: process.env['NODE_ENV'] !== 'production',
@@ -147,7 +147,25 @@ export class ServiceIdentityGuard implements CanActivate {
     return true;
   }
 
-  private serializeBodyForHash(body: unknown): string | Buffer {
+  /**
+   * Produce the byte-stable body representation the v2 signature is verified against.
+   *
+   * SECURITY (R1 Path-alpha): the signed `X-Service-Body-Hash` is `sha256(wire-bytes)`
+   * computed by the SENDER over the exact bytes it put on the wire (the Node gateway
+   * signs `requestInit.body`; the Rust router coprocessor signs serde_json's compact
+   * serialization). To match it the receiver must hash the SAME raw bytes — which Nest
+   * captures as `req.rawBody` when bootstrapped with `rawBody: true`. Re-running
+   * `JSON.stringify(req.body)` would re-serialize the V8-parsed object and can diverge
+   * from the sender's bytes (key ordering of numeric-string keys, `1.0` vs `1`, …),
+   * intermittently rejecting valid traffic.
+   *
+   * Fully backward-compatible: when `rawBody` is absent (a service that did not enable
+   * it, or a request with no body) the fallback reproduces the previous behaviour
+   * exactly — string/Buffer passthrough, else `JSON.stringify(body)`, else `''`.
+   */
+  private serializeBodyForHash(req: { rawBody?: Buffer; body?: unknown }): string | Buffer {
+    if (Buffer.isBuffer(req.rawBody)) return req.rawBody;
+    const body = req.body;
     if (body === undefined || body === null) return '';
     if (typeof body === 'string') return body;
     if (Buffer.isBuffer(body)) return body;

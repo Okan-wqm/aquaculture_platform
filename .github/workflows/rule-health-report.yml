@@ -100,6 +100,7 @@ jobs:
           report = f"docs/reviews/rule-health/{os.environ['REPORT_STAMP']}-rule-health-{os.environ['MONTH_LABEL']}.md"
           verdict = verify_workflow_preflight(
               workflow_id="rule-health-report",
+              job_id="generate",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[report],
@@ -111,6 +112,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="publish monthly rule-health report through automation PR",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "rule-health-report-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
@@ -243,3 +245,13 @@ jobs:
           export COMMIT_MESSAGE="chore(report): rule-health ${{ steps.window.outputs.month_label }}"
           export CHANGED_PATHS="$REPORT_PATH"
           bash tools/scripts/automation/open-report-pr.sh
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the generate
+      # job's governed-write decision is retained as CI evidence.
+      - name: Upload rule-health preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rule-health-report-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rule-health-report-preflight.json
+          if-no-files-found: error
+          retention-days: 365

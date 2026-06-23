@@ -8,34 +8,69 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.preflight import verify_workflow_preflight
-from aria_kernel.workflow_contracts import verify_workflow_contract, workflow_hash
+from aria_kernel.workflow_contracts import (
+    AUDITED_WORKFLOW_EXCLUSIONS,
+    UPLOAD_ARTIFACT_ACTION,
+    WORKFLOW_CONTRACTS,
+    AuditedWorkflowExclusion,
+    discover_aria_workflows,
+    verify_workflow_contract,
+    verify_workflow_registry,
+    workflow_hash,
+    workflow_job_contract_hash,
+)
+
+
+def _write_runtime_workflow(root: Path, workflow_id: str) -> None:
+    contract = WORKFLOW_CONTRACTS[workflow_id]
+    workflow = root / contract.workflow_file
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("name: unit\njobs: {}\n", encoding="utf-8")
 
 
 class WorkflowEnterprisePreflightTests(unittest.TestCase):
+    def test_upload_artifact_action_pins_live_v7_0_1_sha(self) -> None:
+        # D4 (ADR-036) — the registry verifier must enforce the REAL live pin
+        # (043fb46d… v7.0.1), not the canonical's stale ea165f8d… pin.
+        self.assertEqual(
+            UPLOAD_ARTIFACT_ACTION,
+            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        )
+
     def test_global_kill_switch_is_hard_failure(self) -> None:
+        # Security assertion #1 (preserved from main's 9) — kill switch is a
+        # hard fail regardless of an otherwise-valid contracted call.
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"ARIA_GLOBAL_KILL_SWITCH": "true"}):
+            _write_runtime_workflow(Path(tmp), "aria-agent-executor")
             verdict = verify_workflow_preflight(
                 workflow_id="aria-agent-executor",
+                job_id="executor",
                 profile="autonomous",
                 workspace_root=tmp,
-                allowed_write_roots=[str(Path(tmp).parent / "tools")],
-                path_allowlist=["aria-tools/reports/daily/2026-06-02.md"],
-                network_policy=["none"],
-                network_enforcement_evidence="network disabled by job policy",
-                token_provenance="github_app:installation",
+                allowed_write_roots=["aria-tools/governance.jsonl"],
+                path_allowlist=["aria-tools/governance.jsonl"],
+                network_policy=["github_artifact"],
+                network_enforcement_evidence="github artifact upload only",
+                token_provenance="github_actions_artifact_token",
                 audit_reason="unit test",
             )
             self.assertFalse(verdict.valid)
             self.assertIn("global_kill_switch", verdict.failure_classes)
 
     def test_production_requires_github_app_provenance_and_fail_closed_dlp(self) -> None:
+        # Security assertion #2 (preserved from main's 9) — fail-closed DLP +
+        # token-provenance enforcement. finding-state-sweep contracts
+        # token_source='github_app:installation', so a default-token + best-effort
+        # DLP call must hard-fail.
         with tempfile.TemporaryDirectory() as tmp:
+            _write_runtime_workflow(Path(tmp), "finding-state-sweep")
             verdict = verify_workflow_preflight(
-                workflow_id="aria-agent-executor",
+                workflow_id="finding-state-sweep",
+                job_id="sweep",
                 profile="autonomous",
                 workspace_root=tmp,
-                allowed_write_roots=[str(Path(tmp).parent / "tools")],
-                path_allowlist=["dispatch/requests.jsonl"],
+                allowed_write_roots=["docs/reviews/_registry/findings.jsonl"],
+                path_allowlist=["docs/reviews/_registry/findings.jsonl"],
                 network_policy=["github_api"],
                 network_enforcement_evidence="gh api only",
                 token_provenance="github_actions_default_token",
@@ -46,24 +81,49 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
             self.assertIn("token_provenance_required", verdict.failure_classes)
             self.assertIn("dlp_fail_closed_required", verdict.failure_classes)
 
+    def test_standalone_caller_keeps_github_app_token_value_allowlist(self) -> None:
+        # Security assertion #2b (preserved from main) — for a NON-registered
+        # (workflow_id, job_id) the no-contract path must STILL apply main's
+        # github-app token-VALUE allowlist (the canonical dropped this).
+        with tempfile.TemporaryDirectory() as tmp:
+            verdict = verify_workflow_preflight(
+                workflow_id="standalone-caller",
+                job_id="job",
+                profile="standard",
+                workspace_root=tmp,
+                allowed_write_roots=["some/path.jsonl"],
+                path_allowlist=["some/path.jsonl"],
+                network_policy=["github_api"],
+                network_enforcement_evidence="gh api only",
+                token_provenance="github_actions_default_token",
+                audit_reason="unit test",
+            )
+            self.assertFalse(verdict.valid)
+            self.assertIn("token_provenance_required", verdict.failure_classes)
+            self.assertIn("github_app_token_required", verdict.reasons)
+
     def test_exact_repo_path_allowlist_can_pass_with_audit_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
-            audit = workspace / "preflight.json"
+            _write_runtime_workflow(workspace, "aria-daily-report")
+            runner_temp = workspace.parent / f"{workspace.name}-runner-temp"
+            runner_temp.mkdir()
             verdict = verify_workflow_preflight(
                 workflow_id="aria-daily-report",
+                job_id="generate-report",
                 profile="standard",
                 workspace_root=workspace,
                 allowed_write_roots=["aria-tools/reports/daily/2026-06-02.md"],
                 path_allowlist=["aria-tools/reports/daily/2026-06-02.md"],
-                network_policy=["github_api"],
-                network_enforcement_evidence="GitHub App PR API only",
-                token_provenance="github_app:installation",
+                network_policy=["github_artifact"],
+                network_enforcement_evidence="checkout/setup actions and GitHub artifact upload",
+                token_provenance="github_actions_artifact_token",
                 audit_reason="unit test",
-                audit_artifact_path=audit,
+                audit_artifact_path=runner_temp / "aria-daily-report-generate-preflight.json",
+                external_root_allowlist=[str(runner_temp)],
             )
-            self.assertTrue(verdict.valid)
-            self.assertTrue(audit.exists())
+            self.assertTrue(verdict.valid, verdict.reasons)
+            self.assertTrue((runner_temp / "aria-daily-report-generate-preflight.json").exists())
 
     def test_workflow_contract_missing_rejects(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -84,6 +144,57 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertTrue(verdict.valid, verdict.reasons)
         self.assertTrue((verdict.workflow_hash or "").startswith("sha256:"))
 
+    def test_all_registered_workflow_contracts_match_yaml(self) -> None:
+        # CONVERGENCE GATE — every registered contract == its live YAML, every
+        # discovered workflow covered, every audited exclusion valid.
+        repo = Path(__file__).resolve().parents[2]
+        verdict = verify_workflow_registry(workspace_root=repo)
+        self.assertTrue(verdict.valid, verdict.reasons)
+        self.assertEqual(verdict.failed_contracts, {})
+        self.assertEqual(verdict.uncovered_workflows, ())
+
+    def test_discovered_aria_workflows_are_contracted_or_audited_exclusions(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        discovered = set(discover_aria_workflows(repo))
+        covered = set(WORKFLOW_CONTRACTS) | set(AUDITED_WORKFLOW_EXCLUSIONS)
+        self.assertEqual(sorted(discovered - covered), [])
+        for workflow_id, exclusion in AUDITED_WORKFLOW_EXCLUSIONS.items():
+            self.assertIn(workflow_id, discovered)
+            self.assertRegex(exclusion.expires_at, r"^\d{4}-\d{2}-\d{2}$")
+            self.assertTrue(exclusion.owner)
+        verdict = verify_workflow_registry(workspace_root=repo)
+        self.assertTrue(verdict.valid, verdict.reasons)
+
+    def test_audited_kernel_workflows_have_no_expiry_time_bomb(self) -> None:
+        # D1 (ADR-036) — the 3 kernel workflows are audited-excluded with a
+        # NON-expiring sentinel; the canonical's dated expires_at=2026-07-05
+        # time-bomb is rejected.
+        for workflow_id in ("aria-kernel", "aria-kernel-fast", "aria-kernel-full"):
+            self.assertIn(workflow_id, AUDITED_WORKFLOW_EXCLUSIONS)
+            self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS[workflow_id].expires_at, "9999-12-31")
+
+    def test_workflow_registry_rejects_expired_audited_exclusion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-kernel.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: aria-kernel\njobs: {}\n", encoding="utf-8")
+            verdict = verify_workflow_registry(
+                workspace_root=root,
+                contract_registry={},
+                audited_exclusions={
+                    "aria-kernel": AuditedWorkflowExclusion(
+                        workflow_id="aria-kernel",
+                        reason="unit expired exclusion",
+                        owner="aria-kernel",
+                        expires_at="2000-01-01",
+                    )
+                },
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_audited_exclusion", verdict.failure_classes)
+        self.assertIn("audited_exclusion_expired:aria-kernel:2000-01-01", verdict.reasons)
+
     def test_workflow_contract_rejects_token_source_mismatch(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         verdict = verify_workflow_contract(
@@ -102,8 +213,12 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
             workflow.write_text(
                 """
 name: ARIA Operational Proof
+permissions:
+  contents: read
 jobs:
   proof:
+    permissions:
+      contents: read
     steps:
       # verify_workflow_contract in a YAML comment is not proof
       - name: Checkout
@@ -127,6 +242,9 @@ jobs:
         self.assertIn("workflow_input_injection", verdict.failure_classes)
 
     def test_workflow_contract_validates_structured_preflight_artifact(self) -> None:
+        # Security assertion #3 (preserved from main's 9) — the structured DLP
+        # proof artifact is validated (workflow_id/job_id/valid/dlp/token/network/
+        # workflow_hash/contract_hash/runtime_write_paths).
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
@@ -134,21 +252,45 @@ jobs:
             workflow.write_text(
                 """
 name: ARIA Operational Proof
+permissions:
+  contents: read
 jobs:
   proof:
+    permissions:
+      contents: read
     steps:
       - name: Persist enterprise workflow preflight
         run: |
           python3 - <<'PY'
-          from aria_kernel.workflow_contracts import verify_workflow_contract
+          import os
+          from pathlib import Path
           from aria_kernel.preflight import verify_workflow_preflight
+          verify_workflow_preflight(
+              workflow_id="aria-operational-proof",
+              job_id="proof",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="GitHub artifact upload only",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="unit test operational proof",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
           PY
       - name: Run observe burn-in proof
         run: npm run aria:test:unit
       - name: Upload ARIA operational proof
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          name: aria-operational-proof-${{ github.sha }}
           path: ${{ runner.temp }}/aria-operational-proof/
+          if-no-files-found: error
           retention-days: 365
 """,
                 encoding="utf-8",
@@ -159,11 +301,15 @@ jobs:
                 json.dumps(
                     {
                         "workflow_id": "aria-operational-proof",
+                        "job_id": "proof",
+                        "schema_version": 1,
                         "valid": True,
                         "dlp_scan_clean": True,
                         "token_provenance": "github_actions_artifact_token",
                         "network_policy": ["github_artifact"],
                         "workflow_hash": workflow_hash(workflow),
+                        "contract_hash": workflow_job_contract_hash("aria-operational-proof", "proof"),
+                        "runtime_write_paths": ["runner-temp/aria-operational-proof"],
                     }
                 )
                 + "\n",
@@ -177,6 +323,65 @@ jobs:
             )
         self.assertTrue(verdict.valid, verdict.reasons)
 
+    def test_workflow_contract_rejects_runner_temp_audit_without_external_root_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                """
+name: ARIA Operational Proof
+permissions:
+  contents: read
+jobs:
+  proof:
+    permissions:
+      contents: read
+    steps:
+      - name: Persist enterprise workflow preflight
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from aria_kernel.preflight import verify_workflow_preflight
+          verify_workflow_preflight(
+              workflow_id="aria-operational-proof",
+              job_id="proof",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="GitHub artifact upload only",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="unit test operational proof",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+          )
+          PY
+      - name: Run observe burn-in proof
+        run: npm run aria:test:unit
+      - name: Upload ARIA operational proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-operational-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/aria-operational-proof/
+          if-no-files-found: error
+          retention-days: 365
+""",
+                encoding="utf-8",
+            )
+            verdict = verify_workflow_contract(
+                workflow_id="aria-operational-proof",
+                workspace_root=root,
+                event_context={"token_source": "github_actions_artifact_token"},
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_preflight_call_shape", verdict.failure_classes)
+        self.assertIn("workflow_preflight_external_root_allowlist_missing:proof", verdict.reasons)
+
     def test_workflow_contract_rejects_preflight_artifact_without_workflow_hash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -185,21 +390,41 @@ jobs:
             workflow.write_text(
                 """
 name: ARIA Operational Proof
+permissions:
+  contents: read
 jobs:
   proof:
+    permissions:
+      contents: read
     steps:
       - name: Persist enterprise workflow preflight
         run: |
           python3 - <<'PY'
-          from aria_kernel.workflow_contracts import verify_workflow_contract
+          import os
+          from pathlib import Path
           from aria_kernel.preflight import verify_workflow_preflight
+          verify_workflow_preflight(
+              workflow_id="aria-operational-proof",
+              job_id="proof",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="GitHub artifact upload only",
+              token_provenance="github_actions_artifact_token",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
           PY
       - name: Run observe burn-in proof
         run: npm run aria:test:unit
       - name: Upload ARIA operational proof
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          name: aria-operational-proof-${{ github.sha }}
           path: ${{ runner.temp }}/aria-operational-proof/
+          if-no-files-found: error
           retention-days: 365
 """,
                 encoding="utf-8",
@@ -210,10 +435,14 @@ jobs:
                 json.dumps(
                     {
                         "workflow_id": "aria-operational-proof",
+                        "job_id": "proof",
+                        "schema_version": 1,
                         "valid": True,
                         "dlp_scan_clean": True,
                         "token_provenance": "github_actions_artifact_token",
                         "network_policy": ["github_artifact"],
+                        "contract_hash": workflow_job_contract_hash("aria-operational-proof", "proof"),
+                        "runtime_write_paths": ["runner-temp/aria-operational-proof"],
                     }
                 )
                 + "\n",

@@ -11,6 +11,7 @@ import {
   expectHarnessContext,
   queryRequiredRow,
   queryRows,
+  rowAt,
   withHarnessSchema,
 } from './test-helpers';
 
@@ -62,8 +63,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
               AND column_name = 'preferred_name'`,
         );
         expect(rows).toHaveLength(1);
-        expect(rows[0].data_type).toBe('text');
-        expect(rows[0].is_nullable).toBe('YES');
+        expect(rowAt(rows, 0).data_type).toBe('text');
+        expect(rowAt(rows, 0).is_nullable).toBe('YES');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS addcol_test CASCADE`);
       }

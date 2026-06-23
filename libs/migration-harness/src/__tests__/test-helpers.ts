@@ -5,7 +5,7 @@ import { type HarnessContext, withEphemeralSchema } from '../index';
 // Re-export the typed raw-query boundary so spec files import every query
 // primitive from one place. Plain re-export (not an async wrapper) avoids a
 // pointless `require-await` shell around the already-async source functions.
-export { queryRequiredRow, queryRows, type QueryRow } from '../query-runner';
+export { queryRequiredRow, queryRows, rowAt, type QueryRow } from '../query-runner';
 
 /**
  * Assert the suite's HarnessContext was initialized in `beforeAll` and narrow

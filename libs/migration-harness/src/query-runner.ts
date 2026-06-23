@@ -57,3 +57,17 @@ export async function queryRequiredRow<T extends QueryRow>(
   }
   return row;
 }
+
+/**
+ * Typed accessor for a specific row of a `queryRows` result. WHY: `rows[i]` is
+ * `T | undefined` under `noUncheckedIndexedAccess`, so reading `rows[i].col`
+ * trips TS2532. This narrows to `T` (or throws with the actual row count) so
+ * multi-row assertions stay type-safe without a non-null assertion.
+ */
+export function rowAt<T>(rows: readonly T[], index: number): T {
+  const row = rows[index];
+  if (row === undefined) {
+    throw new Error(`Expected a row at index ${index}, but only ${rows.length} row(s) returned`);
+  }
+  return row;
+}

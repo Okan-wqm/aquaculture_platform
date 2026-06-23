@@ -11,6 +11,7 @@ import {
   expectHarnessContext,
   queryRequiredRow,
   queryRows,
+  rowAt,
   withHarnessSchema,
 } from './test-helpers';
 
@@ -142,8 +143,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
           qr,
           `SELECT id, name FROM nullable_test.widget ORDER BY id`,
         );
-        expect(rows[0].name).toBe('backfilled');
-        expect(rows[1].name).toBe('existing');
+        expect(rowAt(rows, 0).name).toBe('backfilled');
+        expect(rowAt(rows, 1).name).toBe('existing');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS nullable_test CASCADE`);
       }

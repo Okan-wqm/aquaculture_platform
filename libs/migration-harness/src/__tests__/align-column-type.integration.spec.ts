@@ -11,6 +11,7 @@ import {
   expectHarnessContext,
   queryRequiredRow,
   queryRows,
+  rowAt,
   withHarnessSchema,
 } from './test-helpers';
 
@@ -158,8 +159,8 @@ describe('alignColumnType — Phase 3 Class B primitive', () => {
           qr,
           `SELECT count_str FROM type_test.widget ORDER BY id`,
         );
-        expect(rows[0].count_str).toBe(42);
-        expect(rows[1].count_str).toBe(0);
+        expect(rowAt(rows, 0).count_str).toBe(42);
+        expect(rowAt(rows, 1).count_str).toBe(0);
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS type_test CASCADE`);
       }

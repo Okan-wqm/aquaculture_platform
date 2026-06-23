@@ -6,7 +6,7 @@ import {
   shutdownHarness,
 } from '../index';
 
-import { expectHarnessContext, queryRows, withHarnessSchema } from './test-helpers';
+import { expectHarnessContext, queryRows, rowAt, withHarnessSchema } from './test-helpers';
 
 describe('backfillColumn — Phase 3.5 Class H primitive', () => {
   let ctx: HarnessContext | undefined;
@@ -47,9 +47,9 @@ describe('backfillColumn — Phase 3.5 Class H primitive', () => {
           qr,
           `SELECT id, status FROM backfill_test.widget ORDER BY id`,
         );
-        expect(rows[0].status).toBe('backfilled');
-        expect(rows[1].status).toBe('backfilled');
-        expect(rows[2].status).toBe('keep');
+        expect(rowAt(rows, 0).status).toBe('backfilled');
+        expect(rowAt(rows, 1).status).toBe('backfilled');
+        expect(rowAt(rows, 2).status).toBe('keep');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS backfill_test CASCADE`);
       }

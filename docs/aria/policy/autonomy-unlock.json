@@ -1,0 +1,24 @@
+{
+  "$schema": "aria/autonomy-unlock-policy/v1",
+  "schema_version": 1,
+  "policy_id": "aria-enterprise-autonomy-unlock",
+  "critical_violation_limit": 0,
+  "lane_requirements": {
+    "L1": {
+      "observe_successes": 30
+    },
+    "L2": {
+      "observe_successes": 30,
+      "l1_autonomous_successes": 30,
+      "l2_supervised_successes": 30
+    },
+    "L3": {
+      "observe_successes": 30,
+      "l1_autonomous_successes": 30,
+      "l2_supervised_successes": 30,
+      "l2_autonomous_successes": 10,
+      "l3_approval_successes": 5,
+      "rollback_successes": 3
+    }
+  }
+}

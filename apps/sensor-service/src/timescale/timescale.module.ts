@@ -13,7 +13,7 @@ import { TimeBucketService } from '../aggregation/time-bucket.service';
  *
  * Relies on TypeOrmModule (and its DataSource) being provided by AppModule.
  *
- * DEFERRED: import TimescaleModule in app.module.ts when TimescaleDB
+ * NOTE: import TimescaleModule in app.module.ts when TimescaleDB
  * continuous-aggregate migrations are active (metrics_1min, metrics_1hour,
  * metrics_1day views must exist before TimeBucketService queries run).
  */
@@ -31,5 +31,5 @@ import { TimeBucketService } from '../aggregation/time-bucket.service';
     TimeBucketService,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class TimescaleModule {}

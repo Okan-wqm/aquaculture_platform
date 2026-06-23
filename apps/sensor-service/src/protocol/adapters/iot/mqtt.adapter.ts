@@ -269,13 +269,13 @@ export class MqttAdapter extends BaseProtocolAdapter<MqttConfiguration> {
           this.updateLastActivity(handle);
           resolve(data);
         } catch (error) {
-          reject(error);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
       });
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async subscribeToData(
     handle: ConnectionHandle,
     onData: DataCallback,
@@ -308,7 +308,7 @@ export class MqttAdapter extends BaseProtocolAdapter<MqttConfiguration> {
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,
-      // eslint-disable-next-line @typescript-eslint/require-await
+       
       unsubscribe: async () => {
         isActive = false;
         client.unsubscribe(config.topic);

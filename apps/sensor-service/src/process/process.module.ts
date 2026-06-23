@@ -39,5 +39,5 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
   ],
   exports: [ProcessService, ScadaPackageService, UnifiedTagService, ScadaDeployLogService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class ProcessModule {}

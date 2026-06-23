@@ -53,7 +53,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     super('VfdCanopenAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -91,7 +91,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -387,7 +387,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async sdoRead(
     _connection: CanopenConnectionHandle,
     index: number,
@@ -402,7 +402,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     return data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async sdoWrite(
     _connection: CanopenConnectionHandle,
     index: number,

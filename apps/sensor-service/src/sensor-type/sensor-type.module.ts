@@ -36,5 +36,5 @@ import { SensorTypeService } from './sensor-type.service';
     ChannelDetectionService,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class SensorTypeModule {}

@@ -53,7 +53,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     super('VfdProfinetAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -89,7 +89,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -225,7 +225,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -268,7 +268,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -450,7 +450,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async readCyclicData(_connection: ProfinetConnectionHandle): Promise<Buffer> {
     // Read cyclic IO data from PROFINET
     // In production, this would use RT Ethernet frames

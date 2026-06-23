@@ -15,6 +15,7 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
+import { createAbortSignalTimeout } from '@aquaculture/backend-common/utils';
 import {
   NotificationLog,
   NotificationStatus,
@@ -911,11 +912,9 @@ export class NotificationDispatcherService implements OnModuleInit {
       throw new Error(`Invalid webhook URL: ${validation.reason}`);
     }
 
-    try {
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeout = createAbortSignalTimeout(10000);
 
+    try {
       // SECURITY: Merge safe fetch options (redirect: 'error') with request config
       const safeFetchOptions = this.ssrfValidator.getSafeFetchOptions();
 
@@ -941,7 +940,7 @@ export class NotificationDispatcherService implements OnModuleInit {
           message: alertData.message,
           timestamp: alertData.timestamp || new Date(),
         }),
-        signal: controller.signal,
+        signal: timeout.signal,
         // SECURITY: Never follow redirects — prevents SSRF via open redirect
         redirect: safeFetchOptions.redirect,
       };
@@ -965,8 +964,6 @@ export class NotificationDispatcherService implements OnModuleInit {
           })
         : await fetch(webhookUrl, fetchInit);
 
-      clearTimeout(timeoutId);
-
       // Consume response body to release the socket
       try {
         await response.text();
@@ -988,6 +985,8 @@ export class NotificationDispatcherService implements OnModuleInit {
       // Don't log the full URL for security reasons
       this.logger.error(`Webhook failed: ${errorMessage}`);
       throw new Error(`Webhook failed: ${errorMessage}`);
+    } finally {
+      timeout.clear();
     }
   }
 

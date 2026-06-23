@@ -119,7 +119,7 @@ reject envelopes that drift):
    Each `risks[]` entry MUST carry every field below.
    **Example**: the authoritative JSON below shows every required
    field with a concrete value. The kernel's
-   `_validate_cross_review_risk` (plan_convergence.py:1784) rejects
+   `_validate_cross_review_risk` (in plan_convergence.py) rejects
    the entry on any missing or empty field.
 
    ```json

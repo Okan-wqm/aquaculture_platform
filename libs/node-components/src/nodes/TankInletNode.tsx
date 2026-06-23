@@ -3,10 +3,11 @@
  * Water inlet pipe with distribution holes, rotation support and toggleable handles
  */
 
-import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { rotatePoint } from '../utils/rotatePoint';
+
 import { NodeRegistry } from '../registry/NodeRegistry';
+import { rotatePoint } from '../utils/rotatePoint';
 
 type HandleType = 'source' | 'target';
 
@@ -164,7 +165,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
         <Handle
           id={`tankinlet-top-${top}`}
           type={top}
-          position={undefined as any}
+          position={Position.Top}
           style={{
             position: 'relative',
             width: '100%',
@@ -196,7 +197,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
         <Handle
           id={`tankinlet-bottom-${bottom}`}
           type={bottom}
-          position={undefined as any}
+          position={Position.Top}
           style={{
             position: 'relative',
             width: '100%',

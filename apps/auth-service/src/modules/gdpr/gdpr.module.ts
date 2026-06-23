@@ -49,5 +49,5 @@ import { UserConsentService } from './services/user-consent.service';
   providers: [UserConsentService, UserConsentResolver, GdprComplianceService],
   exports: [UserConsentService, GdprComplianceService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class GdprModule {}

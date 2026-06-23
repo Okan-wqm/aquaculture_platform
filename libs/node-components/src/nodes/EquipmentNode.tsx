@@ -6,6 +6,7 @@
 
 import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals, type Node } from '@xyflow/react';
 import React, { memo, useState, useCallback, useEffect } from 'react';
+
 import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../config/equipmentTypes';
 import { NodeRegistry } from '../registry/NodeRegistry';
 

@@ -1,11 +1,16 @@
 import { alignEnumLabels } from '@aquaculture/backend-common/database';
 
 import {
-  type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
+  type HarnessContext,
 } from '../index';
+
+import {
+  expectHarnessContext,
+  queryRows,
+  withHarnessSchema,
+} from './test-helpers';
 
 describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   let ctx: HarnessContext | undefined;
@@ -19,7 +24,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   }, 30_000);
 
   it('adds entity-only labels to an existing pg_enum', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS enum_test`);
       try {
         await qr.query(
@@ -36,14 +42,15 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
         });
         expect(result.added['widget_status']).toEqual(['archived']);
 
-        const rows = await qr.query(
+        const rows = await queryRows<{ label: string }>(
+          qr,
           `SELECT e.enumlabel AS label FROM pg_type t
              JOIN pg_namespace n ON n.oid = t.typnamespace
              JOIN pg_enum e ON e.enumtypid = t.oid
             WHERE n.nspname = 'enum_test' AND t.typname = 'widget_status'
             ORDER BY e.enumsortorder`,
         );
-        expect(rows.map((r: { label: string }) => r.label)).toEqual([
+        expect(rows.map((r) => r.label)).toEqual([
           'draft',
           'active',
           'archived',
@@ -55,7 +62,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   });
 
   it('is idempotent — running twice on synced enum is a no-op', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS enum_test`);
       try {
         await qr.query(
@@ -79,7 +87,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   });
 
   it('REFUSES when DB has labels the entity does not declare (removal path)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS enum_test`);
       try {
         await qr.query(
@@ -103,7 +112,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   });
 
   it('throws when the target pg_enum does not exist in the schema', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS enum_test`);
       try {
         await expect(
@@ -121,7 +131,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   });
 
   it('handles multiple target types in one invocation', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS enum_test`);
       try {
         await qr.query(
@@ -146,7 +157,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   });
 
   it('quotes embedded single quotes safely (SQL injection guard)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS enum_test`);
       try {
         await qr.query(
@@ -172,7 +184,8 @@ describe('alignEnumLabels — Phase 3 Class F primitive', () => {
   });
 
   it('returns empty result when targets=[]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       const result = await alignEnumLabels(qr, {
         schema: 'enum_test',
         targets: [],

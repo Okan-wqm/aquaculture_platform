@@ -4,14 +4,22 @@
  * Phase 1 Step 3's setup helpers actually do what their JSDoc claims.
  *
  * Runs ONE container per suite file (plan v3 R9 pattern). Each `it` gets
- * an ephemeral schema via `withEphemeralSchema`.
+ * an ephemeral schema via `withHarnessSchema` (which wraps withEphemeralSchema
+ * and asserts the harness context booted first).
  */
 import {
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
   type HarnessContext,
 } from '../index';
+
+import {
+  expectDefined,
+  expectHarnessContext,
+  queryRequiredRow,
+  queryRows,
+  withHarnessSchema,
+} from './test-helpers';
 
 describe('migration-harness setup — integration', () => {
   let ctx: HarnessContext | undefined;
@@ -25,50 +33,59 @@ describe('migration-harness setup — integration', () => {
   }, 30_000);
 
   it('bootPostgresContainer returns a usable DataSource', async () => {
-    expect(ctx).toBeDefined();
-    expect(ctx!.dataSource.isInitialized).toBe(true);
-    expect(ctx!.container).toBeDefined();
+    const harness = expectHarnessContext(ctx);
+    expect(harness.dataSource.isInitialized).toBe(true);
+    expect(harness.container).toBeDefined();
 
-    const qr = ctx!.dataSource.createQueryRunner();
+    const qr = harness.dataSource.createQueryRunner();
     try {
-      const rows = await qr.query('SELECT current_database() AS db');
-      expect(rows[0].db).toBe('harness');
+      const row = await queryRequiredRow<{ db: string }>(
+        qr,
+        'SELECT current_database() AS db',
+      );
+      expect(row.db).toBe('harness');
     } finally {
       await qr.release();
     }
   });
 
   it('withEphemeralSchema creates, pins search_path, and drops cleanly', async () => {
-    const schemaSeen = await withEphemeralSchema(
-      ctx!,
-      async (schema, qr) => {
-        // The schema was just created — verify by pg_namespace query.
-        const exists = await qr.query(
-          `SELECT 1 FROM pg_namespace WHERE nspname = $1`,
-          [schema],
-        );
-        expect(exists).toHaveLength(1);
+    const harness = expectHarnessContext(ctx);
+    const schemaSeen = await withHarnessSchema(harness, async (schema, qr) => {
+      // The schema was just created — verify by pg_namespace query.
+      const exists = await queryRows<{ present: number }>(
+        qr,
+        `SELECT 1 AS present FROM pg_namespace WHERE nspname = $1`,
+        [schema],
+      );
+      expect(exists).toHaveLength(1);
 
-        // search_path is pinned to our schema.
-        const sp = await qr.query(`SHOW search_path`);
-        expect(sp[0].search_path).toContain(schema);
+      // search_path is pinned to our schema.
+      const searchPath = await queryRequiredRow<{ search_path: string }>(
+        qr,
+        `SHOW search_path`,
+      );
+      expect(searchPath.search_path).toContain(schema);
 
-        // We can create + query a table within the ephemeral schema.
-        await qr.query(`CREATE TABLE thing (id int PRIMARY KEY)`);
-        await qr.query(`INSERT INTO thing VALUES (1), (2), (3)`);
-        const count = await qr.query(`SELECT count(*)::int AS n FROM thing`);
-        expect(count[0].n).toBe(3);
+      // We can create + query a table within the ephemeral schema.
+      await qr.query(`CREATE TABLE thing (id int PRIMARY KEY)`);
+      await qr.query(`INSERT INTO thing VALUES (1), (2), (3)`);
+      const count = await queryRequiredRow<{ n: number }>(
+        qr,
+        `SELECT count(*)::int AS n FROM thing`,
+      );
+      expect(count.n).toBe(3);
 
-        return schema;
-      },
-    );
+      return schema;
+    });
 
     // After the block, the schema is DROPped — a fresh QueryRunner
     // can't find it.
-    const freshQr = ctx!.dataSource.createQueryRunner();
+    const freshQr = harness.dataSource.createQueryRunner();
     try {
-      const exists = await freshQr.query(
-        `SELECT 1 FROM pg_namespace WHERE nspname = $1`,
+      const exists = await queryRows<{ present: number }>(
+        freshQr,
+        `SELECT 1 AS present FROM pg_namespace WHERE nspname = $1`,
         [schemaSeen],
       );
       expect(exists).toHaveLength(0);
@@ -78,10 +95,11 @@ describe('migration-harness setup — integration', () => {
   });
 
   it('parallel withEphemeralSchema invocations get distinct schemas', async () => {
+    const harness = expectHarnessContext(ctx);
     const schemas = await Promise.all([
-      withEphemeralSchema(ctx!, async (s) => s),
-      withEphemeralSchema(ctx!, async (s) => s),
-      withEphemeralSchema(ctx!, async (s) => s),
+      withHarnessSchema(harness, (s) => Promise.resolve(s)),
+      withHarnessSchema(harness, (s) => Promise.resolve(s)),
+      withHarnessSchema(harness, (s) => Promise.resolve(s)),
     ]);
     const unique = new Set(schemas);
     expect(unique.size).toBe(3);
@@ -92,23 +110,24 @@ describe('migration-harness setup — integration', () => {
   });
 
   it('withEphemeralSchema drops schema even on thrown error (cleanup invariant)', async () => {
-    const schemaSeen = await (async () => {
-      let s: string | undefined;
-      try {
-        await withEphemeralSchema(ctx!, async (schema) => {
-          s = schema;
-          throw new Error('simulated test failure');
-        });
-      } catch (err) {
-        expect((err as Error).message).toBe('simulated test failure');
-      }
-      return s!;
-    })();
-
-    const freshQr = ctx!.dataSource.createQueryRunner();
+    const harness = expectHarnessContext(ctx);
+    let s: string | undefined;
     try {
-      const exists = await freshQr.query(
-        `SELECT 1 FROM pg_namespace WHERE nspname = $1`,
+      await withHarnessSchema(harness, (schema) => {
+        s = schema;
+        throw new Error('simulated test failure');
+      });
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect(err).toHaveProperty('message', 'simulated test failure');
+    }
+    const schemaSeen = expectDefined(s, 'schema seen before failure');
+
+    const freshQr = harness.dataSource.createQueryRunner();
+    try {
+      const exists = await queryRows<{ present: number }>(
+        freshQr,
+        `SELECT 1 AS present FROM pg_namespace WHERE nspname = $1`,
         [schemaSeen],
       );
       expect(exists).toHaveLength(0); // schema was dropped despite thrown error

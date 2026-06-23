@@ -43,13 +43,16 @@
 import { randomBytes } from 'node:crypto';
 
 import {
+  type EncryptedAtRestMetadata,
   expectedEntityDbType,
   getEncryptedAtRestMetadata,
   isTenantDeltaAllowed,
   isUuidTypeDrift,
   normalizeInformationSchemaType,
 } from '@aquaculture/backend-common/database';
-import type { DataSourceOptions, EntityMetadata, QueryRunner } from 'typeorm';
+import type { EntityMetadata, QueryRunner } from 'typeorm';
+
+import { queryRows } from './query-runner';
 
 export interface DriftReport {
   /** Total violation count across all classes. 0 = clean. */
@@ -107,12 +110,12 @@ export async function expectNoDriftAgainst(
   // the main harness DataSource. Uses the same connection options but a
   // unique `name` so TypeORM doesn't complain about duplicate registration.
   const introspector = new DataSource({
-    ...(conn.options as DataSourceOptions),
-    entities: entities as unknown[],
+    ...conn.options,
+    entities: [...entities],
     synchronize: false,
     name: `drift-introspector-${randomBytes(6).toString('hex')}`,
     logging: false,
-  } as DataSourceOptions);
+  });
   await introspector.initialize();
 
   try {
@@ -146,7 +149,8 @@ async function scanDrift(
     const tableName = entity.tableName;
 
     // Class A — schema location
-    const tableRows: Array<{ schemaname: string }> = await ctx.qr.query(
+    const tableRows = await queryRows<{ schemaname: string }>(
+      ctx.qr,
       `SELECT schemaname FROM pg_tables
         WHERE tablename = $1
           AND schemaname NOT LIKE 'tenant\\_%' ESCAPE '\\'
@@ -170,12 +174,13 @@ async function scanDrift(
     }
 
     // Class B/C/D — column-level checks
-    const columnRows: Array<{
+    const columnRows = await queryRows<{
       column_name: string;
       data_type: string;
       udt_name: string | null;
       is_nullable: string;
-    }> = await ctx.qr.query(
+    }>(
+      ctx.qr,
       `SELECT column_name, data_type, udt_name, is_nullable
          FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = $2`,
@@ -194,9 +199,9 @@ async function scanDrift(
 
     // @EncryptedAtRest metadata for this entity (mirrors production
     // Class J semantics).
-    const encryptedProperties =
-      entity.target && typeof entity.target === 'function'
-        ? getEncryptedAtRestMetadata(entity.target as Function)
+    const encryptedProperties: ReadonlyMap<string, EncryptedAtRestMetadata> =
+      typeof entity.target === 'function'
+        ? getEncryptedAtRestMetadata(entity.target)
         : new Map();
 
     for (const column of entity.columns) {
@@ -272,17 +277,17 @@ async function scanDrift(
     // assert drift surface regardless of production severity.
     if (entityEnumColumns.length > 0) {
       const typeNames = entityEnumColumns.map((c) => c.typeName);
-      const rows: Array<{ type_name: string; label: string }> =
-        await ctx.qr.query(
-          `SELECT t.typname AS type_name, e.enumlabel AS label
+      const rows = await queryRows<{ type_name: string; label: string }>(
+        ctx.qr,
+        `SELECT t.typname AS type_name, e.enumlabel AS label
              FROM pg_type t
              JOIN pg_namespace n ON n.oid = t.typnamespace
              JOIN pg_enum e ON e.enumtypid = t.oid
             WHERE n.nspname = $1
               AND t.typname = ANY($2::text[])
             ORDER BY t.typname, e.enumsortorder`,
-          [ctx.schema, typeNames],
-        );
+        [ctx.schema, typeNames],
+      );
       const dbLabelsByType = new Map<string, string[]>();
       for (const row of rows) {
         const list = dbLabelsByType.get(row.type_name) ?? [];
@@ -322,20 +327,18 @@ async function scanDrift(
     // entity @Check() decorators and pg_constraint contype='c' without
     // predicate-text equality (PG canonicalizes ARRAY order + type
     // casts in ways the entity source does not).
-    const entityChecks = (entity as unknown as {
-      checks?: ReadonlyArray<{ expression: string }>;
-    }).checks ?? [];
-    const checkRows: Array<{ conname: string; definition: string }> =
-      await ctx.qr.query(
-        `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+    const entityChecks = entity.checks;
+    const checkRows = await queryRows<{ conname: string; definition: string }>(
+      ctx.qr,
+      `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
            FROM pg_constraint c
            JOIN pg_class t ON t.oid = c.conrelid
            JOIN pg_namespace n ON n.oid = t.relnamespace
           WHERE n.nspname = $1
             AND t.relname = $2
             AND c.contype = 'c'`,
-        [ctx.schema, tableName],
-      );
+      [ctx.schema, tableName],
+    );
     if (checkRows.length !== entityChecks.length) {
       const entityExprs = entityChecks.map((c) => c.expression.trim()).join(' ; ');
       const dbDefs = checkRows
@@ -375,7 +378,8 @@ async function scanDrift(
   // clone's table shape against the source schema. Gated by
   // ctx.tenantScan to keep the harness fast by default.
   if (ctx.tenantScan) {
-    const tenantSchemaRows: Array<{ schema_name: string }> = await ctx.qr.query(
+    const tenantSchemaRows = await queryRows<{ schema_name: string }>(
+      ctx.qr,
       `SELECT schema_name FROM information_schema.schemata
         WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
         ORDER BY schema_name`,
@@ -386,14 +390,15 @@ async function scanDrift(
         new Set(entities.map((e) => e.tableName)),
       );
       const schemasToScan = [ctx.schema, ...tenantSchemas];
-      const shapeRows: Array<{
+      const shapeRows = await queryRows<{
         table_schema: string;
         table_name: string;
         column_name: string;
         data_type: string;
         udt_name: string | null;
         is_nullable: string;
-      }> = await ctx.qr.query(
+      }>(
+        ctx.qr,
         `SELECT table_schema, table_name, column_name, data_type, udt_name, is_nullable
            FROM information_schema.columns
           WHERE table_schema = ANY($1::text[])
@@ -439,9 +444,7 @@ async function scanDrift(
           // Extra-on-tenant columns — honor @AllowTenantDelta per
           // production validator semantics (R24).
           const entityCtor =
-            typeof entity.target === 'function'
-              ? (entity.target as Function)
-              : undefined;
+            typeof entity.target === 'function' ? entity.target : undefined;
           for (const [col] of tenantShape) {
             if (!sourceShape.has(col)) {
               if (
@@ -510,15 +513,4 @@ export function registerDriftMatcher(): void {
       };
     },
   });
-}
-
-// Augment Jest's Matchers namespace so TypeScript accepts
-// `expect(...).toHaveNoDrift()` without @ts-ignore.
-declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
-  namespace jest {
-    interface Matchers<R> {
-      toHaveNoDrift(): R;
-    }
-  }
 }

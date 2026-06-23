@@ -495,7 +495,11 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
   const prefix = tenantId
     ? `${QUEUE_PREFIX}${tenantId}_`
     : QUEUE_PREFIX;
-  const queueKeys = allKeys.filter((k) => String(k).startsWith(prefix));
+  // Queue keys are always the `${QUEUE_PREFIX}…` strings we wrote, so narrow to
+  // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
+  const queueKeys = allKeys.filter(
+    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
+  );
   await Promise.all(queueKeys.map((k) => del(k, queueStore)));
   // FE-HIGH-051: tear down the matching queue-version token(s) so a wiped queue
   // also resets its re-arm counter — scoped clears drop just this tenant's
@@ -505,7 +509,11 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
     ? `${QUEUE_VERSION_PREFIX}${tenantId}`
     : QUEUE_VERSION_PREFIX;
   const allKeyStoreKeys = await keys(keyStore);
-  const versionKeys = allKeyStoreKeys.filter((k) => String(k).startsWith(versionPrefix));
+  // Version tokens are always the `${QUEUE_VERSION_PREFIX}…` strings we wrote,
+  // so narrow to string (avoids the base-to-string hazard on IDBValidKey).
+  const versionKeys = allKeyStoreKeys.filter(
+    (k): k is string => typeof k === 'string' && k.startsWith(versionPrefix),
+  );
   await Promise.all(versionKeys.map((k) => del(k, keyStore)));
   // MSG-MEDIUM-055: pending media blobs share the queue's tenant-isolation +
   // logout-wipe lifecycle, so clearing the queue also clears the matching blobs
@@ -575,10 +583,13 @@ export async function getCachedData<T>(tenantId: string, key: string): Promise<T
   if (!tenantId) {
     throw new Error('getCachedData: tenantId is required for tenant-isolated caching');
   }
-  const cached = await get(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
-  if (!cached) return null;
-
-  const entry = cached as Record<string, unknown>;
+  // WHY the explicit Record<string, unknown> type arg: idb-keyval's get<T = any>
+  // defaults to `any`, which trips no-unsafe-assignment and discards type safety.
+  // Cache entries are written as objects (EncryptedCacheEntry, or a legacy plain
+  // object), so the unknown-valued record is the correct, honest read type — each
+  // field is then narrowed explicitly below.
+  const entry = await get<Record<string, unknown>>(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
+  if (!entry) return null;
 
   // Check TTL first (plaintext metadata -- no decryption needed)
   const expiresAt = entry.expiresAt as string | undefined;
@@ -666,7 +677,11 @@ export async function clearCache(tenantId?: string): Promise<void> {
   const prefix = tenantId
     ? `${CACHE_PREFIX}${tenantId}:`
     : CACHE_PREFIX;
-  const cacheKeys = allKeys.filter((k) => String(k).startsWith(prefix));
+  // Cache keys are always the `${CACHE_PREFIX}…` strings we wrote, so narrow to
+  // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
+  const cacheKeys = allKeys.filter(
+    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
+  );
   await Promise.all(cacheKeys.map((k) => del(k, cacheStore)));
 }
 

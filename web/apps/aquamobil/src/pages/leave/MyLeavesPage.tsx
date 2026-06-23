@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
+import { useState, type JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
-import { clsx } from 'clsx';
+
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
@@ -15,7 +17,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 type Tab = 'balances' | 'requests';
 
-export function MyLeavesPage() {
+export function MyLeavesPage(): JSX.Element {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('balances');
 
@@ -189,7 +191,7 @@ export function MyLeavesPage() {
 
               {(request.status === 'PENDING' || request.status === 'DRAFT') && (
                 <button
-                  onClick={() => handleCancel(request.id)}
+                  onClick={() => { void handleCancel(request.id); }}
                   disabled={cancelling}
                   className="mt-3 w-full py-2 text-sm font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 touch-feedback"
                 >

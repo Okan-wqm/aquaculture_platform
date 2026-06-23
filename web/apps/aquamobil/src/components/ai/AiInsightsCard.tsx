@@ -15,8 +15,10 @@
  *   - Success: full AI card with risk gauge, anomaly badge, feeding tip
  */
 
-import { useAiDashboardInsights } from '@/hooks/useAiInsights';
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
+
+import { useAiDashboardInsights } from '@/hooks/useAiInsights';
 
 /**
  * WHY: Risk level to color mapping follows universal severity conventions.
@@ -46,9 +48,9 @@ function getRiskTier(score: number): number {
  * Visual gauges are faster to parse than numbers — a farm manager glancing
  * at the dashboard can assess overall health in under 1 second.
  */
-function RiskGauge({ score }: { score: number }) {
+function RiskGauge({ score }: { score: number }): ReactElement {
   const tier = getRiskTier(score);
-  const colors = RISK_LEVEL_COLORS[tier]!;
+  const colors = RISK_LEVEL_COLORS[tier];
   // WHY: SVG circle math — circumference = 2 * PI * radius. The dashoffset
   // controls how much of the ring is "filled" based on the score percentage.
   const radius = 36;
@@ -102,7 +104,7 @@ function getSeverityColor(severity: string): string {
   }
 }
 
-export function AiInsightsCard() {
+export function AiInsightsCard(): ReactElement {
   const { data: insights, isLoading, isError } = useAiDashboardInsights();
 
   // WHY: Loading skeleton matches the app's existing skeleton pattern (pulse animation).
@@ -155,7 +157,7 @@ export function AiInsightsCard() {
   );
   const topFeeding = insights.feedingAdvice[0];
   const riskTier = getRiskTier(insights.overallRiskScore);
-  const riskLabel = RISK_LEVEL_COLORS[riskTier]!.label;
+  const riskLabel = RISK_LEVEL_COLORS[riskTier].label;
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -193,7 +195,7 @@ export function AiInsightsCard() {
           <div className="flex-1 space-y-2">
             {/* WHY: Risk level label reinforces the gauge color with text for accessibility */}
             <div>
-              <span className={clsx('text-sm font-bold', RISK_LEVEL_COLORS[riskTier]!.text)}>
+              <span className={clsx('text-sm font-bold', RISK_LEVEL_COLORS[riskTier].text)}>
                 {riskLabel}
               </span>
               <p className="text-[10px] text-gray-400 font-medium">

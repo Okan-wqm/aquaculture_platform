@@ -7,8 +7,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { graphqlRequest } from '@/services/authenticated-fetch';
 import { fetchAllTanks } from '../useTanks';
+
+import { graphqlRequest } from '@/services/authenticated-fetch';
 
 vi.mock('@/services/authenticated-fetch', () => ({
   graphqlRequest: vi.fn(),

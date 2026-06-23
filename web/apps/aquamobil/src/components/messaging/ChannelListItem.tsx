@@ -1,4 +1,6 @@
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
+
 import { ChannelAvatar } from './ChannelAvatar';
 import { UnreadBadge } from './UnreadBadge';
 
@@ -85,7 +87,7 @@ export function ChannelListItem({
   isActive = false,
   isOnline = false,
   onPress,
-}: ChannelListItemProps) {
+}: ChannelListItemProps): ReactElement {
   return (
     <button
       onClick={() => onPress(channelId)}

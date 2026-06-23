@@ -11,9 +11,10 @@
  * - canAccess: feature-based control
  */
 
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
+import { set } from 'idb-keyval';
 import { createElement, type ReactNode } from 'react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks
@@ -34,9 +35,13 @@ vi.mock('idb-keyval', () => ({
   }),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
+// Mock fetch — typed signature so recorded calls (mockFetch.mock.calls) are
+// typed [string, RequestInit?] rather than any[]; this lets the header
+// assertions read call args without an unsafe `any` matcher. vi.stubGlobal
+// installs it as the global fetch (auto-restored by vi.unstubAllGlobals /
+// restoreAllMocks) and accepts the mock without a cast.
+const mockFetch = vi.fn<(input: string, init?: RequestInit) => Promise<unknown>>();
+vi.stubGlobal('fetch', mockFetch);
 
 // Mock useAuth
 const mockAuth: Record<string, unknown> = {
@@ -58,10 +63,11 @@ vi.mock('../useAuth', () => ({
 // We must keep it in sync with mockAuth so that authenticatedFetch injects the
 // correct Authorization header. This is done in beforeEach below.
 
-// Import after mocks
+// Import after mocks (vitest hoists vi.mock() above all imports, so the mocked
+// forms resolve regardless of import position)
 import { MobilePermissionsProvider, useMobilePermissions } from '../useMobilePermissions';
 import type { MobileFeature } from '../useMobilePermissions';
-import { set } from 'idb-keyval';
+
 import { syncAuthStore } from '@/services/authenticated-fetch';
 
 // --------------------------------------------------------------------------
@@ -73,7 +79,13 @@ function createWrapper() {
     createElement(MobilePermissionsProvider, null, children);
 }
 
-function createSuccessResponse(settings: Record<string, unknown>) {
+interface MockGraphQLResponse {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+}
+
+function createSuccessResponse(settings: Record<string, unknown>): MockGraphQLResponse {
   return {
     ok: true,
     status: 200,
@@ -104,7 +116,7 @@ describe('useMobilePermissions', () => {
     };
     // D07 API-01: Sync the module-level auth store so authenticatedFetch
     // injects the correct Authorization / X-Tenant-Id headers.
-    syncAuthStore('test-token', 'tenant-1', async () => true);
+    syncAuthStore('test-token', 'tenant-1', () => Promise.resolve(true));
   });
 
   afterEach(() => {
@@ -118,8 +130,8 @@ describe('useMobilePermissions', () => {
   describe('Default Settings (Fail-Closed)', () => {
     it('should have isMobileEnabled = false by default', async () => {
       mockAuth.isAuthenticated = false;
-      mockAuth.accessToken = null as unknown as string;
-      mockAuth.user = null as unknown as typeof mockAuth.user;
+      mockAuth.accessToken = null;
+      mockAuth.user = null;
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -132,8 +144,8 @@ describe('useMobilePermissions', () => {
 
     it('should have all feature permissions false by default', async () => {
       mockAuth.isAuthenticated = false;
-      mockAuth.accessToken = null as unknown as string;
-      mockAuth.user = null as unknown as typeof mockAuth.user;
+      mockAuth.accessToken = null;
+      mockAuth.user = null;
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -166,8 +178,8 @@ describe('useMobilePermissions', () => {
 
       // Now simulate logout
       mockAuth.isAuthenticated = false;
-      mockAuth.accessToken = null as unknown as string;
-      mockAuth.user = null as unknown as typeof mockAuth.user;
+      mockAuth.accessToken = null;
+      mockAuth.user = null;
 
       rerender();
 
@@ -198,12 +210,14 @@ describe('useMobilePermissions', () => {
 
       await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
-      expect(mockFetch).toHaveBeenCalledWith('/graphql', expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer test-token',
-        }),
-      }));
+      // Read the typed recorded call rather than nesting an `any` objectContaining
+      // matcher as an object-literal property (which would be a no-unsafe-assignment).
+      const graphqlCall = mockFetch.mock.calls.find(([url]) => url === '/graphql');
+      expect(graphqlCall).toBeDefined();
+      const init = graphqlCall?.[1];
+      expect(init?.method).toBe('POST');
+      const headers = init?.headers as Record<string, string> | undefined;
+      expect(headers?.Authorization).toBe('Bearer test-token');
     });
 
     it('should update settings from backend response', async () => {
@@ -245,14 +259,18 @@ describe('useMobilePermissions', () => {
 
       await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
-      // Should have cached under per-user key
-      expect(set).toHaveBeenCalledWith(
-        'mobile_permissions_tenant-1_user-1',
-        expect.objectContaining({
-          settings: expect.objectContaining({ isMobileEnabled: true }),
-          expiresAt: expect.any(Number),
-        }),
+      // Should have cached under per-user key. Read the typed recorded call rather
+      // than nesting `any` matchers as object-literal properties (no-unsafe-assignment).
+      const setMock = vi.mocked(set);
+      const cacheCall = setMock.mock.calls.find(
+        ([key]) => key === 'mobile_permissions_tenant-1_user-1',
       );
+      expect(cacheCall).toBeDefined();
+      const cached = cacheCall?.[1] as
+        | { settings?: { isMobileEnabled?: boolean }; expiresAt?: number }
+        | undefined;
+      expect(cached?.settings?.isMobileEnabled).toBe(true);
+      expect(typeof cached?.expiresAt).toBe('number');
     });
 
     it('should handle 401 response by setting defaults', async () => {
@@ -293,7 +311,7 @@ describe('useMobilePermissions', () => {
       idbStorage.set('mobile_permissions_tenant-1_user-1', cachedSettings);
 
       // Make fetch hang to verify cache is used first
-      mockFetch.mockReturnValue(new Promise(() => {}));
+      mockFetch.mockReturnValue(new Promise<never>(() => undefined));
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -506,7 +524,7 @@ describe('useMobilePermissions', () => {
   describe('Provider Requirement', () => {
     it('should throw when used without MobilePermissionsProvider', () => {
       // Suppress console.error for expected error
-      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
       expect(() => {
         renderHook(() => useMobilePermissions());
@@ -602,7 +620,7 @@ describe('useMobilePermissions', () => {
       });
 
       // Make fetch hang to verify cache is used
-      mockFetch.mockReturnValue(new Promise(() => {}));
+      mockFetch.mockReturnValue(new Promise<never>(() => undefined));
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -639,7 +657,7 @@ describe('useMobilePermissions', () => {
         role: 'MODULE_USER' as const,
         tenantId: 'tenant-2',
       };
-      (mockAuth as Record<string, unknown>).tenantId = 'tenant-2';
+      (mockAuth).tenantId = 'tenant-2';
 
       // Backend returns restricted permissions for tenant-2
       mockFetch.mockResolvedValue(createSuccessResponse({

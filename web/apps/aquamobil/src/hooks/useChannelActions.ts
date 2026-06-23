@@ -15,25 +15,44 @@
  * @returns isLoading — true while any mutation is in flight
  */
 
-import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback, useState } from 'react';
+
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import {
   UPDATE_NOTIFICATION_PREFERENCE,
   REMOVE_CHANNEL_MEMBER,
   ARCHIVE_CHANNEL,
   ADD_CHANNEL_MEMBER,
 } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { NotificationPreference, ChannelMemberRole } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
+/** Return shape of {@link useChannelActions}. */
+export interface UseChannelActionsReturn {
+  /** Change the notification preference for the channel. */
+  updateNotificationPref: (pref: NotificationPreference) => Promise<void>;
+  /** Leave the channel (removes the current user). */
+  leaveChannel: () => Promise<void>;
+  /** Archive (soft-delete) the channel. Owner-only. */
+  archiveChannel: () => Promise<void>;
+  /** Add a member to the channel. */
+  addMember: (userId: string, role?: ChannelMemberRole) => Promise<void>;
+  /** True while any of the channel mutations is in flight. */
+  isLoading: boolean;
+  /** Last mutation error, or null. */
+  error: Error | null;
+}
 
 /**
  * Channel management actions hook.
  *
  * @param channelId - Target channel UUID. Pass undefined to disable.
  */
-export function useChannelActions(channelId: string | undefined) {
+export function useChannelActions(channelId: string | undefined): UseChannelActionsReturn {
   const { user, isAuthenticated, tenantId } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<Error | null>(null);
@@ -47,10 +66,12 @@ export function useChannelActions(channelId: string | undefined) {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      // WHY void: cache invalidation is fire-and-forget — React Query manages the
+      // refetch lifecycle, so the Promise is explicitly discarded (SSoT convention).
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
       });
       setError(null);
@@ -68,7 +89,7 @@ export function useChannelActions(channelId: string | undefined) {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
       });
       queryClient.removeQueries({
@@ -85,7 +106,7 @@ export function useChannelActions(channelId: string | undefined) {
       await graphqlRequest(ARCHIVE_CHANNEL, { id: channelId });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
       });
       queryClient.removeQueries({
@@ -107,10 +128,10 @@ export function useChannelActions(channelId: string | undefined) {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
       });
       setError(null);

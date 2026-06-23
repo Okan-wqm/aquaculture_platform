@@ -22,16 +22,19 @@
  * @returns error — mutation error, if any
  */
 
-import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback } from 'react';
+
+
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { SEND_MESSAGE } from '@/graphql/messaging-operations';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage, MessageContentType } from '@/types/messaging';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 interface SendMessageParams {
   content: string | null;
@@ -48,12 +51,22 @@ function generateIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
+/** Return shape of {@link useSendMessage}. */
+export interface UseSendMessageReturn {
+  /** Send a message (online mutation, or offline queue when disconnected). */
+  sendMessage: (params: SendMessageParams) => Promise<void>;
+  /** True while the send mutation is in flight. */
+  isSending: boolean;
+  /** Last mutation error, or null. */
+  error: Error | null;
+}
+
 /**
  * Send message mutation hook with optimistic updates and offline fallback.
  *
  * @param channelId - Target channel UUID. Pass undefined to disable the hook.
  */
-export function useSendMessage(channelId: string | undefined) {
+export function useSendMessage(channelId: string | undefined): UseSendMessageReturn {
   const { user, tenantId, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const isOnline = useNetworkStatus();
@@ -89,15 +102,27 @@ export function useSendMessage(channelId: string | undefined) {
 
     // Optimistic update: insert a pending message immediately
     onMutate: async (params: SendMessageParams & { _idempotencyKey: string }) => {
-      // Cancel any outgoing refetches to avoid overwriting optimistic update
-      await queryClient.cancelQueries({ queryKey: messageQueryKey });
+      // WHY guard-throw: the mutation is only ever invoked from `sendMessage`,
+      // which already rejects a missing channelId — but the type is not narrowed
+      // here. Throwing narrows channelId to `string` so the optimistic message
+      // needs no non-null assertion, and the impossible branch fails loudly.
+      if (!channelId) throw new Error('useSendMessage: channelId is required');
+      // Cancel any outgoing refetches to avoid overwriting optimistic update.
+      // WHY the factory call is inlined here (and messageQueryKey is reused for
+      // the positional get/setQueryData calls): no-bare-tenant-query-key only
+      // statically verifies a `queryKey:` property, and it cannot prove a local
+      // variable was produced by createTenantQueryKey — so the property form
+      // must carry the factory call directly.
+      await queryClient.cancelQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
+      });
 
       // Snapshot previous data for rollback
       const previousData = queryClient.getQueryData(messageQueryKey);
 
       const optimisticMessage: Message = {
         id: params._idempotencyKey, // Client-side optimistic ID — overwritten by server response on settle
-        channelId: channelId!,
+        channelId,
         senderId: user?.id ?? '',
         content: params.content,
         contentType: params.contentType ?? 'TEXT',
@@ -129,7 +154,7 @@ export function useSendMessage(channelId: string | undefined) {
               pageParams: [null],
             };
           }
-          const firstPage = old.pages[0]!;
+          const firstPage = old.pages[0];
           return {
             ...old,
             pages: [

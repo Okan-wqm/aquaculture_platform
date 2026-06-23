@@ -3,7 +3,7 @@
  * quick-access cards, low stock alerts, and recent movements feed.
  */
 
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -15,13 +15,15 @@ import {
   Inbox,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { KpiStrip } from '@/components/hub';
+import type { KpiItem } from '@/components/hub';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
-import { KpiStrip } from '@/components/hub';
-import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { clsx } from 'clsx';
 import type { LowStockItem, RecentStockMovement, StockMovementType } from '@/types';
 
 // WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.
@@ -120,7 +122,7 @@ function formatRelativeTime(isoDate: string): string {
 }
 
 /** Low stock alert row with red progress bar showing current vs minimum quantity. */
-function LowStockRow({ item }: { item: LowStockItem }) {
+function LowStockRow({ item }: { item: LowStockItem }): JSX.Element {
   const fillPercent = item.minQty > 0
     ? Math.min(Math.round((item.currentQty / item.minQty) * 100), 100)
     : 0;
@@ -152,7 +154,7 @@ function LowStockRow({ item }: { item: LowStockItem }) {
 }
 
 /** Single movement row with icon and relative timestamp. */
-function MovementRow({ movement }: { movement: RecentStockMovement }) {
+function MovementRow({ movement }: { movement: RecentStockMovement }): JSX.Element {
   const config = MOVEMENT_TYPE_CONFIG[movement.movementType];
   const Icon = config.icon;
 
@@ -185,7 +187,7 @@ function MovementRow({ movement }: { movement: RecentStockMovement }) {
 }
 
 /** Skeleton loader for sections. */
-function SectionSkeleton({ count = 3 }: { count?: number }) {
+function SectionSkeleton({ count = 3 }: { count?: number }): JSX.Element {
   return (
     <div className="space-y-2" aria-busy="true" aria-label="Loading">
       {Array.from({ length: count }, (_, i) => (
@@ -195,7 +197,7 @@ function SectionSkeleton({ count = 3 }: { count?: number }) {
   );
 }
 
-export function StorageHubPage() {
+export function StorageHubPage(): JSX.Element {
   const navigate = useNavigate();
   const { canAccess } = useMobilePermissions();
   const { isOnline } = useOfflineQueue();

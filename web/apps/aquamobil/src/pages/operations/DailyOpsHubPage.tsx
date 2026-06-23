@@ -9,7 +9,7 @@
  * landing screen, reducing taps by ~60% for the most common morning routine.
  */
 
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   Clock,
   MapPin,
@@ -21,13 +21,15 @@ import {
   ChevronRight,
   Inbox,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import type { JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
 import { useMyTasks } from '@/hooks/useMyTasks';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { Task, TaskPriority } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -68,7 +70,7 @@ function formatClockTime(isoDate: string | null): string {
 // ---------------------------------------------------------------------------
 
 /** Single task row in the checklist section. */
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task }: { task: Task }): JSX.Element {
   const isCompleted = task.status === 'COMPLETED';
   const badge = PRIORITY_BADGE[task.priority];
 
@@ -106,7 +108,7 @@ function TaskRow({ task }: { task: Task }) {
 }
 
 /** Skeleton loading placeholder for the checklist section. */
-function ChecklistSkeleton() {
+function ChecklistSkeleton(): JSX.Element {
   return (
     <div className="space-y-3" aria-busy="true" aria-label="Loading checklist">
       {[1, 2, 3].map((i) => (
@@ -120,7 +122,7 @@ function ChecklistSkeleton() {
 // Page component
 // ---------------------------------------------------------------------------
 
-export function DailyOpsHubPage() {
+export function DailyOpsHubPage(): JSX.Element {
   const navigate = useNavigate();
   const { isOnline } = useOfflineQueue();
   const { stats, isLoading: statsLoading } = useDailyOpsStats();

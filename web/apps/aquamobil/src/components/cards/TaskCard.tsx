@@ -1,6 +1,8 @@
-import { useNavigate } from 'react-router-dom';
-import type { Task } from '@/types';
 import { clsx } from 'clsx';
+import type { ReactElement } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import type { Task } from '@/types';
 
 interface TaskCardProps {
   task: Task;
@@ -28,7 +30,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   GENERAL: 'General',
 };
 
-export function TaskCard({ task, onPress }: TaskCardProps) {
+export function TaskCard({ task, onPress }: TaskCardProps): ReactElement {
   const navigate = useNavigate();
 
   const checklistItems = Array.isArray(task.checklistItems) ? task.checklistItems : [];
@@ -38,7 +40,7 @@ export function TaskCard({ task, onPress }: TaskCardProps) {
   const totalItems = checklistItems.length;
   const progress = totalItems > 0 ? (completedItems.length / totalItems) * 100 : 0;
 
-  const handlePress = () => {
+  const handlePress = (): void => {
     if (onPress) {
       onPress(task);
     } else {

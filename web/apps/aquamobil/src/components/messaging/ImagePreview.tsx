@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { X, Send } from 'lucide-react';
 import { clsx } from 'clsx';
+import { X, Send } from 'lucide-react';
+import { useState, useEffect, type ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,12 +49,12 @@ const COMPRESSION_THRESHOLD = 2 * 1024 * 1024; // 2 MB
  * knowing the image will be compressed reassures the user that the
  * upload won't be excessively slow.
  */
-export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePreviewProps) {
+export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePreviewProps): ReactElement {
   const [caption, setCaption] = useState('');
 
   // Dismiss on Escape key
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onCancel();
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -63,7 +63,7 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
 
   const willCompress = file.size > COMPRESSION_THRESHOLD;
 
-  const handleSend = () => {
+  const handleSend = (): void => {
     onSend(file, caption.trim());
   };
 

@@ -210,12 +210,12 @@ export function RecordEntityPage<
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
   const metrics = selectedTank?.batchMetrics;
 
-  const handleReview = () => {
+  const handleReview = (): void => {
     if (!validate()) return;
     setStep('confirm');
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (): Promise<void> => {
     if (!validate() || !metrics?.batchId) return;
 
     setIsSubmitting(true);
@@ -237,7 +237,7 @@ export function RecordEntityPage<
     }
   };
 
-  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>) => {
+  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>): void => {
     onTankChange(e.target.value);
     setErrors((prev) => ({ ...prev, tank: undefined }));
   };
@@ -292,7 +292,7 @@ export function RecordEntityPage<
 
         <div className="px-4 mt-6 space-y-3 pb-28">
           <button
-            onClick={handleSubmit}
+            onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
             className={clsx(
               'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
@@ -490,7 +490,7 @@ export function QuantityStepper(props: {
   theme: Pick<RecordEntityTheme, 'surfaceSoftBg' | 'surfaceBorder' | 'accentText'>;
 }): JSX.Element {
   const { label, value, onChange, max, error, theme } = props;
-  const clamp = (n: number) => Math.floor(Math.max(1, Math.min(n, max)));
+  const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>

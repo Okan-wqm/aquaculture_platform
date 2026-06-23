@@ -1,8 +1,7 @@
-import { type JSX, useCallback, useState } from 'react';
 import { ChevronRight, Scissors } from 'lucide-react';
+import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useTanks } from '@/hooks/useTanks';
-import type { CullReason, CullInput } from '@/types';
+
 import {
   NotesInput,
   QuantityStepper,
@@ -14,6 +13,9 @@ import {
   SummaryRow,
   type BaseFormErrors,
 } from '../_shared/RecordEntityPage';
+
+import { useTanks } from '@/hooks/useTanks';
+import type { CullReason, CullInput } from '@/types';
 
 const CULL_REASONS: ReadonlyArray<{ value: CullReason; label: string; emoji: string }> = [
   { value: 'SMALL_SIZE', label: 'Small Size', emoji: '📏' },
@@ -65,14 +67,25 @@ export function RecordCullPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
 
-  const buildPayload = (): CullInput => ({
-    batchId: metrics!.batchId!,
-    tankId: selectedTankId,
-    quantity,
-    reason,
-    notes: notes.trim() || undefined,
-    culledAt: new Date().toISOString(),
-  });
+  const buildPayload = (): CullInput => {
+    // Contract: the shell only invokes buildPayload after validate() passes AND
+    // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
+    // so batchId is present here. The guard narrows BatchMetrics['batchId']
+    // (string | null) to string without a non-null assertion; it is unreachable
+    // under the shell contract but documents the precondition.
+    const batchId = metrics?.batchId;
+    if (!batchId) {
+      throw new Error('Cannot record cull: selected tank has no active batch');
+    }
+    return {
+      batchId,
+      tankId: selectedTankId,
+      quantity,
+      reason,
+      notes: notes.trim() || undefined,
+      culledAt: new Date().toISOString(),
+    };
+  };
 
   return (
     <RecordEntityPage<CullInput>

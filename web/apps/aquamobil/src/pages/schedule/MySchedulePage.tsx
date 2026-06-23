@@ -1,9 +1,12 @@
+import { clsx } from 'clsx';
+import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+import type { JSX } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
-import { clsx } from 'clsx';
+
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -20,7 +23,7 @@ function isToday(dateStr: string): boolean {
   return new Date().toISOString().split('T')[0] === dateStr;
 }
 
-function DayCard({ entry }: { entry: WeeklyPlanEntry }) {
+function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
   const config = ENTRY_TYPE_CONFIG[entry.entryType] || ENTRY_TYPE_CONFIG.off;
   const Icon = config.icon;
   const today = isToday(entry.date);
@@ -74,7 +77,7 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }) {
   );
 }
 
-export function MySchedulePage() {
+export function MySchedulePage(): JSX.Element {
   const navigate = useNavigate();
   const [weekOffset, setWeekOffset] = useState(0);
   const { data: plan, isLoading, isError } = useMySchedule(weekOffset);
@@ -87,7 +90,7 @@ export function MySchedulePage() {
   const sundayDate = new Date(mondayDate);
   sundayDate.setDate(mondayDate.getDate() + 6);
 
-  const formatWeekRange = () => {
+  const formatWeekRange = (): string => {
     const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
     return `${mondayDate.toLocaleDateString('en-GB', opts)} - ${sundayDate.toLocaleDateString('en-GB', opts)}`;
   };

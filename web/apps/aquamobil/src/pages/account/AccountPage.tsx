@@ -13,6 +13,7 @@ import {
   X,
   Monitor,
 } from 'lucide-react';
+import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -124,11 +125,17 @@ function ConfirmDialog({
   onConfirm,
   onCancel,
   errorMessage,
-}: ConfirmDialogProps) {
+}: ConfirmDialogProps): JSX.Element {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+      {/* Backdrop — click (or keyboard activation) dismisses the dialog. A real
+          <button> is keyboard-operable (Enter/Space) and focusable for free. */}
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="absolute inset-0 bg-black/50"
+        onClick={onCancel}
+      />
       {/* Dialog */}
       <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-xl max-w-sm w-full p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
@@ -194,7 +201,7 @@ function MenuRow({
   rightContent,
   onClick,
   isLast = false,
-}: MenuRowProps) {
+}: MenuRowProps): JSX.Element {
   return (
     <button
       onClick={onClick}
@@ -234,7 +241,7 @@ function MenuRow({
 // Section Header Sub-component
 // ============================================================================
 
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title }: { title: string }): JSX.Element {
   return (
     <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 mb-2">
       {title}
@@ -250,7 +257,7 @@ interface BiometricPanelProps {
   onClose: () => void;
 }
 
-function BiometricPanel({ onClose }: BiometricPanelProps) {
+function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
   const { user } = useAuth();
   const {
     isRegistering,
@@ -264,7 +271,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps) {
   const [deviceName, setDeviceName] = useState('');
   const [setupSuccess, setSetupSuccess] = useState(false);
 
-  const handleEnable = async () => {
+  const handleEnable = async (): Promise<void> => {
     clearBiometricError();
     setSetupSuccess(false);
     const name = deviceName.trim() || undefined;
@@ -279,7 +286,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps) {
     }
   };
 
-  const handleRemove = async (credentialId: string) => {
+  const handleRemove = async (credentialId: string): Promise<void> => {
     clearBiometricError();
     await removeCredential(credentialId);
   };
@@ -349,7 +356,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps) {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleRemove(cred.credentialId)}
+                    onClick={() => { void handleRemove(cred.credentialId); }}
                     className="p-2 text-red-400 hover:text-red-600 transition-colors"
                     title="Remove credential"
                   >
@@ -372,7 +379,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps) {
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 text-sm"
           />
           <button
-            onClick={handleEnable}
+            onClick={() => { void handleEnable(); }}
             disabled={isRegistering}
             className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
           >
@@ -398,7 +405,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps) {
 // AccountPage — Main Export
 // ============================================================================
 
-export function AccountPage() {
+export function AccountPage(): JSX.Element {
   const navigate = useNavigate();
   const { user, tenantId: authTenantId, logout } = useAuth();
   const { pendingCount, isOnline, isSyncing, syncNow } = useOfflineQueue();
@@ -637,7 +644,7 @@ export function AccountPage() {
               iconBg="bg-sky-50 dark:bg-sky-900/30"
               label="Clear Cache"
               subtitle="Remove cached data to free space"
-              onClick={handleClearCache}
+              onClick={() => { void handleClearCache(); }}
             />
 
             {/* Clear Queue — destructive, permanently deletes unsynced operations */}
@@ -658,7 +665,7 @@ export function AccountPage() {
                   setShowClearQueueDialog(true);
                 } else {
                   // No pending operations — nothing to clear, no confirmation needed
-                  handleClearQueue();
+                  void handleClearQueue();
                 }
               }}
             />

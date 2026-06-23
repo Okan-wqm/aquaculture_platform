@@ -53,17 +53,20 @@ jobs:
           ]
           verdict = verify_workflow_preflight(
               workflow_id="aria-agent-eval",
+              job_id="eval",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
               network_policy=["none"],
               network_enforcement_evidence="mock-mode eval uses local fixtures only",
+              token_provenance="none",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
               audit_reason="run mock-mode agent eval fixtures against local ledgers",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
@@ -113,3 +116,13 @@ jobs:
               --tools-dir aria-tools | jq .
             echo "::endgroup::"
           done
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the eval
+      # job's governed-write decision is retained as CI evidence.
+      - name: Upload eval preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-agent-eval-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-agent-eval-preflight.json
+          if-no-files-found: error
+          retention-days: 7

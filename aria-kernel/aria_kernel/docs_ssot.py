@@ -35,9 +35,15 @@ def runtime_inventory(workspace_root: str | Path) -> dict[str, Any]:
             {
                 "workflow_id": contract.workflow_id,
                 "workflow_file": contract.workflow_file,
-                "first_mutating_step": contract.first_mutating_step,
-                "required_retention_days": contract.required_retention_days,
-                "token_source": contract.token_source,
+                "job_contracts": [
+                    {
+                        "job_id": job.job_id,
+                        "first_governed_mutation_step": job.first_governed_mutation_step,
+                        "retention_days": job.retention_days,
+                        "token_source": job.token_source,
+                    }
+                    for job in contract.job_contracts
+                ],
             }
             for contract in sorted(WORKFLOW_CONTRACTS.values(), key=lambda item: item.workflow_id)
         ],

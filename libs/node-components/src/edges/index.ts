@@ -7,9 +7,9 @@
 import type { EdgeTypes } from '@xyflow/react';
 
 // Import edge components
+import DraggableEdge from './DraggableEdge';
 import MultiHandleEdge from './MultiHandleEdge';
 import OrthogonalEdge from './OrthogonalEdge';
-import DraggableEdge from './DraggableEdge';
 
 // Re-export individual edges + their data / props types so consumers
 // can build thin wrappers that inject a zustand/context-backed

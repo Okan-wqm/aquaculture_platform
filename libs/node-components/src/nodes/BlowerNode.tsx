@@ -5,8 +5,9 @@
 
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
 import React, { useEffect, useState } from 'react';
-import { rotatePoint } from '../utils/rotatePoint';
+
 import { NodeRegistry } from '../registry/NodeRegistry';
+import { rotatePoint } from '../utils/rotatePoint';
 
 type HandleType = 'source' | 'target';
 

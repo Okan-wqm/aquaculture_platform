@@ -13,6 +13,7 @@
 
 import { EdgeProps, useReactFlow, type Edge } from '@xyflow/react';
 import { type JSX, useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useRef } from 'react';
+
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */
@@ -47,7 +48,7 @@ const buildPath = (pts: Point[]): string => {
 /**
  * Render arrow head at the end of the path, rotated based on last segment direction
  */
-const renderArrow = (pts: Point[], color: string = '#374151'): JSX.Element | null => {
+const renderArrow = (pts: Point[], color = '#374151'): JSX.Element | null => {
   if (pts.length < 2) return null;
   const end = pts[pts.length - 1];
   const prev = pts[pts.length - 2];

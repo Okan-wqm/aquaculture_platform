@@ -6,6 +6,8 @@
  * automatically registered with the NodeRegistry.
  */
 
+import { NodeRegistry } from '../registry/NodeRegistry';
+
 // Import all nodes (importing triggers auto-registration)
 import AlgaeBagNode from './AlgaeBagNode';
 import AutomaticFeederNode from './AutomaticFeederNode';
@@ -84,7 +86,6 @@ export { NodeRegistry } from '../registry/NodeRegistry';
 export type { NodeTypeConfig, NodeCategory, PaletteItem, PaletteGroup } from '../registry/NodeRegistry';
 
 // Convenience: Get all registered node types for ReactFlow
-import { NodeRegistry } from '../registry/NodeRegistry';
 export const nodeTypes = NodeRegistry.getNodeTypes();
 
 // Convenience: Get palette items for UI

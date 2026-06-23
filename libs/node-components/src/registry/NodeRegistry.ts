@@ -1,12 +1,17 @@
 import type { NodeTypes } from '@xyflow/react';
+
 import {
   NodeTypeConfig,
+  ResolvedNodeTypeConfig,
   NodeCategory,
   PaletteItem,
   PaletteGroup,
   CATEGORY_ORDER,
   CATEGORY_LABELS,
 } from '../nodes/types';
+
+const DEFAULT_NODE_SIZE = { width: 150, height: 100 } as const;
+const DEFAULT_MIN_NODE_SIZE = { width: 100, height: 75 } as const;
 
 /**
  * NodeRegistry - Single Source of Truth for Node Types
@@ -30,13 +35,37 @@ import {
  * ```
  */
 
-// Internal registry storage
-const registry: Map<string, NodeTypeConfig> = new Map();
+// Internal registry storage (defaults already resolved)
+const registry: Map<string, ResolvedNodeTypeConfig> = new Map();
 
 // Equipment type code to node type mapping
 const equipmentTypeMap: Map<string, string> = new Map();
 
+/**
+ * Diagnostic warning sink for non-fatal registry conditions (e.g. a node id
+ * being re-registered). A shared client-side library must not assume the host
+ * wants console output, so warnings are routed through an injectable handler.
+ * The default is a no-op; consumers opt into surfacing diagnostics via
+ * {@link NodeRegistry.setWarnHandler} (e.g. wiring it to their own logger).
+ */
+type WarnHandler = (message: string) => void;
+
+const noopWarnHandler: WarnHandler = () => {
+  /* diagnostics disabled until a host installs a handler */
+};
+
+let warnHandler: WarnHandler = noopWarnHandler;
+
 export const NodeRegistry = {
+  /**
+   * Install a diagnostic warning handler. Pass `undefined` to reset to the
+   * default no-op sink. Lets a host route registry warnings to its own logger
+   * without the library hard-coding a console dependency.
+   */
+  setWarnHandler(handler: WarnHandler | undefined): void {
+    warnHandler = handler ?? noopWarnHandler;
+  },
+
   /**
    * Register a new node type
    */
@@ -48,15 +77,16 @@ export const NodeRegistry = {
 
     // Warn if overwriting
     if (registry.has(config.id)) {
-      console.warn(`NodeRegistry: Overwriting existing node type "${config.id}"`);
+      warnHandler(`NodeRegistry: Overwriting existing node type "${config.id}"`);
     }
 
-    // Apply defaults
-    const fullConfig: NodeTypeConfig = {
-      defaultSize: { width: 150, height: 100 },
-      minSize: { width: 100, height: 75 },
-      hideFromPalette: false,
+    // Apply defaults. Coalesce explicit `undefined` from the caller to the
+    // library defaults so the stored config structurally guarantees size info.
+    const fullConfig: ResolvedNodeTypeConfig = {
       ...config,
+      defaultSize: config.defaultSize ?? DEFAULT_NODE_SIZE,
+      minSize: config.minSize ?? DEFAULT_MIN_NODE_SIZE,
+      hideFromPalette: config.hideFromPalette ?? false,
     };
 
     registry.set(config.id, fullConfig);
@@ -70,30 +100,30 @@ export const NodeRegistry = {
   },
 
   /**
-   * Get a node type config by id
+   * Get a node type config by id (with registry defaults resolved)
    */
-  get(id: string): NodeTypeConfig | undefined {
+  get(id: string): ResolvedNodeTypeConfig | undefined {
     return registry.get(id);
   },
 
   /**
-   * Get all registered node types
+   * Get all registered node types (with registry defaults resolved)
    */
-  getAll(): NodeTypeConfig[] {
+  getAll(): ResolvedNodeTypeConfig[] {
     return Array.from(registry.values());
   },
 
   /**
    * Get node types by category
    */
-  getByCategory(category: NodeCategory): NodeTypeConfig[] {
+  getByCategory(category: NodeCategory): ResolvedNodeTypeConfig[] {
     return this.getAll().filter((n) => n.category === category);
   },
 
   /**
    * Get nodes visible in palette (excluding hideFromPalette=true)
    */
-  getPaletteNodes(): NodeTypeConfig[] {
+  getPaletteNodes(): ResolvedNodeTypeConfig[] {
     return this.getAll().filter((n) => !n.hideFromPalette);
   },
 
@@ -127,7 +157,7 @@ export const NodeRegistry = {
       category: config.category,
       description: config.description,
       icon: config.icon,
-      defaultSize: config.defaultSize!,
+      defaultSize: config.defaultSize,
     }));
   },
 
@@ -185,4 +215,4 @@ export const NodeRegistry = {
 };
 
 // Export types
-export type { NodeTypeConfig, NodeCategory, PaletteItem, PaletteGroup };
+export type { NodeTypeConfig, ResolvedNodeTypeConfig, NodeCategory, PaletteItem, PaletteGroup };

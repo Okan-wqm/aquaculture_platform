@@ -23,6 +23,15 @@ export interface ConnectionTypeConfig {
   description: string;
 }
 
+/**
+ * ReactFlow edge style derived from a connection-type configuration.
+ */
+export interface EdgeStyle {
+  stroke: string;
+  strokeWidth: number;
+  strokeDasharray: string | undefined;
+}
+
 export const CONNECTION_TYPES: ConnectionTypeConfig[] = [
   {
     id: 'process-pipe',
@@ -103,7 +112,7 @@ export const DEFAULT_CONNECTION_TYPE: ConnectionType = 'process-pipe';
 /**
  * Get configuration for a specific connection type
  */
-export const getConnectionTypeConfig = (type: ConnectionType | string): ConnectionTypeConfig => {
+export const getConnectionTypeConfig = (type: string): ConnectionTypeConfig => {
   const normalizedType = normalizeConnectionType(type);
   return CONNECTION_TYPES.find(t => t.id === normalizedType) ?? CONNECTION_TYPES[0];
 };
@@ -131,7 +140,7 @@ export const normalizeConnectionType = (type: string): ConnectionType => {
 /**
  * Get edge style object for ReactFlow
  */
-export const getEdgeStyle = (connectionType: ConnectionType | string) => {
+export const getEdgeStyle = (connectionType: string): EdgeStyle => {
   const config = getConnectionTypeConfig(connectionType);
   return {
     stroke: config.color,

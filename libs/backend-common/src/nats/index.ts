@@ -8,7 +8,8 @@
 export { buildNatsConnectionOptions } from './nats-connection.factory';
 export type { NatsAuthMode } from './nats-connection.factory';
 
-export { TenantValidatingConsumer, TenantValidationResult } from './tenant-validating-consumer';
+export { TenantValidatingConsumer } from './tenant-validating-consumer';
+export type { TenantValidationResult } from './tenant-validating-consumer';
 
 // PR-B (PLAT-HIGH-003): platform-owned NATS v3 Nest transport — wire-compatible
 // replacement for @nestjs/microservices' JSONCodec-bound Transport.NATS.

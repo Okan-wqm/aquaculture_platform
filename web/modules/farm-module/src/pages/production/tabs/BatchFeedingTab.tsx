@@ -36,9 +36,11 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
   // separate mutations; the UPSERT path through `assignFeedsToBatch`
   // covers edits via the modal's `existing` prop. We still gate the
   // explicit "Düzenle" affordance on the more permissive of the two.
-  const canEdit =
-    useCanMutate('updateBatchFeedAssignment') ||
-    useCanMutate('assignFeedsToBatch');
+  // Both hooks must be invoked unconditionally (rules-of-hooks); a `||`
+  // between two hook calls would short-circuit the second one and make
+  // the hook call order unstable across renders.
+  const canUpdate = useCanMutate('updateBatchFeedAssignment');
+  const canEdit = canUpdate || canAssign;
   const canDelete = useCanMutate('deleteBatchFeedAssignment');
 
   const { data: assignment, isLoading, error } = useBatchFeedAssignment(

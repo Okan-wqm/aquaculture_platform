@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .capability_gap import latest_capability_gaps
+from .capability_resolver import resolve_capability
 from .draft_intent import (
     BANNED_PHRASES_DEFAULT,
     AcceptanceTest,
@@ -79,6 +80,16 @@ def draft_agent_from_gap(
     enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     gap = _find_gap(gap_id, base_dir)
     name = _agent_name(gap)
+    capability_gap_key = str(gap.get("capability_gap_key") or gap_id)
+    capability_resolution = resolve_capability(
+        capability_key=capability_gap_key,
+        requested_kind="agent",
+        title=str(gap.get("title") or name),
+        existing_capabilities=_existing_capabilities(gap.get("related_existing_agents", [])),
+        base_dir=base_dir,
+    )
+    if capability_resolution.get("decision") == "reuse":
+        raise GovernanceError("capability_resolution_reuse_blocks_agent_genesis")
     draft = {
         "name": name,
         "purpose": gap["title"],
@@ -110,6 +121,8 @@ def draft_agent_from_gap(
         "schema_version": 1,
         "recorded_at": utc_now(),
         "gap_id": gap_id,
+        "capability_gap_key": capability_gap_key,
+        "capability_resolution_ref": capability_resolution.get("ledger_hash"),
         "draft_id": f"draft-{name}",
         "status": "draft_shadow",
         "draft": draft,
@@ -620,6 +633,13 @@ def request_agent_genesis(
     capability_gap_key = str(gap.get("capability_gap_key") or gap_id).strip()
     if not gap_id or not capability_gap_key:
         raise GovernanceError("gap_id and capability_gap_key are required")
+    capability_resolution = resolve_capability(
+        capability_key=capability_gap_key,
+        requested_kind="agent",
+        title=str(gap.get("title") or capability_gap_key),
+        existing_capabilities=_existing_capabilities(gap.get("related_existing_agents", [])),
+        base_dir=base_dir,
+    )
     row = {
         "$schema": "aria/agent-genesis-request/v1",
         "schema_version": 1,
@@ -627,6 +647,7 @@ def request_agent_genesis(
         "cycle_id": cycle_id,
         "gap_id": gap_id,
         "capability_gap_key": capability_gap_key,
+        "capability_resolution_ref": capability_resolution.get("ledger_hash"),
         "title": gap.get("title"),
         "evidence_refs": gap.get("evidence_refs", []),
         "score": gap.get("score"),
@@ -634,6 +655,18 @@ def request_agent_genesis(
         "status": "requested",
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "requests.jsonl", row)
+
+
+def _existing_capabilities(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, dict):
+            out.append(value)
+        elif isinstance(value, str) and value.strip():
+            out.append({"name": value.strip(), "capability_key": value.strip()})
+    return out
 
 
 def record_extension_decision(

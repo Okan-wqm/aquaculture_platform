@@ -54,6 +54,16 @@ export interface IDataProvider {
   writeTagValue(tagId: string, value: unknown): Promise<void>;
   /** Get current cached value of a tag. */
   getTagValue(tagId: string): TagValueChange | null;
+  /**
+   * Snapshot of every currently-cached tag value, keyed by tagId.
+   *
+   * Returns a plain object copy (not a live reference) so callers that
+   * serialize it across a Worker boundary — e.g. the client-script
+   * sandbox — receive a stable, self-contained view. Implementations
+   * already hold the full value map internally; this exposes it without
+   * widening write access.
+   */
+  getTagSnapshot(): Record<string, TagValueChange>;
   /** Query historical data. */
   queryHistory(
     tagIds: string[],

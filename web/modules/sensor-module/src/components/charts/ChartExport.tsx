@@ -55,7 +55,7 @@ function toFilenameDate(d: Date): string {
 
 /** Sanitise a string for use in a filename. */
 function sanitiseFilename(s: string): string {
-  return s.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 64);
+  return s.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
 }
 
 /** Resolve TrendTimeRange to absolute {from, to} for the filename. */

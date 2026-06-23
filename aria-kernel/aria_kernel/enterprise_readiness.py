@@ -13,6 +13,19 @@ from .tool_registry import ensure_tools_dir, utc_now
 
 
 READINESS_SCHEMA = "aria/enterprise-readiness-claim/v2"
+BRANCH_PROTECTION_SCHEMA = "aria/branch-protection-proof/v3"
+REQUIRED_MERGE_STATUS_CHECKS: tuple[str, ...] = (
+    "sens-enterprise-summary",
+    "merge-gate",
+    "aria-merge-authority",
+)
+REQUIRED_DLP_SCANNED_SURFACES: tuple[str, ...] = (
+    "diff",
+    "prompt",
+    "transcript",
+    "logs",
+    "artifacts",
+)
 REQUIRED_READINESS_FIELDS: tuple[str, ...] = (
     "$schema",
     "schema_version",
@@ -550,6 +563,9 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
         failures.append("branch_protection_required")
         return
     _require_common_binding(claim, proof, "branch_protection", reasons, failures)
+    if proof.get("$schema") != BRANCH_PROTECTION_SCHEMA:
+        reasons.append("branch_protection_proof_schema_must_be_v3")
+        failures.append("branch_protection_required")
     if proof.get("valid") is not True:
         reasons.append("branch_protection_proof_invalid")
         failures.append("branch_protection_required")
@@ -557,8 +573,36 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
         reasons.append("branch_protection_snapshot_hash_required")
         failures.append("branch_protection_required")
     checks = proof.get("required_checks")
+    exact_checks = proof.get("exact_required_checks")
     if not isinstance(checks, list) or not checks or not all(isinstance(item, str) and item.strip() for item in checks):
         reasons.append("branch_protection_required_checks_required")
+        failures.append("branch_protection_required")
+    if (
+        not isinstance(exact_checks, list)
+        or sorted(str(item) for item in exact_checks) != sorted(REQUIRED_MERGE_STATUS_CHECKS)
+    ):
+        reasons.append("branch_protection_exact_required_checks_mismatch")
+        failures.append("branch_protection_required")
+    if isinstance(checks, list) and sorted(str(item) for item in checks) != sorted(REQUIRED_MERGE_STATUS_CHECKS):
+        reasons.append("branch_protection_required_checks_mismatch")
+        failures.append("branch_protection_required")
+    for field_name in (
+        "signed_commits_required",
+        "reviews_required",
+        "conversation_resolution_required",
+        "force_push_disabled",
+        "delete_branch_disabled",
+    ):
+        if proof.get(field_name) is not True:
+            reasons.append(f"branch_protection_{field_name}_required")
+            failures.append("branch_protection_required")
+    ruleset_ids = proof.get("ruleset_ids")
+    if not isinstance(ruleset_ids, list) or not ruleset_ids:
+        reasons.append("branch_protection_ruleset_ids_required")
+        failures.append("branch_protection_required")
+    bypass_actors = proof.get("bypass_actors")
+    if bypass_actors not in ([], ()):
+        reasons.append("branch_protection_bypass_actors_forbidden")
         failures.append("branch_protection_required")
     _require_source_ledger_ref(proof.get("source_ledger_ref"), "branch_protection", reasons, failures, "branch_protection_required")
 
@@ -657,6 +701,39 @@ def _evaluate_dlp_token(claim: dict[str, Any], proof_name: str, reasons: list[st
     if artifact_id and _is_sha256_digest(artifact_sha) and (artifact_id, artifact_sha) not in artifact_matches:
         reasons.append(f"{proof_name}_artifact_ref_unbound")
         failures.append(failure)
+    if proof_name == "dlp_proof":
+        scanner_results = proof.get("scanner_results")
+        if not isinstance(scanner_results, dict):
+            reasons.append("dlp_proof_scanner_results_required")
+            failures.append(failure)
+        else:
+            if scanner_results.get("status") != "passed":
+                reasons.append("dlp_proof_scanner_results_must_pass")
+                failures.append(failure)
+            surfaces = scanner_results.get("scanned_surfaces")
+            if not isinstance(surfaces, list):
+                reasons.append("dlp_proof_scanned_surfaces_required")
+                failures.append(failure)
+            else:
+                surface_set = {str(item) for item in surfaces}
+                missing = [item for item in REQUIRED_DLP_SCANNED_SURFACES if item not in surface_set]
+                if missing:
+                    reasons.append("dlp_proof_scanned_surfaces_missing:" + ",".join(missing))
+                    failures.append(failure)
+            if not _is_sha256_digest(str(scanner_results.get("scanner_output_sha256") or "")):
+                reasons.append("dlp_proof_scanner_output_sha256_required")
+                failures.append(failure)
+    if proof_name == "token_proof":
+        if proof.get("token_type") != "github_app_installation_token":
+            reasons.append("token_proof_installation_token_required")
+            failures.append(failure)
+        if proof.get("mutation_token") != "github_app_installation_token":
+            reasons.append("token_proof_mutation_token_must_be_github_app_installation_token")
+            failures.append(failure)
+        for field_name in ("gh_token_fallback", "github_token_fallback", "pat_fallback"):
+            if proof.get(field_name) is not False:
+                reasons.append(f"token_proof_{field_name}_forbidden")
+                failures.append(failure)
     _require_source_ledger_ref(proof.get("source_ledger_ref"), proof_name, reasons, failures, failure)
 
 

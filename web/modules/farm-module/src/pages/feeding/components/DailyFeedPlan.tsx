@@ -17,16 +17,13 @@ export const DailyFeedPlan: React.FC<DailyFeedPlanProps> = ({
   forecastDays,
   forecastData,
 }) => {
-  if (!forecastData) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
-        No forecast data available. Please ensure there are active batches.
-      </div>
-    );
-  }
-
-  // Memoize daily plan to avoid recomputation on parent re-renders (PERF-001)
+  // Memoize daily plan to avoid recomputation on parent re-renders (PERF-001).
+  // Hooks must run unconditionally (rules-of-hooks), so the null-forecast case is
+  // handled inside the memo — the early return below skips rendering it anyway.
   const dailyPlan = useMemo(() => {
+    if (!forecastData) {
+      return [];
+    }
     const plan = [];
     const startDate = new Date(forecastData.startDate);
     // Use strict < to produce exactly maxDays rows (day 0 = today, day 1..maxDays-1 = future days)
@@ -55,6 +52,14 @@ export const DailyFeedPlan: React.FC<DailyFeedPlanProps> = ({
     }
     return plan;
   }, [forecastData, forecastDays]);
+
+  if (!forecastData) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+        No forecast data available. Please ensure there are active batches.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

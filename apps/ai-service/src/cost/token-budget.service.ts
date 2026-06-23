@@ -85,12 +85,11 @@ export class TokenBudgetService {
    * @returns Current token count (0 if no usage this month)
    */
   async getUsage(tenantId: string): Promise<number> {
-    if (this.useRedis) {
-      const key = this.getMonthlyKey(tenantId);
-      const value = await this.redisService!.get(key);
+    const key = this.getMonthlyKey(tenantId);
+    if (this.redisService) {
+      const value = await this.redisService.get(key);
       return value ? parseInt(value, 10) : 0;
     }
-    const key = this.getMonthlyKey(tenantId);
     return this.localCounters.get(key) ?? 0;
   }
 
@@ -105,8 +104,8 @@ export class TokenBudgetService {
    * @returns New cumulative usage for the current month
    */
   async addUsage(tenantId: string, tokens: number): Promise<number> {
-    if (this.useRedis) {
-      return this.addUsageRedis(tenantId, tokens);
+    if (this.redisService) {
+      return this.addUsageRedis(this.redisService, tenantId, tokens);
     }
     return this.addUsageLocal(tenantId, tokens);
   }
@@ -139,17 +138,21 @@ export class TokenBudgetService {
    * SECURITY: INCRBY is atomic — concurrent requests cannot cause
    * lost updates. The key auto-expires via TTL after month end.
    */
-  private async addUsageRedis(tenantId: string, tokens: number): Promise<number> {
+  private async addUsageRedis(
+    redisService: RedisService,
+    tenantId: string,
+    tokens: number,
+  ): Promise<number> {
     const key = this.getMonthlyKey(tenantId);
 
     // INCRBY atomically creates the key with the increment value if it doesn't exist
-    const newValue = await this.redisService!.incrby(key, tokens);
+    const newValue = await redisService.incrby(key, tokens);
 
     // Set TTL only on first write (when newValue equals the tokens just added)
     // WHY: Re-setting TTL on every write would push expiry into the future
     if (newValue === tokens) {
       const ttl = this.getMonthEndTtl();
-      await this.redisService!.expire(key, ttl);
+      await redisService.expire(key, ttl);
     }
 
     return newValue;

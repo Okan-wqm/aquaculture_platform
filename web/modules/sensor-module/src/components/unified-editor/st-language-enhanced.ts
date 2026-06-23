@@ -147,7 +147,7 @@ export const stTokensProvider: languages.IMonarchLanguage = {
     '+', '-', '*', '/', '**',
   ],
 
-  symbols: /[=><!~?:&|+\-*\/\^%]+/,
+  symbols: /[=><!~?:&|+\-*/^%]+/,
 
   tokenizer: {
     root: [

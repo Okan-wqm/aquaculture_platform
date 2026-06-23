@@ -57,19 +57,16 @@ from pathlib import Path
 
 from . import _helpers  # noqa: F401
 
+# WS2 — the cross-review risk-entry field set is owned by the kernel
+# (plan_convergence.CROSS_REVIEW_RISK_REQUIRED, the SSoT). This test used
+# to carry its own CANONICAL_RISK_FIELDS literal — a 6th hardcoded copy
+# that could silently drift from the kernel. We now import the kernel
+# constant and iterate it, so the kernel is the ONE source.
+from aria_kernel.plan_convergence import CROSS_REVIEW_RISK_REQUIRED
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CROSS_REVIEWER_FILE = REPO_ROOT / ".claude" / "agents" / "aria-cross-reviewer.md"
 KNOWLEDGE_FILE = REPO_ROOT / ".claude" / "knowledge" / "layer-2-aria-canonical-envelope.md"
-
-CANONICAL_RISK_FIELDS = (
-    "risk_id",
-    "risk_category",
-    "severity",
-    "summary",
-    "recommendation",
-    "affected_files",
-    "evidence_refs",
-)
 
 
 class CrossReviewRiskSchemaInvariants(unittest.TestCase):
@@ -84,7 +81,7 @@ class CrossReviewRiskSchemaInvariants(unittest.TestCase):
         eliminating the improvisation vector.
         """
         body = CROSS_REVIEWER_FILE.read_text(encoding="utf-8")
-        for field_name in CANONICAL_RISK_FIELDS:
+        for field_name in CROSS_REVIEW_RISK_REQUIRED:
             self.assertIn(
                 field_name,
                 body,

@@ -63,6 +63,11 @@ try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
     from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
+    # Plan ARIA WS1 — import the canonical plan_content required-field set
+    # from the kernel SSoT (plan_convergence.PLAN_CONTENT_REQUIRED) instead
+    # of re-declaring it here, so the fail-fast gate below can never drift
+    # from the kernel-side _validate_plan_content gate it mirrors.
+    from aria_kernel.plan_convergence import PLAN_CONTENT_REQUIRED as _PLAN_CONTENT_REQUIRED
 except Exception:  # pragma: no cover - fallback keeps standalone contract importable
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
@@ -76,6 +81,13 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "implementation",
     })
     _render_invocation_prompt = None
+    # Standalone-mode fallback: identical value/order to the kernel SSoT.
+    # Intentional duplication for kernel-less importability; WS2 adds a
+    # drift guard asserting this equals plan_convergence.PLAN_CONTENT_REQUIRED.
+    _PLAN_CONTENT_REQUIRED = (
+        "schema_version", "title", "summary", "affected_surfaces",
+        "key_changes", "validation_commands", "evidence_refs",
+    )
 
 
 DEFAULT_MAX_TURNS = 12
@@ -97,10 +109,11 @@ SUBMIT_RESULT_TIMEOUT_SECONDS = 120
 # state machine stays in DRAFT — wasting the Opus cycle ($0.35/cycle)
 # and producing zero convergence signal. Fail-fast here releases the
 # claim with a precise reason so operators see WHICH field was wrong.
-_PLAN_CONTENT_REQUIRED = (
-    "schema_version", "title", "summary", "affected_surfaces",
-    "key_changes", "validation_commands", "evidence_refs",
-)
+#
+# The required-field list (_PLAN_CONTENT_REQUIRED) is imported from the
+# kernel SSoT (plan_convergence.PLAN_CONTENT_REQUIRED) in the try/except
+# above, with an identical standalone fallback — see Plan ARIA WS1.
+#
 # Plan ARIA-V8.5 R1 — V8 cross_review canonical fields list. Only the
 # agent's SUBSTANTIVE output is required: verdict + risks. Envelope
 # metadata (`round_number`, `target_revision_id`, `task_packet_hash`,

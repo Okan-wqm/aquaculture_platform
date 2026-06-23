@@ -38,7 +38,7 @@ describe('SuggestChannelsTool', () => {
       const result = await tool.validate({
         sensorId: '',
         detectedFields: [{ key: 'temp', dataType: 'number', sampleCount: 5 }],
-      } as any);
+      });
       expect(result.valid).toBe(false);
       expect(result.errors).toContain('sensorId is required and must be a string');
     });
@@ -53,10 +53,14 @@ describe('SuggestChannelsTool', () => {
     });
 
     it('should reject missing detectedFields', async () => {
+      // validate() is a trust-boundary check: tool input originates from the
+      // Claude model and may arrive structurally malformed at runtime. Here
+      // detectedFields is null, exercising the non-array guard. validate()
+      // accepts `unknown` precisely so this needs no cast.
       const result = await tool.validate({
         sensorId: 'sensor-1',
         detectedFields: null,
-      } as any);
+      });
       expect(result.valid).toBe(false);
       expect(result.errors).toContain('detectedFields must be a non-empty array');
     });

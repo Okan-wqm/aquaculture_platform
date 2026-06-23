@@ -117,7 +117,12 @@ export class SimulateDosingEffectTool extends BaseTool<
       [{ reagentKey: reagentName, amountGrams: doseGrams }],
     );
 
-    const finalStep = steps[steps.length - 1]!;
+    const finalStep = steps[steps.length - 1];
+    if (!finalStep) {
+      throw new Error(
+        'Dosing simulation produced no steps; check reagent and dose inputs',
+      );
+    }
 
     return {
       steps,

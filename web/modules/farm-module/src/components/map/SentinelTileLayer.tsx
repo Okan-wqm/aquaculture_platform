@@ -85,8 +85,13 @@ const ProcessingTileLayer: React.FC<{
     prevLayerRef.current = layer;
     prevDateRef.current = date;
 
-    // Custom GridLayer for Processing API tiles
-    const ProcessingGridLayer = L.GridLayer.extend({
+    // Custom GridLayer for Processing API tiles.
+    // L.GridLayer.extend() is typed as `{ new(...args: any[]): any } & typeof Class`,
+    // whose intersected `new` signature TypeScript resolves to the 0-arg base
+    // constructor — so calling it with options trips TS2554. We narrow the result
+    // to the precise GridLayer constructor signature (options?: GridLayerOptions)
+    // it actually has at runtime, which is the construct contract Leaflet documents.
+    const ProcessingGridLayer: new (options?: L.GridLayerOptions) => L.GridLayer = L.GridLayer.extend({
       createTile: function (coords: L.Coords, done: (error?: Error | null, tile?: HTMLElement) => void) {
         const tile = document.createElement('img') as HTMLImageElement;
         tile.alt = '';
@@ -146,14 +151,13 @@ const ProcessingTileLayer: React.FC<{
     });
 
     // Create and add layer
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gridLayer = new (ProcessingGridLayer as any)({
+    const gridLayer = new ProcessingGridLayer({
       tileSize: TILE_SIZE,
       minZoom,
       maxZoom,
       opacity,
       className: 'sentinel-processing-layer',
-    }) as L.GridLayer;
+    });
 
     gridLayer.addTo(map);
     tileLayerRef.current = gridLayer;

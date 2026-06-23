@@ -47,10 +47,11 @@
 //   MCP_REQUEST_TIMEOUT — GraphQL istek timeout (ms, varsayılan: 30000)
 // ============================================================================
 
-import { loadConfig } from './config.js';
-import { setLogLevel } from './utils/logger.js';
-import { createMcpServer } from './server.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+import { loadConfig } from './config.js';
+import { createMcpServer } from './server.js';
+import { setLogLevel } from './utils/logger.js';
 
 // ── Ana Fonksiyon ─────────────────────────────────────────────────
 /**

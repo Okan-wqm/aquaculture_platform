@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import {
   // Ammonia
   fractionNH3, calcNH3, calcNH4, criticalPHforNH3, calcSafeTAN, uiaStatus,
@@ -13,6 +12,7 @@ import {
   // Deffeyes safe zone
   generateSafeZone, calcOperatingPoint,
 } from '@platform/aquaculture-engines';
+import { describe, it, expect } from 'vitest';
 
 // ============================================================================
 // SENARYO: Tatlı su RAS sistemi — Acil müdahale gerekiyor mu?
@@ -319,6 +319,7 @@ describe('Su Tedavi Senaryosu — pH 8.5, TAN 4, H₂S 0.5 µg/L', () => {
         );
 
         const final = result[result.length - 1];
+        if (!final) throw new Error('calcForwardDosing returned no dosing steps');
         const nh3 = calcNH3(SCENARIO.tan, final.ph, SCENARIO.tempC, SCENARIO.salinity);
         const nh3Status = nh3 > SCENARIO.nh3Limit ? '🔴' : '🟢';
         const co2Status = final.co2 > SCENARIO.co2Limit ? '⚠️CO₂↑' : '';
@@ -348,6 +349,7 @@ describe('Su Tedavi Senaryosu — pH 8.5, TAN 4, H₂S 0.5 µg/L', () => {
         );
 
         const final = result[result.length - 1];
+        if (!final) throw new Error('calcForwardDosing returned no dosing steps');
         const nh3 = calcNH3(SCENARIO.tan, final.ph, SCENARIO.tempC, SCENARIO.salinity);
         const alkFinalMg = alkMeqToMg(final.alk);
         const nh3Status = nh3 > SCENARIO.nh3Limit ? '🔴' : '🟢';
@@ -394,6 +396,7 @@ describe('Su Tedavi Senaryosu — pH 8.5, TAN 4, H₂S 0.5 µg/L', () => {
           [{ reagentKey: 'Add CO₂', amountGrams: dose }]
         );
         const final = result[result.length - 1];
+        if (!final) throw new Error('calcForwardDosing returned no dosing steps');
         const testNH3 = calcNH3(SCENARIO.tan, final.ph, SCENARIO.tempC, SCENARIO.salinity);
 
         if (testNH3 <= SCENARIO.nh3Limit && final.co2 <= SCENARIO.co2Limit) {
@@ -419,6 +422,7 @@ describe('Su Tedavi Senaryosu — pH 8.5, TAN 4, H₂S 0.5 µg/L', () => {
           [{ reagentKey: 'Muriatic Acid', amountGrams: dose }]
         );
         const final = result[result.length - 1];
+        if (!final) throw new Error('calcForwardDosing returned no dosing steps');
         const testNH3 = calcNH3(SCENARIO.tan, final.ph, SCENARIO.tempC, SCENARIO.salinity);
 
         if (testNH3 <= SCENARIO.nh3Limit && final.co2 <= SCENARIO.co2Limit) {

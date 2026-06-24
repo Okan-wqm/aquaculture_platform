@@ -154,3 +154,44 @@
   0% { transform: translateY(-10px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
+
+/* ============================================================================
+   Glass surface — component-token SSoT for frosted auth cards (login surface)
+   ============================================================================
+   WHAT: a scoped, opt-in set of component tokens that style form controls sitting
+   on a translucent `bg-white/65`-over-ocean-gradient card. Components opt in with
+   `surface="glass"` (Input/Button/Checkbox) which reference these `var(--surface-*)`
+   tokens; any element under `.surface-glass` also gets its <label> recolored.
+
+   WHY a scoped @layer block (NOT @theme): @theme tokens emit into :root globally and
+   become utilities — these must stay opt-in/scoped to the auth card only. This block
+   replaces the brittle global `.backdrop-blur-md input{…!important}` hack (deleted in
+   the shell). Every value is drawn from the existing --color-primary-* scale so the
+   worst-case contrast against the card is guaranteed AA (labels/muted 5.65:1,
+   submit button 6.67:1, field text 13:1). See surface-glass-contrast.spec.ts. */
+@layer components {
+  .surface-glass {
+    /* field (text input on the card) */
+    --surface-field-bg: rgb(255 255 255 / 0.80);     /* composited ≈ #edf4fa */
+    --surface-field-fg: #002a4d;                     /* primary-800 — 13:1 on field bg */
+    --surface-field-border: rgb(0 66 128 / 0.35);    /* primary-700 @ 35% */
+    --surface-field-placeholder: #004280;            /* primary-700 — 9:1 on field bg */
+    --surface-field-focus-ring: rgb(0 91 179 / 0.45);/* primary-600 @ 45% */
+    --surface-field-focus-border: #005bb3;           /* primary-600 */
+    /* text that sits directly on the card */
+    --surface-label-fg: #004280;                     /* primary-700 — 5.65:1 on card */
+    --surface-heading-fg: #002a4d;                   /* primary-800 — 8.22:1 on card */
+    --surface-muted-fg: #004280;                     /* primary-700 — 5.65:1 on card */
+    /* submit / primary button on the card */
+    --surface-btn-bg: #005bb3;                       /* primary-600, white text — 6.67:1 */
+    --surface-btn-fg: #ffffff;
+    --surface-btn-bg-hover: #004280;                 /* primary-700 — 10:1 */
+    --surface-btn-border: #004280;                   /* primary-700 */
+  }
+
+  /* Labels nested in the glass surface adopt the label color automatically.
+     :where() keeps specificity at 0 so an explicit text-* utility still wins. */
+  .surface-glass :where(label) {
+    color: var(--surface-label-fg);
+  }
+}

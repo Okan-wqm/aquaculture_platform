@@ -4674,3 +4674,68 @@ Severity: HIGH (caused a production app outage). Discovered 2026-06-17 during pr
 Status: RESOLVED (2026-06-17; fix branch `fix/farm-cull-enum-migration-tenant-guard`). Registry: orphan-findings.md only.
 
 ---
+
+
+## ORPHAN-MEDIUM-133 — auth forms render white text on the light frosted login card → WCAG AA contrast fail
+
+Severity: MEDIUM (accessibility). Discovered 2026-06-24 during the Suderra login rebuild (frontend-expert read of `web/shell/src/pages/LoginPage.tsx`).
+
+**Problem:** the `AuthLayout` card is `backdrop-blur-md bg-white/65` (a light frosted surface over an ocean gradient). `LoginForm` was styled for that light card (`text-blue-700`), but `ForgotPasswordForm`, `ResetPasswordForm`, and `AcceptInvitationForm` — rendered inside the SAME card — use `text-white`/`text-white/70` (8 occurrences) as if they sat on the dark gradient. White text on a ~white card is far below 4.5:1, so three auth screens have unreadable headings/body. Root cause: per-form ad-hoc color choices with no shared foreground token.
+
+**Resolution (Suderra login rebuild plan):** introduce a single glass-surface foreground token set (`--surface-heading-fg`/`--surface-muted-fg`, primary-800/700, AA-verified) consumed by ALL forms via shared `AuthFormShell` chrome, so no form can pick a low-contrast color. Phase 1 lands the tokens; Phase 3 rewrites the forms.
+
+Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-MEDIUM-134 — login surface uses raw blue-* utilities + a global `!important` `.backdrop-blur-md input` hack instead of design tokens
+
+Severity: MEDIUM (design-system integrity / cascade leak). Discovered 2026-06-24 during the Suderra login rebuild.
+
+**Problem:** `LoginPage.tsx` uses 25+ raw `blue-*` Tailwind utilities instead of the `--color-primary-*` SSoT, and `web/shell/src/styles/index.css` (lines ~442-473) force auth field/label/button colors via a global `.backdrop-blur-md input { … !important }` block. The `!important` selector keys off a generic blur utility, so it leaks to ANY `backdrop-blur-md` container app-wide and fights the shared-ui `Input`/`Button` components — exactly the patch-over-architecture pattern the repo forbids.
+
+**Resolution (Suderra login rebuild plan):** a scoped `.surface-glass` component-token block in the design-system SSoT (`theme.css`) + an opt-in `surface="glass"` variant on `Input`/`Button`/`Checkbox`; the page consumes tokens and the `!important` block is deleted. Phase 1 lands the tokens/variants; Phase 3 deletes the hack and removes the raw blue-*.
+
+Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-LOW-135 — "Remember me" checkbox is non-functional (no state, no persistence)
+
+Severity: LOW (dead control / false affordance). Discovered 2026-06-24 during the Suderra login rebuild.
+
+**Problem:** `LoginPage.tsx:320` renders a bare `<input type="checkbox" />` with no `checked`, no `onChange`, and no state binding. It looks like a working "remember me" control but does nothing — the session-persistence behaviour it implies does not exist. Because access tokens are in-memory-only by design and the refresh token is a server-set httpOnly cookie, genuine "stay logged in" requires the server to issue a persistent-vs-session refresh cookie based on a `rememberMe` flag — a full-stack change, not a frontend storage trick.
+
+**Resolution (Suderra login rebuild plan, Phase 2):** thread a `rememberMe` boolean through `LoginInput` → auth-service refresh-cookie `maxAge` branch (persistent vs session), persisted on the refresh-token row so rotation preserves it, and carried across the MFA challenge via the signed mfaToken claim. The checkbox becomes controlled state.
+
+Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-MEDIUM-136 — auth animations have no `prefers-reduced-motion` guard (14-fish rAF loop + wave/kelp)
+
+Severity: MEDIUM (accessibility / vestibular). Discovered 2026-06-24 during the Suderra login rebuild.
+
+**Problem:** `prefers-reduced-motion` appears zero times in `web/shell/src/styles/index.css` and `web/shared-ui/src/styles/theme.css`, yet the login page runs a 14-fish `requestAnimationFrame` swim loop (`FishBackground.tsx`) plus wave/kelp/tail CSS keyframes. Users who request reduced motion get continuous animation with no opt-out — a WCAG 2.3.3 / vestibular concern.
+
+**Resolution (Suderra login rebuild plan, Phase 3):** a single `@media (prefers-reduced-motion: reduce)` block neutralizing the wave/kelp/tail/fade keyframes, plus a `matchMedia` guard in `FishBackground` that renders a calm static spread and never starts the rAF loop (with a live change-listener).
+
+Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-LOW-137 — auth brand copy says "Aquaculture Platform" while the product brand is Suderra
+
+Severity: LOW (brand correctness). Discovered 2026-06-24 during the Suderra login rebuild.
+
+**Problem:** `AuthLayout.tsx:62` (logo alt) and `:88` (footer) hardcode "Aquaculture Platform", but the product brand is **Suderra** (`suderra.theme` storage key, `app.suderra.com`/`aquamobil.suderra.com` origin allowlist). `VITE_APP_NAME` was declared (`vite-env.d.ts:7`) but never defined → `undefined` at runtime, so there is no brand SSoT.
+
+**Resolution (Suderra login rebuild plan):** a typed `BRAND` SSoT (`web/shared-ui/src/config/brand.ts`, name "Suderra") consumed by `AuthLayout` (alt/tagline/footer/support). Phase 1 lands the constant; Phase 3 consumes it.
+
+Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---

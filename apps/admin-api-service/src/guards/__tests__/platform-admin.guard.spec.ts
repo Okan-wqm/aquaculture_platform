@@ -34,6 +34,7 @@ interface MockRequest {
   method: string;
   url: string;
   user?: {
+    sub: string;
     id: string;
     email?: string;
     roles: string[];
@@ -270,6 +271,23 @@ describe('PlatformAdminGuard', () => {
       expect(user.email).toBe('test@admin.com');
       expect(user.roles).toContain('SUPER_ADMIN');
       expect(user.tenantId).toBe('tenant-abc');
+    });
+
+    it('attaches the canonical `sub` so the shared ThrottlerGuard recognizes the user (no anonymous-tier 429 storm)', async () => {
+      // Regression: the shared backend-common ThrottlerGuard reads
+      // `request.user?.sub`. When this guard exposed only `id`, every
+      // authenticated SUPER_ADMIN was throttled at the anonymous tier (20/60s)
+      // and keyed by IP, so a single operator's admin-panel fan-out tripped 429s.
+      const token = signToken({ sub: 'admin-sub-1', roles: ['SUPER_ADMIN'] });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await guard.canActivate(context);
+
+      const user = context.switchToHttp().getRequest<MockRequest>().user;
+      if (!user) throw new Error('Expected guard to attach user to request');
+      // Both the canonical identity field and the admin-api-local alias resolve
+      // to the JWT subject — the throttler now sees an authenticated user.
+      expect(user.sub).toBe('admin-sub-1');
+      expect(user.id).toBe('admin-sub-1');
     });
   });
 

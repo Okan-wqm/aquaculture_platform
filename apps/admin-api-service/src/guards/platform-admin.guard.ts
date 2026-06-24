@@ -57,6 +57,14 @@ const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
 
 interface AdminRequest extends Request {
   user?: {
+    /**
+     * Canonical platform identity field (the JWT `sub`). Every shared,
+     * service-agnostic consumer keys off `sub` — the backend-common
+     * ThrottlerGuard (`request.user?.sub`) and `@CurrentUser('sub')`. It MUST
+     * be present or those consumers treat the request as anonymous.
+     */
+    sub: string;
+    /** admin-api-local alias for the same id; controllers read `req.user.id`. */
     id: string;
     email?: string;
     roles: string[];
@@ -129,8 +137,16 @@ export class PlatformAdminGuard implements CanActivate {
       // Normalize user roles - tekil role varsa array'e çevir
       const userRoles = payload.roles || (payload.role ? [payload.role] : []);
 
-      // Attach user to request first (for later use in controllers)
+      // Attach user to request first (for later use in controllers).
+      // WHY both `sub` and `id`: the shared backend-common ThrottlerGuard (and
+      // every `@CurrentUser('sub')` consumer) reads the canonical JWT subject
+      // as `request.user.sub`. This guard historically exposed ONLY `id`, so
+      // the throttler saw `user.sub === undefined`, classified every
+      // authenticated SUPER_ADMIN as ANONYMOUS (20 req/60s) AND keyed the bucket
+      // by IP instead of user — a single operator's admin-panel fan-out tripped
+      // 429s. `id` stays as admin-api's local convention (controllers read it).
       request.user = {
+        sub: payload.sub,
         id: payload.sub,
         email: payload.email,
         roles: userRoles,

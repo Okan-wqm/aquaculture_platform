@@ -21,9 +21,10 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
-import { Task, TaskStatus } from '../../entities/task.entity';
+import { Task, TaskStatus, TaskCategory, TaskPriority } from '../../entities/task.entity';
 import { RecurringTemplate } from '../../entities/recurring-template.entity';
 import { UpdateTaskInput } from '../../dto/update-task.dto';
+import { CreateTaskInput } from '../../dto/create-task.dto';
 import { TaskService } from '../task.service';
 
 const TENANT = 'tenant-1';
@@ -86,6 +87,11 @@ async function buildHarness(
   const outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
   // findById() (used by update/addNote) reads through the injected Task repo.
   const taskRepoFindOne = jest.fn();
+  // create() builds the entity through the injected Task repo before the
+  // transactional save; the double echoes its input as the entity instance.
+  const taskRepoCreate = jest.fn().mockImplementation((entity: Partial<Task>) =>
+    Object.assign(new Task(), entity),
+  );
 
   // useValue providers accept loose shapes, so no cast is needed in test code;
   // Nest resolves the constructor by token and the doubles satisfy the surface
@@ -93,7 +99,10 @@ async function buildHarness(
   const moduleRef = await Test.createTestingModule({
     providers: [
       TaskService,
-      { provide: getRepositoryToken(Task), useValue: { findOne: taskRepoFindOne, save: jest.fn() } },
+      {
+        provide: getRepositoryToken(Task),
+        useValue: { findOne: taskRepoFindOne, create: taskRepoCreate, save: jest.fn() },
+      },
       { provide: getRepositoryToken(RecurringTemplate), useValue: {} },
       { provide: DataSource, useValue: dataSource },
       { provide: OutboxPublisher, useValue: outbox },
@@ -278,6 +287,67 @@ describe('TaskService FARM-HIGH-057 — setChecklistItem idempotent SET', () => 
     await expect(
       service.setChecklistItem(TENANT, 'task-1', 'i1', true, otherCaller, ENVELOPE),
     ).rejects.toThrow(ForbiddenException);
+  });
+});
+
+describe('TaskService FARM-MEDIUM-074 — create() enqueues TaskCreated atomically with the save', () => {
+  function createInput(): CreateTaskInput {
+    return Object.assign(new CreateTaskInput(), {
+      title: 'Feed tank',
+      description: 'morning feed',
+      category: TaskCategory.FEEDING,
+      priority: TaskPriority.HIGH,
+      assignedTo: '11111111-1111-1111-1111-111111111111',
+      assignedToName: 'Owner',
+      dueDate: '2026-06-25',
+    });
+  }
+
+  // Structural view of the enqueued event so assertions read its fields
+  // without a banned cast — a single typed projection of the mock call arg.
+  interface EnqueuedEvent {
+    eventType: string;
+    taskId: string;
+  }
+
+  function withId(entity: unknown, id: string): Task {
+    const task = entity as Task;
+    task.id = id;
+    return task;
+  }
+
+  it('saves the task and enqueues TaskCreated on the SAME transaction manager', async () => {
+    const manager = createManager('started');
+    // The manager save echoes the entity with a server-assigned id so the
+    // event payload carries a concrete taskId.
+    manager.save.mockImplementation((entity: unknown) =>
+      Promise.resolve(withId(entity, 'task-created-1')),
+    );
+    const { service, outbox } = await buildHarness(manager);
+
+    const result = await service.create(TENANT, createInput(), OWNER);
+
+    expect(result.id).toBe('task-created-1');
+    // Exactly one TaskCreated enqueue, bound to the transaction manager (atomic).
+    expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+    const event: EnqueuedEvent = outbox.enqueue.mock.calls[0]![0];
+    const boundManager = outbox.enqueue.mock.calls[0]![1];
+    expect(event.eventType).toBe('TaskCreated');
+    expect(event.taskId).toBe('task-created-1');
+    expect(boundManager).toBe(manager);
+    // The save ran on the txn manager, never the autocommit repository.
+    expect(manager.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back and does not commit when the enqueue fails (no fire-and-forget)', async () => {
+    const manager = createManager('started');
+    manager.save.mockImplementation((entity: unknown) =>
+      Promise.resolve(withId(entity, 'task-created-2')),
+    );
+    const { service, outbox } = await buildHarness(manager);
+    outbox.enqueue.mockRejectedValueOnce(new Error('outbox down'));
+
+    await expect(service.create(TENANT, createInput(), OWNER)).rejects.toThrow('outbox down');
   });
 });
 

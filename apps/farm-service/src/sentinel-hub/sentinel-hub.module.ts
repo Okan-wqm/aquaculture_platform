@@ -24,6 +24,10 @@ import { SentinelProxyPolicy } from './sentinel-proxy.policy';
   ],
   controllers: [SentinelHubProxyController],
   providers: [SentinelHubService, SentinelHubResolver, SentinelProxyPolicy],
-  exports: [SentinelHubService],
+  // SentinelProxyPolicy is exported because MarineDataModule imports this module
+  // and MarineDataService constructor-injects it. Providing it without exporting
+  // it left the policy private to this module, crash-looping farm-service boot
+  // ("Nest can't resolve dependencies of MarineDataService ... SentinelProxyPolicy").
+  exports: [SentinelHubService, SentinelProxyPolicy],
 })
 export class SentinelHubModule {}

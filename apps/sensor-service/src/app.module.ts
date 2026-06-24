@@ -67,6 +67,7 @@ import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import { SensorOutboxModule } from './outbox/sensor-outbox.module';
+import { SensorOutbox } from './outbox/sensor-outbox.entity';
 import {
   createTenantConnectionBootstrap,
   createSchemaVersionGate,
@@ -177,6 +178,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           defaultPoolIdleTimeoutMs: 300_000,
           subscribers: [AuditSubscriber],
           entities: [
+            // SensorOutbox must be in TypeORM metadata: this service passes an
+            // explicit entities list, so autoLoadEntities is off and OutboxModule.
+            // forFeature() alone does not register the entity. Without it the new
+            // OutboxNotifyListener.onModuleInit getMetadata(SensorOutbox) throws
+            // ("No metadata for SensorOutbox"), crash-looping sensor-service boot.
+            SensorOutbox,
             Sensor,
             SensorReading,
             SensorProtocol,

@@ -18,10 +18,14 @@
  * - Proper error types for client handling
  */
 
-import { Injectable, Logger, Inject, Optional, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  type SensorReadingEvent,
+  type ParentReadingRoutedEvent,
+} from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource, In } from 'typeorm';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
@@ -124,8 +128,11 @@ export class SensorIngestionService {
   private readonly channelCache: BoundedCache<string, SensorDataChannel[]>;
   private readonly childSensorCache: BoundedCache<string, Sensor[]>;
 
-  // Circuit breakers for external dependencies
-  private readonly eventBusCircuitBreaker: CircuitBreaker;
+  // Circuit breaker for the database dependency.
+  // The event bus is no longer a write-path dependency: events are enqueued
+  // into the transactional outbox atomically with the reading save, and the
+  // outbox relay owns NATS delivery (SENSOR-CRITICAL-001). No event-bus
+  // circuit breaker is needed on the ingest hot path.
   private readonly databaseCircuitBreaker: CircuitBreaker;
 
   // Configuration
@@ -144,8 +151,7 @@ export class SensorIngestionService {
     private readonly channelRepository: Repository<SensorDataChannel> | null,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly calibrationService: CalibrationService,
     private readonly dataQualityService: DataQualityService,
     private readonly readingMapperRegistry: ReadingMapperRegistry,
@@ -159,8 +165,7 @@ export class SensorIngestionService {
       SensorIngestionService.CACHE_TTL_MS,
     );
 
-    // Initialize circuit breakers
-    this.eventBusCircuitBreaker = new CircuitBreaker('EventBus', 5, 30000);
+    // Initialize circuit breaker
     this.databaseCircuitBreaker = new CircuitBreaker('Database', 10, 60000);
   }
 
@@ -198,9 +203,23 @@ export class SensorIngestionService {
       quality,
     });
 
-    // Save with retry
+    // Save the reading AND enqueue the SensorReading event atomically in a
+    // single transaction. The outbox INSERT joins the same DB transaction as
+    // the reading save: either both commit or neither. The outbox relay owns
+    // NATS delivery after commit, so a dropped broker connection can no longer
+    // lose the alert-triggering SensorReading event (SENSOR-CRITICAL-001 —
+    // replaces the prior fire-and-forget eventBus.publish). The existing
+    // withRetry + databaseCircuitBreaker wrapping is preserved AROUND the
+    // transaction so a transient failure of the atomic save+enqueue retries.
     const saveResult = await withRetry(
-      () => this.databaseCircuitBreaker.execute(() => this.readingRepository.save(reading)),
+      () =>
+        this.databaseCircuitBreaker.execute(() =>
+          this.dataSource.transaction(async (manager) => {
+            const persisted = await manager.save(SensorReading, reading);
+            await this.outboxPublisher.enqueue(this.buildReadingEvent(persisted), manager);
+            return persisted;
+          }),
+        ),
       {
         maxRetries: 3,
         initialDelayMs: 100,
@@ -220,11 +239,6 @@ export class SensorIngestionService {
     // Update sensor last seen (fire and forget with logging)
     this.updateSensorLastSeen(validatedData.sensorId).catch((err) =>
       this.logger.warn(`Failed to update lastSeenAt: ${err.message}`),
-    );
-
-    // Publish event with circuit breaker
-    this.publishReadingEvent(saved).catch((err) =>
-      this.logger.warn(`Failed to publish event: ${err.message}`),
     );
 
     this.logger.debug(`Ingested reading from sensor ${validatedData.sensorId}`);
@@ -279,32 +293,44 @@ export class SensorIngestionService {
       );
     }
 
-    // Use chunked inserts with transaction
+    // Use chunked inserts, ONE transaction per chunk, each retried
+    // INDEPENDENTLY. Each chunk's reading saves AND its per-reading
+    // SensorReading event enqueues commit atomically together: a chunk either
+    // fully persists with all its events in the outbox, or rolls back entirely
+    // (SENSOR-CRITICAL-001). withRetry wraps each chunk SEPARATELY (not the
+    // whole loop): a transient failure re-runs only the failed chunk, because
+    // retrying the whole loop would re-insert already-committed chunks (PK
+    // conflict / duplicate events). The outbox relay owns NATS delivery after
+    // commit, so no fire-and-forget publish can drop an alert-triggering event.
     let totalInserted = 0;
 
-    const insertResult = await withRetry(
-      async () => {
-        return this.dataSource.transaction(async (manager) => {
-          for (let i = 0; i < entities.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
-            const chunk = entities.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
+    for (let i = 0; i < entities.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
+      const chunk = entities.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
+      const chunkResult = await withRetry(
+        () =>
+          this.dataSource.transaction(async (manager) => {
             await manager.insert(SensorReading, chunk);
-            totalInserted += chunk.length;
-          }
-          return totalInserted;
-        });
-      },
-      {
-        maxRetries: 3,
-        initialDelayMs: 200,
-        maxDelayMs: 5000,
-        isRetryable: RetryableErrors.isTransientDatabaseError,
-        loggerName: 'SensorIngestion:batchInsert',
-      },
-    );
+            for (const persisted of chunk) {
+              await this.outboxPublisher.enqueue(this.buildReadingEvent(persisted), manager);
+            }
+          }),
+        {
+          maxRetries: 3,
+          initialDelayMs: 200,
+          maxDelayMs: 5000,
+          isRetryable: RetryableErrors.isTransientDatabaseError,
+          loggerName: 'SensorIngestion:batchInsert',
+        },
+      );
 
-    if (!insertResult.success) {
-      this.logger.error(`Batch insert failed after retries: ${insertResult.error?.message}`);
-      throw insertResult.error;
+      if (!chunkResult.success) {
+        this.logger.error(
+          `Batch insert failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
+        );
+        throw chunkResult.error;
+      }
+
+      totalInserted += chunk.length;
     }
 
     // Bulk update last seen for all sensors (more efficient)
@@ -394,15 +420,25 @@ export class SensorIngestionService {
       `Routed parent ${validParentId} reading to ${childReadings.length}/${children.length} children`,
     );
 
-    // Publish parent routing event
-    this.publishParentRoutingEvent(
-      validParentId,
-      validTenantId,
-      children.length,
-      childReadings.length,
-      errors.length,
-      timestamp,
-    ).catch((err) => this.logger.warn(`Failed to publish routing event: ${err.message}`));
+    // Enqueue the ParentReadingRouted event durably. Child readings have
+    // already been persisted with their own SensorReading events (each
+    // ingestReading() call is its own atomic save+enqueue). This summary
+    // event records the routing outcome and is committed in its own
+    // transaction via the outbox so the relay delivers it to NATS after
+    // commit — no fire-and-forget publish can drop it (SENSOR-CRITICAL-001).
+    await this.dataSource.transaction(async (manager) => {
+      await this.outboxPublisher.enqueue(
+        this.buildParentRoutingEvent(
+          validParentId,
+          validTenantId,
+          children.length,
+          childReadings.length,
+          errors.length,
+          timestamp,
+        ),
+        manager,
+      );
+    });
 
     return {
       childReadings,
@@ -579,51 +615,62 @@ export class SensorIngestionService {
   }
 
   /**
-   * Publish sensor reading event (v2 — flat readingXxx fields)
+   * Build the sensor reading event (v2 — flat readingXxx fields).
    * ARCH-C01: Emits flat fields instead of nested `readings` object.
+   *
+   * Pure builder: returns the event object so the caller can enqueue it on
+   * the transactional outbox atomically with the reading save
+   * (SENSOR-CRITICAL-001). It performs no I/O and no eventBus publish.
    */
-  private async publishReadingEvent(reading: SensorReading): Promise<void> {
-    await this.eventBusCircuitBreaker.execute(() =>
-      this.eventBus.publish({
-        ...createBaseEvent('SensorReading', reading.tenantId, { aggregateId: reading.sensorId, aggregateType: 'Sensor', version: 2 }),
-        timestamp: reading.timestamp instanceof Date ? reading.timestamp.toISOString() : reading.timestamp,
-        sensorId: reading.sensorId,
-        farmId: reading.farmId,
-        pondId: reading.pondId,
-        readingTemperature: reading.readings.temperature,
-        readingPh: reading.readings.ph,
-        readingDissolvedOxygen: reading.readings.dissolvedOxygen,
-        readingSalinity: reading.readings.salinity,
-        readingAmmonia: reading.readings.ammonia,
-        readingNitrite: reading.readings.nitrite,
-        readingNitrate: reading.readings.nitrate,
-        readingTurbidity: reading.readings.turbidity,
-        readingWaterLevel: reading.readings.waterLevel,
+  private buildReadingEvent(reading: SensorReading): SensorReadingEvent {
+    return {
+      ...createBaseEvent<SensorReadingEvent>('SensorReading', reading.tenantId, {
+        aggregateId: reading.sensorId,
+        aggregateType: 'Sensor',
+        version: 2,
       }),
-    );
+      timestamp:
+        reading.timestamp instanceof Date ? reading.timestamp.toISOString() : reading.timestamp,
+      sensorId: reading.sensorId,
+      farmId: reading.farmId,
+      pondId: reading.pondId,
+      readingTemperature: reading.readings.temperature,
+      readingPh: reading.readings.ph,
+      readingDissolvedOxygen: reading.readings.dissolvedOxygen,
+      readingSalinity: reading.readings.salinity,
+      readingAmmonia: reading.readings.ammonia,
+      readingNitrite: reading.readings.nitrite,
+      readingNitrate: reading.readings.nitrate,
+      readingTurbidity: reading.readings.turbidity,
+      readingWaterLevel: reading.readings.waterLevel,
+    };
   }
 
   /**
-   * Publish parent routing event
+   * Build the parent routing event.
+   *
+   * Pure builder: returns the event object so the caller can enqueue it on
+   * the transactional outbox (SENSOR-CRITICAL-001). No I/O, no eventBus.
    */
-  private async publishParentRoutingEvent(
+  private buildParentRoutingEvent(
     parentId: string,
     tenantId: string,
     childCount: number,
     processedCount: number,
     errorCount: number,
     timestamp?: Date,
-  ): Promise<void> {
-    await this.eventBusCircuitBreaker.execute(() =>
-      this.eventBus.publish({
-        ...createBaseEvent('ParentReadingRouted', tenantId, { aggregateId: parentId, aggregateType: 'Sensor' }),
-        timestamp: timestamp ? timestamp.toISOString() : new Date().toISOString(),
-        parentId,
-        childCount,
-        processedCount,
-        errorCount,
+  ): ParentReadingRoutedEvent {
+    return {
+      ...createBaseEvent<ParentReadingRoutedEvent>('ParentReadingRouted', tenantId, {
+        aggregateId: parentId,
+        aggregateType: 'Sensor',
       }),
-    );
+      timestamp: timestamp ? timestamp.toISOString() : new Date().toISOString(),
+      parentId,
+      childCount,
+      processedCount,
+      errorCount,
+    };
   }
 
   /**
@@ -670,14 +717,16 @@ export class SensorIngestionService {
   }
 
   /**
-   * Get circuit breaker states for monitoring
+   * Get circuit breaker states for monitoring.
+   *
+   * Only the database breaker remains: event delivery moved off the ingest
+   * write path into the transactional outbox (SENSOR-CRITICAL-001), so there
+   * is no event-bus breaker to report.
    */
   getCircuitBreakerStates(): {
-    eventBus: string;
     database: string;
   } {
     return {
-      eventBus: this.eventBusCircuitBreaker.getState(),
       database: this.databaseCircuitBreaker.getState(),
     };
   }

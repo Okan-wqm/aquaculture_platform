@@ -89,6 +89,8 @@
     "apollo-router:gateway-subgraphs": "node scripts/apollo-router/generate-gateway-subgraphs.mjs",
     "apollo-router:supergraph-config": "node scripts/apollo-router/generate-supergraph-config.mjs",
     "apollo-router:compose": "bash scripts/apollo-router/compose-supergraph.sh",
+    "gql:validate-ops": "node scripts/ci/validate-graphql-operations.mjs",
+    "gql:validate-ops:update": "node scripts/ci/validate-graphql-operations.mjs --update-baseline",
     "apollo-router:pentest-headers": "node scripts/apollo-router/router-header-stripping-pentest.mjs",
     "typeorm:verify-governed-fork": "node scripts/typeorm/verify-governed-fork.mjs",
     "review": "ts-node --project tools/gates/tsconfig.json tools/scripts/orchestrator-runner.ts",

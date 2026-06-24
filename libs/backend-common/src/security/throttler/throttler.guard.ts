@@ -8,16 +8,17 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Response } from 'express';
 
-import { THROTTLE_KEY, THROTTLE_SKIP_KEY, ThrottleOptions } from './throttler.decorator';
-import { SlidingWindowStrategy } from './sliding-window.strategy';
+import { TenantRequest } from '../../types/tenant-request.interface';
 import { IIpValidator, IP_VALIDATOR } from '../interfaces';
 import { SecurityEventService } from '../security-event.service';
-import { TenantRequest } from '../../types/tenant-request.interface';
+
+import { SlidingWindowStrategy } from './sliding-window.strategy';
+import { THROTTLE_KEY, THROTTLE_SKIP_KEY, ThrottleOptions } from './throttler.decorator';
 
 // The throttler READER consumes the platform-canonical request-user SSoT
 // (TenantRequest.user: JwtUser, identity = `sub`). It deliberately does NOT

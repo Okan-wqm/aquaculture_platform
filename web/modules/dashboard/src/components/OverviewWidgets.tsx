@@ -215,10 +215,11 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
     };
 
     return {
-      ph: avg('ph'),
+      // salinity is not part of the criticalWaterQuality aggregate
+      // (WaterQualityMeasurement has no salinity field) — omit it.
+      ph: avg('pH'),
       dissolvedOxygen: avg('dissolvedOxygen'),
       temperature: avg('temperature'),
-      salinity: avg('salinity'),
     };
   }, [measurements]);
 

@@ -1,9 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, AlertEscalatedEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   EscalationPolicy,
@@ -124,9 +124,9 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     private readonly policyService: EscalationPolicyService,
     private readonly eventEmitter: EventEmitter2,
     private readonly redisService: RedisService,
-    @Optional()
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus | null,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async onModuleInit() {
@@ -367,26 +367,28 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
         await this.saveState(state);
       }
 
-      // Update incident
-      await this.updateIncidentEscalation(incident, level, policy);
+      // LIFE-SAFETY (ALERT-CRITICAL-001): the incident escalation-level write
+      // and the AlertEscalated event commit atomically via the transactional
+      // outbox. notification-service consumes AlertEscalated to widen the
+      // operator notification fan-out as an incident climbs the escalation
+      // ladder; a publish dropped after the incident write committed (the
+      // previous fire-and-forget behaviour) left the incident escalated but
+      // the wider on-call group never paged. No try/catch wraps the enqueue —
+      // a failed enqueue rolls back the escalation-level write so they stay
+      // consistent.
+      const event = this.buildAlertEscalatedEvent(incident, level, action);
+      await this.dataSource.transaction(async (manager) => {
+        await this.updateIncidentEscalation(manager, incident, level, policy);
+        await this.outboxPublisher.enqueue(event, manager);
+      });
 
-      // Emit local event
+      // Emit local event AFTER the durable commit so in-process listeners
+      // never observe an escalation that later rolled back.
       this.eventEmitter.emit(ESCALATION_EVENTS.ESCALATED, {
         incidentId: incident.id,
         level,
         action,
       });
-
-      // Publish NATS event so notification-service can react to escalations
-      if (this.eventBus) {
-        await this.eventBus.publish({
-          ...createBaseEvent('AlertEscalated', incident.tenantId, { aggregateId: incident.id, aggregateType: 'AlertIncident' }),
-          incidentId: incident.id,
-          level,
-          action,
-          policyId: policy.id,
-        });
-      }
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -734,6 +736,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
    * Update incident with escalation info
    */
   private async updateIncidentEscalation(
+    manager: EntityManager,
     incident: AlertIncident,
     level: number,
     policy: EscalationPolicy,
@@ -749,7 +752,31 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    await this.incidentRepository.save(incident);
+    await manager.save(AlertIncident, incident);
+  }
+
+  /**
+   * Build the AlertEscalated domain event.
+   *
+   * Pure builder: performs NO I/O. The caller enqueues the returned event on
+   * the transaction manager so it commits atomically with the incident
+   * escalation-level write (ALERT-CRITICAL-001).
+   */
+  private buildAlertEscalatedEvent(
+    incident: AlertIncident,
+    level: number,
+    action: EscalationAction,
+  ): AlertEscalatedEvent {
+    return {
+      ...createBaseEvent<AlertEscalatedEvent>('AlertEscalated', incident.tenantId, {
+        aggregateId: incident.id,
+        aggregateType: 'AlertIncident',
+      }),
+      alertId: incident.id,
+      escalationLevel: level,
+      escalatedTo: action.targetUsers,
+      reason: action.message,
+    };
   }
 
   /**

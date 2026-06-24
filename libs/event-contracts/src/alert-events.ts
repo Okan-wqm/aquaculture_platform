@@ -1,6 +1,26 @@
 import { BaseEvent } from './base-event';
 
 /**
+ * Canonical alert severity levels.
+ *
+ * SSoT mirror of the alert-engine `AlertSeverity` enum
+ * (`apps/alert-engine/src/database/entities/alert-rule.entity.ts`). The
+ * alert-engine evaluates conditions against all six levels and emits the
+ * matched level verbatim on `AlertTriggered`; the notification-service
+ * dispatcher accepts the same six. The event-contract type MUST therefore
+ * cover all six — a narrower `'info' | 'warning' | 'critical'` union would
+ * make the interface lie about the runtime value and force a cast at the
+ * (transactional) enqueue boundary.
+ */
+export type AlertSeverityLevel =
+  | 'info'
+  | 'low'
+  | 'warning'
+  | 'medium'
+  | 'high'
+  | 'critical';
+
+/**
  * Alert Triggered Event (v2 — flat fields)
  * Published when an alert condition is met.
  *
@@ -12,7 +32,7 @@ export interface AlertTriggeredEvent extends BaseEvent {
   alertId: string;
   ruleId: string;
   ruleName: string;
-  severity: 'info' | 'warning' | 'critical';
+  severity: AlertSeverityLevel;
   message: string;
   channels: string[];
   recipients: string[];

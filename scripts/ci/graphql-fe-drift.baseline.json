@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 135,
+  "count": 130,
   "operations": [
     {
       "key": "mcp/farm-management/src/graphql/queries/batches.ts::GetBatch",
@@ -117,36 +117,6 @@
       "file": "web/modules/admin-panel/src/graphql/messaging-operations.ts",
       "op": "AdminBulkCreateThreads",
       "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/dashboard/src/hooks/useDashboardData.ts::BatchesList",
-      "file": "web/modules/dashboard/src/hooks/useDashboardData.ts",
-      "op": "BatchesList",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/dashboard/src/hooks/useDashboardData.ts::CriticalWaterQuality",
-      "file": "web/modules/dashboard/src/hooks/useDashboardData.ts",
-      "op": "CriticalWaterQuality",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/dashboard/src/hooks/useDashboardData.ts::SensorsList",
-      "file": "web/modules/dashboard/src/hooks/useDashboardData.ts",
-      "op": "SensorsList",
-      "category": "BAD-ARGUMENT"
-    },
-    {
-      "key": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx::LatestReading",
-      "file": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx",
-      "op": "LatestReading",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx::SensorInfo",
-      "file": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx",
-      "op": "SensorInfo",
-      "category": "MISSING-FIELD"
     },
     {
       "key": "web/modules/farm-module/src/hooks/useBatches.ts::CloseBatch",

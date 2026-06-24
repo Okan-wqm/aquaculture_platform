@@ -127,11 +127,10 @@ export interface WaterQualityMeasurement {
   tankId: string;
   temperature: number | null;
   dissolvedOxygen: number | null;
-  ph: number | null;
+  pH: number | null;
   ammonia: number | null;
   nitrite: number | null;
-  salinity: number | null;
-  status: string;
+  overallStatus: string;
   measuredAt: string;
 }
 
@@ -190,7 +189,7 @@ export interface BatchSummary {
   status: string;
   initialQuantity: number;
   currentQuantity: number;
-  initialAvgWeightG: number;
+  currentAvgWeightG: number;
 }
 
 /** Sensor summary */
@@ -201,6 +200,12 @@ export interface SensorSummary {
   status: string;
   pondId: string | null;
   farmId: string | null;
+}
+
+/** Paginated sensor list (Query.sensors -> SensorListType). */
+export interface SensorListResult {
+  items: SensorSummary[];
+  total: number;
 }
 
 /** Sensor reading for analytics */
@@ -346,11 +351,10 @@ const CRITICAL_WATER_QUALITY_QUERY = `
       id
       temperature
       dissolvedOxygen
-      ph
+      pH
       ammonia
       nitrite
-      salinity
-      status
+      overallStatus
       measuredAt
     }
   }
@@ -396,7 +400,7 @@ const BATCHES_QUERY = `
         status
         initialQuantity
         currentQuantity
-        initialAvgWeightG
+        currentAvgWeightG
       }
       total
     }
@@ -405,13 +409,16 @@ const BATCHES_QUERY = `
 
 const SENSORS_LIST_QUERY = `
   query SensorsList($limit: Int) {
-    sensors(limit: $limit) {
-      id
-      name
-      type
-      status
-      pondId
-      farmId
+    sensors(pagination: { limit: $limit }) {
+      items {
+        id
+        name
+        type
+        status: registrationStatus
+        pondId
+        farmId
+      }
+      total
     }
   }
 `;
@@ -483,7 +490,7 @@ export function useDashboardStats() {
           { dateRange: prevDateRange },
         ).catch(() => null),
         // TODO: Consider server-side pagination if >200 sensors is a real use-case
-        graphqlClient.request<{ sensors: SensorSummary[] }>(
+        graphqlClient.request<{ sensors: SensorListResult }>(
           SENSORS_LIST_QUERY,
           { limit: 200 },
         ).catch(() => null),
@@ -526,9 +533,9 @@ export function useDashboardStats() {
 
       // Active sensors count and trend
       const activeSensors = sensorsResult?.sensors
-        ? sensorsResult.sensors.filter((s) => s.status === 'ACTIVE' || s.status === 'active').length
+        ? sensorsResult.sensors.items.filter((s) => s.status === 'ACTIVE' || s.status === 'active').length
         : stats.activeModules;
-      const totalSensors = sensorsResult?.sensors?.length ?? 0;
+      const totalSensors = sensorsResult?.sensors?.total ?? 0;
       const sensorsTrend = totalSensors > 0
         ? (activeSensors / totalSensors) * 100 - 100
         : 0;
@@ -830,10 +837,10 @@ export function useSensorsList() {
     staleTime: 120_000,
     queryFn: async (): Promise<SensorSummary[]> => {
       const result = await graphqlClient.request<{
-        sensors: SensorSummary[];
+        sensors: SensorListResult;
       }>(SENSORS_LIST_QUERY, { limit: 100 });
 
-      return result.sensors;
+      return result.sensors.items;
     },
   });
 }

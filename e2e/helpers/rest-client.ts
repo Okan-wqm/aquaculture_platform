@@ -54,23 +54,16 @@ export class RestTestClient {
   private readonly tenantId?: string;
 
   constructor(request: unknown);
-  constructor(
-    baseUrl: string,
-    token?: string,
-    tenantId?: string,
-  );
-  constructor(
-    baseUrlOrRequest: string | unknown,
-    token?: string,
-    tenantId?: string,
-  ) {
+  constructor(baseUrl: string, token?: string, tenantId?: string);
+  constructor(baseUrlOrRequest: unknown, token?: string, tenantId?: string) {
     if (typeof baseUrlOrRequest === 'string') {
       this.baseUrl = baseUrlOrRequest;
       this.token = token;
       this.tenantId = tenantId;
     } else {
       this.playwrightRequest = baseUrlOrRequest as PlaywrightAPIRequestContext;
-      this.baseUrl = process.env['BASE_URL'] ?? process.env['GATEWAY_URL'] ?? 'http://localhost:3000';
+      this.baseUrl =
+        process.env['BASE_URL'] ?? process.env['GATEWAY_URL'] ?? 'http://localhost:3000';
       this.token = token;
       this.tenantId = tenantId;
     }
@@ -242,10 +235,7 @@ export class RestTestClient {
     };
   }
 
-  private buildUrl(
-    path: string,
-    params?: Record<string, string>,
-  ): string {
+  private buildUrl(path: string, params?: Record<string, string>): string {
     const url = new URL(path, this.baseUrl);
 
     if (params) {

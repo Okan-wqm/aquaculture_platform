@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+
 import { TestDatabase } from '../helpers/db.helper';
 import { generateTestToken, type TestRole, type TestTokenOptions } from '../helpers/jwt.helper';
 
@@ -39,8 +40,7 @@ export interface CreateTestUserOptions {
  * Default bcrypt hash for 'TestPassword123!' with 12 rounds.
  * Pre-computed to avoid bcrypt overhead in tests.
  */
-const DEFAULT_PASSWORD_HASH =
-  '$2a$12$LJ3/RA.gGnqeaJMGMHGsG.7cDBanxHz/xgD6hFr4h8R6epqsVHXW';
+const DEFAULT_PASSWORD_HASH = '$2a$12$LJ3/RA.gGnqeaJMGMHGsG.7cDBanxHz/xgD6hFr4h8R6epqsVHXW';
 
 /**
  * Create a test user in auth.users and generate a JWT token.
@@ -65,8 +65,7 @@ export async function createTestUser(
       : role === 'SUPER_ADMIN'
         ? null
         : randomUUID();
-  const email =
-    options?.email ?? `e2e-user-${id.slice(0, 8)}@test.aquaculture.io`;
+  const email = options?.email ?? `e2e-user-${id.slice(0, 8)}@test.aquaculture.io`;
   const firstName = options?.firstName ?? 'E2E';
   const lastName = options?.lastName ?? `Test ${id.slice(0, 8)}`;
   const isActive = options?.isActive ?? true;
@@ -164,10 +163,7 @@ export async function createModuleUser(
 /**
  * Clean up a test user by ID.
  */
-export async function teardownTestUser(
-  db: TestDatabase,
-  userId: string,
-): Promise<void> {
+export async function teardownTestUser(db: TestDatabase, userId: string): Promise<void> {
   await db.deleteUser(userId);
 }
 

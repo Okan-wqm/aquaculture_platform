@@ -7,6 +7,15 @@
  * - Cross-tenant queries are properly rejected
  */
 
+import { assertDefined } from '../../helpers/assertions';
+import {
+  findUserById,
+  getTenantSchemaTables,
+  query,
+  closePool,
+  getTenantSchemaName,
+} from '../../helpers/db.helper';
+import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -18,15 +27,6 @@ import {
   generateTestEmail,
   generateTestPassword,
 } from '../../helpers/tenant.fixture';
-import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
-import {
-  findUserById,
-  findUserByEmail,
-  getTenantSchemaTables,
-  query,
-  closePool,
-  getTenantSchemaName,
-} from '../../helpers/db.helper';
 
 describe('Data Isolation Chain', () => {
   let superAdminToken: string;
@@ -76,7 +76,7 @@ describe('Data Isolation Chain', () => {
       lastName: 'User',
       email: tenantAUserEmail,
       password: tenantAUserPassword,
-      roleId: defaultRoleA!.id,
+      roleId: defaultRoleA.id,
       sendInvitation: false,
     });
     tenantAUserId = userA.userId;
@@ -90,7 +90,7 @@ describe('Data Isolation Chain', () => {
       lastName: 'User',
       email: tenantBUserEmail,
       password: tenantBUserPassword,
-      roleId: defaultRoleB!.id,
+      roleId: defaultRoleB.id,
       sendInvitation: false,
     });
     tenantBUserId = userB.userId;
@@ -202,9 +202,9 @@ describe('Data Isolation Chain', () => {
     expect(dbUserB).not.toBeNull();
 
     // Users belong to different tenants
-    expect(dbUserA!.tenantId).toBe(tenantAId);
-    expect(dbUserB!.tenantId).toBe(tenantBId);
-    expect(dbUserA!.tenantId).not.toBe(dbUserB!.tenantId);
+    expect(assertDefined(dbUserA).tenantId).toBe(tenantAId);
+    expect(assertDefined(dbUserB).tenantId).toBe(tenantBId);
+    expect(assertDefined(dbUserA).tenantId).not.toBe(assertDefined(dbUserB).tenantId);
   });
 
   it('should reject cross-tenant data access via direct GraphQL query', async () => {

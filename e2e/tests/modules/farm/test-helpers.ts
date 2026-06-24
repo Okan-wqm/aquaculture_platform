@@ -7,6 +7,8 @@
  * @module E2E/Farm/Helpers
  */
 
+import { assertDefined } from '../../../helpers/assertions';
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -65,12 +67,10 @@ export async function gqlExpectSuccess<T = Record<string, unknown>>(
 ): Promise<T> {
   const result = await gqlRequest<T>(query, variables, tenantId, userId);
   if (result.errors && result.errors.length > 0) {
-    throw new Error(
-      `GraphQL errors: ${result.errors.map((e) => e.message).join('; ')}`,
-    );
+    throw new Error(`GraphQL errors: ${result.errors.map((e) => e.message).join('; ')}`);
   }
   expect(result.data).toBeDefined();
-  return result.data!;
+  return assertDefined(result.data);
 }
 
 /**
@@ -84,8 +84,9 @@ export async function gqlExpectError(
 ): Promise<Array<{ message: string; extensions?: Record<string, unknown> }>> {
   const result = await gqlRequest(query, variables, tenantId, userId);
   expect(result.errors).toBeDefined();
-  expect(result.errors!.length).toBeGreaterThan(0);
-  return result.errors!;
+  const errors = assertDefined(result.errors);
+  expect(errors.length).toBeGreaterThan(0);
+  return errors;
 }
 
 // ============================================================================
@@ -111,6 +112,14 @@ export function uniqueSpeciesCode(): string {
  */
 export function uniqueScientificName(): string {
   return `Testus ${Date.now().toString(36)}ensis`;
+}
+
+/**
+ * A built GraphQL operation: the query/mutation document plus its variables.
+ */
+export interface GraphQLOperation<TVariables = Record<string, unknown>> {
+  query: string;
+  variables: TVariables;
 }
 
 // ============================================================================
@@ -243,8 +252,22 @@ export interface CreateSpeciesVars {
   notes?: string;
 }
 
-export function buildCreateSpeciesMutation(vars: CreateSpeciesVars = {}) {
-  const input = {
+export interface CreateSpeciesInput {
+  scientificName: string;
+  commonName: string;
+  localName?: string;
+  code: string;
+  category: string;
+  waterType: string;
+  status: string;
+  tags?: string[];
+  notes?: string;
+}
+
+export function buildCreateSpeciesMutation(
+  vars: CreateSpeciesVars = {},
+): GraphQLOperation<{ input: CreateSpeciesInput }> {
+  const input: CreateSpeciesInput = {
     scientificName: vars.scientificName || uniqueScientificName(),
     commonName: vars.commonName || `Test Fish ${uniqueId()}`,
     localName: vars.localName,
@@ -308,8 +331,32 @@ export interface CreateBatchVars {
   notes?: string;
 }
 
-export function buildCreateBatchMutation(vars: CreateBatchVars) {
-  const input = {
+export interface CreateBatchInput {
+  name?: string;
+  speciesId: string;
+  inputType: string;
+  initialQuantity: number;
+  initialWeight: {
+    avgWeight: number;
+    totalBiomass: number;
+  };
+  stockedAt: string;
+  expectedHarvestDate?: string;
+  targetFCR: number;
+  initialLocations: Array<{
+    locationType: string;
+    tankId?: string;
+    pondId?: string;
+    quantity: number;
+    biomass: number;
+  }>;
+  notes?: string;
+}
+
+export function buildCreateBatchMutation(
+  vars: CreateBatchVars,
+): GraphQLOperation<{ input: CreateBatchInput }> {
+  const input: CreateBatchInput = {
     name: vars.name,
     speciesId: vars.speciesId,
     inputType: vars.inputType || 'FRY',
@@ -318,7 +365,7 @@ export function buildCreateBatchMutation(vars: CreateBatchVars) {
       avgWeight: vars.initialAvgWeightG || 5.0,
       totalBiomass: vars.initialTotalBiomassKg || 50.0,
     },
-    stockedAt: vars.stockedAt || new Date().toISOString().split('T')[0],
+    stockedAt: vars.stockedAt || assertDefined(new Date().toISOString().split('T')[0]),
     expectedHarvestDate: vars.expectedHarvestDate,
     targetFCR: vars.targetFCR || 1.5,
     initialLocations: vars.initialLocations || [],

@@ -7,8 +7,9 @@
  * insufficient balance, min notice days, cross-tenant isolation.
  */
 import { randomUUID } from 'crypto';
-import { GraphQLTestClient } from '../../../helpers/graphql-client';
+
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateTestToken } from '../../../helpers/jwt.helper';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
@@ -64,44 +65,48 @@ describe('Leave Full Workflow', () => {
     // Create an employee linked to the employee user for self-service operations
     const empData = await clientAdmin.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'Leave',
-        lastName: 'Requester',
-        email: `e2e-leave-emp-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-leave-contact-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-111-2222',
+    `,
+      {
+        input: {
+          firstName: 'Leave',
+          lastName: 'Requester',
+          email: `e2e-leave-emp-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-leave-contact-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-111-2222',
+          },
+          address: {
+            street: '789 Leave Street',
+            city: 'Izmir',
+            state: 'Aegean',
+            postalCode: '35000',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1992-08-10',
+          nationalId: 'TC33333333333',
+          employmentType: 'FULL_TIME',
+          department: 'OPERATIONS',
+          position: 'Marine Biologist',
+          hireDate: '2023-01-10',
+          baseSalary: 55000,
+          currency: 'TRY',
         },
-        address: {
-          street: '789 Leave Street',
-          city: 'Izmir',
-          state: 'Aegean',
-          postalCode: '35000',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1992-08-10',
-        nationalId: 'TC33333333333',
-        employmentType: 'FULL_TIME',
-        department: 'OPERATIONS',
-        position: 'Marine Biologist',
-        hireDate: '2023-01-10',
-        baseSalary: 55000,
-        currency: 'TRY',
       },
-    });
+    );
     employeeId = empData.createEmployee.id;
 
     // Link employee to the employee user by updating userId in DB
     try {
-      await db.query(
-        `UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`,
-        [EMPLOYEE_USER_ID, employeeId, TENANT_A_ID],
-      );
+      await db.query(`UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`, [
+        EMPLOYEE_USER_ID,
+        employeeId,
+        TENANT_A_ID,
+      ]);
     } catch (error) {
       console.warn('Could not link employee to user in DB:', (error as Error).message);
     }
@@ -149,10 +154,10 @@ describe('Leave Full Workflow', () => {
     // There should be at least one active leave type
     // If none exist, the test documents that seed data is needed
     if (data.leaveTypes.length > 0) {
-      leaveTypeId = data.leaveTypes[0]!.id;
-      expect(data.leaveTypes[0]!.name).toBeDefined();
-      expect(data.leaveTypes[0]!.code).toBeDefined();
-      expect(typeof data.leaveTypes[0]!.isActive).toBe('boolean');
+      leaveTypeId = data.leaveTypes[0].id;
+      expect(data.leaveTypes[0].name).toBeDefined();
+      expect(data.leaveTypes[0].code).toBeDefined();
+      expect(typeof data.leaveTypes[0].isActive).toBe('boolean');
     } else {
       console.warn('No leave types found - seed data may be required');
       // Use a dummy UUID - subsequent tests will fail gracefully
@@ -175,7 +180,8 @@ describe('Leave Full Workflow', () => {
         currentBalance: number;
         availableBalance: number;
       }>;
-    }>(`
+    }>(
+      `
       query LeaveBalances($employeeId: ID!) {
         leaveBalances(employeeId: $employeeId) {
           id
@@ -190,12 +196,14 @@ describe('Leave Full Workflow', () => {
           availableBalance
         }
       }
-    `, { employeeId });
+    `,
+      { employeeId },
+    );
 
     expect(data.leaveBalances).toBeDefined();
     // Balances may be empty if no balance records seeded
     if (data.leaveBalances.length > 0) {
-      const balance = data.leaveBalances[0]!;
+      const balance = data.leaveBalances[0];
       expect(balance.employeeId).toBe(employeeId);
       expect(typeof balance.currentBalance).toBe('number');
       expect(typeof balance.availableBalance).toBe('number');
@@ -204,27 +212,6 @@ describe('Leave Full Workflow', () => {
 
   // ── Test 3: Create leave request ──────────────────────
   test('Test 3: createLeaveRequest -> status=DRAFT, pending balance', async () => {
-    // Get initial balance for tracking
-    let initialPending = 0;
-    try {
-      const balData = await clientManager.query<{
-        leaveBalances: Array<{ pending: number; leaveTypeId: string }>;
-      }>(`
-        query Balances($employeeId: ID!) {
-          leaveBalances(employeeId: $employeeId) {
-            pending
-            leaveTypeId
-          }
-        }
-      `, { employeeId });
-      const targetBalance = balData.leaveBalances.find(
-        (b: { leaveTypeId: string }) => b.leaveTypeId === leaveTypeId,
-      );
-      initialPending = targetBalance?.pending ?? 0;
-    } catch {
-      // Balance may not exist yet
-    }
-
     const data = await clientEmployee.mutate<{
       createLeaveRequest: {
         id: string;
@@ -237,7 +224,8 @@ describe('Leave Full Workflow', () => {
         status: string;
         reason: string;
       };
-    }>(`
+    }>(
+      `
       mutation CreateLeave($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) {
           id
@@ -251,16 +239,18 @@ describe('Leave Full Workflow', () => {
           reason
         }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-05-01',
-        endDate: '2026-05-03',
-        totalDays: 3,
-        reason: 'E2E test leave - approval flow',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-05-01',
+          endDate: '2026-05-03',
+          totalDays: 3,
+          reason: 'E2E test leave - approval flow',
+        },
       },
-    });
+    );
 
     const lr = data.createLeaveRequest;
     leaveRequestId = lr.id;
@@ -281,14 +271,17 @@ describe('Leave Full Workflow', () => {
         id: string;
         status: string;
       };
-    }>(`
+    }>(
+      `
       mutation SubmitLeave($id: ID!) {
         submitLeaveRequest(id: $id) {
           id
           status
         }
       }
-    `, { id: leaveRequestId });
+    `,
+      { id: leaveRequestId },
+    );
 
     expect(data.submitLeaveRequest.status).toBe('pending');
   });
@@ -300,7 +293,8 @@ describe('Leave Full Workflow', () => {
     try {
       const balBefore = await clientManager.query<{
         leaveBalances: Array<{ used: number; pending: number; leaveTypeId: string }>;
-      }>(`
+      }>(
+        `
         query Balances($employeeId: ID!) {
           leaveBalances(employeeId: $employeeId) {
             used
@@ -308,7 +302,9 @@ describe('Leave Full Workflow', () => {
             leaveTypeId
           }
         }
-      `, { employeeId });
+      `,
+        { employeeId },
+      );
       const targetBal = balBefore.leaveBalances.find(
         (b: { leaveTypeId: string }) => b.leaveTypeId === leaveTypeId,
       );
@@ -324,7 +320,8 @@ describe('Leave Full Workflow', () => {
         approvedBy: string;
         approvedAt: string;
       };
-    }>(`
+    }>(
+      `
       mutation ApproveLeave($id: ID!, $notes: String) {
         approveLeaveRequest(id: $id, notes: $notes) {
           id
@@ -333,7 +330,9 @@ describe('Leave Full Workflow', () => {
           approvedAt
         }
       }
-    `, { id: leaveRequestId, notes: 'Approved by manager in E2E test' });
+    `,
+      { id: leaveRequestId, notes: 'Approved by manager in E2E test' },
+    );
 
     expect(data.approveLeaveRequest.status).toBe('approved');
     expect(data.approveLeaveRequest.approvedBy).toBeDefined();
@@ -349,7 +348,8 @@ describe('Leave Full Workflow', () => {
           currentBalance: number;
           availableBalance: number;
         }>;
-      }>(`
+      }>(
+        `
         query Balances($employeeId: ID!) {
           leaveBalances(employeeId: $employeeId) {
             used
@@ -359,7 +359,9 @@ describe('Leave Full Workflow', () => {
             availableBalance
           }
         }
-      `, { employeeId });
+      `,
+        { employeeId },
+      );
 
       const targetBal = balAfter.leaveBalances.find(
         (b: { leaveTypeId: string }) => b.leaveTypeId === leaveTypeId,
@@ -391,7 +393,7 @@ describe('Leave Full Workflow', () => {
       );
 
       if (result.rows.length > 0) {
-        expect(result.rows[0]!.employeeId).toBe(employeeId);
+        expect(result.rows[0].employeeId).toBe(employeeId);
       }
     } catch (error) {
       console.warn('DB verification skipped:', (error as Error).message);
@@ -407,31 +409,37 @@ describe('Leave Full Workflow', () => {
     // Create
     const createData = await clientEmployee.mutate<{
       createLeaveRequest: { id: string; status: string };
-    }>(`
+    }>(
+      `
       mutation CreateLeave($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id status }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-06-10',
-        endDate: '2026-06-12',
-        totalDays: 3,
-        reason: 'E2E test leave - reject flow',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-06-10',
+          endDate: '2026-06-12',
+          totalDays: 3,
+          reason: 'E2E test leave - reject flow',
+        },
       },
-    });
+    );
     rejectRequestId = createData.createLeaveRequest.id;
     expect(createData.createLeaveRequest.status).toBe('draft');
 
     // Submit
     const submitData = await clientEmployee.mutate<{
       submitLeaveRequest: { id: string; status: string };
-    }>(`
+    }>(
+      `
       mutation SubmitLeave($id: ID!) {
         submitLeaveRequest(id: $id) { id status }
       }
-    `, { id: rejectRequestId });
+    `,
+      { id: rejectRequestId },
+    );
     expect(submitData.submitLeaveRequest.status).toBe('pending');
 
     // Reject
@@ -443,7 +451,8 @@ describe('Leave Full Workflow', () => {
         rejectedAt: string;
         rejectionReason: string;
       };
-    }>(`
+    }>(
+      `
       mutation RejectLeave($id: ID!, $reason: String!) {
         rejectLeaveRequest(id: $id, reason: $reason) {
           id
@@ -453,7 +462,9 @@ describe('Leave Full Workflow', () => {
           rejectionReason
         }
       }
-    `, { id: rejectRequestId, reason: 'Insufficient staff coverage during requested period' });
+    `,
+      { id: rejectRequestId, reason: 'Insufficient staff coverage during requested period' },
+    );
 
     expect(rejectData.rejectLeaveRequest.status).toBe('rejected');
     expect(rejectData.rejectLeaveRequest.rejectedBy).toBeDefined();
@@ -471,46 +482,58 @@ describe('Leave Full Workflow', () => {
     // Create a new leave, submit, approve, then cancel
     const createData = await clientEmployee.mutate<{
       createLeaveRequest: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateLeave($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-07-15',
-        endDate: '2026-07-17',
-        totalDays: 3,
-        reason: 'E2E test leave - cancel flow',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-07-15',
+          endDate: '2026-07-17',
+          totalDays: 3,
+          reason: 'E2E test leave - cancel flow',
+        },
       },
-    });
+    );
     cancelRequestId = createData.createLeaveRequest.id;
 
     // Submit
-    await clientEmployee.mutate(`
+    await clientEmployee.mutate(
+      `
       mutation SubmitLeave($id: ID!) {
         submitLeaveRequest(id: $id) { id status }
       }
-    `, { id: cancelRequestId });
+    `,
+      { id: cancelRequestId },
+    );
 
     // Approve
-    await clientManager.mutate(`
+    await clientManager.mutate(
+      `
       mutation ApproveLeave($id: ID!) {
         approveLeaveRequest(id: $id) { id status }
       }
-    `, { id: cancelRequestId });
+    `,
+      { id: cancelRequestId },
+    );
 
     // Get balance before cancel
     let usedBeforeCancel = 0;
     try {
       const balBefore = await clientManager.query<{
         leaveBalances: Array<{ used: number; leaveTypeId: string }>;
-      }>(`
+      }>(
+        `
         query Balances($employeeId: ID!) {
           leaveBalances(employeeId: $employeeId) { used leaveTypeId }
         }
-      `, { employeeId });
+      `,
+        { employeeId },
+      );
       const targetBal = balBefore.leaveBalances.find(
         (b: { leaveTypeId: string }) => b.leaveTypeId === leaveTypeId,
       );
@@ -528,7 +551,8 @@ describe('Leave Full Workflow', () => {
         cancelledAt: string;
         cancellationReason: string;
       };
-    }>(`
+    }>(
+      `
       mutation CancelLeave($id: ID!, $reason: String) {
         cancelLeaveRequest(id: $id, reason: $reason) {
           id
@@ -538,7 +562,9 @@ describe('Leave Full Workflow', () => {
           cancellationReason
         }
       }
-    `, { id: cancelRequestId, reason: 'Plans changed - E2E test' });
+    `,
+      { id: cancelRequestId, reason: 'Plans changed - E2E test' },
+    );
 
     expect(cancelData.cancelLeaveRequest.status).toBe('cancelled');
     expect(cancelData.cancelLeaveRequest.cancelledBy).toBeDefined();
@@ -548,11 +574,14 @@ describe('Leave Full Workflow', () => {
     try {
       const balAfter = await clientManager.query<{
         leaveBalances: Array<{ used: number; leaveTypeId: string }>;
-      }>(`
+      }>(
+        `
         query Balances($employeeId: ID!) {
           leaveBalances(employeeId: $employeeId) { used leaveTypeId }
         }
-      `, { employeeId });
+      `,
+        { employeeId },
+      );
       const targetBal = balAfter.leaveBalances.find(
         (b: { leaveTypeId: string }) => b.leaveTypeId === leaveTypeId,
       );
@@ -577,35 +606,48 @@ describe('Leave Full Workflow', () => {
     };
 
     // Attempt to create past-dated leave - system may reject at creation
-    const createResponse = await clientEmployee.queryRaw(`
+    const createResponse = await clientEmployee.queryRaw(
+      `
       mutation CreatePastLeave($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id status }
       }
-    `, { input: pastInput });
+    `,
+      { input: pastInput },
+    );
 
     if (createResponse.errors) {
       // System correctly prevents past-dated leave creation
       expect(createResponse.errors.length).toBeGreaterThan(0);
     } else if (createResponse.data) {
       // If creation succeeded, try the full flow and cancel
-      const pastLeaveId = (createResponse.data as { createLeaveRequest: { id: string } }).createLeaveRequest.id;
+      const pastLeaveId = (createResponse.data as { createLeaveRequest: { id: string } })
+        .createLeaveRequest.id;
 
       // Submit and approve to test cancel on past date
-      await clientEmployee.queryRaw(`
+      await clientEmployee.queryRaw(
+        `
         mutation Submit($id: ID!) { submitLeaveRequest(id: $id) { id } }
-      `, { id: pastLeaveId });
+      `,
+        { id: pastLeaveId },
+      );
 
-      await clientManager.queryRaw(`
+      await clientManager.queryRaw(
+        `
         mutation Approve($id: ID!) { approveLeaveRequest(id: $id) { id } }
-      `, { id: pastLeaveId });
+      `,
+        { id: pastLeaveId },
+      );
 
-      const cancelResponse = await clientEmployee.queryRaw(`
+      const cancelResponse = await clientEmployee.queryRaw(
+        `
         mutation CancelPast($id: ID!) {
           cancelLeaveRequest(id: $id, reason: "Trying to cancel past leave") {
             id status
           }
         }
-      `, { id: pastLeaveId });
+      `,
+        { id: pastLeaveId },
+      );
 
       // Past leave cancellation should be prevented
       if (cancelResponse.errors) {
@@ -624,35 +666,44 @@ describe('Leave Full Workflow', () => {
     // Create leave as employee
     const createData = await clientEmployee.mutate<{
       createLeaveRequest: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateLeave($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-08-01',
-        endDate: '2026-08-02',
-        totalDays: 2,
-        reason: 'Self-approve test',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-08-01',
+          endDate: '2026-08-02',
+          totalDays: 2,
+          reason: 'Self-approve test',
+        },
       },
-    });
+    );
     const selfApproveId = createData.createLeaveRequest.id;
 
     // Submit
-    await clientEmployee.mutate(`
+    await clientEmployee.mutate(
+      `
       mutation Submit($id: ID!) {
         submitLeaveRequest(id: $id) { id }
       }
-    `, { id: selfApproveId });
+    `,
+      { id: selfApproveId },
+    );
 
     // Employee tries to approve own leave (should fail due to role or self-approve block)
-    const response = await clientEmployee.queryRaw(`
+    const response = await clientEmployee.queryRaw(
+      `
       mutation SelfApprove($id: ID!) {
         approveLeaveRequest(id: $id) { id status }
       }
-    `, { id: selfApproveId });
+    `,
+      { id: selfApproveId },
+    );
 
     // MODULE_USER role should not be allowed to approve
     // This tests both role-based and self-approve prevention
@@ -666,43 +717,52 @@ describe('Leave Full Workflow', () => {
     // Create first leave
     const firstLeave = await clientEmployee.mutate<{
       createLeaveRequest: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateLeave($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-09-01',
-        endDate: '2026-09-05',
-        totalDays: 5,
-        reason: 'First leave for overlap test',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-09-01',
+          endDate: '2026-09-05',
+          totalDays: 5,
+          reason: 'First leave for overlap test',
+        },
       },
-    });
+    );
 
     // Submit first leave
-    await clientEmployee.mutate(`
+    await clientEmployee.mutate(
+      `
       mutation Submit($id: ID!) {
         submitLeaveRequest(id: $id) { id }
       }
-    `, { id: firstLeave.createLeaveRequest.id });
+    `,
+      { id: firstLeave.createLeaveRequest.id },
+    );
 
     // Try to create overlapping leave
-    const overlapResponse = await clientEmployee.queryRaw(`
+    const overlapResponse = await clientEmployee.queryRaw(
+      `
       mutation CreateOverlapping($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-09-03',
-        endDate: '2026-09-07',
-        totalDays: 5,
-        reason: 'Overlapping leave test',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-09-03',
+          endDate: '2026-09-07',
+          totalDays: 5,
+          reason: 'Overlapping leave test',
+        },
       },
-    });
+    );
 
     // System should detect overlapping dates
     if (overlapResponse.errors) {
@@ -711,11 +771,14 @@ describe('Leave Full Workflow', () => {
       // If system allows creation (checking happens at submit), submit the overlap
       const overlapId = (overlapResponse.data as { createLeaveRequest: { id: string } })
         .createLeaveRequest.id;
-      const submitResponse = await clientEmployee.queryRaw(`
+      const submitResponse = await clientEmployee.queryRaw(
+        `
         mutation Submit($id: ID!) {
           submitLeaveRequest(id: $id) { id status }
         }
-      `, { id: overlapId });
+      `,
+        { id: overlapId },
+      );
 
       if (submitResponse.errors) {
         expect(submitResponse.errors.length).toBeGreaterThan(0);
@@ -726,20 +789,23 @@ describe('Leave Full Workflow', () => {
   // ── Test 12: Insufficient balance ─────────────────────
   test('Test 12: insufficient balance -> error', async () => {
     // Request a very large number of days to exceed any possible balance
-    const response = await clientEmployee.queryRaw(`
+    const response = await clientEmployee.queryRaw(
+      `
       mutation CreateExcessive($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: '2026-10-01',
-        endDate: '2026-12-31',
-        totalDays: 90,
-        reason: 'Excessive leave to test balance check',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: '2026-10-01',
+          endDate: '2026-12-31',
+          totalDays: 90,
+          reason: 'Excessive leave to test balance check',
+        },
       },
-    });
+    );
 
     // Should fail due to insufficient balance
     if (response.errors) {
@@ -748,11 +814,14 @@ describe('Leave Full Workflow', () => {
       // If creation succeeds, submit should fail
       const excessiveId = (response.data as { createLeaveRequest: { id: string } })
         .createLeaveRequest.id;
-      const submitResponse = await clientEmployee.queryRaw(`
+      const submitResponse = await clientEmployee.queryRaw(
+        `
         mutation Submit($id: ID!) {
           submitLeaveRequest(id: $id) { id }
         }
-      `, { id: excessiveId });
+      `,
+        { id: excessiveId },
+      );
 
       if (submitResponse.errors) {
         expect(submitResponse.errors.length).toBeGreaterThan(0);
@@ -771,26 +840,29 @@ describe('Leave Full Workflow', () => {
     dayAfter.setDate(dayAfter.getDate() + 2);
     const dayAfterStr = dayAfter.toISOString().split('T')[0];
 
-    const response = await clientEmployee.queryRaw(`
+    const response = await clientEmployee.queryRaw(
+      `
       mutation CreateUrgent($input: CreateLeaveRequestInput!) {
         createLeaveRequest(input: $input) { id status }
       }
-    `, {
-      input: {
-        employeeId,
-        leaveTypeId,
-        startDate: tomorrowStr,
-        endDate: dayAfterStr,
-        totalDays: 2,
-        reason: 'Urgent leave - min notice test',
+    `,
+      {
+        input: {
+          employeeId,
+          leaveTypeId,
+          startDate: tomorrowStr,
+          endDate: dayAfterStr,
+          totalDays: 2,
+          reason: 'Urgent leave - min notice test',
+        },
       },
-    });
+    );
 
     // If the leave type has minDaysNotice > 1, this should fail
     // If minDaysNotice is 0 or null, creation may succeed
     if (response.errors && response.errors.length > 0) {
       // Correctly blocked due to min notice days
-      expect(response.errors[0]!.message).toBeDefined();
+      expect(response.errors[0].message).toBeDefined();
     }
     // If no error, the leave type allows short-notice requests
   });
@@ -804,14 +876,17 @@ describe('Leave Full Workflow', () => {
     // Tenant B tries to get Tenant A's leave request
     const queryResponse = await clientB.queryRaw<{
       leaveRequest: { id: string } | null;
-    }>(`
+    }>(
+      `
       query GetLeave($id: ID!) {
         leaveRequest(id: $id) {
           id
           status
         }
       }
-    `, { id: leaveRequestId });
+    `,
+      { id: leaveRequestId },
+    );
 
     if (queryResponse.data?.leaveRequest) {
       fail('Tenant B should not see Tenant A leave request');
@@ -821,11 +896,14 @@ describe('Leave Full Workflow', () => {
     }
 
     // Tenant B tries to approve Tenant A's leave request
-    const approveResponse = await clientB.queryRaw(`
+    const approveResponse = await clientB.queryRaw(
+      `
       mutation CrossTenantApprove($id: ID!) {
         approveLeaveRequest(id: $id) { id status }
       }
-    `, { id: leaveRequestId });
+    `,
+      { id: leaveRequestId },
+    );
 
     if (approveResponse.errors) {
       expect(approveResponse.errors.length).toBeGreaterThan(0);

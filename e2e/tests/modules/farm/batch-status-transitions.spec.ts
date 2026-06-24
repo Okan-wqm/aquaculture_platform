@@ -20,9 +20,6 @@
 import {
   gqlExpectSuccess,
   gqlExpectError,
-  TENANT_A_ID,
-  USER_A_ID,
-  BATCH_FIELDS,
   createTestSpecies,
   createTestBatch,
 } from './test-helpers';
@@ -56,10 +53,7 @@ async function transitionTo(
 }
 
 // Helper: batch status degisimi reject olmasini bekle
-async function expectTransitionReject(
-  batchId: string,
-  status: string,
-): Promise<void> {
+async function expectTransitionReject(batchId: string, status: string): Promise<void> {
   const errors = await gqlExpectError(
     `
       mutation UpdateBatchStatus($id: ID!, $status: BatchStatus!) {
@@ -75,11 +69,11 @@ async function expectTransitionReject(
   const msg = errors.map((e) => e.message.toLowerCase()).join(' ');
   expect(
     msg.includes('invalid') ||
-    msg.includes('gecersiz') ||
-    msg.includes('transition') ||
-    msg.includes('gecis') ||
-    msg.includes('cannot') ||
-    msg.includes('gecem'),
+      msg.includes('gecersiz') ||
+      msg.includes('transition') ||
+      msg.includes('gecis') ||
+      msg.includes('cannot') ||
+      msg.includes('gecem'),
   ).toBe(true);
 }
 

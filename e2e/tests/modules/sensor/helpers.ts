@@ -81,13 +81,15 @@ export function uniqueCode(prefix = 'EDGE'): string {
  * Direct database query for verification.
  * Uses the sensor-service database connection.
  */
-export async function dbQuery(sql: string, params: unknown[] = []): Promise<unknown[]> {
+export function dbQuery(sql: string, params: unknown[] = []): Promise<unknown[]> {
   // In a real E2E setup, this would connect to the test database.
-  // For now, we verify via GraphQL queries (double-read pattern).
+  // Verification currently goes through GraphQL queries (double-read pattern).
   // This function exists as a placeholder for DB-level assertions.
+  // The body has no awaited work yet, so it is synchronous; it returns a
+  // resolved Promise to preserve the awaitable DB-helper contract for callers.
   void sql;
   void params;
-  return [];
+  return Promise.resolve([]);
 }
 
 // ============================================================================

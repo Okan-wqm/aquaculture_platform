@@ -7,7 +7,14 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n } from '@aquaculture/shared-ui';
+import {
+  BRAND,
+  getAccessToken,
+  tokenLifecycle,
+  useAuthContext,
+  useI18n,
+  I18nProvider,
+} from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -18,7 +25,6 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 const AuthLayout: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuthContext();
-  const { t } = useI18n();
 
   if (isLoading) {
     return (
@@ -38,6 +44,23 @@ const AuthLayout: React.FC = () => {
   if (hasLiveSession) {
     return <Navigate to="/" replace />;
   }
+
+  // The login/auth surface is presented in ENGLISH regardless of the app's
+  // browser-detected locale — a nested provider overrides it for this subtree
+  // only, so the rest of the app keeps its auto-detected language.
+  return (
+    <I18nProvider locale="en">
+      <AuthChrome />
+    </I18nProvider>
+  );
+};
+
+// ============================================================================
+// Auth chrome (inside the English i18n scope)
+// ============================================================================
+
+const AuthChrome: React.FC = () => {
+  const { t } = useI18n();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-600 to-secondary-600 flex flex-col">
@@ -64,8 +87,11 @@ const AuthLayout: React.FC = () => {
           <div className="surface-glass backdrop-blur-md bg-white/65 border border-white/70 ring-1 ring-white/40 rounded-2xl shadow-2xl shadow-primary-900/20 p-6 sm:p-8 animate-fade-in">
             {/* Logo */}
             <div className="flex flex-col items-center mb-4">
+              {/* logo4.png is true RGBA-transparent; logo.svg bakes in an
+                  off-white (#F4F5F4) full-canvas background that shows as a white
+                  box on the frosted card. Keep the responsive clamp() sizing. */}
               <img
-                src="/logo.svg"
+                src="/logo4.png"
                 alt={`${BRAND.name} logo`}
                 className="object-contain drop-shadow-lg"
                 style={{ width: 'clamp(8rem, 24vw, 16rem)', height: 'auto' }}

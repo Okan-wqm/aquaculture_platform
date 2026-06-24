@@ -5025,3 +5025,33 @@ Severity: LOW (CI/tooling SSoT gap). Discovered 2026-06-24 when the login-rebuil
 Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
 
 ---
+
+
+## ORPHAN-LOW-152 — login logo swap to logo.svg introduced a white box behind the logo (lost transparency)
+
+Severity: LOW (visual regression). Discovered 2026-06-24 (operator-reported) immediately after the login rebuild merged.
+
+**Problem:** the rebuild switched the auth logo from `/logo4.png` to `/logo.svg` for scalability, but `web/shell/public/logo.svg`'s first element is a full-canvas `<path … fill="#F4F5F4">` — a baked-in off-white background. On the frosted glass card this renders as a white box behind the logo. `logo4.png` is true RGBA-transparent (verified: `mode=RGBA`), which the prior design relied on.
+
+**Resolution (this commit):** reverted the auth logo `src` to `/logo4.png` (transparent), keeping the responsive `clamp(8rem,24vw,16rem)` sizing from the rebuild. A 1024×1024 PNG downscaled to ≤256px is sharp enough; the SVG's scalability was not worth the baked-in background. (If a transparent vector is wanted later, strip the `#F4F5F4` full-canvas path from logo.svg.)
+
+Status: RESOLVED (2026-06-24; branch `fix/login-logo-transparent`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-LOW-153 — login presented in browser locale (TR) + the aquarium ambience was thin (operator polish)
+
+Severity: LOW (UX / visual polish). Discovered 2026-06-24 (operator-requested after the rebuild merged).
+
+**Problem:** (1) the login surface rendered in the app's auto-detected locale (Turkish by default for this platform), but the entry screen should be **English** for an international product. (2) The aquarium login background looked unfinished — only fish, thin seaweed, and no other marine life.
+
+**Resolution (this commit):**
+- English login: `AuthLayout` now wraps the auth surface in a nested `<I18nProvider locale="en">` (split into a `AuthChrome` inner so chrome + forms both read EN), overriding the locale for the auth subtree ONLY — the rest of the app keeps its auto-detected language.
+- Richer, more realistic aquarium (`FishBackground`): rewrote kelp (multi-frond, depth-graded blades + float) and seaweed (branching fronds), added eelgrass (`SeaGrass`) clumps; added floor fauna (`StarFish`, `Crab`); added a drifting/pulsing `Jellyfish` ambient layer and rising `bubbles` (all CSS, added to the `prefers-reduced-motion` opt-out + the FishBackground rAF guard).
+- New swimmers: `Shrimp` (aquaculture species) and `BluefinTuna` — the bluefin is drawn to a higher standard (crescent caudal, yellow finlets, sickle pectoral) and given a MUCH faster speed trait (2.45 vs ≤1.12) with a stiff low-wobble body, per operator request.
+- Improved the existing five fish SVGs with pectoral (side) fins.
+
+Status: RESOLVED (2026-06-24; branch `fix/login-logo-transparent`). Registry: orphan-findings.md only.
+
+---

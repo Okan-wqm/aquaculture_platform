@@ -471,22 +471,69 @@ html[data-theme='dark'] input:disabled {
   }
 }
 
+/* Drifting jellyfish — ambient layer above the fish, gentle vertical bob + pulse. */
+.jelly {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.85;
+  will-change: transform;
+  animation: jellyDrift 15s ease-in-out infinite;
+}
+.jelly-a { animation-duration: 16s; }
+.jelly-b { animation-duration: 13s; animation-delay: -4s; }
+.jelly-c { animation-duration: 19s; animation-delay: -8s; }
+
+@keyframes jellyDrift {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  25% { transform: translateY(-26px) scaleY(1.08); }
+  50% { transform: translateY(-10px) scaleY(0.93); }
+  75% { transform: translateY(-34px) scaleY(1.05); }
+}
+
+/* Rising bubbles. */
+.bubble {
+  position: absolute;
+  bottom: -16px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.06) 70%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+  animation-name: bubbleRise;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+@keyframes bubbleRise {
+  0% { transform: translateY(0) translateX(0); opacity: 0; }
+  12% { opacity: 0.6; }
+  50% { transform: translateY(-45vh) translateX(8px); opacity: 0.5; }
+  90% { opacity: 0.22; }
+  100% { transform: translateY(-92vh) translateX(-6px); opacity: 0; }
+}
+
 /* ============================================================================
    Reduced motion (ORPHAN-MEDIUM-136) — SSoT opt-out for the login ambience.
    Neutralizes the decorative CSS animations (fish tail, kelp/seaweed sway, wave
-   gradient, fade-in) for users who request reduced motion. The imperative fish
-   swim loop is handled separately by FishBackground's matchMedia guard.
+   gradient, jellyfish drift, bubbles, fade-in) for users who request reduced
+   motion. The imperative fish swim loop is handled separately by
+   FishBackground's matchMedia guard.
    ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
   .swimming-fish .fish-tail,
   .kelp-strand,
   .seaweed-strand,
   .wave-overlay,
+  .jelly,
+  .bubble,
   .animate-fade-in,
   .animate-slide-up,
   .animate-slide-down,
   .animate-scale-in {
     animation: none !important;
+  }
+  /* Hide the rising bubbles entirely (a static bubble at mid-screen is noise). */
+  .bubble {
+    display: none;
   }
 }
 

@@ -5025,3 +5025,16 @@ Severity: LOW (CI/tooling SSoT gap). Discovered 2026-06-24 when the login-rebuil
 Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
 
 ---
+
+
+## ORPHAN-LOW-152 — login logo swap to logo.svg introduced a white box behind the logo (lost transparency)
+
+Severity: LOW (visual regression). Discovered 2026-06-24 (operator-reported) immediately after the login rebuild merged.
+
+**Problem:** the rebuild switched the auth logo from `/logo4.png` to `/logo.svg` for scalability, but `web/shell/public/logo.svg`'s first element is a full-canvas `<path … fill="#F4F5F4">` — a baked-in off-white background. On the frosted glass card this renders as a white box behind the logo. `logo4.png` is true RGBA-transparent (verified: `mode=RGBA`), which the prior design relied on.
+
+**Resolution (this commit):** reverted the auth logo `src` to `/logo4.png` (transparent), keeping the responsive `clamp(8rem,24vw,16rem)` sizing from the rebuild. A 1024×1024 PNG downscaled to ≤256px is sharp enough; the SVG's scalability was not worth the baked-in background. (If a transparent vector is wanted later, strip the `#F4F5F4` full-canvas path from logo.svg.)
+
+Status: RESOLVED (2026-06-24; branch `fix/login-logo-transparent`). Registry: orphan-findings.md only.
+
+---

@@ -64,8 +64,11 @@ const AuthLayout: React.FC = () => {
           <div className="surface-glass backdrop-blur-md bg-white/65 border border-white/70 ring-1 ring-white/40 rounded-2xl shadow-2xl shadow-primary-900/20 p-6 sm:p-8 animate-fade-in">
             {/* Logo */}
             <div className="flex flex-col items-center mb-4">
+              {/* logo4.png is true RGBA-transparent; logo.svg bakes in an
+                  off-white (#F4F5F4) full-canvas background that shows as a white
+                  box on the frosted card. Keep the responsive clamp() sizing. */}
               <img
-                src="/logo.svg"
+                src="/logo4.png"
                 alt={`${BRAND.name} logo`}
                 className="object-contain drop-shadow-lg"
                 style={{ width: 'clamp(8rem, 24vw, 16rem)', height: 'auto' }}

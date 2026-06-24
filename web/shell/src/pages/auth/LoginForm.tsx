@@ -262,7 +262,6 @@ const LoginForm: React.FC = () => {
           placeholder={t('login.passwordPlaceholder')}
           error={errors.password}
           autoComplete="current-password"
-          minLength={8}
           maxLength={128}
           required
           showPasswordLabel={t('common.showPassword')}

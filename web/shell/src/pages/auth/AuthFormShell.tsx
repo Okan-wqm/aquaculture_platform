@@ -46,14 +46,17 @@ export const AuthFormShell: React.FC<AuthFormShellProps> = ({
         )}
       </div>
 
-      {/* Single aria-live error slot — every auth form routes its error here. */}
-      <div aria-live="polite">
-        {error && (
+      {/* Single error slot. The Alert itself is the live region (role="alert" =
+          assertive, the correct politeness for a sign-in error). We do NOT wrap
+          it in another aria-live container — nesting an assertive alert inside a
+          polite region gives conflicting/doubled announcements (a11y HIGH). */}
+      {error && (
+        <div className="mb-4">
           <Alert type="error" dismissible={!!onDismissError} onDismiss={onDismissError}>
             {error}
           </Alert>
-        )}
-      </div>
+        </div>
+      )}
 
       {children}
     </div>

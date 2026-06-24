@@ -22,15 +22,16 @@ describe('AuthFormShell', () => {
     expect(screen.getByText('Access your account')).toBeTruthy();
   });
 
-  it('routes the error into one aria-live region and omits it when absent', () => {
-    const { container, rerender } = renderEn(
+  it('announces the error via a single role="alert" region and omits it when absent', () => {
+    const { rerender } = renderEn(
       <AuthFormShell titleKey="login.title" error="Bad credentials">
         <div />
       </AuthFormShell>,
     );
-    const live = container.querySelector('[aria-live="polite"]');
-    expect(live).not.toBeNull();
-    expect(screen.getByText('Bad credentials')).toBeTruthy();
+    // The Alert is the single live region (role="alert"); no extra wrapping
+    // aria-live container nests it.
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Bad credentials');
 
     rerender(
       <I18nProvider locale="en">
@@ -39,7 +40,7 @@ describe('AuthFormShell', () => {
         </AuthFormShell>
       </I18nProvider>,
     );
-    expect(screen.queryByText('Bad credentials')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('heading uses the glass token — never text-white or raw blue-*', () => {

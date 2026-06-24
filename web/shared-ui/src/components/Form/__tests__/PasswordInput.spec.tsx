@@ -30,6 +30,8 @@ describe('PasswordInput show/hide toggle', () => {
 
     const toggle = screen.getByRole('button', { name: 'Show password' });
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    // toggle is bound to its field so two PasswordInputs on one form are distinguishable
+    expect(toggle.getAttribute('aria-controls')).toBe(input.id);
 
     fireEvent.click(toggle);
     expect(input.getAttribute('type')).toBe('text');

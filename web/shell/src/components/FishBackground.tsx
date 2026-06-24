@@ -350,7 +350,7 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
   const fishesRef = useRef<FishState[]>([]);
   const domRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dimensionsRef = useRef({ width: 0, height: 0 });
-  const animationRef = useRef<(number) | undefined>(undefined);
+  const animationRef = useRef<number | undefined>(undefined);
   const initializedRef = useRef(false);
 
   // Initialize fish and start animation loop

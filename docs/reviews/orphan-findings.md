@@ -4739,3 +4739,111 @@ Severity: LOW (brand correctness). Discovered 2026-06-24 during the Suderra logi
 Status: IN-PROGRESS (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
 
 ---
+
+
+## ORPHAN-LOW-138 — WebAuthn login bypasses the new refresh-cookie SSoT (drift + no remember-me)
+
+Severity: LOW (DRY/SSoT drift). Discovered 2026-06-24 by auth-security-expert during the Suderra login-rebuild audit.
+
+**Problem:** the remember-me work introduced a refresh-cookie SSoT (`apps/auth-service/.../utils/refresh-token-cookie.ts`) and routed `auth.resolver.ts` + `mfa.resolver.ts` through it. `webauthn.resolver.ts:48-56` is a THIRD refresh-cookie setter still hand-rolling `res.cookie('refresh_token', …)` with an always-persistent `maxAge` (7d) and no remember-me concept. Future cookie hardening (sameSite:strict, `__Host-` prefix, partitioned cookies) must be applied twice and WebAuthn will lag; and a biometric login is always persistent even when the user wanted a session.
+
+**Why deferred (owner: auth-security-expert; out of login-rebuild scope):** routing WebAuthn through the SSoT requires deciding WebAuthn's persistence semantics (preserve 7d-persistent vs add a real remember-me choice vs session) — a WebAuthn-feature decision, not part of the login-page rebuild. Changing it here would alter WebAuthn login behavior. Tracked for a WebAuthn-scoped follow-up.
+
+**How to fix:** thread `buildRefreshTokenCookieOptions(...)` + `REFRESH_TOKEN_COOKIE_NAME` into `webauthn.resolver.ts` with an explicit persistence choice, and add an invariant asserting every `res.cookie('refresh_token', …)` callsite flows through the SSoT (Tier-3 detectable).
+
+Status: OPEN (2026-06-24). Owner: auth-security-expert. Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-LOW-139 — MFA challenge-token verify does not assert iss/aud (defense-in-depth)
+
+Severity: LOW (defense-in-depth; NOT exploitable in the single-issuer platform). Discovered 2026-06-24 by auth-security-expert during the Suderra login-rebuild audit.
+
+**Problem:** `mfa.service.ts` verifies the MFA challenge token via `this.jwtService.verify(mfaToken)` with only the module-default `verifyOptions: { algorithms:['RS256'] }`, whereas access-token verification uses `getJwtVerifyOptions()` which also enforces issuer + audience (RFC 9068). The MFA-token verify is the lone auth-service verify path that does not assert the full claim set.
+
+**Why not exploitable today:** the token IS RS256-signature-verified against auth-service's own key (so the carried `rememberMe` cannot be forged), and the endpoint additionally pins `type==='mfa_challenge'` + `purpose` + `sub`-prefix and reads `userId` from the signed payload. iss/aud would only matter for a foreign RS256 issuer trusted under the same key — which does not exist (auth-service is the sole signer).
+
+**How to fix:** sign the challenge in `generateMfaChallenge` with `audience: JWT_AUDIENCE` and verify in `verifyMfaLogin` with explicit `{ algorithms:['RS256'], issuer, audience }`, so all auth-service verifies are symmetric. Note the 5-min-TTL blue-green window (tokens minted pre-deploy lack aud).
+
+Status: OPEN (2026-06-24). Owner: auth-security-expert. Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-MEDIUM-140 — auth in-place screen swaps (MFA step, recovery toggle) are not announced to screen readers
+
+Severity: MEDIUM (a11y / WCAG 4.1.3). Discovered 2026-06-24 by accessibility-auditor during the Suderra login-rebuild audit.
+
+**Problem:** after a correct password, `LoginForm` swaps the password screen for the MFA screen in place (no route change); focus moves to the code field (keyboard OK) but no announcement tells a screen-reader user a new step ("Two-Factor Authentication required") appeared. The authenticator↔recovery toggle likewise changes the prompt subtitle with no announced context shift. (The success/error result screens were fixed in this PR via AuthStatusScreen role+focus; the MFA-step transition needs focus-management surgery in LoginForm/AuthFormShell and was scoped separately.)
+
+**How to fix:** on MFA mount, move focus to the `<h2>` step heading (`tabIndex={-1}` + focus) or emit a one-shot assertive status announcing the step; route the recovery-toggle prompt change through the same announced status. Best placed in `AuthFormShell` (it owns the heading) so any multi-step auth form inherits it.
+
+Status: OPEN (2026-06-24). Owner: frontend-expert. Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-LOW-141 — shared Button "loading" state has no perceivable busy status (only aria-busy)
+
+Severity: LOW (a11y / status communication). Discovered 2026-06-24 by accessibility-auditor during the Suderra login-rebuild audit.
+
+**Problem:** `web/shared-ui/src/components/Button/Button.tsx` sets `aria-busy` + an `aria-hidden` spinner when `loading`, but the accessible name stays the unchanged action text and there is no polite status, so a screen-reader user re-querying an in-flight "Sign In" hears only "Sign In, dimmed" with no in-progress signal. This is a shared-primitive enhancement affecting every loading button platform-wide, so it is scoped as a design-system follow-up rather than a login-only fix.
+
+**How to fix:** add an optional `loadingLabel` to `Button` (swap the accessible name or render an `sr-only` polite status when loading); default it via i18n at the auth callsites. Tier-2: make the busy announcement the zero-effort default of the shared Button.
+
+Status: OPEN (2026-06-24). Owner: frontend-expert. Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-HIGH-142 — auth error slot nested an assertive Alert inside a polite live region (conflicting announcement)
+
+Severity: HIGH (a11y / WCAG 4.1.3). Discovered 2026-06-24 by accessibility-auditor + frontend-expert during the Suderra login-rebuild audit.
+
+**Problem:** `AuthFormShell` wrapped the error `Alert` (which carries `role="alert"` = assertive) in a `<div aria-live="polite">`. Nesting an assertive live region inside a polite one yields non-deterministic / doubled screen-reader announcements for a security-relevant sign-in error.
+
+**Resolution (this commit):** removed the wrapping `aria-live` div; the `Alert`'s `role="alert"` is now the single live region (assertive is the correct politeness for an auth error). One SSoT surface (`AuthFormShell`) fixes every auth form. Test updated to assert one `role="alert"` region.
+
+Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-MEDIUM-143 — password show/hide toggle lacked aria-controls + a 24px touch target
+
+Severity: MEDIUM (a11y / WCAG 2.5.8 + 4.1.2). Discovered 2026-06-24 by accessibility-auditor + frontend-expert.
+
+**Problem:** the `PasswordInput` toggle had no programmatic binding to its field, so two PasswordInputs on one form (reset: new + confirm) presented two indistinguishable "Show password" buttons; the hit area was ~20px (< 24px AA minimum).
+
+**Resolution (this commit):** added `aria-controls={inputId}` (binds the toggle to its field) and `min-w-[1.5rem] min-h-[1.5rem] justify-center` (≥24px target) on the shared `PasswordInput` toggle — a multiplier fix across login/reset/accept. Also bumped the default-surface caps-lock warning to `text-amber-700` (AA). Test asserts `aria-controls`.
+
+Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-MEDIUM-144 — login password field had a native minLength=8 that mismatched the JS validator (minLength 6) → non-i18n native bubble
+
+Severity: MEDIUM (correctness / i18n). Discovered 2026-06-24 by frontend-expert + accessibility-auditor.
+
+**Problem:** the login password `<PasswordInput>` set the HTML attribute `minLength={8}` while the JS validator used `minLength(6)`; the browser's native constraint fired a non-translated validity bubble for a 6–7-char password, bypassing the i18n error pipeline. (Carried over from the pre-rebuild LoginPage.)
+
+**Resolution (this commit):** removed the native `minLength` from the login password field. Login validates EXISTING credentials (the server is the authority); the JS guard remains for light client feedback, all messaging stays i18n. Reset/invitation keep `minLength(8)` for NEW passwords (policy).
+
+Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-MEDIUM-145 — auth success/error result screens swapped in place with no SR announcement or focus move
+
+Severity: MEDIUM (a11y / WCAG 4.1.3). Discovered 2026-06-24 by accessibility-auditor.
+
+**Problem:** `AuthStatusScreen` (email-sent, password-reset, invitation-invalid) mounted in place of the form with no route change, so no announcement fired and focus fell to `<body>` — a screen-reader user got no feedback that the action succeeded/failed.
+
+**Resolution (this commit):** `AuthStatusScreen` now marks its container `role="status"` (success) / `role="alert"` (error) and moves focus to the heading (`tabIndex={-1}` + focus on mount) so the result is announced. SSoT for all four result screens. (The MFA-step in-place swap is a separate, deeper focus-management item tracked as ORPHAN-MEDIUM-140.)
+
+Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---

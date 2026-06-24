@@ -59,8 +59,9 @@ const AuthLayout: React.FC = () => {
 
         <div className="w-full max-w-md">
           {/* Card Container — glass surface SSoT (drives nested field/label/button
-              colors via the shared-ui surface="glass" variant). */}
-          <div className="surface-glass backdrop-blur-md bg-white/65 border border-white/70 rounded-2xl shadow-2xl p-6 sm:p-8 animate-fade-in">
+              colors via the shared-ui surface="glass" variant). The inner ring +
+              soft ring-offset give the frosted card a crisp lit edge and depth. */}
+          <div className="surface-glass backdrop-blur-md bg-white/65 border border-white/70 ring-1 ring-white/40 rounded-2xl shadow-2xl shadow-primary-900/20 p-6 sm:p-8 animate-fade-in">
             {/* Logo */}
             <div className="flex flex-col items-center mb-4">
               <img

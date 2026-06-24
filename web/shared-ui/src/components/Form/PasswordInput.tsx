@@ -116,8 +116,11 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         onClick={() => setVisible((v) => !v)}
         aria-pressed={visible}
         aria-label={visible ? hidePasswordLabel : showPasswordLabel}
+        // aria-controls binds the toggle to ITS field so two PasswordInputs on one
+        // form (new + confirm) are distinguishable to assistive tech.
+        aria-controls={inputId}
         tabIndex={0}
-        className={`flex items-center transition-colors ${
+        className={`flex items-center justify-center min-w-[1.5rem] min-h-[1.5rem] transition-colors ${
           isGlass
             ? 'text-[var(--surface-field-fg)] hover:text-[var(--surface-field-focus-border)]'
             : 'text-gray-500 hover:text-gray-700'
@@ -148,7 +151,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             id={capsId}
             role="status"
             aria-live="polite"
-            className={`mt-1 text-sm ${isGlass ? 'text-[var(--surface-muted-fg)]' : 'text-amber-600'}`}
+            className={`mt-1 text-sm ${isGlass ? 'text-[var(--surface-muted-fg)]' : 'text-amber-700'}`}
           >
             {capsLockLabel}
           </p>

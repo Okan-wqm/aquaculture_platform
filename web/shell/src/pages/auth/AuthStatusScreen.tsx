@@ -3,7 +3,7 @@
  * screens (email sent, password reset, invitation invalid, …). One icon-circle
  * + title + message + optional back-to-login link, all on glass-surface tokens.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 
@@ -36,8 +36,16 @@ export const AuthStatusScreen: React.FC<AuthStatusScreenProps> = ({
   const { t } = useI18n();
   const isSuccess = variant === 'success';
 
+  // This screen mounts in place of the form (no route change), so move focus to
+  // the heading on mount and mark the region role=status/alert so assistive tech
+  // announces the result (a11y MEDIUM — in-place swaps were silent).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
   return (
-    <div className="text-center">
+    <div className="text-center" role={isSuccess ? 'status' : 'alert'}>
       <div
         className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
           isSuccess ? 'bg-success-100 text-success-600' : 'bg-error-100 text-error-600'
@@ -45,7 +53,13 @@ export const AuthStatusScreen: React.FC<AuthStatusScreenProps> = ({
       >
         {isSuccess ? <CheckIcon /> : <XIcon />}
       </div>
-      <h2 className="text-xl font-bold text-[var(--surface-heading-fg)] mb-2">{t(titleKey)}</h2>
+      <h2
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-xl font-bold text-[var(--surface-heading-fg)] mb-2 outline-none"
+      >
+        {t(titleKey)}
+      </h2>
       <p className="text-[var(--surface-muted-fg)] mb-6">{message}</p>
       {showBackToLogin && (
         <Link to="/login">

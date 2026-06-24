@@ -4797,9 +4797,15 @@ Severity: MEDIUM. Discovered 2026-06-24 while root-causing ORPHAN-HIGH-145.
 
 **Problem:** gateway-api populates `request.user` via the shared `UserContextMiddleware` (canonical `{ sub, tenantId, roles, ... }`), but admin-api-service has NO such middleware (its `AppModule` does not implement `configure()`); identity is attached ad-hoc by `PlatformAdminGuard` in a bespoke `{ id, ... }` shape. Because no SHARED type binds the writer (service guard) to the readers (shared ThrottlerGuard, `@CurrentUser('sub')`), the two silently drifted — undetectable at compile time. ORPHAN-HIGH-145 is one symptom; any other backend-common consumer keying off `sub` would misbehave the same way in admin-api.
 
-**Fix direction (tier-1 make-it-impossible):** define a single canonical `AuthenticatedRequestUser` type in backend-common that both the throttler (reader) and every service's auth guard (writer) import, so a guard that omits `sub` fails type-check. Migrate admin-api to populate `request.user` through the shared user-context contract (or have PlatformAdminGuard return that exact type). Until the shared type lands, ORPHAN-HIGH-145's targeted fix (expose `sub`) holds the line, guarded by the new guard spec assertion.
+**Fix (tier-1 make-it-impossible):** the canonical type already existed — `JwtUser` (`libs/backend-common/src/types/tenant-request.interface.ts`, identity = REQUIRED `sub`), the `user` field of the canonical `TenantRequest`. The drift was that neither side consumed it:
+- READER: the shared `ThrottlerGuard` redeclared a private `{ sub?, userId?, tenantId? }` request shape. Rebound it to `TenantRequest` (`user: JwtUser`) and dropped the dead `userId` fallback (no runtime writer ever set `userId` — verified across all services; canonical writers like `verified-user-assertion.middleware` set `sub`). The shared READER now keys off the SSoT's `sub`.
+- WRITER: admin-api's `shared/authenticated-request.ts` `AuthenticatedUser` now `extends JwtUser` (so `sub` is compiler-REQUIRED) + keeps the admin-api-local `id`/`name`. `PlatformAdminGuard` dropped its bespoke local `AdminRequest` and types `request` as the shared `AuthenticatedRequest`, so its `request.user = { ... }` assignment fails type-check if it omits `sub`. A guard that forgets `sub` can no longer compile.
 
-Status: OPEN (2026-06-24; owner: platform-kernel / admin-api). Registry: orphan-findings.md only.
+Verified: admin-api app `tsc --noEmit` clean (10 controllers consuming `AuthenticatedUser` unaffected), backend-common throttler `tsc` clean, `platform-admin.guard.spec` 31/31. ThrottlerGuard's other consumers (messaging, ai, hydroponics) unaffected — they attach `req.user` via shared middleware using `sub`, never `userId`.
+
+**Remaining (separate, NOT throttler-relevant):** admin-api still carries two OTHER `@CurrentUser` decorator user types (`decorators/current-user.decorator.ts` `CurrentUserData`, `tenant.controller.ts` `AdminUser`) distinct from `JwtUser`. Unifying those is a follow-on cleanup; this finding closes the request.user/throttler SSoT drift that caused the 429.
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-MEDIUM-146`). Registry: orphan-findings.md only.
 
 ---
 

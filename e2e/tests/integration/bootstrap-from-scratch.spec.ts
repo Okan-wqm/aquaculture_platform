@@ -65,11 +65,13 @@
  * is not yet wired, `npm run test:bootstrap` is the local entry point).
  */
 
+import { readdirSync, statSync, existsSync } from 'fs';
+import { createRequire } from 'module';
+import { join, resolve } from 'path';
+
+import { ConfigService } from '@nestjs/config';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { DataSource, type MigrationInterface } from 'typeorm';
-import { readdirSync, statSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
-import { ConfigService } from '@nestjs/config';
 
 // ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
 // shared-table DDL contract that init-scripts USED to own pre-cutover. The
@@ -81,21 +83,40 @@ import {
   runPlatformBootstrap,
   resolvePlatformBootstrapSqlDir,
 } from '../../../apps/db-migrate/src/platform-bootstrap.service';
+import { assertDefined } from '../../helpers/assertions';
 
-// Dynamic require to avoid the e2e tsconfig's rootDir guard. Importing
+// Constructor type for the @Entity / migration classes this spec loads
+// dynamically. TypeORM's DataSource `entities`/`migrations` options accept
+// `Function`, but `@typescript-eslint/no-unsafe-function-type` (correctly)
+// rejects the bare `Function` type; a precise construct signature is both
+// assignable to TypeORM's `Function` slot AND keeps the collected values
+// typed as classes rather than arbitrary callables.
+type EntityClass = new (...args: never[]) => object;
+
+// Synchronous module loader bound to this spec's location. `import`/`await
+// import()` cannot be used here: loadMigrationClassesFromDir is invoked inside
+// `it.each(...)` arguments that Jest evaluates synchronously at collection
+// time, so the load must be synchronous. `createRequire(__filename)` is the
+// same pattern the sibling schema-invariants.spec.ts uses for cross-rootDir
+// loads — it resolves through ts-jest at runtime and avoids the e2e tsconfig
+// rootDir guard (TS6059) that a top-level static `import` of these out-of-tree
+// files would trigger.
+const requireModule = createRequire(__filename);
+
+// Dynamic load to avoid the e2e tsconfig's rootDir guard. Importing
 // schema-drift-validator.service.ts directly via `import { ... }` would
 // pull a file outside the e2e/ rootDir into the type-check graph and
 // trigger TS6059 on every spec compile. ts-jest resolves this lazily
 // at runtime (same pattern the migration loader uses for migration
-// classes). The validator's contract is stable; require()ing through
-// the file path keeps the spec free of cross-rootDir type drift.
-type SchemaDriftValidatorFactory = (serviceName: string) => new (
-  ds: DataSource,
-  cs: ConfigService,
-) => { onApplicationBootstrap(): Promise<void> };
+// classes). The validator's contract is stable; loading through the file
+// path keeps the spec free of cross-rootDir type drift.
+type SchemaDriftValidatorFactory = (
+  serviceName: string,
+) => new (ds: DataSource, cs: ConfigService) => { onApplicationBootstrap(): Promise<void> };
 function loadDriftValidatorFactory(): SchemaDriftValidatorFactory {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require('../../../libs/backend-common/src/database/schema-drift-validator.service') as {
+  const mod = requireModule(
+    '../../../libs/backend-common/src/database/schema-drift-validator.service',
+  ) as {
     createSchemaDriftValidator: SchemaDriftValidatorFactory;
   };
   return mod.createSchemaDriftValidator;
@@ -425,12 +446,11 @@ function loadMigrationClassesFromDir(absDir: string): Array<new () => MigrationI
     const fullPath = join(absDir, file);
     if (!statSync(fullPath).isFile()) continue;
 
-    // ts-jest transforms .ts files when imported through require here
+    // ts-jest transforms .ts files when loaded through requireModule here
     // because this spec runs under the ts-jest transform configured in
     // e2e/jest.config.ts. Each migration's `export class <Name>` becomes
     // a property on the loaded module object.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(fullPath) as Record<string, unknown>;
+    const mod = requireModule(fullPath) as Record<string, unknown>;
     const candidate = Object.values(mod).find(
       (v): v is new () => MigrationInterface =>
         typeof v === 'function' && /^[A-Z]/.test(v.name) && /\d{13}$/.test(v.name),
@@ -460,7 +480,7 @@ function findEntityFiles(absRoot: string): string[] {
   if (!existsSync(absRoot)) return out;
   const stack: string[] = [absRoot];
   while (stack.length > 0) {
-    const current = stack.pop()!;
+    const current = assertDefined(stack.pop());
     let entries: string[];
     try {
       entries = readdirSync(current);
@@ -494,40 +514,44 @@ function findEntityFiles(absRoot: string): string[] {
 }
 
 /**
- * Load every `@Entity` class from a service's source root via require().
+ * Load every `@Entity` class from a service's source root.
  *
- * Strategy: ts-jest transforms .ts files on import, so each entity file
+ * Strategy: ts-jest transforms .ts files on load, so each entity file
  * registers itself with TypeORM's getMetadataArgsStorage() side-effect.
- * After requiring all files we instantiate a metadata-only DataSource
+ * After loading all files we instantiate a metadata-only DataSource
  * to materialize EntityMetadata graphs that the surface-matrix probes
  * iterate over.
  */
-function loadEntityClasses(absRoot: string): Array<Function> {
+function loadEntityClasses(absRoot: string): EntityClass[] {
   const files = findEntityFiles(absRoot);
-  const classes: Function[] = [];
+  const classes: EntityClass[] = [];
   for (const file of files) {
     let mod: Record<string, unknown>;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      mod = require(file) as Record<string, unknown>;
+      mod = requireModule(file) as Record<string, unknown>;
     } catch (err) {
-      // Skip entity files that can't be required (e.g., declare side
+      // Skip entity files that can't be loaded (e.g., declare side
       // effects on a Nest module not loaded in this test). Surface as
       // warning rather than fatal — the file's @Entity decorators ran
       // anyway through getMetadataArgsStorage.
-      // eslint-disable-next-line no-console
+
       console.warn(
-        `[bootstrap-from-scratch] could not require entity file ${file}: ${(err as Error).message}`,
+        `[bootstrap-from-scratch] could not load entity file ${file}: ${(err as Error).message}`,
       );
       continue;
     }
     for (const v of Object.values(mod)) {
-      if (typeof v === 'function' && /^[A-Z]/.test(v.name)) {
+      if (isEntityClass(v)) {
         classes.push(v);
       }
     }
   }
   return classes;
+}
+
+/** Narrow an unknown module export to a PascalCase-named class constructor. */
+function isEntityClass(value: unknown): value is EntityClass {
+  return typeof value === 'function' && /^[A-Z]/.test(value.name);
 }
 
 interface SurfaceProbeResult {
@@ -556,7 +580,7 @@ interface PgConnInfo {
 
 async function assertEntitySurfaceMatchesDb(
   serviceName: string,
-  entityClasses: ReadonlyArray<Function>,
+  entityClasses: ReadonlyArray<EntityClass>,
   conn: PgConnInfo,
 ): Promise<SurfaceProbeResult[]> {
   // Build a metadata-only DataSource so EntityMetadata graphs are
@@ -571,7 +595,7 @@ async function assertEntitySurfaceMatchesDb(
     username: conn.username,
     password: conn.password,
     database: conn.database,
-    entities: [...entityClasses] as Function[],
+    entities: [...entityClasses],
     synchronize: false,
     migrationsRun: false,
   });
@@ -585,7 +609,7 @@ async function assertEntitySurfaceMatchesDb(
       // provision time). For source-table existence we look in the
       // canonical service schema derived from the manifest.
       const declaredSchema =
-        (meta.schema as string | undefined) ??
+        meta.schema ??
         // Fall back to the service's canonical schema — tenant-aware
         // entities use this path.
         SERVICES.find((s) => s.name === serviceName)?.schema ??
@@ -603,20 +627,17 @@ async function assertEntitySurfaceMatchesDb(
         [tableName, declaredSchema],
       );
       if (tableRows.length === 0) {
-        drift.push(
-          `table missing: ${declaredSchema}.${tableName} not found in pg_tables`,
-        );
+        drift.push(`table missing: ${declaredSchema}.${tableName} not found in pg_tables`);
         results.push({ schema: declaredSchema, table: tableName, drift });
         continue;
       }
 
       // (b) Column existence + data-type compatibility per @Column.
-      const columnRows: Array<{ column_name: string; data_type: string }> =
-        await metadataDs.query(
-          `SELECT column_name, data_type FROM information_schema.columns
+      const columnRows: Array<{ column_name: string; data_type: string }> = await metadataDs.query(
+        `SELECT column_name, data_type FROM information_schema.columns
            WHERE table_schema = $1 AND table_name = $2`,
-          [declaredSchema, tableName],
-        );
+        [declaredSchema, tableName],
+      );
       const dbColumns = new Map(columnRows.map((r) => [r.column_name, r.data_type]));
       for (const col of meta.columns) {
         if (!dbColumns.has(col.databaseName)) {
@@ -631,9 +652,7 @@ async function assertEntitySurfaceMatchesDb(
       //     We count FKs whose constrained relation matches the table;
       //     mismatched count is the drift signal (TypeORM emits one
       //     constraint per relation).
-      const expectedFkCount = meta.relations.filter(
-        (r) => r.relationType === 'many-to-one',
-      ).length;
+      const expectedFkCount = meta.relations.filter((r) => r.relationType === 'many-to-one').length;
       if (expectedFkCount > 0) {
         const fkRows: Array<{ count: string }> = await metadataDs.query(
           `SELECT COUNT(*)::text AS count FROM pg_constraint c
@@ -719,7 +738,6 @@ async function assertEntitySurfaceMatchesDb(
 
 describe('Bootstrap from scratch (fresh-volume init + full migration chain)', () => {
   let postgresContainer: StartedTestContainer;
-  let connectionUri: string;
   // Per-service DataSources, kept open across `beforeAll` so the migration
   // ledger queries in the assertion phase don't have to reopen connections.
   const dataSources = new Map<string, DataSource>();
@@ -769,7 +787,6 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
 
     const host = postgresContainer.getHost();
     const port = postgresContainer.getMappedPort(5432);
-    connectionUri = `postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@${host}:${port}/${DATABASE_NAME}`;
 
     // -----------------------------------------------------------------
     // 1.5. Run the ADR-031 platform-bootstrap atom.
@@ -812,7 +829,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       // SyncHrEntitiesToDb that prevents the "default for column ...
       // cannot be cast automatically to type ..._enum" failure mode on
       // fresh-volume bootstraps.
-      const entityClasses: Function[] = svc.entitiesGlob
+      const entityClasses: EntityClass[] = svc.entitiesGlob
         ? loadEntityClasses(join(REPO_ROOT, svc.entitiesGlob))
         : [];
 
@@ -825,7 +842,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         database: DATABASE_NAME,
         schema: svc.schema,
         migrations: migrationClasses,
-        entities: entityClasses as Function[],
+        entities: entityClasses,
         synchronize: false,
         migrationsRun: false,
         // Migration table inside the service schema; the production
@@ -858,9 +875,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         // empty `<schema>.migrations` ledger table that would skew the
         // "ledger is non-empty" assertion below.
         if (migrationClasses.length > 0) {
-          await runWithDbMigrateDdlAuthority(() =>
-            ds.runMigrations({ transaction: 'each' }),
-          );
+          await runWithDbMigrateDdlAuthority(() => ds.runMigrations({ transaction: 'each' }));
         }
       } catch (err) {
         // Surface which service failed so the diagnostic message is
@@ -1075,7 +1090,11 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
   // with empty migration sets (gateway-api, config-service: those have
   // NO ledger because we skipped runMigrations() entirely).
   // ---------------------------------------------------------------------
-  it.each(SERVICES.filter((s) => loadMigrationClassesFromDir(join(REPO_ROOT, s.migrationsDir)).length > 0))(
+  it.each(
+    SERVICES.filter(
+      (s) => loadMigrationClassesFromDir(join(REPO_ROOT, s.migrationsDir)).length > 0,
+    ),
+  )(
     'service "$name" migration ledger row count matches on-disk migration file count',
     async ({ name, schema, migrationsDir }) => {
       const ds = dataSources.get(name);
@@ -1141,9 +1160,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       };
       const results = await assertEntitySurfaceMatchesDb(name, entityClasses, conn);
 
-      const drifts = results.flatMap((r) =>
-        r.drift.map((d) => `  ${r.schema}.${r.table}: ${d}`),
-      );
+      const drifts = results.flatMap((r) => r.drift.map((d) => `  ${r.schema}.${r.table}: ${d}`));
       if (drifts.length > 0) {
         throw new Error(
           `Entity surface drift in service "${name}" (${drifts.length} issue(s)):\n` +
@@ -1195,7 +1212,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         password: DATABASE_PASSWORD,
         database: DATABASE_NAME,
         schema,
-        entities: [...entityClasses] as Function[],
+        entities: [...entityClasses],
         synchronize: false,
         migrationsRun: false,
       });

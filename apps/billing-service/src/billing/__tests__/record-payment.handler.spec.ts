@@ -12,6 +12,8 @@
 
 import Decimal from 'decimal.js';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 import { RecordPaymentHandler } from '../../billing/handlers/record-payment.handler';
 import { RecordPaymentCommand } from '../../billing/commands/record-payment.command';
@@ -114,19 +116,26 @@ describe('RecordPaymentHandler', () => {
   let handler: RecordPaymentHandler;
   let mockManager: ReturnType<typeof createMockManager>;
   let mockDS: ReturnType<typeof createMockDataSource>;
-  let mockEventBus: { publish: jest.Mock };
+  let mockOutbox: { enqueue: jest.Mock };
   let defaultInvoice: Invoice;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     defaultInvoice = buildInvoice();
     mockManager = createMockManager(defaultInvoice);
     mockDS = createMockDataSource(mockManager);
-    mockEventBus = { publish: jest.fn().mockResolvedValue(undefined) };
+    mockOutbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
-    handler = new RecordPaymentHandler(
-      mockDS as unknown as DataSource,
-      mockEventBus as any,
-    );
+    // DI-provided mocks (useValue is untyped) avoid hand-written casts on the
+    // handler's DataSource + OutboxPublisher dependencies.
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RecordPaymentHandler,
+        { provide: DataSource, useValue: mockDS },
+        { provide: OutboxPublisher, useValue: mockOutbox },
+      ],
+    }).compile();
+
+    handler = moduleRef.get(RecordPaymentHandler);
   });
 
   afterEach(() => {
@@ -385,36 +394,30 @@ describe('RecordPaymentHandler', () => {
   });
 
   // ==========================================================================
-  // NATS EVENT PUBLISHING
+  // TRANSACTIONAL OUTBOX PUBLISHING
   // ==========================================================================
 
-  describe('NATS event publishing', () => {
-    it('should publish PaymentReceived event after successful recording', async () => {
+  describe('Transactional outbox publishing', () => {
+    it('should enqueue PaymentReceived into the outbox within the transaction', async () => {
       await handler.execute(buildCommand({ amount: 100 }));
 
-      expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const event = mockEventBus.publish.mock.calls[0][0];
+      expect(mockOutbox.enqueue).toHaveBeenCalledTimes(1);
+      const [event, mgr] = mockOutbox.enqueue.mock.calls[0];
       expect(event.paymentId).toBe('pay-uuid-001');
       expect(event.invoiceId).toBe('inv-001');
       expect(event.amount).toBe(100);
       expect(event.currency).toBe('USD');
+      // The event row must be enqueued on the SAME transactional manager so it
+      // commits atomically with the payment + invoice writes — no fire-and-forget.
+      expect(mgr).toBe(mockManager);
     });
 
-    it('should not fail if event publishing fails', async () => {
-      mockEventBus.publish.mockRejectedValue(new Error('NATS down'));
+    it('should propagate enqueue failure so the payment transaction rolls back', async () => {
+      mockOutbox.enqueue.mockRejectedValue(new Error('outbox down'));
 
-      const result = await handler.execute(buildCommand({ amount: 100 }));
-      expect(result).toBeDefined();
-    });
-
-    it('should work when EventBus is not injected', async () => {
-      const handlerNoBus = new RecordPaymentHandler(
-        mockDS as unknown as DataSource,
-        undefined,
-      );
-
-      const result = await handlerNoBus.execute(buildCommand({ amount: 100 }));
-      expect(result).toBeDefined();
+      // A financial event must never be silently dropped: if it cannot be
+      // enqueued, the whole payment is rolled back rather than committed eventless.
+      await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow('outbox down');
     });
   });
 });

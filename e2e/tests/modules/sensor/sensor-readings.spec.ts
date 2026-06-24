@@ -10,14 +10,9 @@
  *
  * @module Sensor-Service/E2E/SensorReadings
  */
-import {
-  gql,
-  TENANT_A,
-  TENANT_B,
-  uniqueSerial,
-  uniqueName,
-  runCleanup,
-} from './helpers';
+import { assertDefined } from '../../../helpers/assertions';
+
+import { gql, TENANT_A, TENANT_B, uniqueSerial, uniqueName, runCleanup } from './helpers';
 
 // ============================================================================
 // GRAPHQL OPERATIONS
@@ -153,7 +148,7 @@ describe('Sensor Readings & Metrics', () => {
         type: 'multi_parameter',
       },
     });
-    sensorId = (res1.data!.createSensor as Record<string, unknown>).id as string;
+    sensorId = (assertDefined(res1.data).createSensor as Record<string, unknown>).id as string;
 
     const res2 = await gql(CREATE_SENSOR, {
       input: {
@@ -162,7 +157,7 @@ describe('Sensor Readings & Metrics', () => {
         type: 'temperature',
       },
     });
-    sensorId2 = (res2.data!.createSensor as Record<string, unknown>).id as string;
+    sensorId2 = (assertDefined(res2.data).createSensor as Record<string, unknown>).id as string;
   });
 
   afterAll(async () => {
@@ -187,7 +182,7 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const reading = res.data!.ingestReading as Record<string, unknown>;
+      const reading = assertDefined(res.data).ingestReading as Record<string, unknown>;
       expect(reading.sensorId).toBe(sensorId);
       expect(reading.tenantId).toBe(TENANT_A.id);
       expect(reading.timestamp).toBeDefined();
@@ -204,7 +199,7 @@ describe('Sensor Readings & Metrics', () => {
       const res = await gql(LATEST_READING, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      const reading = res.data!.latestReading as Record<string, unknown>;
+      const reading = assertDefined(res.data).latestReading as Record<string, unknown>;
       expect(reading).toBeDefined();
       expect(reading.sensorId).toBe(sensorId);
       expect(reading.tenantId).toBe(TENANT_A.id);
@@ -242,7 +237,7 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const count = res.data!.batchIngestReadings as number;
+      const count = assertDefined(res.data).batchIngestReadings as number;
       expect(count).toBe(3);
     });
   });
@@ -263,7 +258,7 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const readings = res.data!.readings as Array<Record<string, unknown>>;
+      const readings = assertDefined(res.data).readings as Array<Record<string, unknown>>;
       expect(Array.isArray(readings)).toBe(true);
 
       for (const r of readings) {
@@ -287,7 +282,7 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const readings = res.data!.readings as Array<Record<string, unknown>>;
+      const readings = assertDefined(res.data).readings as Array<Record<string, unknown>>;
       expect(readings.length).toBe(0);
     });
   });
@@ -328,7 +323,7 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.aggregatedReadings as Record<string, unknown>;
+      const result = assertDefined(res.data).aggregatedReadings as Record<string, unknown>;
       expect(result.sensorId).toBe(sensorId);
       expect(result.interval).toBeDefined();
       expect(result.totalDataPoints).toBeDefined();
@@ -359,7 +354,7 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.aggregatedReadings as Record<string, unknown>;
+      const result = assertDefined(res.data).aggregatedReadings as Record<string, unknown>;
       expect(result.interval).toBeDefined();
     });
   });
@@ -374,7 +369,9 @@ describe('Sensor Readings & Metrics', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const readings = res.data!.latestReadingsBatch as Array<Record<string, unknown>>;
+      const readings = assertDefined(res.data).latestReadingsBatch as Array<
+        Record<string, unknown>
+      >;
       expect(Array.isArray(readings)).toBe(true);
 
       // Should return at most one reading per sensor
@@ -394,11 +391,7 @@ describe('Sensor Readings & Metrics', () => {
   // ------------------------------------------------------------------
   describe('Test 6: Cross-tenant reading isolation', () => {
     it('Tenant B should NOT see Tenant A latest reading', async () => {
-      const res = await gql(
-        LATEST_READING,
-        { sensorId },
-        TENANT_B,
-      );
+      const res = await gql(LATEST_READING, { sensorId }, TENANT_B);
 
       // Should return null (tenant isolation in QueryService)
       if (res.data?.latestReading) {
@@ -431,14 +424,12 @@ describe('Sensor Readings & Metrics', () => {
     });
 
     it('Tenant B batch query with Tenant A sensorId should return empty', async () => {
-      const res = await gql(
-        LATEST_READINGS_BATCH,
-        { sensorIds: [sensorId] },
-        TENANT_B,
-      );
+      const res = await gql(LATEST_READINGS_BATCH, { sensorIds: [sensorId] }, TENANT_B);
 
       expect(res.errors).toBeUndefined();
-      const readings = res.data!.latestReadingsBatch as Array<Record<string, unknown>>;
+      const readings = assertDefined(res.data).latestReadingsBatch as Array<
+        Record<string, unknown>
+      >;
       expect(readings.length).toBe(0);
     });
   });

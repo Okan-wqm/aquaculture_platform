@@ -43,7 +43,7 @@ const LOGIN_MUTATION = `
 test.describe('Rate Limiting', () => {
   let client: GraphQLTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     client = new GraphQLTestClient(request);
   });
 
@@ -74,11 +74,13 @@ test.describe('Rate Limiting', () => {
         },
       );
 
-      const hasRateLimitError = response.status === 429 ||
-        response.body.errors?.some(e =>
-          e.message.includes('Too many requests') ||
-          e.message.includes('rate limit') ||
-          e.extensions?.code === 'TOO_MANY_REQUESTS',
+      const hasRateLimitError =
+        response.status === 429 ||
+        response.body.errors?.some(
+          (e) =>
+            e.message.includes('Too many requests') ||
+            e.message.includes('rate limit') ||
+            e.extensions?.code === 'TOO_MANY_REQUESTS',
         ) === true;
 
       loginAttempts.push({
@@ -94,7 +96,7 @@ test.describe('Rate Limiting', () => {
 
     // At least one attempt (ideally the 6th) should be rate-limited
     // The exact threshold depends on RATE_LIMIT_LOGIN_MAX configuration
-    const rateLimited = loginAttempts.some(a => a.hasRateLimitError);
+    const rateLimited = loginAttempts.some((a) => a.hasRateLimitError);
 
     // If the gateway is running with default config (5 login/15min),
     // the 6th attempt should be blocked
@@ -104,7 +106,7 @@ test.describe('Rate Limiting', () => {
       // or the gateway might not be running
       console.warn(
         'WARNING: No rate limiting detected after 6 login attempts. ' +
-        'Verify RATE_LIMIT_LOGIN_MAX is configured and gateway is running.',
+          'Verify RATE_LIMIT_LOGIN_MAX is configured and gateway is running.',
       );
     }
 
@@ -158,7 +160,7 @@ test.describe('Rate Limiting', () => {
     if (!rateLimitHeader && !rateLimitRemaining) {
       console.warn(
         'WARNING: No X-RateLimit-* headers found. ' +
-        'Rate limiting may not be configured or gateway is not running.',
+          'Rate limiting may not be configured or gateway is not running.',
       );
     }
   });

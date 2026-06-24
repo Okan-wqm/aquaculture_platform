@@ -89,10 +89,7 @@ interface ColumnRow extends Record<string, unknown> {
 }
 
 const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
-  MODULE_SCHEMAS.map((moduleSchema) => [
-    moduleSchema.sourceSchema,
-    moduleSchema.tables,
-  ]),
+  MODULE_SCHEMAS.map((moduleSchema) => [moduleSchema.sourceSchema, moduleSchema.tables]),
 );
 
 function getFanoutTables(sourceSchema: string): ReadonlyArray<string> {
@@ -228,10 +225,7 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
       // Cannot use expect inside afterAll cleanly — log loudly so the
       // operator sees the leak. The teardown above SHOULD have removed
       // it; arriving here means DROP SCHEMA CASCADE failed.
-      // eslint-disable-next-line no-console
-      console.error(
-        `tenant-clone-parity teardown leaked schema "${tenantSchemaName}"`,
-      );
+      console.error(`tenant-clone-parity teardown leaked schema "${tenantSchemaName}"`);
     }
     await db.close();
   });
@@ -337,8 +331,7 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
     }
     if (drifts.length > 0) {
       throw new Error(
-        `Tenant-clone column-shape drift (${drifts.length} issue(s)):\n  ` +
-          drifts.join('\n  '),
+        `Tenant-clone column-shape drift (${drifts.length} issue(s)):\n  ` + drifts.join('\n  '),
       );
     }
   });
@@ -400,9 +393,7 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
           [tenantSchemaName, table],
         );
         const referencesTenantContext = policies.rows.some(
-          (p) =>
-            p.qual !== null &&
-            /current_setting\(\s*'app\.current_tenant_id'/.test(p.qual),
+          (p) => p.qual !== null && /current_setting\(\s*'app\.current_tenant_id'/.test(p.qual),
         );
         if (!referencesTenantContext) {
           offenders.push(

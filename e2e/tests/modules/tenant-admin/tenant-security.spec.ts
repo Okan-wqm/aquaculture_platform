@@ -63,7 +63,7 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
       }
     });
 
-    test('tenantDatabase query returns schemaName field', async () => {
+    test('tenantDatabase query returns schemaName field', () => {
       if (!tenantSchemaName) {
         console.warn('Skipping: tenantDatabase not available');
         return;
@@ -85,7 +85,8 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
           schemaName: string;
           columns: Array<{ columnName: string; dataType: string }>;
         };
-      }>(`
+      }>(
+        `
         query TableSchema($schemaName: String!, $tableName: String!) {
           tableSchema(schemaName: $schemaName, tableName: $tableName) {
             tableName
@@ -93,16 +94,19 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
             columns { columnName dataType }
           }
         }
-      `, {
-        schemaName: tenantSchemaName,
-        tableName: 'sensors',  // common table that likely exists
-      });
+      `,
+        {
+          schemaName: tenantSchemaName,
+          tableName: 'sensors', // common table that likely exists
+        },
+      );
 
       // Should not have an authorization error for own schema
       const hasAuthError = result.errors?.some(
-        e => e.message.toLowerCase().includes('unauthorized') ||
-             e.message.toLowerCase().includes('forbidden') ||
-             e.message.toLowerCase().includes('access denied'),
+        (e) =>
+          e.message.toLowerCase().includes('unauthorized') ||
+          e.message.toLowerCase().includes('forbidden') ||
+          e.message.toLowerCase().includes('access denied'),
       );
       expect(hasAuthError).not.toBe(true);
     });
@@ -120,17 +124,20 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
           tableName: string;
           schemaName: string;
         };
-      }>(`
+      }>(
+        `
         query TableSchema($schemaName: String!, $tableName: String!) {
           tableSchema(schemaName: $schemaName, tableName: $tableName) {
             tableName
             schemaName
           }
         }
-      `, {
-        schemaName: foreignSchema,
-        tableName: 'sensors',
-      });
+      `,
+        {
+          schemaName: foreignSchema,
+          tableName: 'sensors',
+        },
+      );
 
       // Should either return an error or empty result — NOT valid data from another tenant
       const hasError = result.errors && result.errors.length > 0;
@@ -151,7 +158,8 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
           totalRows: number;
           columns: string[];
         };
-      }>(`
+      }>(
+        `
         query TableData($input: GetTableDataInput!) {
           tableData(input: $input) {
             tableName
@@ -159,14 +167,16 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
             columns
           }
         }
-      `, {
-        input: {
-          schemaName: foreignSchema,
-          tableName: 'sensors',
-          limit: 1,
-          offset: 0,
+      `,
+        {
+          input: {
+            schemaName: foreignSchema,
+            tableName: 'sensors',
+            limit: 1,
+            offset: 0,
+          },
         },
-      });
+      );
 
       // Should either return an error or empty result
       const hasError = result.errors && result.errors.length > 0;
@@ -191,17 +201,20 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
           tableName: string;
           schemaName: string;
         };
-      }>(`
+      }>(
+        `
         query TableSchema($schemaName: String!, $tableName: String!) {
           tableSchema(schemaName: $schemaName, tableName: $tableName) {
             tableName
             schemaName
           }
         }
-      `, {
-        schemaName: 'public',
-        tableName: 'users',
-      });
+      `,
+        {
+          schemaName: 'public',
+          tableName: 'users',
+        },
+      );
 
       const hasError = result.errors && result.errors.length > 0;
       const hasNoData = !result.data?.tableSchema;
@@ -222,7 +235,8 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
             maxDevices: number | null;
             expiresAt: string | null;
           };
-        }>(`
+        }>(
+          `
           mutation CreateKey($input: CreateProvisioningKeyInput!) {
             createTenantProvisioningKey(input: $input) {
               id
@@ -231,12 +245,14 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
               expiresAt
             }
           }
-        `, {
-          input: {
-            name: `E2E No-AutoApprove ${Date.now()}`,
-            autoApprove: false,
+        `,
+          {
+            input: {
+              name: `E2E No-AutoApprove ${Date.now()}`,
+              autoApprove: false,
+            },
           },
-        });
+        );
 
         expect(result.createTenantProvisioningKey.id).toBeTruthy();
         expect(result.createTenantProvisioningKey.autoApprove).toBe(false);
@@ -255,7 +271,8 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
             maxDevices: number | null;
             expiresAt: string | null;
           };
-        }>(`
+        }>(
+          `
           mutation CreateKey($input: CreateProvisioningKeyInput!) {
             createTenantProvisioningKey(input: $input) {
               id
@@ -264,14 +281,16 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
               expiresAt
             }
           }
-        `, {
-          input: {
-            name: `E2E AutoApprove Safe ${Date.now()}`,
-            autoApprove: true,
-            maxDevices: 10,
-            expiresInDays: 30,
+        `,
+          {
+            input: {
+              name: `E2E AutoApprove Safe ${Date.now()}`,
+              autoApprove: true,
+              maxDevices: 10,
+              expiresInDays: 30,
+            },
           },
-        });
+        );
 
         expect(result.createTenantProvisioningKey.id).toBeTruthy();
         expect(result.createTenantProvisioningKey.autoApprove).toBe(true);
@@ -289,25 +308,29 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
             id: string;
             maxDevices: number | null;
           };
-        }>(`
+        }>(
+          `
           mutation CreateKey($input: CreateProvisioningKeyInput!) {
             createTenantProvisioningKey(input: $input) {
               id
               maxDevices
             }
           }
-        `, {
-          input: {
-            name: `E2E AutoApprove Excessive ${Date.now()}`,
-            autoApprove: true,
-            maxDevices: 999,
-            expiresInDays: 30,
+        `,
+          {
+            input: {
+              name: `E2E AutoApprove Excessive ${Date.now()}`,
+              autoApprove: true,
+              maxDevices: 999,
+              expiresInDays: 30,
+            },
           },
-        });
+        );
 
         // Backend should either reject or clamp to max
         const hasError = result.errors && result.errors.length > 0;
-        const wasClamped = result.data?.createTenantProvisioningKey?.maxDevices !== undefined &&
+        const wasClamped =
+          result.data?.createTenantProvisioningKey?.maxDevices !== undefined &&
           result.data.createTenantProvisioningKey?.maxDevices !== null &&
           result.data.createTenantProvisioningKey.maxDevices <= 100;
         // Either way is acceptable — what matters is the frontend enforcement
@@ -366,12 +389,14 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
         `);
 
         // All auto-approve keys should have safety limits
-        const autoApproveKeys = result.tenantProvisioningKeys.filter(k => k.autoApprove);
+        const autoApproveKeys = result.tenantProvisioningKeys.filter((k) => k.autoApprove);
         for (const key of autoApproveKeys) {
           // Frontend enforces these — backend may or may not (defence-in-depth)
           // At minimum, log if any are missing limits
           if (!key.maxDevices || !key.expiresAt) {
-            console.warn(`Auto-approve key ${key.id} missing safety limits: maxDevices=${key.maxDevices}, expiresAt=${key.expiresAt}`);
+            console.warn(
+              `Auto-approve key ${key.id} missing safety limits: maxDevices=${key.maxDevices}, expiresAt=${key.expiresAt}`,
+            );
           }
         }
         expect(Array.isArray(result.tenantProvisioningKeys)).toBe(true);

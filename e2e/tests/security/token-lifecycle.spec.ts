@@ -17,7 +17,6 @@ import {
   generateTokenWithoutJti,
   generateTokenWithWrongAudience,
   generateTokenWithWrongSecret,
-  generateTestToken,
 } from '../../helpers/jwt.helper';
 
 /** Response types (zero any policy) */
@@ -38,22 +37,21 @@ interface CurrentUserResponse {
 /**
  * Helper: assert that a response indicates unauthorized access
  */
-function expectUnauthorized(
-  errors: GraphQLError[] | undefined,
-  status: number,
-): void {
+function expectUnauthorized(errors: GraphQLError[] | undefined, status: number): void {
   const isUnauthorizedStatus = status === 401;
   const hasForbiddenStatus = status === 403;
-  const hasAuthError = errors?.some(e =>
-    e.message.includes('Unauthorized') ||
-    e.message.includes('Authentication') ||
-    e.message.includes('Invalid') ||
-    e.message.includes('expired') ||
-    e.message.includes('token') ||
-    e.message.includes('Authorization') ||
-    e.extensions?.code === 'UNAUTHENTICATED' ||
-    e.extensions?.code === 'UNAUTHORIZED',
-  ) ?? false;
+  const hasAuthError =
+    errors?.some(
+      (e) =>
+        e.message.includes('Unauthorized') ||
+        e.message.includes('Authentication') ||
+        e.message.includes('Invalid') ||
+        e.message.includes('expired') ||
+        e.message.includes('token') ||
+        e.message.includes('Authorization') ||
+        e.extensions?.code === 'UNAUTHENTICATED' ||
+        e.extensions?.code === 'UNAUTHORIZED',
+    ) ?? false;
 
   expect(
     isUnauthorizedStatus || hasForbiddenStatus || hasAuthError,
@@ -68,7 +66,7 @@ const CURRENT_USER_QUERY = `query { currentUser { id email } }`;
 test.describe('Token Security', () => {
   let client: GraphQLTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     client = new GraphQLTestClient(request);
   });
 
@@ -78,11 +76,7 @@ test.describe('Token Security', () => {
       email: 'expired@test.com',
     });
 
-    const response = await client.query<MeResponse>(
-      ME_QUERY,
-      {},
-      { token: expiredToken },
-    );
+    const response = await client.query<MeResponse>(ME_QUERY, {}, { token: expiredToken });
 
     // Expired token must be rejected
     expectUnauthorized(response.body.errors, response.status);
@@ -100,11 +94,7 @@ test.describe('Token Security', () => {
       roles: ['SUPER_ADMIN'],
     });
 
-    const response = await client.query<MeResponse>(
-      ME_QUERY,
-      {},
-      { token: tamperedToken },
-    );
+    const response = await client.query<MeResponse>(ME_QUERY, {}, { token: tamperedToken });
 
     // Token signed with wrong secret must be rejected
     expectUnauthorized(response.body.errors, response.status);
@@ -146,11 +136,7 @@ test.describe('Token Security', () => {
       email: 'wrongaud@test.com',
     });
 
-    const response = await client.query<MeResponse>(
-      ME_QUERY,
-      {},
-      { token: wrongAudToken },
-    );
+    const response = await client.query<MeResponse>(ME_QUERY, {}, { token: wrongAudToken });
 
     // The AuthGuard validates audience claim
     // When audience doesn't match configured JWT_AUDIENCE, token should be rejected
@@ -187,7 +173,7 @@ test.describe('Token Security', () => {
       {},
       {
         extraHeaders: {
-          'Authorization': 'NotBearer some-random-string',
+          Authorization: 'NotBearer some-random-string',
         },
       },
     );

@@ -7,6 +7,9 @@
  * - User's new token (after refresh/re-login) reflects the updated permissions
  */
 
+import { assertDefined } from '../../helpers/assertions';
+import { closePool } from '../../helpers/db.helper';
+import { decodeJwt } from '../../helpers/jwt.helper';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -14,13 +17,10 @@ import {
   createTenantRole,
   updateTenantRole,
   loginAs,
-  getTenantRoles,
   teardownTenant,
   generateTestEmail,
   generateTestPassword,
 } from '../../helpers/tenant.fixture';
-import { decodeJwt, extractResourcePermissions } from '../../helpers/jwt.helper';
-import { closePool } from '../../helpers/db.helper';
 
 describe('Permission Propagation', () => {
   let superAdminToken: string;
@@ -98,7 +98,6 @@ describe('Permission Propagation', () => {
     // 1. Login and get initial token
     const loginResult1 = await loginAs(testEmail, testPassword);
     const payload1 = decodeJwt(loginResult1.accessToken);
-    const initialPermissions = payload1.resourcePermissions || [];
 
     // 2. Update the role's permissions (add new permissions)
     await updateTenantRole(superAdminToken, customRoleId, {
@@ -116,7 +115,6 @@ describe('Permission Propagation', () => {
     // 3. Login again to get a new token
     const loginResult2 = await loginAs(testEmail, testPassword);
     const payload2 = decodeJwt(loginResult2.accessToken);
-    const updatedPermissions = payload2.resourcePermissions || [];
 
     // 4. The new token should have different (more) permissions
     //    OR the panelPermissions stored in the role should be updated
@@ -127,7 +125,7 @@ describe('Permission Propagation', () => {
     //
     //    We verify the token is different (re-issued with fresh data)
     expect(payload2.sub).toBe(payload1.sub);
-    expect(payload2.iat).toBeGreaterThanOrEqual(payload1.iat!);
+    expect(payload2.iat).toBeGreaterThanOrEqual(assertDefined(payload1.iat));
 
     // The tokens should be different (different iat/jti at minimum)
     expect(loginResult2.accessToken).not.toBe(loginResult1.accessToken);

@@ -5,11 +5,10 @@ import {
   ConflictException,
   Logger,
   Optional,
-  Inject,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
   SubscriptionUpdatedEvent,
@@ -53,7 +52,7 @@ export class ChangeSubscriptionPlanHandler
 
   constructor(
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
@@ -212,63 +211,50 @@ export class ChangeSubscriptionPlanHandler
           .catch(() => { /* non-fatal */ });
       }
 
-      // Publish SubscriptionUpdated event
-      try {
-        const event: SubscriptionUpdatedEvent = {
-          ...createBaseEvent<SubscriptionUpdatedEvent>(
-            'SubscriptionUpdated',
-            tenantId,
-            { userId },
-          ),
-          subscriptionId: savedSubscription.id,
-          tier: savedSubscription.planTier as SubscriptionUpdatedEvent['tier'],
-          monthlyPrice: Number(savedSubscription.pricing.basePrice),
-          currency: savedSubscription.pricing.currency || 'USD',
-          isDowngrade,
-          previousPlanTier: previousPlanTier as SubscriptionUpdatedEvent['previousPlanTier'],
-          features: {
-            maxFarms: savedSubscription.limits?.maxFarms,
-            maxPonds: savedSubscription.limits?.maxPonds,
-            maxSensors: savedSubscription.limits?.maxSensors,
-            maxUsers: savedSubscription.limits?.maxUsers,
-          },
-        };
-        await this.eventBus?.publish(event);
-      } catch (eventError) {
-        this.logger.warn(
-          `Failed to publish SubscriptionUpdated event for ${savedSubscription.id}: ${
-            eventError instanceof Error ? eventError.message : 'Unknown error'
-          }`,
-        );
-      }
+      // Enqueue SubscriptionUpdated into the transactional outbox so it commits
+      // atomically with the subscription write. The relay publishes to NATS
+      // after commit; an enqueue failure rolls the plan change back rather than
+      // committing it eventless (replaces the prior fire-and-forget publish).
+      const event: SubscriptionUpdatedEvent = {
+        ...createBaseEvent<SubscriptionUpdatedEvent>(
+          'SubscriptionUpdated',
+          tenantId,
+          { userId },
+        ),
+        subscriptionId: savedSubscription.id,
+        tier: savedSubscription.planTier as SubscriptionUpdatedEvent['tier'],
+        monthlyPrice: Number(savedSubscription.pricing.basePrice),
+        currency: savedSubscription.pricing.currency || 'USD',
+        isDowngrade,
+        previousPlanTier: previousPlanTier as SubscriptionUpdatedEvent['previousPlanTier'],
+        features: {
+          maxFarms: savedSubscription.limits?.maxFarms,
+          maxPonds: savedSubscription.limits?.maxPonds,
+          maxSensors: savedSubscription.limits?.maxSensors,
+          maxUsers: savedSubscription.limits?.maxUsers,
+        },
+      };
+      await this.outboxPublisher.enqueue(event, manager);
 
       // DATA-LOW-001: billing is the SSoT for subscription state; emit the
       // tenant-facing projection event so auth.tenants mirrors the new plan /
       // trial / subscription-end (auth's planLevel JWT claim reads that plan).
-      // Fail-soft, exactly like the SubscriptionUpdated emit above — a publish
-      // failure must not roll back the committed subscription change.
-      try {
-        const projection: TenantSubscriptionChangedEvent = {
-          ...createBaseEvent<TenantSubscriptionChangedEvent>(
-            'TenantSubscriptionChanged',
-            tenantId,
-            { userId },
-          ),
-          previousPlan: previousPlanTier,
-          newPlan: savedSubscription.planTier,
-          effectiveDate: new Date(),
-          trialEndsAt: savedSubscription.trialEndDate ?? null,
-          subscriptionEndsAt: savedSubscription.endDate ?? null,
-          subscriptionStatus: savedSubscription.status,
-        };
-        await this.eventBus?.publish(projection);
-      } catch (eventError) {
-        this.logger.warn(
-          `Failed to publish TenantSubscriptionChanged event for ${savedSubscription.id}: ${
-            eventError instanceof Error ? eventError.message : 'Unknown error'
-          }`,
-        );
-      }
+      // Enqueued on the same transactional manager so the projection commits
+      // atomically with the subscription change.
+      const projection: TenantSubscriptionChangedEvent = {
+        ...createBaseEvent<TenantSubscriptionChangedEvent>(
+          'TenantSubscriptionChanged',
+          tenantId,
+          { userId },
+        ),
+        previousPlan: previousPlanTier,
+        newPlan: savedSubscription.planTier,
+        effectiveDate: new Date(),
+        trialEndsAt: savedSubscription.trialEndDate ?? null,
+        subscriptionEndsAt: savedSubscription.endDate ?? null,
+        subscriptionStatus: savedSubscription.status,
+      };
+      await this.outboxPublisher.enqueue(projection, manager);
 
       return savedSubscription;
     });

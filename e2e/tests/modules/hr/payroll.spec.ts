@@ -6,8 +6,10 @@
  * -> Pending payrolls -> Cross-tenant isolation
  */
 import { randomUUID } from 'crypto';
-import { GraphQLTestClient } from '../../../helpers/graphql-client';
+
+import { assertDefined } from '../../../helpers/assertions';
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateTestToken } from '../../../helpers/jwt.helper';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
@@ -51,36 +53,39 @@ describe('Payroll Lifecycle', () => {
     // Create an employee first for the payroll
     const empData = await clientA.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'Payroll',
-        lastName: 'Employee',
-        email: `e2e-payroll-emp-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-payroll-contact-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-999-8888',
+    `,
+      {
+        input: {
+          firstName: 'Payroll',
+          lastName: 'Employee',
+          email: `e2e-payroll-emp-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-payroll-contact-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-999-8888',
+          },
+          address: {
+            street: '456 Test Street',
+            city: 'Ankara',
+            state: 'Central Anatolia',
+            postalCode: '06000',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1988-03-20',
+          nationalId: 'TC22222222222',
+          employmentType: 'FULL_TIME',
+          department: 'OPERATIONS',
+          position: 'Site Manager',
+          hireDate: '2023-06-01',
+          baseSalary: 60000,
+          currency: 'TRY',
         },
-        address: {
-          street: '456 Test Street',
-          city: 'Ankara',
-          state: 'Central Anatolia',
-          postalCode: '06000',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1988-03-20',
-        nationalId: 'TC22222222222',
-        employmentType: 'FULL_TIME',
-        department: 'OPERATIONS',
-        position: 'Site Manager',
-        hireDate: '2023-06-01',
-        baseSalary: 60000,
-        currency: 'TRY',
       },
-    });
+    );
     employeeId = empData.createEmployee.id;
   });
 
@@ -105,7 +110,8 @@ describe('Payroll Lifecycle', () => {
         deductions: { totalDeductions: number };
         workHours: { regularHours: number };
       };
-    }>(`
+    }>(
+      `
       mutation CreatePayroll($input: CreatePayrollInput!) {
         createPayroll(input: $input) {
           id
@@ -122,29 +128,31 @@ describe('Payroll Lifecycle', () => {
           workHours { regularHours }
         }
       }
-    `, {
-      input: {
-        employeeId,
-        payPeriodType: 'MONTHLY',
-        payPeriodStart: '2026-01-01',
-        payPeriodEnd: '2026-01-31',
-        workHours: {
-          regularHours: 176,
-          overtimeHours: 8,
+    `,
+      {
+        input: {
+          employeeId,
+          payPeriodType: 'MONTHLY',
+          payPeriodStart: '2026-01-01',
+          payPeriodEnd: '2026-01-31',
+          workHours: {
+            regularHours: 176,
+            overtimeHours: 8,
+          },
+          earnings: {
+            baseSalary: 5000,
+            overtime: 500,
+            bonus: 200,
+          },
+          deductions: {
+            tax: 800,
+            socialSecurity: 350,
+            healthInsurance: 150,
+          },
+          currency: 'TRY',
         },
-        earnings: {
-          baseSalary: 5000,
-          overtime: 500,
-          bonus: 200,
-        },
-        deductions: {
-          tax: 800,
-          socialSecurity: 350,
-          healthInsurance: 150,
-        },
-        currency: 'TRY',
       },
-    });
+    );
 
     const payroll = data.createPayroll;
     payrollId = payroll.id;
@@ -163,7 +171,8 @@ describe('Payroll Lifecycle', () => {
         data: Array<{ id: string; status: string }>;
         total: number;
       };
-    }>(`
+    }>(
+      `
       query ListPayrolls($employeeId: ID) {
         payrolls(employeeId: $employeeId) {
           data {
@@ -173,37 +182,40 @@ describe('Payroll Lifecycle', () => {
           total
         }
       }
-    `, { employeeId });
+    `,
+      { employeeId },
+    );
 
     expect(listData.payrolls.total).toBeGreaterThanOrEqual(1);
-    const found = listData.payrolls.data.find(
-      (p: { id: string }) => p.id === payrollId,
-    );
+    const found = listData.payrolls.data.find((p: { id: string }) => p.id === payrollId);
     expect(found).toBeDefined();
-    expect(found!.status).toBe('draft');
+    expect(assertDefined(found).status).toBe('draft');
   });
 
   // ── Test 2: Unique period per employee ────────────────
   test('Test 2: same employee + same period -> error', async () => {
-    const response = await clientA.queryRaw(`
+    const response = await clientA.queryRaw(
+      `
       mutation CreateDuplicate($input: CreatePayrollInput!) {
         createPayroll(input: $input) {
           id
         }
       }
-    `, {
-      input: {
-        employeeId,
-        payPeriodType: 'MONTHLY',
-        payPeriodStart: '2026-01-01',
-        payPeriodEnd: '2026-01-31',
-        workHours: { regularHours: 176 },
-        earnings: { baseSalary: 5000 },
+    `,
+      {
+        input: {
+          employeeId,
+          payPeriodType: 'MONTHLY',
+          payPeriodStart: '2026-01-01',
+          payPeriodEnd: '2026-01-31',
+          workHours: { regularHours: 176 },
+          earnings: { baseSalary: 5000 },
+        },
       },
-    });
+    );
 
     expect(response.errors).toBeDefined();
-    expect(response.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(response.errors).length).toBeGreaterThan(0);
   });
 
   // ── Test 3: Approve payroll ───────────────────────────
@@ -211,20 +223,23 @@ describe('Payroll Lifecycle', () => {
     // Create a new payroll for February to approve (different period)
     const createRes = await clientA.mutate<{
       createPayroll: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreatePayroll($input: CreatePayrollInput!) {
         createPayroll(input: $input) { id }
       }
-    `, {
-      input: {
-        employeeId,
-        payPeriodType: 'MONTHLY',
-        payPeriodStart: '2026-02-01',
-        payPeriodEnd: '2026-02-28',
-        workHours: { regularHours: 160 },
-        earnings: { baseSalary: 5000 },
+    `,
+      {
+        input: {
+          employeeId,
+          payPeriodType: 'MONTHLY',
+          payPeriodStart: '2026-02-01',
+          payPeriodEnd: '2026-02-28',
+          workHours: { regularHours: 160 },
+          earnings: { baseSalary: 5000 },
+        },
       },
-    });
+    );
     const febPayrollId = createRes.createPayroll.id;
 
     // Approve with a different user (approver)
@@ -235,7 +250,8 @@ describe('Payroll Lifecycle', () => {
         approvedBy: string;
         approvedAt: string;
       };
-    }>(`
+    }>(
+      `
       mutation ApprovePayroll($id: ID!) {
         approvePayroll(id: $id) {
           id
@@ -244,7 +260,9 @@ describe('Payroll Lifecycle', () => {
           approvedAt
         }
       }
-    `, { id: febPayrollId });
+    `,
+      { id: febPayrollId },
+    );
 
     expect(approveData.approvePayroll.status).toBe('approved');
     expect(approveData.approvePayroll.approvedBy).toBeDefined();
@@ -254,21 +272,24 @@ describe('Payroll Lifecycle', () => {
   // ── Test 4: Self-approve prevention ───────────────────
   test('Test 4: self-approve own payroll -> should be blocked', async () => {
     // The creator (USER_A_ID) tries to approve their own payroll
-    const response = await clientA.queryRaw(`
+    const response = await clientA.queryRaw(
+      `
       mutation SelfApprove($id: ID!) {
         approvePayroll(id: $id) {
           id
           status
         }
       }
-    `, { id: payrollId });
+    `,
+      { id: payrollId },
+    );
 
     // Either an error is returned, or the system silently blocks it
     // Both outcomes are acceptable — the key requirement is that
     // the payroll does NOT get approved by the same user who created it.
     if (response.errors && response.errors.length > 0) {
       // Self-approve was explicitly blocked
-      expect(response.errors[0]!.message).toBeDefined();
+      expect(response.errors[0].message).toBeDefined();
     } else if (response.data) {
       // If no error, check status is NOT approved (business rule may vary)
       // Some systems allow it, in which case this test documents the behavior
@@ -302,14 +323,17 @@ describe('Payroll Lifecycle', () => {
         data: Array<{ id: string }>;
         total: number;
       };
-    }>(`
+    }>(
+      `
       query ListPayrolls($employeeId: ID) {
         payrolls(employeeId: $employeeId) {
           data { id }
           total
         }
       }
-    `, { employeeId });
+    `,
+      { employeeId },
+    );
 
     // Should either return empty data or error
     if (response.data?.payrolls) {
@@ -337,8 +361,8 @@ describe('Payroll Lifecycle', () => {
       );
 
       expect(result.rows.length).toBe(1);
-      expect(result.rows[0]!.tenantId).toBe(TENANT_A_ID);
-      expect(result.rows[0]!.employeeId).toBe(employeeId);
+      expect(result.rows[0].tenantId).toBe(TENANT_A_ID);
+      expect(result.rows[0].employeeId).toBe(employeeId);
     } catch (error) {
       console.warn('DB verification skipped:', (error as Error).message);
     }

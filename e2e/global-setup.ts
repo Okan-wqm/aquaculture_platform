@@ -1,6 +1,6 @@
-import { TestDatabase } from './helpers/db.helper';
 import { createTestTenant } from './fixtures/tenant.fixture';
 import { createSuperAdmin, createTenantAdmin } from './fixtures/user.fixture';
+import { TestDatabase } from './helpers/db.helper';
 
 /**
  * Global setup for all E2E test suites.

@@ -8,9 +8,10 @@
  * 4. Cross-tenant isolation for farms
  * 5. Pond with waterType and status
  */
+import { assertDefined } from '../../../helpers/assertions';
+import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateCrossTenantTokens } from '../../../helpers/jwt.helper';
-import { TestDatabase } from '../../../helpers/db.helper';
 
 // ---------------------------------------------------------------------------
 // GraphQL Fragments
@@ -175,8 +176,8 @@ describe('Farm + Pond E2E', () => {
     // DB VERIFY
     const dbRow = await db.findById('farms', farm.id, tenantAId);
     expect(dbRow).not.toBeNull();
-    expect(dbRow!['name']).toBe(input.name);
-    expect(dbRow!['tenantId']).toBe(tenantAId);
+    expect(assertDefined(dbRow)['name']).toBe(input.name);
+    expect(assertDefined(dbRow)['tenantId']).toBe(tenantAId);
 
     // LIST
     const listResult = await client.executeSuccess<{
@@ -187,9 +188,7 @@ describe('Farm + Pond E2E', () => {
       token: tenantAToken,
     });
 
-    const found = listResult.farms.find(
-      (f: { id: string }) => f.id === farm.id,
-    );
+    const found = listResult.farms.find((f: { id: string }) => f.id === farm.id);
     expect(found).toBeDefined();
   });
 
@@ -227,7 +226,7 @@ describe('Farm + Pond E2E', () => {
     });
 
     expect(duplicateResult.errors).toBeDefined();
-    expect(duplicateResult.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(duplicateResult.errors).length).toBeGreaterThan(0);
   });
 
   // -------------------------------------------------------------------------
@@ -303,8 +302,8 @@ describe('Farm + Pond E2E', () => {
     // DB VERIFY
     const dbRow = await db.findById('ponds', pond.id, tenantAId);
     expect(dbRow).not.toBeNull();
-    expect(dbRow!['farmId']).toBe(farmId);
-    expect(dbRow!['name']).toBe(pondInput.name);
+    expect(assertDefined(dbRow)['farmId']).toBe(farmId);
+    expect(assertDefined(dbRow)['name']).toBe(pondInput.name);
   });
 
   // -------------------------------------------------------------------------
@@ -350,9 +349,7 @@ describe('Farm + Pond E2E', () => {
       token: tenantBToken,
     });
 
-    const found = listResult.farms.find(
-      (f: { id: string }) => f.id === farmId,
-    );
+    const found = listResult.farms.find((f: { id: string }) => f.id === farmId);
     expect(found).toBeUndefined();
   });
 

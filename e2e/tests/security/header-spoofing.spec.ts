@@ -10,10 +10,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import {
-  generateTestToken,
-  generateModuleUserToken,
-} from '../../helpers/jwt.helper';
+import { generateTestToken, generateModuleUserToken } from '../../helpers/jwt.helper';
 
 /** Response types (zero any policy) */
 interface MeResponse {
@@ -48,7 +45,7 @@ const SPOOFED_USER_ID = uuidv4();
 test.describe('Header Spoofing Prevention', () => {
   let client: GraphQLTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     client = new GraphQLTestClient(request);
   });
 
@@ -127,12 +124,13 @@ test.describe('Header Spoofing Prevention', () => {
 
     if (response.body.errors && response.body.errors.length > 0) {
       // If errors, should be about tenant mismatch/forbidden
-      const isTenantError = response.body.errors.some(e =>
-        e.message.includes('does not belong') ||
-        e.message.includes('Access denied') ||
-        e.message.includes('Forbidden') ||
-        e.message.includes('tenant') ||
-        e.extensions?.code === 'FORBIDDEN',
+      const isTenantError = response.body.errors.some(
+        (e) =>
+          e.message.includes('does not belong') ||
+          e.message.includes('Access denied') ||
+          e.message.includes('Forbidden') ||
+          e.message.includes('tenant') ||
+          e.extensions?.code === 'FORBIDDEN',
       );
       expect(isTenantError).toBe(true);
     } else if (response.body.data?.myTenant) {

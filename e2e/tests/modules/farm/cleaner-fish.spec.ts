@@ -14,14 +14,7 @@
  *
  * @module E2E/Farm/CleanerFish
  */
-import {
-  gqlExpectSuccess,
-  gqlExpectError,
-  TENANT_A_ID,
-  USER_A_ID,
-  BATCH_FIELDS,
-  createTestSpecies,
-} from './test-helpers';
+import { gqlExpectSuccess, TENANT_A_ID, BATCH_FIELDS, createTestSpecies } from './test-helpers';
 
 describe('Cleaner Fish E2E', () => {
   let cleanerSpeciesId: string;

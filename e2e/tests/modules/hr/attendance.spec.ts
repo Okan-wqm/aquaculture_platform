@@ -7,8 +7,10 @@
  * -> Today's attendance -> Cross-tenant isolation
  */
 import { randomUUID } from 'crypto';
-import { GraphQLTestClient } from '../../../helpers/graphql-client';
+
+import { assertDefined } from '../../../helpers/assertions';
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateTestToken } from '../../../helpers/jwt.helper';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
@@ -64,44 +66,48 @@ describe('Attendance Clock-In/Out', () => {
     // Create employee linked to employee user
     const empData = await clientAdmin.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'Attendance',
-        lastName: 'Worker',
-        email: `e2e-att-emp-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-att-contact-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-333-4444',
+    `,
+      {
+        input: {
+          firstName: 'Attendance',
+          lastName: 'Worker',
+          email: `e2e-att-emp-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-att-contact-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-333-4444',
+          },
+          address: {
+            street: '321 Clock Street',
+            city: 'Antalya',
+            state: 'Mediterranean',
+            postalCode: '07000',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1995-02-28',
+          nationalId: 'TC44444444444',
+          employmentType: 'FULL_TIME',
+          department: 'OPERATIONS',
+          position: 'Cage Operator',
+          hireDate: '2024-03-01',
+          baseSalary: 40000,
+          currency: 'TRY',
         },
-        address: {
-          street: '321 Clock Street',
-          city: 'Antalya',
-          state: 'Mediterranean',
-          postalCode: '07000',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1995-02-28',
-        nationalId: 'TC44444444444',
-        employmentType: 'FULL_TIME',
-        department: 'OPERATIONS',
-        position: 'Cage Operator',
-        hireDate: '2024-03-01',
-        baseSalary: 40000,
-        currency: 'TRY',
       },
-    });
+    );
     employeeId = empData.createEmployee.id;
 
     // Link employee to user in DB
     try {
-      await db.query(
-        `UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`,
-        [EMPLOYEE_USER_ID, employeeId, TENANT_A_ID],
-      );
+      await db.query(`UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`, [
+        EMPLOYEE_USER_ID,
+        employeeId,
+        TENANT_A_ID,
+      ]);
     } catch (error) {
       console.warn('Could not link employee to user:', (error as Error).message);
     }
@@ -109,44 +115,50 @@ describe('Attendance Clock-In/Out', () => {
     // Create a terminated employee for test 5
     const termData = await clientAdmin.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateTermEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'Terminated',
-        lastName: 'Former',
-        email: `e2e-term-att-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-term-att-contact-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-444-5555',
+    `,
+      {
+        input: {
+          firstName: 'Terminated',
+          lastName: 'Former',
+          email: `e2e-term-att-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-term-att-contact-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-444-5555',
+          },
+          address: {
+            street: '999 Exit Street',
+            city: 'Bursa',
+            state: 'Marmara',
+            postalCode: '16000',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1985-11-05',
+          nationalId: 'TC55555555555',
+          employmentType: 'FULL_TIME',
+          department: 'MAINTENANCE',
+          position: 'Maintenance Tech',
+          hireDate: '2020-01-01',
+          baseSalary: 35000,
+          currency: 'TRY',
         },
-        address: {
-          street: '999 Exit Street',
-          city: 'Bursa',
-          state: 'Marmara',
-          postalCode: '16000',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1985-11-05',
-        nationalId: 'TC55555555555',
-        employmentType: 'FULL_TIME',
-        department: 'MAINTENANCE',
-        position: 'Maintenance Tech',
-        hireDate: '2020-01-01',
-        baseSalary: 35000,
-        currency: 'TRY',
       },
-    });
+    );
     terminatedEmployeeId = termData.createEmployee.id;
 
     // Terminate the employee
-    await clientAdmin.mutate(`
+    await clientAdmin.mutate(
+      `
       mutation TermEmp($id: ID!, $terminationDate: String!) {
         terminateEmployee(id: $id, terminationDate: $terminationDate) { id status }
       }
-    `, { id: terminatedEmployeeId, terminationDate: '2026-01-01' });
+    `,
+      { id: terminatedEmployeeId, terminationDate: '2026-01-01' },
+    );
   });
 
   afterAll(async () => {
@@ -171,7 +183,8 @@ describe('Attendance Clock-In/Out', () => {
         workDays: string[];
         isActive: boolean;
       };
-    }>(`
+    }>(
+      `
       mutation CreateShift($input: CreateShiftInput!) {
         createShift(input: $input) {
           id
@@ -187,21 +200,23 @@ describe('Attendance Clock-In/Out', () => {
           isActive
         }
       }
-    `, {
-      input: {
-        code: shiftCode,
-        name: 'Morning Shift E2E',
-        startTime: '08:00',
-        endTime: '17:00',
-        shiftType: 'REGULAR',
-        totalMinutes: 540,
-        breakMinutes: 60,
-        graceMinutes: 15,
-        earlyClockInMinutes: 30,
-        lateClockOutMinutes: 120,
-        workDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+    `,
+      {
+        input: {
+          code: shiftCode,
+          name: 'Morning Shift E2E',
+          startTime: '08:00',
+          endTime: '17:00',
+          shiftType: 'REGULAR',
+          totalMinutes: 540,
+          breakMinutes: 60,
+          graceMinutes: 15,
+          earlyClockInMinutes: 30,
+          lateClockOutMinutes: 120,
+          workDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+        },
       },
-    });
+    );
 
     const shift = data.createShift;
     shiftId = shift.id;
@@ -233,9 +248,7 @@ describe('Attendance Clock-In/Out', () => {
     `);
 
     expect(listData.shifts.total).toBeGreaterThanOrEqual(1);
-    const found = listData.shifts.data.find(
-      (s: { id: string }) => s.id === shiftId,
-    );
+    const found = listData.shifts.data.find((s: { id: string }) => s.id === shiftId);
     expect(found).toBeDefined();
   });
 
@@ -253,7 +266,8 @@ describe('Attendance Clock-In/Out', () => {
         workedMinutes: number;
         clockInLocation: { latitude: number; longitude: number } | null;
       };
-    }>(`
+    }>(
+      `
       mutation ClockIn($input: ClockInInput!) {
         clockIn(input: $input) {
           id
@@ -267,17 +281,19 @@ describe('Attendance Clock-In/Out', () => {
           clockInLocation { latitude longitude }
         }
       }
-    `, {
-      input: {
-        method: 'WEB',
-        location: {
-          latitude: 36.8969,
-          longitude: 30.7133,
-          address: 'Antalya Fish Farm',
+    `,
+      {
+        input: {
+          method: 'WEB',
+          location: {
+            latitude: 36.8969,
+            longitude: 30.7133,
+            address: 'Antalya Fish Farm',
+          },
+          remarks: 'E2E clock in test',
         },
-        remarks: 'E2E clock in test',
       },
-    });
+    );
 
     const record = data.clockIn;
     attendanceRecordId = record.id;
@@ -301,7 +317,8 @@ describe('Attendance Clock-In/Out', () => {
         workedMinutes: number;
         status: string;
       };
-    }>(`
+    }>(
+      `
       mutation ClockOut($input: ClockOutInput!) {
         clockOut(input: $input) {
           id
@@ -311,17 +328,19 @@ describe('Attendance Clock-In/Out', () => {
           status
         }
       }
-    `, {
-      input: {
-        method: 'WEB',
-        location: {
-          latitude: 36.8969,
-          longitude: 30.7133,
-          address: 'Antalya Fish Farm',
+    `,
+      {
+        input: {
+          method: 'WEB',
+          location: {
+            latitude: 36.8969,
+            longitude: 30.7133,
+            address: 'Antalya Fish Farm',
+          },
+          remarks: 'E2E clock out test',
         },
-        remarks: 'E2E clock out test',
       },
-    });
+    );
 
     const record = data.clockOut;
     expect(record.clockOut).toBeDefined();
@@ -334,29 +353,35 @@ describe('Attendance Clock-In/Out', () => {
   test('Test 4: duplicate clockIn (already clocked in) -> error', async () => {
     // First clock in for the day (fresh)
     // This will either succeed (new day/no existing record) or fail (already clocked today)
-    const firstAttempt = await clientEmployee.queryRaw(`
+    const firstAttempt = await clientEmployee.queryRaw(
+      `
       mutation ClockIn($input: ClockInInput!) {
         clockIn(input: $input) { id }
       }
-    `, {
-      input: {
-        method: 'WEB',
-        remarks: 'First clock in for duplicate test',
+    `,
+      {
+        input: {
+          method: 'WEB',
+          remarks: 'First clock in for duplicate test',
+        },
       },
-    });
+    );
 
     if (firstAttempt.data) {
       // Now try a second clock in without clocking out first
-      const duplicateResponse = await clientEmployee.queryRaw(`
+      const duplicateResponse = await clientEmployee.queryRaw(
+        `
         mutation DuplicateClockIn($input: ClockInInput!) {
           clockIn(input: $input) { id }
         }
-      `, {
-        input: {
-          method: 'WEB',
-          remarks: 'Duplicate clock in attempt',
+      `,
+        {
+          input: {
+            method: 'WEB',
+            remarks: 'Duplicate clock in attempt',
+          },
         },
-      });
+      );
 
       // Should fail - already clocked in
       if (duplicateResponse.errors) {
@@ -364,7 +389,7 @@ describe('Attendance Clock-In/Out', () => {
       }
     } else {
       // Already had an active clock-in from test 2, so this confirms the guard
-      expect(firstAttempt.errors!.length).toBeGreaterThan(0);
+      expect(assertDefined(firstAttempt.errors).length).toBeGreaterThan(0);
     }
   });
 
@@ -373,10 +398,11 @@ describe('Attendance Clock-In/Out', () => {
     // Link terminated employee to a user for clock-in attempt
     const termUserId = randomUUID();
     try {
-      await db.query(
-        `UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`,
-        [termUserId, terminatedEmployeeId, TENANT_A_ID],
-      );
+      await db.query(`UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`, [
+        termUserId,
+        terminatedEmployeeId,
+        TENANT_A_ID,
+      ]);
     } catch {
       // DB may not be accessible
     }
@@ -388,13 +414,16 @@ describe('Attendance Clock-In/Out', () => {
     });
     const termClient = new GraphQLTestClient(GATEWAY_URL, termToken, TENANT_A_ID);
 
-    const response = await termClient.queryRaw(`
+    const response = await termClient.queryRaw(
+      `
       mutation ClockIn($input: ClockInInput!) {
         clockIn(input: $input) { id }
       }
-    `, {
-      input: { method: 'WEB' },
-    });
+    `,
+      {
+        input: { method: 'WEB' },
+      },
+    );
 
     // Should fail - terminated employees cannot clock in
     if (response.errors) {
@@ -404,43 +433,45 @@ describe('Attendance Clock-In/Out', () => {
 
   // ── Test 6: On-leave employee clockIn ─────────────────
   test('Test 6: employee on approved leave clockIn -> error', async () => {
-    // This test requires an employee with an approved leave covering today
-    // Create a leave request for today and approve it
-    const today = new Date().toISOString().split('T')[0];
+    // This test puts an employee into the on_leave state directly (via DB below)
+    // and asserts the clock-in guard rejects them.
 
     // Create a special employee for this test
     const leaveEmpData = await clientAdmin.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'OnLeave',
-        lastName: 'Person',
-        email: `e2e-onleave-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-onleave-c-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-666-7777',
+    `,
+      {
+        input: {
+          firstName: 'OnLeave',
+          lastName: 'Person',
+          email: `e2e-onleave-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-onleave-c-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-666-7777',
+          },
+          address: {
+            street: '111 Leave Street',
+            city: 'Mugla',
+            state: 'Aegean',
+            postalCode: '48000',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1991-04-20',
+          nationalId: 'TC66666666666',
+          employmentType: 'FULL_TIME',
+          department: 'QUALITY_CONTROL',
+          position: 'Quality Inspector',
+          hireDate: '2023-05-01',
+          baseSalary: 42000,
+          currency: 'TRY',
         },
-        address: {
-          street: '111 Leave Street',
-          city: 'Mugla',
-          state: 'Aegean',
-          postalCode: '48000',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1991-04-20',
-        nationalId: 'TC66666666666',
-        employmentType: 'FULL_TIME',
-        department: 'QUALITY_CONTROL',
-        position: 'Quality Inspector',
-        hireDate: '2023-05-01',
-        baseSalary: 42000,
-        currency: 'TRY',
       },
-    });
+    );
     const leaveEmpId = leaveEmpData.createEmployee.id;
 
     // Link to a new user
@@ -461,13 +492,16 @@ describe('Attendance Clock-In/Out', () => {
     });
     const leaveClient = new GraphQLTestClient(GATEWAY_URL, leaveToken, TENANT_A_ID);
 
-    const response = await leaveClient.queryRaw(`
+    const response = await leaveClient.queryRaw(
+      `
       mutation ClockIn($input: ClockInInput!) {
         clockIn(input: $input) { id }
       }
-    `, {
-      input: { method: 'WEB' },
-    });
+    `,
+      {
+        input: { method: 'WEB' },
+      },
+    );
 
     // Should fail - employee is on leave
     if (response.errors) {
@@ -488,7 +522,8 @@ describe('Attendance Clock-In/Out', () => {
         reason: string;
         workedMinutes: number;
       };
-    }>(`
+    }>(
+      `
       mutation CreateManual($input: ManualAttendanceInput!) {
         createManualAttendance(input: $input) {
           id
@@ -501,15 +536,17 @@ describe('Attendance Clock-In/Out', () => {
           workedMinutes
         }
       }
-    `, {
-      input: {
-        employeeId,
-        date: '2026-03-20',
-        clockIn: '2026-03-20T08:00:00Z',
-        clockOut: '2026-03-20T17:00:00Z',
-        reason: 'Forgot to clock in - E2E manual entry',
+    `,
+      {
+        input: {
+          employeeId,
+          date: '2026-03-20',
+          clockIn: '2026-03-20T08:00:00Z',
+          clockOut: '2026-03-20T17:00:00Z',
+          reason: 'Forgot to clock in - E2E manual entry',
+        },
       },
-    });
+    );
 
     const record = data.createManualAttendance;
     manualAttendanceId = record.id;
@@ -529,7 +566,8 @@ describe('Attendance Clock-In/Out', () => {
         approvedBy: string;
         approvedAt: string;
       };
-    }>(`
+    }>(
+      `
       mutation ApproveAtt($id: ID!, $notes: String) {
         approveAttendance(id: $id, notes: $notes) {
           id
@@ -538,7 +576,9 @@ describe('Attendance Clock-In/Out', () => {
           approvedAt
         }
       }
-    `, { id: manualAttendanceId, notes: 'Verified manual entry' });
+    `,
+      { id: manualAttendanceId, notes: 'Verified manual entry' },
+    );
 
     expect(data.approveAttendance.approvalStatus).toBeDefined();
     expect(data.approveAttendance.approvedBy).toBeDefined();
@@ -595,7 +635,8 @@ describe('Attendance Clock-In/Out', () => {
         totalLateMinutes: number;
         attendanceRate: number;
       };
-    }>(`
+    }>(
+      `
       query Summary($employeeId: ID!, $month: Int!, $year: Int!) {
         attendanceSummary(employeeId: $employeeId, month: $month, year: $year) {
           employeeId
@@ -612,7 +653,9 @@ describe('Attendance Clock-In/Out', () => {
           attendanceRate
         }
       }
-    `, { employeeId, month: 3, year: 2026 });
+    `,
+      { employeeId, month: 3, year: 2026 },
+    );
 
     const summary = data.attendanceSummary;
     expect(summary.employeeId).toBe(employeeId);
@@ -629,36 +672,39 @@ describe('Attendance Clock-In/Out', () => {
     // Create another employee for late test (avoids existing clock-in conflicts)
     const lateEmpData = await clientAdmin.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'Late',
-        lastName: 'Tester',
-        email: `e2e-late-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-late-c-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-888-9999',
+    `,
+      {
+        input: {
+          firstName: 'Late',
+          lastName: 'Tester',
+          email: `e2e-late-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-late-c-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-888-9999',
+          },
+          address: {
+            street: '222 Late Ave',
+            city: 'Trabzon',
+            state: 'Black Sea',
+            postalCode: '61000',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1993-07-14',
+          nationalId: 'TC77777777777',
+          employmentType: 'FULL_TIME',
+          department: 'FEEDING',
+          position: 'Feed Technician',
+          hireDate: '2024-06-01',
+          baseSalary: 38000,
+          currency: 'TRY',
         },
-        address: {
-          street: '222 Late Ave',
-          city: 'Trabzon',
-          state: 'Black Sea',
-          postalCode: '61000',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1993-07-14',
-        nationalId: 'TC77777777777',
-        employmentType: 'FULL_TIME',
-        department: 'FEEDING',
-        position: 'Feed Technician',
-        hireDate: '2024-06-01',
-        baseSalary: 38000,
-        currency: 'TRY',
       },
-    });
+    );
     const lateEmpId = lateEmpData.createEmployee.id;
 
     // Create manual attendance record with late arrival
@@ -670,7 +716,8 @@ describe('Attendance Clock-In/Out', () => {
         status: string;
         workedMinutes: number;
       };
-    }>(`
+    }>(
+      `
       mutation CreateLateEntry($input: ManualAttendanceInput!) {
         createManualAttendance(input: $input) {
           id
@@ -679,16 +726,18 @@ describe('Attendance Clock-In/Out', () => {
           workedMinutes
         }
       }
-    `, {
-      input: {
-        employeeId: lateEmpId,
-        date: '2026-03-21',
-        clockIn: '2026-03-21T09:00:00Z',
-        clockOut: '2026-03-21T17:00:00Z',
-        reason: 'Late arrival - traffic jam',
-        shiftId,
+    `,
+      {
+        input: {
+          employeeId: lateEmpId,
+          date: '2026-03-21',
+          clockIn: '2026-03-21T09:00:00Z',
+          clockOut: '2026-03-21T17:00:00Z',
+          reason: 'Late arrival - traffic jam',
+          shiftId,
+        },
       },
-    });
+    );
 
     expect(manualData.createManualAttendance.id).toBeDefined();
     // Late minutes should be calculated based on shift start + grace
@@ -732,14 +781,17 @@ describe('Attendance Clock-In/Out', () => {
         data: Array<{ id: string }>;
         total: number;
       };
-    }>(`
+    }>(
+      `
       query Records($employeeId: ID) {
         attendanceRecords(employeeId: $employeeId) {
           data { id }
           total
         }
       }
-    `, { employeeId });
+    `,
+      { employeeId },
+    );
 
     if (response.data?.attendanceRecords) {
       // Tenant B should not see any records for Tenant A employees

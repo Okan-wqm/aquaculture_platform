@@ -23,7 +23,7 @@ import { generateTenantFixture, TestTenantFixture } from '../../../helpers/tenan
 describe('Tenant Admin — Users (CRUD & Filtering)', () => {
   let client: GraphQLTestClient;
   let fixture: TestTenantFixture;
-  let createdUserIds: string[] = [];
+  const createdUserIds: string[] = [];
 
   // ------------------------------------------------------------------
   // Setup: authenticate as tenant admin
@@ -38,11 +38,14 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
     // Cleanup: attempt to delete created test users
     for (const userId of createdUserIds) {
       try {
-        await client.mutate(`
+        await client.mutate(
+          `
           mutation DeleteTenantUser($userId: ID!) {
             deleteTenantUser(userId: $userId)
           }
-        `, { userId });
+        `,
+          { userId },
+        );
       } catch {
         // Cleanup failure is not a test failure
       }
@@ -93,14 +96,17 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             id: string;
             email: string;
           }>;
-        }>(`
+        }>(
+          `
           query TenantUsersPaginated($limit: Int, $offset: Int) {
             tenantUsers(limit: $limit, offset: $offset) {
               id
               email
             }
           }
-        `, { limit: 5, offset: 0 });
+        `,
+          { limit: 5, offset: 0 },
+        );
 
         expect(Array.isArray(result.tenantUsers)).toBe(true);
         expect(result.tenantUsers.length).toBeLessThanOrEqual(5);
@@ -117,7 +123,8 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             email: string;
             isActive: boolean;
           }>;
-        }>(`
+        }>(
+          `
           query ActiveUsers($status: String) {
             tenantUsers(status: $status) {
               id
@@ -125,11 +132,13 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
               isActive
             }
           }
-        `, { status: 'active' });
+        `,
+          { status: 'active' },
+        );
 
         expect(Array.isArray(result.tenantUsers)).toBe(true);
         // All returned users should be active (or empty)
-        result.tenantUsers.forEach(user => {
+        result.tenantUsers.forEach((user) => {
           expect(user.isActive).toBe(true);
         });
       } catch (err) {
@@ -145,7 +154,8 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             email: string;
             isActive: boolean;
           }>;
-        }>(`
+        }>(
+          `
           query InactiveUsers($status: String) {
             tenantUsers(status: $status) {
               id
@@ -153,11 +163,13 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
               isActive
             }
           }
-        `, { status: 'inactive' });
+        `,
+          { status: 'inactive' },
+        );
 
         expect(Array.isArray(result.tenantUsers)).toBe(true);
         // All returned users should be inactive (or empty)
-        result.tenantUsers.forEach(user => {
+        result.tenantUsers.forEach((user) => {
           expect(user.isActive).toBe(false);
         });
       } catch (err) {
@@ -173,7 +185,8 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             email: string;
             role: string;
           }>;
-        }>(`
+        }>(
+          `
           query UsersByRole($role: String) {
             tenantUsers(role: $role) {
               id
@@ -181,11 +194,13 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
               role
             }
           }
-        `, { role: 'MODULE_USER' });
+        `,
+          { role: 'MODULE_USER' },
+        );
 
         expect(Array.isArray(result.tenantUsers)).toBe(true);
         // All returned users should have the specified role (or empty)
-        result.tenantUsers.forEach(user => {
+        result.tenantUsers.forEach((user) => {
           expect(user.role).toBe('MODULE_USER');
         });
       } catch (err) {
@@ -220,7 +235,7 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
         `);
 
         // Prefer default role, fall back to first available
-        const defaultRole = rolesResult.tenantRoles.find(r => r.isDefault);
+        const defaultRole = rolesResult.tenantRoles.find((r) => r.isDefault);
         defaultRoleId = defaultRole?.id || rolesResult.tenantRoles[0]?.id;
       } catch {
         defaultRoleId = undefined;
@@ -248,7 +263,8 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             };
             invitationSent: boolean;
           };
-        }>(`
+        }>(
+          `
           mutation CreateTenantUser($input: CreateTenantUserInput!) {
             createTenantUser(input: $input) {
               userId
@@ -263,16 +279,18 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
               invitationSent
             }
           }
-        `, {
-          input: {
-            firstName: 'E2E',
-            lastName: `Test ${timestamp}`,
-            email: `e2e-user-${timestamp}@e2e-test.local`,
-            password: `E2eTest${timestamp}!1A`,
-            roleId: defaultRoleId,
-            sendInvitation: false,
+        `,
+          {
+            input: {
+              firstName: 'E2E',
+              lastName: `Test ${timestamp}`,
+              email: `e2e-user-${timestamp}@e2e-test.local`,
+              password: `E2eTest${timestamp}!1A`,
+              roleId: defaultRoleId,
+              sendInvitation: false,
+            },
           },
-        });
+        );
 
         expect(result.createTenantUser.userId).toBeTruthy();
         expect(result.createTenantUser.email).toContain('e2e-user-');
@@ -298,20 +316,23 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
           createTenantUser: {
             userId: string;
           };
-        }>(`
+        }>(
+          `
           mutation CreateTenantUser($input: CreateTenantUserInput!) {
             createTenantUser(input: $input) {
               userId
             }
           }
-        `, {
-          input: {
-            firstName: '',
-            lastName: '',
-            email: '',
-            roleId: defaultRoleId,
+        `,
+          {
+            input: {
+              firstName: '',
+              lastName: '',
+              email: '',
+              roleId: defaultRoleId,
+            },
           },
-        });
+        );
 
         // Should have errors for empty required fields
         const hasError = result.errors && result.errors.length > 0;
@@ -344,7 +365,8 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             lastName: string | null;
             email: string;
           };
-        }>(`
+        }>(
+          `
           mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
             updateTenantUser(userId: $userId, input: $input) {
               id
@@ -353,13 +375,15 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
               email
             }
           }
-        `, {
-          userId: targetUserId,
-          input: {
-            firstName: `Updated ${timestamp}`,
-            lastName: `User ${timestamp}`,
+        `,
+          {
+            userId: targetUserId,
+            input: {
+              firstName: `Updated ${timestamp}`,
+              lastName: `User ${timestamp}`,
+            },
           },
-        });
+        );
 
         expect(result.updateTenantUser.id).toBe(targetUserId);
         expect(result.updateTenantUser.firstName).toContain('Updated');
@@ -381,25 +405,31 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
         // Set known baseline
         const baselineFirst = `Baseline ${Date.now()}`;
         const baselineLast = `Last ${Date.now()}`;
-        await client.mutate(`
+        await client.mutate(
+          `
           mutation SetBaseline($userId: ID!, $input: UpdateTenantUserInput!) {
             updateTenantUser(userId: $userId, input: $input) { id }
           }
-        `, {
-          userId: targetUserId,
-          input: { firstName: baselineFirst, lastName: baselineLast },
-        });
+        `,
+          {
+            userId: targetUserId,
+            input: { firstName: baselineFirst, lastName: baselineLast },
+          },
+        );
 
         // Update only firstName
         const newFirst = `Partial ${Date.now()}`;
-        await client.mutate(`
+        await client.mutate(
+          `
           mutation PartialUpdate($userId: ID!, $input: UpdateTenantUserInput!) {
             updateTenantUser(userId: $userId, input: $input) { id }
           }
-        `, {
-          userId: targetUserId,
-          input: { firstName: newFirst },
-        });
+        `,
+          {
+            userId: targetUserId,
+            input: { firstName: newFirst },
+          },
+        );
 
         // Verify firstName changed, lastName unchanged
         const users = await client.query<{
@@ -418,13 +448,16 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
           }
         `);
 
-        const updatedUser = users.tenantUsers.find(u => u.id === targetUserId);
+        const updatedUser = users.tenantUsers.find((u) => u.id === targetUserId);
         if (updatedUser) {
           expect(updatedUser.firstName).toBe(newFirst);
           expect(updatedUser.lastName).toBe(baselineLast);
         }
       } catch (err) {
-        console.warn('updateTenantUser partial update test skipped or failed:', (err as Error).message);
+        console.warn(
+          'updateTenantUser partial update test skipped or failed:',
+          (err as Error).message,
+        );
       }
     });
   });
@@ -447,14 +480,17 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             id: string;
             isActive: boolean;
           };
-        }>(`
+        }>(
+          `
           mutation DeactivateTenantUser($userId: ID!) {
             deactivateTenantUser(userId: $userId) {
               id
               isActive
             }
           }
-        `, { userId: targetUserId });
+        `,
+          { userId: targetUserId },
+        );
 
         expect(result.deactivateTenantUser.id).toBe(targetUserId);
         expect(result.deactivateTenantUser.isActive).toBe(false);
@@ -477,18 +513,21 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             id: string;
             isActive: boolean;
           }>;
-        }>(`
+        }>(
+          `
           query InactiveUsers($status: String) {
             tenantUsers(status: $status) {
               id
               isActive
             }
           }
-        `, { status: 'inactive' });
+        `,
+          { status: 'inactive' },
+        );
 
         expect(Array.isArray(result.tenantUsers)).toBe(true);
         // The deactivated user should appear in inactive list (if backend returns it)
-        const found = result.tenantUsers.find(u => u.id === targetUserId);
+        const found = result.tenantUsers.find((u) => u.id === targetUserId);
         if (found) {
           expect(found.isActive).toBe(false);
         }
@@ -511,14 +550,17 @@ describe('Tenant Admin — Users (CRUD & Filtering)', () => {
             id: string;
             isActive: boolean;
           };
-        }>(`
+        }>(
+          `
           mutation ActivateTenantUser($userId: ID!) {
             activateTenantUser(userId: $userId) {
               id
               isActive
             }
           }
-        `, { userId: targetUserId });
+        `,
+          { userId: targetUserId },
+        );
 
         expect(result.activateTenantUser.id).toBe(targetUserId);
         expect(result.activateTenantUser.isActive).toBe(true);

@@ -6,7 +6,6 @@
  *   2. default (no surface) is unchanged → no glass tokens (no-breakage)
  *   3. the error state still wins over glass (red border present)
  */
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 

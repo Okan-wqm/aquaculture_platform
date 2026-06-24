@@ -4,7 +4,6 @@
  * Pins that glass REPLACES the variant color (no competing bg-* utility) and that
  * the default surface is unchanged (no-breakage).
  */
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 

@@ -1,7 +1,6 @@
 /**
  * PasswordInput — show/hide toggle, caps-lock warning, a11y, surface passthrough
  */
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, createEvent } from '@testing-library/react';
 

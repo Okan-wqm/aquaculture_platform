@@ -5008,3 +5008,20 @@ Severity: MEDIUM. Discovered 2026-06-24 in the same operator console log as ORPH
 Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-MEDIUM-148`). Registry: orphan-findings.md only.
 
 ---
+
+
+## ORPHAN-LOW-151 — new vitest.config.ts files fatal the eslint typed parser; new spec files carried unused React imports
+
+Severity: LOW (CI/tooling SSoT gap). Discovered 2026-06-24 when the login-rebuild PR's CI `lint` + `type-check` jobs went red.
+
+**Problem (two root causes):**
+1. **Lint:** a package-root `vitest.config.ts` is not registered in that package's `tsconfig.node.json` / `tsconfig.eslint.json` the way `vite.config.ts` is, so the eslint typed parser (`parserOptions.project`) cannot find it and emits a FATAL `Parsing error`. The diff-based CI lint flags this for any NEW config.ts; the pre-existing `web/shared-ui/vitest.config.ts` had the same latent fatal but was masked (unchanged → not in the diff). The eslint config-file ignore (`*.config.{js,mjs,cjs}`) does not cover `.ts`.
+2. **Type-check:** the new shared-ui spec files imported `React` while using only JSX. Under the automatic JSX runtime (`jsx: react-jsx`) the import is unused, so the changed-files type-check (`scripts/ci/type-check-changed-files.mjs`, `noUnusedLocals`) failed with `TS6133`. Local `tsc -p tsconfig.json` missed it because that config EXCLUDES specs.
+
+**Resolution (this commit):** registered `vitest.config.ts` in `web/shell/tsconfig.node.json` + `web/shell/tsconfig.eslint.json` AND in `web/shared-ui/tsconfig.eslint.json` (closing the shared-ui blind spot too), exactly as `vite.config.ts` is handled — the established repo convention for node-tooling config files. Removed the unused `React` imports from the four shared-ui surface specs (the automatic JSX runtime needs none). Verified: `type-check-changed-files.mjs` exit 0; eslint on the config + spec files exit 0; the 4 specs still pass (11 tests).
+
+**Note (deeper follow-up, not done here):** the eslint config-file exemption could be extended to `*.config.ts` repo-wide so future config.ts files never trip this — a single eslint.config.mjs change, deferred to avoid risking the lint-gates invariant in this PR.
+
+Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---

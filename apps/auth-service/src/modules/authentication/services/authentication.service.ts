@@ -1158,7 +1158,7 @@ export class AuthenticationService {
   /**
    * Get current user with their accessible modules
    */
-  async me(userId: string): Promise<MePayload> {
+  async me(userId: string, effectiveTenantId?: string | null): Promise<MePayload> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -1166,6 +1166,17 @@ export class AuthenticationService {
     if (!user) {
       // SECURITY: Generic message to prevent information leakage
       throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+
+    // SUPER_ADMIN act-as (ORPHAN-HIGH-159): the caller's TOKEN carries the
+    // effective tenant (the switchTenant target), while the DB record holds the
+    // SUPER_ADMIN's own tenant (null). `me` must report the EFFECTIVE tenant so
+    // the frontend scopes its queries to the acted-as tenant — otherwise the FE
+    // reverts to the null DB tenant on every reload and the switch is invisible.
+    // For a regular user the token tenant equals the DB tenant (no-op); for a
+    // platform SUPER_ADMIN with no act-as the token tenant is null (no override).
+    if (effectiveTenantId) {
+      user.tenantId = effectiveTenantId;
     }
 
     // Get user's accessible modules

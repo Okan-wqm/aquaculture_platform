@@ -5038,3 +5038,20 @@ Severity: LOW (visual regression). Discovered 2026-06-24 (operator-reported) imm
 Status: RESOLVED (2026-06-24; branch `fix/login-logo-transparent`). Registry: orphan-findings.md only.
 
 ---
+
+
+## ORPHAN-LOW-153 — login presented in browser locale (TR) + the aquarium ambience was thin (operator polish)
+
+Severity: LOW (UX / visual polish). Discovered 2026-06-24 (operator-requested after the rebuild merged).
+
+**Problem:** (1) the login surface rendered in the app's auto-detected locale (Turkish by default for this platform), but the entry screen should be **English** for an international product. (2) The aquarium login background looked unfinished — only fish, thin seaweed, and no other marine life.
+
+**Resolution (this commit):**
+- English login: `AuthLayout` now wraps the auth surface in a nested `<I18nProvider locale="en">` (split into a `AuthChrome` inner so chrome + forms both read EN), overriding the locale for the auth subtree ONLY — the rest of the app keeps its auto-detected language.
+- Richer, more realistic aquarium (`FishBackground`): rewrote kelp (multi-frond, depth-graded blades + float) and seaweed (branching fronds), added eelgrass (`SeaGrass`) clumps; added floor fauna (`StarFish`, `Crab`); added a drifting/pulsing `Jellyfish` ambient layer and rising `bubbles` (all CSS, added to the `prefers-reduced-motion` opt-out + the FishBackground rAF guard).
+- New swimmers: `Shrimp` (aquaculture species) and `BluefinTuna` — the bluefin is drawn to a higher standard (crescent caudal, yellow finlets, sickle pectoral) and given a MUCH faster speed trait (2.45 vs ≤1.12) with a stiff low-wobble body, per operator request.
+- Improved the existing five fish SVGs with pectoral (side) fins.
+
+Status: RESOLVED (2026-06-24; branch `fix/login-logo-transparent`). Registry: orphan-findings.md only.
+
+---

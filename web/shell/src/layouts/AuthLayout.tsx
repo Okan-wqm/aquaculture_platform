@@ -7,7 +7,14 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n } from '@aquaculture/shared-ui';
+import {
+  BRAND,
+  getAccessToken,
+  tokenLifecycle,
+  useAuthContext,
+  useI18n,
+  I18nProvider,
+} from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -18,7 +25,6 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 const AuthLayout: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuthContext();
-  const { t } = useI18n();
 
   if (isLoading) {
     return (
@@ -38,6 +44,23 @@ const AuthLayout: React.FC = () => {
   if (hasLiveSession) {
     return <Navigate to="/" replace />;
   }
+
+  // The login/auth surface is presented in ENGLISH regardless of the app's
+  // browser-detected locale — a nested provider overrides it for this subtree
+  // only, so the rest of the app keeps its auto-detected language.
+  return (
+    <I18nProvider locale="en">
+      <AuthChrome />
+    </I18nProvider>
+  );
+};
+
+// ============================================================================
+// Auth chrome (inside the English i18n scope)
+// ============================================================================
+
+const AuthChrome: React.FC = () => {
+  const { t } = useI18n();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-600 to-secondary-600 flex flex-col">

@@ -11,24 +11,20 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 
 import { THROTTLE_KEY, THROTTLE_SKIP_KEY, ThrottleOptions } from './throttler.decorator';
 import { SlidingWindowStrategy } from './sliding-window.strategy';
 import { IIpValidator, IP_VALIDATOR } from '../interfaces';
 import { SecurityEventService } from '../security-event.service';
+import { TenantRequest } from '../../types/tenant-request.interface';
 
-/**
- * Request with user context
- */
-interface AuthenticatedRequest extends Request {
-  user?: {
-    sub?: string;
-    userId?: string;
-    tenantId?: string;
-  };
-  tenantId?: string;
-}
+// The throttler READER consumes the platform-canonical request-user SSoT
+// (TenantRequest.user: JwtUser, identity = `sub`). It deliberately does NOT
+// define a private `{ sub?, userId? }` shape — a private looser type is exactly
+// what let admin-api attach `{ id }` (no `sub`) and be silently throttled as
+// anonymous (ORPHAN-145/146). Binding to JwtUser makes `sub` the one identity
+// field every auth guard/middleware writer must provide.
 
 /**
  * Throttler Guard
@@ -121,7 +117,7 @@ export class ThrottlerGuard implements CanActivate {
       try {
         await this.securityEventService?.publishRateLimitExceeded({
           ip: this.extractClientIp(request),
-          userId: request.user?.sub ?? request.user?.userId,
+          userId: request.user?.sub,
           tenantId: request.tenantId ?? request.user?.tenantId,
           key,
           limit: config.limit,
@@ -163,15 +159,15 @@ export class ThrottlerGuard implements CanActivate {
   /**
    * Extract request from context (REST or GraphQL)
    */
-  private getRequest(context: ExecutionContext): AuthenticatedRequest {
+  private getRequest(context: ExecutionContext): TenantRequest {
     const contextType = context.getType<string>();
 
     if (contextType === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
-      return gqlContext.getContext().req as AuthenticatedRequest;
+      return gqlContext.getContext().req as TenantRequest;
     }
 
-    return context.switchToHttp().getRequest<AuthenticatedRequest>();
+    return context.switchToHttp().getRequest<TenantRequest>();
   }
 
   /**
@@ -194,7 +190,7 @@ export class ThrottlerGuard implements CanActivate {
    */
   private getThrottleConfig(
     context: ExecutionContext,
-    request: AuthenticatedRequest,
+    request: TenantRequest,
   ): ThrottleOptions {
     const decoratorConfig = this.reflector.getAllAndOverride<ThrottleOptions>(THROTTLE_KEY, [
       context.getHandler(),
@@ -206,7 +202,7 @@ export class ThrottlerGuard implements CanActivate {
     }
 
     // Use stricter limits for anonymous users
-    const isAuthenticated = !!request.user?.sub || !!request.user?.userId;
+    const isAuthenticated = !!request.user?.sub;
 
     return {
       limit: isAuthenticated ? this.defaultLimit : this.anonymousLimit,
@@ -217,7 +213,7 @@ export class ThrottlerGuard implements CanActivate {
   /**
    * Generate rate limit key based on configuration
    */
-  private generateKey(request: AuthenticatedRequest, config: ThrottleOptions): string {
+  private generateKey(request: TenantRequest, config: ThrottleOptions): string {
     const prefix = config.keyPrefix || 'throttle';
     const ip = this.extractClientIp(request);
 
@@ -227,7 +223,7 @@ export class ThrottlerGuard implements CanActivate {
     }
 
     // User-based rate limiting
-    const userId = request.user?.sub || request.user?.userId;
+    const userId = request.user?.sub;
     if (userId) {
       return `${prefix}:user:${userId}`;
     }
@@ -245,7 +241,7 @@ export class ThrottlerGuard implements CanActivate {
   /**
    * Extract client IP with validation
    */
-  private extractClientIp(request: AuthenticatedRequest): string {
+  private extractClientIp(request: TenantRequest): string {
     // Use injected IP validator if available
     if (this.ipValidator) {
       return this.ipValidator.extractClientIp({

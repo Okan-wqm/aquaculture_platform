@@ -1,15 +1,22 @@
+import { JwtUser } from '@aquaculture/backend-common/types';
 import { Request } from 'express';
 
 /**
- * Type-safe interface for requests with JWT-authenticated user.
- * Use `getAuthUserId(req)` to safely extract the user ID.
+ * admin-api authenticated user.
+ *
+ * Extends the platform-canonical {@link JwtUser} (identity = REQUIRED `sub`,
+ * plus tenantId/roles/email/…) with admin-api-local conveniences. Extending the
+ * SSoT — rather than re-declaring a looser local shape — makes `sub` compiler-
+ * required, so an auth guard that forgets to set it fails type-check instead of
+ * being silently treated as anonymous by the shared ThrottlerGuard
+ * (ORPHAN-145/146). `id` is admin-api's local alias for the same subject; every
+ * controller reads `req.user.id`.
  */
-export interface AuthenticatedUser {
+export interface AuthenticatedUser extends JwtUser {
+  /** admin-api-local alias for the JWT subject (`sub`). */
   id: string;
-  sub?: string;
-  email?: string;
+  /** display name (falls back to email). */
   name?: string;
-  roles?: string[];
 }
 
 /**

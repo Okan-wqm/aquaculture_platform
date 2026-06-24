@@ -12,10 +12,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import type { Request } from 'express';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
+// Bind the WRITER to the canonical request-user SSoT: AuthenticatedUser extends
+// JwtUser, so `request.user = { ... }` below fails type-check if it omits `sub`
+// (ORPHAN-146). The shared ThrottlerGuard reads that same `sub`.
+import { AuthenticatedRequest } from '../shared/authenticated-request';
 
 // WHY: Explicit @Inject() required — useClass + APP_GUARD relies on design:paramtypes
 // metadata which may not survive all build/runtime environments (Alpine musl, prod-only deps).
@@ -55,24 +58,6 @@ export const IS_PUBLIC_KEY = 'isPublic';
 // represents that platform-level operator with the existing SUPER_ADMIN role.
 const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
 
-interface AdminRequest extends Request {
-  user?: {
-    /**
-     * Canonical platform identity field (the JWT `sub`). Every shared,
-     * service-agnostic consumer keys off `sub` — the backend-common
-     * ThrottlerGuard (`request.user?.sub`) and `@CurrentUser('sub')`. It MUST
-     * be present or those consumers treat the request as anonymous.
-     */
-    sub: string;
-    /** admin-api-local alias for the same id; controllers read `req.user.id`. */
-    id: string;
-    email?: string;
-    roles: string[];
-    role?: string;
-    tenantId?: string;
-  };
-}
-
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
@@ -101,7 +86,7 @@ export class PlatformAdminGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<AdminRequest>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {

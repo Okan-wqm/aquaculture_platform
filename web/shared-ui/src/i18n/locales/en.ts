@@ -31,6 +31,14 @@ export const en = {
   'common.search': 'Search',
   'common.noResults': 'No results found',
   'common.invalidDate': 'Invalid date',
+  'common.showPassword': 'Show password',
+  'common.hidePassword': 'Hide password',
+  'common.capsLockOn': 'Caps Lock is on',
+
+  // ── Auth shell (layout chrome) ──
+  'auth.needHelp': 'Need help?',
+  'auth.support': 'Support',
+  'auth.allRightsReserved': 'All rights reserved.',
 
   // ── Login Page ──
   'login.title': 'Sign In',

@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { getAccessToken, tokenLifecycle, useAuthContext } from '@aquaculture/shared-ui';
+import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n } from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -18,6 +18,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 const AuthLayout: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuthContext();
+  const { t } = useI18n();
 
   if (isLoading) {
     return (
@@ -52,18 +53,27 @@ const AuthLayout: React.FC = () => {
 
       {/* Content area — logo and form combined */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4">
+        {/* Single top-level landmark heading for the auth routes (visually hidden;
+            form headings are <h2>, giving a correct h1→h2 outline). */}
+        <h1 className="sr-only">{BRAND.name}</h1>
+
         <div className="w-full max-w-md">
-          {/* Card Container — logo and form combined */}
-          <div className="backdrop-blur-md bg-white/65 border border-white/70 rounded-2xl shadow-2xl p-8 animate-fade-in">
+          {/* Card Container — glass surface SSoT (drives nested field/label/button
+              colors via the shared-ui surface="glass" variant). */}
+          <div className="surface-glass backdrop-blur-md bg-white/65 border border-white/70 rounded-2xl shadow-2xl p-6 sm:p-8 animate-fade-in">
             {/* Logo */}
             <div className="flex flex-col items-center mb-4">
               <img
-                src="/logo4.png"
-                alt="Aquaculture Platform Logo"
-                className="w-64 h-64 object-contain drop-shadow-lg"
+                src="/logo.svg"
+                alt={`${BRAND.name} logo`}
+                className="object-contain drop-shadow-lg"
+                style={{ width: 'clamp(8rem, 24vw, 16rem)', height: 'auto' }}
               />
-              <p className="-mt-2 text-2xl text-blue-700 text-center" style={{ fontFamily: "'Caveat', cursive" }}>
-                Unlocks the power of farm management intelligence
+              <p
+                className="-mt-2 text-2xl text-center text-[var(--surface-heading-fg)]"
+                style={{ fontFamily: "'Caveat', cursive" }}
+              >
+                {BRAND.tagline}
               </p>
             </div>
 
@@ -74,9 +84,9 @@ const AuthLayout: React.FC = () => {
           {/* Footer Info */}
           <div className="mt-6 text-center text-sm text-white/70">
             <p>
-              Need help?{' '}
-              <a href="/support" className="text-white hover:underline font-medium">
-                Support
+              {t('auth.needHelp')}{' '}
+              <a href={BRAND.supportUrl} className="text-white hover:underline font-medium">
+                {t('auth.support')}
               </a>
             </p>
           </div>
@@ -85,7 +95,7 @@ const AuthLayout: React.FC = () => {
 
       {/* Footer */}
       <footer className="relative z-10 py-4 text-center text-sm text-white/60">
-        <p>&copy; {CURRENT_YEAR} Aquaculture Platform. All rights reserved.</p>
+        <p>&copy; {CURRENT_YEAR} {BRAND.name}. {t('auth.allRightsReserved')}</p>
       </footer>
     </div>
   );

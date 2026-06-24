@@ -23,9 +23,11 @@
   },
   "devDependencies": {
     "@module-federation/vite": "^1.16.7",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
+    "jsdom": "^24.0.0",
     "postcss": "^8.4.32",
     "tailwindcss": "4.3.1",
     "typescript": "5.9.3",

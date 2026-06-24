@@ -9,6 +9,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  ForbiddenException,
   Inject,
   Logger,
   Optional,
@@ -183,6 +184,79 @@ export class AuthenticationService {
       // Don't fail the main operation if audit logging fails
       this.logger.error(`Failed to log security event: ${action}`, error);
     }
+  }
+
+  /**
+   * SUPER_ADMIN act-as — switch a platform admin INTO a tenant by re-minting a
+   * tenant-scoped token.
+   *
+   * WHY: a SUPER_ADMIN has `tenantId = null`, so the frontend never had a tenant
+   * to scope its queries to (every tenant hook is gated on `useAuth().tenantId`)
+   * and the gateway signed `effectiveTenantId = null`. Re-minting a token whose
+   * `tenantId` is the target tenant makes the ENTIRE chain — every federated
+   * frontend remote, the gateway-signed assertion, the RLS GUC and search_path —
+   * resolve to one deterministic tenant, eliminating the intermittent
+   * empty/wrong-tenant reads (tenant-context SSoT, the token IS the source).
+   *
+   * Authorization lives HERE (TokenService.generateTokens does NOT re-check):
+   *   1. the caller MUST be a SUPER_ADMIN,
+   *   2. the target tenant MUST exist and be ACTIVE (fail-closed via isLoginAllowed),
+   *   3. every attempt — success or denial — is audited (SUPER_ADMIN_TENANT_SWITCH).
+   *
+   * MFA step-up (a TOTP re-challenge before the switch) is a tracked follow-up
+   * (ORPHAN-HIGH-159); until then MFA_REQUIRED_FOR_CROSS_TENANT gates on the
+   * admin having MFA enabled and the deployment leaving that flag off.
+   */
+  async switchTenant(
+    superAdminUserId: string,
+    targetTenantId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthPayload> {
+    const user = await this.userRepository.findOne({ where: { id: superAdminUserId } });
+    if (!user || user.role !== Role.SUPER_ADMIN) {
+      await this.logSecurityEvent(
+        'SUPER_ADMIN_TENANT_SWITCH',
+        { userId: superAdminUserId, tenantId: targetTenantId, ipAddress, userAgent, success: false, reason: 'caller_not_super_admin' },
+        AuditLogSeverity.WARNING,
+      );
+      throw new ForbiddenException('Only platform administrators can switch tenants');
+    }
+
+    const tenant = await this.tenantRepository.findOne({ where: { id: targetTenantId } });
+    if (!tenant || !isLoginAllowed(tenant.status)) {
+      await this.logSecurityEvent(
+        'SUPER_ADMIN_TENANT_SWITCH',
+        { userId: user.id, email: user.email, tenantId: targetTenantId, ipAddress, userAgent, success: false, reason: 'target_tenant_not_active' },
+        AuditLogSeverity.WARNING,
+      );
+      throw new ForbiddenException('Target tenant is not active');
+    }
+
+    // MFA policy: when cross-tenant MFA is mandated, the admin must at least have
+    // MFA enabled (full TOTP step-up is ORPHAN-HIGH-159).
+    const mfaRequired =
+      this.configService.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT') === 'true';
+    if (mfaRequired && !user.mfaEnabled) {
+      await this.logSecurityEvent(
+        'SUPER_ADMIN_TENANT_SWITCH',
+        { userId: user.id, email: user.email, tenantId: targetTenantId, ipAddress, userAgent, success: false, reason: 'mfa_required' },
+        AuditLogSeverity.WARNING,
+      );
+      throw new ForbiddenException('MFA must be enabled to switch tenants');
+    }
+
+    const tokens = await this.tokenService.generateTokens(user, ipAddress, userAgent, {
+      actAsTenantId: targetTenantId,
+    });
+
+    await this.logSecurityEvent(
+      'SUPER_ADMIN_TENANT_SWITCH',
+      { userId: user.id, email: user.email, tenantId: targetTenantId, ipAddress, userAgent, success: true },
+      AuditLogSeverity.INFO,
+    );
+    this.logger.log(`SUPER_ADMIN ${user.id} switched into tenant ${targetTenantId}`);
+    return tokens;
   }
 
   // SECURITY (SEC-CRITICAL-001): register() was REMOVED — it persisted a

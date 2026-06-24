@@ -43,6 +43,14 @@ export interface JwtPayload {
   roles: Role[];
   tenantId: string | null;
   /**
+   * SUPER_ADMIN act-as: when a SUPER_ADMIN switches into a tenant
+   * (switchTenant mutation), the token is re-minted with `tenantId` = the
+   * target tenant AND this claim set to the same id, so downstream audit can
+   * tell a genuine tenant-scoped login apart from a SUPER_ADMIN acting-as.
+   * Absent on ordinary tokens.
+   */
+  actAsTenantId?: string;
+  /**
    * Numeric tier rank of the tenant's plan (MT-MEDIUM-001) — the canonical
    * `PLAN_LEVEL` ordinal (FREE/TRIAL=0, STARTER=1, PROFESSIONAL=2, ENTERPRISE=3).
    * Lets the gateway and downstream services gate features by tier from the
@@ -209,8 +217,22 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
-    options?: { mfaVerified?: boolean; familyId?: string; rememberMe?: boolean },
+    options?: {
+      mfaVerified?: boolean;
+      familyId?: string;
+      rememberMe?: boolean;
+      /**
+       * SUPER_ADMIN act-as: mint the token scoped to this target tenant instead
+       * of the user's own tenant. The CALLER must have already verified the user
+       * is a SUPER_ADMIN and the target tenant is ACTIVE (see
+       * AuthService.switchTenant) — this method does not re-authorize.
+       */
+      actAsTenantId?: string;
+    },
   ): Promise<AuthPayload> {
+    // SSoT: the effective tenant this token is scoped to — the act-as target for
+    // a SUPER_ADMIN switch, otherwise the user's own tenant.
+    const effectiveTenantId = options?.actAsTenantId ?? user.tenantId ?? null;
     // Enforce concurrent session limit
     if (this.sessionManager) {
       await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
@@ -237,7 +259,7 @@ export class TokenService {
       await Promise.all([
         this.getUserModules(user),
         this.getUserResourcePermissions(user),
-        this.resolveTenantPlanLevel(user.tenantId ?? null),
+        this.resolveTenantPlanLevel(effectiveTenantId),
         this.getUserAssignedSiteIds(user),
         this.getUserMobileFeatures(user),
       ]);
@@ -258,7 +280,9 @@ export class TokenService {
       sub: user.id,
       role: user.role,
       roles: [user.role],
-      tenantId: user.tenantId ?? null,
+      tenantId: effectiveTenantId,
+      // SUPER_ADMIN act-as audit marker (only when switching into a tenant).
+      ...(options?.actAsTenantId ? { actAsTenantId: options.actAsTenantId } : {}),
       ...(planLevel !== undefined ? { planLevel } : {}),
       // OMIT the keys entirely when empty (spread, not `: undefined`) so the
       // payload object has no `modules`/`resourcePermissions` property at all —

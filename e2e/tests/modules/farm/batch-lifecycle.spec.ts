@@ -25,11 +25,8 @@ import {
   gqlExpectError,
   TENANT_A_ID,
   TENANT_B_ID,
-  USER_A_ID,
   USER_B_ID,
   BATCH_FIELDS,
-  BATCH_PERFORMANCE_FIELDS,
-  BATCH_HISTORY_FIELDS,
   createTestSpecies,
 } from './test-helpers';
 
@@ -449,10 +446,10 @@ describe('Batch Full Lifecycle E2E', () => {
       const msg = errors.map((e) => e.message.toLowerCase()).join(' ');
       expect(
         msg.includes('invalid') ||
-        msg.includes('gecersiz') ||
-        msg.includes('transition') ||
-        msg.includes('gecis') ||
-        msg.includes('cannot'),
+          msg.includes('gecersiz') ||
+          msg.includes('transition') ||
+          msg.includes('gecis') ||
+          msg.includes('cannot'),
       ).toBe(true);
     });
 
@@ -505,9 +502,7 @@ describe('Batch Full Lifecycle E2E', () => {
         USER_B_ID,
       );
 
-      const leak = data.batches.items.find(
-        (b: Record<string, unknown>) => b.id === batchId,
-      );
+      const leak = data.batches.items.find((b: Record<string, unknown>) => b.id === batchId);
       expect(leak).toBeUndefined();
     });
   });

@@ -8,13 +8,15 @@
  * 17 test cases in a single file.
  */
 import { NotFoundException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Repository, DeleteResult } from 'typeorm';
 import { getMetadataArgsStorage } from 'typeorm';
-import { Reflector } from '@nestjs/core';
-import { SetupResolver } from '../../../../apps/hydroponics-service/src/setup/resolvers/setup.resolver';
+
 import { HydroponicsConfig } from '../../../../apps/hydroponics-service/src/setup/entities/hydroponics-config.entity';
+import { SetupResolver } from '../../../../apps/hydroponics-service/src/setup/resolvers/setup.resolver';
 import { CurrentUserPayload } from '../../../../libs/backend-common/src/decorators/current-user.decorator';
 import { ROLES_KEY, Role } from '../../../../libs/backend-common/src/decorators/roles.decorator';
+import { assertDefined } from '../../../helpers/assertions';
 
 // =============================================================================
 // HELPERS
@@ -39,6 +41,15 @@ const TENANT_ADMIN_USER: CurrentUserPayload = {
 };
 
 /**
+ * Match a stored row against a TypeORM-style `where` clause by dynamic-key
+ * equality. Reflect.get reads the dynamic key while the entity stays strongly
+ * typed, so the row needs no type cast.
+ */
+function rowMatchesWhere(row: HydroponicsConfig, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, value]) => Reflect.get(row, key) === value);
+}
+
+/**
  * In-memory store that mimics a TypeORM Repository<HydroponicsConfig>.
  *
  * Supports: find, findOne, count, create, save, delete.
@@ -50,94 +61,77 @@ function createMockRepository(): Repository<HydroponicsConfig> & { _store: Hydro
   const repo = {
     _store: store,
 
-    find: jest.fn().mockImplementation(
-      (opts?: { where?: Record<string, unknown>; order?: Record<string, string> }) => {
-        let results = [...store];
-        if (opts?.where) {
-          results = results.filter((row) => {
-            for (const [key, value] of Object.entries(opts.where!)) {
-              if ((row as unknown as Record<string, unknown>)[key] !== value) return false;
-            }
-            return true;
-          });
-        }
-        if (opts?.order?.updatedAt === 'DESC') {
-          results.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-        }
-        return Promise.resolve(results);
-      },
-    ),
-
-    findOne: jest.fn().mockImplementation(
-      (opts?: { where?: Record<string, unknown> }) => {
-        if (!opts?.where) return Promise.resolve(null);
-        const match = store.find((row) => {
-          for (const [key, value] of Object.entries(opts.where!)) {
-            if ((row as unknown as Record<string, unknown>)[key] !== value) return false;
+    find: jest
+      .fn()
+      .mockImplementation(
+        (opts?: { where?: Record<string, unknown>; order?: Record<string, string> }) => {
+          let results = [...store];
+          const where = opts?.where;
+          if (where) {
+            results = results.filter((row) => rowMatchesWhere(row, where));
           }
-          return true;
-        });
-        return Promise.resolve(match ?? null);
-      },
-    ),
-
-    count: jest.fn().mockImplementation(
-      (opts?: { where?: Record<string, unknown> }) => {
-        if (!opts?.where) return Promise.resolve(store.length);
-        const matches = store.filter((row) => {
-          for (const [key, value] of Object.entries(opts.where!)) {
-            if ((row as unknown as Record<string, unknown>)[key] !== value) return false;
+          if (opts?.order?.updatedAt === 'DESC') {
+            results.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
           }
-          return true;
-        });
-        return Promise.resolve(matches.length);
-      },
-    ),
+          return Promise.resolve(results);
+        },
+      ),
 
-    create: jest.fn().mockImplementation(
-      (data: Partial<HydroponicsConfig>): HydroponicsConfig => {
-        const entity = new HydroponicsConfig();
-        Object.assign(entity, data);
-        return entity;
-      },
-    ),
+    findOne: jest.fn().mockImplementation((opts?: { where?: Record<string, unknown> }) => {
+      const where = opts?.where;
+      if (!where) return Promise.resolve(null);
+      const match = store.find((row) => rowMatchesWhere(row, where));
+      return Promise.resolve(match ?? null);
+    }),
 
-    save: jest.fn().mockImplementation(
-      (entity: HydroponicsConfig): Promise<HydroponicsConfig> => {
-        // Enforce UNIQUE(tenantId, configName)
-        const duplicate = store.find(
-          (row) =>
-            row.id !== entity.id &&
-            row.tenantId === entity.tenantId &&
-            row.configName === entity.configName,
+    count: jest.fn().mockImplementation((opts?: { where?: Record<string, unknown> }) => {
+      const where = opts?.where;
+      if (!where) return Promise.resolve(store.length);
+      const matches = store.filter((row) => rowMatchesWhere(row, where));
+      return Promise.resolve(matches.length);
+    }),
+
+    create: jest.fn().mockImplementation((data: Partial<HydroponicsConfig>): HydroponicsConfig => {
+      const entity = new HydroponicsConfig();
+      Object.assign(entity, data);
+      return entity;
+    }),
+
+    save: jest.fn().mockImplementation((entity: HydroponicsConfig): Promise<HydroponicsConfig> => {
+      // Enforce UNIQUE(tenantId, configName)
+      const duplicate = store.find(
+        (row) =>
+          row.id !== entity.id &&
+          row.tenantId === entity.tenantId &&
+          row.configName === entity.configName,
+      );
+      if (duplicate) {
+        const err: Error & { code: string } = Object.assign(
+          new Error(`duplicate key value violates unique constraint "UQ_tenantId_configName"`),
+          { code: '23505' },
         );
-        if (duplicate) {
-          const err = new Error(
-            `duplicate key value violates unique constraint "UQ_tenantId_configName"`,
-          );
-          (err as unknown as Record<string, unknown>).code = '23505';
-          return Promise.reject(err);
-        }
+        return Promise.reject(err);
+      }
 
-        const now = new Date();
-        if (!entity.id) {
-          entity.id = nextUuid();
-          entity.createdAt = now;
-        }
-        entity.updatedAt = now;
+      const now = new Date();
+      if (!entity.id) {
+        entity.id = nextUuid();
+        entity.createdAt = now;
+      }
+      entity.updatedAt = now;
 
-        const idx = store.findIndex((row) => row.id === entity.id);
-        if (idx >= 0) {
-          store[idx] = entity;
-        } else {
-          store.push(entity);
-        }
-        return Promise.resolve(entity);
-      },
-    ),
+      const idx = store.findIndex((row) => row.id === entity.id);
+      if (idx >= 0) {
+        store[idx] = entity;
+      } else {
+        store.push(entity);
+      }
+      return Promise.resolve(entity);
+    }),
 
-    delete: jest.fn().mockImplementation(
-      (criteria: { id: string; tenantId: string }): Promise<DeleteResult> => {
+    delete: jest
+      .fn()
+      .mockImplementation((criteria: { id: string; tenantId: string }): Promise<DeleteResult> => {
         const idx = store.findIndex(
           (row) => row.id === criteria.id && row.tenantId === criteria.tenantId,
         );
@@ -146,8 +140,7 @@ function createMockRepository(): Repository<HydroponicsConfig> & { _store: Hydro
           return Promise.resolve({ affected: 1, raw: [] });
         }
         return Promise.resolve({ affected: 0, raw: [] });
-      },
-    ),
+      }),
   } as unknown as Repository<HydroponicsConfig> & { _store: HydroponicsConfig[] };
 
   return repo;
@@ -217,8 +210,8 @@ describe('HydroponicsConfig E2E', () => {
     const list = await resolver.listConfigurations(TENANT_A);
 
     expect(list).toHaveLength(1);
-    expect(list[0]!.configName).toBe('Config Alpha');
-    expect(list[0]!.settings).toEqual({ ph: 6.0 });
+    expect(list[0].configName).toBe('Config Alpha');
+    expect(list[0].settings).toEqual({ ph: 6.0 });
   });
 
   // ---------------------------------------------------------------------------
@@ -282,13 +275,13 @@ describe('HydroponicsConfig E2E', () => {
 
     // CRITICAL: Full replacement semantics
     expect(updated.settings).toEqual({ sharedKey: 'replaced', brandNew: 42 });
-    expect((updated.settings as Record<string, unknown>)['oldKey']).toBeUndefined();
-    expect((updated.settings as Record<string, unknown>)['nested']).toBeUndefined();
+    expect(updated.settings['oldKey']).toBeUndefined();
+    expect(updated.settings['nested']).toBeUndefined();
 
     // Verify through a fresh read
     const reloaded = await resolver.getConfiguration(created.id, TENANT_A);
     expect(reloaded.settings).toEqual({ sharedKey: 'replaced', brandNew: 42 });
-    expect((reloaded.settings as Record<string, unknown>)['oldKey']).toBeUndefined();
+    expect(reloaded.settings['oldKey']).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------------
@@ -374,9 +367,9 @@ describe('HydroponicsConfig E2E', () => {
       TENANT_A,
     );
 
-    await expect(
-      resolver.getConfiguration(created.id, TENANT_B),
-    ).rejects.toThrow(NotFoundException);
+    await expect(resolver.getConfiguration(created.id, TENANT_B)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -424,29 +417,20 @@ describe('HydroponicsConfig E2E', () => {
   // Test 15: Filter by type: hydroponicsConfigurations(type: 'X') filters on configName
   // ---------------------------------------------------------------------------
   it('Test 15: hydroponicsConfigurations(type) filters by configName', async () => {
-    await resolver.createHydroponicsConfiguration(
-      { configName: 'Alpha', settings: {} },
-      TENANT_A,
-    );
-    await resolver.createHydroponicsConfiguration(
-      { configName: 'Beta', settings: {} },
-      TENANT_A,
-    );
-    await resolver.createHydroponicsConfiguration(
-      { configName: 'Alpha', settings: {} },
-      TENANT_B,
-    );
+    await resolver.createHydroponicsConfiguration({ configName: 'Alpha', settings: {} }, TENANT_A);
+    await resolver.createHydroponicsConfiguration({ configName: 'Beta', settings: {} }, TENANT_A);
+    await resolver.createHydroponicsConfiguration({ configName: 'Alpha', settings: {} }, TENANT_B);
 
     // Filter Tenant A by type 'Alpha'
     const filtered = await resolver.listConfigurations(TENANT_A, 'Alpha');
     expect(filtered).toHaveLength(1);
-    expect(filtered[0]!.configName).toBe('Alpha');
-    expect(filtered[0]!.tenantId).toBe(TENANT_A);
+    expect(filtered[0].configName).toBe('Alpha');
+    expect(filtered[0].tenantId).toBe(TENANT_A);
 
     // Filter Tenant A by type 'Beta'
     const betaFiltered = await resolver.listConfigurations(TENANT_A, 'Beta');
     expect(betaFiltered).toHaveLength(1);
-    expect(betaFiltered[0]!.configName).toBe('Beta');
+    expect(betaFiltered[0].configName).toBe('Beta');
 
     // Filter Tenant A by non-existent type
     const emptyFiltered = await resolver.listConfigurations(TENANT_A, 'Gamma');
@@ -476,10 +460,7 @@ describe('HydroponicsConfig E2E', () => {
     expect(listRoles).toContain(Role.MODULE_USER);
 
     // getConfiguration
-    const getRoles = reflector.get<string[]>(
-      ROLES_KEY,
-      SetupResolver.prototype.getConfiguration,
-    );
+    const getRoles = reflector.get<string[]>(ROLES_KEY, SetupResolver.prototype.getConfiguration);
     expect(getRoles).toBeDefined();
     expect(getRoles).toContain(Role.MODULE_USER);
 
@@ -517,9 +498,9 @@ describe('HydroponicsConfig E2E', () => {
     // Table name
     const tables = storage.tables.filter((t) => t.target === HydroponicsConfig);
     expect(tables).toHaveLength(1);
-    expect(tables[0]!.name).toBe('hydroponics_config');
+    expect(tables[0].name).toBe('hydroponics_config');
     // No hardcoded schema — tenant routing via search_path
-    expect(tables[0]!.schema).toBeUndefined();
+    expect(tables[0].schema).toBeUndefined();
 
     // Columns
     const columns = storage.columns.filter((c) => c.target === HydroponicsConfig);
@@ -531,47 +512,50 @@ describe('HydroponicsConfig E2E', () => {
     // tenantId -> tenant_id
     const tenantCol = colMap.get('tenantId');
     expect(tenantCol).toBeDefined();
-    expect((tenantCol!.options as Record<string, unknown>).name).toBe('tenant_id');
-    expect((tenantCol!.options as Record<string, unknown>).type).toBe('uuid');
+    expect((assertDefined(tenantCol).options as Record<string, unknown>).name).toBe('tenant_id');
+    expect((assertDefined(tenantCol).options as Record<string, unknown>).type).toBe('uuid');
 
     // configName -> config_name
     const configNameCol = colMap.get('configName');
     expect(configNameCol).toBeDefined();
-    expect((configNameCol!.options as Record<string, unknown>).name).toBe('config_name');
-    expect((configNameCol!.options as Record<string, unknown>).length).toBe(255);
-    expect((configNameCol!.options as Record<string, unknown>).default).toBe('Default');
+    expect((assertDefined(configNameCol).options as Record<string, unknown>).name).toBe(
+      'config_name',
+    );
+    expect((assertDefined(configNameCol).options as Record<string, unknown>).length).toBe(255);
+    expect((assertDefined(configNameCol).options as Record<string, unknown>).default).toBe(
+      'Default',
+    );
 
     // settings — jsonb, default '{}'
     const settingsCol = colMap.get('settings');
     expect(settingsCol).toBeDefined();
-    expect((settingsCol!.options as Record<string, unknown>).type).toBe('jsonb');
-    expect((settingsCol!.options as Record<string, unknown>).default).toBe('{}');
+    expect((assertDefined(settingsCol).options as Record<string, unknown>).type).toBe('jsonb');
+    expect((assertDefined(settingsCol).options as Record<string, unknown>).default).toBe('{}');
 
     // createdAt -> created_at
     const createdCol = colMap.get('createdAt');
     expect(createdCol).toBeDefined();
-    expect((createdCol!.options as Record<string, unknown>).name).toBe('created_at');
+    expect((assertDefined(createdCol).options as Record<string, unknown>).name).toBe('created_at');
 
     // updatedAt -> updated_at
     const updatedCol = colMap.get('updatedAt');
     expect(updatedCol).toBeDefined();
-    expect((updatedCol!.options as Record<string, unknown>).name).toBe('updated_at');
+    expect((assertDefined(updatedCol).options as Record<string, unknown>).name).toBe('updated_at');
 
     // Unique constraint on (tenantId, configName)
     const uniques = storage.uniques.filter((u) => u.target === HydroponicsConfig);
     expect(uniques.length).toBeGreaterThanOrEqual(1);
-    const uniqueColumns = uniques[0]!.columns;
+    const uniqueColumns = uniques[0].columns;
     expect(uniqueColumns).toContain('tenantId');
     expect(uniqueColumns).toContain('configName');
 
     // Index on tenantId
-    const indices = storage.indices.filter(
-      (i) => i.target === HydroponicsConfig,
-    );
+    const indices = storage.indices.filter((i) => i.target === HydroponicsConfig);
     const tenantIndex = indices.find((i) => {
-      const cols = typeof i.columns === 'function'
-        ? (i.columns as (object?: Record<string, unknown>) => string[])(undefined)
-        : i.columns;
+      const cols =
+        typeof i.columns === 'function'
+          ? (i.columns as (object?: Record<string, unknown>) => string[])(undefined)
+          : i.columns;
       return cols?.includes('tenantId');
     });
     expect(tenantIndex).toBeDefined();

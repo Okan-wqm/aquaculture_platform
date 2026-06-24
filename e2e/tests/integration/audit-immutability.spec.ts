@@ -124,9 +124,7 @@ describe('shared.audit_logs immutability + legal-hold delete-block', () => {
     // information_schema.triggers returns one row per trigger × event,
     // so two triggers = two rows.
     expect(result.rowCount).toBe(2);
-    const byName = Object.fromEntries(
-      result.rows.map((r) => [r.trigger_name, r]),
-    );
+    const byName = Object.fromEntries(result.rows.map((r) => [r.trigger_name, r]));
     expect(byName.trg_audit_logs_prevent_update.event_manipulation).toBe('UPDATE');
     expect(byName.trg_audit_logs_prevent_update.action_timing).toBe('BEFORE');
     expect(byName.trg_audit_logs_prevent_legal_hold_delete.event_manipulation).toBe('DELETE');
@@ -146,13 +144,8 @@ describe('shared.audit_logs immutability + legal-hold delete-block', () => {
     insertedIds.push(id);
 
     await expect(
-      db.query(
-        `UPDATE shared.audit_logs SET action = 'tampered' WHERE id = $1`,
-        [id],
-      ),
-    ).rejects.toMatchObject({
-      message: expect.stringMatching(/immutable|UPDATE is not permitted/i),
-    });
+      db.query(`UPDATE shared.audit_logs SET action = 'tampered' WHERE id = $1`, [id]),
+    ).rejects.toThrow(/immutable|UPDATE is not permitted/i);
   });
 
   it('DELETE on a row with legalHold=true raises an exception', async () => {
@@ -169,11 +162,9 @@ describe('shared.audit_logs immutability + legal-hold delete-block', () => {
     insertedIds.push(id);
     expect(insertResult.rows[0].legalHold).toBe(true);
 
-    await expect(
-      db.query(`DELETE FROM shared.audit_logs WHERE id = $1`, [id]),
-    ).rejects.toMatchObject({
-      message: expect.stringMatching(/legal hold|Cannot delete/i),
-    });
+    await expect(db.query(`DELETE FROM shared.audit_logs WHERE id = $1`, [id])).rejects.toThrow(
+      /legal hold|Cannot delete/i,
+    );
   });
 
   it('DELETE on a row with legalHold=false succeeds (retention sweep still works)', async () => {

@@ -9,9 +9,10 @@
  * 5. Status transitions: OPERATIONAL -> MAINTENANCE -> OFFLINE
  * 6. Cross-tenant isolation
  */
+import { assertDefined } from '../../../helpers/assertions';
+import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateCrossTenantTokens } from '../../../helpers/jwt.helper';
-import { TestDatabase } from '../../../helpers/db.helper';
 
 // ---------------------------------------------------------------------------
 // GraphQL Fragments
@@ -258,8 +259,8 @@ describe('System CRUD + Hierarchy E2E', () => {
     // DB VERIFY
     const dbRow = await db.findById('systems', sys.id, tenantAId);
     expect(dbRow).not.toBeNull();
-    expect(dbRow!['name']).toBe(input.name);
-    expect(dbRow!['siteId']).toBe(siteId);
+    expect(assertDefined(dbRow)['name']).toBe(input.name);
+    expect(assertDefined(dbRow)['siteId']).toBe(siteId);
 
     // LIST with filter
     const listResult = await client.executeSuccess<{
@@ -273,9 +274,7 @@ describe('System CRUD + Hierarchy E2E', () => {
       token: tenantAToken,
     });
 
-    const found = listResult.systems.items.find(
-      (s: { id: string }) => s.id === sys.id,
-    );
+    const found = listResult.systems.items.find((s: { id: string }) => s.id === sys.id);
     expect(found).toBeDefined();
   });
 
@@ -302,7 +301,7 @@ describe('System CRUD + Hierarchy E2E', () => {
 
     // Verify FK in DB
     const dbRow = await db.findById('systems', createResult.createSystem.id, tenantAId);
-    expect(dbRow!['siteId']).toBe(siteId);
+    expect(assertDefined(dbRow)['siteId']).toBe(siteId);
 
     // Site should exist
     const siteExists = await db.exists('sites', siteId, tenantAId);
@@ -364,7 +363,7 @@ describe('System CRUD + Hierarchy E2E', () => {
       (c: { id: string }) => c.id === childResult.createSystem.id,
     );
     expect(childFound).toBeDefined();
-    expect(childFound!.parentSystemId).toBe(parentId);
+    expect(assertDefined(childFound).parentSystemId).toBe(parentId);
 
     // Root systems should include parent but not child
     const rootResult = await client.executeSuccess<{
@@ -375,9 +374,7 @@ describe('System CRUD + Hierarchy E2E', () => {
       token: tenantAToken,
     });
 
-    const parentInRoots = rootResult.rootSystems.find(
-      (s: { id: string }) => s.id === parentId,
-    );
+    const parentInRoots = rootResult.rootSystems.find((s: { id: string }) => s.id === parentId);
     expect(parentInRoots).toBeDefined();
 
     const childInRoots = rootResult.rootSystems.find(
@@ -440,7 +437,9 @@ describe('System CRUD + Hierarchy E2E', () => {
       token: tenantAToken,
     });
 
-    expect(previewResult.systemDeletePreview.affectedItems.childSystems.length).toBeGreaterThanOrEqual(1);
+    expect(
+      previewResult.systemDeletePreview.affectedItems.childSystems.length,
+    ).toBeGreaterThanOrEqual(1);
     expect(previewResult.systemDeletePreview.affectedItems.totalCount).toBeGreaterThanOrEqual(1);
 
     // Delete with cascade
@@ -500,7 +499,7 @@ describe('System CRUD + Hierarchy E2E', () => {
 
     // Verify in DB
     const dbRow = await db.findById('systems', systemId, tenantAId);
-    expect(dbRow!['status']).toBe('offline');
+    expect(assertDefined(dbRow)['status']).toBe('offline');
   });
 
   // -------------------------------------------------------------------------
@@ -544,9 +543,7 @@ describe('System CRUD + Hierarchy E2E', () => {
       token: tenantBToken,
     });
 
-    const found = listResult.systems.items.find(
-      (s: { id: string }) => s.id === systemId,
-    );
+    const found = listResult.systems.items.find((s: { id: string }) => s.id === systemId);
     expect(found).toBeUndefined();
   });
 });

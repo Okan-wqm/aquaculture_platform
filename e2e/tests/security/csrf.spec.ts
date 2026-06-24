@@ -15,26 +15,18 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { RestTestClient } from '../../helpers/rest-client';
 import { generateTestToken } from '../../helpers/jwt.helper';
 
 /** Response types (zero any policy) */
-interface HealthResponse {
-  status: string;
-  info?: Record<string, unknown>;
-}
-
 interface GraphQLAnyResponse {
   [key: string]: unknown;
 }
 
 test.describe('CSRF Protection', () => {
   let graphqlClient: GraphQLTestClient;
-  let restClient: RestTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     graphqlClient = new GraphQLTestClient(request);
-    restClient = new RestTestClient(request);
   });
 
   test('POST to GraphQL endpoint without authentication returns auth error, not CSRF error', async () => {
@@ -52,10 +44,10 @@ test.describe('CSRF Protection', () => {
     // For a public query like __typename, it may succeed
     // For protected queries, it should return 401
     // The important thing: it should NOT return a CSRF-specific error
-    const hasCsrfError = response.body.errors?.some(e =>
-      e.message.toLowerCase().includes('csrf') ||
-      e.extensions?.code === 'CSRF_ERROR',
-    ) ?? false;
+    const hasCsrfError =
+      response.body.errors?.some(
+        (e) => e.message.toLowerCase().includes('csrf') || e.extensions?.code === 'CSRF_ERROR',
+      ) ?? false;
 
     // No CSRF error expected — the platform uses token-based auth
     expect(hasCsrfError).toBe(false);
@@ -135,7 +127,7 @@ test.describe('CSRF Protection', () => {
     if (xPoweredBy) {
       console.warn(
         'WARNING: X-Powered-By header is present. ' +
-        'Consider removing it to prevent technology fingerprinting.',
+          'Consider removing it to prevent technology fingerprinting.',
       );
     }
 
@@ -152,10 +144,7 @@ test.describe('CSRF Protection', () => {
     // Attempt to send a batched request (array of operations)
     // The gateway has allowBatchedHttpRequests: false
     const batchedResponse = await graphqlClient.rawPost(
-      JSON.stringify([
-        { query: '{ __typename }' },
-        { query: '{ __typename }' },
-      ]),
+      JSON.stringify([{ query: '{ __typename }' }, { query: '{ __typename }' }]),
       { token },
     );
 
@@ -170,7 +159,7 @@ test.describe('CSRF Protection', () => {
     if (isBatchResponse) {
       console.warn(
         'WARNING: Batched HTTP requests appear to be allowed. ' +
-        'This can bypass rate limiting. Verify allowBatchedHttpRequests is false.',
+          'This can bypass rate limiting. Verify allowBatchedHttpRequests is false.',
       );
     }
 

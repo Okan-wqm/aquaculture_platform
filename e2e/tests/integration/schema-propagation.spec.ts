@@ -44,13 +44,13 @@
  *   propagation can't drift when there's nothing to propagate to.
  */
 
-import { TestDatabase } from '../../helpers/db.helper';
-
 import {
   MIGRATION_LEDGER_TABLE,
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
 } from '@aquaculture/backend-common/database';
+
+import { TestDatabase } from '../../helpers/db.helper';
 
 const TENANT_AWARE_SOURCE_SCHEMAS = [...TENANT_AWARE_SCHEMAS] as const;
 
@@ -131,9 +131,7 @@ describe('Schema Propagation (tenant schemas track source)', () => {
         for (const tenantSchema of tenants) {
           expect(tenantSchema).toMatch(TENANT_SCHEMA_RE);
           const tenantTables = await fetchSchemaColumns(db, tenantSchema);
-          const missingTables = [...sourceTables.keys()].filter(
-            (t) => !tenantTables.has(t),
-          );
+          const missingTables = [...sourceTables.keys()].filter((t) => !tenantTables.has(t));
           if (missingTables.length > 0) {
             missingByTenant[tenantSchema] = missingTables;
           }
@@ -156,9 +154,7 @@ describe('Schema Propagation (tenant schemas track source)', () => {
           for (const [table, sourceCols] of sourceTables.entries()) {
             const tenantCols = tenantTables.get(table);
             if (!tenantCols) continue; // already caught by "missing table" test above
-            const missingCols = [...sourceCols].filter(
-              (c) => !tenantCols.has(c),
-            );
+            const missingCols = [...sourceCols].filter((c) => !tenantCols.has(c));
             if (missingCols.length > 0) {
               tableDrift[table] = missingCols;
             }

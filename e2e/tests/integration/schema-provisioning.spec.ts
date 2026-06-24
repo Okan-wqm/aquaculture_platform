@@ -8,10 +8,12 @@
  */
 
 import {
-  loginAsSuperAdmin,
-  createTestTenant,
-  teardownTenant,
-} from '../../helpers/tenant.fixture';
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from '@aquaculture/backend-common/database';
+
+import { MODULE_SCHEMAS } from '../../../libs/backend-common/src/database/schema-manager.service';
+import { assertDefined } from '../../helpers/assertions';
 import {
   findTenantById,
   tenantSchemaExists,
@@ -20,22 +22,14 @@ import {
   closePool,
   TestDatabase,
 } from '../../helpers/db.helper';
-import { MODULE_SCHEMAS } from '../../../libs/backend-common/src/database/schema-manager.service';
-import {
-  MIGRATION_LEDGER_TABLE,
-  tenantMigrationLedgerTable,
-} from '@aquaculture/backend-common/database';
+import { loginAsSuperAdmin, createTestTenant, teardownTenant } from '../../helpers/tenant.fixture';
 
 /**
  * Minimum expected tables in a tenant schema.
  * These are the core tables provisioned by the schema manager
  * for tenant-level role management and data isolation.
  */
-const CORE_TENANT_TABLES = [
-  'tenant_roles',
-  'tenant_role_permissions',
-  'user_role_assignments',
-];
+const CORE_TENANT_TABLES = ['tenant_roles', 'tenant_role_permissions', 'user_role_assignments'];
 
 const DEFAULT_MODULE_TABLES = new Set(
   MODULE_SCHEMAS.flatMap((moduleSchema) => moduleSchema.tables),
@@ -154,7 +148,7 @@ describe('Schema Provisioning', () => {
     // Verify tenant status in DB
     const dbTenant = await findTenantById(tenant.id);
     expect(dbTenant).not.toBeNull();
-    expect(dbTenant!.status).toBe('ACTIVE');
+    expect(assertDefined(dbTenant).status).toBe('ACTIVE');
   });
 
   it('should create unique schemas for different tenants', async () => {
@@ -205,9 +199,9 @@ describe('Schema Provisioning', () => {
 
     const dbTenant = await findTenantById(tenant.id);
     expect(dbTenant).not.toBeNull();
-    expect(dbTenant!.name).toBe(uniqueName);
-    expect(dbTenant!.slug).toBe(uniqueSlug);
-    expect(dbTenant!.plan).toBe('starter');
-    expect(dbTenant!.status).toBe('ACTIVE');
+    expect(assertDefined(dbTenant).name).toBe(uniqueName);
+    expect(assertDefined(dbTenant).slug).toBe(uniqueSlug);
+    expect(assertDefined(dbTenant).plan).toBe('starter');
+    expect(assertDefined(dbTenant).status).toBe('ACTIVE');
   });
 });

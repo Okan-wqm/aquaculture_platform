@@ -5,8 +5,10 @@
  * Create -> List -> Detail -> Update -> Unique code enforcement -> Cross-tenant isolation
  */
 import { randomUUID } from 'crypto';
-import { GraphQLTestClient } from '../../../helpers/graphql-client';
+
+import { assertDefined } from '../../../helpers/assertions';
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateTestToken } from '../../../helpers/jwt.helper';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
@@ -52,7 +54,8 @@ describe('Department HR CRUD', () => {
         isActive: boolean;
         description: string | null;
       };
-    }>(`
+    }>(
+      `
       mutation CreateDept($input: CreateHRDepartmentInput!) {
         createHRDepartment(input: $input) {
           id
@@ -63,14 +66,16 @@ describe('Department HR CRUD', () => {
           description
         }
       }
-    `, {
-      input: {
-        name: 'Operations Department',
-        code: deptCode,
-        type: 'OPERATIONS',
-        description: 'Main operations department for E2E testing',
+    `,
+      {
+        input: {
+          name: 'Operations Department',
+          code: deptCode,
+          type: 'OPERATIONS',
+          description: 'Main operations department for E2E testing',
+        },
       },
-    });
+    );
 
     const dept = data.createHRDepartment;
     createdDeptId = dept.id;
@@ -95,11 +100,9 @@ describe('Department HR CRUD', () => {
       }
     `);
 
-    const found = listData.hrDepartments.find(
-      (d: { id: string }) => d.id === createdDeptId,
-    );
+    const found = listData.hrDepartments.find((d: { id: string }) => d.id === createdDeptId);
     expect(found).toBeDefined();
-    expect(found!.code).toBe(deptCode);
+    expect(assertDefined(found).code).toBe(deptCode);
   });
 
   // ── Test 2: Get department by ID ──────────────────────
@@ -116,7 +119,8 @@ describe('Department HR CRUD', () => {
         version: number;
         createdAt: string;
       };
-    }>(`
+    }>(
+      `
       query GetDepartment($id: ID!) {
         hrDepartment(id: $id) {
           id
@@ -130,7 +134,9 @@ describe('Department HR CRUD', () => {
           createdAt
         }
       }
-    `, { id: createdDeptId });
+    `,
+      { id: createdDeptId },
+    );
 
     expect(data.hrDepartment.id).toBe(createdDeptId);
     expect(data.hrDepartment.name).toBe('Operations Department');
@@ -150,7 +156,8 @@ describe('Department HR CRUD', () => {
         budgetCode: string;
         costCenter: string;
       };
-    }>(`
+    }>(
+      `
       mutation UpdateDept($input: UpdateHRDepartmentInput!) {
         updateHRDepartment(input: $input) {
           id
@@ -160,15 +167,17 @@ describe('Department HR CRUD', () => {
           costCenter
         }
       }
-    `, {
-      input: {
-        id: createdDeptId,
-        name: 'Updated Operations',
-        description: 'Updated description',
-        budgetCode: 'BUD-OPS-01',
-        costCenter: 'CC-100',
+    `,
+      {
+        input: {
+          id: createdDeptId,
+          name: 'Updated Operations',
+          description: 'Updated description',
+          budgetCode: 'BUD-OPS-01',
+          costCenter: 'CC-100',
+        },
       },
-    });
+    );
 
     expect(data.updateHRDepartment.name).toBe('Updated Operations');
     expect(data.updateHRDepartment.description).toBe('Updated description');
@@ -178,36 +187,42 @@ describe('Department HR CRUD', () => {
 
   // ── Test 4: Unique code per tenant ────────────────────
   test('Test 4: duplicate code per tenant -> error', async () => {
-    const response = await clientA.queryRaw(`
+    const response = await clientA.queryRaw(
+      `
       mutation CreateDuplicateDept($input: CreateHRDepartmentInput!) {
         createHRDepartment(input: $input) {
           id
         }
       }
-    `, {
-      input: {
-        name: 'Duplicate Operations',
-        code: deptCode,
-        type: 'OPERATIONS',
+    `,
+      {
+        input: {
+          name: 'Duplicate Operations',
+          code: deptCode,
+          type: 'OPERATIONS',
+        },
       },
-    });
+    );
 
     expect(response.errors).toBeDefined();
-    expect(response.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(response.errors).length).toBeGreaterThan(0);
   });
 
   // ── Test 5: Cross-tenant isolation ────────────────────
   test('Test 5: Tenant B cannot see Tenant A department', async () => {
     const response = await clientB.queryRaw<{
       hrDepartment: { id: string } | null;
-    }>(`
+    }>(
+      `
       query GetDepartment($id: ID!) {
         hrDepartment(id: $id) {
           id
           name
         }
       }
-    `, { id: createdDeptId });
+    `,
+      { id: createdDeptId },
+    );
 
     // Should either return error or null
     if (response.data?.hrDepartment) {
@@ -252,8 +267,8 @@ describe('Department HR CRUD', () => {
       );
 
       expect(result.rows.length).toBe(1);
-      expect(result.rows[0]!.tenantId).toBe(TENANT_A_ID);
-      expect(result.rows[0]!.code).toBe(deptCode);
+      expect(result.rows[0].tenantId).toBe(TENANT_A_ID);
+      expect(result.rows[0].code).toBe(deptCode);
     } catch (error) {
       console.warn('DB verification skipped:', (error as Error).message);
     }

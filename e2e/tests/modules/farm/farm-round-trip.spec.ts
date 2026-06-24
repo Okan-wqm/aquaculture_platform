@@ -11,9 +11,9 @@
  * 7. Tenant B queries all -> NONE visible
  * 8. Teardown: delete tank -> system -> department -> site
  */
+import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateCrossTenantTokens } from '../../../helpers/jwt.helper';
-import { TestDatabase } from '../../../helpers/db.helper';
 
 // ---------------------------------------------------------------------------
 // GraphQL Operations

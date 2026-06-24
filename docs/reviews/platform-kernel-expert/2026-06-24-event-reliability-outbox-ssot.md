@@ -33,13 +33,15 @@ billing-service has a `BillingOutboxModule` (`apps/billing-service/src/outbox/bi
 
 ## SENSOR-CRITICAL-001
 
-**Title:** sensor-service reading/parent-routing events are published fire-and-forget (`.catch()`-swallowed) instead of via its transactional outbox, risking lost critical telemetry events.
+**Title:** sensor-service reading/parent-routing events are published fire-and-forget (`.catch()`-swallowed, behind a circuit breaker) instead of via its transactional outbox — and alert-engine consumes `SensorReading` event-driven, so a lost event is a missed life-safety alert.
 
 **Owner:** sensor-expert · **Severity:** CRITICAL · **Layer:** 2
 
-`apps/sensor-service/src/sensor/services/sensor-ingestion.service.ts:226` (`this.publishReadingEvent(saved).catch(...)`) and `:398` (`this.publishParentRoutingEvent(...).catch(...)`) publish directly and swallow failures; the service has an outbox module that is unused. (Telemetry rows persist correctly; the *event* propagation is the gap.)
+`apps/sensor-service/src/sensor/services/sensor-ingestion.service.ts:226` (`this.publishReadingEvent(saved).catch(...)`) and `:398-405` (`publishParentRoutingEvent(...).catch(...)`) publish via `eventBus.publish` (circuit-breaker wrapped) AFTER the reading is persisted, swallowing failures; the service has an unused outbox module. `publishReadingEvent` emits `SensorReading` (dissolvedOxygen/ph/ammonia/…) at `:585-603`.
 
-**Fix:** Route these domain events through the sensor outbox on the persisting transaction's manager.
+**Decision (2026-06-24): make it durable via the outbox — best-effort is ruled out.** Verified that `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts` (`SensorReadingEventHandler`) consumes the `SensorReading` event and invokes `AlertEvaluationService.evaluateSensorReading`. Alert evaluation is **event-driven, not DB-polling**, so a dropped `SensorReading` event (NATS outage / open circuit / crash-after-save) silently skips alert evaluation for that reading — a missed life-safety alert (e.g. dissolved-oxygen crash), even though the reading row persists. Durability therefore outranks the per-reading outbox write-amplification cost. If volume becomes a problem, batch the outbox enqueue — do not revert to fire-and-forget.
+
+**Fix (own focused PR — hottest path, single + batch ingestion + circuit-breaker/retry interplay; not bundled with billing):** persist the reading and enqueue `SensorReading` on the same transactional manager via the sensor outbox; apply the same to the batch ingestion path and the parent-routing event. Open topology question to confirm during that PR: whether the Rust `sensor-ingestion` sidecar (already outbox-durable) is the primary high-throughput path and this NestJS path is secondary — which would bound the write-amplification surface.
 
 ---
 

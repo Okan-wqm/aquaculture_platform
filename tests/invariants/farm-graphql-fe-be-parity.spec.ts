@@ -31,12 +31,10 @@
  *     transport the module uses.
  */
 import { execFileSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
+import { REPO_ROOT, listFiles, extractBackendFieldSet } from './helpers/farm-graphql-surface';
 
-const REPO_ROOT = join(__dirname, '..', '..');
-
-const BE_SOURCE_ROOT = 'apps/farm-service/src';
 const FE_SOURCE_ROOT = 'web/modules/farm-module/src';
 
 /**
@@ -49,40 +47,6 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts
   tenantUsers: 'auth-service',
 };
-
-function listFiles(root: string, patterns: string[]): string[] {
-  const out = execFileSync('git', ['ls-files', ...patterns.map((p) => `${root}/${p}`)], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  });
-  return out
-    .split('\n')
-    .filter(Boolean)
-    .filter((file) => existsSync(join(REPO_ROOT, file)));
-}
-
-/** Extract every GraphQL root field served by farm-service resolvers. */
-function extractBackendFields(): Set<string> {
-  const fields = new Set<string>();
-  // Decorator args may contain one level of nested parens: `(() => Type, { … })`.
-  const decoratorArgs = String.raw`(?:[^()]|\([^()]*\))*`;
-  const interleaved = String.raw`(?:@[A-Za-z]+\s*\((?:[^()]|\([^()]*\))*\)\s*)*`;
-  const re = new RegExp(
-    String.raw`@(Query|Mutation|Subscription|ResolveField)\s*\((${decoratorArgs})\)\s*${interleaved}(?:async\s+)?([A-Za-z0-9_]+)\s*\(`,
-    'g',
-  );
-
-  for (const file of listFiles(BE_SOURCE_ROOT, ['**/*.ts'])) {
-    if (file.includes('.spec.') || file.includes('__tests__')) continue;
-    const src = readFileSync(join(REPO_ROOT, file), 'utf8');
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(src)) !== null) {
-      const named = match[2]!.match(/name:\s*'([^']+)'/);
-      fields.add(named ? named[1]! : match[3]!);
-    }
-  }
-  return fields;
-}
 
 interface FrontendRootField {
   operation: string;
@@ -111,7 +75,7 @@ function extractFrontendRootFields(): FrontendRootField[] {
 }
 
 describe('farm-module ↔ farm-service GraphQL parity', () => {
-  const backendFields = extractBackendFields();
+  const backendFields = extractBackendFieldSet();
   const frontendRoots = extractFrontendRootFields();
 
   it('backend extraction finds a plausible resolver surface (guards against silent extractor rot)', () => {

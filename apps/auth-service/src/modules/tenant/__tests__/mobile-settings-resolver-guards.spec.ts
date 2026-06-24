@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ROLES_KEY, Role } from '@platform/backend-common';
+import { ROLES_KEY, Role } from '@aquaculture/backend-common/decorators';
 
 import { MobileSettingsResolver } from '../resolvers/mobile-settings.resolver';
 

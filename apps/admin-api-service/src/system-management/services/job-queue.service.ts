@@ -59,7 +59,11 @@ export interface JobDashboard {
   scheduledJobs: BackgroundJob[];
 }
 
-export type JobHandler = (job: BackgroundJob) => Promise<Record<string, unknown> | void>;
+// A handler may resolve to a result object or to nothing. The resolved value
+// is consumed by the caller (stored as job.result), so the "nothing" case is
+// `undefined`, not `void` — `void` means "the value is unusable" and is
+// invalid as a union member (no-invalid-void-type).
+export type JobHandler = (job: BackgroundJob) => Promise<Record<string, unknown> | undefined>;
 
 // ============================================================================
 // Job Queue Service
@@ -379,7 +383,7 @@ export class JobQueueService {
     handler: JobHandler,
     job: BackgroundJob,
     timeoutMs: number,
-  ): Promise<Record<string, unknown> | void> {
+  ): Promise<Record<string, unknown> | undefined> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error(`Job timed out after ${timeoutMs}ms`));
@@ -390,9 +394,12 @@ export class JobQueueService {
           clearTimeout(timeout);
           resolve(result);
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           clearTimeout(timeout);
-          reject(error);
+          // Promise rejections must carry an Error (prefer-promise-reject-errors).
+          // A handler can reject with a non-Error (string/object); normalize so
+          // downstream catch sites can rely on Error semantics (.message/.stack).
+          reject(error instanceof Error ? error : new Error(String(error)));
         });
     });
   }

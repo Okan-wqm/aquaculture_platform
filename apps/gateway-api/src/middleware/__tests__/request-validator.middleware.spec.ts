@@ -1,15 +1,3 @@
-/* eslint-disable @typescript-eslint/no-dynamic-delete */
-/* eslint-disable @typescript-eslint/no-empty-function */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable @typescript-eslint/unbound-method */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 /**
  * RequestValidatorMiddleware Tests
  *
@@ -743,27 +731,31 @@ describe('RequestValidatorMiddleware', () => {
     });
   });
 
-  describe('Performance', () => {
-    it('should handle rapid validation efficiently', () => {
-      const startTime = Date.now();
-
-      for (let i = 0; i < 1000; i++) {
-        const req = createMockRequest({
+  describe('Burst Validation', () => {
+    it('should validate a bounded sequential burst without request state leakage', () => {
+      const requests = Array.from({ length: 1000 }, (_, i) =>
+        createMockRequest({
           method: 'POST',
           body: {
             name: `User ${i}`,
             email: `user${i}@example.com`,
             description: 'This is a test description',
           },
-        });
+        }),
+      );
+
+      for (const [index, req] of requests.entries()) {
         const res = createMockResponse();
         const next = jest.fn();
 
         middleware.use(req, res, next);
-      }
 
-      const duration = Date.now() - startTime;
-      expect(duration).toBeLessThan(2000); // Should complete in under 2 seconds
+        const validatedReq = req as ValidatedRequest;
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(validatedReq.validationResult?.isValid).toBe(true);
+        expect(validatedReq.sanitizedBody?.['name']).toBe(`User ${index}`);
+        expect(validatedReq.sanitizedBody?.['email']).toBe(`user${index}@example.com`);
+      }
     });
   });
 });

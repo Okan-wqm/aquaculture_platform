@@ -79,7 +79,6 @@ function reportViolation(src: string): void {
   const message = `[SH-SEC-04] Remote script blocked: origin not in allowlist — ${src}`;
 
   if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
     console.error(message);
   }
 
@@ -163,7 +162,6 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
   // No hash pin registered for this script URL
   if (import.meta.env.DEV) {
     // SECURITY: development mode — warn only, allow script to load
-    // eslint-disable-next-line no-console
     console.warn(
       `[SH-SEC-04] No integrity hash pinned for federation script: ${src}. ` +
         'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.',
@@ -179,7 +177,6 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
     `[SH-SEC-04] PRODUCTION: Blocked federation script without SRI hash pin: ${src}. ` +
     'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.';
 
-  // eslint-disable-next-line no-console
   console.error(blockMessage);
 
   if (typeof window !== 'undefined') {
@@ -239,12 +236,26 @@ export function installRemoteIntegrityGuard(): void {
   // SECURITY: Patching the prototype (not the instance) ensures coverage
   // across all document contexts — iframes, sandboxed contexts, or any
   // code that obtains a fresh document reference will still be intercepted.
-  const originalCreateElement = Document.prototype.createElement;
+  // WHY Reflect.get (not a bare `Document.prototype.createElement` extraction):
+  // we must snapshot the UNPATCHED implementation eagerly here, before the
+  // reassignment below replaces it. A bare member-access extraction yields an
+  // unbound method (unbound-method) because the host method needs the call-time
+  // document as `this` (binding it statically throws "Illegal invocation").
+  // Reflect.get captures the same function value through a call expression, and
+  // Reflect.apply forwards the real instance as `this` at invocation time, so
+  // behaviour is byte-for-byte identical while no method is left unbound.
+  const originalCreateElement: typeof Document.prototype.createElement = Reflect.get(
+    Document.prototype,
+    'createElement',
+  );
 
   Document.prototype.createElement = function patchedCreateElement<
     K extends keyof HTMLElementTagNameMap,
   >(this: Document, tagName: K, options?: ElementCreationOptions): HTMLElementTagNameMap[K] {
-    const element = originalCreateElement.call(this, tagName, options);
+    const element = Reflect.apply(originalCreateElement, this, [
+      tagName,
+      options,
+    ]) as HTMLElementTagNameMap[K];
 
     if (tagName.toLowerCase() !== 'script') {
       return element as HTMLElementTagNameMap[K];
@@ -278,7 +289,14 @@ export function installRemoteIntegrityGuard(): void {
   // SECURITY: Intercepts `el.setAttribute('src', url)` on script elements.
   // Without this, an attacker can bypass the createElement src property
   // descriptor by using setAttribute directly.
-  const originalSetAttribute = Element.prototype.setAttribute;
+  // WHY Reflect.get + Reflect.apply: same reasoning as Layer 1 — snapshot the
+  // unpatched implementation eagerly via a call expression (so the method is
+  // never extracted unbound) and forward the call-time element as `this`
+  // explicitly, keeping behaviour byte-for-byte identical.
+  const originalSetAttribute: typeof Element.prototype.setAttribute = Reflect.get(
+    Element.prototype,
+    'setAttribute',
+  );
 
   Element.prototype.setAttribute = function patchedSetAttribute(
     this: Element,
@@ -287,13 +305,13 @@ export function installRemoteIntegrityGuard(): void {
   ): void {
     // Only intercept 'src' attribute on script elements
     if (name.toLowerCase() === 'src' && this instanceof HTMLScriptElement) {
-      const validatedSrc = validateAndEnforceScriptSrc(value, this as HTMLScriptElement);
+      const validatedSrc = validateAndEnforceScriptSrc(value, this);
       // If blocked, set empty src to prevent loading
-      originalSetAttribute.call(this, name, validatedSrc);
+      Reflect.apply(originalSetAttribute, this, [name, validatedSrc]);
       return;
     }
 
     // Pass through for all non-script or non-src attributes
-    originalSetAttribute.call(this, name, value);
+    Reflect.apply(originalSetAttribute, this, [name, value]);
   };
 }

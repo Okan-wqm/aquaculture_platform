@@ -279,7 +279,7 @@ export function useStEditor(options?: UseStEditorOptions) {
     applyMarkers(errors);
 
     return errors;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [langService.isConnected, langService.analyze, compileMock]);
 
   // ---- Validate (WS → mock fallback) ----
@@ -327,7 +327,7 @@ export function useStEditor(options?: UseStEditorOptions) {
     applyMarkers(warnings);
 
     return warnings;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [langService.isConnected, langService.analyze, validateMock]);
 
   // ---- Monaco markers ----

@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 import { User } from './user.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 
 @Entity('refresh_tokens', { schema: 'auth' })
 @Index('IDX_refresh_tokens_user_revoked', ['userId', 'isRevoked'])
@@ -58,6 +59,10 @@ export class RefreshToken {
   // the application contract sets tenantId for every tenant-scoped session.
   @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
+
+  @ManyToOne(() => Tenant, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'tenantId' })
+  tenant?: Tenant | null;
 
   @Column({ type: 'timestamptz' })
   expiresAt!: Date;

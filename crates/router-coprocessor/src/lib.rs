@@ -17,6 +17,15 @@ use hmac::digest::InvalidLength;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
+/// The Apollo Router external-coprocessor wire contract (stage payload + control
+/// signal). Kept in its own module so the protocol types are testable in isolation
+/// from the crypto primitives below.
+pub mod protocol;
+/// The `SubgraphRequest` coprocessor stage: derives the canonical inputs from the
+/// forwarded request and injects the 14 service-identity v2 headers via the golden
+/// crypto primitives in this module.
+pub mod subgraph_stage;
+
 /// `SIG_VERSION_V2` in the TS SSoT.
 pub const SIG_VERSION_V2: &str = "v2";
 /// `CANONICAL_DELIM` in the TS SSoT — the 14 canonical fields are newline-joined.

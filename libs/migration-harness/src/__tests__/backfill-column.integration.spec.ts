@@ -4,8 +4,9 @@ import {
   type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
 } from '../index';
+
+import { expectHarnessContext, queryRows, rowAt, withHarnessSchema } from './test-helpers';
 
 describe('backfillColumn — Phase 3.5 Class H primitive', () => {
   let ctx: HarnessContext | undefined;
@@ -19,7 +20,8 @@ describe('backfillColumn — Phase 3.5 Class H primitive', () => {
   }, 30_000);
 
   it('fills NULL rows via chunked UPDATE (single chunk covers small tables)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS backfill_test`);
       try {
         await qr.query(
@@ -41,12 +43,13 @@ describe('backfillColumn — Phase 3.5 Class H primitive', () => {
         expect(result.completed).toBe(true);
         expect(result.iterations).toBeGreaterThanOrEqual(1);
 
-        const rows = await qr.query(
+        const rows = await queryRows<{ id: string; status: string }>(
+          qr,
           `SELECT id, status FROM backfill_test.widget ORDER BY id`,
         );
-        expect(rows[0].status).toBe('backfilled');
-        expect(rows[1].status).toBe('backfilled');
-        expect(rows[2].status).toBe('keep');
+        expect(rowAt(rows, 0).status).toBe('backfilled');
+        expect(rowAt(rows, 1).status).toBe('backfilled');
+        expect(rowAt(rows, 2).status).toBe('keep');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS backfill_test CASCADE`);
       }
@@ -54,7 +57,8 @@ describe('backfillColumn — Phase 3.5 Class H primitive', () => {
   });
 
   it('honors chunkSize and multi-chunks through a large update', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS backfill_test`);
       try {
         await qr.query(
@@ -88,7 +92,8 @@ describe('backfillColumn — Phase 3.5 Class H primitive', () => {
   });
 
   it('is a no-op when filter matches zero rows', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS backfill_test`);
       try {
         await qr.query(
@@ -113,7 +118,8 @@ describe('backfillColumn — Phase 3.5 Class H primitive', () => {
   });
 
   it('throws when maxIterations tripped by self-matching predicate', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS backfill_test`);
       try {
         await qr.query(

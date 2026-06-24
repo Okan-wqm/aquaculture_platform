@@ -9,9 +9,10 @@
  * 5. Status transitions: ACTIVE -> MAINTENANCE -> INACTIVE -> CLOSED
  * 6. Unique constraint: same tenant+code or tenant+name -> error
  */
-import { GraphQLTestClient } from '../../../helpers/graphql-client';
-import { generateTestToken, generateCrossTenantTokens } from '../../../helpers/jwt.helper';
+import { assertDefined } from '../../../helpers/assertions';
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
+import { generateCrossTenantTokens } from '../../../helpers/jwt.helper';
 
 // ---------------------------------------------------------------------------
 // GraphQL Fragments
@@ -176,9 +177,9 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
     // VERIFY in DB
     const dbRow = await db.findById('sites', site.id, tenantAId);
     expect(dbRow).not.toBeNull();
-    expect(dbRow!['name']).toBe(input.name);
-    expect(dbRow!['code']).toBe(input.code);
-    expect(dbRow!['tenantId']).toBe(tenantAId);
+    expect(assertDefined(dbRow)['name']).toBe(input.name);
+    expect(assertDefined(dbRow)['code']).toBe(input.code);
+    expect(assertDefined(dbRow)['tenantId']).toBe(tenantAId);
 
     // LIST with filter
     const listResult = await client.executeSuccess<{
@@ -192,9 +193,7 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
       token: tenantAToken,
     });
 
-    const found = listResult.sites.items.find(
-      (s: { id: string }) => s.id === site.id,
-    );
+    const found = listResult.sites.items.find((s: { id: string }) => s.id === site.id);
     expect(found).toBeDefined();
   });
 
@@ -310,7 +309,7 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
     if (siteAfterDelete !== null && siteAfterDelete !== undefined) {
       // If returned, verify DB shows isDeleted=true
       const dbRow = await db.findById('sites', siteId, tenantAId);
-      expect(dbRow!['isDeleted']).toBe(true);
+      expect(assertDefined(dbRow)['isDeleted']).toBe(true);
     }
   });
 
@@ -356,9 +355,7 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
       token: tenantBToken,
     });
 
-    const foundInB = listResult.sites.items.find(
-      (s: { id: string }) => s.id === siteId,
-    );
+    const foundInB = listResult.sites.items.find((s: { id: string }) => s.id === siteId);
     expect(foundInB).toBeUndefined();
   });
 
@@ -416,7 +413,7 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
 
     // Verify final state in DB
     const dbRow = await db.findById('sites', siteId, tenantAId);
-    expect(dbRow!['status']).toBe('closed');
+    expect(assertDefined(dbRow)['status']).toBe('closed');
   });
 
   // -------------------------------------------------------------------------
@@ -455,7 +452,7 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
 
     // Should have errors
     expect(duplicateResult.errors).toBeDefined();
-    expect(duplicateResult.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(duplicateResult.errors).length).toBeGreaterThan(0);
   });
 
   it('should reject duplicate name within the same tenant', async () => {
@@ -489,6 +486,6 @@ describe('Site CRUD + Cross-Tenant E2E', () => {
     });
 
     expect(duplicateResult.errors).toBeDefined();
-    expect(duplicateResult.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(duplicateResult.errors).length).toBeGreaterThan(0);
   });
 });

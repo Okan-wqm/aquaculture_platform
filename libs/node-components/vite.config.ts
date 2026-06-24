@@ -1,7 +1,9 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import dts from 'vite-plugin-dts';
 import { resolve } from 'path';
+
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+import dts from 'vite-plugin-dts';
+
 
 /**
  * Vite Configuration for @aquaculture/node-components

@@ -91,7 +91,7 @@ NestJS interceptor + pipe + guard order, StructuredLoggerService auto-PII-maskin
 
 ## Active findings this agent owns
 
-Inherited from the platform-services split (Phase 11):
+Inherited from the retired platform review split (Phase 11):
 - `tenant_id` metric label audit across all services (cross-check with libs/backend-common/src/metrics/metrics.service.ts:60)
 - OTEL instrumentation sweep (EDGE-MEDIUM modernisation is Rust-side; cloud side baseline TBD)
 

@@ -68,5 +68,5 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdConnectionTesterService,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class VfdModule {}

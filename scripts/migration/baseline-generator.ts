@@ -86,7 +86,6 @@
  * existing migration history.
  */
 
-/* eslint-disable no-console */
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { resolve, join, basename, dirname } from 'node:path';
@@ -140,8 +139,10 @@ function parseArgs(): Args {
 
   for (let i = 0; i < raw.length; i++) {
     const arg = raw[i];
-    if (arg === '--service' && raw[i + 1]) {
-      service = raw[++i];
+    const nextArg = raw[i + 1];
+    if (arg === '--service' && nextArg) {
+      service = nextArg;
+      i += 1;
     } else if (arg === '--archive-old') {
       mode = 'archive-old';
     } else if (arg === '--generate') {

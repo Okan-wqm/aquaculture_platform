@@ -54,8 +54,8 @@ If you are a specialized review agent and you need to interact with ARIA's outpu
 
 ## Status (as of this commit)
 
-- Branch: `snowball`
-- Implementation: only Phase-1 PoC (`tools/aria-poc/poc.py`) exists. Pure mechanical, no LLM.
-- Spec: SPEC + IDENTITY + CONTRACTS complete. Three layers, internally consistent.
-- Decision gate: PoC's `aria-poc-report.md` §5 — operator decides whether to build the kernel.
-- Until Phase 0 begins: no other ARIA artifacts exist. `aria-findings/`, `aria-debts/`, `~/.aria/workspaces/` are unpopulated.
+- Current authority: `docs/aria/CURRENT_STATE.md` plus executable kernel owners on `main`.
+- PR target owner: `aria-kernel/aria_kernel/pr_manager.py::ARIA_PR_BASE`; prompt prose must cite that owner instead of duplicating branch policy.
+- Implementation: ARIA kernel modules, runtime artifact owners, executor/convergence tooling, and `tools/aria-poc/poc.py` exist under the current owner surfaces listed in `CURRENT_STATE.md`.
+- Legacy branch material is evidence only. Any value from it must land through the current owner module, contract, or invariant, with conflicting live prose removed.
+- Runtime state directories such as `aria-findings/`, `aria-debts/`, and external `~/.aria/workspaces/` remain governed by the artifact contracts cited from `CURRENT_STATE.md`.

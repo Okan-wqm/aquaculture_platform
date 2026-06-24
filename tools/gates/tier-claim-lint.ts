@@ -44,10 +44,9 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { relative, resolve } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = resolve(__dirname, '..', '..');
 const ALLOWLIST_PATH = resolve(
   REPO_ROOT,
   '.claude',

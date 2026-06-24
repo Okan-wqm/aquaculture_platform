@@ -23,6 +23,7 @@ import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
@@ -58,7 +59,7 @@ const runtimeTenantRlsSyncEnabled = process.env['DB_MIGRATE_DDL_AUTHORITY'] === 
  * messaging source schema at OnApplicationBootstrap. Replaces TypeORM's
  * built-in `migrationsRun: true` path so we get the platform's
  * search_path invariant between migrations (closes the 2026-04-07
- * farm-service class of bug where one migration's SET search_path
+ * farm-service class of bug where one migration's session search_path
  * leaked into the next migration's session).
  *
  * Wired as part of the 2026-04-14 messaging-isolation plan (ADR-011
@@ -75,6 +76,7 @@ import { Message } from './message/entities/message.entity';
 import { MessageAttachment } from './message/entities/message-attachment.entity';
 import { MessageSendIdempotency } from './message/entities/message-send-idempotency.entity';
 import { MessageReceipt } from './message/entities/message-receipt.entity';
+import { MessageReceiptLedger } from './message/entities/message-receipt-ledger.entity';
 import { MessageReaction } from './message/entities/message-reaction.entity';
 import { PinnedMessage } from './message/entities/pinned-message.entity';
 import { MessagingOutbox } from './outbox/messaging-outbox.entity';
@@ -101,6 +103,8 @@ import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrati
 import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
 import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/1800600000000-CreateMessageSendIdempotencyLedger';
 import { AddMessagesEmbeddingColumn1800700000000 } from './migrations/1800700000000-AddMessagesEmbeddingColumn';
+import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000000-CreateMessageReceiptLedger';
+import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migrations/1801000000000-EnsureMessagingTenantErasureProofLedger';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -138,8 +142,8 @@ type QueryComplexityOperationContext = {
     // Database connection — uses the platform TypeORM factory.
     // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
     // search_path per request. Partitioned tables (messages,
-    // message_receipts) require migrations — synchronize stays disabled
-    // (factory honours DATABASE_SYNC default false).
+    // message_receipts) require migrations — synchronize is structurally
+    // disabled by the shared TypeORM factory.
     // MessagingMigrationRunnerService (provider above) executes migrations
     // at OnApplicationBootstrap; factory's migrationsRun:false default
     // keeps TypeORM out of that codepath.
@@ -165,6 +169,7 @@ type QueryComplexityOperationContext = {
             MessageAttachment,
             MessageSendIdempotency,
             MessageReceipt,
+            MessageReceiptLedger,
             MessageReaction,
             PinnedMessage,
             MessagingOutbox,
@@ -188,6 +193,8 @@ type QueryComplexityOperationContext = {
             EnsureMessagingPartitionContract1800500000000,
             CreateMessageSendIdempotencyLedger1800600000000,
             AddMessagesEmbeddingColumn1800700000000,
+            CreateMessageReceiptLedger1800800000000,
+            EnsureMessagingTenantErasureProofLedger1801000000000,
           ],
         }),
     }),
@@ -315,6 +322,7 @@ type QueryComplexityOperationContext = {
     PresenceModule,
     PartitionModule,
     MessagingOutboxModule,
+    TenantErasureTargetModule.forService('messaging-service'),
     GdprModule,
     ComplianceModule,
     EventHandlersModule,
@@ -337,7 +345,8 @@ type QueryComplexityOperationContext = {
       // See P4 migration docblock for rationale:
       // - messaging_outbox: cross-tenant worker reads (BypassRls)
       // - embeddings_metadata: platform-wide reference data (no tenantId)
-      excludeTables: ['messaging_outbox', 'embeddings_metadata'],
+      // - message_send_idempotency: source-schema idempotency ledger
+      excludeTables: ['messaging_outbox', 'embeddings_metadata', 'message_send_idempotency'],
       tenantIdColumns: ['tenantId'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

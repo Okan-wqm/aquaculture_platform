@@ -17,6 +17,7 @@ import {
   useMemo,
   useEffect,
   useRef,
+  type JSX,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -80,7 +81,7 @@ function senderColorIndex(senderId: string): number {
 }
 
 /** ChatRoomPage renders a full-screen chat interface for a specific channel. */
-export function ChatRoomPage() {
+export function ChatRoomPage(): JSX.Element {
   const navigate = useNavigate();
   const { channelId } = useParams<{ channelId: string }>();
   const { user, tenantId } = useAuth();
@@ -254,7 +255,10 @@ export function ChatRoomPage() {
   const handleCopy = useCallback((messageId: string) => {
     const msg = messages.find((m) => m.id === messageId);
     if (msg?.content) {
-      navigator.clipboard.writeText(msg.content).catch(() => {});
+      navigator.clipboard.writeText(msg.content).catch(() => {
+        /* intentional no-op: clipboard copy is a best-effort convenience;
+           a denied/unsupported Clipboard API must not surface an error. */
+      });
     }
   }, [messages]);
 
@@ -295,15 +299,16 @@ export function ChatRoomPage() {
       const { graphqlRequest } = await import('@/services/authenticated-fetch');
       const { DELETE_MESSAGE } = await import('@/graphql/messaging-operations');
       await graphqlRequest(DELETE_MESSAGE, { id: messageId });
-      // Invalidate message cache so the deleted message disappears
-      queryClient.invalidateQueries({
+      // Invalidate message cache so the deleted message disappears. The refetch
+      // is fire-and-forget — the UI updates reactively once the cache settles.
+      void queryClient.invalidateQueries({
         queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
       });
     } else {
       // Queue for offline sync — the main queue supports 'deleteMessage'
       await addToQueue('deleteMessage', { id: messageId });
     }
-  }, [channelId, isOnline, addToQueue, queryClient]);
+  }, [channelId, isOnline, addToQueue, queryClient, tenantId]);
 
   /**
    * MSG-MEDIUM-055: enqueue a media blob on the binary offline lane. Persists the
@@ -467,7 +472,15 @@ export function ChatRoomPage() {
 
           <div
             className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
+            role="button"
+            tabIndex={0}
             onClick={() => navigate(`/messages/${channelId}/settings`)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                navigate(`/messages/${channelId}/settings`);
+              }
+            }}
           >
             <ChannelAvatar
               type={avatarType}
@@ -500,13 +513,13 @@ export function ChatRoomPage() {
       {/* Message list */}
       <div
         ref={scrollContainerRef}
-        onScroll={handleScroll}
+        onScroll={() => { void handleScroll(); }}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
         {hasNextPage && (
           <div className="flex justify-center py-3">
             <button
-              onClick={() => fetchNextPage()}
+              onClick={() => { void fetchNextPage(); }}
               className="text-xs text-ocean-500 font-medium touch-feedback flex items-center gap-1"
             >
               <ChevronDown size={14} className="rotate-180" />
@@ -626,7 +639,11 @@ export function ChatRoomPage() {
                           ? handleEdit
                           : undefined
                       }
-                      onDelete={isOwn ? handleDelete : undefined}
+                      onDelete={
+                        isOwn
+                          ? (messageId) => { void handleDelete(messageId); }
+                          : undefined
+                      }
                     />
                   );
                 })}
@@ -655,7 +672,7 @@ export function ChatRoomPage() {
             return;
           }
           setReplyingTo(null);
-          sendMessage({
+          void sendMessage({
             content: text,
             // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
             contentType: 'TEXT',
@@ -673,7 +690,7 @@ export function ChatRoomPage() {
           // MSG-MEDIUM-055: offline voice notes are queued (not discarded) —
           // handleVoiceRecordingComplete persists the audio blob and enqueues an
           // upload-and-send op when offline.
-          handleVoiceRecordingComplete(blob, durationSeconds, mimeType);
+          void handleVoiceRecordingComplete(blob, durationSeconds, mimeType);
         }}
         replyTo={
           editingMessage
@@ -708,7 +725,7 @@ export function ChatRoomPage() {
       <AttachmentPicker
         isOpen={isAttachmentPickerOpen}
         onClose={() => setIsAttachmentPickerOpen(false)}
-        onFileSelect={handleFileSelect}
+        onFileSelect={(file) => { void handleFileSelect(file); }}
       />
 
       {/* Forward modal */}

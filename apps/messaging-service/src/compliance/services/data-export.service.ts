@@ -1,11 +1,15 @@
-import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  runInTenantRead,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
+import { DataSource, IsNull } from 'typeorm';
 
 import { Message } from '../../message/entities/message.entity';
-import { LegalHoldService } from './legal-hold.service';
-import { ComplianceAuditService } from './compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
+import { LegalHold } from '../entities/legal-hold.entity';
+import { ComplianceAuditService } from './compliance-audit.service';
 
 /**
  * Supported export formats.
@@ -41,6 +45,11 @@ interface ExportedMessageRow {
   hasLegalHold: boolean;
 }
 
+interface ExportReadResult {
+  rows: ExportedMessageRow[];
+  isUnderHold: boolean;
+}
+
 /**
  * Compliance data export service for generating channel or tenant
  * message history in CSV or JSON format.
@@ -57,9 +66,6 @@ export class DataExportService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    private readonly legalHoldService: LegalHoldService,
     private readonly auditService: ComplianceAuditService,
   ) {}
 
@@ -74,36 +80,37 @@ export class DataExportService {
   ): Promise<ExportJobResult> {
     const jobId = crypto.randomUUID();
 
-    // Set tenant schema for cross-service / cron contexts
-    const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    try {
-      await qr.query(
-        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
-      );
-    } finally {
-      await qr.release();
-    }
-
-    const isUnderHold = await this.legalHoldService.isUnderLegalHold(
+    const exportRead = await runInTenantRead(
+      this.dataSource,
+      'messaging',
       tenantId,
-      channelId,
-    );
+      async (queryRunner): Promise<ExportReadResult> => {
+        const holdRepo = tenantManagerRepo(queryRunner.manager, LegalHold, tenantId);
+        const activeHolds = await holdRepo.find({
+          where: [
+            { tenantId, channelId: IsNull(), isActive: true },
+            { tenantId, channelId, isActive: true },
+          ],
+        });
+        const now = new Date();
+        const isUnderHold = activeHolds.some((hold) => this.isEffectiveHold(hold, now));
+        const messages = await tenantManagerRepo(queryRunner.manager, Message, tenantId).find({
+          where: { tenantId, channelId },
+          relations: ['attachments'],
+          order: { createdAt: 'ASC' },
+        });
 
-    const messages = await this.messageRepo.find({
-      where: { channelId },
-      relations: ['attachments'],
-      order: { createdAt: 'ASC' },
-    });
-
-    const rows = messages.map((msg) =>
-      this.toExportRow(msg, isUnderHold),
+        return {
+          rows: messages.map((msg) => this.toExportRow(msg, isUnderHold)),
+          isUnderHold,
+        };
+      },
     );
 
     const data =
       format === 'json'
-        ? JSON.stringify(rows)
-        : this.toCsv(rows);
+        ? JSON.stringify(exportRead.rows)
+        : this.toCsv(exportRead.rows);
 
     // Log the export to compliance audit
     await this.auditService.log({
@@ -114,8 +121,8 @@ export class DataExportService {
       resourceId: channelId,
       details: {
         format,
-        recordCount: rows.length,
-        isUnderLegalHold: isUnderHold,
+        recordCount: exportRead.rows.length,
+        isUnderLegalHold: exportRead.isUnderHold,
         jobId,
       },
       ipAddress: null,
@@ -123,16 +130,16 @@ export class DataExportService {
     });
 
     this.logger.log(
-      `Channel export completed: channel=${channelId}, format=${format}, records=${rows.length}`,
+      `Channel export completed: channel=${channelId}, format=${format}, records=${exportRead.rows.length}`,
     );
 
     return {
       jobId,
       status: 'completed',
       format,
-      recordCount: rows.length,
+      recordCount: exportRead.rows.length,
       data,
-      isUnderLegalHold: isUnderHold,
+      isUnderLegalHold: exportRead.isUnderHold,
       exportedAt: new Date().toISOString(),
     };
   }
@@ -153,63 +160,67 @@ export class DataExportService {
   ): Promise<ExportJobResult> {
     const jobId = crypto.randomUUID();
 
-    // Set tenant schema for cross-service / cron contexts
-    const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    try {
-      await qr.query(
-        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
-      );
-    } finally {
-      await qr.release();
-    }
-
-    const isUnderHold = await this.legalHoldService.isUnderLegalHold(
+    const exportRead = await runInTenantRead(
+      this.dataSource,
+      'messaging',
       tenantId,
-      null,
+      async (queryRunner): Promise<ExportReadResult> => {
+        const now = new Date();
+        const activeHolds = await tenantManagerRepo(
+          queryRunner.manager,
+          LegalHold,
+          tenantId,
+        ).find({
+          where: { tenantId, isActive: true },
+          select: ['channelId', 'expiresAt'],
+        });
+        const effectiveHolds = activeHolds.filter((hold) =>
+          this.isEffectiveHold(hold, now),
+        );
+        const isUnderHold = effectiveHolds.some((hold) => hold.channelId === null);
+
+        // Pre-fetch held channels to avoid N+1 queries per message during streaming
+        const heldChannelSet = new Set(
+          effectiveHolds.flatMap((hold) =>
+            hold.channelId === null ? [] : [hold.channelId],
+          ),
+        );
+
+        // Stream messages using cursor to avoid OOM for large tenants
+        const stream = await tenantManagerRepo(queryRunner.manager, Message, tenantId)
+          .createQueryBuilder('msg')
+          .leftJoinAndSelect('msg.attachments', 'att')
+          .orderBy('msg.createdAt', 'ASC')
+          .stream();
+
+        const rows: ExportedMessageRow[] = [];
+        for await (const rawRow of stream) {
+          // TypeORM stream returns raw rows; map to export format
+          const row: ExportedMessageRow = {
+            messageId: rawRow.msg_id,
+            channelId: rawRow.msg_channelId,
+            senderId: rawRow.msg_senderId,
+            content: rawRow.msg_content,
+            contentType: rawRow.msg_contentType,
+            createdAt: new Date(rawRow.msg_createdAt).toISOString(),
+            editedAt: rawRow.msg_editedAt
+              ? new Date(rawRow.msg_editedAt).toISOString()
+              : null,
+            isDeleted: rawRow.msg_isDeleted ?? false,
+            attachmentCount: rawRow.att_id ? 1 : 0,
+            hasLegalHold: isUnderHold || heldChannelSet.has(rawRow.msg_channelId),
+          };
+          rows.push(row);
+        }
+
+        return { rows, isUnderHold };
+      },
     );
-
-    // Pre-fetch held channels to avoid N+1 queries per message during streaming
-    const heldChannelSet = new Set<string>();
-    if (!isUnderHold) {
-      const heldChannels = await this.dataSource.query(
-        `SELECT "channelId" FROM "legal_holds" WHERE "tenantId" = $1 AND "isActive" = true AND "channelId" IS NOT NULL`,
-        [tenantId],
-      ).catch(() => []);
-      for (const row of heldChannels) {
-        if (row.channelId) heldChannelSet.add(row.channelId);
-      }
-    }
-
-    // Stream messages using cursor to avoid OOM for large tenants
-    const stream = await this.messageRepo
-      .createQueryBuilder('msg')
-      .leftJoinAndSelect('msg.attachments', 'att')
-      .orderBy('msg.createdAt', 'ASC')
-      .stream();
-
-    const rows: ExportedMessageRow[] = [];
-    for await (const rawRow of stream) {
-      // TypeORM stream returns raw rows; map to export format
-      const row: ExportedMessageRow = {
-        messageId: rawRow.msg_id,
-        channelId: rawRow.msg_channelId,
-        senderId: rawRow.msg_senderId,
-        content: rawRow.msg_content,
-        contentType: rawRow.msg_contentType,
-        createdAt: new Date(rawRow.msg_createdAt).toISOString(),
-        editedAt: rawRow.msg_editedAt ? new Date(rawRow.msg_editedAt).toISOString() : null,
-        isDeleted: rawRow.msg_isDeleted ?? false,
-        attachmentCount: rawRow.att_id ? 1 : 0,
-        hasLegalHold: isUnderHold || heldChannelSet.has(rawRow.msg_channelId),
-      };
-      rows.push(row);
-    }
 
     const data =
       format === 'json'
-        ? JSON.stringify(rows)
-        : this.toCsv(rows);
+        ? JSON.stringify(exportRead.rows)
+        : this.toCsv(exportRead.rows);
 
     await this.auditService.log({
       tenantId,
@@ -219,8 +230,8 @@ export class DataExportService {
       resourceId: tenantId,
       details: {
         format,
-        recordCount: rows.length,
-        isUnderLegalHold: isUnderHold,
+        recordCount: exportRead.rows.length,
+        isUnderLegalHold: exportRead.isUnderHold,
         jobId,
       },
       ipAddress: null,
@@ -228,18 +239,22 @@ export class DataExportService {
     });
 
     this.logger.log(
-      `Tenant export completed: tenant=${tenantId}, format=${format}, records=${rows.length}`,
+      `Tenant export completed: tenant=${tenantId}, format=${format}, records=${exportRead.rows.length}`,
     );
 
     return {
       jobId,
       status: 'completed',
       format,
-      recordCount: rows.length,
+      recordCount: exportRead.rows.length,
       data,
-      isUnderLegalHold: isUnderHold,
+      isUnderLegalHold: exportRead.isUnderHold,
       exportedAt: new Date().toISOString(),
     };
+  }
+
+  private isEffectiveHold(hold: LegalHold, now: Date): boolean {
+    return hold.expiresAt === null || hold.expiresAt >= now;
   }
 
   /**

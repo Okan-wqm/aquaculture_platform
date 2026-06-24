@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { OutboxModule } from '@platform/outbox';
 import { HrOutbox } from './hr/entities/hr-outbox.entity';
 
@@ -19,12 +19,12 @@ import { HrOutbox } from './hr/entities/hr-outbox.entity';
  * `OutboxModule` makes all of its exports (OutboxPublisher, OutboxMetricsService)
  * available to consumers of HrOutboxModule.
  *
- * Usage in each sub-module:
- * ```ts
- * imports: [HrOutboxModule],
- * ```
- * `OutboxPublisher` is then injectable in all providers of that module.
+ * @Global() matches the platform-wide outbox module pattern so cross-cutting
+ * infrastructure modules can inject OutboxPublisher without depending on HR
+ * feature-module import order. The worker still registers once because this
+ * module is imported once at AppModule level.
  */
+@Global()
 @Module({
   imports: [OutboxModule.forFeature(HrOutbox)],
   exports: [OutboxModule],

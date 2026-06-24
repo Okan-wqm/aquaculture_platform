@@ -57,7 +57,7 @@ class ProfileTaxonomyTests(unittest.TestCase):
     def test_profiles_are_the_locked_5_mode_taxonomy(self) -> None:
         # Plan ARIA-V3 §B2 — added ``autonomous`` to the previous
         # 4-mode (observe/standard/strict/frozen) taxonomy. The
-        # autonomous profile gates the L3-snowball auto-merge path.
+        # autonomous profile is explicit, but no live lane auto-mints ack.
         # Default stays standard; operator MUST set autonomous via
         # ``aria-kernel profile set --profile autonomous --operator-
         # approval-ref <ref>`` (Plan ARIA-V3 §B2 invariant I-V3-27).

@@ -14,8 +14,9 @@
  * This is a LIBRARY component: no hooks, no API calls, pure props-in / callbacks-out.
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { evaluateThreshold } from '../utils/threshold-evaluator';
+
 import type { ParameterFieldConfig, ThresholdResult } from '../types/water-quality.types';
+import { evaluateThreshold } from '../utils/threshold-evaluator';
 
 // ============================================================================
 // TYPES

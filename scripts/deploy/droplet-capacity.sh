@@ -14,6 +14,8 @@ DEPLOY_SERVICES="${DEPLOY_SERVICES:-}"
 ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
 CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
+CAPACITY_DISK_USAGE_MODE="${CAPACITY_DISK_USAGE_MODE:-summary}" # summary | deep | off
+CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"
 
 GIB=$((1024 * 1024 * 1024))
 FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
@@ -42,6 +44,8 @@ Environment:
   DEPLOY_SHA=<40-char sha>
   IMAGE_PREFIX=ghcr.io/owner/repo
   CAPACITY_GC_MODE=auto|off
+  CAPACITY_DISK_USAGE_MODE=summary|deep|off
+  CAPACITY_DU_TIMEOUT_SECONDS=60
   GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
@@ -52,7 +56,16 @@ if [ -z "${command}" ]; then
   exit 2
 fi
 
-DOCKER_ROOT_DIR="${DOCKER_ROOT_DIR:-$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker")}"
+detect_docker_root() {
+  local root
+  root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null | awk 'NF {print; exit}')" || true
+  if [ -z "${root}" ]; then
+    root="/var/lib/docker"
+  fi
+  printf '%s\n' "${root}"
+}
+
+DOCKER_ROOT_DIR="${DOCKER_ROOT_DIR:-$(detect_docker_root)}"
 
 unique_paths() {
   local seen=" "
@@ -88,6 +101,75 @@ df_bytes_row() {
 df_inode_row() {
   local path="$1"
   df -Pi "${path}" 2>/dev/null | awk 'NR==2 {print $2 "\t" $4}'
+}
+
+disk_usage_paths() {
+  case "${CAPACITY_DISK_USAGE_MODE}" in
+    off)
+      return 0
+      ;;
+    deep)
+      unique_paths "/" "/var" "/var/lib" "$(docker_root)" "/var/lib/containerd" "/var/log" "/var/aqua-saas" "/tmp"
+      ;;
+    summary)
+      unique_paths "/"
+      ;;
+    *)
+      echo "::warning::unknown_capacity_disk_usage_mode mode=${CAPACITY_DISK_USAGE_MODE}; using summary" >&2
+      unique_paths "/"
+      ;;
+  esac
+}
+
+du_scope_snapshot() {
+  local path="$1"
+  local snapshot_file="$2"
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${CAPACITY_DU_TIMEOUT_SECONDS}s" du -x -B1 -d1 "${path}" > "${snapshot_file}" 2>/dev/null
+  else
+    du -x -B1 -d1 "${path}" > "${snapshot_file}" 2>/dev/null
+  fi
+}
+
+disk_usage_snapshot() {
+  echo ""
+  echo "Top-level disk usage (same filesystem only):"
+  echo "  disk_usage_mode=${CAPACITY_DISK_USAGE_MODE}"
+  if [ "${CAPACITY_DISK_USAGE_MODE}" = "off" ]; then
+    echo "  disk_usage_unavailable reason=disabled"
+    return 0
+  fi
+
+  local snapshot_file
+  if ! snapshot_file="$(mktemp "${TMPDIR:-/tmp}/aqua-capacity-du.XXXXXX")"; then
+    echo "  disk_usage_unavailable reason=mktemp_failed"
+    return 0
+  fi
+
+  local path
+  local du_status
+  while IFS= read -r path; do
+    [ -n "${path}" ] || continue
+    [ -d "${path}" ] || continue
+    echo "  scope=${path}"
+    if du_scope_snapshot "${path}" "${snapshot_file}"; then
+      if ! sort -nr "${snapshot_file}" | awk 'NR <= 20 {printf "    bytes=%s path=%s\n", $1, $2}'; then
+        echo "    disk_usage_unavailable path=${path} reason=sort_or_format_failed"
+      fi
+    else
+      du_status=$?
+      echo "    disk_usage_unavailable path=${path} exit_status=${du_status} timeout_seconds=${CAPACITY_DU_TIMEOUT_SECONDS}"
+    fi
+  done < <(disk_usage_paths)
+
+  rm -f "${snapshot_file}"
+}
+
+docker_image_inventory() {
+  echo ""
+  echo "Docker image inventory:"
+  docker image ls --format '  repository={{.Repository}} tag={{.Tag}} id={{.ID}} size={{.Size}}' 2>/dev/null || true
 }
 
 service_count() {
@@ -131,7 +213,7 @@ thresholds() {
   fi
 }
 
-capacity_snapshot() {
+capacity_core_snapshot() {
   local pull_estimate
   pull_estimate="$(projected_pull_bytes)"
 
@@ -173,6 +255,16 @@ capacity_snapshot() {
 
   echo ""
   docker system df 2>/dev/null || true
+}
+
+capacity_diagnostic_snapshot() {
+  disk_usage_snapshot
+  docker_image_inventory
+}
+
+capacity_snapshot() {
+  capacity_core_snapshot
+  capacity_diagnostic_snapshot
 }
 
 write_capacity_json() {
@@ -417,7 +509,7 @@ safe_image_gc() {
 }
 
 run_gate() {
-  capacity_snapshot
+  capacity_core_snapshot
   write_capacity_json
 
   set +e
@@ -426,6 +518,7 @@ run_gate() {
   set -e
 
   if [ "${rc}" -eq 0 ]; then
+    capacity_diagnostic_snapshot
     echo "Capacity preflight: PASS"
     return 0
   fi
@@ -433,13 +526,15 @@ run_gate() {
   if [ "${CAPACITY_GC_MODE}" = "auto" ]; then
     echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
     safe_image_gc
-    capacity_snapshot
+    capacity_core_snapshot
     write_capacity_json
     set +e
     capacity_failures
     rc=$?
     set -e
   fi
+
+  capacity_diagnostic_snapshot
 
   if [ "${rc}" -eq 0 ]; then
     echo "Capacity preflight: PASS after safe GC"

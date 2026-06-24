@@ -1,5 +1,65 @@
+import { createRequire } from 'node:module';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+/**
+ * Minimal structural surface of the optional `firebase-admin` peer dependency.
+ *
+ * WHY: firebase-admin is an OPTIONAL runtime dependency — it is not in
+ * package.json and is absent unless an operator installs it for the
+ * `firebase` push provider. We therefore cannot `import` it statically
+ * (TS would fail to resolve the module and, under `module: commonjs`,
+ * down-level the call to an eager `require` that throws at load time even
+ * when the active provider is `mock`). Declaring only the members we call
+ * lets us load it lazily through `createRequire` with full type safety and
+ * no `any`, while a missing package surfaces as a catchable `MODULE_NOT_FOUND`.
+ */
+interface FirebaseApp {
+  readonly name: string;
+}
+
+interface FirebaseMessage {
+  token: string;
+  notification: { title: string; body: string };
+  data?: Record<string, string>;
+  android: { notification: { sound: string } };
+  webpush: { notification: { badge?: string } };
+}
+
+interface FirebaseMessaging {
+  send(message: FirebaseMessage): Promise<string>;
+}
+
+interface FirebaseCredential {
+  readonly projectId?: string;
+}
+
+interface FirebaseAdminModule {
+  credential: { cert(serviceAccount: unknown): FirebaseCredential };
+  initializeApp(options: { credential: FirebaseCredential }): FirebaseApp;
+  messaging(app: FirebaseApp): FirebaseMessaging;
+}
+
+/**
+ * Structural guard validating that a lazily-resolved module exposes the
+ * firebase-admin members we depend on, so the rest of the code can rely on
+ * the typed surface without any unchecked casts.
+ */
+function isFirebaseAdminModule(value: unknown): value is FirebaseAdminModule {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  const credential = candidate.credential;
+  return (
+    typeof candidate.initializeApp === 'function' &&
+    typeof candidate.messaging === 'function' &&
+    typeof credential === 'object' &&
+    credential !== null &&
+    typeof (credential as Record<string, unknown>).cert === 'function'
+  );
+}
 
 /**
  * Mask device token for logging (shows first 8 and last 4 chars)
@@ -35,7 +95,7 @@ export class PushService {
   private readonly isProduction: boolean;
   private providerHealthy = true;
 
-  private firebaseApp: unknown = null;
+  private firebaseApp: FirebaseApp | null = null;
 
   // Supported providers that have actual implementations
   private static readonly IMPLEMENTED_PROVIDERS = ['mock', 'firebase'];
@@ -230,27 +290,41 @@ export class PushService {
   }
 
   /**
-   * Get or initialize Firebase Admin SDK
+   * Resolve the optional firebase-admin SDK at runtime.
+   *
+   * WHY createRequire (not import/require directly): firebase-admin is an
+   * optional peer dependency that may be absent. A lazy resolve isolates the
+   * module lookup to the moment the firebase provider is actually used, and a
+   * missing package raises a catchable MODULE_NOT_FOUND we translate into an
+   * actionable error. The module's runtime shape is validated structurally
+   * against FirebaseAdminModule rather than trusted blindly.
    */
-  private async getFirebaseAdmin(): Promise<any> {
-    // Dynamic import to avoid webpack bundling firebase-admin when not installed
+  private getFirebaseAdmin(): FirebaseAdminModule {
+    const requireFn = createRequire(__filename);
+    let mod: unknown;
     try {
-      return await (Function('return import("firebase-admin")')() as Promise<any>);
+      mod = requireFn('firebase-admin');
     } catch {
       throw new Error(
         'firebase-admin package is not installed. Run: npm install firebase-admin',
       );
     }
+    if (!isFirebaseAdminModule(mod)) {
+      throw new Error(
+        'firebase-admin module does not expose the expected API surface',
+      );
+    }
+    return mod;
   }
 
-  private async getFirebaseApp(): Promise<unknown> {
+  private getFirebaseApp(): FirebaseApp {
     if (this.firebaseApp) return this.firebaseApp;
     const serviceAccountJson = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT');
     if (!serviceAccountJson) {
       throw new Error('FIREBASE_SERVICE_ACCOUNT env var not set');
     }
-    const admin = await this.getFirebaseAdmin();
-    const serviceAccount = JSON.parse(serviceAccountJson);
+    const admin = this.getFirebaseAdmin();
+    const serviceAccount: unknown = JSON.parse(serviceAccountJson);
     this.firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
@@ -264,9 +338,9 @@ export class PushService {
     deviceToken: string,
     notification: PushNotificationData,
   ): Promise<string> {
-    const app = await this.getFirebaseApp();
-    const admin = await this.getFirebaseAdmin();
-    const message = {
+    const app = this.getFirebaseApp();
+    const admin = this.getFirebaseAdmin();
+    const message: FirebaseMessage = {
       token: deviceToken,
       notification: { title: notification.title, body: notification.body },
       data: notification.data

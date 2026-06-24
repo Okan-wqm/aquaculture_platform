@@ -136,8 +136,8 @@ export interface FeedingRecordFilter {
 export async function fetchFeedingRecords(
   client: GraphQLClient,
   filter?: FeedingRecordFilter,
-  page: number = 1,
-  limit: number = 100,
+  page = 1,
+  limit = 100,
 ): Promise<FeedingRecordConnection> {
   const query = `
     query FeedingRecords($filter: FeedingRecordFilterInput, $pagination: FeedingPaginationInput) {

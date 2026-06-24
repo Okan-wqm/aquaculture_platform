@@ -8,6 +8,7 @@ export * from './enums/tenant-status.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';
+export * from './tenant-erasure-targets';
 
 // Domain events by module
 export * from './auth-events';

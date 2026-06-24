@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+
 import { TestDatabase } from '../helpers/db.helper';
 
 /**
@@ -61,8 +62,7 @@ export async function createTestTenant(
   const status = options?.status ?? 'ACTIVE';
   const plan = options?.plan ?? 'professional';
   const maxUsers = options?.maxUsers ?? 50;
-  const contactEmail =
-    options?.contactEmail ?? `admin@${slug}.test.aquaculture.io`;
+  const contactEmail = options?.contactEmail ?? `admin@${slug}.test.aquaculture.io`;
 
   const schemaName = db.getTenantSchemaName(id);
 
@@ -100,10 +100,7 @@ export async function createTestTenant(
  * @param db - TestDatabase instance
  * @param tenantId - The tenant ID to tear down
  */
-export async function teardownTestTenant(
-  db: TestDatabase,
-  tenantId: string,
-): Promise<void> {
+export async function teardownTestTenant(db: TestDatabase, tenantId: string): Promise<void> {
   // Remove users first (FK constraint)
   await db.deleteTenantUsers(tenantId);
 
@@ -141,10 +138,7 @@ export async function createTestTenants(
 /**
  * Tear down multiple test tenants.
  */
-export async function teardownTestTenants(
-  db: TestDatabase,
-  tenantIds: string[],
-): Promise<void> {
+export async function teardownTestTenants(db: TestDatabase, tenantIds: string[]): Promise<void> {
   for (const tenantId of tenantIds) {
     await teardownTestTenant(db, tenantId);
   }

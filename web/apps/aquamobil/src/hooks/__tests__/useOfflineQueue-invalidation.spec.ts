@@ -8,8 +8,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { getSyncedOperationInvalidationKeys } from '@/utils/offline-sync-invalidation';
 import type { OperationType } from '@/types';
+import { getSyncedOperationInvalidationKeys } from '@/utils/offline-sync-invalidation';
 
 describe('offline queue synced operation invalidation', () => {
   it('invalidates tenant-scoped farm visibility keys for feeding, mortality, transfer, harvest, and water-quality syncs', () => {

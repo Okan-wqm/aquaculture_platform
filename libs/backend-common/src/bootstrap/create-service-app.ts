@@ -36,19 +36,27 @@
  * ```
  */
 import { Logger, ValidationPipe } from '@nestjs/common';
-import type { ValidationPipeOptions } from '@nestjs/common';
+import type {
+  CanActivate,
+  INestApplication,
+  Type,
+  ValidationPipeOptions,
+  VersioningOptions,
+} from '@nestjs/common';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
+import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { MicroserviceOptions } from '@nestjs/microservices';
-import type { INestApplication, Type, VersioningOptions } from '@nestjs/common';
-import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
-import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { StructuredLoggerService } from '../logging';
-import { logBootstrapError } from './safe-error-logger';
-import { NatsV3Server } from '../nats/nats-v3-server.strategy';
-import { bootstrapSecrets } from '../config/secrets.provider';
+import type { MicroserviceOptions } from '@nestjs/microservices';
+import type { RequestHandler } from 'express';
 import helmet from 'helmet';
 import type { HelmetOptions } from 'helmet';
+
+import { bootstrapSecrets } from '../config/secrets.provider';
+import { StructuredLoggerService } from '../logging';
+import { NatsV3Server } from '../nats/nats-v3-server.strategy';
+
+import { logBootstrapError } from './safe-error-logger';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -133,7 +141,7 @@ export interface ServiceBootstrapOptions {
   onBeforeListen?: (app: INestApplication) => Promise<void> | void;
 
   /**
- * Pre-NestFactory environment checks (e.g., service identity keyring guard).
+   * Pre-NestFactory environment checks (e.g., service identity keyring guard).
    * Each function is called before NestFactory.create() — throw to abort startup.
    */
   environmentGuards?: Array<() => void>;
@@ -142,7 +150,7 @@ export interface ServiceBootstrapOptions {
    * Middleware applied before helmet/CORS (e.g., cookieParser, body limits).
    * Functions are applied in order via `app.use(middleware)`.
    */
-  earlyMiddleware?: Array<(...args: any[]) => any>;
+  earlyMiddleware?: RequestHandler[];
 
   /**
    * NATS microservice transport config. When set, connectMicroservice()
@@ -171,7 +179,7 @@ export interface ServiceBootstrapOptions {
    * Global guards applied via app.useGlobalGuards().
    * Applied after validation pipe and versioning.
    */
-  globalGuards?: any[];
+  globalGuards?: CanActivate[];
 
   /**
    * Service reachability classification — drives the CORS policy.
@@ -245,6 +253,10 @@ const DEFAULT_PREFIX_EXCLUSIONS: string[] = [
   'metrics',
 ];
 
+interface ExpressTrustProxyApp {
+  set(setting: 'trust proxy', value: boolean | number | string): void;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -264,12 +276,13 @@ function configureTrustProxy(
   logger: Logger,
 ): void {
   const trustProxy = configService.get<string>('TRUST_PROXY', 'false');
+  const expressApp = app.getHttpAdapter().getInstance() as ExpressTrustProxyApp;
 
   if (trustProxy === 'true' || trustProxy === '1') {
-    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+    expressApp.set('trust proxy', 1);
     logger.log('Trust proxy enabled (trusting first proxy)');
   } else if (trustProxy && trustProxy !== 'false' && trustProxy !== '0') {
-    app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
+    expressApp.set('trust proxy', trustProxy);
     logger.log(`Trust proxy configured: ${trustProxy}`);
   }
 }
@@ -592,24 +605,24 @@ export async function createServiceApp(
   bootstrapSecrets([...secretVars]);
 
   // -----------------------------------------------------------------------
-  // SEC-H15: DATABASE_SYNC production guard
+  // SEC-H15 / INFRA-CRITICAL-009: retired DATABASE_SYNC guard
   //
   // TypeORM synchronize mode (DATABASE_SYNC=true) auto-alters tables by
-  // diffing entities against the live schema. In production this can DROP
-  // columns, DELETE data, or break migrations irreversibly.
+  // diffing entities against the live schema. Runtime services no longer
+  // support it in any environment because it creates a second DDL authority
+  // beside db-migrate / reviewed migrations.
   //
   // This guard runs before any NestJS module is loaded — before TypeORM's
   // DataSource.initialize() can execute the destructive synchronize. All
   // 15+ services inherit this check via the shared bootstrap factory.
   //
-  // Production deployments MUST use migrations: `npm run migration:run`.
+  // Deployments and local stacks MUST use migrations/db-migrate.
   // -----------------------------------------------------------------------
   const databaseSync = process.env['DATABASE_SYNC'];
-  const nodeEnv = process.env['NODE_ENV'];
-  if (databaseSync === 'true' && nodeEnv === 'production') {
+  if (databaseSync === 'true') {
     throw new Error(
-      'FATAL: DATABASE_SYNC=true is not allowed in production. ' +
-      'Use migrations instead: npm run migration:run',
+      'FATAL: DATABASE_SYNC=true is retired. Runtime services must never run TypeORM synchronize. ' +
+        'Use db-migrate or a reviewed TypeORM migration instead.',
     );
   }
 
@@ -644,10 +657,23 @@ export async function createServiceApp(
   // BEFORE NestJS can swallow it, ensuring container logs always show
   // what went wrong during module initialization.
   // -----------------------------------------------------------------------
+  // SECURITY (R1 Path-alpha): GraphQL subgraph services re-verify a service-identity
+  // HMAC-v2 on every inbound request, binding sha256(body). The receiver must hash the
+  // RAW wire bytes — not a re-`JSON.stringify` of the parsed body — so its hash matches
+  // the sender's (gateway / Rust router coprocessor) byte-for-byte regardless of
+  // JS-vs-serde serialization differences. Enabling `rawBody` makes Nest's body parser
+  // capture `req.rawBody` (the pre-parse Buffer), which ServiceIdentityGuard prefers.
+  //
+  // Default ON for `hasGraphQL` (the subgraph-verifier surface); a service may still
+  // override via an explicit `nestFactoryOptions.rawBody` (e.g. gateway-api is the
+  // SENDER, not a verifier, and sets `rawBody: false`). The explicit value always wins
+  // because the spread below comes after this default.
+  const rawBodyDefault = hasGraphQL ? { rawBody: true } : {};
   let app: INestApplication;
   try {
     app = await NestFactory.create(appModule, {
       logger: new StructuredLoggerService(serviceName),
+      ...rawBodyDefault,
       ...nestFactoryOptions,
     });
   } catch (err: unknown) {

@@ -113,7 +113,7 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
     const defaultQueue = this.options.queue;
     for (const channel of this.messageHandlers.keys()) {
       const handlerRef = this.messageHandlers.get(channel);
-      const queue = handlerRef?.extras?.queue ?? defaultQueue;
+      const queue = handlerRef?.extras?.['queue'] ?? defaultQueue;
       const subscription = nc.subscribe(channel, {
         ...(queue ? { queue } : {}),
         // err/msg infer from @nats-io's MsgCallback<Msg> via the subscribe options.

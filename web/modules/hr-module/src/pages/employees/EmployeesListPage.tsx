@@ -195,7 +195,7 @@ export function EmployeesListPage() {
         </div>
       ),
     },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   ], [navigate, toggleFarmWorker.mutate]);
 
   // PERF-009: stable keyExtractor so DataTable's useMemo deps don't invalidate

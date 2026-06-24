@@ -23,6 +23,7 @@ import { TenantExportService } from './services/tenant-export.service';
 import { TenantErasureService } from './services/tenant-erasure.service';
 import { ComplianceResolver } from './compliance.resolver';
 import { TenantErasureAuditEntity } from './entities/tenant-erasure-audit.entity';
+import { TenantErasureRequestedHandler } from './tenant-erasure-requested.handler';
 
 @Module({
   imports: [TypeOrmModule.forFeature([TenantErasureAuditEntity])],
@@ -30,6 +31,7 @@ import { TenantErasureAuditEntity } from './entities/tenant-erasure-audit.entity
     TenantExportService,
     TenantErasureService,
     ComplianceResolver,
+    TenantErasureRequestedHandler,
   ],
   exports: [TenantExportService, TenantErasureService],
 })

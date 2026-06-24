@@ -480,8 +480,10 @@ export function ProtocolAdapterMetadata(metadata: {
   connectionType: ConnectionType;
   description?: string;
 }): ClassDecorator {
-  // eslint-disable-next-line @typescript-eslint/ban-types
-  return (target: Function) => {
+  // `target` is the decorated class. `object` is the precise type
+  // `Reflect.defineMetadata` accepts (a class constructor is an object) and is
+  // assignable to the contravariant `ClassDecorator` target — no unsafe `Function`.
+  return (target: object) => {
     Reflect.defineMetadata('protocol:code', metadata.code, target);
     Reflect.defineMetadata('protocol:name', metadata.name, target);
     Reflect.defineMetadata('protocol:category', metadata.category, target);

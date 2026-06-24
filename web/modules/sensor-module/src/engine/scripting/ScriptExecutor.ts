@@ -71,7 +71,7 @@ export function isPropertyPathSafe(path: string): boolean {
   if (!path || path.length === 0 || path.length > 200) return false;
 
   // Only allow alphanumeric characters, dots, underscores, and hyphens
-  if (!/^[a-zA-Z0-9_.\-]+$/.test(path)) return false;
+  if (!/^[a-zA-Z0-9_.-]+$/.test(path)) return false;
 
   // Reject paths containing forbidden segments
   const segments = path.split('.');

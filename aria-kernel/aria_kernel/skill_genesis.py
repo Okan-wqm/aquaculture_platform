@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .capability_resolver import resolve_capability
 from .draft_intent import (
     BANNED_PHRASES_DEFAULT,
     AcceptanceTest,
@@ -97,11 +98,21 @@ def request_skill_genesis(
             "convergent=True needs seed (declared_scope, claim_types, "
             "must_satisfy, calibration_corpus_path)"
         )
+    capability_resolution = resolve_capability(
+        capability_key=capability_gap_key,
+        requested_kind="skill",
+        title=title,
+        existing_capabilities=_existing_capabilities((seed or {}).get("existing_capabilities")),
+        base_dir=base_dir,
+    )
+    if capability_resolution.get("decision") == "reuse":
+        raise GovernanceError("capability_resolution_reuse_blocks_skill_genesis")
     row: dict[str, Any] = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "request_id": _id("skill-request", capability_gap_key),
         "capability_gap_key": capability_gap_key,
+        "capability_resolution_ref": capability_resolution.get("ledger_hash"),
         "title": title,
         "status": "requested",
         "convergent": bool(convergent),
@@ -109,6 +120,18 @@ def request_skill_genesis(
     if convergent and seed:
         row["seed"] = seed
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "requests.jsonl", row)
+
+
+def _existing_capabilities(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, dict):
+            out.append(value)
+        elif isinstance(value, str) and value.strip():
+            out.append({"name": value.strip(), "capability_key": value.strip()})
+    return out
 
 
 def seed_adapter_requests(
@@ -738,7 +761,7 @@ def materialize_skill(
                 if isinstance(t, dict)
             ),
             evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
-            diff_classifier_lane=intent_dict.get("diff_classifier_lane", "L3-snowball"),
+            diff_classifier_lane=intent_dict.get("diff_classifier_lane", "L0-main"),
             banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
         )
         policy_path = Path(__file__).resolve().parent / "data" / "auto_action_policy.json"
@@ -897,7 +920,7 @@ def _render_skill(
             ),
         ),
         evidence_allowlist=tuple(),
-        diff_classifier_lane="L3-snowball",
+        diff_classifier_lane="L0-main",
     )
     return mask_pii_in_intent(intent)  # type: ignore[return-value]
 

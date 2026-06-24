@@ -84,9 +84,9 @@ from .tool_registry import (
 )
 
 # Ordered tuple of valid profiles (used for membership + CLI choices).
-# Plan ARIA-V3 §B2 — ``autonomous`` profile added explicitly. This is
-# the L3-snowball auto-merge profile that gates the kernel's
-# self-closing loop. Default stays ``standard``; operator MUST set
+# Plan ARIA-V3 §B2 — ``autonomous`` profile added explicitly. Current
+# mainline authority derives no live auto-ack lane. Default stays
+# ``standard``; operator MUST set
 # via ``aria-kernel profile set --profile autonomous --operator-approval-ref <ref>``.
 PROFILES: tuple[str, ...] = (
     "observe", "standard", "strict", "frozen", "autonomous",

@@ -18,6 +18,12 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# WHY: subgraph_stage.rs generates the per-request replay controls — an
+# ISO-8601 millisecond timestamp (chrono) and a uuid-v4 nonce (uuid) — exactly
+# as the TS generateServiceIdentityHeadersV2 does. Both versions come from the
+# root [workspace.dependencies] so the whole tree stays on one pinned version.
+chrono = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

@@ -214,6 +214,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       operationRepository,
       tankRepository,
       dataSource,
+      new MortalityCullPolicyService(),
     );
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);

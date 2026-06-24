@@ -4,6 +4,7 @@ import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
+  pinTenantTransactionSearchPath,
   runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
@@ -262,10 +263,8 @@ export class RetentionPolicyService {
     await qr.startTransaction();
 
     try {
-      // Set tenant schema before any DB operation (cron job has no HTTP context)
-      await qr.query(
-        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
-      );
+      // Pin tenant schema before any DB operation (cron job has no HTTP context)
+      await pinTenantTransactionSearchPath(qr, 'messaging', tenantId);
 
       // Build exclusion clause for held channels (tenant-wide cleanup only)
       const heldExclusion =
@@ -337,7 +336,7 @@ export class RetentionPolicyService {
    *
    * Sequence:
    *   1. BEGIN
-   *   2. SET search_path
+   *   2. transaction-local tenant search_path pin
    *   3. SELECT pg_advisory_xact_lock(tenantHash)  ← serializes vs activate
    *   4. SELECT 1 FROM legal_holds WHERE tenantId=? AND isActive=true LIMIT 1
    *      — re-check, since ToggleLegalHoldHandler may have committed a hold
@@ -360,9 +359,7 @@ export class RetentionPolicyService {
     await qr.startTransaction();
 
     try {
-      await qr.query(
-        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
-      );
+      await pinTenantTransactionSearchPath(qr, 'messaging', tenantId);
 
       // Serialize against ToggleLegalHoldHandler.activate which takes the
       // SAME advisory key. Either we wait for activate to commit (then

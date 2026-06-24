@@ -1,7 +1,12 @@
 import * as crypto from 'crypto';
 
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
-import { createCleanupDropProof } from '@aquaculture/backend-common/database';
+import {
+  createCleanupDropProof,
+  getTenantSchemaName,
+  queryRowsNormalized,
+  validateSqlIdentifier,
+} from '@aquaculture/backend-common/database';
 import type { CleanupDropProof } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -139,14 +144,7 @@ export class TenantProvisioningService {
   ) {}
 
   private rowsFromQuery<T extends object>(value: unknown): T[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    return value.filter(
-      (row): row is T =>
-        typeof row === 'object' && row !== null && !Array.isArray(row),
-    );
+    return queryRowsNormalized<T>(value);
   }
 
   private readString(value: unknown): string {
@@ -304,7 +302,7 @@ export class TenantProvisioningService {
       saga.addStep(
         'create_schema',
         () => {
-          this.createTenantSchema(tenant);
+          return this.createTenantSchema(tenant);
         },
         async () => {
           const proof = createCleanupDropProof({
@@ -375,7 +373,7 @@ export class TenantProvisioningService {
     saga.addStep(
       'create_default_config',
       () => {
-        this.createDefaultConfiguration(tenant);
+        return this.createDefaultConfiguration(tenant);
       },
       () => {
         // Compensate: configuration cleanup is handled by TenantConfigurationService
@@ -394,7 +392,7 @@ export class TenantProvisioningService {
         async () => {
           // Compensate: best effort cleanup
           this.logger.warn(`Compensating: removing water quality params for tenant ${tenant.id}`);
-          const schemaName = `tenant_${tenant.id.replace(/-/g, '_')}`;
+          const schemaName = validateSqlIdentifier(getTenantSchemaName(tenant.id), 'schema');
           await this.dataSource.query(
             `DELETE FROM "${schemaName}".water_quality_parameter_configs WHERE "tenantId" = $1`,
             [tenant.id],
@@ -1302,14 +1300,7 @@ export class TenantProvisioningService {
    */
   private async seedDefaultWaterQualityParams(tenantId: string): Promise<void> {
     this.logger.log(`Seeding default water quality parameters for tenant ${tenantId}`);
-    const schemaName = `tenant_${tenantId.replace(/-/g, '_')}`;
-    // C-ADMIN-01: Validate schemaName as a safe SQL identifier before use.
-    // tenantId is a UUID so this always passes, but the guard prevents
-    // future callers from accidentally passing unsanitized input.
-    const safeIdentifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-    if (!safeIdentifierRegex.test(schemaName) || schemaName.length > 63) {
-      throw new Error(`SECURITY: Unsafe schema name derived from tenantId '${tenantId}'`);
-    }
+    const schemaName = validateSqlIdentifier(getTenantSchemaName(tenantId), 'schema');
 
     // Common aquaculture parameters — covers freshwater + seawater basics
     const params = [

@@ -4,14 +4,21 @@
  * Tenant database yedekleme ve geri yükleme servisi.
  */
 
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pipeline } from 'stream/promises';
 import { promisify } from 'util';
 
 import { isValidSchemaName } from '@aquaculture/backend-common/database';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -21,6 +28,7 @@ import {
   TenantSchema,
   SchemaStatus,
   SchemaBackup,
+  RetiredSchemaBackup,
   SchemaRestore,
   BackupStatus,
   RestoreStatus,
@@ -28,10 +36,14 @@ import {
   BackupOptions,
   RestoreOptions,
 } from '../entities/database-management.entity';
+import { AuditLogInput, AuditLogService } from '../../audit/audit.service';
+import { AuditSeverity } from '../../audit/audit.entity';
 
 const execFileAsync = promisify(execFile);
-const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP1');
+const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP2');
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const RUNTIME_RESTORE_AUTHORITY_ERROR =
+  'Runtime database restore is disabled. Use the audited db-migrate restore workflow instead.';
 
 function ignoreCleanupError(_error: unknown): void {
   void _error;
@@ -55,11 +67,14 @@ export class BackupRestoreService {
     private readonly schemaRepository: Repository<TenantSchema>,
     @InjectRepository(SchemaBackup)
     private readonly backupRepository: Repository<SchemaBackup>,
+    @InjectRepository(RetiredSchemaBackup)
+    private readonly retiredBackupRepository: Repository<RetiredSchemaBackup>,
     @InjectRepository(SchemaRestore)
     private readonly restoreRepository: Repository<SchemaRestore>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   // ============================================================================
@@ -74,10 +89,10 @@ export class BackupRestoreService {
       tenantId,
       backupType,
       compress = true,
-      encrypt = false,
       retentionDays = this.DEFAULT_RETENTION_DAYS,
       excludeTables = [],
     } = options;
+    const encrypt = this.resolveBackupEncryption(options.encrypt);
 
     this.logger.log(`Creating ${backupType} backup for tenant: ${tenantId || 'all'}`);
 
@@ -94,6 +109,22 @@ export class BackupRestoreService {
       }
       schemaName = schema.schemaName;
     }
+
+    await this.requireAuditLog({
+      action: 'SCHEMA_BACKUP_CREATE_REQUESTED',
+      entityType: 'schema_backup',
+      entityId: tenantId,
+      tenantId,
+      performedBy: options.auditActorId ?? 'system',
+      severity: AuditSeverity.CRITICAL,
+      details: {
+        schemaName,
+        backupType,
+        retentionDays,
+        excludeTables,
+        encrypted: encrypt,
+      },
+    });
 
     // Generate backup filename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -124,7 +155,7 @@ export class BackupRestoreService {
   }
 
   // --------------------------------------------------------------------------
-  // pg_dump / pg_restore connection helpers
+  // pg_dump connection helpers
   // --------------------------------------------------------------------------
 
   private getPgConnectionArgs(): {
@@ -147,6 +178,13 @@ export class BackupRestoreService {
     return { ...process.env, PGPASSWORD: password };
   }
 
+  private resolveBackupEncryption(requestedEncrypt?: boolean): true {
+    if (requestedEncrypt === false) {
+      throw new BadRequestException('Plaintext database backups are not allowed');
+    }
+    return true;
+  }
+
   /**
    * Execute backup process via pg_dump
    */
@@ -164,7 +202,10 @@ export class BackupRestoreService {
     const backupDir = path.join(this.BACKUP_BASE_PATH, backup.schemaName);
     await fs.promises.mkdir(backupDir, { recursive: true });
 
-    const filePath = path.join(backupDir, backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'));
+    const encryptedFilePath = path.join(
+      backupDir,
+      `${backup.fileName.replace(/\.sql(\.gz)?$/, '.dump')}.enc`,
+    );
 
     try {
       // SECURITY: validate schema name before passing to pg_dump
@@ -184,7 +225,6 @@ export class BackupRestoreService {
         pg.db,
         `--schema=${backup.schemaName}`,
         '--format=custom',
-        `--file=${filePath}`,
       ];
 
       // Exclude tables if specified
@@ -196,12 +236,8 @@ export class BackupRestoreService {
         args.push('--compress=6');
       }
 
-      await execFileAsync('pg_dump', args, {
-        env: this.getPgEnv(pg.password),
-        timeout: 300_000, // 5 min timeout
-      });
-
-      const finalFilePath = backup.isEncrypted ? await this.encryptBackupFile(filePath) : filePath;
+      const finalFilePath = encryptedFilePath;
+      await this.executeEncryptedPgDump(args, finalFilePath, this.getPgEnv(pg.password));
 
       // Read file stats for size + checksum
       const stats = await fs.promises.stat(finalFilePath);
@@ -268,7 +304,7 @@ export class BackupRestoreService {
       await this.backupRepository.save(backup);
 
       // Cleanup partial dump file
-      await fs.promises.unlink(filePath).catch(ignoreCleanupError);
+      await fs.promises.unlink(encryptedFilePath).catch(ignoreCleanupError);
 
       this.logger.error(`Backup failed for schema ${backup.schemaName}: ${error.message}`);
       throw error;
@@ -333,8 +369,21 @@ export class BackupRestoreService {
   /**
    * Delete backup (record + dump file)
    */
-  async deleteBackup(backupId: string): Promise<void> {
+  async deleteBackup(backupId: string, auditActorId = 'system'): Promise<void> {
     const backup = await this.getBackup(backupId);
+
+    await this.requireAuditLog({
+      action: 'SCHEMA_BACKUP_DELETE_REQUESTED',
+      entityType: 'schema_backup',
+      entityId: backupId,
+      tenantId: backup.tenantId ?? undefined,
+      performedBy: auditActorId,
+      severity: AuditSeverity.CRITICAL,
+      details: {
+        schemaName: backup.schemaName,
+        fileName: backup.fileName,
+      },
+    });
 
     // Delete the actual dump file from disk
     if (backup.filePath) {
@@ -365,9 +414,25 @@ export class BackupRestoreService {
       throw new BadRequestException('Cannot restore from incomplete backup');
     }
 
-    await this.validateBackupIntegrity(backup);
-
     const finalSchemaName = targetSchemaName || backup.schemaName;
+    if (!isValidSchemaName(finalSchemaName)) {
+      throw new BadRequestException('Invalid schema name');
+    }
+
+    await this.requireAuditLog({
+      action: 'SCHEMA_RESTORE_REQUESTED',
+      entityType: 'schema_restore',
+      entityId: backupId,
+      tenantId: backup.tenantId ?? undefined,
+      performedBy: options.auditActorId ?? 'system',
+      severity: AuditSeverity.CRITICAL,
+      details: {
+        sourceSchemaName: backup.schemaName,
+        targetSchemaName: finalSchemaName,
+        pointInTime: pointInTime?.toISOString(),
+        tablesToRestore,
+      },
+    });
 
     // Create restore record
     const restore = this.restoreRepository.create({
@@ -385,128 +450,34 @@ export class BackupRestoreService {
   }
 
   /**
-   * Execute restore process via pg_restore
+   * Reject runtime restore attempts at the application authority boundary.
    */
   private async executeRestore(
     restore: SchemaRestore,
-    backup: SchemaBackup,
-    tablesToRestore?: string[],
+    _backup: SchemaBackup,
+    _tablesToRestore?: string[],
   ): Promise<SchemaRestore> {
-    restore.status = 'in_progress' as RestoreStatus;
-    restore.startedAt = new Date();
+    const startTime = Date.now();
+    restore.status = 'failed' as RestoreStatus;
+    restore.errorMessage = RUNTIME_RESTORE_AUTHORITY_ERROR;
+    restore.executionTimeMs = Date.now() - startTime;
+    restore.completedAt = new Date();
     await this.restoreRepository.save(restore);
 
-    const startTime = Date.now();
-
-    try {
-      // SECURITY: Validate schema name before using in pg_restore
-      if (!isValidSchemaName(restore.targetSchemaName)) {
-        throw new BadRequestException('Invalid schema name');
-      }
-
-      // Resolve backup file path
-      const filePath =
-        backup.filePath ||
-        path.join(
-          this.BACKUP_BASE_PATH,
-          backup.schemaName,
-          backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
-        );
-
-      // Verify backup file exists
-      try {
-        await fs.promises.access(filePath, fs.constants.R_OK);
-      } catch {
-        throw new NotFoundException(`Backup file not found: ${filePath}`);
-      }
-
-      const pg = this.getPgConnectionArgs();
-      let restoreFilePath = filePath;
-      let decryptedTempPath: string | undefined;
-      if (backup.isEncrypted) {
-        decryptedTempPath = await this.decryptBackupFile(filePath);
-        restoreFilePath = decryptedTempPath;
-      }
-
-      // Build pg_restore arguments
-      const args: string[] = [
-        '-h',
-        pg.host,
-        '-p',
-        pg.port,
-        '-U',
-        pg.user,
-        '-d',
-        pg.db,
-        // WHY: Use restore.targetSchemaName, not backup.schemaName.
-        // Previously the restore always restored to the backup's original schema,
-        // ignoring the user-specified target. This made the targetSchemaName
-        // parameter accepted but silently discarded.
-        `--schema=${restore.targetSchemaName}`,
-        '--clean',
-        '--if-exists',
-      ];
-
-      // Restore specific tables if requested
-      if (tablesToRestore && tablesToRestore.length > 0) {
-        for (const table of tablesToRestore) {
-          args.push(`--table=${table}`);
-        }
-      }
-
-      args.push(restoreFilePath);
-
-      try {
-        await execFileAsync('pg_restore', args, {
-          env: this.getPgEnv(pg.password),
-          timeout: 600_000, // 10 min timeout for restores
-        });
-      } finally {
-        if (decryptedTempPath) {
-          await fs.promises.unlink(decryptedTempPath).catch(ignoreCleanupError);
-        }
-      }
-
-      // Get list of restored tables for metadata
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      let restoredTables: string[] = [];
-      try {
-        const tables = await queryRunner.query(
-          `SELECT tablename FROM pg_tables WHERE schemaname = $1`,
-          [restore.targetSchemaName],
-        );
-        restoredTables = tables.map((t: { tablename: string }) => t.tablename);
-      } finally {
-        await queryRunner.release();
-      }
-
-      // Update restore record
-      restore.status = 'completed' as RestoreStatus;
-      restore.completedAt = new Date();
-      restore.executionTimeMs = Date.now() - startTime;
-      restore.restoredTables = restoredTables;
-      await this.restoreRepository.save(restore);
-
-      this.logger.log(`Restore completed: ${restore.id} (${restore.executionTimeMs}ms)`);
-      return restore;
-    } catch (err) {
-      const error = err as Error;
-
-      restore.status = 'failed' as RestoreStatus;
-      restore.errorMessage = error.message;
-      restore.executionTimeMs = Date.now() - startTime;
-      await this.restoreRepository.save(restore);
-
-      this.logger.error(`Restore failed: ${error.message}`);
-      throw error;
-    }
+    this.logger.error(
+      `Restore rejected by authority boundary: ${restore.id} -> ${restore.targetSchemaName}`,
+    );
+    throw new BadRequestException(RUNTIME_RESTORE_AUTHORITY_ERROR);
   }
 
   /**
    * Point-in-time recovery
    */
-  async pointInTimeRecovery(tenantId: string, targetTime: Date): Promise<SchemaRestore> {
+  async pointInTimeRecovery(
+    tenantId: string,
+    targetTime: Date,
+    auditActorId = 'system',
+  ): Promise<SchemaRestore> {
     this.logger.log(`Point-in-time recovery for tenant ${tenantId} to ${targetTime.toISOString()}`);
 
     // Find the most recent backup before target time
@@ -526,84 +497,60 @@ export class BackupRestoreService {
     return this.restoreFromBackup({
       backupId: backup.id,
       pointInTime: targetTime,
+      auditActorId,
     });
   }
 
-  /**
-   * Validate backup integrity by verifying SHA-256 checksum against actual file
-   */
-  private async validateBackupIntegrity(backup: SchemaBackup): Promise<boolean> {
-    if (!backup.checksum) {
-      throw new BadRequestException('Backup has no checksum for validation');
-    }
-
-    const filePath =
-      backup.filePath ||
-      path.join(
-        this.BACKUP_BASE_PATH,
-        backup.schemaName,
-        backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
+  private async requireAuditLog(input: AuditLogInput): Promise<void> {
+    const auditLog = await this.auditLogService.log(input);
+    if (!auditLog?.id) {
+      throw new InternalServerErrorException(
+        `Database management audit log could not be persisted for ${input.action}`,
       );
-
-    try {
-      const fileBuffer = await fs.promises.readFile(filePath);
-      const actualChecksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
-
-      if (actualChecksum !== backup.checksum) {
-        throw new BadRequestException(
-          `Backup integrity check failed: expected ${backup.checksum}, got ${actualChecksum}`,
-        );
-      }
-
-      return true;
-    } catch (err) {
-      if (err instanceof BadRequestException) throw err;
-      throw new NotFoundException(`Backup file not found or unreadable: ${filePath}`);
     }
   }
 
-  private async encryptBackupFile(filePath: string): Promise<string> {
+  private async executeEncryptedPgDump(
+    args: string[],
+    encryptedPath: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<void> {
     const key = this.getBackupEncryptionKey();
     const iv = crypto.randomBytes(12);
-    const plaintext = await fs.promises.readFile(filePath);
     const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
-    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-    const authTag = cipher.getAuthTag();
-    const encryptedPath = `${filePath}.enc`;
+    const output = fs.createWriteStream(encryptedPath, {
+      flags: 'w',
+      mode: 0o600,
+    });
+    const pgDump = spawn('pg_dump', args, {
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stderrChunks: Buffer[] = [];
 
-    await fs.promises.writeFile(
-      encryptedPath,
-      Buffer.concat([ENCRYPTED_BACKUP_MAGIC, iv, authTag, ciphertext]),
-      { mode: 0o600 },
-    );
-    await fs.promises.unlink(filePath).catch(ignoreCleanupError);
-    return encryptedPath;
-  }
+    pgDump.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
 
-  private async decryptBackupFile(filePath: string): Promise<string> {
-    const key = this.getBackupEncryptionKey();
-    const payload = await fs.promises.readFile(filePath);
-    const header = payload.subarray(0, ENCRYPTED_BACKUP_MAGIC.length);
-    if (!header.equals(ENCRYPTED_BACKUP_MAGIC)) {
-      throw new BadRequestException('Encrypted backup has an invalid header');
-    }
+    output.write(Buffer.concat([ENCRYPTED_BACKUP_MAGIC, iv]));
 
-    const ivStart = ENCRYPTED_BACKUP_MAGIC.length;
-    const tagStart = ivStart + 12;
-    const ciphertextStart = tagStart + 16;
-    const iv = payload.subarray(ivStart, tagStart);
-    const authTag = payload.subarray(tagStart, ciphertextStart);
-    const ciphertext = payload.subarray(ciphertextStart);
-    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
+    const exitPromise = new Promise<void>((resolve, reject) => {
+      pgDump.once('error', reject);
+      pgDump.once('close', (code) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+        reject(new Error(`pg_dump failed with exit code ${code}${stderr ? `: ${stderr}` : ''}`));
+      });
+    });
 
-    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    const tempPath = path.join(
-      path.dirname(filePath),
-      `.restore-${path.basename(filePath).replace(/\.enc$/, '')}-${crypto.randomUUID()}.dump`,
-    );
-    await fs.promises.writeFile(tempPath, plaintext, { mode: 0o600 });
-    return tempPath;
+    await Promise.all([
+      pipeline(pgDump.stdout, cipher, output),
+      exitPromise,
+    ]);
+    await fs.promises.appendFile(encryptedPath, cipher.getAuthTag(), { mode: 0o600 });
   }
 
   private getBackupEncryptionKey(): Buffer {
@@ -682,6 +629,7 @@ export class BackupRestoreService {
           tenantId: schema.tenantId,
           backupType: 'incremental',
           compress: true,
+          encrypt: true,
           retentionDays: 7,
         });
       } catch (err) {
@@ -708,6 +656,7 @@ export class BackupRestoreService {
           tenantId: schema.tenantId,
           backupType: 'full',
           compress: true,
+          encrypt: true,
           retentionDays: 30,
         });
       } catch (err) {
@@ -723,10 +672,11 @@ export class BackupRestoreService {
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async cleanupExpiredBackups(): Promise<void> {
     this.logger.log('Cleaning up expired backups');
+    const now = new Date();
 
     const expiredBackups = await this.backupRepository.find({
       where: {
-        expiresAt: LessThan(new Date()),
+        expiresAt: LessThan(now),
         status: 'completed' as BackupStatus,
       },
     });
@@ -748,6 +698,55 @@ export class BackupRestoreService {
         const error = err as Error;
         this.logger.error(`Failed to expire backup ${backup.id}: ${error.message}`);
       }
+    }
+
+    await this.cleanupExpiredRetiredBackups(now);
+  }
+
+  private async cleanupExpiredRetiredBackups(now: Date): Promise<void> {
+    const expiredRetiredBackups = (await this.retiredBackupRepository.find({
+      where: {
+        expiresAt: LessThan(now),
+      },
+    })).filter((backup) => backup.status !== 'expired');
+
+    for (const backup of expiredRetiredBackups) {
+      try {
+        const artifactDisposition = await this.disposeRetiredBackupArtifact(backup);
+        const disposedAt = new Date().toISOString();
+        backup.status = 'expired' as BackupStatus;
+        backup.metadata = {
+          ...(backup.metadata ?? {}),
+          plaintextArtifactDisposition: artifactDisposition,
+          plaintextArtifactDisposedAt: disposedAt,
+        };
+        await this.retiredBackupRepository.save(backup);
+        this.logger.log(`Expired retired plaintext backup ledger row: ${backup.backupId}`);
+      } catch (err) {
+        const error = err as Error;
+        this.logger.error(
+          `Failed to expire retired plaintext backup ${backup.backupId}: ${error.message}`,
+        );
+      }
+    }
+  }
+
+  private async disposeRetiredBackupArtifact(
+    backup: RetiredSchemaBackup,
+  ): Promise<'deleted' | 'missing' | 'no_file_path'> {
+    if (!backup.filePath) {
+      return 'no_file_path';
+    }
+
+    try {
+      await fs.promises.unlink(backup.filePath);
+      return 'deleted';
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        return 'missing';
+      }
+      throw error;
     }
   }
 

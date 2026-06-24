@@ -13,15 +13,12 @@
 import { LayerType } from './sentinelHubService';
 import {
   CMEMSLayerType,
-  getCMEMSPointValue,
-  getCMEMSLayerInfo,
   isInMediterranean,
-  getDataSource,
 } from './cmemsService';
 import {
-  getSentinelPointValue,
-  SentinelPointQueryResult,
-} from './sentinelTileService';
+  fetchMarinePointValue,
+  toMarineLayerId,
+} from './marineDataService';
 
 /**
  * Combined layer type (Sentinel + CMEMS)
@@ -229,7 +226,21 @@ export async function queryPointData(
         };
       }
 
-      const result = await getCMEMSPointValue(lat, lng, layer as CMEMSLayerType, date);
+      const marineLayerId = toMarineLayerId(layer);
+      if (!marineLayerId) {
+        return {
+          ...baseResult,
+          quality: 'no_data',
+          qualityDescription: 'Bu katman marine veri sözleşmesinde desteklenmiyor',
+          error: 'Desteklenmeyen katman',
+        };
+      }
+      const result = await fetchMarinePointValue({
+        lat,
+        lng,
+        layerId: marineLayerId,
+        date,
+      });
 
       if (!result) {
         return {
@@ -253,7 +264,21 @@ export async function queryPointData(
     }
 
     if (dataSource === 'SENTINEL') {
-      const result = await getSentinelPointValue(lat, lng, layer as LayerType, date);
+      const marineLayerId = toMarineLayerId(layer);
+      if (!marineLayerId) {
+        return {
+          ...baseResult,
+          quality: 'no_data',
+          qualityDescription: 'Bu katman marine veri sözleşmesinde desteklenmiyor',
+          error: 'Desteklenmeyen katman',
+        };
+      }
+      const result = await fetchMarinePointValue({
+        lat,
+        lng,
+        layerId: marineLayerId,
+        date,
+      });
 
       if (!result) {
         return {
@@ -264,11 +289,13 @@ export async function queryPointData(
         };
       }
 
+      const quality = result.quality ?? 'uncertain';
+
       return {
         ...baseResult,
         value: result.value,
-        quality: result.quality,
-        qualityDescription: getQualityDescription(result.quality, dataSource),
+        quality,
+        qualityDescription: getQualityDescription(quality, dataSource),
         dataTimestamp: result.timestamp,
       };
     }
@@ -281,7 +308,6 @@ export async function queryPointData(
       error: 'Bilinmeyen layer',
     };
   } catch (error) {
-    console.error('Point query error:', error);
     return {
       ...baseResult,
       quality: 'no_data',

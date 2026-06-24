@@ -185,5 +185,5 @@ export class SensorRoutesController {
 @Module({
   controllers: [SensorRoutesController],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class SensorRoutesModule {}

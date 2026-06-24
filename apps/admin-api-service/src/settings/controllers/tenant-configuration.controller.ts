@@ -90,7 +90,11 @@ export class TenantConfigurationController {
   @Delete(':tenantId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConfiguration(@Param('tenantId') tenantId: string) {
-    await this.configService.deleteConfiguration(tenantId);
+    // configService is a synchronous legacy adapter (deleteConfiguration
+    // throws GoneException synchronously); awaiting a non-thenable is an
+    // await-thenable error. The handler stays async to preserve the Nest
+    // route signature; the synchronous throw still propagates correctly.
+    this.configService.deleteConfiguration(tenantId);
   }
 
   /**
@@ -148,7 +152,7 @@ export class TenantConfigurationController {
     @Param('tenantId') tenantId: string,
     @Body() dto: CheckStorageLimitDto,
   ) {
-    const allowed = await this.configService.checkStorageLimit(tenantId, dto.additionalSizeGB);
+    const allowed = this.configService.checkStorageLimit(tenantId, dto.additionalSizeGB);
     return { allowed };
   }
 
@@ -191,7 +195,7 @@ export class TenantConfigurationController {
     @Param('tenantId') tenantId: string,
     @Param('keyId') keyId: string,
   ) {
-    await this.configService.revokeApiKey(tenantId, keyId);
+    this.configService.revokeApiKey(tenantId, keyId);
   }
 
   @Post(':tenantId/api-keys/validate')
@@ -199,7 +203,7 @@ export class TenantConfigurationController {
     @Param('tenantId') tenantId: string,
     @Body() dto: ValidateApiKeyDto,
   ) {
-    const result = await this.configService.validateApiKey(tenantId, dto.apiKey);
+    const result = this.configService.validateApiKey(tenantId, dto.apiKey);
     return { valid: !!result, key: result };
   }
 
@@ -235,7 +239,7 @@ export class TenantConfigurationController {
     @Param('tenantId') tenantId: string,
     @Param('webhookId') webhookId: string,
   ) {
-    await this.configService.deleteWebhook(tenantId, webhookId);
+    this.configService.deleteWebhook(tenantId, webhookId);
   }
 
   // ============================================================================
@@ -257,7 +261,7 @@ export class TenantConfigurationController {
 
   @Post(':tenantId/domain/confirm')
   async verifyCustomDomain(@Param('tenantId') tenantId: string) {
-    const verified = await this.configService.verifyCustomDomain(tenantId);
+    const verified = this.configService.verifyCustomDomain(tenantId);
     return { verified };
   }
 

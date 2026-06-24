@@ -67,11 +67,24 @@ function walkMdFiles(dirRel: string): string[] {
   const abs = path.join(REPO_ROOT, dirRel);
   if (!fs.existsSync(abs)) return [];
   const stat = fs.statSync(abs);
-  if (!stat.isDirectory()) return [abs];
-  return fs
-    .readdirSync(abs)
-    .filter((f) => f.endsWith('.md'))
-    .map((f) => path.join(abs, f));
+  if (!stat.isDirectory()) return abs.endsWith('.md') ? [abs] : [];
+
+  const files: string[] = [];
+  const visit = (dirAbs: string): void => {
+    const entries = fs
+      .readdirSync(dirAbs, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const childAbs = path.join(dirAbs, entry.name);
+      if (entry.isDirectory()) {
+        visit(childAbs);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        files.push(childAbs);
+      }
+    }
+  };
+  visit(abs);
+  return files;
 }
 
 function listActiveFiles(): string[] {
@@ -83,7 +96,7 @@ function listActiveFiles(): string[] {
     const abs = path.join(REPO_ROOT, rootFile);
     if (fs.existsSync(abs)) files.push(abs);
   }
-  return files;
+  return [...new Set(files)].sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +253,18 @@ function isHistoricalLine(line: string): boolean {
   return HISTORICAL_CITATION_PATTERNS.some((re) => re.test(line));
 }
 
+const LIVE_SNOWBALL_BRANCH_PATTERNS: readonly {
+  readonly label: string;
+  readonly re: RegExp;
+}[] = [
+  { label: '--base snowball', re: /--base\s+snowball/ },
+  { label: 'origin/snowball', re: /origin\/snowball/ },
+  { label: 'base = snowball', re: /base\s*=\s*snowball/ },
+  { label: 'against the snowball branch', re: /against the snowball branch/i },
+  { label: 'PR against snowball', re: /PR\s+against\s+snowball/i },
+  { label: 'Branch: `snowball`', re: /Branch:\s*`snowball`/ },
+];
+
 // ---------------------------------------------------------------------------
 // Cross-reference integrity check
 // ---------------------------------------------------------------------------
@@ -315,7 +340,8 @@ describe('active-path hygiene invariant', () => {
             `  - test-agents           → Lane-B product-audit\n` +
             `  - agents-enterprise-v2  → .claude/agents/ (flatten commit 2582592e)\n` +
             `  - npx claude-agent      → Claude Code built-in Agent() tool\n` +
-            `  - orchestrator-runner   → Claude Code built-in Agent() tool (runner deleted commit e8f06e98)`;
+            `  - orchestrator-runner   → Claude Code built-in Agent() tool (runner deleted commit e8f06e98)\n` +
+            `  - platform-services     → active owning expert prefix from .claude/shared/output-format.md`;
           throw new Error(
             `Banned token "${token}" found in active paths:\n  - ${hits.join('\n  - ')}\n\n${hint}`,
           );
@@ -323,6 +349,35 @@ describe('active-path hygiene invariant', () => {
         expect(hits).toEqual([]);
       },
     );
+  });
+
+  describe('live branch authority', () => {
+    it('does not route active prompts through the historical snowball branch', () => {
+      const hits: string[] = [];
+      for (const file of activeFiles) {
+        const rel = path.relative(REPO_ROOT, file);
+        const content = fs.readFileSync(file, 'utf8');
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i] ?? '';
+          if (isHistoricalLine(line)) continue;
+          for (const pattern of LIVE_SNOWBALL_BRANCH_PATTERNS) {
+            if (pattern.re.test(line)) {
+              hits.push(`${rel}:${i + 1} — ${pattern.label}`);
+            }
+          }
+        }
+      }
+
+      if (hits.length > 0) {
+        throw new Error(
+          `Active prompts must not route live work through snowball:\n  - ${hits.join(
+            '\n  - ',
+          )}\n\nUse aria-kernel/aria_kernel/pr_manager.py::ARIA_PR_BASE as the executable PR-base owner.`,
+        );
+      }
+      expect(hits).toEqual([]);
+    });
   });
 
   describe('model enum validity', () => {

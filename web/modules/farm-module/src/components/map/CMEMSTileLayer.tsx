@@ -8,18 +8,20 @@
  * - pH
  * - Temperature, Salinity
  *
- * Uses WMTS protocol for tile-based data access.
+ * Uses the backend-owned marine data API for tile-based data access.
  */
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { TileLayer, useMap, Pane } from 'react-leaflet';
+import { TileLayer, useMap } from 'react-leaflet';
 import {
   CMEMSLayerType,
   getCMEMSLayerInfo,
-  getCMEMSWMTSTileUrl,
   isCMEMSDataAvailable,
   getLatestCMEMSDate,
 } from '../../services/cmemsService';
+import { toMarineLayerId } from '../../services/marineDataService';
+
+import { MarineAuthenticatedTileLayer } from './MarineAuthenticatedTileLayer';
 
 interface CMEMSTileLayerProps {
   /** Layer type to display */
@@ -46,14 +48,8 @@ interface CMEMSTileLayerProps {
   onDataAvailability?: (available: boolean) => void;
 }
 
-/**
- * CMEMS WMTS Tile Layer
- */
 // Land mask tile URL - CartoDB Positron (light gray land, minimal water)
 const LAND_MASK_URL = 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png';
-
-// Alternative: Esri World Terrain Reference (shows terrain, water is subtle)
-const LAND_MASK_URL_TERRAIN = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Reference_Overlay/MapServer/tile/{z}/{y}/{x}';
 
 export const CMEMSTileLayer: React.FC<CMEMSTileLayerProps> = ({
   layer,
@@ -105,23 +101,15 @@ export const CMEMSTileLayer: React.FC<CMEMSTileLayerProps> = ({
     return dataAvailable ? date : getLatestCMEMSDate();
   }, [date, dataAvailable]);
 
-  // Generate WMTS tile URL
-  const tileUrl = useMemo(() => {
-    return getCMEMSWMTSTileUrl(layer, effectiveDate, depth);
-  }, [layer, effectiveDate, depth]);
+  const marineLayerId = useMemo(() => toMarineLayerId(layer), [layer]);
 
   // Handle loading events
-  const handleLoading = useCallback(() => {
-    onLoadingChange?.(true);
-  }, [onLoadingChange]);
-
-  const handleLoad = useCallback(() => {
-    onLoadingChange?.(false);
+  const handleLoadingChange = useCallback((isLoading: boolean) => {
+    onLoadingChange?.(isLoading);
   }, [onLoadingChange]);
 
   const handleError = useCallback(
-    (e: any) => {
-      console.error('CMEMS WMTS error:', e);
+    () => {
       onError?.(`${layerInfo?.name || 'CMEMS'} verisi yüklenemedi`);
       onLoadingChange?.(false);
     },
@@ -134,39 +122,29 @@ export const CMEMSTileLayer: React.FC<CMEMSTileLayerProps> = ({
   }
 
   if (!layerInfo) {
-    console.warn(`CMEMS layer info not found for: ${layer}`);
     return null;
   }
 
-  if (!tileUrl) {
-    console.warn(`CMEMS tile URL could not be generated for: ${layer}`);
-    onError?.(`${layerInfo.name} için URL oluşturulamadı`);
+  if (!marineLayerId) {
+    onError?.(`${layerInfo.name} marine veri sözleşmesinde desteklenmiyor`);
     return null;
-  }
-
-  // Log warning if using fallback date (data not available for requested date)
-  if (!dataAvailable) {
-    console.warn(
-      `CMEMS data for ${date.toISOString().split('T')[0]} may not be available yet. Using latest available data.`
-    );
   }
 
   return (
     <>
       {/* CMEMS Data Layer */}
-      <TileLayer
-        key={`cmems-${layer}`}
-        url={tileUrl}
+      <MarineAuthenticatedTileLayer
+        key={`cmems-${marineLayerId}`}
+        layerId={marineLayerId}
+        date={effectiveDate}
+        depth={depth}
         opacity={opacity}
         minZoom={minZoom}
         maxZoom={maxZoom}
         pane="cmemsDataPane"
         className="cmems-wmts-layer"
-        eventHandlers={{
-          loading: handleLoading,
-          load: handleLoad,
-          tileerror: handleError,
-        }}
+        onLoadingChange={handleLoadingChange}
+        onError={handleError}
       />
 
       {/* Land Mask Layer - covers CMEMS data on land areas */}

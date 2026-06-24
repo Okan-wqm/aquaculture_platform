@@ -1,13 +1,16 @@
+import { clsx } from 'clsx';
+import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
+import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
-import { useTaskActions } from '@/hooks/useTaskActions';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { GET_TASK_DETAIL } from '@/graphql/operations';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTaskActions } from '@/hooks/useTaskActions';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task, ChecklistItem, TaskNote } from '@/types';
-import { GET_TASK_DETAIL } from '@/graphql/operations';
-import { clsx } from 'clsx';
+
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
   URGENT: { label: 'Urgent', color: 'bg-red-100 text-red-700' },
@@ -38,7 +41,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500' },
 };
 
-export function TaskDetailPage() {
+export function TaskDetailPage(): JSX.Element {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: string }>();
   const { completeTask, startTask, setChecklistItem, addNote } = useTaskActions();
@@ -76,7 +79,7 @@ export function TaskDetailPage() {
   }, [taskId]);
 
   useEffect(() => {
-    fetchTask();
+    void fetchTask();
   }, [fetchTask]);
 
   const handleStartTask = async (): Promise<void> => {
@@ -98,7 +101,7 @@ export function TaskDetailPage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        fetchTask();
+        void fetchTask();
       }, result.wasQueued ? 2000 : 1000);
     } catch {
       setError('Failed to start task');
@@ -126,7 +129,7 @@ export function TaskDetailPage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        fetchTask();
+        void fetchTask();
       }, result.wasQueued ? 2000 : 1000);
     } catch {
       setError('Failed to complete task');
@@ -230,7 +233,7 @@ export function TaskDetailPage() {
   const checklistItems: ChecklistItem[] = Array.isArray(task.checklistItems)
     ? task.checklistItems.map((item) =>
         typeof item === 'object' && item !== null
-          ? (item as ChecklistItem)
+          ? (item)
           : { id: String(item), text: String(item), isCompleted: false },
       )
     : [];
@@ -238,7 +241,7 @@ export function TaskDetailPage() {
   const notes: TaskNote[] = Array.isArray(task.notes)
     ? task.notes.map((note) =>
         typeof note === 'object' && note !== null
-          ? (note as TaskNote)
+          ? (note)
           : { id: String(note), text: String(note), createdBy: '', createdAt: '' },
       )
     : [];
@@ -326,7 +329,7 @@ export function TaskDetailPage() {
             {checklistItems.map((item, index) => (
               <button
                 key={item.id || index}
-                onClick={() => handleToggleChecklist(item.id, item.isCompleted)}
+                onClick={() => { void handleToggleChecklist(item.id, item.isCompleted); }}
                 className={clsx(
                   'w-full flex items-center gap-3 p-4 text-left touch-feedback transition-all',
                   index < checklistItems.length - 1 && 'border-b border-gray-50 dark:border-gray-800',
@@ -395,7 +398,7 @@ export function TaskDetailPage() {
               )}
             />
             <button
-              onClick={handleAddNote}
+              onClick={() => { void handleAddNote(); }}
               disabled={!noteText.trim() || !isOnline}
               className="p-2.5 bg-ocean-500 text-white rounded-xl touch-feedback disabled:opacity-50 transition-all"
             >
@@ -419,7 +422,7 @@ export function TaskDetailPage() {
           {task.status === 'PENDING' || task.status === 'OVERDUE' ? (
             <div className="space-y-3">
               <button
-                onClick={handleStartTask}
+                onClick={() => { void handleStartTask(); }}
                 disabled={isSubmitting}
                 className="w-full py-4 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-bold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
@@ -433,7 +436,7 @@ export function TaskDetailPage() {
                 )}
               </button>
               <button
-                onClick={handleCompleteTask}
+                onClick={() => { void handleCompleteTask(); }}
                 disabled={isSubmitting}
                 className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
@@ -449,7 +452,7 @@ export function TaskDetailPage() {
             </div>
           ) : task.status === 'IN_PROGRESS' ? (
             <button
-              onClick={handleCompleteTask}
+              onClick={() => { void handleCompleteTask(); }}
               disabled={isSubmitting}
               className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
             >

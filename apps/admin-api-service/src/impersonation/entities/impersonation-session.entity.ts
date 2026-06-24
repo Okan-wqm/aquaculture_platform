@@ -112,10 +112,10 @@ export class ImpersonationSession {
   @Column({ type: 'boolean', default: false })
   mfaCompleted!: boolean;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   expiresAt!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   endedAt?: Date;
 
   @Column({ type: 'text', nullable: true })
@@ -138,10 +138,10 @@ export class ImpersonationSession {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -190,18 +190,18 @@ export class ImpersonationPermission {
   @Column({ type: 'uuid', nullable: true })
   grantedBy?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   grantedAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt?: Date;
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

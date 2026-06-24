@@ -9,14 +9,9 @@
  *
  * @module Sensor-Service/E2E/SensorCrud
  */
-import {
-  gql,
-  TENANT_A,
-  TENANT_B,
-  uniqueSerial,
-  uniqueName,
-  runCleanup,
-} from './helpers';
+import { assertDefined } from '../../../helpers/assertions';
+
+import { gql, TENANT_A, TENANT_B, uniqueSerial, uniqueName, runCleanup } from './helpers';
 
 // ============================================================================
 // GRAPHQL OPERATIONS — taken directly from resolver method names
@@ -249,7 +244,7 @@ describe('Sensor CRUD + Registration', () => {
       expect(res.errors).toBeUndefined();
       expect(res.data?.createSensor).toBeDefined();
 
-      const sensor = res.data!.createSensor as Record<string, unknown>;
+      const sensor = assertDefined(res.data).createSensor as Record<string, unknown>;
       expect(sensor.name).toBe(name);
       expect(sensor.serialNumber).toBe(serial);
       expect(sensor.type).toBe('temperature');
@@ -281,7 +276,7 @@ describe('Sensor CRUD + Registration', () => {
 
       const found = sensors.find((s) => s.id === createdSensorId);
       expect(found).toBeDefined();
-      expect(found!.serialNumber).toBe(serial);
+      expect(assertDefined(found).serialNumber).toBe(serial);
     });
   });
 
@@ -314,8 +309,8 @@ describe('Sensor CRUD + Registration', () => {
       });
 
       expect(res.errors).toBeDefined();
-      expect(res.errors!.length).toBeGreaterThan(0);
-      expect(res.errors![0].message).toContain('already exists');
+      expect(assertDefined(res.errors).length).toBeGreaterThan(0);
+      expect(assertDefined(res.errors)[0].message).toContain('already exists');
     });
   });
 
@@ -333,7 +328,7 @@ describe('Sensor CRUD + Registration', () => {
           type: 'dissolved_oxygen',
         },
       });
-      sensorId = (res.data!.createSensor as Record<string, unknown>).id as string;
+      sensorId = (assertDefined(res.data).createSensor as Record<string, unknown>).id as string;
     });
 
     it('should update sensor name and firmwareVersion', async () => {
@@ -347,7 +342,7 @@ describe('Sensor CRUD + Registration', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const sensor = res.data!.updateSensor as Record<string, unknown>;
+      const sensor = assertDefined(res.data).updateSensor as Record<string, unknown>;
       expect(sensor.name).toBe(newName);
       expect(sensor.firmwareVersion).toBe('2.0.0');
     });
@@ -385,7 +380,7 @@ describe('Sensor CRUD + Registration', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.registerSensor as Record<string, unknown>;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
       expect(result.success).toBe(true);
 
       const sensor = result.sensor as Record<string, unknown>;
@@ -397,14 +392,17 @@ describe('Sensor CRUD + Registration', () => {
     });
 
     it('should verify sensor starts in DRAFT via query', async () => {
-      const res = await gql(`
+      const res = await gql(
+        `
         query sensor($id: ID!) {
           sensor(id: $id) {
             id
             registrationStatus
           }
         }
-      `, { id: registeredSensorId });
+      `,
+        { id: registeredSensorId },
+      );
 
       // The sensor query from SensorResolver may not be the registration one.
       // The registration resolver also provides sensor(id).
@@ -435,8 +433,8 @@ describe('Sensor CRUD + Registration', () => {
           skipConnectionTest: true,
         },
       });
-      const result = res.data!.registerSensor as Record<string, unknown>;
-      sensorId = ((result.sensor as Record<string, unknown>).id) as string;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+      sensorId = (result.sensor as Record<string, unknown>).id as string;
     });
 
     it('should return connection test result', async () => {
@@ -444,7 +442,7 @@ describe('Sensor CRUD + Registration', () => {
 
       // Connection test may fail (no actual device) but should return structured result
       expect(res.errors).toBeUndefined();
-      const result = res.data!.testSensorConnection as Record<string, unknown>;
+      const result = assertDefined(res.data).testSensorConnection as Record<string, unknown>;
       expect(result).toBeDefined();
       expect(typeof result.success).toBe('boolean');
       expect(result.testedAt).toBeDefined();
@@ -467,15 +465,15 @@ describe('Sensor CRUD + Registration', () => {
           skipConnectionTest: true,
         },
       });
-      const result = res.data!.registerSensor as Record<string, unknown>;
-      sensorId = ((result.sensor as Record<string, unknown>).id) as string;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+      sensorId = (result.sensor as Record<string, unknown>).id as string;
     });
 
     it('should activate sensor and set registrationStatus = active', async () => {
       const res = await gql(ACTIVATE_SENSOR, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      const sensor = res.data!.activateSensor as Record<string, unknown>;
+      const sensor = assertDefined(res.data).activateSensor as Record<string, unknown>;
       expect(sensor.registrationStatus).toBe('active');
     });
   });
@@ -496,8 +494,8 @@ describe('Sensor CRUD + Registration', () => {
           skipConnectionTest: true,
         },
       });
-      const result = res.data!.registerSensor as Record<string, unknown>;
-      sensorId = ((result.sensor as Record<string, unknown>).id) as string;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+      sensorId = (result.sensor as Record<string, unknown>).id as string;
 
       // First activate
       await gql(ACTIVATE_SENSOR, { sensorId });
@@ -510,7 +508,7 @@ describe('Sensor CRUD + Registration', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const sensor = res.data!.suspendSensor as Record<string, unknown>;
+      const sensor = assertDefined(res.data).suspendSensor as Record<string, unknown>;
       expect(sensor.registrationStatus).toBe('suspended');
     });
   });
@@ -531,8 +529,8 @@ describe('Sensor CRUD + Registration', () => {
           skipConnectionTest: true,
         },
       });
-      const result = res.data!.registerSensor as Record<string, unknown>;
-      sensorId = ((result.sensor as Record<string, unknown>).id) as string;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+      sensorId = (result.sensor as Record<string, unknown>).id as string;
 
       await gql(ACTIVATE_SENSOR, { sensorId });
       await gql(SUSPEND_SENSOR, { sensorId, reason: 'Temporarily offline' });
@@ -542,7 +540,7 @@ describe('Sensor CRUD + Registration', () => {
       const res = await gql(REACTIVATE_SENSOR, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      const sensor = res.data!.reactivateSensor as Record<string, unknown>;
+      const sensor = assertDefined(res.data).reactivateSensor as Record<string, unknown>;
       expect(sensor.registrationStatus).toBe('active');
     });
   });
@@ -563,25 +561,28 @@ describe('Sensor CRUD + Registration', () => {
           skipConnectionTest: true,
         },
       });
-      const result = res.data!.registerSensor as Record<string, unknown>;
-      sensorId = ((result.sensor as Record<string, unknown>).id) as string;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+      sensorId = (result.sensor as Record<string, unknown>).id as string;
     });
 
     it('should delete sensor and return true', async () => {
       const res = await gql(DELETE_SENSOR, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      expect(res.data!.deleteSensor).toBe(true);
+      expect(assertDefined(res.data).deleteSensor).toBe(true);
     });
 
     it('should return null when querying deleted sensor', async () => {
-      const res = await gql(`
+      const res = await gql(
+        `
         query sensor($id: ID!) {
           sensor(id: $id) {
             id
           }
         }
-      `, { id: sensorId });
+      `,
+        { id: sensorId },
+      );
 
       // Should be null or throw NotFoundException
       if (res.data?.sensor) {
@@ -600,7 +601,7 @@ describe('Sensor CRUD + Registration', () => {
       const res = await gql(SENSOR_STATS);
 
       expect(res.errors).toBeUndefined();
-      const stats = res.data!.sensorStats as Record<string, unknown>;
+      const stats = assertDefined(res.data).sensorStats as Record<string, unknown>;
       expect(stats).toBeDefined();
       expect(typeof stats.total).toBe('number');
       expect(typeof stats.active).toBe('number');
@@ -637,7 +638,7 @@ describe('Sensor CRUD + Registration', () => {
       const res = await gql(SENSORS_BY_PROTOCOL, { protocolCode: 'modbus_tcp' });
 
       expect(res.errors).toBeUndefined();
-      const sensors = res.data!.sensorsByProtocol as Array<Record<string, unknown>>;
+      const sensors = assertDefined(res.data).sensorsByProtocol as Array<Record<string, unknown>>;
       expect(Array.isArray(sensors)).toBe(true);
 
       for (const s of sensors) {
@@ -705,7 +706,7 @@ describe('Sensor CRUD + Registration', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.registerParentWithChildren as Record<string, unknown>;
+      const result = assertDefined(res.data).registerParentWithChildren as Record<string, unknown>;
       expect(result.success).toBe(true);
 
       const parent = result.parent as Record<string, unknown>;
@@ -729,7 +730,8 @@ describe('Sensor CRUD + Registration', () => {
     });
 
     it('should retrieve parent device with children via query', async () => {
-      const res = await gql(`
+      const res = await gql(
+        `
         query parentDevice($id: ID!) {
           parentDevice(id: $id) {
             id
@@ -743,7 +745,9 @@ describe('Sensor CRUD + Registration', () => {
             }
           }
         }
-      `, { id: parentId });
+      `,
+        { id: parentId },
+      );
 
       expect(res.errors).toBeUndefined();
       const parent = res.data?.parentDevice as Record<string, unknown>;
@@ -752,7 +756,8 @@ describe('Sensor CRUD + Registration', () => {
     });
 
     it('should list child sensors by parentId', async () => {
-      const res = await gql(`
+      const res = await gql(
+        `
         query childSensors($parentId: ID!) {
           childSensors(parentId: $parentId) {
             id
@@ -762,7 +767,9 @@ describe('Sensor CRUD + Registration', () => {
             tenantId
           }
         }
-      `, { parentId });
+      `,
+        { parentId },
+      );
 
       expect(res.errors).toBeUndefined();
       const children = res.data?.childSensors as Array<Record<string, unknown>>;
@@ -793,8 +800,8 @@ describe('Sensor CRUD + Registration', () => {
         },
         TENANT_A,
       );
-      const result = res.data!.registerSensor as Record<string, unknown>;
-      tenantASensorId = ((result.sensor as Record<string, unknown>).id) as string;
+      const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+      tenantASensorId = (result.sensor as Record<string, unknown>).id as string;
     });
 
     it('should NOT allow Tenant B to read Tenant A sensor', async () => {
@@ -837,17 +844,13 @@ describe('Sensor CRUD + Registration', () => {
     });
 
     it('should NOT allow Tenant B to delete Tenant A sensor', async () => {
-      const res = await gql(
-        DELETE_SENSOR,
-        { sensorId: tenantASensorId },
-        TENANT_B,
-      );
+      const res = await gql(DELETE_SENSOR, { sensorId: tenantASensorId }, TENANT_B);
 
       // Should fail or return false
       if (res.errors) {
         expect(res.errors.length).toBeGreaterThan(0);
       } else {
-        expect(res.data!.deleteSensor).toBe(false);
+        expect(assertDefined(res.data).deleteSensor).toBe(false);
       }
     });
 

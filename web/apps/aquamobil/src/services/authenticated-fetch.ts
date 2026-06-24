@@ -16,7 +16,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { type DocumentNode, print } from 'graphql';
 
-import type { GraphQLResponse } from '@/types';
+import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
 
 // ---------------------------------------------------------------------------
 // Module-level auth store — kept in sync by AuthProvider via syncAuthStore()
@@ -258,10 +258,13 @@ export async function authenticatedFetch(
 // ---------------------------------------------------------------------------
 
 export class GraphQLError extends Error {
-  public readonly graphqlErrors: Array<{ message: string; path?: string[]; extensions?: Record<string, unknown> }>;
+  // SSoT: the error element shape is the canonical GraphQLErrorPayload from
+  // @/utils/graphql-response, so the parser and this class share ONE error type
+  // instead of two near-duplicate inline shapes that could drift apart.
+  public readonly graphqlErrors: readonly GraphQLErrorPayload[];
 
-  constructor(errors: Array<{ message: string; path?: string[]; extensions?: Record<string, unknown> }>) {
-    super(errors[0]?.message || 'GraphQL error');
+  constructor(errors: readonly GraphQLErrorPayload[]) {
+    super(errors[0]?.message ?? 'GraphQL error');
     this.name = 'GraphQLError';
     this.graphqlErrors = errors;
   }
@@ -323,7 +326,10 @@ export async function graphqlRequest<TResult>(
     throw new Error(`HTTP error: ${response.status}`);
   }
 
-  const result: GraphQLResponse<TResult> = await response.json();
+  // SSoT: route through readGraphQLResponse so the payload is parsed from
+  // `unknown` into a typed GraphQLResponse<TResult> — never `any` (which the raw
+  // response.json() returns and which trips no-unsafe-assignment).
+  const result = await readGraphQLResponse<TResult>(response);
 
   if (result.errors?.length) {
     throw new GraphQLError(result.errors);

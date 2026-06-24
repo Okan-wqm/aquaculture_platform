@@ -141,7 +141,7 @@ export async function fetchHealthEvents(
 export async function fetchHealthEventsByBatch(
   client: GraphQLClient,
   batchId: string,
-  activeOnly: boolean = false,
+  activeOnly = false,
 ): Promise<HealthEvent[]> {
   const query = `
     query HealthEventsByBatch($batchId: ID!, $activeOnly: Boolean) {

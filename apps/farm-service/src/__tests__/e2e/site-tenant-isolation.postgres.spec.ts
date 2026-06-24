@@ -67,6 +67,9 @@ import { UpdateEquipmentHandler } from '../../equipment/handlers/update-equipmen
 import { GetEquipmentQuery } from '../../equipment/queries/get-equipment.query';
 import { ListEquipmentQuery } from '../../equipment/queries/list-equipment.query';
 import { TankEquipmentAdapterService } from '../../equipment/services/tank-equipment-adapter.service';
+import { FarmStockBatchSnapshot } from '../../farm-stock/entities/farm-stock-batch-snapshot.entity';
+import { FarmStockContainerSnapshot } from '../../farm-stock/entities/farm-stock-container-snapshot.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { CreateFeedCommand } from '../../feed/commands/create-feed.command';
 import { DeleteFeedCommand } from '../../feed/commands/delete-feed.command';
 import { UpdateFeedCommand } from '../../feed/commands/update-feed.command';
@@ -183,6 +186,9 @@ const SETUP_TENANT_TABLES = [
   'feeder_calibrations',
   'tanks',
   'tank_batches',
+  'batches_v2',
+  'farm_stock_container_snapshots',
+  'farm_stock_batch_snapshots',
   'suppliers',
   'supplier_sites',
   'species',
@@ -296,6 +302,8 @@ describe('Site tenant isolation on real Postgres', () => {
         FeederCalibration,
         Tank,
         TankBatch,
+        FarmStockContainerSnapshot,
+        FarmStockBatchSnapshot,
         Batch,
         BatchDocument,
         Feed,
@@ -353,21 +361,25 @@ describe('Site tenant isolation on real Postgres', () => {
     );
     const parameterConfigCache = new ParameterConfigCacheService(parameterConfigRepository);
     const tankOutboxPublisher = new OutboxPublisher(FarmOutbox);
+    const farmStockProjection = new FarmStockProjectionService();
     const createTankHandler = new CreateTankHandler(
       dataSource,
       auditLogService,
       tankCodeGenerator,
       tankOutboxPublisher,
+      farmStockProjection,
     );
     const updateTankHandler = new UpdateTankHandler(
       dataSource,
       auditLogService,
       tankOutboxPublisher,
+      farmStockProjection,
     );
     const deleteTankHandler = new DeleteTankHandler(
       dataSource,
       auditLogService,
       tankOutboxPublisher,
+      farmStockProjection,
     );
     const tankEquipmentAdapter = new TankEquipmentAdapterService(
       createTankCommandBus({
@@ -478,6 +490,7 @@ describe('Site tenant isolation on real Postgres', () => {
         dataSource,
         auditLogService,
         new OutboxPublisher(FarmOutbox),
+        farmStockProjection,
       ),
       deleteTank: deleteTankHandler,
       createFeed: new CreateFeedHandler(
@@ -555,7 +568,7 @@ describe('Site tenant isolation on real Postgres', () => {
       ),
     );
 
-    expect(tenantAList.data.map((site: Site) => site.id)).toContain(siteA.id);
+    expect(tenantAList.data.map((site) => site.id)).toContain(siteA.id);
     expect(tenantBList.data).toHaveLength(0);
   });
 
@@ -576,8 +589,8 @@ describe('Site tenant isolation on real Postgres', () => {
       ),
     );
 
-    expect(tenantAList.data.map((site: Site) => site.id)).toEqual([siteA.id]);
-    expect(tenantBList.data.map((site: Site) => site.id)).toEqual([siteB.id]);
+    expect(tenantAList.data.map((site) => site.id)).toEqual([siteA.id]);
+    expect(tenantBList.data.map((site) => site.id)).toEqual([siteB.id]);
   });
 
   it('returns updated values immediately through get and list in the same tenant only', async () => {
@@ -617,7 +630,7 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(updated.status).toBe(SiteStatus.MAINTENANCE);
     expect(getAfterUpdate?.name).toBe('Editable Farm Updated');
     expect(getAfterUpdate?.status).toBe(SiteStatus.MAINTENANCE);
-    expect(listAfterUpdate.data.map((site: Site) => site.id)).toEqual([tenantASite.id]);
+    expect(listAfterUpdate.data.map((site) => site.id)).toEqual([tenantASite.id]);
     expect(tenantBList.data).toHaveLength(0);
   });
 
@@ -641,7 +654,7 @@ describe('Site tenant isolation on real Postgres', () => {
     );
 
     expect(tenantAList.data).toHaveLength(0);
-    expect(tenantBList.data.map((site: Site) => site.id)).toEqual([tenantBSite.id]);
+    expect(tenantBList.data.map((site) => site.id)).toEqual([tenantBSite.id]);
     expect(await rowCount('farm', TENANT_A)).toBe(0);
   });
 
@@ -1143,6 +1156,20 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(await tableTenantRowCount('farm', 'code_sequences', TENANT_A)).toBe(0);
     expect(await tankRowCount(getTenantSchemaName(TENANT_A), TENANT_A)).toBe(1);
     expect(await tankRowCount(getTenantSchemaName(TENANT_B), TENANT_A)).toBe(0);
+    expect(
+      await tableTenantRowCount(
+        getTenantSchemaName(TENANT_A),
+        'farm_stock_container_snapshots',
+        TENANT_A,
+      ),
+    ).toBe(1);
+    expect(
+      await tableTenantRowCount(
+        getTenantSchemaName(TENANT_B),
+        'farm_stock_container_snapshots',
+        TENANT_A,
+      ),
+    ).toBe(0);
     expect(await codeSequenceLastValue(getTenantSchemaName(TENANT_A), TENANT_A, 'Tank')).toBe(1);
     expect(await outboxEventCount(TENANT_A, 'TankCreated', tankA.id)).toBe(1);
     expect(await outboxEventCount(TENANT_A, 'TankCreated', tankB.id)).toBe(0);
@@ -1159,6 +1186,7 @@ describe('Site tenant isolation on real Postgres', () => {
       createFailingAuditLogService('audit down'),
       tankCodeGenerator,
       new OutboxPublisher(FarmOutbox),
+      new FarmStockProjectionService(),
     );
 
     await expect(

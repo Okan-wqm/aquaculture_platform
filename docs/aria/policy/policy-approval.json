@@ -1,0 +1,8 @@
+{
+  "$schema": "aria/policy-approval/v1",
+  "schema_version": 1,
+  "policy_id": "aria-enterprise-policy-approval",
+  "required_stages": ["risk_owner", "exception_owner"],
+  "max_expiry_hours": 24,
+  "separation_of_duties": true
+}

@@ -11,10 +11,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient, GraphQLError } from '../../helpers/graphql-client';
-import {
-  generateModuleUserToken,
-  generateTenantAdminToken,
-} from '../../helpers/jwt.helper';
+import { generateModuleUserToken, generateTenantAdminToken } from '../../helpers/jwt.helper';
 
 /** Response types (zero any policy) */
 interface CreateTenantUserResponse {
@@ -52,18 +49,17 @@ const TARGET_TENANT_ID = uuidv4();
 /**
  * Helper: assert that a GraphQL response contains a forbidden/access-denied error
  */
-function expectForbiddenOrDenied(
-  errors: GraphQLError[] | undefined,
-  status: number,
-): void {
+function expectForbiddenOrDenied(errors: GraphQLError[] | undefined, status: number): void {
   const isForbiddenStatus = status === 403;
-  const hasForbiddenError = errors?.some(e =>
-    e.message.includes('Access denied') ||
-    e.message.includes('Forbidden') ||
-    e.message.includes('does not have required role') ||
-    e.message.includes('Insufficient') ||
-    e.extensions?.code === 'FORBIDDEN',
-  ) ?? false;
+  const hasForbiddenError =
+    errors?.some(
+      (e) =>
+        e.message.includes('Access denied') ||
+        e.message.includes('Forbidden') ||
+        e.message.includes('does not have required role') ||
+        e.message.includes('Insufficient') ||
+        e.extensions?.code === 'FORBIDDEN',
+    ) ?? false;
 
   expect(
     isForbiddenStatus || hasForbiddenError,
@@ -74,7 +70,7 @@ function expectForbiddenOrDenied(
 test.describe('RBAC Escalation Prevention', () => {
   let client: GraphQLTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     client = new GraphQLTestClient(request);
   });
 

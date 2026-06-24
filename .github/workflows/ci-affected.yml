@@ -68,6 +68,7 @@ jobs:
               - 'scripts/apollo-router/**'
               - '.github/workflows/deploy-digitalocean.yml'
               - '.github/workflows/deploy-staging.yml'
+              - '.github/workflows/production-post-deploy-verify.yml'
               - '.github/workflows/ci-affected.yml'
               - '.github/actions/**'
               - '.github/manifests/**'
@@ -192,7 +193,7 @@ jobs:
       # toolchain once before Nx starts prevents competing cargo/rustup
       # processes from mutating ~/.rustup concurrently.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
           components: rustfmt,clippy,rust-src
@@ -255,7 +256,7 @@ jobs:
       # 2026-05-05: Type-check targets can include Rust-backed crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
           components: rustfmt,clippy,rust-src
@@ -272,7 +273,7 @@ jobs:
       - name: Run type check (affected plus changed TypeScript guard)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
+          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
           node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head HEAD
         timeout-minutes: 35
         env:
@@ -313,7 +314,7 @@ jobs:
       # 2026-05-05: Test targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
           components: rustfmt,clippy,rust-src
@@ -355,13 +356,13 @@ jobs:
           fi
 
           FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
-          AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
+          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # Image prewarm happens in the dedicated dependency-aware step
             # above (INFRA-HIGH-011) — single prewarm owner for every
             # bootPostgresContainer consumer, this project included.
-            npx nx run migration-harness:test
+            node tools/toolchain/run.mjs npx nx run migration-harness:test
           else
             echo "migration-harness is not affected; skipping isolated Testcontainers gate."
           fi
@@ -474,7 +475,7 @@ jobs:
             exit 0
           fi
 
-          npx nx build farm-module
+          node tools/toolchain/run.mjs npx nx build farm-module
 
           mkdir -p web/shell/src/generated
           FARM_REMOTE_ENTRY="web/modules/farm-module/dist/remoteEntry.js"
@@ -489,7 +490,7 @@ jobs:
           }
           JSON
 
-          npx nx build shell
+          node tools/toolchain/run.mjs npx nx build shell
 
           node e2e/scripts/serve-water-chemistry-shell.mjs > /tmp/farm-water-chemistry-shell.log 2>&1 &
           SERVER_PID="$!"
@@ -562,7 +563,7 @@ jobs:
       # 2026-05-05: Build targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
           components: rustfmt,clippy,rust-src
@@ -580,7 +581,7 @@ jobs:
         run: mkdir -p .nx/cache
 
       - name: Build (affected only)
-        run: npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        run: node tools/toolchain/run.mjs npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
         timeout-minutes: 45
         env:
           NX_DAEMON: 'false'
@@ -866,6 +867,86 @@ jobs:
         run: bash scripts/ci/validate-deploy-ssot.sh
 
   # ---------------------------------------------------------------------------
+  # Main release orchestration
+  #
+  # deploy-staging.yml, deploy-digitalocean.yml, and
+  # production-post-deploy-verify.yml are reusable workflows. CI Affected is the
+  # SSoT release control plane on push to main: the same quality gates that keep
+  # main deployable also decide whether the DigitalOcean image/deploy workflow
+  # is invoked. This prevents the historical split-brain where deploy workflows
+  # documented a workflow_call path but no caller existed.
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - farm-water-chemistry-e2e
+      - build
+      - pre-flight
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.install.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.type-check.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.farm-water-chemistry-e2e.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.pre-flight.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/deploy-staging.yml
+    secrets: inherit
+
+  deploy-production:
+    needs:
+      - detect-changes
+      - install
+      - lint
+      - type-check
+      - test
+      - farm-water-chemistry-e2e
+      - build
+      - pre-flight
+      - deploy-staging
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.install.result == 'success' &&
+      needs.lint.result == 'success' &&
+      needs.type-check.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.farm-water-chemistry-e2e.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.pre-flight.result == 'success' &&
+      needs.deploy-staging.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-digitalocean.yml
+    with:
+      services: auto
+    secrets: inherit
+
+  production-post-deploy-verify:
+    needs:
+      - deploy-production
+    if: needs.deploy-production.outputs.deployed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/production-post-deploy-verify.yml
+    with:
+      target_sha: ${{ github.sha }}
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
   # PR-time infrastructure image build gate
   #
   # Main deploy builds infrastructure-owned runtime images such as Mosquitto.
@@ -950,7 +1031,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install markdownlint
-        run: npm install -g markdownlint-cli
+        run: npm install -g markdownlint-cli@0.45.0 --ignore-scripts --no-audit --no-fund
 
       - name: Check markdown files
         run: markdownlint 'docs/**/*.md' --ignore node_modules
@@ -994,7 +1075,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
       - name: Install TPM build dependencies

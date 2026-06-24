@@ -101,7 +101,7 @@ if [[ ! -s "$CHANGED_FILE_LIST" ]]; then
   exit 0
 fi
 
-npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" \
+node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" \
   | sort > "$AFFECTED_PROJECT_LIST"
 
 node scripts/ci/write-affected-target-report.mjs \
@@ -127,6 +127,6 @@ if [[ ! -s "$STRICT_PROJECT_LIST" ]]; then
 fi
 
 STRICT_PROJECTS="$(paste -sd, "$STRICT_PROJECT_LIST")"
-echo "Running strict Nx target: npx nx run-many --target=$TARGET --projects=$STRICT_PROJECTS --parallel=$PARALLEL"
+echo "Running strict Nx target: node tools/toolchain/run.mjs npx nx run-many --target=$TARGET --projects=$STRICT_PROJECTS --parallel=$PARALLEL"
 NX_DAEMON="${NX_DAEMON:-false}" NX_NO_CLOUD="${NX_NO_CLOUD:-true}" \
-  npx nx run-many "--target=$TARGET" "--projects=$STRICT_PROJECTS" "--parallel=$PARALLEL"
+  node tools/toolchain/run.mjs npx nx run-many "--target=$TARGET" "--projects=$STRICT_PROJECTS" "--parallel=$PARALLEL"

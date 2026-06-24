@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .capability_gap import latest_capability_gaps
+from .capability_resolver import resolve_capability
 from .draft_intent import (
     BANNED_PHRASES_DEFAULT,
     AcceptanceTest,
@@ -79,6 +80,16 @@ def draft_agent_from_gap(
     enforce_profile_for_write("agent_genesis", base_dir=base_dir)
     gap = _find_gap(gap_id, base_dir)
     name = _agent_name(gap)
+    capability_gap_key = str(gap.get("capability_gap_key") or gap_id)
+    capability_resolution = resolve_capability(
+        capability_key=capability_gap_key,
+        requested_kind="agent",
+        title=str(gap.get("title") or name),
+        existing_capabilities=_existing_capabilities(gap.get("related_existing_agents", [])),
+        base_dir=base_dir,
+    )
+    if capability_resolution.get("decision") == "reuse":
+        raise GovernanceError("capability_resolution_reuse_blocks_agent_genesis")
     draft = {
         "name": name,
         "purpose": gap["title"],
@@ -110,6 +121,8 @@ def draft_agent_from_gap(
         "schema_version": 1,
         "recorded_at": utc_now(),
         "gap_id": gap_id,
+        "capability_gap_key": capability_gap_key,
+        "capability_resolution_ref": capability_resolution.get("ledger_hash"),
         "draft_id": f"draft-{name}",
         "status": "draft_shadow",
         "draft": draft,
@@ -394,8 +407,8 @@ def materialize_agent_draft(
     ``AutoActionGate`` (Plan ARIA-V3 §A4) which encapsulates:
       * The runtime profile + lane + classifier decision.
       * The ack-token consumption (operator-minted via
-        ``aria-kernel ack mint`` OR autonomous auto-mint under
-        autonomous profile on L3-snowball).
+        ``aria-kernel ack mint``. Autonomous auto-mint has no live lane
+        in current mainline authority).
       * The ``materialize_event_id`` UUID that links the
         three-event audit chain (draft_validated → ack_consumed
         → materialize_committed).
@@ -487,7 +500,7 @@ def materialize_agent_draft(
             ),
             evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
             diff_classifier_lane=intent_dict.get(
-                "diff_classifier_lane", "L3-snowball",
+                "diff_classifier_lane", "L0-main",
             ),
             banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
             related_existing_agents=tuple(
@@ -620,6 +633,13 @@ def request_agent_genesis(
     capability_gap_key = str(gap.get("capability_gap_key") or gap_id).strip()
     if not gap_id or not capability_gap_key:
         raise GovernanceError("gap_id and capability_gap_key are required")
+    capability_resolution = resolve_capability(
+        capability_key=capability_gap_key,
+        requested_kind="agent",
+        title=str(gap.get("title") or capability_gap_key),
+        existing_capabilities=_existing_capabilities(gap.get("related_existing_agents", [])),
+        base_dir=base_dir,
+    )
     row = {
         "$schema": "aria/agent-genesis-request/v1",
         "schema_version": 1,
@@ -627,6 +647,7 @@ def request_agent_genesis(
         "cycle_id": cycle_id,
         "gap_id": gap_id,
         "capability_gap_key": capability_gap_key,
+        "capability_resolution_ref": capability_resolution.get("ledger_hash"),
         "title": gap.get("title"),
         "evidence_refs": gap.get("evidence_refs", []),
         "score": gap.get("score"),
@@ -634,6 +655,18 @@ def request_agent_genesis(
         "status": "requested",
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "requests.jsonl", row)
+
+
+def _existing_capabilities(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, dict):
+            out.append(value)
+        elif isinstance(value, str) and value.strip():
+            out.append({"name": value.strip(), "capability_key": value.strip()})
+    return out
 
 
 def record_extension_decision(
@@ -817,7 +850,7 @@ def _render_agent_intent(draft: dict[str, Any]) -> AgentDraftIntent:
         output_schema=dict(draft["output_schema"]),
         acceptance_tests=fixtures,
         evidence_allowlist=tuple(draft.get("evidence_refs") or ()),
-        diff_classifier_lane="L3-snowball",
+        diff_classifier_lane="L0-main",
         related_existing_agents=tuple(
             draft.get("related_existing_agents") or ()
         ),

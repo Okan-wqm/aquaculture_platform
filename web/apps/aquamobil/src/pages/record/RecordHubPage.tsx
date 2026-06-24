@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import { Utensils, Skull, Scissors, Package, ArrowLeftRight, ClipboardList, Droplets, Warehouse } from 'lucide-react';
+import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { type MobileFeature } from '@/hooks/useMobilePermissions';
@@ -23,7 +24,7 @@ const allActions: RecordAction[] = [
   { feature: 'storage', path: '/storage', icon: Warehouse, label: 'Storage', gradient: 'from-teal-500 to-teal-600' },
 ];
 
-export function RecordHubPage() {
+export function RecordHubPage(): JSX.Element {
   const navigate = useNavigate();
   // SEC-MEDIUM-050: canReach enforces the harvest MODULE_MANAGER role floor too.
   const { canReach } = useFeatureAccess();

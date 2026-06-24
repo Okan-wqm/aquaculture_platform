@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  MIGRATION_BOOT_SIGNAL_CONTRACT,
   PLATFORM_SERVICE_CATALOG,
   activeDropletComposeServices,
   activeDropletServices,
@@ -124,6 +125,57 @@ describe('platform service catalog executable views', () => {
       expect(entry.dbRoles?.runtime).toMatch(/_service$/);
       expect(entry.privilegeMode).toBe('dml-only');
     }
+  });
+
+  it('keeps db-migrate as the only migration boot signal authority (INFRA-CRITICAL-015)', () => {
+    const migrationSignalRefs = PLATFORM_SERVICE_CATALOG.flatMap((entry) =>
+      entry.requiredSignals
+        .filter(
+          (signal) =>
+            signal === MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal ||
+            signal === MIGRATION_BOOT_SIGNAL_CONTRACT.retiredRunnerSignal,
+        )
+        .map((signal) => ({ serviceId: entry.serviceId, signal })),
+    );
+
+    expect(migrationSignalRefs).toEqual([
+      {
+        serviceId: MIGRATION_BOOT_SIGNAL_CONTRACT.authorityServiceId,
+        signal: MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal,
+      },
+    ]);
+
+    const catalogWithLegacyRunnerSignal = PLATFORM_SERVICE_CATALOG.map((entry) =>
+      entry.serviceId === 'auth-service'
+        ? {
+            ...entry,
+            requiredSignals: [
+              ...entry.requiredSignals,
+              MIGRATION_BOOT_SIGNAL_CONTRACT.retiredRunnerSignal,
+            ],
+          }
+        : entry,
+    );
+    expect(validateServiceCatalog(catalogWithLegacyRunnerSignal)).toContainEqual({
+      serviceId: 'auth-service',
+      message: 'migration_runner_applied is retired; db-migrate owns migration boot signals',
+    });
+
+    const catalogWithDuplicateDbMigrateSignal = PLATFORM_SERVICE_CATALOG.map((entry) =>
+      entry.serviceId === 'auth-service'
+        ? {
+            ...entry,
+            requiredSignals: [
+              ...entry.requiredSignals,
+              MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal,
+            ],
+          }
+        : entry,
+    );
+    expect(validateServiceCatalog(catalogWithDuplicateDbMigrateSignal)).toContainEqual({
+      serviceId: 'auth-service',
+      message: 'db_migrate_complete may only be required by db-migrate',
+    });
   });
 
   // INFRA-HIGH-005: before frontendAssets existed, the prebuild list was

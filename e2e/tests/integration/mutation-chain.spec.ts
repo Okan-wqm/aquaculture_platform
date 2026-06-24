@@ -6,6 +6,14 @@
  * the correct role assignment in the tenant schema.
  */
 
+import { assertDefined } from '../../helpers/assertions';
+import {
+  findUserById,
+  findUserRoleAssignment,
+  deleteUserById,
+  closePool,
+} from '../../helpers/db.helper';
+import { decodeJwt } from '../../helpers/jwt.helper';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -16,20 +24,11 @@ import {
   generateTestEmail,
   generateTestPassword,
 } from '../../helpers/tenant.fixture';
-import {
-  findUserById,
-  findUserByEmail,
-  findUserRoleAssignment,
-  deleteUserById,
-  closePool,
-} from '../../helpers/db.helper';
-import { decodeJwt } from '../../helpers/jwt.helper';
 
 describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
   let superAdminToken: string;
   let tenantId: string;
-  let tenantAdminToken: string;
-  let createdUserIds: string[] = [];
+  const createdUserIds: string[] = [];
 
   beforeAll(async () => {
     superAdminToken = await loginAsSuperAdmin();
@@ -38,10 +37,9 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
     const tenant = await createTestTenant(superAdminToken);
     tenantId = tenant.id;
 
-    // Login as the tenant admin (created automatically by createTenant)
-    // The admin user gets a password reset flow, so we need to find the admin
-    // and use the super admin token for tenant operations
-    tenantAdminToken = superAdminToken; // SUPER_ADMIN can operate on any tenant
+    // Tenant operations below run with the SUPER_ADMIN token: the tenant admin
+    // created by createTenant is gated behind a password-reset flow, and
+    // SUPER_ADMIN can operate on any tenant directly.
   });
 
   afterAll(async () => {
@@ -74,7 +72,7 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
       lastName: 'MutationChain',
       email: testEmail,
       password: testPassword,
-      roleId: defaultRole!.id,
+      roleId: defaultRole.id,
       sendInvitation: false,
     });
 
@@ -89,9 +87,9 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
     // 4. Verify user exists in DB (auth.users)
     const dbUser = await findUserById(createdUser.userId);
     expect(dbUser).not.toBeNull();
-    expect(dbUser!.email).toBe(testEmail);
-    expect(dbUser!.tenantId).toBe(tenantId);
-    expect(dbUser!.isActive).toBe(true);
+    expect(assertDefined(dbUser).email).toBe(testEmail);
+    expect(assertDefined(dbUser).tenantId).toBe(tenantId);
+    expect(assertDefined(dbUser).isActive).toBe(true);
   });
 
   it('should create role assignment in tenant schema', async () => {
@@ -106,7 +104,7 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
       lastName: 'RoleAssign',
       email: testEmail,
       password: testPassword,
-      roleId: defaultRole!.id,
+      roleId: defaultRole.id,
       sendInvitation: false,
     });
 
@@ -115,9 +113,9 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
     // Verify role assignment in tenant schema
     const roleAssignment = await findUserRoleAssignment(tenantId, createdUser.userId);
     expect(roleAssignment).not.toBeNull();
-    expect(roleAssignment!.user_id).toBe(createdUser.userId);
-    expect(roleAssignment!.role_id).toBe(defaultRole!.id);
-    expect(roleAssignment!.is_active).toBe(true);
+    expect(assertDefined(roleAssignment).user_id).toBe(createdUser.userId);
+    expect(assertDefined(roleAssignment).role_id).toBe(defaultRole.id);
+    expect(assertDefined(roleAssignment).is_active).toBe(true);
   });
 
   it('should return correct role info in the GraphQL response', async () => {
@@ -132,7 +130,7 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
       lastName: 'RoleInfo',
       email: testEmail,
       password: testPassword,
-      roleId: targetRole!.id,
+      roleId: targetRole.id,
       sendInvitation: false,
     });
 
@@ -140,7 +138,7 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
 
     // Verify the roleAssignment in the response matches
     expect(createdUser.roleAssignment).toBeDefined();
-    expect(createdUser.roleAssignment.roleId).toBe(targetRole!.id);
+    expect(createdUser.roleAssignment.roleId).toBe(targetRole.id);
     expect(createdUser.roleAssignment.roleName).toBeTruthy();
   });
 
@@ -156,7 +154,7 @@ describe('Mutation Chain: Gateway -> Auth Service -> DB', () => {
       lastName: 'LoginVerify',
       email: testEmail,
       password: testPassword,
-      roleId: defaultRole!.id,
+      roleId: defaultRole.id,
       sendInvitation: false,
     });
 

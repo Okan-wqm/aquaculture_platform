@@ -12,8 +12,6 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
-  Inject,
-  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -24,7 +22,6 @@ import {
   type MobileCommandEnvelope,
 } from '@aquaculture/backend-common/mobile-command';
 import { assertSelfOrManager, type SelfScopeCaller } from '@aquaculture/backend-common/security';
-import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -113,8 +110,6 @@ export class TaskService {
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -153,13 +148,17 @@ export class TaskService {
       recurringTemplateId: input.recurringTemplateId,
     });
 
-    const saved = await this.taskRepository.save(task);
-    this.logger.log(`Task created: ${saved.id}`);
+    // Atomic: save + TaskCreated outbox enqueue in one transaction. The
+    // event is durably persisted with the row (at-least-once), never
+    // fire-and-forget — a crash or NATS gap can no longer drop it.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await queryRunner.manager.save(task);
 
-    // Publish TaskCreated event
-    if (this.eventBus) {
-      try {
-        await this.eventBus.publish({
+      await this.outboxPublisher.enqueue(
+        {
           ...createBaseEvent('TaskCreated', tenantId, { userId: createdBy }),
           taskId: saved.id,
           title: saved.title,
@@ -169,14 +168,19 @@ export class TaskService {
           assignedToName: saved.assignedToName,
           dueDate: input.dueDate,
           createdBy,
-        });
-        this.logger.debug(`Published TaskCreated event for task ${saved.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish TaskCreated event: ${(eventError as Error).message}`);
-      }
-    }
+        },
+        queryRunner.manager,
+      );
 
-    return saved;
+      await queryRunner.commitTransaction();
+      this.logger.log(`Task created: ${saved.id}`);
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -865,41 +869,48 @@ export class TaskService {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        const overdueTasks: Task[] = await queryRunner.query(
-          `SELECT * FROM tasks
-           WHERE status IN ($1, $2)
-           AND "dueDate" < $3
-           AND "deletedAt" IS NULL
-           FOR UPDATE SKIP LOCKED`,
-          [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
-        );
+        // Atomic: the SELECT FOR UPDATE lock, the OVERDUE write and every
+        // TaskOverdue outbox enqueue all live in ONE transaction. Without it
+        // the FOR UPDATE lock would release under autocommit and the events
+        // would be fire-and-forget; now the row flip and its events commit or
+        // roll back together (at-least-once delivery).
+        await queryRunner.startTransaction();
+        try {
+          const overdueTasks: Task[] = await queryRunner.query(
+            `SELECT * FROM tasks
+             WHERE status IN ($1, $2)
+             AND "dueDate" < $3
+             AND "deletedAt" IS NULL
+             FOR UPDATE SKIP LOCKED`,
+            [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
+          );
 
-        if (overdueTasks.length === 0) {
-          continue;
-        }
+          if (overdueTasks.length === 0) {
+            await queryRunner.commitTransaction();
+            continue;
+          }
 
-        const ids = overdueTasks.map((t) => t.id);
-        await queryRunner.query(
-          `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
-          [TaskStatus.OVERDUE, ids],
-        );
+          const ids = overdueTasks.map((t) => t.id);
+          await queryRunner.query(
+            `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
+            [TaskStatus.OVERDUE, ids],
+          );
 
-        // Group by tenant for event publishing
-        const tasksByTenant = new Map<string, Task[]>();
-        for (const task of overdueTasks) {
-          const tenantTasks = tasksByTenant.get(task.tenantId) || [];
-          tenantTasks.push(task);
-          tasksByTenant.set(task.tenantId, tenantTasks);
-        }
+          // Group by tenant for event publishing
+          const tasksByTenant = new Map<string, Task[]>();
+          for (const task of overdueTasks) {
+            const tenantTasks = tasksByTenant.get(task.tenantId) || [];
+            tenantTasks.push(task);
+            tasksByTenant.set(task.tenantId, tenantTasks);
+          }
 
-        if (this.eventBus) {
           for (const [tenantId, tasks] of tasksByTenant) {
             for (const task of tasks) {
-              try {
-                const hoursOverdue = Math.round(
-                  (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
-                );
-                await this.eventBus.publish({
+              const hoursOverdue = Math.round(
+                (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
+              );
+              await this.outboxPublisher.enqueue(
+                {
                   ...createBaseEvent('TaskOverdue', tenantId),
                   taskId: task.id,
                   title: task.title,
@@ -907,17 +918,19 @@ export class TaskService {
                   dueDate: new Date(task.dueDate).toISOString(),
                   priority: task.priority,
                   hoursOverdue,
-                });
-              } catch (eventError) {
-                this.logger.warn(
-                  `Failed to publish TaskOverdue event for task ${task.id}: ${(eventError as Error).message}`,
-                );
-              }
+                },
+                queryRunner.manager,
+              );
             }
             this.logger.log(
               `Marked ${tasks.length} tasks as overdue for tenant ${tenantId} (schema: ${schema})`,
             );
           }
+
+          await queryRunner.commitTransaction();
+        } catch (txErr) {
+          await queryRunner.rollbackTransaction();
+          throw txErr;
         }
       } catch (err) {
         this.logger.error(

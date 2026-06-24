@@ -29,8 +29,8 @@
     "dev": "vite build --watch",
     "build": "tsc && vite build && node -e \"require('fs').writeFileSync('dist/package.json',JSON.stringify({name:'@aquaculture/shared-ui',version:'1.0.0',main:'index.js',module:'index.mjs',types:'index.d.ts'},null,2))\"",
     "build:types": "tsc --emitDeclarationOnly",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
+    "lint": "node ../../tools/toolchain/run.mjs eslint src",
+    "lint:fix": "node ../../tools/toolchain/run.mjs eslint src --fix",
     "test": "vitest",
     "test:coverage": "vitest --coverage"
   },

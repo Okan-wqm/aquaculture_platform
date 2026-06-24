@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ITool, ToolExecutionContext, ToolResult } from './tool.interface';
+import { ToolExecutionContext, ToolResult } from './tool.interface';
 import { ToolRegistryService } from '../tool-registry.service';
 
 /**

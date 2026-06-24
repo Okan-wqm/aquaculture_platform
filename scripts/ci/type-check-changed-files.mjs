@@ -83,6 +83,24 @@ function firstExisting(candidates) {
   return candidates.find((candidate) => existsSync(join(repoRoot, candidate)));
 }
 
+// WHY: tools/ projects nest to varying depths — `tools/gates/` carries its
+// tsconfig.json one level under `tools/`, but `tools/executors/cargo/` is two
+// levels down. A fixed `${projectRoot}/tsconfig.json` lookup misses the deeper
+// case and reports nested sources (e.g. executors/cargo/src/run/executor.ts) as
+// unmapped. WHAT: walk up from the file's own directory to the project root and
+// return the first tsconfig.json found, so any tool nesting depth resolves to
+// its owning project config automatically.
+function nearestTsconfig(file, projectRoot) {
+  let dir = dirname(file);
+  while (dir === projectRoot || dir.startsWith(`${projectRoot}/`)) {
+    const candidate = `${dir}/tsconfig.json`;
+    if (existsSync(join(repoRoot, candidate))) return candidate;
+    if (dir === projectRoot) break;
+    dir = dirname(dir);
+  }
+  return null;
+}
+
 function projectRootFor(file) {
   const parts = file.split('/');
   const [top, second, third] = parts;
@@ -134,7 +152,7 @@ function tsconfigFor(file) {
   }
 
   if (root.startsWith('tools/')) {
-    return firstExisting([`${root}/tsconfig.json`]);
+    return nearestTsconfig(file, root);
   }
 
   const testCandidates = [

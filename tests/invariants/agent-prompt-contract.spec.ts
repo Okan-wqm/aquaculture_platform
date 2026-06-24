@@ -101,6 +101,19 @@ describe('agent prompt contract invariants', () => {
     expect(outputFormat).toContain('PRODUCT-{AGENT-PREFIX}-*');
   });
 
+  it('shared output prefixes map retired platform lanes to active owners', () => {
+    const outputFormat = read('.claude/shared/output-format.md');
+
+    expect(outputFormat).toContain('`PLAT-*` — platform-kernel-expert only');
+    expect(outputFormat).toContain('`BILLING-*` — billing-expert');
+    expect(outputFormat).toContain('`ALERT-*` — alert-engine-expert');
+    expect(outputFormat).toContain('`OBS-*` — observability-expert');
+    expect(outputFormat).toContain('`MSG-*` — messaging-expert');
+    expect(outputFormat).not.toContain('platform-services');
+    expect(outputFormat).not.toContain('billing/notification/config/event-store/observability');
+    expect(outputFormat).not.toContain('`FARM-*`, `SENSOR-*`, `HR-*`, `MSG-*`, `ADMIN-*`');
+  });
+
   it('Lane-B product-audit prompts use product-audit recommendation paths and PRODUCT sub-prefixes', () => {
     const laneB = activeAgents.filter((file) =>
       file.relPath.startsWith('.claude/agents/product-audit/'),

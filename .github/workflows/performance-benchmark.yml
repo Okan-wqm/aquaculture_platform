@@ -51,7 +51,7 @@ jobs:
       # frontend assets. If Rust crates are affected, the pinned toolchain must
       # exist before Nx starts parallel cargo-backed targets.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
           components: rustfmt,clippy,rust-src
@@ -76,7 +76,7 @@ jobs:
       - name: Build
         run: |
           npm run build -- --base="${{ steps.nx-refs.outputs.base }}" --head="${{ steps.nx-refs.outputs.head }}"
-          npx nx run shell:build
+          node tools/toolchain/run.mjs npx nx run shell:build
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

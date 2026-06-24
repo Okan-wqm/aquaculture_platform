@@ -1,6 +1,7 @@
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import type { OperationType } from '@/types';
 import type { QueryClient } from '@tanstack/react-query';
+
+import type { OperationType } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // WHY: offline sync is the only write path when field users reconnect. Mapping
 // each synced mutation to tenant-scoped read models prevents DB-committed farm
@@ -38,8 +39,12 @@ const SYNC_INVALIDATION_SEGMENTS = {
   markMessagesRead: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
 } satisfies Record<OperationType, readonly (readonly unknown[])[]>;
 
-export function getSyncedOperationInvalidationKeys(
-  tenantId: string,
+// WHY: dedup is performed on the raw segments (BEFORE the tenant prefix is
+// applied) so the two public functions share ONE source of truth for which
+// read models a set of synced operations touches. The tenant prefix is then
+// applied at each call site via createTenantQueryKey, keeping the
+// no-bare-tenant-query-key invariant statically verifiable everywhere.
+function getSyncedOperationSegments(
   operationTypes: readonly OperationType[],
 ): readonly (readonly unknown[])[] {
   const uniqueSegments = new Map<string, readonly unknown[]>();
@@ -50,7 +55,14 @@ export function getSyncedOperationInvalidationKeys(
     }
   }
 
-  return Array.from(uniqueSegments.values()).map((segments) =>
+  return Array.from(uniqueSegments.values());
+}
+
+export function getSyncedOperationInvalidationKeys(
+  tenantId: string,
+  operationTypes: readonly OperationType[],
+): readonly (readonly unknown[])[] {
+  return getSyncedOperationSegments(operationTypes).map((segments) =>
     createTenantQueryKey(tenantId, ...segments),
   );
 }
@@ -63,9 +75,11 @@ export async function invalidateSyncedOperationQueries(
   // WHY 2026-04-29: online and offline mutation paths must converge through one
   // awaited invalidation map. Fire-and-forget invalidation left committed DB
   // changes invisible until staleTime/cache TTL elapsed on mobile screens.
+  // The queryKey is built inline via createTenantQueryKey so the
+  // no-bare-tenant-query-key rule can statically prove tenant-prefix discipline.
   await Promise.all(
-    getSyncedOperationInvalidationKeys(tenantId, operationTypes).map((queryKey) =>
-      queryClient.invalidateQueries({ queryKey }),
+    getSyncedOperationSegments(operationTypes).map((segments) =>
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, ...segments) }),
     ),
   );
 }

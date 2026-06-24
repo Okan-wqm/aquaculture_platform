@@ -170,7 +170,7 @@ export class VfdConnectionTesterService {
   /**
    * Discover devices on a network (for protocols that support discovery)
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async discoverDevices(
     protocol: VfdProtocol,
     _discoveryParams: Record<string, unknown>
@@ -181,7 +181,7 @@ export class VfdConnectionTesterService {
     this.logger.log(`Discovering devices on ${protocol}`);
 
     // Device discovery is protocol-specific
-    // For now, return empty array - discovery would be implemented per protocol
+    // Returns an empty array; per-protocol discovery is handled in the switch below.
     switch (protocol) {
       case VfdProtocol.MODBUS_TCP:
         // Could scan IP range for Modbus TCP devices

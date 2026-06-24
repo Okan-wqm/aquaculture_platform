@@ -154,7 +154,7 @@ class PhaseA3DraftValidation(unittest.TestCase):
                     ),
                 ),
                 evidence_allowlist=(),
-                diff_classifier_lane="L3-snowball",
+                diff_classifier_lane="L0-main",
                 banned_phrases=BANNED_PHRASES_DEFAULT,
             )
             body = "## Purpose\nTest body without other violations.\n"
@@ -316,7 +316,7 @@ class PhaseA3DraftValidation(unittest.TestCase):
                 ),
             ),
             evidence_allowlist=("apps/farm-service/src/foo.ts:1",),
-            diff_classifier_lane="L3-snowball",
+            diff_classifier_lane="L0-main",
             banned_phrases=BANNED_PHRASES_DEFAULT,
         )
 

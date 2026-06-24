@@ -48,10 +48,9 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative, resolve } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = resolve(__dirname, '..', '..');
 const BASELINE_PATH = resolve(REPO_ROOT, 'tools', 'gates', 'type-check-spec-baseline.json');
 
 interface BaselineEntry {

@@ -45,7 +45,7 @@ export { PROTOCOL_ADAPTERS } from './adapters/protocol-adapters.registry';
     ConnectionTesterService,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class ProtocolModule {
   /**
    * Static forRoot method for module registration

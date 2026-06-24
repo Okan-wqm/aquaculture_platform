@@ -39,8 +39,8 @@
 //   - Faktor skor hesaplama fonksiyonlari override edilebilir
 // ============================================================================
 
-import { mean, movingAverage, linearRegressionSlope } from '../utils/stats.js';
 import { getThresholds, type SpeciesThresholds } from '../knowledge/thresholds.js';
+import { mean, movingAverage, linearRegressionSlope } from '../utils/stats.js';
 
 // ── Tip Tanimlari ─────────────────────────────────────────────────────────────
 

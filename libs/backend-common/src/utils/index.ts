@@ -7,7 +7,15 @@
  */
 
 export * from './service-identity.util';
-export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep, maskAndTruncatePii } from './pii-mask.util';
+export * from './lifecycle-timer';
+export {
+  maskEmail,
+  logSafeUserId,
+  maskPhone,
+  maskPii,
+  maskPiiDeep,
+  maskAndTruncatePii,
+} from './pii-mask.util';
 export {
   TENANT_HASH_PEPPER_ENV,
   hmacTenantHash,

@@ -127,6 +127,12 @@ export interface ServiceCatalogEntry {
   frontendAssets?: FrontendAssetStrategy;
 }
 
+export const MIGRATION_BOOT_SIGNAL_CONTRACT = {
+  authorityServiceId: 'db-migrate',
+  completeSignal: 'db_migrate_complete',
+  retiredRunnerSignal: 'migration_runner_applied',
+} as const;
+
 type CatalogEntryInput = Omit<
   ServiceCatalogEntry,
   | 'composeServiceName'
@@ -298,7 +304,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     privilegeMode: 'migration-authority',
     dbRoles: { migrator: 'db_migrate' },
     eventStoreTenantScopePolicy: 'all-tenants',
-    requiredSignals: ['db_migrate_complete'],
+    requiredSignals: [MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal],
     requiredEnv: ['POSTGRES_PASSWORD'],
   }),
   buildEntry({
@@ -489,7 +495,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'warning',
     classification: 'subgraph',
-    requiredSignals: ['schema_drift_clean'],
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['HYDROPONICS_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
       'hydroponics',
@@ -1070,6 +1076,30 @@ export function validateServiceCatalog(
       errors.push({
         serviceId: entry.serviceId,
         message: 'schema-owning service must declare dbRoles.migrator',
+      });
+    }
+    if (entry.requiredSignals.includes(MIGRATION_BOOT_SIGNAL_CONTRACT.retiredRunnerSignal)) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'migration_runner_applied is retired; db-migrate owns migration boot signals',
+      });
+    }
+    if (
+      entry.requiredSignals.includes(MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal) &&
+      entry.serviceId !== MIGRATION_BOOT_SIGNAL_CONTRACT.authorityServiceId
+    ) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'db_migrate_complete may only be required by db-migrate',
+      });
+    }
+    if (
+      entry.serviceId === MIGRATION_BOOT_SIGNAL_CONTRACT.authorityServiceId &&
+      !entry.requiredSignals.includes(MIGRATION_BOOT_SIGNAL_CONTRACT.completeSignal)
+    ) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'db-migrate must require db_migrate_complete',
       });
     }
     if (entry.gatewayParticipation === 'apollo-subgraph' && !entry.gatewaySubgraph) {

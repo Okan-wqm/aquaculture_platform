@@ -63,16 +63,26 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
         }
 
     def _materialize(self, sandbox_state, **kwargs):
+        from aria_kernel.ack_ledger import mint_operator_ack
         from aria_kernel.auto_action_gate import gate_from_test_fixture
 
         # Plan ARIA-V3 §A4 + §2l — pre-V3 ``acknowledge=True`` is
-        # gone; construct a Gate via the test-fixture factory with
-        # ``policy_requires_acknowledge=False`` so the gate auto-
-        # mints + consumes (no operator ack token needed in the
-        # unit-test path).
+        # gone; construct a Gate and consume an explicit operator ack.
+        ack = mint_operator_ack(
+            base_dir=self.base,
+            draft_id="drf-e6",
+            intent_id="intent-e6",
+            target_path=".claude/agents/aria-test-agent.md",
+            kind="agent",
+            operator_user_id="test-operator",
+            reason="materialize gate test ack",
+            profile_name="autonomous",
+            profile_state_at_mint="autonomous:v1",
+            commit_sha_at_mint="test-head",
+        )
         gate = gate_from_test_fixture(
             profile="autonomous",
-            lane="L3-snowball",
+            lane="L0-main",
             classifier_passed=True,
             policy_requires_acknowledge=False,
         )
@@ -92,6 +102,7 @@ class MaterializeAgentDraftGateTests(unittest.TestCase):
                 workspace_root=self.tmp,
                 gate=gate,
                 base_dir=self.base,
+                ack_id=ack.ack_id,
                 **kwargs,
             )
 

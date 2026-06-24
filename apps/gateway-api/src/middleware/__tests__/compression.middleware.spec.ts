@@ -1,14 +1,14 @@
-/* eslint-disable @typescript-eslint/unbound-method */
-/* eslint-disable @typescript-eslint/no-dynamic-delete */
-/* eslint-disable @typescript-eslint/no-empty-function */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
 /**
  * CompressionMiddleware Tests
@@ -404,7 +404,7 @@ describe('CompressionMiddleware', () => {
 
       // If compression doesn't help, Content-Encoding should not be set
       // This depends on the actual data - test verifies the logic exists
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+       
       expect(res._endSpy.mock.calls.length).toBeGreaterThan(0);
     });
   });
@@ -424,7 +424,7 @@ describe('CompressionMiddleware', () => {
       res.end();
       await flushCompression(res);
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+       
       expect(res._endSpy.mock.calls.length).toBeGreaterThan(0);
     });
 

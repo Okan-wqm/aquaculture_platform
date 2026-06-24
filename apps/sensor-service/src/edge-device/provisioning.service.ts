@@ -1,5 +1,9 @@
 import * as crypto from 'crypto';
-import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  runInTenantRead,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 
 import {
   Injectable,
@@ -603,27 +607,14 @@ export class ProvisioningService {
 
     // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
-      const tenantSchema = this.getTenantSchemaFromId(key.tenantId);
-      const qr = this.dataSource.createQueryRunner();
-      await qr.connect();
-      let existing: EdgeDevice | null = null;
-      try {
-        await qr.query(`SET search_path TO "${tenantSchema}", sensor, public`);
-        // tenantId auto-injected by the scoped wrapper; explicit
-        // `d.tenant_id = :tenantId` clause below is redundant but kept
-        // because this query pins a snake_case column name that the
-        // auto-injected camelCase tenantId clause would not match.
-        existing = await tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
+      const existing = await runInTenantRead(this.dataSource, 'sensor', key.tenantId, async (qr) =>
+        tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
           .createQueryBuilder('d')
-          .where('d.tenant_id = :tenantId', { tenantId: key.tenantId })
           .andWhere("d.fingerprint->>'machineId' = :machineId", {
             machineId: request.fingerprint.machineId,
           })
-          .getOne();
-      } finally {
-        await qr.query('RESET search_path').catch(() => {});
-        await qr.release();
-      }
+          .getOne(),
+      );
 
       if (existing) {
         // If device was registered but never connected, return existing credentials for recovery

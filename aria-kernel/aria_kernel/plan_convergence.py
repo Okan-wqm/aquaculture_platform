@@ -76,6 +76,41 @@ ANSWERED_STATES = {"ANSWERED", "TIMEOUT_ABORTED"}
 MAX_CROSS_REVIEW_ROUNDS = 5
 REQUIRED_CROSS_REVIEW_DIRECTIONS = {"primary_to_challenger", "challenger_to_primary"}
 KNOWN_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+# WHY: the canonical plan_content required-field set was duplicated as a
+# literal in tools/aria-poc/ci_executor.py (fail-fast gate) and drifted
+# silently when fields were added. WHAT: this is the SINGLE SOURCE OF
+# TRUTH for the fields _validate_plan_content requires; the order is
+# load-bearing — the missing-field error message joins them in this order.
+PLAN_CONTENT_REQUIRED = (
+    "schema_version",
+    "title",
+    "summary",
+    "affected_surfaces",
+    "key_changes",
+    "validation_commands",
+    "evidence_refs",
+)
+# WHY: the cross-review risk field names were inline tuples inside
+# _validate_cross_review_risk, with no shared definition. WHAT: this is the
+# SSoT for the full cross-review risk field set. The validator slices it
+# (risk_id is checked first, then the 4 string fields, then the 2 list
+# fields) — the structure differs per field TYPE, so this tuple names the
+# fields but the validator keeps its type-specific check order.
+CROSS_REVIEW_RISK_REQUIRED = (
+    "risk_id",
+    "risk_category",
+    "severity",
+    "summary",
+    "recommendation",
+    "affected_files",
+    "evidence_refs",
+)
+# WHY: the V8 cross-review severity vocabulary ("blocking"/"material"/
+# "nice_to_have") was an inline set literal merged with KNOWN_SEVERITIES.
+# WHAT: this is the SSoT for the cross-review-specific severity values,
+# kept SEPARATE from KNOWN_SEVERITIES (the finding-severity vocabulary) so
+# the two vocabularies can evolve independently; the accept-set unions both.
+RISK_SEVERITY_VALUES = frozenset({"blocking", "material", "nice_to_have"})
 MAX_PLAN_BYTES = 1_000_000
 MAX_AFFECTED_PATHS = 200
 MAX_RISKS = 100
@@ -1827,10 +1862,16 @@ def _validate_risk(risk: dict[str, Any]) -> None:
 def _validate_cross_review_risk(risk: dict[str, Any]) -> None:
     if not isinstance(risk, dict):
         raise GovernanceError("risk must be a JSON object")
-    _require_non_empty(risk.get("risk_id"), "risk_id")
-    for field in ("risk_category", "severity", "summary", "recommendation"):
+    # Field names sourced from CROSS_REVIEW_RISK_REQUIRED (SSoT). The check
+    # STRUCTURE is intentionally type-specific and order-sensitive: index 0
+    # (risk_id) and indices 1..4 (string fields) go through _require_non_empty;
+    # the trailing list fields (affected_files, evidence_refs) get list-type
+    # validation below — collapsing into one uniform loop would wrongly
+    # _require_non_empty the lists and change which error fires first.
+    _require_non_empty(risk.get(CROSS_REVIEW_RISK_REQUIRED[0]), CROSS_REVIEW_RISK_REQUIRED[0])
+    for field in CROSS_REVIEW_RISK_REQUIRED[1:5]:
         _require_non_empty(risk.get(field), field)
-    if str(risk.get("severity")) not in {"blocking", "material", "nice_to_have", *KNOWN_SEVERITIES}:
+    if str(risk.get("severity")) not in {*RISK_SEVERITY_VALUES, *KNOWN_SEVERITIES}:
         raise GovernanceError("cross-review risk severity is invalid")
     affected_files = risk.get("affected_files")
     if not isinstance(affected_files, list) or not all(_valid_repo_path(item) for item in affected_files):
@@ -1845,7 +1886,7 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
         raise GovernanceError("plan content must be a JSON object")
     if len(_canonical_json(plan).encode("utf-8")) > MAX_PLAN_BYTES:
         raise GovernanceError("plan.json size limit exceeded")
-    required = ("schema_version", "title", "summary", "affected_surfaces", "key_changes", "validation_commands", "evidence_refs")
+    required = PLAN_CONTENT_REQUIRED
     missing = [field for field in required if field not in plan]
     if missing:
         raise GovernanceError(f"plan content missing required field(s): {', '.join(missing)}")

@@ -65,5 +65,5 @@ import { DeploymentLogService } from './services/deployment-log.service';
   ],
   exports: [AutomationService, DeploymentLogService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class AutomationModule {}

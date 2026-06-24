@@ -190,6 +190,32 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(attackers).toContain('ssot-control-plane-attacker');
   });
 
+  it('keeps every sprint and finding owner inside the agent roster SSoT', () => {
+    const agentRoster = new Set(stringArray(manifest.agent_roster));
+    const sprints = objectArray(manifest.sprints);
+    const findingAssignments = objectArray(manifest.finding_assignments);
+    const missingOwners = new Set<string>();
+
+    for (const sprint of sprints) {
+      const sprintId = stringValue(sprint.id, 'sprint.id');
+      for (const owner of stringArray(sprint.owner_agents)) {
+        if (!agentRoster.has(owner)) {
+          missingOwners.add(`${sprintId}:${owner}`);
+        }
+      }
+    }
+
+    for (const assignment of findingAssignments) {
+      const pattern = stringValue(assignment.pattern, 'finding_assignment.pattern');
+      const owner = stringValue(assignment.owner_agent, 'finding_assignment.owner_agent');
+      if (!agentRoster.has(owner)) {
+        missingOwners.add(`${pattern}:${owner}`);
+      }
+    }
+
+    expect([...missingOwners].sort()).toEqual([]);
+  });
+
   it('keeps the truth table aligned with active critical IDs', () => {
     const activeCriticalIds = stringArray(manifest.active_critical_ids);
     const rows = truthTableRows(truthTable);
@@ -267,6 +293,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(parsed.required_status_checks.contexts).toEqual([
       'sens-enterprise-summary',
       'merge-gate',
+      'aria-merge-authority',
     ]);
   });
 });

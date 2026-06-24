@@ -1,0 +1,182 @@
+{
+  "plan_id": "2026-06-19-root-ssot-stabilization",
+  "created_at": "2026-06-19T00:00:00Z",
+  "base_commit": "51fa97451805614682a84acf2fc93f84ed7467d6",
+  "scope_policy": {
+    "finding_scope_must_be_explicit": true,
+    "forbidden_finding_scope_tokens": ["ALL", "*", ".."],
+    "wildcard_scope_allowed_only_for": "final-registry-sweep",
+    "producer_files_must_land_before_or_with_consumers": true,
+    "generated_outputs_manual_edits_allowed": false
+  },
+  "regeneration_order": [
+    "schema/migrations",
+    "GraphQL schema",
+    "typed operations",
+    "frontend generated types",
+    "CSP/nginx/shell outputs",
+    "bundle scan"
+  ],
+  "producer_files": [
+    "tools/toolchain/run.mjs",
+    "tools/toolchain/toolchain-runtime.mjs",
+    "tools/toolchain/check-versions.mjs",
+    "tools/toolchain/versions.json",
+    "tests/invariants/stabilization-manifest.spec.ts",
+    "tests/invariants/toolchain-config-ssot.spec.ts"
+  ],
+  "waves": [
+    {
+      "id": "wave-0-control-plane",
+      "commit_group": 1,
+      "title": "Control plane, toolchain producers, generated-code policy",
+      "finding_ids": ["SSOT-CRITICAL-001", "TOOLCHAIN-HIGH-001"],
+      "touched_globs": [
+        "docs/plans/2026-06-19-root-ssot-stabilization/**",
+        "tools/toolchain/**",
+        "tests/invariants/stabilization-manifest.spec.ts",
+        "tests/invariants/toolchain-config-ssot.spec.ts",
+        "package.json"
+      ],
+      "generated_outputs": [],
+      "deletion_targets": [],
+      "tombstone_queries": [
+        "rg -n \"NODE_NO_WARNINGS|--no-deprecation|--disable-warning=DeprecationWarning\" package.json .github scripts .husky"
+      ],
+      "gate_commands": [
+        "npm run toolchain:check",
+        "npm run gates:tools-typecheck",
+        "npm run gates:root-ssot-stabilization",
+        "npm run gates:all"
+      ],
+      "producer_file_refs": [
+        "tools/toolchain/run.mjs",
+        "tools/toolchain/toolchain-runtime.mjs",
+        "tools/toolchain/check-versions.mjs",
+        "tools/toolchain/versions.json"
+      ]
+    },
+    {
+      "id": "wave-1-backend-tenant-read-write",
+      "commit_group": 2,
+      "title": "Backend tenant read/write convergence and migration manifest parity",
+      "finding_ids": ["FARM-HIGH-003", "TENANT-HIGH-001"],
+      "touched_globs": ["apps/farm-service/src/site/**", "apps/farm-service/src/department/**"],
+      "generated_outputs": [],
+      "deletion_targets": [],
+      "tombstone_queries": [
+        "rg -n \"@InjectRepository|createQueryRunner|getRepository\\(\" apps/farm-service/src/site apps/farm-service/src/department"
+      ],
+      "gate_commands": ["npm run type-check", "npx nx affected --target=test"],
+      "producer_file_refs": ["libs/backend-common/src/database/tenant-transaction.ts"]
+    },
+    {
+      "id": "wave-2-farm-frontend-contract",
+      "commit_group": 3,
+      "title": "Farm codegen, /sites route/query/permission/error contract",
+      "finding_ids": ["FE-HIGH-002", "ORPHAN-HIGH-131"],
+      "touched_globs": ["codegen.ts", "web/modules/farm-module/src/**", "web/shared-ui/src/**"],
+      "generated_outputs": [
+        {
+          "path": "web/shared-ui/src/generated/graphql-types.ts",
+          "source": "codegen.ts",
+          "command": "npm run codegen",
+          "manual_edits_allowed": false
+        },
+        {
+          "path": "web/apps/aquamobil/src/generated/graphql.ts",
+          "source": "codegen.ts",
+          "command": "npm run codegen",
+          "manual_edits_allowed": false
+        }
+      ],
+      "deletion_targets": [],
+      "tombstone_queries": [
+        "rg -n \"graphqlClient|useAuth|createTenantQueryKey\" web/modules/farm-module/src"
+      ],
+      "gate_commands": ["npm run codegen:check", "npm run type-check"],
+      "producer_file_refs": ["web/shared-ui/src/hooks/useTenantGraphQLScope.ts"]
+    },
+    {
+      "id": "wave-3-marine-data",
+      "commit_group": 4,
+      "title": "MarineData auth/cache/registry/credential/CSP lane",
+      "finding_ids": ["MARINE-CRITICAL-001", "CSP-HIGH-002"],
+      "touched_globs": ["apps/gateway-api/src/routes/**", "apps/farm-service/src/marine-data/**", "web/modules/farm-module/src/**"],
+      "generated_outputs": [
+        {
+          "path": "web/shell/index.html",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target shell",
+          "manual_edits_allowed": false
+        },
+        {
+          "path": "infrastructure/nginx/droplet.conf",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target droplet-nginx",
+          "manual_edits_allowed": false
+        },
+        {
+          "path": "infrastructure/docker/nginx/nginx.prod.conf",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target docker-nginx",
+          "manual_edits_allowed": false
+        },
+        {
+          "path": "nginx/nginx.conf",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target legacy-nginx",
+          "manual_edits_allowed": false
+        }
+      ],
+      "deletion_targets": [],
+      "tombstone_queries": [
+        "rg -n \"sentinelHubService|sentinelTileService|cmemsService\" web/modules/farm-module/src"
+      ],
+      "gate_commands": ["npm run type-check", "npm run csp:check", "npm run gates:all"],
+      "producer_file_refs": ["apps/gateway-api/src/routes/marine.routes.ts"]
+    },
+    {
+      "id": "wave-4-sensor-scada",
+      "commit_group": 5,
+      "title": "Sensor/SCADA tenant GraphQL and websocket tenant isolation",
+      "finding_ids": ["SCADA-HIGH-001", "SENSOR-MEDIUM-001"],
+      "touched_globs": ["apps/sensor-service/src/**", "web/modules/sensor-module/src/**"],
+      "generated_outputs": [],
+      "deletion_targets": [],
+      "tombstone_queries": [
+        "rg -n \"fetch\\('/graphql'\\)|graphqlFetch|default-tenant\" web/modules/sensor-module/src apps/sensor-service/src"
+      ],
+      "gate_commands": ["npm run type-check", "npx nx affected --target=test"],
+      "producer_file_refs": ["web/modules/sensor-module/src/types/runtime-socket.types.ts"]
+    },
+    {
+      "id": "wave-5-tenant-lifecycle-redis-scheduler-closure",
+      "commit_group": 6,
+      "title": "TenantLifecycle, Redis/Scheduler/deploy hardening and closure",
+      "finding_ids": ["REDIS-HIGH-001", "TENANT-HIGH-004", "DELETION-HIGH-001"],
+      "touched_globs": ["libs/backend-common/src/redis/**", "apps/db-migrate/src/**", "tools/gates/**"],
+      "generated_outputs": [],
+      "deletion_targets": [],
+      "tombstone_queries": [
+        "rg -n \"REDIS_HOST|REDIS_PORT|REDIS_PASSWORD|REDIS_DB\" apps libs platform docker-compose.droplet.yml .github"
+      ],
+      "gate_commands": ["npm run gates:deletion-witness", "npm run gates:enterprise-closure"],
+      "producer_file_refs": ["libs/backend-common/src/redis/redis-options.builder.ts"]
+    }
+  ],
+  "final_registry_sweep": {
+    "id": "final-registry-sweep",
+    "pattern_scope_allowed": true,
+    "allowed_patterns": ["registry sweep only"],
+    "gate_commands": ["npm run findings:verify", "npm run gates:all"]
+  },
+  "commit_order": [
+    "control-plane manifest and toolchain producers",
+    "backend tenant read/write convergence",
+    "farm frontend typed contract",
+    "MarineData and CSP",
+    "Sensor/SCADA tenant runtime",
+    "TenantLifecycle, Redis/Scheduler, and closure"
+  ]
+}

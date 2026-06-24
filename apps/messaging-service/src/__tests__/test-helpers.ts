@@ -167,6 +167,7 @@ export function createMockOutboxEvent(
 // Mock QueryRunner (for transactional handlers that use createQueryRunner)
 // ---------------------------------------------------------------------------
 export interface MockQueryRunnerManager {
+  getRepository: jest.Mock;
   create: jest.Mock;
   save: jest.Mock;
   findOne: jest.Mock;
@@ -189,13 +190,15 @@ export interface MockQueryRunner {
   startTransaction: jest.Mock;
   commitTransaction: jest.Mock;
   rollbackTransaction: jest.Mock;
+  isTransactionActive: boolean;
   release: jest.Mock;
   manager: MockQueryRunnerManager;
   query: jest.Mock;
 }
 
 export function createMockQueryRunnerManager(): MockQueryRunnerManager {
-  return {
+  const manager: MockQueryRunnerManager = {
+    getRepository: jest.fn(),
     create: jest.fn().mockImplementation((_Entity: unknown, data: unknown) => data),
     save: jest.fn().mockImplementation((_Entity: unknown, data: unknown) => Promise.resolve(data)),
     findOne: jest.fn(),
@@ -206,14 +209,38 @@ export function createMockQueryRunnerManager(): MockQueryRunnerManager {
     createQueryBuilder: jest.fn(),
     query: jest.fn().mockResolvedValue([]),
   };
+  manager.getRepository.mockReturnValue({
+    create: manager.create,
+    save: manager.save,
+    findOne: manager.findOne,
+    find: manager.find,
+    count: manager.count,
+    update: manager.update,
+    delete: manager.delete,
+    createQueryBuilder: manager.createQueryBuilder,
+    metadata: {
+      findColumnWithPropertyName: jest.fn().mockReturnValue({ databaseName: 'tenantId' }),
+    },
+  });
+  return manager;
 }
 
 export function createMockQueryRunner(): MockQueryRunner {
   return {
     connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: jest.fn().mockResolvedValue(undefined),
-    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockImplementation(function startTransaction(this: MockQueryRunner) {
+      this.isTransactionActive = true;
+      return Promise.resolve();
+    }),
+    commitTransaction: jest.fn().mockImplementation(function commitTransaction(this: MockQueryRunner) {
+      this.isTransactionActive = false;
+      return Promise.resolve();
+    }),
+    rollbackTransaction: jest.fn().mockImplementation(function rollbackTransaction(this: MockQueryRunner) {
+      this.isTransactionActive = false;
+      return Promise.resolve();
+    }),
+    isTransactionActive: false,
     release: jest.fn().mockResolvedValue(undefined),
     manager: createMockQueryRunnerManager(),
     query: jest.fn(),
@@ -224,8 +251,20 @@ export function createMockQueryRunner(): MockQueryRunner {
 // Mock repository factory
 // ---------------------------------------------------------------------------
 export type MockRepository<T extends ObjectLiteral> = jest.Mocked<
-  Pick<Repository<T>, 'findOne' | 'find' | 'save' | 'create' | 'update' | 'delete' | 'count' | 'createQueryBuilder'>
->;
+  Pick<
+    Repository<T>,
+    | 'findOne'
+    | 'find'
+    | 'save'
+    | 'create'
+    | 'update'
+    | 'delete'
+    | 'count'
+    | 'createQueryBuilder'
+  >
+> & {
+  metadata: Pick<Repository<T>['metadata'], 'findColumnWithPropertyName'>;
+};
 
 export function createMockRepository<T extends ObjectLiteral>(): MockRepository<T> {
   return {
@@ -237,6 +276,11 @@ export function createMockRepository<T extends ObjectLiteral>(): MockRepository<
     delete: jest.fn(),
     count: jest.fn(),
     createQueryBuilder: jest.fn(),
+    metadata: {
+      findColumnWithPropertyName: jest.fn().mockReturnValue({
+        databaseName: 'tenantId',
+      }),
+    } as Pick<Repository<T>['metadata'], 'findColumnWithPropertyName'>,
   };
 }
 

@@ -255,9 +255,15 @@ export function applyChangeToRow(
       assertKnownBackend(change.backend);
       next.overrides[change.tenantId] = change.backend;
       break;
-    case 'remove_tenant':
-      delete next.overrides[change.tenantId];
+    case 'remove_tenant': {
+      // Rebuild the overrides map without the target key. A `delete` on a
+      // dynamically-computed key is banned (no-dynamic-delete); reconstructing
+      // the plain object preserves the exact JSONB persistence shape TypeORM
+      // serializes (a bare object minus that key) without mutating-by-delete.
+      const { [change.tenantId]: _removed, ...remaining } = next.overrides;
+      next.overrides = remaining;
       break;
+    }
     default: {
       // Exhaustiveness guard — a new action variant added on
       // the contract side MUST update this switch. The `never`

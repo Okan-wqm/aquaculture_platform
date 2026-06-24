@@ -49,6 +49,7 @@ describe('BiomassCalculatorService', () => {
     findOne: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
+  const AS_OF = new Date('2026-06-19T10:00:00.000Z');
 
   function createQueryBuilderMock(
     options: {
@@ -185,8 +186,7 @@ describe('BiomassCalculatorService', () => {
     });
 
     it('should return measured biomass with high confidence for recent measurement', async () => {
-      const recentDate = new Date();
-      recentDate.setDate(recentDate.getDate() - 3); // 3 days ago
+      const recentDate = new Date('2026-06-16T10:00:00.000Z');
 
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
@@ -202,7 +202,7 @@ describe('BiomassCalculatorService', () => {
         measurementDate: recentDate,
       });
 
-      const result = await service.getBatchBiomass(batchId, tenantId);
+      const result = await service.getBatchBiomass(batchId, tenantId, AS_OF);
 
       expect(result.biomassKg).toBe(2500); // 10000 * 250 / 1000
       expect(result.quantity).toBe(10000);
@@ -213,8 +213,7 @@ describe('BiomassCalculatorService', () => {
     });
 
     it('should return estimated biomass with medium confidence for older measurement', async () => {
-      const olderDate = new Date();
-      olderDate.setDate(olderDate.getDate() - 14); // 14 days ago
+      const olderDate = new Date('2026-06-05T10:00:00.000Z');
 
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
@@ -230,7 +229,7 @@ describe('BiomassCalculatorService', () => {
         measurementDate: olderDate,
       });
 
-      const result = await service.getBatchBiomass(batchId, tenantId);
+      const result = await service.getBatchBiomass(batchId, tenantId, AS_OF);
 
       // Fixed 14-day projection: 220g + (2g/day * 14 days).
       expect(result.avgWeightG).toBeCloseTo(248, 0);
@@ -239,8 +238,7 @@ describe('BiomassCalculatorService', () => {
     });
 
     it('should return estimated biomass with low confidence for very old measurement', async () => {
-      const veryOldDate = new Date();
-      veryOldDate.setDate(veryOldDate.getDate() - 30); // 30 days ago
+      const veryOldDate = new Date('2026-05-20T10:00:00.000Z');
 
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
@@ -256,7 +254,7 @@ describe('BiomassCalculatorService', () => {
         measurementDate: veryOldDate,
       });
 
-      const result = await service.getBatchBiomass(batchId, tenantId);
+      const result = await service.getBatchBiomass(batchId, tenantId, AS_OF);
 
       expect(result.method).toBe('estimated');
       expect(result.confidence).toBe('low');
@@ -273,7 +271,7 @@ describe('BiomassCalculatorService', () => {
 
       mockMeasurementRepository.findOne.mockResolvedValue(null);
 
-      const result = await service.getBatchBiomass(batchId, tenantId);
+      const result = await service.getBatchBiomass(batchId, tenantId, AS_OF);
 
       expect(result.avgWeightG).toBe(200);
       expect(result.method).toBe('calculated');
@@ -282,8 +280,7 @@ describe('BiomassCalculatorService', () => {
     });
 
     it('should use default daily growth when species data not available', async () => {
-      const olderDate = new Date();
-      olderDate.setDate(olderDate.getDate() - 14);
+      const olderDate = new Date('2026-06-05T10:00:00.000Z');
 
       mockBatchRepository.findOne.mockResolvedValue({
         id: batchId,
@@ -299,7 +296,7 @@ describe('BiomassCalculatorService', () => {
         measurementDate: olderDate,
       });
 
-      const result = await service.getBatchBiomass(batchId, tenantId);
+      const result = await service.getBatchBiomass(batchId, tenantId, AS_OF);
 
       // Default daily growth is 1g
       expect(result.avgWeightG).toBeCloseTo(234, 0); // 220 + (1 * 14)
@@ -532,11 +529,12 @@ describe('BiomassCalculatorService', () => {
 
       mockMeasurementRepository.findOne.mockResolvedValue(null);
 
-      const result = await service.projectBiomass(batchId, tenantId, 30);
+      const result = await service.projectBiomass(batchId, tenantId, 30, AS_OF);
 
       expect(result.currentBiomassKg).toBe(2000); // 10000 * 200 / 1000
       expect(result.projectedBiomassKg).toBeGreaterThan(result.currentBiomassKg);
       expect(result.daysForward).toBe(30);
+      expect(result.projectedDate).toEqual(new Date('2026-07-19T10:00:00.000Z'));
       expect(result.dailyGrowthKg).toBeGreaterThan(0);
       expect(result.assumptions.survivalRate).toBe(95);
       expect(result.assumptions.dailyGrowthG).toBe(2);
@@ -563,7 +561,7 @@ describe('BiomassCalculatorService', () => {
 
       mockMeasurementRepository.findOne.mockResolvedValue(null);
 
-      const result = await service.projectBiomass(batchId, tenantId, 30);
+      const result = await service.projectBiomass(batchId, tenantId, 30, AS_OF);
 
       expect(result.assumptions.survivalRate).toBe(95); // default
       expect(result.assumptions.dailyGrowthG).toBe(1); // default
@@ -587,7 +585,7 @@ describe('BiomassCalculatorService', () => {
 
       mockMeasurementRepository.findOne.mockResolvedValue(null);
 
-      const result = await service.projectBiomass(batchId, tenantId, 30);
+      const result = await service.projectBiomass(batchId, tenantId, 30, AS_OF);
 
       // With 90% survival rate, daily mortality = 10%/365 ≈ 0.027%/day
       // Over 30 days, quantity should decrease slightly

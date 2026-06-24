@@ -31,8 +31,24 @@ describe('MessagingNatsHandler.getMessageForBroadcast', () => {
     find = jest.fn().mockResolvedValue([]);
     generateDownloadUrl = jest.fn();
 
+    let isTransactionActive = false;
     const queryRunner = {
       connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockImplementation(() => {
+        isTransactionActive = true;
+        return Promise.resolve();
+      }),
+      commitTransaction: jest.fn().mockImplementation(() => {
+        isTransactionActive = false;
+        return Promise.resolve();
+      }),
+      rollbackTransaction: jest.fn().mockImplementation(() => {
+        isTransactionActive = false;
+        return Promise.resolve();
+      }),
+      get isTransactionActive(): boolean {
+        return isTransactionActive;
+      },
       query: jest.fn().mockResolvedValue(undefined),
       release: jest.fn().mockResolvedValue(undefined),
       manager: { findOne, find },

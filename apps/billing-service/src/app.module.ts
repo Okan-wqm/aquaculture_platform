@@ -5,6 +5,7 @@ import {
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   RlsModule,
   AuditColumnsModule,
@@ -21,7 +22,7 @@ import {
   TenantContextMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -34,6 +35,7 @@ import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 
 import { BillingModule } from './billing/billing.module';
+import { BillingOutboxModule } from './outbox/billing-outbox.module';
 import { InvoiceLineItem, TaxInfo, BillingAddress } from './billing/entities/invoice.entity';
 import { PaymentMethodDetails, RefundInfo } from './billing/entities/payment.entity';
 import {
@@ -144,13 +146,8 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        url: configService.get('REDIS_URL'),
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: configService.get<number>('REDIS_PORT', 6379),
-        password: configService.get('REDIS_PASSWORD'),
-        keyPrefix: 'billing:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'billing', 'optional'),
     }),
     // Event Bus Module (NATS JetStream)
     EventBusModule.forRootAsync({
@@ -161,6 +158,8 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    BillingOutboxModule,
+    TenantErasureTargetModule.forService('billing-service'),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     // Event Emitter — single forRoot() for the entire service
@@ -198,6 +197,7 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     RlsModule.forPoolService({
       serviceName: 'billing',
       autoApply: !billingSchemaDdlOwnedByDbMigrate,
+      excludeTables: ['billing_outbox'],
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ.

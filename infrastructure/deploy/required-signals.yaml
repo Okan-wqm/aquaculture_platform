@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: 2695806be81acb978b5f4927093b699b8bdba909b95d47aa4d1074a44b76548c
+# catalogHash: ebeab8fd5710252559a710af7d019d9ca32e5b9991da21edd7d4f2408505a0f2
 # do not edit by hand
 schema_version: 2
 defaults:
@@ -49,6 +49,7 @@ services:
       - schema_drift_clean
   - name: hydroponics-service
     signals:
+      - nats_auth_mode_mtls
       - schema_drift_clean
   - name: messaging-service
     signals:

@@ -465,6 +465,24 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     return () => document.removeEventListener('keydown', handleEsc);
   }, [isOpen, onClose]);
 
+  // Compute the filtered Modbus function codes based on current IO type,
+  // plus the current selection if it is incompatible (backward compat for legacy configs).
+  // Declared before the `!isOpen` early return so the hook call order stays
+  // stable across renders (react-hooks/rules-of-hooks).
+  const filteredFunctionCodes = useMemo(() => {
+    const compatible = getFilteredFunctionCodes(form.ioType);
+    const currentFc = Number(form.modbusFunction);
+    const currentIsCompatible = compatible.some(fc => fc.value === currentFc);
+    if (!currentIsCompatible) {
+      // Include the current (incompatible) code so the dropdown does not silently lose it.
+      const legacy = MODBUS_FUNCTION_CODES.find(fc => fc.value === currentFc);
+      if (legacy) {
+        return [...compatible, { ...legacy, label: `${legacy.label} (incompatible)` }];
+      }
+    }
+    return compatible;
+  }, [form.ioType, form.modbusFunction]);
+
   if (!isOpen) return null;
 
   const set = <K extends keyof IoFormState>(key: K, val: IoFormState[K]) =>
@@ -484,22 +502,6 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     });
 
   const isAnalog = form.ioType === IoType.AI || form.ioType === IoType.AO;
-
-  // Compute the filtered Modbus function codes based on current IO type,
-  // plus the current selection if it is incompatible (backward compat for legacy configs).
-  const filteredFunctionCodes = useMemo(() => {
-    const compatible = getFilteredFunctionCodes(form.ioType);
-    const currentFc = Number(form.modbusFunction);
-    const currentIsCompatible = compatible.some(fc => fc.value === currentFc);
-    if (!currentIsCompatible) {
-      // Include the current (incompatible) code so the dropdown does not silently lose it.
-      const legacy = MODBUS_FUNCTION_CODES.find(fc => fc.value === currentFc);
-      if (legacy) {
-        return [...compatible, { ...legacy, label: `${legacy.label} (incompatible)` }];
-      }
-    }
-    return compatible;
-  }, [form.ioType, form.modbusFunction]);
 
   const currentFcIncompatible = !isFunctionCodeCompatible(
     Number(form.modbusFunction),
@@ -1104,7 +1106,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
     } catch {
       // Error state handled by scanHardware.error
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [deviceId]);
 
   // v2.3: Import selected channels from auto-detect results
@@ -1114,7 +1116,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
       refetch(); // Refresh device data to show new I/O configs
       return result;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [deviceId, refetch],
   );
 

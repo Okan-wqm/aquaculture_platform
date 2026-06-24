@@ -28,16 +28,3 @@ export {
   TagSubscriptionManager,
   createTagSubscriptionManager,
 } from './TagSubscriptionManager';
-
-// ── Script engine ────────────────────────────────────────────────────────────
-
-export {
-  ScriptEngine,
-  createScriptEngine,
-} from './ScriptEngine';
-
-export type {
-  ScriptConsoleEntry,
-  ScriptBridge,
-  ScriptBridgeResolver,
-} from './ScriptEngine';

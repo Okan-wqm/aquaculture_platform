@@ -12,6 +12,7 @@ import {
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -29,7 +30,7 @@ import {
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 
 /**
@@ -50,6 +51,7 @@ const notificationSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(proces
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
+import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
@@ -187,18 +189,15 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    NotificationOutboxModule,
+    TenantErasureTargetModule.forService('notification-service'),
 
     // Redis Module (global – used for distributed rate limiting, etc.)
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: configService.get<number>('REDIS_PORT', 6379),
-        password: configService.get<string>('REDIS_PASSWORD'),
-        db: configService.get<number>('REDIS_DB', 0),
-        keyPrefix: 'aqua:notif:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'notification', 'optional'),
     }),
 
     // Schedule module — single forRoot() for the entire service
@@ -227,6 +226,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     RlsModule.forPoolService({
       serviceName: 'notification',
       autoApply: !notificationSchemaDdlOwnedByDbMigrate,
+      excludeTables: ['notification_outbox'],
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.

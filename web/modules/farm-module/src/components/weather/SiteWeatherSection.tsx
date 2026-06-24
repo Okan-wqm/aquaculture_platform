@@ -297,6 +297,16 @@ const PrecipitationChart: React.FC<{ weather: WeatherObservation[] }> = ({ weath
 const MarineChart: React.FC<{ marine: MarineObservation[] }> = ({ marine }) => {
   const hasData = marine.length > 0 && marine.some((m) => m.waveHeight !== null);
 
+  const data = useMemo(() => {
+    const sampled = marine.filter((_, i) => i % 3 === 0);
+    return sampled.map((m) => ({
+      time: formatHour(m.observedAt),
+      waveHeight: m.waveHeight !== null ? Number(m.waveHeight) : null,
+      swellHeight: m.swellWaveHeight !== null ? Number(m.swellWaveHeight) : null,
+      currentVelocity: m.oceanCurrentVelocity !== null ? Number(m.oceanCurrentVelocity) : null,
+    }));
+  }, [marine]);
+
   if (!hasData) {
     return (
       <div className="flex items-center justify-center h-[280px] bg-gray-50 rounded-lg">
@@ -310,16 +320,6 @@ const MarineChart: React.FC<{ marine: MarineObservation[] }> = ({ marine }) => {
       </div>
     );
   }
-
-  const data = useMemo(() => {
-    const sampled = marine.filter((_, i) => i % 3 === 0);
-    return sampled.map((m) => ({
-      time: formatHour(m.observedAt),
-      waveHeight: m.waveHeight !== null ? Number(m.waveHeight) : null,
-      swellHeight: m.swellWaveHeight !== null ? Number(m.swellWaveHeight) : null,
-      currentVelocity: m.oceanCurrentVelocity !== null ? Number(m.oceanCurrentVelocity) : null,
-    }));
-  }, [marine]);
 
   return (
     <ResponsiveContainer width="100%" height={280}>

@@ -1,5 +1,6 @@
 import { BaseEvent, PlanTier, BillingCycle } from './base-event';
 import { TenantStatus } from './enums/tenant-status.enum';
+import type { TenantErasureTargetService } from './tenant-erasure-targets';
 
 /**
  * Tenant Created Event
@@ -123,34 +124,82 @@ export interface TenantArchivedEvent extends BaseEvent {
 }
 
 /**
+ * Tenant Erasure Requested Event
+ *
+ * Published by the platform erasure orchestrator after legal-hold
+ * precedence has been checked and the tenant-erasure run has been
+ * durably accepted. Target services consume this event and return
+ * service-scoped proof events; they do not publish the final proof.
+ */
+export interface TenantErasureRequestedEvent extends BaseEvent {
+  eventType: 'TenantErasureRequested';
+  operationId: string;
+  requestedBy: string;
+  requestedAt: string;
+  legalHoldCheckedAt: string;
+  dryRun: boolean;
+  targetServiceCount: number;
+}
+
+/**
+ * Service-scoped proof that one target completed its tenant erasure.
+ */
+export interface TenantDataErasedEvent extends BaseEvent {
+  eventType: 'TenantDataErased';
+  operationId: string;
+  targetService: TenantErasureTargetService;
+  erasedAt: string;
+  dryRun: boolean;
+  matchedRecordCount: number;
+  erasedRecordCount: number;
+  proofHash: string;
+}
+
+/**
+ * Service-scoped failure proof. The orchestrator records this and
+ * withholds the final TenantErased proof until all targets succeed.
+ */
+export interface TenantDataErasureFailedEvent extends BaseEvent {
+  eventType: 'TenantDataErasureFailed';
+  operationId: string;
+  targetService: TenantErasureTargetService;
+  failedAt: string;
+  errorCode: string;
+  errorMessage: string;
+  retryable: boolean;
+}
+
+/**
+ * Durable block proof for legal-hold or policy denial.
+ */
+export interface TenantErasureBlockedEvent extends BaseEvent {
+  eventType: 'TenantErasureBlocked';
+  operationId: string;
+  blockedAt: string;
+  blockedByService: TenantErasureTargetService | 'platform-orchestrator';
+  reason: string;
+  legalMatterId?: string;
+}
+
+/**
  * Tenant Erased Event
  *
- * Published by farm-service (and any other service implementing
- * local GDPR Article 17 erasure) when a `confirmTenantErasure`
- * mutation completes. The event signals cross-service listeners
- * (messaging / auth / billing / sensor) to run their own
- * tenant-data cleanup jobs so the platform as a whole honours the
- * right-to-erasure within a bounded window.
- *
- * Phase 6.3.1 of the "Farm modülü kalan kör noktalar" plan.
- * Counterpart to `TenantErasureService` in farm-service (phase 6.3).
- *
- * Consumers should be idempotent — the event is at-least-once.
- * `tenantId` is the only field required to drive cleanup; the
- * aggregate counters are there for audit dashboards.
+ * Final hash-signed proof emitted only by the platform erasure
+ * orchestrator after every target in TENANT_ERASURE_TARGET_SERVICES
+ * has returned durable TenantDataErased proof and db-migrate has
+ * committed tenant schema deletion evidence. This event is not a cascade
+ * trigger.
  */
 export interface TenantErasedEvent extends BaseEvent {
   eventType: 'TenantErased';
-  /** ISO timestamp of the confirm-step completion (UTC). */
-  confirmedAt: string;
-  /** User UUID that confirmed the erasure (already validated against the ticket). */
+  operationId: string;
+  requestedAt: string;
   requestedBy: string;
-  /** Sum of affected rows across all tenant-scoped tables in the emitting service. */
-  totalDeleted: number;
-  /** Audit-log rows where `userId` was SHA-256-anonymised instead of deleted. */
-  auditRowsAnonymised: number;
-  /** Count of distinct tables with at least one affected row. */
-  tableCount: number;
+  legalHoldCheckedAt: string;
+  completedAt: string;
+  targetServiceCount: number;
+  proofHash: string;
+  proofVersion: number;
 }
 
 /**
@@ -307,6 +356,10 @@ export type TenantEvent =
   | TenantSuspendedEvent
   | TenantActivatedEvent
   | TenantArchivedEvent
+  | TenantErasureRequestedEvent
+  | TenantDataErasedEvent
+  | TenantDataErasureFailedEvent
+  | TenantErasureBlockedEvent
   | TenantErasedEvent
   | TenantProvisioningFailedEvent
   | TenantSubscriptionChangedEvent

@@ -69,8 +69,8 @@ const baseTransform = {
       // project-wide type-check dominates startup (~5s per spec file).
       // The invariant suite's type safety is already enforced by the
       // `type-check` root script (tsc --noEmit platform-wide); this
-      // transform needs only syntactic transpilation.
-      isolatedModules: true,
+      // transform needs only syntactic transpilation, owned by
+      // tsconfig.spec.json instead of deprecated ts-jest inline config.
     },
   ],
 };
@@ -84,6 +84,12 @@ const commonProjectOptions = {
   roots: ['<rootDir>'],
   testEnvironment: 'node' as const,
   moduleFileExtensions: ['ts', 'js', 'html'],
+  // schema-manager.service.ts (read by tenant-erasure-ssot.spec) imports the
+  // proof-ledger table constant via the @platform/outbox alias; map it so jest
+  // resolves the source the same way tsconfig.base paths do at build time.
+  moduleNameMapper: {
+    '^@platform/outbox$': '<rootDir>/../../platform/libs/outbox/src/index.ts',
+  },
   transform: baseTransform,
 };
 
@@ -108,19 +114,24 @@ export default {
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
         '<rootDir>/no-direct-getrepository-call.spec.ts',
         '<rootDir>/no-root-barrel-import.spec.ts',
+        '<rootDir>/no-shared-entity-decorators-via-main-barrel.spec.ts',
         '<rootDir>/graphql-enum-valuesmap-metadata.spec.ts',
         '<rootDir>/messaging-schema-ssot.spec.ts',
+        '<rootDir>/messaging-e2e-tenant-context.spec.ts',
         '<rootDir>/web-shared-ui-singleton-imports.spec.ts',
         '<rootDir>/federation-shared-singleton.spec.ts',
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
+        '<rootDir>/script-graphql-client-ssot.spec.ts',
         '<rootDir>/production-ops-proof-contract.spec.ts',
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
         '<rootDir>/repo-hygiene-invariants.spec.ts',
         '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
+        '<rootDir>/stabilization-manifest.spec.ts',
+        '<rootDir>/runtime-lifecycle-timer-ssot.spec.ts',
       ],
     },
     {
@@ -133,6 +144,7 @@ export default {
         '<rootDir>/agent-size-limit.spec.ts',
         '<rootDir>/agent-frontmatter-schema.spec.ts',
         '<rootDir>/agent-doc-shape.spec.ts',
+        '<rootDir>/agent-inlining-ssot.spec.ts',
         '<rootDir>/maintenance-isolation.spec.ts',
         '<rootDir>/settings-hook-coverage.spec.ts',
         '<rootDir>/active-path-hygiene.spec.ts',
@@ -143,8 +155,11 @@ export default {
         '<rootDir>/farm-identity-ssot.spec.ts',
         '<rootDir>/farm-rest-cqrs-ssot.spec.ts',
         '<rootDir>/farm-graphql-fe-be-parity.spec.ts',
+        '<rootDir>/farm-graphql-resolver-field-uniqueness.spec.ts',
         '<rootDir>/dead-contract-fe-operations.spec.ts',
         '<rootDir>/farm-batch-policy-transaction-ssot.spec.ts',
+        '<rootDir>/farm-stock-mutation-ssot.spec.ts',
+        '<rootDir>/farm-minio-orphan-cleanup-ssot.spec.ts',
         '<rootDir>/stock-mutating-handlers-reject-legacy.spec.ts',
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
         '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
@@ -160,6 +175,7 @@ export default {
         '<rootDir>/claude-md-accuracy.spec.ts',
         '<rootDir>/agent-prompt-accuracy.spec.ts',
         '<rootDir>/farm-service-security-hardening.spec.ts',
+        '<rootDir>/tenant-erasure-ssot.spec.ts',
         '<rootDir>/agent-prompt-contract.spec.ts',
       ],
     },
@@ -169,7 +185,9 @@ export default {
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
+        '<rootDir>/no-runtime-synchronize.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
+        '<rootDir>/all-services-env-aware-migrations.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/migration-glob-contract.spec.ts',
         '<rootDir>/db-migrate-entity-metadata-contract.spec.ts',
@@ -178,6 +196,7 @@ export default {
         '<rootDir>/monitoring-alert-runbook-url.spec.ts',
         '<rootDir>/postgres-ddl-contract.spec.ts',
         '<rootDir>/postgres-image-uniformity.spec.ts',
+        '<rootDir>/postgres-runtime-contract.spec.ts',
         '<rootDir>/service-criticality-profile-contract.spec.ts',
         '<rootDir>/edge-v2-plan-contract.spec.ts',
         '<rootDir>/platform-service-catalog-parity.spec.ts',
@@ -190,6 +209,8 @@ export default {
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
+        '<rootDir>/critical-infra-ssot.spec.ts',
+        '<rootDir>/admin-backup-encryption-ssot.spec.ts',
         '<rootDir>/timescale-rls-columnstore-contract.spec.ts',
         '<rootDir>/jwt-rs256-only.spec.ts',
         '<rootDir>/messaging-partition-ddl-authority.spec.ts',
@@ -198,6 +219,7 @@ export default {
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
         '<rootDir>/drift-repair-naming.spec.ts',
         '<rootDir>/init-scripts-no-schema-ddl.spec.ts',
+        '<rootDir>/toolchain-config-ssot.spec.ts',
       ],
     },
   ],

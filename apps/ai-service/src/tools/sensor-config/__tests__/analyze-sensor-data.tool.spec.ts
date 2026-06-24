@@ -35,7 +35,7 @@ describe('AnalyzeSensorDataTool', () => {
 
   describe('validation', () => {
     it('should reject empty samples array', async () => {
-      const result = await tool.validate({ samples: [] } as any);
+      const result = await tool.validate({ samples: [] });
       expect(result.valid).toBe(false);
       expect(result.errors).toContain(
         'samples must contain at least one sample',

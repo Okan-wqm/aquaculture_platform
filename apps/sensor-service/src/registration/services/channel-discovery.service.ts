@@ -130,7 +130,7 @@ export class ChannelDiscoveryService {
   /**
    * Discover channels from sample data
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async discoverChannels(
     sampleData: unknown,
     payloadFormat: 'json' | 'csv' | 'text' = 'json',

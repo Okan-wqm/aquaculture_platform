@@ -5,10 +5,12 @@
  * @see ADR-012 section 3 (Channel domain)
  */
 
-import { Crown, Shield, User } from 'lucide-react';
 import { clsx } from 'clsx';
-import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
+import { Crown, Shield, User } from 'lucide-react';
+import type { ReactElement } from 'react';
+
 import type { ChannelMember, ChannelMemberRole } from '@/types/messaging';
+import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
 
 /**
  * WHY: Extracted from ChannelSettingsPage to reduce file size and enable
@@ -46,7 +48,7 @@ interface MemberRowProps {
  * MemberRow displays a single channel member with avatar, name, email,
  * online indicator, and role badge.
  */
-export function MemberRow({ member }: MemberRowProps) {
+export function MemberRow({ member }: MemberRowProps): ReactElement {
   const roleBadge = ROLE_BADGES[member.role];
   const RoleIcon = roleBadge.icon;
   const memberName = member.user ? getUserDisplayName(member.user) : 'Unknown User';

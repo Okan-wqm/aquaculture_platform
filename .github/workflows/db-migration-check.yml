@@ -290,7 +290,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       # Wave 4-A.2 Dalga 5 — testcontainers image cache extension.
       # The Postgres pull (~250 MB compressed) dominates cold-start
@@ -390,7 +390,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run aqua-db-migrate against test DB
         env:
@@ -455,7 +455,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run migration-deletion-witness gate
         env:
@@ -496,7 +496,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run entity-diff-witness gate
         env:
@@ -528,7 +528,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run schema-drift-registration gate
         run: npm run gates:schema-drift-registration
@@ -555,7 +555,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run signals manifest gate
         run: npm run gates:signals-manifest
@@ -581,7 +581,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run criticality manifest gate
         run: npm run gates:criticality-manifest

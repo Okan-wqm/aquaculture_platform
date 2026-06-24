@@ -28,12 +28,13 @@ import {
   createTenantSchemaMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import {
   AuditLogModule,
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
 
@@ -60,6 +61,7 @@ const AlertMigrationRunnerService = createSchemaVersionGate('alert');
 const alertSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
+import { AlertOutboxModule } from './outbox/alert-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
@@ -156,18 +158,15 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    AlertOutboxModule,
+    TenantErasureTargetModule.forService('alert-engine'),
 
     // Redis for distributed state management
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const url = configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
-        return {
-          url,
-          keyPrefix: 'alert:',
-        };
-      },
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'alert', 'required'),
     }),
 
     // In-process event emitter (used by EscalationManagerService, etc.)

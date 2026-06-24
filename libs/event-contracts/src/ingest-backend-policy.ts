@@ -191,7 +191,7 @@ export const INGEST_BACKEND_POLICY_SUBJECTS = {
  * Export the type so admin-api-service + Rust sidecar both pin
  * the same wire shape; the empty-object literal is canonical.
  */
-export interface IngestBackendSnapshotRequest {}
+export type IngestBackendSnapshotRequest = Record<string, never>;
 
 /**
  * Responder reply shape for `policy.ingest_backend.snapshot`.

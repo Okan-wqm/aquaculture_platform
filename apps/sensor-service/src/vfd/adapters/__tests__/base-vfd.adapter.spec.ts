@@ -29,7 +29,7 @@ class TestVfdAdapter extends BaseVfdAdapter {
   // would in production AND surfaces base-class signature drift
   // here at type-check time.
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async connect(_config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     return {
       id: this.generateConnectionId(),
@@ -39,17 +39,17 @@ class TestVfdAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async disconnect(_handle: VfdConnectionHandle): Promise<void> {
     // No-op for tests
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 10 };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readParameters(): Promise<VfdReadResult> {
     return {
       parameters: { outputFrequency: 50 },
@@ -60,27 +60,27 @@ class TestVfdAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readRegister(): Promise<Buffer> {
     return Buffer.from([0x01, 0xf4]); // 500 in uint16
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async writeControlWord(): Promise<VfdCommandResult> {
     return { success: true };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async writeSpeedReference(): Promise<VfdCommandResult> {
     return { success: true };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async writeRegister(): Promise<VfdCommandResult> {
     return { success: true };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   validateConfiguration(_config: unknown): ValidationResult {
     return { valid: true, errors: [] };
   }

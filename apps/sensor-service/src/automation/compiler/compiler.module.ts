@@ -55,5 +55,5 @@ import { STLanguageHandler } from './nats-handlers/st-language.handler';
     AutomationEventsPublisher,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class CompilerModule {}

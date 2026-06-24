@@ -88,6 +88,15 @@ export interface SchemaRegistryEntry {
   /** PostgreSQL schema name. Must match @Entity schema: option (ADR-011). */
   schema: string;
   /**
+   * Optional owning PostgreSQL role for this schema. When set, the init-schemas
+   * generator (scripts/schema-registry/generate-init-schemas.ts) emits
+   * `CREATE SCHEMA … AUTHORIZATION <role>` + `ALTER SCHEMA … OWNER TO <role>`,
+   * grants the role access to the shared cross-service tables (ADR-011 schema
+   * ownership), and the SCHEMA_REGISTRY ↔ init-schemas.sh invariant spec
+   * validates the lockstep. Entries without a dedicated owning role omit it.
+   */
+  role?: string;
+  /**
    * Glob pattern (RELATIVE TO THIS CONTAINER'S WORKDIR at runtime) pointing
    * at the migration files. Supports both .ts (dev run) and .js (container
    * run) via the `{.ts,.js}` suffix — TypeORM evaluates the appropriate one

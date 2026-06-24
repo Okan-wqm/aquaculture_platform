@@ -192,7 +192,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
@@ -235,7 +234,6 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SCHEMA: farm
-      DATABASE_SYNC: "true"
       DATABASE_LOGGING: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
@@ -280,7 +278,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "false"
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
@@ -323,7 +320,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
@@ -362,7 +358,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
     healthcheck:
@@ -397,7 +392,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
@@ -434,7 +428,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       SMTP_HOST: ${SMTP_HOST:-mailhog}
@@ -464,7 +457,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
@@ -494,7 +486,6 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "false"
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}

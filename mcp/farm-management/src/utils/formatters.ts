@@ -56,7 +56,7 @@ export function formatDate(date: Date | string): string {
  * @param decimals - Ondalık basamak sayısı (varsayılan: 2)
  * @returns Yuvarlanmış sayı
  */
-export function formatNumber(value: number, decimals: number = 2): number {
+export function formatNumber(value: number, decimals = 2): number {
   // NaN veya Infinity kontrolü
   if (!Number.isFinite(value)) return value;
 
@@ -266,7 +266,7 @@ export function hoursAgo(date: Date | string): number {
  * @param decimals - Ondalık basamak sayısı (varsayılan: 2)
  * @returns Yuvarlanmış sayı
  */
-export function round(value: number, decimals: number = 2): number {
+export function round(value: number, decimals = 2): number {
   if (!Number.isFinite(value)) return value;
   const factor = Math.pow(10, decimals);
   return Math.round(value * factor) / factor;

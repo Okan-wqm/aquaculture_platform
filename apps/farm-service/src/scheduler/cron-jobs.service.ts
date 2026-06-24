@@ -19,6 +19,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource, QueryRunner } from 'typeorm';
 import { forEachTenantSchema, listTenantSchemas } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
+import {
+  clearManagedTimer,
+  createManagedInterval,
+  type ManagedInterval,
+} from '@aquaculture/backend-common/utils';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -68,7 +73,7 @@ const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export class CronJobsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CronJobsService.name);
   private tenantConfigs: Map<string, TenantCronConfig> = new Map();
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: ManagedInterval | null = null;
 
   constructor(
     @InjectRepository(MaintenanceSchedule)
@@ -98,7 +103,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     await this.loadTenantConfigs();
 
     // Start periodic cleanup of stale tenant configs
-    this.cleanupInterval = setInterval(() => {
+    this.cleanupInterval = createManagedInterval(() => {
       this.cleanupStaleTenantConfigs();
     }, CLEANUP_INTERVAL_MS);
 
@@ -113,7 +118,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Clear the cleanup interval
     if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+      clearManagedTimer(this.cleanupInterval);
       this.cleanupInterval = null;
     }
 
@@ -509,12 +514,8 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
               `Found ${parts.length} low stock parts for tenant ${tenantId} (schema: ${schema})`,
             );
 
-            const outOfStock = parts.filter(
-              (p) => p.status === SparePartStatus.OUT_OF_STOCK,
-            );
-            const lowStock = parts.filter(
-              (p) => p.status === SparePartStatus.LOW_STOCK,
-            );
+            const outOfStock = parts.filter((p) => p.status === SparePartStatus.OUT_OF_STOCK);
+            const lowStock = parts.filter((p) => p.status === SparePartStatus.LOW_STOCK);
 
             this.eventEmitter.emit('inventory.lowStock', {
               tenantId,
@@ -528,9 +529,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
           }
         }
       } catch (err) {
-        this.logger.error(
-          `Low stock check failed for schema ${schema}: ${(err as Error).message}`,
-        );
+        this.logger.error(`Low stock check failed for schema ${schema}: ${(err as Error).message}`);
       } finally {
         await queryRunner.query('RESET search_path').catch(() => {});
         await queryRunner.release();
@@ -599,10 +598,8 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
             );
             const avgDuration =
               lastWeekCompleted.length > 0
-                ? lastWeekCompleted.reduce(
-                    (sum, wo) => sum + (wo.actualDurationMinutes || 0),
-                    0,
-                  ) / lastWeekCompleted.length
+                ? lastWeekCompleted.reduce((sum, wo) => sum + (wo.actualDurationMinutes || 0), 0) /
+                  lastWeekCompleted.length
                 : 0;
 
             this.eventEmitter.emit('report.weeklyMaintenance', {
@@ -661,9 +658,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
           if (config && !config.reportsEnabled) continue;
 
           try {
-            const report = await this.maintenanceScheduleService.getComplianceReport(
-              tenantId,
-            );
+            const report = await this.maintenanceScheduleService.getComplianceReport(tenantId);
 
             this.eventEmitter.emit('report.monthlyCompliance', {
               tenantId,
@@ -760,9 +755,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
       },
     ];
 
-    this.logger.log(
-      `Starting nightly retention cleanup across ${retentionPlan.length} table(s)`,
-    );
+    this.logger.log(`Starting nightly retention cleanup across ${retentionPlan.length} table(s)`);
 
     let tenantSchemas: string[];
     try {
@@ -779,26 +772,19 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
       try {
-        await queryRunner.query(
-          `SET search_path TO "${schema}", farm, public`,
-        );
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
         for (const plan of retentionPlan) {
           const retentionDays = Number(
-            this.configService.get<number | string>(
-              plan.envVar,
-              plan.defaultDays,
-            ),
+            this.configService.get<number | string>(plan.envVar, plan.defaultDays),
           );
-          const effective = Number.isFinite(retentionDays) && retentionDays > 0
-            ? retentionDays
-            : plan.defaultDays;
+          const effective =
+            Number.isFinite(retentionDays) && retentionDays > 0 ? retentionDays : plan.defaultDays;
 
           try {
-            const rows = (await queryRunner.query(
-              `SELECT ${plan.fn}($1) AS deleted_count`,
-              [effective],
-            )) as Array<{ deleted_count: number | string | null }>;
+            const rows = (await queryRunner.query(`SELECT ${plan.fn}($1) AS deleted_count`, [
+              effective,
+            ])) as Array<{ deleted_count: number | string | null }>;
 
             const deleted = Number(rows?.[0]?.deleted_count ?? 0);
             summary[plan.label] = (summary[plan.label] ?? 0) + deleted;
@@ -852,10 +838,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async refreshAnalyticsViews(): Promise<void> {
-    const viewsToRefresh = [
-      'farm.mv_daily_batch_feeding',
-      'farm.mv_daily_tank_water_quality',
-    ];
+    const viewsToRefresh = ['farm.mv_daily_batch_feeding', 'farm.mv_daily_tank_water_quality'];
 
     this.logger.log(
       `Refreshing ${viewsToRefresh.length} analytics materialized view(s) across tenant schemas`,
@@ -875,17 +858,11 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
       try {
-        await queryRunner.query(
-          `SET search_path TO "${schema}", farm, public`,
-        );
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
         for (const view of viewsToRefresh) {
           try {
-            await queryRunner.query(
-              `REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`,
-            );
-            this.logger.log(
-              `Tenant ${schema}: refreshed ${view}`,
-            );
+            await queryRunner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`);
+            this.logger.log(`Tenant ${schema}: refreshed ${view}`);
           } catch (err) {
             // View may not exist on a legacy tenant schema; log
             // and continue so the rest of the views still refresh
@@ -1011,9 +988,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * target schema. All three tables expose a camelCase `"tenantId"`
    * column.
    */
-  private async resolveTenantIdForSchema(
-    queryRunner: QueryRunner,
-  ): Promise<string | null> {
+  private async resolveTenantIdForSchema(queryRunner: QueryRunner): Promise<string | null> {
     const documentTables = ['farm_documents', 'batch_documents', 'chemicals'];
     for (const table of documentTables) {
       const rows: Array<{ tenantId: string }> = await queryRunner.query(
@@ -1076,7 +1051,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         nextRun: job.nextDate().toJSDate(),
       };
     } catch (error: unknown) {
-      this.logger.debug(`Error in getJobStatus: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(
+        `Error in getJobStatus: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return { running: false };
     }
   }

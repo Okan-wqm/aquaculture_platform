@@ -74,7 +74,6 @@ export class CreateWorkRotationHandler implements ICommandHandler<CreateWorkRota
       // Check for overlapping rotations for the same employee
       const overlapping = await rotationRepo
         .createQueryBuilder('wr')
-        .where('wr.tenantId = :tenantId', { tenantId })
         .andWhere('wr.employeeId = :employeeId', { employeeId: input.employeeId })
         .andWhere('wr.isDeleted = false')
         .andWhere('wr.status NOT IN (:...excludeStatuses)', {

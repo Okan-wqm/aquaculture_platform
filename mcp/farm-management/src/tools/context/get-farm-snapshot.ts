@@ -177,7 +177,7 @@ export const definition = {
 // ============================================================================
 
 export async function handler(
-  params: z.infer<typeof inputSchema>,
+  params: unknown,
   client: GraphQLClient,
 ): Promise<ToolResult> {
   const input = inputSchema.parse(params);

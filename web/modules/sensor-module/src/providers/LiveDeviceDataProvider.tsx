@@ -243,7 +243,7 @@ export function LiveDeviceDataProviderInner({
       // Clear tag cache.
       tagCacheRef.current.clear();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []); // Run once on mount; refs are stable.
 
   // ── IDataProvider implementation ──────────────────────────────────────────
@@ -301,6 +301,17 @@ export function LiveDeviceDataProviderInner({
     return tagCacheRef.current.get(tagId) ?? null;
   }, []);
 
+  const getTagSnapshot = useCallback((): Record<string, TagValueChange> => {
+    // Copy the live tag cache into a plain object so the client-script
+    // sandbox can serialize a self-contained snapshot across the Worker
+    // boundary at execution start.
+    const snapshot: Record<string, TagValueChange> = {};
+    for (const [tagId, change] of tagCacheRef.current) {
+      snapshot[tagId] = change;
+    }
+    return snapshot;
+  }, []);
+
   const queryHistory = useCallback(
     (tagIds: string[], from: Date, to: Date): Promise<HistoricalDataResult> => {
       return new Promise<HistoricalDataResult>((resolve, reject) => {
@@ -349,6 +360,7 @@ export function LiveDeviceDataProviderInner({
       unsubscribeFromTags,
       writeTagValue,
       getTagValue,
+      getTagSnapshot,
       queryHistory,
       connectionState,
     }),
@@ -357,6 +369,7 @@ export function LiveDeviceDataProviderInner({
       unsubscribeFromTags,
       writeTagValue,
       getTagValue,
+      getTagSnapshot,
       queryHistory,
       connectionState,
     ],

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner, EntityManager } from 'typeorm';
+import { Repository, DataSource, QueryRunner, EntityManager, UpdateResult } from 'typeorm';
 import { NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { UpdatePlanEntryHandler } from '../handlers/update-plan-entry.handler';
 import { UpdatePlanEntryCommand } from '../commands/update-plan-entry.command';
@@ -8,6 +8,7 @@ import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-en
 import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 import { Shift, WeekDay } from '../../attendance/entities/shift.entity';
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
+import { calculatePlanEntryMinutes } from '../plan-entry-time';
 
 describe('UpdatePlanEntryHandler', () => {
   let handler: UpdatePlanEntryHandler;
@@ -147,7 +148,7 @@ describe('UpdatePlanEntryHandler', () => {
 
       manager.save.mockResolvedValue(mockEntry);
       manager.find.mockResolvedValue([mockEntry]); // For recalculation
-      manager.update.mockResolvedValue({ affected: 1 } as any);
+      manager.update.mockResolvedValue({ affected: 1 } as UpdateResult);
 
       entryRepository.findOne.mockResolvedValue({
         ...mockEntry,
@@ -246,17 +247,14 @@ describe('UpdatePlanEntryHandler', () => {
         mockTenantId,
         mockUserId,
         mockEntryId,
-        // shiftId is `string | undefined` per the command contract.
-        // Tests passing `null` to mean "clear" must use undefined; the
-        // handler interprets undefined-shiftId as a clear operation
-        // (verified by the find-existing branch in the handler).
         undefined,
+        true,
       );
 
       manager.findOne.mockResolvedValueOnce(workEntry);
       manager.save.mockResolvedValue(workEntry);
       manager.find.mockResolvedValue([workEntry]);
-      manager.update.mockResolvedValue({ affected: 1 } as any);
+      manager.update.mockResolvedValue({ affected: 1 } as UpdateResult);
 
       entryRepository.findOne.mockResolvedValue({
         ...workEntry,
@@ -291,7 +289,7 @@ describe('UpdatePlanEntryHandler', () => {
 
       manager.save.mockResolvedValue(mockEntry);
       manager.find.mockResolvedValue([mockEntry]);
-      manager.update.mockResolvedValue({ affected: 1 } as any);
+      manager.update.mockResolvedValue({ affected: 1 } as UpdateResult);
 
       entryRepository.findOne.mockResolvedValue(mockEntry as WeeklyPlanEntry);
 
@@ -299,8 +297,8 @@ describe('UpdatePlanEntryHandler', () => {
 
       expect(manager.save).toHaveBeenCalled();
       const savedEntry = (manager.save as jest.Mock).mock.calls[0][1];
-      expect(savedEntry.plannedStartTime).toBe('08:00');
-      expect(savedEntry.plannedEndTime).toBe('17:00');
+      expect(savedEntry.plannedStartTime).toEqual(new Date('2026-01-19T08:00:00.000Z'));
+      expect(savedEntry.plannedEndTime).toEqual(new Date('2026-01-19T17:00:00.000Z'));
       expect(savedEntry.plannedMinutes).toBe(540); // 9 hours
     });
 
@@ -322,19 +320,14 @@ describe('UpdatePlanEntryHandler', () => {
 
   describe('calculateMinutes', () => {
     it('should calculate minutes correctly for same-day shifts', () => {
-      // Access private method via any cast
-      const calculateMinutes = (handler as any).calculateMinutes.bind(handler);
-
-      expect(calculateMinutes('07:00', '15:00')).toBe(480); // 8 hours
-      expect(calculateMinutes('08:30', '17:00')).toBe(510); // 8.5 hours
-      expect(calculateMinutes('00:00', '08:00')).toBe(480); // 8 hours
+      expect(calculatePlanEntryMinutes('07:00', '15:00')).toBe(480); // 8 hours
+      expect(calculatePlanEntryMinutes('08:30', '17:00')).toBe(510); // 8.5 hours
+      expect(calculatePlanEntryMinutes('00:00', '08:00')).toBe(480); // 8 hours
     });
 
     it('should handle cross-midnight shifts', () => {
-      const calculateMinutes = (handler as any).calculateMinutes.bind(handler);
-
-      expect(calculateMinutes('22:00', '06:00')).toBe(480); // 8 hours
-      expect(calculateMinutes('23:00', '07:00')).toBe(480); // 8 hours
+      expect(calculatePlanEntryMinutes('22:00', '06:00')).toBe(480); // 8 hours
+      expect(calculatePlanEntryMinutes('23:00', '07:00')).toBe(480); // 8 hours
     });
   });
 });

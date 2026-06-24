@@ -18,7 +18,7 @@ import {
   RateLimitModule,
   RateLimitStore,
 } from '@aquaculture/backend-common/rate-limit';
-import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
+import { RedisModule, RedisService, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -63,6 +63,7 @@ import { RequestValidatorMiddleware } from './middleware/request-validator.middl
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { AiRoutesModule } from './routes/v2/ai.routes';
+import { MarineRoutesModule } from './routes/marine.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
@@ -419,17 +420,16 @@ function positiveIntConfig(
     // AI service proxy routes (chat, conversations)
     AiRoutesModule,
 
+    // Backend-owned marine data REST gateway. Browser code talks to this
+    // route only; gateway signs the internal farm-service request.
+    MarineRoutesModule,
+
     // Redis for distributed rate limiting (optional, falls back to in-memory if not configured)
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
-        password: configService.get('REDIS_PASSWORD'),
-        db: parseInt(configService.get('REDIS_DB', '0'), 10),
-        keyPrefix: 'gateway:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'gateway', 'required'),
     }),
 
     // Platform rate-limit SSoT (D2 / CRITICAL-002). Edge mode: the gateway is a

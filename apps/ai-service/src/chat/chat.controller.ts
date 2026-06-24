@@ -168,7 +168,7 @@ export class ChatController {
   }
 
   @Post('conversations')
-  async getConversations(@Req() req: TenantRequest): Promise<unknown> {
+  async getConversations(): Promise<unknown> {
     // Placeholder for conversation listing
     return { conversations: [] };
   }

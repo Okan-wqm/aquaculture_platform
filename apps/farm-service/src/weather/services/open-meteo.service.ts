@@ -3,6 +3,7 @@
  * Weather ve Marine API'leri ile iletişim
  */
 import { Injectable, Logger } from '@nestjs/common';
+import { createAbortSignalTimeout } from '@aquaculture/backend-common/utils';
 
 // ============================================================================
 // Types
@@ -191,11 +192,11 @@ export class OpenMeteoService {
    */
   private async fetchWithRetry<T>(url: string, attempt: number = 0): Promise<T> {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+      const timeout = createAbortSignalTimeout(REQUEST_TIMEOUT);
 
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
+      const response = await fetch(url, { signal: timeout.signal }).finally(() => {
+        timeout.clear();
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

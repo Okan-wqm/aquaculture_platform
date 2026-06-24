@@ -542,7 +542,11 @@ export class AuditTrailService {
         };
       case 'json':
         return {
-          data: JSON.stringify(logs, null, 2),
+          // Compact (no-indent) serialization: the audit-trail export is a
+          // machine-consumed artifact (compliance tooling parses it), and the
+          // multi-line indent form is banned platform-wide because it breaks
+          // structured JSON logging. The payload is identical, valid JSON.
+          data: JSON.stringify(logs),
           filename: `audit-trail-${timestamp}.json`,
           mimeType: 'application/json',
         };

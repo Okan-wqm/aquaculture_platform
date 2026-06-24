@@ -97,7 +97,7 @@ function formatCellValue(
       return isNaN(n) ? '--' : `${n.toFixed(decimals)}${unit ? ' ' + unit : ''}`;
     }
     case 'boolean':
-      return Boolean(val) ? 'ON' : 'OFF';
+      return val ? 'ON' : 'OFF';
     case 'timestamp': {
       const ts = Number(val);
       return isNaN(ts) ? '--' : new Date(ts).toLocaleString();

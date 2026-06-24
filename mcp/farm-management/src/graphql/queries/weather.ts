@@ -179,7 +179,7 @@ export async function fetchWeatherObservations(
 export async function fetchWeatherForecast(
   client: GraphQLClient,
   siteId: string,
-  days: number = 7,
+  days = 7,
 ): Promise<WeatherObservation[]> {
   const query = `
     query WeatherForecast($siteId: ID!, $days: Float) {

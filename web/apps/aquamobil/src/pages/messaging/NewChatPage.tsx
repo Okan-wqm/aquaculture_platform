@@ -11,10 +11,8 @@
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { clsx } from 'clsx';
 import {
   ArrowLeft,
   Search,
@@ -31,15 +29,18 @@ import {
   Cpu,
   Sparkles,
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { useAuth } from '@/hooks/useAuth';
-import { useTenantUsers } from '@/hooks/useTenantUsers';
-import type { TenantUserItem } from '@/hooks/useTenantUsers';
-import { useCreateChannel } from '@/hooks/useCreateChannel';
-import { getInitials } from '@/utils/messaging-helpers';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+import { useState, useCallback, useMemo, type JSX } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
+import { useAuth } from '@/hooks/useAuth';
+import { useCreateChannel } from '@/hooks/useCreateChannel';
+import type { TenantUserItem } from '@/hooks/useTenantUsers';
+import { useTenantUsers } from '@/hooks/useTenantUsers';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { AiPersona } from '@/types/messaging';
+import { getInitials } from '@/utils/messaging-helpers';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ---------------------------------------------------------------------------
 // AI Persona Helpers
@@ -72,7 +73,7 @@ function AiPersonaCard({
   persona: AiPersona;
   onPress: () => void;
   disabled: boolean;
-}) {
+}): JSX.Element {
   const IconComponent = PERSONA_ICONS[persona.icon] ?? Bot;
   const colors = PERSONA_COLORS[persona.color] ?? PERSONA_COLORS['purple'];
 
@@ -106,7 +107,7 @@ function AiPersonaCard({
 // ---------------------------------------------------------------------------
 
 /** Skeleton loader for user list items. */
-function UserSkeleton() {
+function UserSkeleton(): JSX.Element {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="w-11 h-11 rounded-full skeleton flex-shrink-0" />
@@ -129,7 +130,7 @@ function UserRow({
   isSelected: boolean;
   showCheckbox: boolean;
   onPress: () => void;
-}) {
+}): JSX.Element {
   return (
     <button
       onClick={onPress}
@@ -189,7 +190,7 @@ function UserRow({
  * Supports search-as-you-type, multi-select for groups, and immediate
  * navigation to the new chat room upon channel creation.
  */
-export function NewChatPage() {
+export function NewChatPage(): JSX.Element {
   const navigate = useNavigate();
   const { user: currentUser, tenantId } = useAuth();
   const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
@@ -345,16 +346,19 @@ export function NewChatPage() {
       {showGroupNameInput ? (
         <div className="px-4 pt-4 space-y-4">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">
+            <label
+              htmlFor="new-group-name"
+              className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block"
+            >
               Group Name
             </label>
             <input
+              id="new-group-name"
               type="text"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
               placeholder="Enter group name..."
               maxLength={100}
-              autoFocus
               className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 transition-all"
             />
 
@@ -383,7 +387,7 @@ export function NewChatPage() {
               Back
             </button>
             <button
-              onClick={handleCreateGroup}
+              onClick={() => { void handleCreateGroup(); }}
               disabled={!groupName.trim() || isCreating}
               className="flex-1 py-3.5 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-semibold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all text-sm flex items-center justify-center gap-2"
             >
@@ -437,7 +441,7 @@ export function NewChatPage() {
                   <AiPersonaCard
                     key={persona.id ?? 'general'}
                     persona={persona}
-                    onPress={() => handleAiPersonaPress(persona)}
+                    onPress={() => { void handleAiPersonaPress(persona); }}
                     disabled={isCreating}
                   />
                 ))}
@@ -532,7 +536,7 @@ export function NewChatPage() {
                     user={u}
                     isSelected={selectedUserIds.has(u.id)}
                     showCheckbox={isGroupMode}
-                    onPress={() => handleUserPress(u.id)}
+                    onPress={() => { void handleUserPress(u.id); }}
                   />
                 ))}
               </div>

@@ -23,6 +23,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { useState, useCallback, useMemo, useRef } from 'react';
+import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -114,7 +115,7 @@ function formatExpiryDate(dateStr: string): string {
 // COMPONENT
 // ============================================================================
 
-export function StockViewPage() {
+export function StockViewPage(): JSX.Element {
   const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline } = useOfflineQueue();
@@ -143,11 +144,22 @@ export function StockViewPage() {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const locations = locationsData ?? [];
+  // WHY useMemo: a fresh `?? []` literal each render gives `locations` a new
+  // identity, forcing the downstream `selectedLocation` useMemo to recompute on
+  // every render. Memoizing on `locationsData` keeps the reference stable.
+  const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   const { data: stockData, isLoading: stockLoading, refetch: refetchStock } = useQuery<StockItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId, tenantId),
     queryFn: async () => {
+      // WHY guard tenantId here: `enabled` below already gates this query on
+      // `!!tenantId`, so the query never runs without one — but the type system
+      // can't see that. Narrowing to a non-null const both satisfies the type
+      // checker for the tenant-isolated cache calls (FE-CRITICAL-002) and fails
+      // loudly if the precondition is ever broken by a future refactor.
+      if (!tenantId) {
+        throw new Error('StockViewPage: tenantId missing despite enabled gate');
+      }
       // Attempt server fetch first
       if (isOnline) {
         const result = await graphqlRequest<{ stockAtLocation: { items: StockItem[] } }>(
@@ -157,11 +169,11 @@ export function StockViewPage() {
         const items = result.stockAtLocation?.items ?? [];
         // Cache for offline viewing (1-hour TTL, acceptable staleness for stock counts)
         // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId!, stockCacheKey(selectedLocationId), items, 1000 * 60 * 60);
+        await cacheData(tenantId, stockCacheKey(selectedLocationId), items, 1000 * 60 * 60);
         return items;
       }
       // Offline: load from cache
-      const cached = tenantId ? await getCachedData<StockItem[]>(tenantId, stockCacheKey(selectedLocationId)) : null;
+      const cached = await getCachedData<StockItem[]>(tenantId, stockCacheKey(selectedLocationId));
       return cached ?? [];
     },
     enabled: !!selectedLocationId && isAuthenticated && !!accessToken && !!tenantId,
@@ -187,7 +199,7 @@ export function StockViewPage() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [selectedLocationId, isRefreshing, isOnline, refetchStock, queryClient]);
+  }, [selectedLocationId, isRefreshing, isOnline, refetchStock, queryClient, tenantId]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartY.current = e.touches[0].clientY;
@@ -198,7 +210,9 @@ export function StockViewPage() {
     const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
     // Trigger refresh if user pulls down from top of list
     if (deltaY > 80 && scrollTop <= 0) {
-      handleRefresh();
+      // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
+      // refetch's own error state, so the promise is intentionally not awaited.
+      void handleRefresh();
     }
   }, [handleRefresh]);
 
@@ -223,7 +237,7 @@ export function StockViewPage() {
           </div>
           {selectedLocationId && isOnline && (
             <button
-              onClick={handleRefresh}
+              onClick={() => { void handleRefresh(); }}
               disabled={isRefreshing}
               className="p-2 rounded-xl hover:bg-white/10 touch-feedback"
             >
@@ -235,16 +249,29 @@ export function StockViewPage() {
 
       {/* Location Selector */}
       <div className="px-4 pt-4">
-        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+        {/* WHY a group caption, not a <label>: this control is a single-select
+            group of location buttons, not one labelable input. A <label> with
+            no for-target trips jsx-a11y/label-has-associated-control. The correct
+            semantics are a labelled group — the caption id is referenced by the
+            button container's aria-labelledby so assistive tech announces the
+            group's purpose. */}
+        <p
+          id="stock-location-selector-label"
+          className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2"
+        >
           Storage Location
-        </label>
+        </p>
         {locationsLoading ? (
           <div className="flex items-center gap-2 py-3">
             <Loader2 size={16} className="animate-spin text-cyan-600" />
             <span className="text-sm text-gray-500">Loading locations...</span>
           </div>
         ) : (
-          <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <div
+            role="group"
+            aria-labelledby="stock-location-selector-label"
+            className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
+          >
             {locations.map((loc) => (
               <button
                 key={loc.id}

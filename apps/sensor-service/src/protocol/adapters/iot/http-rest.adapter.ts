@@ -115,7 +115,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     return handle;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     // Stop polling if active
     const pollingInterval = this.pollingIntervals.get(handle.id);
@@ -348,7 +348,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   private parseResponse(_response: Response, _config: HttpRestConfiguration): SensorReadingData {
     const timestamp = new Date();
     const values: Record<string, number | string | boolean | null> = {};

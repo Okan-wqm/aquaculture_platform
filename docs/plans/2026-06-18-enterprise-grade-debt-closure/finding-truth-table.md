@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `4dcff4016d76bf4571558ae2649a23a949e5cb98b56a8bdbd3cd8409d4adfd19`
+Registry tip: `7c3a1e2ef9c2e2e4105240096c84a9d20441a6a083ed117a632a939e4ba9564c`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,16 +20,8 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-018`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-019`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
-| `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-025`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-026`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-027`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-028`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -37,8 +29,10 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
-| `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
+| `DEPLOY-CRITICAL-008`     | OPEN           | 1.1          | infra-expert             | real-open    |
+| `BILLING-CRITICAL-001`    | IN-PROGRESS    | 6.1          | billing-expert           | already-fixed-needs-close |
+| `SENSOR-CRITICAL-001`     | OPEN           | 6.1          | sensor-expert            | already-fixed-needs-close |
+| `ALERT-CRITICAL-001`      | OPEN           | 6.1          | alert-engine-expert      | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -54,11 +48,49 @@ Allowed truth buckets:
 ## Already-Fixed Evidence
 
 No active CRITICAL finding remains in `already-fixed-needs-close` after the
-2026-06-18 Wave 0 registry reconciliation. Reconciled items moved to
+2026-06-20 registry close follow-up. Reconciled items moved to
 `Resolved Evidence`.
+
+## Implementation Evidence Pending Registry Close
+
+- `COMPLIANCE-CRITICAL-001`: implementation branch
+  `codex/ssot-critical-implementation` now carries the GDPR tenant-erasure
+  SSoT architecture, but the registry row remains OPEN until the branch is
+  committed, CI evidence is attached, and the registry CLI records the closing
+  commit. The architectural proof is not service-local: the target roster lives
+  in `libs/event-contracts/src/tenant-erasure-targets.ts`; reusable target
+  execution lives under
+  `libs/backend-common/src/compliance/tenant-erasure/`; every target service is
+  wired through the shared module or the farm-specific domain handler; admin-api
+  owns the operation ledger, proof aggregation, db-migrate schema-deletion
+  request, and final `TenantErased` event. The guardrail is
+  `tests/invariants/tenant-erasure-ssot.spec.ts` plus the strengthened
+  outbox/infrastructure and migration-timing invariants.
 
 ## Resolved Evidence
 
+- `INFRA-CRITICAL-021`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 activated
+  `tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts`,
+  allowing only token-only audit deep imports while rejecting concrete
+  entity-bearing backend-common barrel paths.
+- `INFRA-CRITICAL-025`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 changed
+  `apps/messaging-service/test/e2e-setup.ts` to re-export canonical
+  `@aquaculture/backend-common/context.withTenantContext`; the active
+  `tests/invariants/messaging-e2e-tenant-context.spec.ts` rejects local
+  AsyncLocalStorage helpers in the E2E harness.
+- `FARM-CRITICAL-001`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 pins tenant-scoped MinIO
+  cleanup through `tests/invariants/farm-minio-orphan-cleanup-ssot.spec.ts`,
+  covering per-tenant `withTenantContext`, `${tenantId}/` prefixes, and the
+  storage primitive's empty-live-set fail-closed behavior.
+- `FARM-CRITICAL-050`: registry state is `RESOLVED` with closing commit
+  `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 routed legacy
+  `BatchService.recordOperation` and cleaner-fish mortality through
+  `MortalityCullPolicyService`; recurrence is pinned by
+  `tests/invariants/farm-stock-mutation-ssot.spec.ts` plus farm unit
+  regression tests.
 - `CLAUDE-CRITICAL-004`: registry state is `RESOLVED` with closing commit
   `7414faac`. `npx jest --config tests/invariants/jest.config.ts
 tests/invariants/agent-ownership-uniqueness.spec.ts
@@ -161,6 +193,20 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   is pinned to `db_migrate_complete` from `apps/db-migrate` and the legacy
   per-service `migration_runner_applied` signal cannot re-enter the required
   signal contract.
+- `INFRA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
+  `802ed10fbe6f6309cb1919bfc8648a8dc069b6a0`. PR #549 merged to `main` as
+  `c6329de7b5dec4058b8e614ac955abcdfe4848bb` after GitHub Actions passed on
+  2026-06-19, including E2E messaging, build, test, lint, type-check,
+  invariants-fast, bootstrap-from-scratch, tenant-clone-parity,
+  sens-enterprise-validation, and merge-gate. The runtime
+  `dataSource.synchronize()` authority was retired in favor of the migration
+  ledger and toolchain SSoT. Enforcement now lives in
+  `tests/invariants/no-runtime-synchronize.spec.ts`,
+  `tests/invariants/toolchain-config-ssot.spec.ts`,
+  `tools/lint-gates/eslint-toolchain-deprecation.spec.ts`,
+  `tools/toolchain/run.mjs`, and `tools/toolchain/toolchain-runtime.mjs`, with
+  backend-common lint contracts normalized so repository checks flow through
+  the same toolchain path.
 - `INFRA-CRITICAL-010`: registry state is `RESOLVED` with closing commit
   `5fc235a9a6fb68618f14ebb009efdba65929e46d`. PR #542 passed GitHub Actions on
   2026-06-18, including build, test, lint, type-check, invariants-fast,
@@ -173,6 +219,56 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `.github/manifests/postgres-image.json` SSoT, and every workflow/compose
   Postgres image reference must match the pgvector-capable digest-pinned
   TimescaleDB HA image.
+- `INFRA-CRITICAL-017`: registry state is `RESOLVED` with closing commit
+  `3913455c14fc50c177d858c693d0369fa019def8`. The Postgres SSL entrypoint now
+  resolves the manifest runtime user at container start via `id -u/id -g` and
+  all executable `chown` operations use `${PG_UID}:${PG_GID}`. Enforcement lives
+  in `tests/invariants/postgres-runtime-contract.spec.ts`, which pins runtime
+  ownership to `.github/manifests/postgres-image.json` so hardcoded numeric
+  ownership cannot re-enter the wrapper.
+- `INFRA-CRITICAL-018`: registry state is `RESOLVED` with closing commit
+  `84f9004c64b6233a3bf978ec533c5fd6a145602b`. Concrete Postgres compose
+  consumers use manifest `pgdata`, expose the same value through
+  `services.postgres.environment.PGDATA`, and mount the `postgres_data` volume at
+  that path. Enforcement lives in
+  `tests/invariants/postgres-runtime-contract.spec.ts`, which compares every
+  concrete compose consumer listed in `.github/manifests/postgres-image.json`
+  against the runtime SSoT.
+- `INFRA-CRITICAL-015`: registry state is `RESOLVED` with closing commit
+  `b532d9a8e2a828535b8e7305f60b5556c330cea2`. PR #553 passed GitHub Actions on
+  2026-06-19, including build, test, lint, type-check, E2E, invariants-fast,
+  validate-closes, security-audit, schema-validation, sensor-service gates,
+  sens-enterprise-validation, Rust gateway, and merge-gate. Local evidence
+  passed `git diff --check`, `npx nx test service-catalog --runInBand`, and
+  `npx tsc -p platform/libs/service-catalog/tsconfig.lib.json --noEmit`.
+  Migration boot readiness ownership now lives in
+  `platform/libs/service-catalog/src/index.ts` as
+  `MIGRATION_BOOT_SIGNAL_CONTRACT`; `validateServiceCatalog()` rejects the
+  retired `migration_runner_applied` signal and any duplicate
+  `db_migrate_complete` ownership outside `db-migrate`, with regression
+  coverage in `platform/libs/service-catalog/src/service-catalog.spec.ts`.
+- `INFRA-CRITICAL-019`: registry state is `RESOLVED` with closing commit
+  `fca70139788ec47ab6b5116b686cdbef58915ed6`. The original deploy blocker was
+  removed from `MODULE_SCHEMAS` when `supplier_sites` and `site_contacts` were
+  genuine orphan fan-out entries. The later farm-service wiring commit
+  `11b9f54e65f9d1b460d09c23942dea290ad414f8` reintroduced both tables only with
+  matching migration DDL, entity ownership, module registration, and
+  `MODULE_SCHEMAS[farm].tables` alignment. Current validation passed
+  `npx jest --config tests/invariants/jest.config.ts
+  tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
+  every tenant-scoped entity has exactly one fan-out declaration and every
+  `MODULE_SCHEMAS.tables` entry has a backing entity.
+- `INFRA-CRITICAL-020`: registry state is `RESOLVED` with closing commit
+  `9df598ed5d93b0dad38333eb6f50d1ccad4e8594`. PR #556 wired
+  `tests/invariants/all-services-env-aware-migrations.spec.ts` into the
+  invariant Jest registry shard and removed the stale auth-service
+  `migrationsRun: true` allowance, making `migrationsRunFromEnv` the
+  single fleet-wide migration timing contract. GitHub Actions passed
+  `invariants-fast`, `validate-closes`, `banned-phrase-gate`, and
+  `merge-gate` on 2026-06-19. Local validation passed
+  `npx jest --config tests/invariants/jest.config.ts
+  tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
+  the paired messaging migration runner invariant, and `git diff --check`.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
   2026-06-19, including E2E messaging, build, test, lint, type-check,

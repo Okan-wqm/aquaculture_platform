@@ -27,10 +27,11 @@ export class ToolRegistryService implements OnModuleInit {
         continue;
       }
 
-      if (this.tools.has(metadata.name)) {
+      const existing = this.tools.get(metadata.name);
+      if (existing) {
         throw new Error(
           `Duplicate tool name: "${metadata.name}" registered by both ` +
-          `${this.tools.get(metadata.name)!.constructor.name} and ${tool.constructor.name}`,
+          `${existing.constructor.name} and ${tool.constructor.name}`,
         );
       }
 

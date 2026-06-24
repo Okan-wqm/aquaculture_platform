@@ -8,13 +8,9 @@
  *
  * @module Sensor-Service/E2E/SensorTypes
  */
-import {
-  gql,
-  TENANT_A,
-  TENANT_B,
-  uniqueName,
-  runCleanup,
-} from './helpers';
+import { assertDefined } from '../../../helpers/assertions';
+
+import { gql, TENANT_A, TENANT_B, runCleanup } from './helpers';
 
 // ============================================================================
 // GRAPHQL OPERATIONS
@@ -52,18 +48,6 @@ const CREATE_SENSOR_TYPE = `
       defaultChannels
       metadata
       createdAt
-    }
-  }
-`;
-
-const UPDATE_SENSOR_TYPE = `
-  mutation updateSensorType($id: ID!, $input: UpdateSensorTypeInput!) {
-    updateSensorType(id: $id, input: $input) {
-      id
-      typeKey
-      displayName
-      description
-      category
     }
   }
 `;
@@ -117,7 +101,7 @@ describe('Sensor Type Definitions', () => {
       const res = await gql(SENSOR_TYPES);
 
       expect(res.errors).toBeUndefined();
-      const types = res.data!.sensorTypes as Array<Record<string, unknown>>;
+      const types = assertDefined(res.data).sensorTypes as Array<Record<string, unknown>>;
       expect(Array.isArray(types)).toBe(true);
 
       // Should have at least system types
@@ -174,7 +158,7 @@ describe('Sensor Type Definitions', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const type = res.data!.createSensorType as Record<string, unknown>;
+      const type = assertDefined(res.data).createSensorType as Record<string, unknown>;
       expect(type.typeKey).toBe(typeKey);
       expect(type.displayName).toBe('Custom Aquaculture Sensor');
       expect(type.category).toBe('water_quality');
@@ -190,7 +174,7 @@ describe('Sensor Type Definitions', () => {
     it('should appear in tenant sensor types list', async () => {
       const res = await gql(SENSOR_TYPES);
 
-      const types = res.data!.sensorTypes as Array<Record<string, unknown>>;
+      const types = assertDefined(res.data).sensorTypes as Array<Record<string, unknown>>;
       const found = types.find((t) => t.id === typeId);
       expect(found).toBeDefined();
     });
@@ -198,9 +182,13 @@ describe('Sensor Type Definitions', () => {
     it('should reject duplicate typeKey', async () => {
       const res = await gql(CREATE_SENSOR_TYPE, {
         input: {
-          typeKey: (
-            (await gql(SENSOR_TYPES)).data!.sensorTypes as Array<Record<string, unknown>>
-          ).find((t) => t.id === typeId)!.typeKey as string,
+          typeKey: assertDefined(
+            (
+              assertDefined((await gql(SENSOR_TYPES)).data).sensorTypes as Array<
+                Record<string, unknown>
+              >
+            ).find((t) => t.id === typeId),
+          ).typeKey as string,
           displayName: 'Duplicate',
         },
       });
@@ -228,7 +216,7 @@ describe('Sensor Type Definitions', () => {
       const res = await gql(INDUSTRY_TEMPLATES);
 
       expect(res.errors).toBeUndefined();
-      const templates = res.data!.industryTemplates as Array<Record<string, unknown>>;
+      const templates = assertDefined(res.data).industryTemplates as Array<Record<string, unknown>>;
       expect(Array.isArray(templates)).toBe(true);
 
       for (const t of templates) {
@@ -248,7 +236,9 @@ describe('Sensor Type Definitions', () => {
     it('should apply template and create tenant sensor types', async () => {
       // First get available templates
       const templatesRes = await gql(INDUSTRY_TEMPLATES);
-      const templates = templatesRes.data!.industryTemplates as Array<Record<string, unknown>>;
+      const templates = assertDefined(templatesRes.data).industryTemplates as Array<
+        Record<string, unknown>
+      >;
 
       if (templates.length === 0) {
         // Skip if no templates available in test env
@@ -261,7 +251,9 @@ describe('Sensor Type Definitions', () => {
       const res = await gql(APPLY_INDUSTRY_TEMPLATE, { templateKey });
 
       expect(res.errors).toBeUndefined();
-      const createdTypes = res.data!.applyIndustryTemplate as Array<Record<string, unknown>>;
+      const createdTypes = assertDefined(res.data).applyIndustryTemplate as Array<
+        Record<string, unknown>
+      >;
       expect(Array.isArray(createdTypes)).toBe(true);
 
       // Created types should belong to tenant
@@ -287,20 +279,20 @@ describe('Sensor Type Definitions', () => {
           category: 'test',
         },
       });
-      typeId = (res.data!.createSensorType as Record<string, unknown>).id as string;
+      typeId = (assertDefined(res.data).createSensorType as Record<string, unknown>).id as string;
     });
 
     it('should delete a custom sensor type', async () => {
       const res = await gql(DELETE_SENSOR_TYPE, { id: typeId });
 
       expect(res.errors).toBeUndefined();
-      expect(res.data!.deleteSensorType).toBe(true);
+      expect(assertDefined(res.data).deleteSensorType).toBe(true);
     });
 
     it('should not find deleted type in list', async () => {
       const res = await gql(SENSOR_TYPES);
 
-      const types = res.data!.sensorTypes as Array<Record<string, unknown>>;
+      const types = assertDefined(res.data).sensorTypes as Array<Record<string, unknown>>;
       const found = types.find((t) => t.id === typeId);
       expect(found).toBeUndefined();
     });
@@ -328,23 +320,20 @@ describe('Sensor Type Definitions', () => {
         },
         TENANT_A,
       );
-      tenantACustomTypeId = (res.data!.createSensorType as Record<string, unknown>).id as string;
+      tenantACustomTypeId = (assertDefined(res.data).createSensorType as Record<string, unknown>)
+        .id as string;
     });
 
     it('system types should be visible to all tenants', async () => {
       const resA = await gql(SENSOR_TYPES, {}, TENANT_A);
       const resB = await gql(SENSOR_TYPES, {}, TENANT_B);
 
-      const typesA = resA.data!.sensorTypes as Array<Record<string, unknown>>;
-      const typesB = resB.data!.sensorTypes as Array<Record<string, unknown>>;
+      const typesA = assertDefined(resA.data).sensorTypes as Array<Record<string, unknown>>;
+      const typesB = assertDefined(resB.data).sensorTypes as Array<Record<string, unknown>>;
 
       // System types (isSystem=true or no tenantId) should be in both
-      const systemTypesA = typesA.filter(
-        (t) => t.isSystem === true || !t.tenantId,
-      );
-      const systemTypesB = typesB.filter(
-        (t) => t.isSystem === true || !t.tenantId,
-      );
+      const systemTypesA = typesA.filter((t) => t.isSystem === true || !t.tenantId);
+      const systemTypesB = typesB.filter((t) => t.isSystem === true || !t.tenantId);
 
       // Both tenants should see the same system types
       const systemKeysA = systemTypesA.map((t) => t.typeKey).sort();
@@ -355,7 +344,7 @@ describe('Sensor Type Definitions', () => {
     it('Tenant B should NOT see Tenant A custom types', async () => {
       const res = await gql(SENSOR_TYPES, {}, TENANT_B);
 
-      const types = res.data!.sensorTypes as Array<Record<string, unknown>>;
+      const types = assertDefined(res.data).sensorTypes as Array<Record<string, unknown>>;
       const found = types.find((t) => t.id === tenantACustomTypeId);
       expect(found).toBeUndefined();
     });
@@ -363,23 +352,19 @@ describe('Sensor Type Definitions', () => {
     it('Tenant A SHOULD see their own custom types', async () => {
       const res = await gql(SENSOR_TYPES, {}, TENANT_A);
 
-      const types = res.data!.sensorTypes as Array<Record<string, unknown>>;
+      const types = assertDefined(res.data).sensorTypes as Array<Record<string, unknown>>;
       const found = types.find((t) => t.id === tenantACustomTypeId);
       expect(found).toBeDefined();
     });
 
     it('Tenant B should NOT delete Tenant A custom type', async () => {
-      const res = await gql(
-        DELETE_SENSOR_TYPE,
-        { id: tenantACustomTypeId },
-        TENANT_B,
-      );
+      const res = await gql(DELETE_SENSOR_TYPE, { id: tenantACustomTypeId }, TENANT_B);
 
       // Should fail
       if (res.errors) {
         expect(res.errors.length).toBeGreaterThan(0);
       } else {
-        expect(res.data!.deleteSensorType).toBe(false);
+        expect(assertDefined(res.data).deleteSensorType).toBe(false);
       }
     });
   });

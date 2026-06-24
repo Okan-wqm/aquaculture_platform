@@ -10,8 +10,6 @@
  * download button), and loading states while fetching presigned URLs.
  */
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
 import {
   X,
   Download,
@@ -20,6 +18,9 @@ import {
   FileText,
   AlertCircle,
 } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, useMemo, type JSX } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
 import { useMessages } from '@/hooks/useMessages';
 import type { Message, MessageAttachment } from '@/types/messaging';
 import { getUserDisplayName, isSafeUrl } from '@/utils/messaging-helpers';
@@ -160,7 +161,7 @@ function formatMediaDate(isoString: string): string {
  *
  * Route: /messages/:channelId/media/:attachmentId
  */
-export function MediaViewerPage() {
+export function MediaViewerPage(): JSX.Element {
   const navigate = useNavigate();
   const { channelId, attachmentId } = useParams<{
     channelId?: string;
@@ -222,18 +223,18 @@ export function MediaViewerPage() {
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length === 2) {
-        const dx = e.touches[0]!.clientX - e.touches[1]!.clientX;
-        const dy = e.touches[0]!.clientY - e.touches[1]!.clientY;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
         initialPinchDistance.current = Math.hypot(dx, dy);
         initialScale.current = scale;
       } else if (e.touches.length === 1) {
         if (scale > 1) {
           lastTouchPos.current = {
-            x: e.touches[0]!.clientX,
-            y: e.touches[0]!.clientY,
+            x: e.touches[0].clientX,
+            y: e.touches[0].clientY,
           };
         } else {
-          touchStartX.current = e.touches[0]!.clientX;
+          touchStartX.current = e.touches[0].clientX;
         }
       }
     },
@@ -243,8 +244,8 @@ export function MediaViewerPage() {
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length === 2 && initialPinchDistance.current !== null) {
-        const dx = e.touches[0]!.clientX - e.touches[1]!.clientX;
-        const dy = e.touches[0]!.clientY - e.touches[1]!.clientY;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
         const distance = Math.hypot(dx, dy);
         const newScale = Math.min(
           Math.max(initialScale.current * (distance / initialPinchDistance.current), 0.5),
@@ -252,13 +253,13 @@ export function MediaViewerPage() {
         );
         setScale(newScale);
       } else if (e.touches.length === 1 && scale > 1 && lastTouchPos.current) {
-        const dx = e.touches[0]!.clientX - lastTouchPos.current.x;
-        const dy = e.touches[0]!.clientY - lastTouchPos.current.y;
+        const dx = e.touches[0].clientX - lastTouchPos.current.x;
+        const dy = e.touches[0].clientY - lastTouchPos.current.y;
         setTranslateX((prev) => prev + dx);
         setTranslateY((prev) => prev + dy);
         lastTouchPos.current = {
-          x: e.touches[0]!.clientX,
-          y: e.touches[0]!.clientY,
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
         };
       }
     },
@@ -278,7 +279,7 @@ export function MediaViewerPage() {
       }
 
       if (scale <= 1 && touchStartX.current !== null && e.changedTouches.length > 0) {
-        const endX = e.changedTouches[0]!.clientX;
+        const endX = e.changedTouches[0].clientX;
         const diff = touchStartX.current - endX;
         const threshold = 80;
 
@@ -358,10 +359,19 @@ export function MediaViewerPage() {
       <div
         ref={imageContainerRef}
         className="flex-1 flex items-center justify-center overflow-hidden relative"
+        role="button"
+        tabIndex={0}
+        aria-label="Media viewer — activate to toggle zoom"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={handleTap}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleTap();
+          }
+        }}
       >
         {loading ? (
           <div className="flex flex-col items-center gap-3">

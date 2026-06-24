@@ -586,7 +586,7 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
     }
 
     try {
-      const readings: WidgetDataPoint[] = []; // eslint-disable-line prefer-const
+      const readings: WidgetDataPoint[] = [];  
 
       if (hasSelectedChannels) {
         // New approach: fetch by selected channels using batch latest-reading query (PERF-005)

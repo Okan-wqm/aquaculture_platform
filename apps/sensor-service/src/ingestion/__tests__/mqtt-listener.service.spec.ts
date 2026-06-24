@@ -15,7 +15,6 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
-import { SensorReading } from '../../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
 import { DeviceEvent } from '../../edge-device/entities/device-event.entity';
 import { DeviceIoConfig } from '../../edge-device/entities/device-io-config.entity';
@@ -58,40 +57,48 @@ function createMockSensorRepository(): jest.Mocked<Repository<Sensor>> {
   } as unknown as jest.Mocked<Repository<Sensor>>;
 }
 
-function createMockReadingRepository(): jest.Mocked<Repository<SensorReading>> {
-  return {
-    create: jest.fn().mockImplementation((data) => data),
-    save: jest.fn().mockResolvedValue(undefined),
-  } as unknown as jest.Mocked<Repository<SensorReading>>;
-}
-
-function createMockChannelRepository(): jest.Mocked<Repository<SensorDataChannel>> {
-  return {
-    find: jest.fn().mockResolvedValue([]),
-  } as unknown as jest.Mocked<Repository<SensorDataChannel>>;
-}
-
 function createMockDataSource(): jest.Mocked<DataSource> {
+  let isTransactionActive = false;
+  const managerRepository = {
+    createQueryBuilder: jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      orWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+      getMany: jest.fn().mockResolvedValue([]),
+    }),
+    find: jest.fn().mockResolvedValue([]),
+    save: jest.fn().mockResolvedValue(undefined),
+  };
+  const queryRunner = {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockImplementation(() => {
+      isTransactionActive = true;
+      return Promise.resolve();
+    }),
+    commitTransaction: jest.fn().mockImplementation(() => {
+      isTransactionActive = false;
+      return Promise.resolve();
+    }),
+    rollbackTransaction: jest.fn().mockImplementation(() => {
+      isTransactionActive = false;
+      return Promise.resolve();
+    }),
+    get isTransactionActive(): boolean {
+      return isTransactionActive;
+    },
+    query: jest.fn().mockResolvedValue([]),
+    manager: {
+      findOne: jest.fn().mockResolvedValue(null),
+      getRepository: jest.fn().mockReturnValue(managerRepository),
+      create: jest.fn().mockImplementation((_entity, data) => data),
+      save: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue([]),
+    },
+    release: jest.fn().mockResolvedValue(undefined),
+  };
   return {
     query: jest.fn().mockResolvedValue([]),
-    createQueryRunner: jest.fn().mockReturnValue({
-      connect: jest.fn().mockResolvedValue(undefined),
-      query: jest.fn().mockResolvedValue([]),
-      manager: {
-        findOne: jest.fn().mockResolvedValue(null),
-        getRepository: jest.fn().mockReturnValue({
-          createQueryBuilder: jest.fn().mockReturnValue({
-            where: jest.fn().mockReturnThis(),
-            orWhere: jest.fn().mockReturnThis(),
-            getOne: jest.fn().mockResolvedValue(null),
-            getMany: jest.fn().mockResolvedValue([]),
-          }),
-          find: jest.fn().mockResolvedValue([]),
-          save: jest.fn().mockResolvedValue(undefined),
-        }),
-      },
-      release: jest.fn().mockResolvedValue(undefined),
-    }),
+    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
     getRepository: jest.fn().mockReturnValue({
       find: jest.fn().mockResolvedValue([]),
       save: jest.fn().mockResolvedValue(undefined),
@@ -183,8 +190,6 @@ function buildService(overrides: {
 } = {}) {
   const configService = createMockConfigService(overrides.configOverrides);
   const sensorRepo = createMockSensorRepository();
-  const readingRepo = createMockReadingRepository();
-  const channelRepo = createMockChannelRepository();
   const dataSource = createMockDataSource();
   const edgeDeviceService = overrides.edgeDeviceService !== undefined
     ? overrides.edgeDeviceService
@@ -203,8 +208,6 @@ function buildService(overrides: {
   const service = new (MqttListenerService as any)(
     configService,
     sensorRepo,
-    readingRepo,
-    channelRepo,
     dataSource,
     eventBus,
     edgeDeviceService,
@@ -219,8 +222,6 @@ function buildService(overrides: {
     service,
     configService,
     sensorRepo,
-    readingRepo,
-    channelRepo,
     dataSource,
     edgeDeviceService: edgeDeviceService as jest.Mocked<EdgeDeviceService> | null,
     sensorTopicCache: sensorTopicCache as jest.Mocked<SensorTopicCacheService> | null,
@@ -316,14 +317,13 @@ describe('MqttListenerService', () => {
 
   describe('Payload validation', () => {
     it('should process valid JSON payload', async () => {
-      const { service, sensorTopicCache, dataSource, channelRepo } = buildService();
+      const { service, sensorTopicCache, dataSource } = buildService();
       const sensor = createSensor();
       const cachedInfo = createCachedSensorInfo();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(cachedInfo);
 
       const qr = dataSource.createQueryRunner();
       (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
-      channelRepo.find.mockResolvedValue([]);
 
       await callHandleMessage(
         service,
@@ -502,13 +502,15 @@ describe('MqttListenerService', () => {
       const { service, dataSource } = buildService({ sensorTopicCache: null });
 
       // Mock the legacy path: dataSource.query returns tenant schemas
-      dataSource.query.mockResolvedValueOnce([{ schema_name: 'tenant_abc123' }]);
+      dataSource.query.mockResolvedValueOnce([{ schema_name: 'tenant_aaaaaaaaaaaa4aaa' }]);
 
       // Mock createQueryRunner for legacy path
       const qr = dataSource.createQueryRunner();
       // table check returns table exists
-      (qr.query as jest.Mock).mockResolvedValueOnce(undefined); // SET search_path
-      (qr.query as jest.Mock).mockResolvedValueOnce([{ '1': 1 }]); // table check
+      (qr.query as jest.Mock)
+        .mockResolvedValueOnce(undefined) // SET TRANSACTION READ ONLY
+        .mockResolvedValueOnce(undefined) // transaction-local search_path pin
+        .mockResolvedValueOnce([{ '1': 1 }]); // table check
 
       await callHandleMessage(
         service,

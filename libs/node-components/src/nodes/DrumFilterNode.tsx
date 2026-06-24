@@ -5,6 +5,7 @@
 
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
+
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';

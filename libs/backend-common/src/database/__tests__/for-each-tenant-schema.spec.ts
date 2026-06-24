@@ -24,21 +24,39 @@ function makeDataSource(schemas: string[]): {
     entities: [],
   });
 
-  jest.spyOn(ds, 'query').mockImplementation(async (sql: string) => {
+  jest.spyOn(ds, 'query').mockImplementation((sql: string) => {
     if (sql.includes('information_schema.schemata')) {
-      return schemas.map((s) => ({ schema_name: s }));
+      return Promise.resolve(schemas.map((s) => ({ schema_name: s })));
     }
-    return [];
+    return Promise.resolve([]);
   });
 
   jest.spyOn(ds, 'createQueryRunner').mockImplementation(() => {
+    let isTransactionActive = false;
     const qr: Partial<QueryRunner> = {
-      connect: async () => undefined,
+      connect: () => Promise.resolve(),
+      startTransaction: () => {
+        isTransactionActive = true;
+        return Promise.resolve();
+      },
+      commitTransaction: () => {
+        isTransactionActive = false;
+        return Promise.resolve();
+      },
+      rollbackTransaction: () => {
+        isTransactionActive = false;
+        return Promise.resolve();
+      },
+      get isTransactionActive() {
+        return isTransactionActive;
+      },
       // QueryRunner.query is overloaded; a variadic unknown-returning stub
       // overlaps every overload so the targeted assertion is legal.
-      query: (async (..._args: unknown[]): Promise<unknown> => []) as QueryRunner['query'],
-      release: async () => {
+      query: ((..._args: unknown[]): Promise<unknown> =>
+        Promise.resolve([])) as QueryRunner['query'],
+      release: () => {
         counters.releases += 1;
+        return Promise.resolve();
       },
     };
     return qr as QueryRunner;
@@ -64,8 +82,9 @@ describe('forEachTenantSchema', () => {
 
     const results = await forEachTenantSchema(
       dataSource,
-      async ({ schema }) => {
+      ({ schema }) => {
         seen.push(schema);
+        return Promise.resolve();
       },
       { perTenantTimeoutMs: 0 },
     );
@@ -102,9 +121,13 @@ describe('forEachTenantSchema', () => {
 
     const results = await forEachTenantSchema(
       dataSource,
-      async ({ schema }) => {
+      ({ schema }) => {
         seen.push(schema);
-        if (schema === 'tenant_b') throw new Error('boom');
+        if (schema === 'tenant_b') {
+          return Promise.reject(new Error('boom'));
+        }
+
+        return Promise.resolve();
       },
       { concurrency: 1, perTenantTimeoutMs: 0 },
     );
@@ -144,8 +167,9 @@ describe('forEachTenantSchema', () => {
 
     await forEachTenantSchema(
       dataSource,
-      async ({ schema }) => {
+      ({ schema }) => {
         order.push(schema);
+        return Promise.resolve();
       },
       { concurrency: 1, perTenantTimeoutMs: 0, rotateBy: 1 },
     );
@@ -158,9 +182,7 @@ describe('forEachTenantSchema', () => {
 
     await forEachTenantSchema(
       harness.dataSource,
-      async () => {
-        throw new Error('always fails');
-      },
+      () => Promise.reject(new Error('always fails')),
       { concurrency: 1, perTenantTimeoutMs: 0 },
     );
 

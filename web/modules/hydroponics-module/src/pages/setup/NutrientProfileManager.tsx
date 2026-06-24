@@ -53,7 +53,7 @@ const EMPTY_PROFILE: Omit<NutrientProfile, 'id'> = {
   mo: 0.5,
 };
 
-interface ProfileFormData extends Omit<NutrientProfile, 'id'> {}
+type ProfileFormData = Omit<NutrientProfile, 'id'>;
 
 const NutrientProfileManager: React.FC = () => {
   const { profiles, saveProfile, deleteProfile, importDefaults } = useNutrientProfilesContext();

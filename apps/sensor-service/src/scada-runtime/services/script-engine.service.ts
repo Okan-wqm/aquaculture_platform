@@ -422,7 +422,6 @@ export class ScriptEngineService {
     capturedLogs: ConsoleEntry[],
     timerTracker: TimerTracker,
   ): SandboxContext {
-    const self = this;
     const scriptId = script.id;
 
     /* ---- console bridge ------------------------------------------ */
@@ -439,7 +438,7 @@ export class ScriptEngineService {
         // Forward to gateway SCRIPT_CONSOLE event so the HMI console panel
         // shows output in real time.
         try {
-          self.gateway.broadcastCommand(
+          this.gateway.broadcastCommand(
             BROADCAST_TENANT_ID,
             {
               type: 'TOAST',
@@ -449,8 +448,8 @@ export class ScriptEngineService {
           );
 
           // Also emit a raw SCRIPT_CONSOLE event for dedicated console UIs
-          if (self.gateway.server) {
-            self.gateway.server.emit(ScadaSocketEvent.SCRIPT_CONSOLE, {
+          if (this.gateway.server) {
+            this.gateway.server.emit(ScadaSocketEvent.SCRIPT_CONSOLE, {
               scriptId,
               level,
               message,
@@ -467,18 +466,18 @@ export class ScriptEngineService {
       // Tag access
       $getTag: (id: string): TagValueChange | null => {
         try {
-          return self.tagManager.getTagValue(id);
+          return this.tagManager.getTagValue(id);
         } catch (err) {
-          self.logger.error(`$getTag error: ${(err as Error).message}`);
+          this.logger.error(`$getTag error: ${(err as Error).message}`);
           return null;
         }
       },
 
       $setTag: (id: string, value: unknown): void => {
         try {
-          self.tagManager.writeTagValue(id, value, 'script-engine');
+          this.tagManager.writeTagValue(id, value, 'script-engine');
         } catch (err) {
-          self.logger.error(`$setTag error: ${(err as Error).message}`);
+          this.logger.error(`$setTag error: ${(err as Error).message}`);
         }
       },
 
@@ -486,13 +485,13 @@ export class ScriptEngineService {
         try {
           // TagManagerService cache is keyed by tagId, not name.
           // We search all cached values for a matching display name.
-          const all = self.tagManager.getAllTagValues();
+          const all = this.tagManager.getAllTagValues();
           const match = all.find(
             (tv) => (tv as TagValueChange & { name?: string }).name === name,
           );
           return match?.tagId ?? null;
         } catch (err) {
-          self.logger.error(`$getTagId error: ${(err as Error).message}`);
+          this.logger.error(`$getTagId error: ${(err as Error).message}`);
           return null;
         }
       },
@@ -500,12 +499,12 @@ export class ScriptEngineService {
       // View navigation
       $setView: (viewName: string): void => {
         try {
-          self.gateway.broadcastCommand(BROADCAST_TENANT_ID, {
+          this.gateway.broadcastCommand(BROADCAST_TENANT_ID, {
             type: 'SETVIEW',
             viewId: viewName,
           });
         } catch (err) {
-          self.logger.error(`$setView error: ${(err as Error).message}`);
+          this.logger.error(`$setView error: ${(err as Error).message}`);
         }
       },
 
@@ -516,18 +515,18 @@ export class ScriptEngineService {
         body: string,
       ): Promise<void> => {
         try {
-          await self.notificationService.sendDirectEmail(to, subject, body);
+          await this.notificationService.sendDirectEmail(to, subject, body);
         } catch (err) {
-          self.logger.error(`$sendMessage error: ${(err as Error).message}`);
+          this.logger.error(`$sendMessage error: ${(err as Error).message}`);
         }
       },
 
       // Alarms
       $getAlarms: (): AlarmInstance[] => {
         try {
-          return self.alarmEngine.getActiveAlarms();
+          return this.alarmEngine.getActiveAlarms();
         } catch (err) {
-          self.logger.error(`$getAlarms error: ${(err as Error).message}`);
+          this.logger.error(`$getAlarms error: ${(err as Error).message}`);
           return [];
         }
       },
@@ -535,18 +534,18 @@ export class ScriptEngineService {
       $getAlarmsHistory: async (from: number, to: number): Promise<AlarmInstance[]> => {
         try {
           const filter: AlarmHistoryFilter = { from, to };
-          return await self.alarmStorage.getAlarmHistory(filter);
+          return await this.alarmStorage.getAlarmHistory(filter);
         } catch (err) {
-          self.logger.error(`$getAlarmsHistory error: ${(err as Error).message}`);
+          this.logger.error(`$getAlarmsHistory error: ${(err as Error).message}`);
           return [];
         }
       },
 
       $ackAlarm: async (alarmId: string, userId = 'script-engine'): Promise<void> => {
         try {
-          await self.alarmEngine.acknowledgeAlarm(alarmId, userId);
+          await this.alarmEngine.acknowledgeAlarm(alarmId, userId);
         } catch (err) {
-          self.logger.error(`$ackAlarm error: ${(err as Error).message}`);
+          this.logger.error(`$ackAlarm error: ${(err as Error).message}`);
         }
       },
 
@@ -557,9 +556,9 @@ export class ScriptEngineService {
         to: number,
       ): Promise<Record<string, HistoricalDataPoint[]>> => {
         try {
-          return await self.daqStorage.queryValues(ids, new Date(from), new Date(to));
+          return await this.daqStorage.queryValues(ids, new Date(from), new Date(to));
         } catch (err) {
-          self.logger.error(`$getHistoricalTags error: ${(err as Error).message}`);
+          this.logger.error(`$getHistoricalTags error: ${(err as Error).message}`);
           return {};
         }
       },

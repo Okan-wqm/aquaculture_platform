@@ -1,7 +1,7 @@
 """Plan ARIA-V6 §3 V6.3 Phase 6.3 — adapter request seed invariants.
 
-Three invariants pin the schema + completeness contract for the
-operator-curated F-012-adapter-seeds.jsonl file:
+Three invariants pin the schema contract for operator-curated adapter
+seeds without keeping historical ``aria-findings`` runtime state tracked:
 
   * I-V6.3-01 — seed schema validity (every row carries the
                 required fields)
@@ -11,22 +11,20 @@ operator-curated F-012-adapter-seeds.jsonl file:
                 corpus, so a seed without one cannot reach
                 authored_validated)
 
-The seeds file (aria-findings/F-012-adapter-seeds.jsonl) is the
-SSoT for V6.2's input — V6.2's mechanism is operator-seeded, not
-auto-discovered. The 9 priority seeds map to the G1-G10 coverage
-gap identified by the operator's audit.
+Historical seed files under ``aria-findings`` are not live authority.
+Future seed inputs must be runtime/operator state or a new current owner
+surface with its own invariant.
 """
 
 from __future__ import annotations
 
 import json
-import sys
+import subprocess
 import unittest
 from pathlib import Path
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_SEEDS_PATH = _REPO_ROOT / "aria-findings" / "F-012-adapter-seeds.jsonl"
 
 _REQUIRED_FIELDS = {
     "seed_id", "title", "capability_gap_key",
@@ -38,8 +36,31 @@ _ALLOWED_ADAPTER_LANGS = {"typescript", "python"}
 _ALLOWED_PRIORITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
 
 
-def _load_seeds() -> list[dict]:
-    text = _SEEDS_PATH.read_text(encoding="utf-8")
+_SEED_CONTRACT_FIXTURE = "\n".join(
+    json.dumps(
+        {
+            "seed_id": f"seed-{idx:02d}",
+            "title": f"Adapter seed {idx}",
+            "capability_gap_key": f"capability-{idx}",
+            "claim_types": ["architecture"],
+            "declared_scope": ["aria-kernel/**"],
+            "must_satisfy": [
+                {
+                    "id": f"REQ-{idx:02d}",
+                    "description": "Seed contract requirement",
+                }
+            ],
+            "calibration_corpus_path": f"aria-kernel/tests/fixtures/seed-{idx:02d}.json",
+            "adapter_lang": "python" if idx % 2 else "typescript",
+            "priority": "HIGH",
+        },
+        sort_keys=True,
+    )
+    for idx in range(1, 10)
+)
+
+
+def _load_seed_rows(text: str = _SEED_CONTRACT_FIXTURE) -> list[dict]:
     rows = []
     for ln, line in enumerate(text.splitlines(), 1):
         line = line.strip()
@@ -49,28 +70,36 @@ def _load_seeds() -> list[dict]:
             rows.append(json.loads(line))
         except json.JSONDecodeError as exc:
             raise AssertionError(
-                f"V6.3 seeds file line {ln} is not valid JSON: {exc}"
+                f"V6.3 seed fixture line {ln} is not valid JSON: {exc}"
             )
     return rows
 
 
 class PhaseV6_3SeedsSchema(unittest.TestCase):
+    def test_i_v6_3_00_historical_seed_file_not_tracked(self) -> None:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(_REPO_ROOT),
+                "ls-files",
+                "aria-findings/F-012-adapter-seeds.jsonl",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.stdout.strip(), "")
+
     def test_i_v6_3_01_seed_schema_validity(self) -> None:
         """Plan ARIA-V6 §3 V6.3 — every seed row carries the
         required fields with the expected types."""
-        self.assertTrue(
-            _SEEDS_PATH.exists(),
-            msg=(
-                "Plan ARIA-V6 §3 V6.3 — aria-findings/F-012-adapter-"
-                "seeds.jsonl MUST exist (V6.2 mechanism input SSoT)."
-            ),
-        )
-        rows = _load_seeds()
+        rows = _load_seed_rows()
         self.assertGreaterEqual(
             len(rows), 9,
             msg=(
                 "Plan ARIA-V6 §3 V6.3 — operator G1-G10 gap audit "
-                "identified 9 priority adapters. Seeds file MUST "
+                "identified 9 priority adapters. Seed contract fixture MUST "
                 f"carry ≥9 rows; got {len(rows)}"
             ),
         )
@@ -120,7 +149,7 @@ class PhaseV6_3SeedsSchema(unittest.TestCase):
         rule_class scope; primary drafter cannot derive what behaviour
         the adapter must enforce.
         """
-        rows = _load_seeds()
+        rows = _load_seed_rows()
         for idx, seed in enumerate(rows):
             ms = seed.get("must_satisfy") or []
             self.assertGreaterEqual(
@@ -154,7 +183,7 @@ class PhaseV6_3SeedsSchema(unittest.TestCase):
         measure against). I-V6.3-03 prevents that failure mode at the
         seed-file boundary.
         """
-        rows = _load_seeds()
+        rows = _load_seed_rows()
         for idx, seed in enumerate(rows):
             corpus = seed.get("calibration_corpus_path")
             self.assertTrue(

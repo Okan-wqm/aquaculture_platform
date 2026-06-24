@@ -1,7 +1,7 @@
-import { randomUUID as uuidv4 } from 'crypto';
-
-
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import {
+  queryRowsNormalized,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { Logger, NotFoundException, Inject } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -11,10 +11,17 @@ import { DataSource } from 'typeorm';
 
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
-import { MessageReceipt, ReceiptStatus } from '../entities/message-receipt.entity';
+import { MessageReceiptLedger } from '../entities/message-receipt-ledger.entity';
+import { ReceiptStatus } from '../entities/message-receipt.entity';
 import { Message } from '../entities/message.entity';
 
 import { MarkReadCommand } from './mark-read.command';
+
+interface ReceiptLedgerRow {
+  receiptId: string;
+  receiptCreatedAt: Date;
+  deliveredAt: Date | null;
+}
 
 /**
  * Handler for MarkReadCommand.
@@ -83,26 +90,15 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         return false;
       }
 
-      // 2b. Upsert MessageReceipt
-      const existingReceipt = await manager.findOne(MessageReceipt, {
-        where: {
-          tenantId,
-          messageId: message.id,
-          messageCreatedAt: message.createdAt,
-          userId,
-        },
-      });
-
+      // 2b. Upsert the non-partitioned logical receipt ledger, then mirror the
+      // same receipt identity into the partitioned receipt history table.
       const now = new Date();
       const messageCreatedAtIso = message.createdAt.toISOString();
-
-      if (existingReceipt) {
-        existingReceipt.status = ReceiptStatus.READ;
-        existingReceipt.readAt = now;
-        await manager.save(MessageReceipt, existingReceipt);
-      } else {
-        const receipt = manager.create(MessageReceipt, {
-          id: uuidv4(),
+      const ledgerResult = await manager
+        .createQueryBuilder()
+        .insert()
+        .into(MessageReceiptLedger)
+        .values({
           tenantId,
           messageId: message.id,
           messageCreatedAt: message.createdAt,
@@ -110,10 +106,57 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
           status: ReceiptStatus.READ,
           deliveredAt: now,
           readAt: now,
-          receiptCreatedAt: now,
-        });
-        await manager.save(MessageReceipt, receipt);
+          updatedAt: now,
+        })
+        .onConflict(
+          `("tenantId", "messageId", "userId") DO UPDATE SET ` +
+            `"messageCreatedAt" = EXCLUDED."messageCreatedAt", ` +
+            `"status" = EXCLUDED."status", ` +
+            `"deliveredAt" = COALESCE("message_receipt_ledger"."deliveredAt", EXCLUDED."deliveredAt"), ` +
+            `"readAt" = EXCLUDED."readAt", ` +
+            `"updatedAt" = EXCLUDED."updatedAt"`,
+        )
+        .returning(['receiptId', 'receiptCreatedAt', 'deliveredAt'])
+        .execute();
+      const ledgerRows = queryRowsNormalized<ReceiptLedgerRow>(ledgerResult.raw);
+
+      const ledger = ledgerRows[0];
+      if (!ledger) {
+        throw new Error('Message receipt ledger upsert returned no row');
       }
+
+      await manager.query(
+        `
+          INSERT INTO message_receipts (
+            "id",
+            "tenantId",
+            "messageId",
+            "messageCreatedAt",
+            "userId",
+            "status",
+            "deliveredAt",
+            "readAt",
+            "receiptCreatedAt"
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT ("id", "receiptCreatedAt")
+          DO UPDATE SET
+            "status" = EXCLUDED."status",
+            "deliveredAt" = COALESCE(message_receipts."deliveredAt", EXCLUDED."deliveredAt"),
+            "readAt" = EXCLUDED."readAt"
+        `,
+        [
+          ledger.receiptId,
+          tenantId,
+          message.id,
+          message.createdAt,
+          userId,
+          ReceiptStatus.READ,
+          ledger.deliveredAt ?? now,
+          now,
+          ledger.receiptCreatedAt,
+        ],
+      );
 
       // 2c. Outbox event
       // SECURITY: tenantId MUST be set at entity level for NATS subject routing.

@@ -1,109 +1,58 @@
-import { useState, useCallback, useEffect, ChangeEvent, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Fish, Eye, EyeOff, AlertCircle, Waves, Fingerprint } from 'lucide-react';
+import type { JSX } from 'react';
+import { useState, useCallback, useEffect, type ChangeEvent, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
 import {
   isWebAuthnSupported,
   hasLocalCredentials,
   getStoredBiometricEmail,
   storeBiometricEmail,
+  useWebAuthn,
 } from '@/hooks/useWebAuthn';
 
-// SEC-06: CSRF defense-in-depth header
-const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
-
-// GraphQL operations for WebAuthn login (inline to avoid circular dependency with useWebAuthn)
-const WEBAUTHN_LOGIN_CHALLENGE = `
-  mutation WebAuthnLoginChallenge($input: WebAuthnLoginChallengeInput!) {
-    webAuthnLoginChallenge(input: $input) {
-      challenge
-      rpId
-      allowedCredentialIds
-    }
-  }
-`;
-
-const WEBAUTHN_VERIFY_LOGIN = `
-  mutation VerifyWebAuthnLogin($input: WebAuthnVerifyLoginInput!) {
-    verifyWebAuthnLogin(input: $input) {
-      accessToken
-      refreshToken
-      user {
-        id
-        email
-        firstName
-        lastName
-        role
-        tenantId
-      }
-    }
-  }
-`;
-
-function bufferToBase64url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function base64urlToBuffer(base64url: string): ArrayBuffer {
-  const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/') + padding;
-  const binary = atob(base64);
-  const buffer = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    buffer[i] = binary.charCodeAt(i);
-  }
-  return buffer.buffer;
-}
-
-export function LoginPage() {
+export function LoginPage(): JSX.Element | null {
   const navigate = useNavigate();
   const { login, loginWithToken, isLoading, isAuthenticated, isMobileDisabled } = useAuth();
+  // SSoT: the biometric login flow (challenge → WebAuthn assertion → verify) lives
+  // in useWebAuthn.biometricLogin. The page consumes it rather than re-implementing
+  // the GraphQL round-trips and base64url helpers, so the typed { accessToken, user }
+  // result flows straight into loginWithToken with no `any` boundary.
+  const { biometricLogin, isLoggingIn: isBiometricLoading } = useWebAuthn();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [isBiometricLoading, setIsBiometricLoading] = useState(false);
   // SEC-10: "Remember Me" checkbox removed — session persistence is handled by
   // the httpOnly refresh token cookie set by the backend. There is no separate
   // "remember" vs "forget" mode in the current auth architecture.
 
-  // Check biometric availability on mount
+  // Check biometric availability on mount. Synchronous browser/local checks only,
+  // so the effect callback needs no async/await.
   useEffect(() => {
-    const checkBiometric = async () => {
-      if (isWebAuthnSupported() && hasLocalCredentials()) {
-        setBiometricAvailable(true);
-        // Pre-fill email from stored biometric email
-        const storedEmail = getStoredBiometricEmail();
-        if (storedEmail && !email) {
-          setEmail(storedEmail);
-        }
+    if (isWebAuthnSupported() && hasLocalCredentials()) {
+      setBiometricAvailable(true);
+      // Pre-fill email from stored biometric email
+      const storedEmail = getStoredBiometricEmail();
+      if (storedEmail) {
+        setEmail((current) => current || storedEmail);
       }
-    };
-    checkBiometric();
+    }
   }, []);
 
-  if (isAuthenticated) {
-    navigate('/', { replace: true });
-    return null;
-  }
-
-  const handleEmailChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+  const handleEmailChange = useCallback((e: ChangeEvent<HTMLInputElement>): void => {
     setEmail(e.target.value);
     setError('');
   }, []);
 
-  const handlePasswordChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+  const handlePasswordChange = useCallback((e: ChangeEvent<HTMLInputElement>): void => {
     setPassword(e.target.value);
     setError('');
   }, []);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     setError('');
 
@@ -134,103 +83,37 @@ export function LoginPage() {
     }
   };
 
-  const handleBiometricLogin = async () => {
+  const handleBiometricLogin = async (): Promise<void> => {
     const biometricEmail = email || getStoredBiometricEmail();
     if (!biometricEmail) {
       setError('Please enter your email address first');
       return;
     }
 
-    setIsBiometricLoading(true);
     setError('');
 
+    // SSoT: useWebAuthn.biometricLogin runs the full challenge/verify round-trip and
+    // returns a typed { accessToken, user } or null (it surfaces its own sanitized
+    // error via the hook). null means cancelled/failed — keep the form interactive.
+    const result = await biometricLogin(biometricEmail);
+    if (!result) {
+      return;
+    }
+
     try {
-      // Step 1: Get challenge from backend
-      const challengeRes = await fetch('/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...CSRF_HEADER },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: WEBAUTHN_LOGIN_CHALLENGE,
-          variables: { input: { email: biometricEmail } },
-        }),
-      });
-      const challengeResult = await challengeRes.json();
-
-      if (challengeResult.errors) {
-        throw new Error(challengeResult.errors[0]?.message || 'Biometric login not available');
-      }
-
-      const challenge = challengeResult.data.webAuthnLoginChallenge;
-
-      // Step 2: Call WebAuthn API
-      const allowCredentials = challenge.allowedCredentialIds.map((id: string) => ({
-        id: base64urlToBuffer(id),
-        type: 'public-key' as const,
-        transports: ['internal' as AuthenticatorTransport],
-      }));
-
-      const assertion = (await navigator.credentials.get({
-        publicKey: {
-          challenge: base64urlToBuffer(challenge.challenge),
-          rpId: challenge.rpId,
-          allowCredentials,
-          userVerification: 'required',
-          timeout: 60000,
-        },
-      })) as PublicKeyCredential | null;
-
-      if (!assertion) {
-        setError('Biometric verification was cancelled');
-        return;
-      }
-
-      const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
-
-      // Step 3: Verify with backend
-      const verifyRes = await fetch('/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...CSRF_HEADER },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: WEBAUTHN_VERIFY_LOGIN,
-          variables: {
-            input: {
-              credentialId: bufferToBase64url(assertion.rawId),
-              authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
-              clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
-              signature: bufferToBase64url(assertionResponse.signature),
-              challenge: challenge.challenge,
-              origin: window.location.origin,
-            },
-          },
-        }),
-      });
-
-      const verifyResult = await verifyRes.json();
-
-      if (verifyResult.errors) {
-        throw new Error(verifyResult.errors[0]?.message || 'Biometric verification failed');
-      }
-
-      const { accessToken, user } = verifyResult.data.verifyWebAuthnLogin;
-
       // Complete login using the token received from WebAuthn verification.
       // The httpOnly refresh token cookie has already been set by the backend.
-      await loginWithToken(accessToken, user);
+      await loginWithToken(result.accessToken, result.user);
       navigate('/', { replace: true });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Biometric login failed';
-      // Handle user cancellation gracefully
-      if (message.includes('AbortError') || message.includes('NotAllowedError')) {
-        setError('Biometric verification was cancelled');
-      } else {
-        setError(message);
-      }
-    } finally {
-      setIsBiometricLoading(false);
+      setError(err instanceof Error ? err.message : 'Biometric login failed');
     }
   };
+
+  if (isAuthenticated) {
+    navigate('/', { replace: true });
+    return null;
+  }
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden bg-ocean-950">
@@ -294,12 +177,23 @@ export function LoginPage() {
           )}
 
           {/* Login form */}
-          <form method="post" autoComplete="off" onSubmit={handleSubmit} className="space-y-4">
+          <form
+            method="post"
+            autoComplete="off"
+            onSubmit={(e) => {
+              void handleSubmit(e);
+            }}
+            className="space-y-4"
+          >
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              <label
+                htmlFor="login-email"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+              >
                 Email
               </label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={handleEmailChange}
@@ -312,11 +206,15 @@ export function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              <label
+                htmlFor="login-password"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+              >
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={handlePasswordChange}
@@ -367,7 +265,9 @@ export function LoginPage() {
               </div>
               <button
                 type="button"
-                onClick={handleBiometricLogin}
+                onClick={() => {
+                  void handleBiometricLogin();
+                }}
                 disabled={isLoading || isBiometricLoading}
                 className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
               >

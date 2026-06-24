@@ -361,7 +361,7 @@ export class StripeWebhookService {
 
       // Invalidate Redis cache
       if (this.redisService) {
-        await this.redisService.del(`subscription:${tenantId}`).catch(() => {});
+        await this.redisService.del(`subscription:${tenantId}`).catch(() => { /* non-fatal: stale cache self-heals on next read via TTL; DB is SSoT */ });
       }
 
       this.logger.log(
@@ -421,7 +421,7 @@ export class StripeWebhookService {
 
       // Invalidate Redis cache
       if (this.redisService) {
-        await this.redisService.del(`subscription:${tenantId}`).catch(() => {});
+        await this.redisService.del(`subscription:${tenantId}`).catch(() => { /* non-fatal: stale cache self-heals on next read via TTL; DB is SSoT */ });
       }
 
       this.logger.log(

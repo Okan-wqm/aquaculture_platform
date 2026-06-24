@@ -70,7 +70,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     super('VfdBacnetAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -110,7 +110,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -465,7 +465,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async readProperty(
     connection: BacnetConnectionHandle,
     objectType: number,
@@ -480,7 +480,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     return Math.random() * 100;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async writeProperty(
     connection: BacnetConnectionHandle,
     objectType: number,

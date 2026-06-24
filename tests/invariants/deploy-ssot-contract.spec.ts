@@ -81,6 +81,125 @@ describe('deploy SSOT contract', () => {
     expect(script).not.toMatch(/docker\s+system\s+prune[^#]*--volumes/);
   });
 
+  it('builds production backend images from current-source artifacts only', () => {
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const provenance = read('scripts/deploy/verify-backend-dist-provenance.mjs');
+
+    expect(workflow).not.toContain('path: .nx/cache');
+    expect(workflow).toContain("NX_SKIP_NX_CACHE: 'true'");
+    expect(workflow).toContain('node scripts/deploy/verify-backend-dist-provenance.mjs "${PROJECTS}"');
+    expect(provenance).toContain('stale compiled app files detected');
+    expect(provenance).toContain('apps\', project, \'src');
+    expect(provenance).toContain('dist\', \'apps\', project');
+  });
+
+  it('expands manual selective deploys with migration owner services from the catalog', () => {
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const resolver = read('scripts/deploy/resolve-migration-owner-services.mjs');
+
+    expect(workflow).toContain('MIGRATION_OWNER_SERVICES="$(node scripts/deploy/resolve-migration-owner-services.mjs');
+    expect(workflow).toContain('append_backend_once "$svc"');
+    expect(resolver).toContain('service-catalog.generated.json');
+    expect(resolver).toContain('catalog.dbSchemas');
+    expect(resolver).toContain('schema.migrationGlobs');
+    expect(resolver).toContain('catalog.deploy?.backendImageTargets');
+  });
+
+  it('keeps Redis connection env single-source in droplet compose', () => {
+    const compose = read('docker-compose.droplet.yml');
+    const services = [
+      'gateway-api',
+      'auth-service',
+      'farm-service',
+      'sensor-service',
+      'billing-service',
+      'notification-service',
+      'admin-api-service',
+      'messaging-service',
+    ];
+
+    for (const service of services) {
+      const block = extractComposeServiceBlock(compose, service);
+      expect(block).toContain(`${service}:`);
+      const hasUrl = /^\s+REDIS_URL:/.test(block);
+      const hasHostStyle = /^\s+REDIS_(HOST|PORT|PASSWORD|DB):/m.test(block);
+      expect(hasUrl && hasHostStyle).toBe(false);
+    }
+  });
+
+  it('uses the shared Redis option builder for URL-aware backend Redis modules', () => {
+    const gateway = read('apps/gateway-api/src/app.module.ts');
+    const farm = read('apps/farm-service/src/app.module.ts');
+    const notification = read('apps/notification-service/src/app.module.ts');
+
+    for (const source of [gateway, farm, notification]) {
+      expect(source).toContain('buildRedisOptions');
+      expect(source).not.toContain("configService.get('REDIS_HOST', 'localhost')");
+      expect(source).not.toContain("configService.get<string>('REDIS_PASSWORD')");
+    }
+  });
+
+  it('scopes selective rollback to services changed by the current deploy', () => {
+    const deploy = read('scripts/deploy/droplet-up.sh');
+
+    expect(deploy).toContain('scope_services=()');
+    expect(deploy).toContain('done < <(restartable_deploy_services)');
+    expect(deploy).toContain('Rollback scope had no restorable images.');
+    expect(deploy).toContain('up -d --no-deps --no-build --force-recreate "${scope_services[@]}"');
+    expect(deploy).not.toContain('up -d --no-build --remove-orphans');
+  });
+
+  it('reports droplet capacity evidence without mutating data-bearing storage', () => {
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+
+    expect(capacity).toContain('Top-level disk usage (same filesystem only):');
+    expect(capacity).toContain('Docker image inventory:');
+    expect(capacity).toContain('du -x -B1 -d1');
+    expect(capacity).toContain('docker image ls --format');
+    expect(capacity).toContain('CAPACITY_DISK_USAGE_MODE');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS');
+    expect(capacity).toContain('CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"');
+    expect(capacity).toContain('disk_usage_unavailable');
+    expect(capacity).toContain('detect_docker_root');
+    expect(capacity).toContain("awk 'NF {print; exit}'");
+    expect(capacity).toContain("awk 'NR <= 20");
+    expect(capacity).not.toContain('head -20');
+  });
+
+  it('keeps capacity diagnostics bounded below the deploy preflight timeout', () => {
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+    const workflow = read('.github/workflows/deploy-digitalocean.yml');
+    const capacityJobBlock =
+      /\n {2}capacity-preflight:\n[\s\S]*?\n {2}# ===========================================================================/.exec(
+        workflow,
+      )?.[0] ?? '';
+    const runGateStart = capacity.indexOf('run_gate() {');
+    const runGateEnd = capacity.indexOf('case "${command}"');
+    const runGateBlock =
+      runGateStart >= 0 && runGateEnd > runGateStart
+        ? capacity.slice(runGateStart, runGateEnd)
+        : '';
+
+    expect(capacityJobBlock).not.toEqual('');
+    expect(runGateBlock).not.toEqual('');
+    expect(runGateBlock).toContain('capacity_core_snapshot');
+    expect(runGateBlock).toContain('capacity_diagnostic_snapshot');
+    expect(runGateBlock).not.toContain('capacity_snapshot');
+    expect((runGateBlock.match(/capacity_diagnostic_snapshot/g) ?? []).length).toBe(2);
+
+    const duTimeoutSeconds = Number(
+      /CAPACITY_DU_TIMEOUT_SECONDS="\$\{CAPACITY_DU_TIMEOUT_SECONDS:-(\d+)\}"/.exec(
+        capacity,
+      )?.[1],
+    );
+    const jobTimeoutMinutes = Number(/timeout-minutes:\s*(\d+)/.exec(capacityJobBlock)?.[1]);
+    const commandTimeoutMinutes = Number(/command_timeout:\s*(\d+)m/.exec(capacityJobBlock)?.[1]);
+
+    expect(duTimeoutSeconds).toBe(60);
+    expect(commandTimeoutMinutes).toBeLessThan(jobTimeoutMinutes);
+    expect(duTimeoutSeconds * 2).toBeLessThan(commandTimeoutMinutes * 60);
+  });
+
   it('records deploy capacity and rollback metadata in the release ledger', () => {
     const sql = read('apps/db-migrate/src/sql/platform-bootstrap/007-bootstrap-signal.sql');
     const deploy = read('scripts/deploy/droplet-up.sh');
@@ -196,22 +315,27 @@ describe('deploy SSOT contract', () => {
     }
   });
 
-  it('keeps the deployment mutation output explicit while CI-Affected stays code-health only', () => {
+  it('keeps CI-Affected as the main release orchestrator with explicit deploy mutation proof', () => {
     // A reusable-workflow caller's `result == success` only proves the called
     // workflow did not fail. The production deploy workflow keeps an explicit
-    // mutation output for callers that need it, while CI-Affected no longer
-    // calls deploy/post-deploy jobs from ordinary PR/main code-health checks.
+    // mutation output and CI-Affected uses that output as the single release
+    // orchestration contract: quality gates -> staging -> production -> proof.
     const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
     const ciAffected = read('.github/workflows/ci-affected.yml');
     expect(deployWorkflow).toContain('deployed:');
     expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
     expect(deployWorkflow).toContain('Mark deployment performed');
-    expect(ciAffected).toContain(
-      'Push-to-main runs affected lint/type-check/test/build as code-health',
-    );
-    expect(ciAffected).not.toContain("needs.deploy.outputs.deployed == 'true'");
-    expect(ciAffected).not.toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
-    expect(ciAffected).not.toContain('deploy-staging:');
+    expect(ciAffected).toContain('deploy-staging:');
+    expect(ciAffected).toContain('deploy-production:');
+    expect(ciAffected).toContain('production-post-deploy-verify:');
+    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-staging.yml');
+    expect(ciAffected).toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
+    expect(ciAffected).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
+    expect(ciAffected).toContain('services: auto');
+    expect(ciAffected).toContain("needs.deploy-production.outputs.deployed == 'true'");
+    expect(ciAffected).toContain("needs.deploy-staging.result == 'success'");
+    expect(ciAffected).toContain("needs.pre-flight.result == 'success'");
+    expect(ciAffected).toContain("- '.github/workflows/production-post-deploy-verify.yml'");
   });
 
   it('verifies SHA images and capacity before SSH mutation', () => {

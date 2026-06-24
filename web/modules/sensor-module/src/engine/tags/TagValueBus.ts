@@ -24,6 +24,18 @@ export class TagValueBus {
     }
   }
 
+  /**
+   * Replace the cached value map WITHOUT notifying any listeners.
+   *
+   * Used to load an initial snapshot (e.g. the operator client-script
+   * sandbox seeds current tag values before each invocation) so that a
+   * persistent value-write listener does not mistake seeding for a real
+   * tag write. Subsequent publish() calls behave normally and notify.
+   */
+  seed(values: Record<string, unknown>): void {
+    this.values = new Map(Object.entries(values));
+  }
+
   getLatest(tagName: string): unknown {
     return this.values.get(tagName);
   }

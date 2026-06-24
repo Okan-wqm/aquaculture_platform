@@ -283,6 +283,43 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^apps\/hr-service\/src\/performance\/handlers\/defer-goal\.handler\.ts$/,
 ];
 
+const GENERATED_OUTPUT_MANIFEST_PATH =
+  'docs/plans/2026-06-19-root-ssot-stabilization/stabilization-manifest.json';
+
+type GeneratedOutputManifest = {
+  waves?: Array<{
+    generated_outputs?: Array<{
+      path?: string;
+      manual_edits_allowed?: boolean;
+    }>;
+  }>;
+};
+
+let generatedOutputPathsCache: ReadonlySet<string> | null = null;
+
+function generatedOutputPaths(): ReadonlySet<string> {
+  if (generatedOutputPathsCache) return generatedOutputPathsCache;
+
+  const manifestPath = resolve(REPO_ROOT, GENERATED_OUTPUT_MANIFEST_PATH);
+  if (!existsSync(manifestPath)) {
+    generatedOutputPathsCache = new Set<string>();
+    return generatedOutputPathsCache;
+  }
+
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as GeneratedOutputManifest;
+  const paths = new Set<string>();
+  for (const wave of manifest.waves ?? []) {
+    for (const output of wave.generated_outputs ?? []) {
+      if (output.path && output.manual_edits_allowed === false) {
+        paths.add(output.path);
+      }
+    }
+  }
+
+  generatedOutputPathsCache = paths;
+  return generatedOutputPathsCache;
+}
+
 interface Violation {
   source: string;
   line: number;
@@ -304,7 +341,7 @@ function run(cmd: string): string {
 }
 
 function isExempt(relPath: string): boolean {
-  return EXEMPT_PATHS.some((re) => re.test(relPath));
+  return EXEMPT_PATHS.some((re) => re.test(relPath)) || generatedOutputPaths().has(relPath);
 }
 
 /**

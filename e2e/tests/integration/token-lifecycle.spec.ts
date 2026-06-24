@@ -7,6 +7,10 @@
  * - After user deletion -> token rejected
  */
 
+import { assertDefined } from '../../helpers/assertions';
+import { closePool } from '../../helpers/db.helper';
+import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
+import { createExpiredJwt, decodeJwt } from '../../helpers/jwt.helper';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -19,9 +23,6 @@ import {
   generateTestEmail,
   generateTestPassword,
 } from '../../helpers/tenant.fixture';
-import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
-import { createExpiredJwt, decodeJwt } from '../../helpers/jwt.helper';
-import { closePool } from '../../helpers/db.helper';
 
 describe('Token Lifecycle', () => {
   let superAdminToken: string;
@@ -37,7 +38,7 @@ describe('Token Lifecycle', () => {
 
     const roles = await getTenantRoles(superAdminToken);
     const defaultRole = roles.find((r) => r.isDefault) || roles[0];
-    defaultRoleId = defaultRole!.id;
+    defaultRoleId = defaultRole.id;
   });
 
   afterAll(async () => {
@@ -67,7 +68,7 @@ describe('Token Lifecycle', () => {
     const response = await queryMyTenant(loginResult.accessToken);
     expect(response.errors).toBeUndefined();
     expect(response.data).toBeDefined();
-    expect(response.data!.myTenant.id).toBe(tenantId);
+    expect(assertDefined(response.data).myTenant.id).toBe(tenantId);
   });
 
   it('should reject queries with expired token', async () => {
@@ -161,7 +162,7 @@ describe('Token Lifecycle', () => {
     expect(payload.tenantId).toBe(tenantId);
     expect(payload.iat).toBeDefined();
     expect(payload.exp).toBeDefined();
-    expect(payload.exp!).toBeGreaterThan(payload.iat!);
+    expect(assertDefined(payload.exp)).toBeGreaterThan(assertDefined(payload.iat));
 
     // Verify role claim
     expect(payload.role).toBeDefined();

@@ -53,8 +53,8 @@ describe('createServiceTypeOrmConfig authoritative DDL guard', () => {
     ).toThrow(/migrationsRun=true is not allowed/i);
   });
 
-  it('rejects DATABASE_SYNC=true in authoritative mode', () => {
-    process.env['DB_MIGRATE_AUTHORITATIVE'] = 'true';
+  it('rejects DATABASE_SYNC=true in every runtime mode', () => {
+    process.env['DB_MIGRATE_AUTHORITATIVE'] = 'false';
     process.env['DATABASE_SYNC'] = 'true';
 
     expect(() =>
@@ -63,7 +63,7 @@ describe('createServiceTypeOrmConfig authoritative DDL guard', () => {
         schema: 'event_store',
         migrations: [],
       }),
-    ).toThrow(/DATABASE_SYNC=true is not allowed/i);
+    ).toThrow(/DATABASE_SYNC=true is retired/i);
   });
 
   it('rejects DB_MIGRATE_DDL_AUTHORITY=1 leaking into a runtime service', () => {

@@ -11,13 +11,15 @@
  * Graceful degradation: renders nothing when AI is unavailable.
  */
 
+import type { ReactElement } from 'react';
+
 import { useFeedingAdvice } from '@/hooks/useAiInsights';
 
 interface FeedingAdviceCardProps {
   tankId: string;
 }
 
-export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps) {
+export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElement | null {
   const { data: advice, isLoading, isError } = useFeedingAdvice(tankId);
 
   if (isLoading) {

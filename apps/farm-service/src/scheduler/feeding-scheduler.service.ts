@@ -21,17 +21,34 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In, DataSource, QueryRunner } from 'typeorm';
+import {
+  Repository,
+  Between,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  In,
+  DataSource,
+  QueryRunner,
+} from 'typeorm';
 import {
   listTenantSchemas,
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
+import {
+  clearManagedTimer,
+  createManagedInterval,
+  type ManagedInterval,
+} from '@aquaculture/backend-common/utils';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
-import { FeedingRecord, FeedingMethod, FishAppetite } from '../feeding/entities/feeding-record.entity';
+import {
+  FeedingRecord,
+  FeedingMethod,
+  FishAppetite,
+} from '../feeding/entities/feeding-record.entity';
 import { FeedingTable, FeedingTableStatus } from '../feeding/entities/feeding-table.entity';
 import { Batch, BatchStatus } from '../batch/entities/batch.entity';
 import { Feed, FeedStatus } from '../feed/entities/feed.entity';
@@ -151,7 +168,7 @@ const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FeedingSchedulerService.name);
   private tenantConfigs: Map<string, TenantFeedingConfig> = new Map();
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: ManagedInterval | null = null;
 
   constructor(
     @InjectRepository(FeedingRecord)
@@ -174,7 +191,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     await this.loadTenantConfigs();
 
     // Start periodic cleanup of stale tenant configs
-    this.cleanupInterval = setInterval(() => {
+    this.cleanupInterval = createManagedInterval(() => {
       this.cleanupStaleTenantConfigs();
     }, CLEANUP_INTERVAL_MS);
 
@@ -189,7 +206,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
 
     // Clear the cleanup interval
     if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+      clearManagedTimer(this.cleanupInterval);
       this.cleanupInterval = null;
     }
 
@@ -334,7 +351,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      this.logger.debug(`Found ${schedules.length} active feeding schedules for tenant ${tenantId}`);
+      this.logger.debug(
+        `Found ${schedules.length} active feeding schedules for tenant ${tenantId}`,
+      );
       return schedules;
     } catch (error) {
       this.logger.error(`Failed to get feeding schedules for tenant ${tenantId}: ${error}`);
@@ -400,7 +419,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       // Sort by scheduled date
       upcomingFeedings.sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
 
-      this.logger.debug(`Found ${upcomingFeedings.length} upcoming feedings for tenant ${tenantId}`);
+      this.logger.debug(
+        `Found ${upcomingFeedings.length} upcoming feedings for tenant ${tenantId}`,
+      );
       return upcomingFeedings;
     } catch (error) {
       this.logger.error(`Failed to get upcoming feedings for tenant ${tenantId}: ${error}`);
@@ -445,7 +466,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       // Get today's schedule entry
       const todayEntry = feedingTable.getTodaySchedule();
       if (!todayEntry) {
-        throw new BadRequestException(`No schedule entry found for today in schedule ${scheduleId}`);
+        throw new BadRequestException(
+          `No schedule entry found for today in schedule ${scheduleId}`,
+        );
       }
 
       // Determine the feed amount
@@ -490,7 +513,8 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
         plannedAmount,
         actualAmount: feedAmount,
         variance: feedAmount - plannedAmount,
-        variancePercent: plannedAmount > 0 ? ((feedAmount - plannedAmount) / plannedAmount) * 100 : 0,
+        variancePercent:
+          plannedAmount > 0 ? ((feedAmount - plannedAmount) / plannedAmount) * 100 : 0,
         feedingMethod: FeedingMethod.MANUAL,
         feedCost,
         currency: feed?.currency || 'TRY',
@@ -501,7 +525,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       const savedRecord = await this.feedingRecordRepository.save(feedingRecord);
 
       // Update batch feed consumption
-      await this.updateBatchFeedConsumption(feedingTable.tenantId, feedingTable.batchId, feedAmount, feedCost);
+      await this.updateBatchFeedConsumption(
+        feedingTable.tenantId,
+        feedingTable.batchId,
+        feedAmount,
+        feedCost,
+      );
 
       // Emit feeding executed event
       this.eventEmitter.emit('feeding.executed', {
@@ -512,7 +541,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
         executedBy,
       });
 
-      this.logger.log(`Successfully executed feeding for schedule ${scheduleId}, record ${savedRecord.id}`);
+      this.logger.log(
+        `Successfully executed feeding for schedule ${scheduleId}, record ${savedRecord.id}`,
+      );
 
       return {
         success: true,
@@ -670,21 +701,19 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
 
           // Try 2D matrix with water temperature
           if (feed.feedingMatrix2D && waterTemperature !== undefined) {
-            const matrix = typeof feed.feedingMatrix2D === 'string'
-              ? JSON.parse(feed.feedingMatrix2D)
-              : feed.feedingMatrix2D;
+            const matrix =
+              typeof feed.feedingMatrix2D === 'string'
+                ? JSON.parse(feed.feedingMatrix2D)
+                : feed.feedingMatrix2D;
 
-            feedingRatePercent = this.interpolateFeedingRate(
-              matrix,
-              waterTemperature,
-              avgWeightG,
-            );
+            feedingRatePercent = this.interpolateFeedingRate(matrix, waterTemperature, avgWeightG);
           }
           // Try 1D feeding curve
           else if (feed.feedingCurve) {
-            const curve = typeof feed.feedingCurve === 'string'
-              ? JSON.parse(feed.feedingCurve)
-              : feed.feedingCurve;
+            const curve =
+              typeof feed.feedingCurve === 'string'
+                ? JSON.parse(feed.feedingCurve)
+                : feed.feedingCurve;
 
             feedingRatePercent = this.getFeedingRateFromCurve(curve, avgWeightG);
           }
@@ -984,9 +1013,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
           }
         }
       } catch (err) {
-        this.logger.error(
-          `FCR analysis failed for schema ${schema}: ${(err as Error).message}`,
-        );
+        this.logger.error(`FCR analysis failed for schema ${schema}: ${(err as Error).message}`);
       } finally {
         await queryRunner.query('RESET search_path').catch(() => {});
         await queryRunner.release();
@@ -1333,10 +1360,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
 
     const completed = records.filter((r) => r.actualAmount > 0).length;
     const skipped = records.filter((r) => r.skipReason != null).length;
-    const totalFeedUsed = records.reduce(
-      (sum, r) => sum + Number(r.actualAmount || 0),
-      0,
-    );
+    const totalFeedUsed = records.reduce((sum, r) => sum + Number(r.actualAmount || 0), 0);
 
     return {
       planned,
@@ -1487,7 +1511,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
       : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
 
-    const feedRequirements = new Map<string, { feedId: string; feedName: string; quantity: number }>();
+    const feedRequirements = new Map<
+      string,
+      { feedId: string; feedName: string; quantity: number }
+    >();
     let totalRequired = 0;
 
     // Get active feeding tables
@@ -1532,10 +1559,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const currentStock = inventory.reduce(
-      (sum, inv) => sum + Number(inv.quantityKg),
-      0,
-    );
+    const currentStock = inventory.reduce((sum, inv) => sum + Number(inv.quantityKg), 0);
 
     const shortfall = Math.max(0, totalRequired - currentStock);
 
@@ -1750,8 +1774,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   getRegisteredJobs(): string[] {
     const jobs = this.schedulerRegistry.getCronJobs();
     return Array.from(jobs.keys()).filter((name) =>
-      ['generateDailyFeedingPlan', 'sendFeedingReminders', 'dailyFeedingSummary',
-       'analyzeFCR', 'checkFeedStock', 'weeklyFeedForecast'].includes(name),
+      [
+        'generateDailyFeedingPlan',
+        'sendFeedingReminders',
+        'dailyFeedingSummary',
+        'analyzeFCR',
+        'checkFeedStock',
+        'weeklyFeedForecast',
+      ].includes(name),
     );
   }
 }

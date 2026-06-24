@@ -119,8 +119,8 @@ export interface WorkOrderFilter {
 export async function fetchWorkOrders(
   client: GraphQLClient,
   filter?: WorkOrderFilter,
-  page: number = 1,
-  limit: number = 50,
+  page = 1,
+  limit = 50,
 ): Promise<WorkOrderListResponse> {
   const query = `
     query WorkOrders($filter: WorkOrderFilterInput, $page: Int, $limit: Int, $sortBy: String, $sortOrder: String) {

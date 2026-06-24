@@ -93,7 +93,9 @@ export function QueuedStatusBadge({ operationId, onRetry }: QueuedStatusBadgePro
       {/* ── Retry button for failed ── */}
       {status === 'failed' && (
         <button
-          onClick={handleRetry}
+          onClick={() => {
+            void handleRetry();
+          }}
           disabled={isSyncing}
           className="mt-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300 font-semibold text-sm rounded-xl border border-red-200 dark:border-red-800 touch-feedback disabled:opacity-50"
         >

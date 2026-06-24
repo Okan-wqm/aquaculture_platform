@@ -27,6 +27,7 @@ import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
+import type { AuditLogInput } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
 import { getAuthUser } from '../../shared/authenticated-request';
@@ -52,6 +53,18 @@ const ALLOWED_SCHEMAS = new Set(['public', 'auth', 'admin', 'billing']);
 const MODULE_TABLE_NAMES: Set<string> = new Set(
   MODULE_SCHEMAS.flatMap(m => m.tables),
 );
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const MODULE_TABLE_REFERENCE_PATTERNS = [...MODULE_TABLE_NAMES].map((tableName) => {
+  const escapedTableName = escapeRegExp(tableName);
+  return new RegExp(
+    String.raw`\b(?:FROM|JOIN|TABLE)\s+(?:(?:"?[a-zA-Z_][a-zA-Z0-9_]*"?\s*\.\s*)?)"?${escapedTableName}"?\b`,
+    'i',
+  );
+});
 
 // ============================================================================
 // Sensitive Column Masking Configuration
@@ -222,6 +235,8 @@ interface TableData {
   totalPages: number;
 }
 
+type ExplorerWriteOperation = 'insert' | 'update' | 'delete';
+
 // ============================================================================
 // Controller
 // ============================================================================
@@ -239,7 +254,14 @@ export class DatabaseExplorerController {
      * Defense-in-depth: each query runner also executes SET TRANSACTION READ ONLY.
      */
     @InjectDataSource('explorer-readonly')
-    private readonly dataSource: DataSource,
+    private readonly readOnlyDataSource: DataSource,
+    /**
+     * Write operations are a separate, explicit dependency. Reads and raw SQL
+     * never use this DataSource; CRUD endpoints reach it only after the feature
+     * flag, production guard, schema/table allowlist, and audit intent pass.
+     */
+    @InjectDataSource()
+    private readonly writeDataSource: DataSource,
     /**
      * SECURITY (ADMIN-MEDIUM-002): All explorer queries are persisted to the
      * compliance_audit_log table for SOC 2 compliance. Previously only written
@@ -256,7 +278,7 @@ export class DatabaseExplorerController {
    * @returns A connected QueryRunner in read-only transaction mode
    */
   private async createReadOnlyQueryRunner(): Promise<ReturnType<DataSource['createQueryRunner']>> {
-    const queryRunner = this.dataSource.createQueryRunner();
+    const queryRunner = this.readOnlyDataSource.createQueryRunner();
     await queryRunner.connect();
     // SECURITY: Defense-in-depth — SET TRANSACTION READ ONLY on every query
     await queryRunner.query('SET TRANSACTION READ ONLY');
@@ -270,7 +292,7 @@ export class DatabaseExplorerController {
    * making writes silently fail even when the feature flag was enabled.
    */
   private async createWriteQueryRunner(): Promise<ReturnType<DataSource['createQueryRunner']>> {
-    const queryRunner = this.dataSource.createQueryRunner();
+    const queryRunner = this.writeDataSource.createQueryRunner();
     await queryRunner.connect();
     return queryRunner;
   }
@@ -286,6 +308,49 @@ export class DatabaseExplorerController {
     if (table && MODULE_TABLE_NAMES.has(table)) {
       throw new BadRequestException(`Table '${table}' is not accessible`);
     }
+  }
+
+  private assertExplorerWritesEnabled(): void {
+    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
+      throw new ForbiddenException(
+        'Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.',
+      );
+    }
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new ForbiddenException('Database explorer writes are disabled in production');
+    }
+  }
+
+  private async requireAuditLog(input: AuditLogInput): Promise<void> {
+    const auditLog = await this.auditLogService.log(input);
+    if (!auditLog) {
+      throw new ForbiddenException('Database explorer operation could not be audited');
+    }
+  }
+
+  private async auditExplorerWriteIntent(
+    req: Request,
+    operation: ExplorerWriteOperation,
+    schema: string,
+    table: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    const user = getAuthUser(req);
+    await this.requireAuditLog({
+      action: `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
+      entityType: 'DatabaseTable',
+      performedBy: user?.id || 'SUPER_ADMIN',
+      performedByEmail: user?.email,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      severity: AuditSeverity.CRITICAL,
+      details: {
+        schema,
+        table,
+        operation,
+        ...details,
+      },
+    });
   }
 
   // ============================================================================
@@ -450,10 +515,9 @@ export class DatabaseExplorerController {
       // pre-fix `.catch(() => warn log)` pattern dropped audit rows
       // under transient DB blips, leaving the access invisible in the
       // SOC 2 CC4 evidence chain.
-      await this.auditLogService.log({
+      await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_READ',
         entityType: 'DatabaseTable',
-        entityId: `${schema}.${table}`,
         performedBy: 'SUPER_ADMIN',
         details: { schema, table, page, limit, rowsReturned: rows.length },
       });
@@ -530,10 +594,9 @@ export class DatabaseExplorerController {
       // AUDITTRAIL-HIGH-009 cure: data EXPORT is the highest-leak-risk
       // SUPER_ADMIN action. Awaiting the audit row propagates failure
       // as 500 — the export is BLOCKED until the audit row commits.
-      await this.auditLogService.log({
+      await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_EXPORT',
         entityType: 'DatabaseTable',
-        entityId: `${schema}.${table}`,
         performedBy: 'SUPER_ADMIN',
         severity: AuditSeverity.WARNING,
         details: { schema, table, format, rowsExported: rows.length },
@@ -609,11 +672,9 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Body() dto: InsertRowDto,
+    @Req() req: Request,
   ) {
-    // Fix: C5 -- CRUD production koruması, varsayılan kapalı
-    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
-      throw new ForbiddenException('Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.');
-    }
+    this.assertExplorerWritesEnabled();
 
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
@@ -624,22 +685,24 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
+    const columns = Object.keys(dto.data);
+    const values = Object.values(dto.data);
+
+    // Sütun isimlerini doğrula
+    for (const col of columns) {
+      if (!this.isValidIdentifier(col)) {
+        throw new BadRequestException(`Invalid column name: ${col}`);
+      }
+    }
+
+    await this.auditExplorerWriteIntent(req, 'insert', schema, table, { columns });
+
     // WHY: Write operations must use a write-capable runner, not the read-only runner.
     // Previously createReadOnlyQueryRunner() set SET TRANSACTION READ ONLY,
     // making INSERT silently fail even when ENABLE_DB_EXPLORER_WRITES was true.
     const queryRunner = await this.createWriteQueryRunner();
 
     try {
-      const columns = Object.keys(dto.data);
-      const values = Object.values(dto.data);
-
-      // Sütun isimlerini doğrula
-      for (const col of columns) {
-        if (!this.isValidIdentifier(col)) {
-          throw new BadRequestException(`Invalid column name: ${col}`);
-        }
-      }
-
       const columnsList = columns.map((c) => `"${c}"`).join(', ');
       const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
 
@@ -666,11 +729,9 @@ export class DatabaseExplorerController {
     @Param('table') table: string,
     @Param('id') id: string,
     @Body() dto: UpdateRowDto,
+    @Req() req: Request,
   ) {
-    // Fix: C5 -- CRUD production koruması, varsayılan kapalı
-    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
-      throw new ForbiddenException('Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.');
-    }
+    this.assertExplorerWritesEnabled();
 
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
@@ -679,6 +740,16 @@ export class DatabaseExplorerController {
 
     if (!dto.data || Object.keys(dto.data).length === 0) {
       throw new BadRequestException('Data is required');
+    }
+
+    const columns = Object.keys(dto.data);
+    const values = Object.values(dto.data);
+
+    // Sütun isimlerini doğrula
+    for (const col of columns) {
+      if (!this.isValidIdentifier(col)) {
+        throw new BadRequestException(`Invalid column name: ${col}`);
+      }
     }
 
     // WHY: Write operations must use write-capable runner.
@@ -691,15 +762,11 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      const columns = Object.keys(dto.data);
-      const values = Object.values(dto.data);
-
-      // Sütun isimlerini doğrula
-      for (const col of columns) {
-        if (!this.isValidIdentifier(col)) {
-          throw new BadRequestException(`Invalid column name: ${col}`);
-        }
-      }
+      await this.auditExplorerWriteIntent(req, 'update', schema, table, {
+        rowId: id,
+        primaryKeyColumn: pkColumn,
+        columns,
+      });
 
       const setClause = columns.map((c, i) => `"${c}" = $${i + 1}`).join(', ');
       values.push(id);
@@ -730,11 +797,9 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Param('id') id: string,
+    @Req() req: Request,
   ) {
-    // Fix: C5 -- CRUD production koruması, varsayılan kapalı
-    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
-      throw new ForbiddenException('Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.');
-    }
+    this.assertExplorerWritesEnabled();
 
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
@@ -750,6 +815,11 @@ export class DatabaseExplorerController {
       if (!pkColumn) {
         throw new BadRequestException('Table has no primary key');
       }
+
+      await this.auditExplorerWriteIntent(req, 'delete', schema, table, {
+        rowId: id,
+        primaryKeyColumn: pkColumn,
+      });
 
       const result = await queryRunner.query(
         `DELETE FROM "${schema}"."${table}" WHERE "${pkColumn}" = $1 RETURNING *`,
@@ -954,6 +1024,9 @@ export class DatabaseExplorerController {
     if (/\btenant_[a-f0-9]/i.test(sqlWithoutComments)) {
       throw new BadRequestException('Query references restricted tenant schemas');
     }
+    if (MODULE_TABLE_REFERENCE_PATTERNS.some((pattern) => pattern.test(sqlWithoutComments))) {
+      throw new BadRequestException('Query references restricted module tables');
+    }
 
     const queryRunner = await this.createReadOnlyQueryRunner();
 
@@ -975,7 +1048,7 @@ export class DatabaseExplorerController {
       // Awaiting the audit row is mandatory; a failure to record blocks
       // the response, ensuring no raw SQL execution can complete
       // without an audit row landing.
-      await this.auditLogService.log({
+      await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_RAW_SQL',
         entityType: 'DatabaseQuery',
         performedBy: 'SUPER_ADMIN',

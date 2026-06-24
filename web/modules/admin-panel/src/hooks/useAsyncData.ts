@@ -272,7 +272,7 @@ export function useAsyncData<T>(
     // fetcher removed from deps — stored in ref to prevent infinite re-fetch loops (PERF-001)
     // Fix: C8 -- transform, onSuccess, onError removed from deps — stored in refs
     // to prevent infinite re-fetch loops when consumers pass inline arrow functions
-    [cacheKey, cacheTTL, timeout] // eslint-disable-line react-hooks/exhaustive-deps
+    [cacheKey, cacheTTL, timeout]  
   );
 
   const fetch = useCallback(() => fetchData(true), [fetchData]);
@@ -326,7 +326,7 @@ export function useAsyncData<T>(
     if (immediate) {
       fetchData(true);
     }
-  }, [fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchData]);  
 
   // Cleanup
   useEffect(() => {

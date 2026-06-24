@@ -329,8 +329,8 @@ export class AlertAuditService implements OnModuleInit {
     // Update metrics synchronously
     this.updateMetrics(fullEntry);
 
-    // Persist to database asynchronously (fire-and-forget with fallback)
-    this.persistEntry(fullEntry);
+    // Persist to database asynchronously; persistEntry owns DB fallback handling.
+    void this.persistEntry(fullEntry);
 
     // Emit event for external handlers
     this.eventEmitter.emit('audit.logged', fullEntry);
@@ -899,7 +899,7 @@ export class AlertAuditService implements OnModuleInit {
    */
   async exportToJson(options?: AuditQueryOptions): Promise<string> {
     const entries = options ? await this.query(options) : await this.query({ limit: 10000 });
-    return JSON.stringify(entries, null, 2);
+    return JSON.stringify(entries);
   }
 
   /**

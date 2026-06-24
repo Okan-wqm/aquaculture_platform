@@ -135,6 +135,7 @@ export const DEAD_TERMINOLOGY_TOKENS = [
   'agents.legacy',
   'npx claude-agent',
   'tools/scripts/orchestrator-runner',
+  'platform-services',
 ] as const;
 
 /**

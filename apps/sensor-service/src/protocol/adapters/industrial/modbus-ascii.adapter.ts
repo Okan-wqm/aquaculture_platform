@@ -66,7 +66,7 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
@@ -87,7 +87,7 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
     return { timestamp: new Date(), values: {}, quality: 100, source: 'modbus_ascii' };

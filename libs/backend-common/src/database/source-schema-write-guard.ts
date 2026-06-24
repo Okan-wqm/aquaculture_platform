@@ -42,8 +42,8 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
   }
 
   /**
-   * Temporarily disable write guards for DDL operations (e.g., synchronize).
-   * Call this before SourceSchemaBootstrapService.synchronize() if needed.
+   * Runtime services cannot open DDL windows. Source-schema DDL and write-guard
+   * hardening are owned by aqua-db-migrate, not by service boot.
    */
   disableGuards(sourceSchema: string, tables: string[]): void {
     void sourceSchema;
@@ -55,7 +55,8 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
   }
 
   /**
-   * Re-enable write guards after DDL operations.
+   * Runtime services cannot re-enable write guards after DDL operations because
+   * runtime services are never allowed to disable them.
    */
   enableGuards(sourceSchema: string, tables: string[]): void {
     void sourceSchema;

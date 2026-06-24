@@ -98,7 +98,7 @@ export interface WaterQualityFilter {
 export async function fetchWaterQuality(
   client: GraphQLClient,
   filter?: WaterQualityFilter,
-  limit: number = 500,
+  limit = 500,
 ): Promise<WaterQualityListResponse> {
   const query = `
     query WaterQualityMeasurements($filter: WaterQualityFilterInput, $limit: Int) {
@@ -181,7 +181,7 @@ export async function fetchLatestWaterQuality(
 export async function fetchWaterQualityStats(
   client: GraphQLClient,
   tankId: string,
-  days: number = 7,
+  days = 7,
 ): Promise<WaterQualityStatistics> {
   const query = `
     query WaterQualityStatistics($tankId: ID!, $days: Int) {

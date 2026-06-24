@@ -41,21 +41,20 @@ import {
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
 
+// ── Yerel Import'lar ─────────────────────────────────────────────
+// Prompt import'ları: her prompt'un tanım nesnesi (ListPrompts'ta döner) ve
+// mesaj üretici fonksiyonu (GetPrompt'ta çağrılır) import edilir
+import { createSessionContext, isTokenExpired } from './auth/session-context.js';
 import { McpConfig } from './config.js';
 import { GraphQLClient } from './graphql/client.js';
-import { createSessionContext, isTokenExpired } from './auth/session-context.js';
-import { registerAllTools } from './tools/index.js';
-import { createLogger } from './utils/logger.js';
-
-// ── Prompt Import'ları ───────────────────────────────────────────
-// Her prompt'un tanım nesnesi (ListPrompts'ta döner) ve
-// mesaj üretici fonksiyonu (GetPrompt'ta çağrılır) import edilir
 import {
   dailyOperationsPrompt,
   getDailyOperationsMessages,
   batchReviewPrompt,
   getBatchReviewMessages,
 } from './prompts/index.js';
+import { registerAllTools } from './tools/index.js';
+import { createLogger } from './utils/logger.js';
 
 // ── createMcpServer Fonksiyonu ───────────────────────────────────
 /**

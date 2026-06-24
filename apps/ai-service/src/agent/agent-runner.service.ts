@@ -7,7 +7,7 @@ import {
 } from '@aquaculture/backend-common/resilience';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
-import { AgentProfileService, ResolvedProfile } from './agent-profile.service';
+import { AgentProfileService } from './agent-profile.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { TokenBudgetService } from '../cost/token-budget.service';
 import { RateLimitService } from '../cost/rate-limit.service';
@@ -299,9 +299,8 @@ export class AgentRunnerService {
       for (const toolUse of toolUseBlocks) {
         // SECURITY: Validate tool call through safety pipeline before execution.
         const toolMeta = this.toolRegistry.getClaudeToolDefinitions([toolUse.name]);
-        const toolSchema = toolMeta.length > 0
-          ? (toolMeta[0]!.input_schema as Record<string, unknown>)
-          : {};
+        const toolSchema: Record<string, unknown> =
+          toolMeta[0]?.input_schema ?? {};
         const inputRecord = toolUse.input as Record<string, unknown>;
         const urls = Object.values(inputRecord).filter(
           (v): v is string => typeof v === 'string' && /^https?:\/\//i.test(v),

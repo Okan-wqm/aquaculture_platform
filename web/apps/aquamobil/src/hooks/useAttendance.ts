@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
 
@@ -46,7 +46,9 @@ interface AttendanceRecordsParams {
  * the last successful response is returned from encrypted IndexedDB storage so
  * the operator can still see their recent attendance.
  */
-export function useMyAttendanceRecords(params: AttendanceRecordsParams = {}) {
+export function useMyAttendanceRecords(
+  params: AttendanceRecordsParams = {},
+): UseQueryResult<AttendanceRecord[], Error> {
   const { tenantId, user, isAuthenticated } = useAuth();
 
   // WHY defaults here: the page always wants "last 7 days" on mount. Providing
@@ -117,7 +119,9 @@ interface AttendanceSummaryParams {
  * When the user switches months, React Query fetches fresh data without
  * invalidating the current month's cache.
  */
-export function useMyAttendanceSummary(params: AttendanceSummaryParams = {}) {
+export function useMyAttendanceSummary(
+  params: AttendanceSummaryParams = {},
+): UseQueryResult<AttendanceSummary | null, Error> {
   const { tenantId, user, isAuthenticated } = useAuth();
 
   const now = new Date();
@@ -167,7 +171,7 @@ export function useMyAttendanceSummary(params: AttendanceSummaryParams = {}) {
  * The backend resolves auth user id -> HR employee id, so the mobile app never
  * guesses HR identifiers from token fields.
  */
-export function useTodaysAttendance() {
+export function useTodaysAttendance(): UseQueryResult<AttendanceRecord[], Error> {
   const { tenantId, user, isAuthenticated } = useAuth();
 
   return useQuery<AttendanceRecord[]>({

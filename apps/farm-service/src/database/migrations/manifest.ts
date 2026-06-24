@@ -12,6 +12,8 @@ import { ReEncryptSecretsCbcToGcm1801000000000 } from './1801000000000-ReEncrypt
 import { EncryptFarmWorkerPii1801100000000 } from './1801100000000-EncryptFarmWorkerPii';
 import { AddPurchaseOrderApprovalAudit1801200000000 } from './1801200000000-AddPurchaseOrderApprovalAudit';
 import { AddCullMortalityAuditEnumValues1801300000000 } from './1801300000000-AddCullMortalityAuditEnumValues';
+import { AddSiteContractFields1801400000000 } from './1801400000000-AddSiteContractFields';
+import { EnsureFarmTenantErasureProofLedger1801500000000 } from './1801500000000-EnsureFarmTenantErasureProofLedger';
 
 /**
  * Canonical farm-service migration class list.
@@ -36,4 +38,6 @@ export const FARM_MIGRATIONS = [
   EncryptFarmWorkerPii1801100000000,
   AddPurchaseOrderApprovalAudit1801200000000,
   AddCullMortalityAuditEnumValues1801300000000,
+  AddSiteContractFields1801400000000,
+  EnsureFarmTenantErasureProofLedger1801500000000,
 ] as const;

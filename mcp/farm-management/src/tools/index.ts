@@ -44,7 +44,10 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  type Tool,
+  type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
+
 import { GraphQLClient } from '../graphql/client.js';
 import { handleToolError } from '../utils/error-handler.js';
 
@@ -84,14 +87,28 @@ import { definition as assessRiskDef, handler as assessRiskHandler } from './int
  *
  * needsClient = false → handler(params) imzası (Math tool'ları)
  * needsClient = true  → handler(params, client) imzası (Context/Intelligence)
+ *
+ * TİP GÜVENLİĞİ:
+ *   def    → MCP SDK'nın kanonik `Tool` tipi (name/description/inputSchema/annotations).
+ *   handler → ham (doğrulanmamış) argümanları alır; her handler kendi içinde
+ *            inputSchema.parse(params) ile Zod doğrulaması yapar. Bu yüzden
+ *            sınır tipi `Record<string, unknown>` — girdi güven sınırını geçer.
+ *            Dönüş tipi MCP SDK'nın kanonik `CallToolResult` tipidir.
+ *   needsClient ayrımcısı (discriminant) iki handler imzasını ayırır:
+ *     false → handler(params)
+ *     true  → handler(params, client)
  */
-interface ToolEntry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any — tool tanımları dinamik yapıda
-  def: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any — handler imzaları farklı
-  handler: (...args: any[]) => Promise<any>;
-  needsClient: boolean;
-}
+type ToolEntry =
+  | {
+      def: Tool;
+      handler: (params: Record<string, unknown>) => Promise<CallToolResult>;
+      needsClient: false;
+    }
+  | {
+      def: Tool;
+      handler: (params: Record<string, unknown>, client: GraphQLClient) => Promise<CallToolResult>;
+      needsClient: true;
+    };
 
 // ── registerAllTools Fonksiyonu ──────────────────────────────────
 /**
@@ -175,27 +192,32 @@ export function registerAllTools(server: Server, client: GraphQLClient | null): 
       };
     }
 
-    // ── GraphQL Client Kontrolü ──────────────────────────────
-    // Context ve Intelligence tool'ları GraphQL client gerektirir
-    // Client null ise (JWT token yoksa) bu tool'lar çalışamaz
-    if (tool.needsClient && !client) {
-      return {
-        content: [{
-          type: 'text',
-          text: `${name} tool'u GraphQL bağlantısı gerektirir. GATEWAY_URL ve MCP_JWT_TOKEN ayarlanmalı.`,
-        }],
-        isError: true,
-      };
-    }
+    // ── Argümanları Normalize Et ─────────────────────────────
+    // MCP CallToolRequest'te arguments opsiyoneldir; yoksa boş kayıt kullanılır.
+    // Handler'lar ham (doğrulanmamış) girdiyi kendi içinde Zod ile doğrular.
+    const toolArgs: Record<string, unknown> = args ?? {};
 
     try {
       // ── Tool Handler Çağrısı ────────────────────────────────
-      // Math tool'ları: handler(params) — sadece parametreler
-      // Context/Intelligence: handler(params, client) — parametreler + GraphQL client
+      // needsClient ayrımcısı handler imzasını daraltır:
+      //   true  → handler(params, client) — Context/Intelligence (GraphQL gerekir)
+      //   false → handler(params)        — Math (saf hesaplama)
       if (tool.needsClient) {
-        return await tool.handler(args || {}, client!);
+        // ── GraphQL Client Kontrolü ──────────────────────────
+        // Context/Intelligence tool'ları client gerektirir.
+        // client null ise (JWT token yoksa) bu tool'lar çalışamaz.
+        if (!client) {
+          return {
+            content: [{
+              type: 'text',
+              text: `${name} tool'u GraphQL bağlantısı gerektirir. GATEWAY_URL ve MCP_JWT_TOKEN ayarlanmalı.`,
+            }],
+            isError: true,
+          };
+        }
+        return await tool.handler(toolArgs, client);
       }
-      return await tool.handler(args || {});
+      return await tool.handler(toolArgs);
     } catch (error) {
       // ── Hata İşleme ────────────────────────────────────────
       // Yakalanan hata MCP uyumlu yanıta dönüştürülür

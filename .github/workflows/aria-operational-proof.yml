@@ -66,22 +66,16 @@ jobs:
           import os
           from pathlib import Path
 
-          from aria_kernel.preflight import verify_workflow_contract, verify_workflow_preflight
+          from aria_kernel.preflight import verify_workflow_preflight
 
           proof_dir = Path(os.environ["PROOF_DIR"])
-          contract = verify_workflow_contract(
-              workflow_id="aria-operational-proof",
-              workspace_root=os.environ["GITHUB_WORKSPACE"],
-              event_context={"token_source": "github_actions_artifact_token"},
-          )
-          if not contract.valid:
-              raise SystemExit(";".join(contract.reasons))
           verdict = verify_workflow_preflight(
               workflow_id="aria-operational-proof",
+              job_id="proof",
               profile="strict",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[str(proof_dir)],
-              path_allowlist=["runner-temp/aria-operational-proof"],
+              path_allowlist=[str(proof_dir)],
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
               network_policy=["github_artifact"],
               network_enforcement_evidence="actions/upload-artifact only after local burn-in proof",
@@ -89,7 +83,6 @@ jobs:
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              workflow_hash=contract.workflow_hash,
               audit_reason="persist ARIA observe burn-in proof artifact",
               audit_artifact_path=proof_dir / "workflow-preflight.json",
           )
@@ -170,4 +163,5 @@ jobs:
         with:
           name: aria-operational-proof-${{ github.sha }}
           path: ${{ runner.temp }}/aria-operational-proof/
+          if-no-files-found: error
           retention-days: 365

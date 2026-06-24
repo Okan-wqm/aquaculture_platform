@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 import { useAuth } from './useAuth';
@@ -80,7 +80,7 @@ interface LeaveQueryOptions {
 export function useMyLeaveBalances(
   year: number = new Date().getFullYear(),
   options?: LeaveQueryOptions,
-) {
+): UseQueryResult<LeaveBalance[], Error> {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   return useQuery<LeaveBalance[]>({
@@ -137,7 +137,7 @@ export function useMyLeaveRequests(
   status?: string,
   limit = 20,
   options?: LeaveQueryOptions,
-) {
+): UseQueryResult<LeaveRequest[], Error> {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   return useQuery<LeaveRequest[]>({
@@ -180,7 +180,7 @@ export function useMyLeaveRequests(
 /**
  * Fetches available leave types for the current tenant.
  */
-export function useLeaveTypes() {
+export function useLeaveTypes(): UseQueryResult<LeaveType[], Error> {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   const cacheKey = `leaveTypes-${tenantId}`;

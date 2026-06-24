@@ -41,7 +41,7 @@ const REPO_LOCATION_ENV_VARS = [
   'GIT_NAMESPACE',
 ] as const;
 
-function repoPinnedEnv(): NodeJS.ProcessEnv {
+export function repoPinnedEnv(): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) => !(REPO_LOCATION_ENV_VARS as readonly string[]).includes(key),
@@ -96,8 +96,8 @@ export function commitReachableFrom(
       ok: false,
       reason:
         `commit ${sha} is NOT reachable from ${ref}. The close ceremony must run ` +
-        `AFTER the fix PR merges, with the merge (squash) SHA from ` +
-        `\`gh pr view <N> --json mergeCommit\` — branch-local SHAs die with the ` +
+        `after the fix PR merges, with a main-reachable commit whose own message ` +
+        `carries the matching Closes: trailer — branch-local SHAs die with the ` +
         `branch (PROC-HIGH-001).`,
     };
   }

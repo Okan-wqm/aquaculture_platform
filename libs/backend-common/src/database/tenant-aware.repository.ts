@@ -8,7 +8,7 @@ import { TenantEntity } from './tenant-entity.interface';
 // Re-export so downstream imports like
 // `import { TenantEntity } from './tenant-aware.repository'` still resolve.
 // The canonical home is now `./tenant-entity.interface`.
-export { TenantEntity };
+export type { TenantEntity };
 
 /**
  * Scoped repository interface that automatically applies tenant filtering.

@@ -38,8 +38,8 @@
 //   - Severity esikleri konfigure edilebilir hale getirilebilir
 // ============================================================================
 
-import { mean, stdDev, zScore, movingAverage, linearRegressionSlope, percentChange } from '../utils/stats.js';
 import { getThresholds, type SpeciesThresholds } from '../knowledge/thresholds.js';
+import { mean, stdDev, zScore, movingAverage, linearRegressionSlope, percentChange } from '../utils/stats.js';
 
 // ── Tip Tanimlari ─────────────────────────────────────────────────────────────
 
@@ -1143,10 +1143,8 @@ function groupBy<T>(items: T[], keyFn: (item: T) => string): Record<string, T[]>
   const groups: Record<string, T[]> = {};
   for (const item of items) {
     const key = keyFn(item);
-    if (!groups[key]) {
-      groups[key] = [];
-    }
-    groups[key]!.push(item);
+    const group = (groups[key] ??= []);
+    group.push(item);
   }
   return groups;
 }

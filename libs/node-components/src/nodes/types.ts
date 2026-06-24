@@ -88,6 +88,17 @@ export interface NodeTypeConfig {
 }
 
 /**
+ * A {@link NodeTypeConfig} after registry defaults have been applied.
+ * `defaultSize` and `minSize` are guaranteed present, so downstream consumers
+ * (e.g. palette construction) can read them without non-null assertions.
+ */
+export type ResolvedNodeTypeConfig = NodeTypeConfig & {
+  defaultSize: { width: number; height: number };
+  minSize: { width: number; height: number };
+  hideFromPalette: boolean;
+};
+
+/**
  * Node data interface (passed to components)
  */
 export interface BaseNodeData extends Record<string, unknown> {

@@ -23,82 +23,69 @@
  * service that ships without the migrationsRunFromEnv contract will
  * fail E2E on the first cold-start of the harness.
  *
- * # Allowlist
- *
- * Services that legitimately deviate:
- *
- *   - admin-api-service / event-store-service: use migrationsRunFromEnv
- *     with a default of 'true' (legacy: rely on TypeORM's built-in
- *     runner in prod, no MigrationRunnerService factory provider).
- *   - auth-service: uses static `migrationsRun: true` for the same
- *     legacy reason.
- *   - observability-service: owns its migration glob since ORPHAN-HIGH-001
- *     and (PR#363 port) must use the same env-aware timing contract as the
- *     rest of the fleet.
- *
  * The invariant scans for the literal `migrationsRunFromEnv` token and
- * accepts the allowlisted alternatives.
+ * fails closed when any app module drops that declaration.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
-interface ServiceContract {
-  service: string;
-  pattern: 'migrationsRunFromEnv' | 'migrationsRun-true';
+function repoFile(relPath: string): string {
+  return readFileSync(resolve(REPO_ROOT, relPath), 'utf8');
 }
 
-const CONTRACTS: readonly ServiceContract[] = [
-  { service: 'farm-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'sensor-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'hr-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'messaging-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'alert-engine', pattern: 'migrationsRunFromEnv' },
-  { service: 'billing-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'notification-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'config-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'hydroponics-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'ai-service', pattern: 'migrationsRunFromEnv' },
-  // admin-api + event-store: legacy migrationsRunFromEnv with default 'true'.
-  // Same token, just a different default — still satisfies the contract.
-  { service: 'admin-api-service', pattern: 'migrationsRunFromEnv' },
-  { service: 'event-store-service', pattern: 'migrationsRunFromEnv' },
-  // auth-service: legacy migrationsRun:true (different mechanism, same effect).
-  { service: 'auth-service', pattern: 'migrationsRun-true' },
-  // observability-service: owns a real migration glob since ORPHAN-HIGH-001;
-  // PR#363 port aligned it with the fleet-wide env-aware contract.
-  { service: 'observability-service', pattern: 'migrationsRunFromEnv' },
-];
+function runtimeServicesWithTypeOrmDataSource(): readonly string[] {
+  return readdirSync(resolve(REPO_ROOT, 'apps'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((service) => existsSync(resolve(REPO_ROOT, 'apps', service, 'src/app.module.ts')))
+    .filter((service) =>
+      existsSync(resolve(REPO_ROOT, 'apps', service, 'src/database/data-source.ts')),
+    )
+    .sort();
+}
+
+const DATABASE_MIGRATIONS_RUN_TRUE_RE =
+  /migrationsRunFromEnv\s*:\s*\([^)]*\)\s*=>\s*[^=]*\.get(?:<string>)?\(\s*['"]DATABASE_MIGRATIONS_RUN['"]\s*,\s*['"]false['"]\s*\)\s*===\s*['"]true['"]/s;
 
 describe('INVARIANT (INFRA-CRITICAL-020 propagation): every service declares migration timing', () => {
-  for (const { service, pattern } of CONTRACTS) {
-    it(`${service} satisfies the ${pattern} contract`, () => {
-      const path = resolve(REPO_ROOT, 'apps', service, 'src/app.module.ts');
-      const src = readFileSync(path, 'utf8');
+  const services = runtimeServicesWithTypeOrmDataSource();
 
-      switch (pattern) {
-        case 'migrationsRunFromEnv': {
-          if (!/migrationsRunFromEnv\s*:/.test(src)) {
-            throw new Error(
-              `${service}/src/app.module.ts: missing migrationsRunFromEnv declaration. ` +
-                `Add the env-aware migration timing block (see messaging-service for the canonical shape) ` +
-                `so E2E tests can run TypeORM's built-in migration runner before SourceSchemaBootstrapService fires.`,
-            );
-          }
-          break;
-        }
-        case 'migrationsRun-true': {
-          if (!/migrationsRun\s*:\s*true/.test(src)) {
-            throw new Error(
-              `${service}/src/app.module.ts: legacy contract requires \`migrationsRun: true\` ` +
-                `(static — service uses TypeORM's built-in runner in prod, no MigrationRunnerService factory).`,
-            );
-          }
-          break;
-        }
+  it('derives the service roster from the generated deployment catalog', () => {
+    expect(services).toEqual([
+      'admin-api-service',
+      'ai-service',
+      'alert-engine',
+      'auth-service',
+      'billing-service',
+      'config-service',
+      'event-store-service',
+      'farm-service',
+      'hr-service',
+      'hydroponics-service',
+      'messaging-service',
+      'notification-service',
+      'observability-service',
+      'sensor-service',
+    ]);
+  });
+
+  for (const service of services) {
+    it(`${service} satisfies the migrationsRunFromEnv contract`, () => {
+      const appModule = repoFile(`apps/${service}/src/app.module.ts`);
+      const dataSource = repoFile(`apps/${service}/src/database/data-source.ts`);
+
+      if (!DATABASE_MIGRATIONS_RUN_TRUE_RE.test(appModule)) {
+        throw new Error(
+          `${service}/src/app.module.ts: missing canonical migrationsRunFromEnv declaration. ` +
+            `Use the SSoT shape \`migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true'\`.`,
+        );
       }
+
+      expect(dataSource).toMatch(/migrationsRun\s*:\s*false/);
+      expect(dataSource).toMatch(/synchronize\s*:\s*false/);
     });
   }
 });

@@ -32,18 +32,18 @@
  *   4. The same harness contract works for future drift classes as R11
  *      expands the validator from 4 classes to 10.
  */
+import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
 import { Column, Entity, PrimaryColumn } from 'typeorm';
 
-import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
-
 import {
-  type HarnessContext,
   bootPostgresContainer,
   expectNoDriftAgainst,
+  type HarnessContext,
   registerDriftMatcher,
   shutdownHarness,
-  withEphemeralSchema,
 } from '../index';
+
+import { expectHarnessContext, withHarnessSchema } from './test-helpers';
 
 registerDriftMatcher();
 
@@ -89,7 +89,8 @@ describe('HR-drift regression — 5-commit loop reproduced in <60s', () => {
    * ALTER aborts.
    */
   it('reproduces deploy 7 (5df00179) — ALTER COLUMN TYPE blocked by partial-index predicate', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS hr_regression`);
       try {
         await qr.query(
@@ -138,7 +139,8 @@ describe('HR-drift regression — 5-commit loop reproduced in <60s', () => {
    * helper is correct without round-tripping a droplet deploy.
    */
   it('reproduces deploy 11 (d943f605) — dropDependentPartialIndexes unblocks ALTER', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS hr_regression`);
       try {
         // Same seed as the deploy-7 reproduction
@@ -187,7 +189,8 @@ describe('HR-drift regression — 5-commit loop reproduced in <60s', () => {
    * violations across all 4 production classes.
    */
   it('reproduces post-heal clean state — zero drift across Class A–D', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS hr_regression`);
       try {
         // DB shape EXACTLY matches the entity declaration — no drift.
@@ -220,7 +223,8 @@ describe('HR-drift regression — 5-commit loop reproduced in <60s', () => {
    * confirm every violation the production validator would report.
    */
   it('reproduces deploy-11 pre-heal boot state — multi-class drift visible', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS hr_regression`);
       try {
         // Drifted DB: id is text not uuid (Class B), tenant_id nullable

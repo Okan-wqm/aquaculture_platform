@@ -5,8 +5,15 @@ import {
   type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
 } from '../index';
+
+import {
+  expectHarnessContext,
+  queryRequiredRow,
+  queryRows,
+  rowAt,
+  withHarnessSchema,
+} from './test-helpers';
 
 @Entity({ name: 'employees_enc', schema: 'addcol_test' })
 class EmployeeEnc {
@@ -30,7 +37,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   }, 30_000);
 
   it('adds a nullable text column to an existing table', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -44,14 +52,19 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
         expect(result.added).toEqual(['preferred_name']);
         expect(result.skipped).toEqual([]);
         // Verify the column exists + is nullable.
-        const rows = await qr.query(
+        const rows = await queryRows<{
+          column_name: string;
+          data_type: string;
+          is_nullable: string;
+        }>(
+          qr,
           `SELECT column_name, data_type, is_nullable FROM information_schema.columns
             WHERE table_schema = 'addcol_test' AND table_name = 'widget'
               AND column_name = 'preferred_name'`,
         );
         expect(rows).toHaveLength(1);
-        expect(rows[0].data_type).toBe('text');
-        expect(rows[0].is_nullable).toBe('YES');
+        expect(rowAt(rows, 0).data_type).toBe('text');
+        expect(rowAt(rows, 0).is_nullable).toBe('YES');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS addcol_test CASCADE`);
       }
@@ -59,7 +72,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('is idempotent — running twice produces added=[] + skipped=[existing]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -84,7 +98,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('applies literal DEFAULT expression (PG DDL semantics — evaluated at ALTER time)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -108,10 +123,11 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
             },
           ],
         });
-        const rows = await qr.query(
+        const row = await queryRequiredRow<{ status: string }>(
+          qr,
           `SELECT status FROM addcol_test.widget WHERE id = '11111111-1111-1111-1111-111111111111'`,
         );
-        expect(rows[0].status).toBe('pending');
+        expect(row.status).toBe('pending');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS addcol_test CASCADE`);
       }
@@ -119,7 +135,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('rejects DEFAULT containing bound parameters (PG DDL semantics)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -149,7 +166,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('supports SQL-function DEFAULT expressions (NOW, gen_random_uuid)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -172,10 +190,11 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
         await qr.query(
           `INSERT INTO addcol_test.widget (id) VALUES ('22222222-2222-2222-2222-222222222222')`,
         );
-        const rows = await qr.query(
+        const row = await queryRequiredRow<{ created_at: Date }>(
+          qr,
           `SELECT created_at FROM addcol_test.widget WHERE id = '22222222-2222-2222-2222-222222222222'`,
         );
-        expect(rows[0].created_at).toBeInstanceOf(Date);
+        expect(row.created_at).toBeInstanceOf(Date);
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS addcol_test CASCADE`);
       }
@@ -183,7 +202,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('adds multiple columns in one invocation', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -208,7 +228,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('REFUSES to add a column that matches an @EncryptedAtRest property', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -229,7 +250,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('throws at call site on unsafe identifier (SQL injection guard)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(
@@ -251,7 +273,8 @@ describe('addMissingColumns — Phase 3 Class D primitive', () => {
   });
 
   it('returns empty result set when columns=[]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS addcol_test`);
       try {
         await qr.query(

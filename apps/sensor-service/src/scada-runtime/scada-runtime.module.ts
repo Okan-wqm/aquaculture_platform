@@ -47,7 +47,7 @@ import { DaqStorageService } from './services/daq-storage.service';
  */
 let ScriptEngineService: (new (...args: unknown[]) => unknown) | null = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const mod = require('./services/script-engine.service') as Record<string, unknown>;
   ScriptEngineService = (mod['ScriptEngineService'] ?? null) as typeof ScriptEngineService;
 } catch {
@@ -59,7 +59,7 @@ try {
  */
 let SchedulerService: (new (...args: unknown[]) => unknown) | null = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const mod = require('./services/scheduler.service') as Record<string, unknown>;
   SchedulerService = (mod['SchedulerService'] ?? null) as typeof SchedulerService;
 } catch {
@@ -117,5 +117,5 @@ if (SchedulerService) optionalProviders.push(SchedulerService as Provider);
     ScadaRuntimeGateway,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class ScadaRuntimeModule {}

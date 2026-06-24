@@ -1,15 +1,17 @@
-import { ReactNode } from 'react';
+import { clsx } from 'clsx';
+import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
+import { ReactNode, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
 // classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
 // These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
-import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
-import { clsx } from 'clsx';
+
 
 interface MobileLayoutProps {
   children: ReactNode;
@@ -32,7 +34,7 @@ interface TabItem {
 
 // WHY: MobileLayout is the single shell for all authenticated pages — consistent bottom nav,
 // offline banner, and safe area handling across all screens without duplication.
-export function MobileLayout({ children }: MobileLayoutProps) {
+export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   const location = useLocation();
   const navigate = useNavigate();
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
@@ -93,7 +95,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   // the tab's path directly, OR if it matches any of the tab's childPaths.
   // This is essential for the Operations tab which owns routes that don't
   // share a common URL prefix (e.g., /feeding/record, /attendance).
-  const isActive = (tab: TabItem) => {
+  const isActive = (tab: TabItem): boolean => {
     if (tab.path === '/' && location.pathname === '/') return true;
     if (tab.path !== '/' && location.pathname.startsWith(tab.path)) return true;
     if (tab.childPaths?.some(cp => location.pathname.startsWith(cp))) return true;

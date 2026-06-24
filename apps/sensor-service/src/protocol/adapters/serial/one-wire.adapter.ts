@@ -18,16 +18,16 @@ export class OneWireAdapter extends BaseProtocolAdapter {
   readonly displayName = '1-Wire';
   readonly description = 'Dallas/Maxim 1-Wire serial bus protocol';
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const cfg = config as OneWireConfig;
     return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
   }
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> { this.removeConnectionHandle(handle.id); }
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+   
   async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'one_wire' }; }
 
   validateConfiguration(config: unknown): ValidationResult {

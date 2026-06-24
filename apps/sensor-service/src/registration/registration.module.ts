@@ -23,5 +23,5 @@ import { SensorRegistrationService } from './services/sensor-registration.servic
   ],
   exports: [SensorRegistrationService, ChannelDiscoveryService, ChannelManagementService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class RegistrationModule {}

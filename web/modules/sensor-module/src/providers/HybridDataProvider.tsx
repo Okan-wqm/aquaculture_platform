@@ -264,7 +264,7 @@ export function HybridDataProviderInner({
       subManager.reset();
       liveTagCacheRef.current.clear();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   // ── IDataProvider implementation ──────────────────────────────────────────
@@ -348,6 +348,35 @@ export function HybridDataProviderInner({
     [getTagSource],
   );
 
+  const getTagSnapshot = useCallback((): Record<string, TagValueChange> => {
+    // Merge both sources into a single snapshot, honouring the per-tag
+    // routing map. Live values win for tags routed to 'live'; simulation
+    // values win for tags overridden to 'simulation'. This mirrors the
+    // per-tag routing of getTagValue, but materialised for the worker.
+    const now = Date.now();
+    const snapshot: Record<string, TagValueChange> = {};
+
+    // Live cache first (default source).
+    for (const [tagId, change] of liveTagCacheRef.current) {
+      if (getTagSource(tagId) === 'live') {
+        snapshot[tagId] = change;
+      }
+    }
+
+    // Simulation values for tags routed to 'simulation'.
+    for (const [tagId, raw] of Object.entries(simTagValuesRef.current)) {
+      if (getTagSource(tagId) !== 'simulation') continue;
+      if (raw === undefined || raw === null) continue;
+      const value =
+        typeof raw === 'number' || typeof raw === 'string' || typeof raw === 'boolean'
+          ? raw
+          : String(raw);
+      snapshot[tagId] = { tagId, value, timestamp: now, quality: 'good' };
+    }
+
+    return snapshot;
+  }, [getTagSource]);
+
   const queryHistory = useCallback(
     (tagIds: string[], from: Date, to: Date): Promise<HistoricalDataResult> => {
       // Simulation tags have no history; live tags go through DAQ.
@@ -417,6 +446,7 @@ export function HybridDataProviderInner({
       unsubscribeFromTags,
       writeTagValue,
       getTagValue,
+      getTagSnapshot,
       queryHistory,
       connectionState: liveConnectionState,
     }),
@@ -425,6 +455,7 @@ export function HybridDataProviderInner({
       unsubscribeFromTags,
       writeTagValue,
       getTagValue,
+      getTagSnapshot,
       queryHistory,
       liveConnectionState,
     ],

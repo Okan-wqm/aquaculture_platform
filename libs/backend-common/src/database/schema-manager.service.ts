@@ -10,10 +10,16 @@
 import * as crypto from 'crypto';
 
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
 import { SchemaLRUCache } from './schema-lru-cache';
+import {
+  getTenantSchemaName as deriveTenantSchemaName,
+  isValidUUID,
+  listTenantSchemas as listCanonicalTenantSchemas,
+} from './tenant-schema.utils';
 
 /**
  * Module schema definitions - tables for each module
@@ -78,7 +84,10 @@ export interface SyncTenantSchemaOptions {
 
 const cleanupDropProofBrand: unique symbol = Symbol('CleanupDropProof');
 
-export type CleanupDropProofPurpose = 'provisioning_rollback' | 'tenant_deprovision';
+export type CleanupDropProofPurpose =
+  | 'provisioning_rollback'
+  | 'tenant_deprovision'
+  | 'tenant_erasure';
 
 export interface CleanupDropProofBackupEvidence {
   id?: string;
@@ -156,10 +165,12 @@ function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: s
   if (!proof.operationId || !proof.actorId || !proof.reason || !proof.purpose) {
     throw new BadRequestException('CleanupDropProof is incomplete');
   }
-  if (proof.purpose === 'tenant_deprovision') {
+  if (proof.purpose === 'tenant_deprovision' || proof.purpose === 'tenant_erasure') {
     if (!proof.legalHoldCheckedAt) {
       throw new BadRequestException('CleanupDropProof requires legal-hold evidence');
     }
+  }
+  if (proof.purpose === 'tenant_deprovision') {
     if (
       !proof.backup
       || !proof.backup.checksum
@@ -171,6 +182,10 @@ function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: s
   }
 
   return proof;
+}
+
+function toSchemaManagerError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 /**
@@ -188,11 +203,18 @@ function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: s
  * - Call `SchemaManagerService.validateModuleSchemas()` in integration tests to detect drift
  *   between this list and the actual entity definitions.
  */
+// Tenant-erasure proof ledger (tenant_erasure_target_proofs) is source-schema
+// infrastructure created per service by the Ensure*TenantErasureProofLedger
+// migrations; declared here so strict-ownership bootstrap does not drop it.
+const TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES = [
+  TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE,
+] as const;
+
 export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
-    infrastructureTables: ['migrations', 'sensor_audit_logs'],
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -303,6 +325,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'event_dlq',
       'tenant_erasure_audit',
       'farm_audit_logs',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     // Reference tables are exempt from SourceSchemaWriteGuardService so that
     // seed services (FarmSeedService) can write global/template rows that
@@ -449,7 +472,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                    never replicated per-tenant. Table is created
     //                    by infrastructure/docker/init-scripts/09-hr-outbox.sql
     //                    until the migration runner path replaces it.
-    infrastructureTables: ['migrations', 'hr_outbox', 'payroll_audit'],
+    infrastructureTables: ['migrations', 'hr_outbox', 'payroll_audit', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['leave_types', 'certification_types', 'shifts'],
     tables: [
       // Core Employee & Payroll
@@ -508,16 +531,16 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // mode that hit `farm` historically (cross-module entity transitive
     // imports synchronizing rogue tables into the source schema).
     strictOwnership: true,
-    // No infrastructure tables yet (no outbox, no migration ledger
-    // outside the standard `migrations` table managed by TypeORM).
-    infrastructureTables: ['migrations'],
+    // `hydroponics_outbox` is source-only delivery infrastructure and is
+    // never copied into tenant schemas.
+    infrastructureTables: ['migrations', 'hydroponics_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['hydroponics_config'],
   },
   {
     moduleName: 'alert',
     sourceSchema: 'alert',
-    infrastructureTables: ['migrations', 'alert_audit_log'],
+    infrastructureTables: ['migrations', 'alert_audit_log', 'alert_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: ['alert_rules', 'alert_incidents', 'escalation_policies', 'alert_history'],
   },
@@ -550,7 +573,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                                 for operator analytics. Lives in
     //                                 `ai.tool_execution_audit` only — NOT
     //                                 cloned into tenant_<uuid> schemas.
-    infrastructureTables: ['migrations', 'ai_outbox', 'tool_execution_audit'],
+    infrastructureTables: ['migrations', 'ai_outbox', 'tool_execution_audit', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: [
       // Per-tenant template tables. Each is created as an unqualified
@@ -564,7 +587,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'messaging',
     sourceSchema: 'messaging',
-    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata', 'message_send_idempotency'],
+    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata', 'message_send_idempotency', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
     tables: [
       // Core messaging tables (migration 1711800000000)
@@ -572,6 +595,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'channel_members',
       'messages',
       'message_attachments',
+      'message_receipt_ledger',
       'message_receipts',
       'message_reactions',
       'pinned_messages',
@@ -588,6 +612,86 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     ],
   },
   {
+    moduleName: 'billing',
+    sourceSchema: 'billing',
+    infrastructureTables: ['migrations', 'billing_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    referenceDataTables: [],
+    tables: [
+      'subscriptions',
+      'subscription_module_items',
+      'invoices',
+      'payments',
+      'tenant_usage_metrics',
+      'scheduled_plan_changes',
+      'usage_aggregations',
+      'usage_hourly_data',
+      'subscription_provisioning_retries',
+      'command_receipts',
+    ],
+  },
+  {
+    moduleName: 'admin',
+    sourceSchema: 'admin',
+    infrastructureTables: [
+      'migrations',
+      'admin_outbox',
+      'tenant_erasure_operations',
+      'tenant_schemas',
+      'schema_migrations',
+      'schema_backups',
+      'schema_restores',
+      'cleanup_runs',
+      'cleanup_run_steps',
+      'cleanup_run_events',
+      'cleanup_run_evidence',
+      ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
+    ],
+    referenceDataTables: [],
+    tables: [
+      'tenant_activities',
+      'tenant_notes',
+      'tenant_billing_info',
+      'impersonation_sessions',
+      'impersonation_permissions',
+      'debug_sessions',
+      'captured_queries',
+      'captured_api_calls',
+      'cache_entries_snapshot',
+      'feature_flag_overrides',
+      'discount_redemptions',
+      'custom_plans',
+      'message_threads',
+      'messages',
+      'announcement_acknowledgments',
+      'support_tickets',
+      'ticket_comments',
+      'onboarding_progress',
+      'analytics_snapshots',
+      'report_definitions',
+      'report_executions',
+      'background_jobs',
+      'job_execution_logs',
+      'performance_metrics',
+      'performance_snapshots',
+      'audit_logs',
+      'error_occurrences',
+      'error_groups',
+      'error_alert_rules',
+      'maintenance_modes',
+      'feature_toggles',
+      'email_templates',
+      'ip_access_rules',
+      'activity_logs',
+      'security_events',
+      'security_incidents',
+      'data_requests',
+      'compliance_reports',
+      'login_attempts',
+      'api_usage_logs',
+      'user_sessions',
+    ],
+  },
+  {
     moduleName: 'auth',
     sourceSchema: 'auth',
     referenceDataTables: [],
@@ -601,8 +705,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // and table-presence checks have a declarative truth source.
     moduleName: 'notification',
     sourceSchema: 'notification',
+    infrastructureTables: ['migrations', 'notification_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: [],
-    tables: ['device_tokens', 'notification_logs'],
+    tables: ['device_tokens', 'notification_logs', 'command_receipts'],
   },
 ];
 
@@ -634,7 +739,11 @@ export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set([
   'messaging',
 ]);
 
-export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set(['auth', 'notification']);
+export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set([
+  'admin',
+  'auth',
+  'notification',
+]);
 
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>
   TENANT_SCOPED_MODULES.has(m.moduleName),
@@ -779,32 +888,11 @@ export class SchemaManagerService {
    * @throws BadRequestException if tenant ID is not a valid UUID
    */
   getTenantSchemaName(tenantId: string): string {
-    // Validate UUID format (SQL injection prevention)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(tenantId)) {
+    if (!isValidUUID(tenantId)) {
       throw new BadRequestException(`Invalid tenant ID format: ${tenantId}`);
     }
 
-    // Use tenant_ prefix + first 16 chars of UUID (without dashes)
-    // 16 hex chars = 64 bits = collision-safe for billions of tenants
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    return `tenant_${cleanId}`;
-  }
-
-  /**
-   * Generate advisory lock key from tenant ID
-   * Creates a deterministic 32-bit integer for PostgreSQL advisory locks
-   * Used to prevent race conditions when creating schemas
-   *
-   * SECURITY FIX: Uses SHA-256 instead of MD5 (which is cryptographically weak)
-   * Also uses Math.abs() to ensure positive lock keys (PostgreSQL supports negative,
-   * but positive values are more predictable for logging/debugging)
-   */
-  private getAdvisoryLockKey(tenantId: string): number {
-    const hash = crypto.createHash('sha256').update(tenantId).digest();
-    // Use absolute value to avoid negative lock keys
-    // readInt32LE can return negative values due to signed integer representation
-    return Math.abs(hash.readInt32LE(0));
+    return deriveTenantSchemaName(tenantId);
   }
 
   /**
@@ -819,14 +907,8 @@ export class SchemaManagerService {
   /**
    * Create a new tenant schema with all module tables
    *
-   * Uses PostgreSQL advisory locks to prevent race conditions when
-   * multiple requests try to create the same tenant schema.
-   *
-   * Features:
-   * - Advisory lock for thread-safety
-   * - Idempotent (returns success if schema already exists)
-   * - Reference data copying for lookup tables
-   * - Atomic with cleanup on failure
+   * Runtime services do not perform tenant DDL. Existing schemas are validated
+   * for completeness; new provisioning is queued through aqua-db-migrate.
    */
   async createTenantSchema(
     tenantId: string,
@@ -834,7 +916,6 @@ export class SchemaManagerService {
   ): Promise<SchemaCreationResult> {
     const startTime = Date.now();
     const schemaName = this.getTenantSchemaName(tenantId);
-    const lockKey = this.getAdvisoryLockKey(tenantId);
     const tablesCreated: string[] = [];
     const referenceDataCopied: { table: string; rows: number }[] = [];
     const errors: string[] = [];
@@ -878,11 +959,6 @@ export class SchemaManagerService {
         duration: Date.now() - startTime,
       };
     }
-
-    this.logger.log(`Acquiring advisory lock for tenant ${tenantId} (key: ${lockKey})`);
-
-    // Acquire advisory lock - blocks if another process is creating same schema
-    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
     try {
       // Check if schema already exists (idempotent operation)
@@ -932,8 +1008,9 @@ export class SchemaManagerService {
         duration: Date.now() - startTime,
       };
     } catch (error) {
-      const errorMsg = `Failed to create tenant schema: ${(error as Error).message}`;
-      this.logger.error(errorMsg, (error as Error).stack);
+      const schemaError = toSchemaManagerError(error);
+      const errorMsg = `Failed to create tenant schema: ${schemaError.message}`;
+      this.logger.error(errorMsg, schemaError.stack);
       errors.push(errorMsg);
 
       // CLEANUP: Drop partial schema on failure
@@ -961,10 +1038,6 @@ export class SchemaManagerService {
         errors,
         duration: Date.now() - startTime,
       };
-    } finally {
-      // ALWAYS release advisory lock
-      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-      this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
     }
   }
 
@@ -1027,41 +1100,35 @@ export class SchemaManagerService {
   }
 
   /**
-   * Delete a tenant schema and all its data
-   * Uses advisory lock to prevent race conditions with concurrent operations
+   * Delete a tenant schema and all its data.
+   *
+   * Runtime services do not perform tenant DDL; deletion is queued through
+   * aqua-db-migrate with CleanupDropProof evidence.
    */
-  async deleteTenantSchema(
+  deleteTenantSchema(
     tenantId: string,
     proof: CleanupDropProof,
   ): Promise<{ success: boolean; error?: string }> {
-    const dropProof = assertCleanupDropProof(proof, tenantId);
-    const schemaName = this.getTenantSchemaName(tenantId);
-    const lockKey = this.getAdvisoryLockKey(tenantId);
-
-    this.logger.log(`Acquiring advisory lock for tenant deletion ${tenantId} (key: ${lockKey})`);
-
-    // Acquire advisory lock - blocks if another process is operating on same schema
-    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
-
     try {
+      const dropProof = assertCleanupDropProof(proof, tenantId);
+      const schemaName = this.getTenantSchemaName(tenantId);
+
       this.logger.log(
         `Deleting tenant schema ${schemaName} with cleanup proof ${dropProof.operationId} (${dropProof.purpose})`,
       );
-      this.dropTenantSchema(schemaName, tenantId, dropProof);
-
-      // Invalidate cache entry for deleted schema
-      this.schemaCache.invalidate(schemaName);
-
-      this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
-      return { success: true };
+      const authorityError =
+        `Tenant schema deletion for ${schemaName} is owned by aqua-db-migrate; ` +
+        `runtime services must write a deletion request ledger entry instead.`;
+      this.logger.warn(authorityError);
+      return Promise.resolve({ success: false, error: authorityError });
     } catch (error) {
-      const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
+      if (error instanceof BadRequestException) {
+        return Promise.reject(error);
+      }
+
+      const errorMsg = `Failed to delete tenant schema: ${toSchemaManagerError(error).message}`;
       this.logger.error(errorMsg);
-      return { success: false, error: errorMsg };
-    } finally {
-      // ALWAYS release advisory lock
-      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-      this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
+      return Promise.resolve({ success: false, error: errorMsg });
     }
   }
 
@@ -1228,15 +1295,7 @@ export class SchemaManagerService {
    * Get all tenant schemas
    */
   async listTenantSchemas(): Promise<string[]> {
-    const result = await this.queryRows(`
-      SELECT schema_name
-      FROM information_schema.schemata
-      WHERE schema_name LIKE 'tenant_%'
-      ORDER BY schema_name
-    `);
-    return result
-      .map((row) => row['schema_name'])
-      .filter((schemaName): schemaName is string => typeof schemaName === 'string');
+    return listCanonicalTenantSchemas(this.dataSource);
   }
 
   /**
@@ -1301,42 +1360,6 @@ export class SchemaManagerService {
   }
 
   /**
-   * Set search_path for tenant context
-   *
-   * WARNING: This method sets search_path at connection level.
-   * In a connection pool, the next query might use a different connection.
-   * For reliable tenant isolation, use one of these approaches:
-   *
-   * 1. Use setTenantSearchPathInTransaction() within a transaction
-   * 2. Use explicit schema prefixes in queries: SELECT * FROM "tenant_xxx"."table"
-   * 3. Use a request-scoped connection (not recommended for performance)
-   *
-   * This method is safe to use only when:
-   * - You're within a transaction that holds the connection
-   * - You immediately execute queries after this call
-   *
-   * SECURITY: Schema name is validated via getTenantSchemaName() which:
-   * - Validates UUID format
-   * - Generates safe schema name (tenant_ + 16 hex chars only)
-   * Additional validation via isValidSchemaName() prevents SQL injection
-   */
-  async setTenantSearchPath(tenantId: string): Promise<void> {
-    const schemaName = this.getTenantSchemaName(tenantId);
-
-    // SECURITY: Double-check schema name format to prevent SQL injection
-    if (!this.isValidSchemaName(schemaName)) {
-      throw new BadRequestException(`SECURITY: Invalid schema name format: ${schemaName}`);
-    }
-
-    // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
-    // This is safer than string interpolation in SET command
-    await this.dataSource.query(
-      `SELECT pg_catalog.set_config('search_path', $1 || ', public', false)`,
-      [schemaName],
-    );
-  }
-
-  /**
    * Set search_path within a transaction (connection-safe)
    * Use this for reliable tenant isolation in connection pools
    *
@@ -1366,16 +1389,6 @@ export class SchemaManagerService {
     await manager.query(`SELECT pg_catalog.set_config('search_path', $1 || ', public', true)`, [
       schemaName,
     ]);
-  }
-
-  /**
-   * Reset search_path to default
-   *
-   * WARNING: Same connection pool limitations as setTenantSearchPath()
-   */
-  async resetSearchPath(): Promise<void> {
-    // SECURITY: No user input involved, safe to use directly
-    await this.dataSource.query(`SELECT pg_catalog.set_config('search_path', 'public', false)`);
   }
 
   /**

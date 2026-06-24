@@ -148,7 +148,7 @@ const TRIGGER_MAP: Record<string, string> = {
  */
 export function predictCascade(
   trigger: string,
-  hoursElapsed: number = 0,
+  hoursElapsed = 0,
 ): CascadePrediction {
   // ── Kaskad zincirini bul ───────────────────────────────────
   const chain = KNOWN_CASCADES.find(c => c.trigger === trigger);

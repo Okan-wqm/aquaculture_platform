@@ -14,7 +14,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
   private readonly isProduction = process.env['NODE_ENV'] === 'production';
 
-  catch(exception: unknown, host: ArgumentsHost): void | GraphQLError {
+  catch(exception: unknown, host: ArgumentsHost): GraphQLError | undefined {
     const contextType = host.getType<GqlContextType>();
 
     if (contextType === 'graphql') {
@@ -22,6 +22,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
 
     this.handleHttpException(exception, host);
+    return undefined;
   }
 
   private handleHttpException(exception: unknown, host: ArgumentsHost): void {

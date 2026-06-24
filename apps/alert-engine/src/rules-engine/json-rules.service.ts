@@ -910,7 +910,7 @@ export class JsonRulesService implements OnModuleInit {
     if (!rule) {
       throw new Error(`Rule not found: ${ruleId}`);
     }
-    return JSON.stringify(rule, null, 2);
+    return JSON.stringify(rule);
   }
 
   /**
@@ -954,6 +954,6 @@ export class JsonRulesService implements OnModuleInit {
    * Export all rules
    */
   exportAllRules(): string {
-    return JSON.stringify(Array.from(this.rules.values()), null, 2);
+    return JSON.stringify(Array.from(this.rules.values()));
   }
 }

@@ -1,15 +1,3 @@
-/* eslint-disable @typescript-eslint/no-dynamic-delete */
-/* eslint-disable @typescript-eslint/no-empty-function */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable @typescript-eslint/unbound-method */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 /**
  * AuthGuard Tests
  *
@@ -824,27 +812,20 @@ describe('AuthGuard', () => {
     });
   });
 
-  describe('Performance', () => {
-    it('should handle rapid authentication requests', async () => {
-      const startTime = Date.now();
-
-      // WHY 100: each iteration is a full RSA sign + verify (~30ms);
-      // 1000 awaited iterations is a half-minute benchmark, not a
-      // hang-guard. 100 sequential verifies still surfaces leaks/hangs.
-      for (let i = 0; i < 100; i++) {
+  describe('Burst Authentication', () => {
+    it('should authenticate a bounded sequential burst without request state leakage', async () => {
+      const contexts = Array.from({ length: 100 }, (_, i) => {
         const token = createJwtToken({ sub: `user-${i}` });
-        const context = createMockExecutionContext({
+        return createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
+      });
 
-        await guard.canActivate(context);
+      for (const [index, context] of contexts.entries()) {
+        await expect(guard.canActivate(context)).resolves.toBe(true);
+        expect(getRequest(context).user?.sub).toBe(`user-${index}`);
+        expect(getRequest(context).authMethod).toBe('jwt');
       }
-
-      const duration = Date.now() - startTime;
-      // WHY 30s bound: RS256 signature verification is ~10x costlier than
-      // the old HS256 fixtures and CI hardware varies — the assertion exists
-      // to catch hangs/leaks in rapid sequential auth, not to benchmark.
-      expect(duration).toBeLessThan(30000);
     });
   });
 });

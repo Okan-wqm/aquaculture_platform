@@ -177,7 +177,7 @@ export function LeavesPage() {
         </div>
       ),
     },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   ], [activeTab, approveMutation.isPending, rejectMutation.isPending]);
 
   // PERF-009: stable keyExtractor reference

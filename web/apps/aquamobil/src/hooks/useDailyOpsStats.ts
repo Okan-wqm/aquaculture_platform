@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { useAuth } from './useAuth';
+import { useMemo } from 'react';
+
+
 import { useTodaysAttendance } from './useAttendance';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+import { useAuth } from './useAuth';
+
 import { GET_TODAYS_FEEDING_PLAN, GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // WHY inline type: mirrors GraphQL response shape used only here.
 interface FeedingExecutionSlice { status: string }

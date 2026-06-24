@@ -5,8 +5,15 @@ import {
   type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
 } from '../index';
+
+import {
+  expectHarnessContext,
+  queryRequiredRow,
+  queryRows,
+  rowAt,
+  withHarnessSchema,
+} from './test-helpers';
 
 @Entity({ name: 'secret_table', schema: 'nullable_test' })
 class SecretEntity {
@@ -30,7 +37,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   }, 30_000);
 
   it('flips a nullable column to NOT NULL on an empty table', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -44,12 +52,13 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
         expect(result.aligned).toEqual(['name']);
         expect(result.skipped).toEqual([]);
         expect(result.backfilled).toEqual([]);
-        const rows = await qr.query(
+        const row = await queryRequiredRow<{ is_nullable: string }>(
+          qr,
           `SELECT is_nullable FROM information_schema.columns
             WHERE table_schema = 'nullable_test' AND table_name = 'widget'
               AND column_name = 'name'`,
         );
-        expect(rows[0].is_nullable).toBe('NO');
+        expect(row.is_nullable).toBe('NO');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS nullable_test CASCADE`);
       }
@@ -57,7 +66,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('is a no-op when the column is already NOT NULL', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -77,7 +87,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('rejects when NULL rows exist and no backfill supplied', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -102,7 +113,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('applies backfill + flips to NOT NULL when backfillExpr supplied', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -127,11 +139,12 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
         expect(result.backfilled).toEqual(['name']);
 
         // The pre-existing non-NULL row must be preserved.
-        const rows = await qr.query(
+        const rows = await queryRows<{ id: string; name: string }>(
+          qr,
           `SELECT id, name FROM nullable_test.widget ORDER BY id`,
         );
-        expect(rows[0].name).toBe('backfilled');
-        expect(rows[1].name).toBe('existing');
+        expect(rowAt(rows, 0).name).toBe('backfilled');
+        expect(rowAt(rows, 1).name).toBe('existing');
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS nullable_test CASCADE`);
       }
@@ -139,7 +152,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('rejects if backfill expression leaves residual NULLs', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -170,7 +184,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('REFUSES @EncryptedAtRest column', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -194,7 +209,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('throws when the target column does not exist', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         await qr.query(
@@ -214,7 +230,8 @@ describe('alignColumnNullability — Phase 3 Class C primitive', () => {
   });
 
   it('returns empty result when columns=[]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS nullable_test`);
       try {
         const result = await alignColumnNullability(qr, {

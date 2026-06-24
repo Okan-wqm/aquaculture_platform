@@ -32,6 +32,7 @@ import { TankOperation } from '../../batch/entities/tank-operation.entity';
 import { BatchService } from '../../batch/services/batch.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../../batch/services/batch-lifecycle-policy.service';
+import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import {
   Department,
   DepartmentStatus,
@@ -177,6 +178,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       operationRepository,
       tankRepository,
       dataSource,
+      new MortalityCullPolicyService(),
     );
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);

@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useMemo } from 'react';
+
+
 import { useAuth } from './useAuth';
 import { useTanks } from './useTanks';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { GET_STOCK_EVENTS_SUMMARY } from '@/graphql/operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { StockEventsSummary, StockEvent } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // WHY inline response type: keeps the GraphQL response shape co-located
 // with the query that produces it, avoiding a global type for an internal detail.

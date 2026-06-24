@@ -24,6 +24,7 @@ import {
   MAX_SHORT_CODE_LENGTH,
   UUID_SCHEMA,
 } from './common.schema';
+import { TENANT_ERASURE_TARGET_SERVICES } from '../tenant-erasure-targets';
 
 export type TenantEventType =
   | 'TenantCreated'
@@ -34,6 +35,10 @@ export type TenantEventType =
   | 'TenantSuspended'
   | 'TenantActivated'
   | 'TenantArchived'
+  | 'TenantErasureRequested'
+  | 'TenantDataErased'
+  | 'TenantDataErasureFailed'
+  | 'TenantErasureBlocked'
   | 'TenantErased'
   | 'TenantProvisioningFailed'
   | 'TenantSubscriptionChanged'
@@ -79,6 +84,20 @@ const SHORT_CODE_ARRAY = {
 const NON_NEGATIVE_INT = {
   type: 'integer',
   minimum: 0,
+} as const;
+
+const BOOLEAN = {
+  type: 'boolean',
+} as const;
+
+const TENANT_ERASURE_TARGET_SERVICE = {
+  type: 'string',
+  enum: [...TENANT_ERASURE_TARGET_SERVICES],
+} as const;
+
+const TENANT_ERASURE_BLOCK_SOURCE = {
+  type: 'string',
+  enum: [...TENANT_ERASURE_TARGET_SERVICES, 'platform-orchestrator'],
 } as const;
 
 // Per-module quantity configuration carried by TenantSubscriptionRequested.
@@ -159,16 +178,91 @@ export const TENANT_EVENT_SCHEMAS = {
   }),
   TenantActivated: tenantEventSchema('TenantActivated', { activatedBy: UUID_SCHEMA }),
   TenantArchived: tenantEventSchema('TenantArchived', { archivedBy: UUID_SCHEMA }),
+  TenantErasureRequested: tenantEventSchema(
+    'TenantErasureRequested',
+    {
+      operationId: UUID_SCHEMA,
+      requestedBy: UUID_SCHEMA,
+      requestedAt: ISO_DATE_TIME,
+      legalHoldCheckedAt: ISO_DATE_TIME,
+      dryRun: BOOLEAN,
+      targetServiceCount: NON_NEGATIVE_INT,
+    },
+    [
+      'operationId',
+      'requestedBy',
+      'requestedAt',
+      'legalHoldCheckedAt',
+      'dryRun',
+      'targetServiceCount',
+    ],
+  ),
+  TenantDataErased: tenantEventSchema(
+    'TenantDataErased',
+    {
+      operationId: UUID_SCHEMA,
+      targetService: TENANT_ERASURE_TARGET_SERVICE,
+      erasedAt: ISO_DATE_TIME,
+      dryRun: BOOLEAN,
+      matchedRecordCount: NON_NEGATIVE_INT,
+      erasedRecordCount: NON_NEGATIVE_INT,
+      proofHash: STRING,
+    },
+    [
+      'operationId',
+      'targetService',
+      'erasedAt',
+      'dryRun',
+      'matchedRecordCount',
+      'erasedRecordCount',
+      'proofHash',
+    ],
+  ),
+  TenantDataErasureFailed: tenantEventSchema(
+    'TenantDataErasureFailed',
+    {
+      operationId: UUID_SCHEMA,
+      targetService: TENANT_ERASURE_TARGET_SERVICE,
+      failedAt: ISO_DATE_TIME,
+      errorCode: STRING,
+      errorMessage: LONG_STRING,
+      retryable: BOOLEAN,
+    },
+    ['operationId', 'targetService', 'failedAt', 'errorCode', 'errorMessage', 'retryable'],
+  ),
+  TenantErasureBlocked: tenantEventSchema(
+    'TenantErasureBlocked',
+    {
+      operationId: UUID_SCHEMA,
+      blockedAt: ISO_DATE_TIME,
+      blockedByService: TENANT_ERASURE_BLOCK_SOURCE,
+      reason: LONG_STRING,
+      legalMatterId: STRING,
+    },
+    ['operationId', 'blockedAt', 'blockedByService', 'reason'],
+  ),
   TenantErased: tenantEventSchema(
     'TenantErased',
     {
-      confirmedAt: ISO_DATE_TIME,
+      operationId: UUID_SCHEMA,
+      requestedAt: ISO_DATE_TIME,
       requestedBy: UUID_SCHEMA,
-      totalDeleted: NON_NEGATIVE_INT,
-      auditRowsAnonymised: NON_NEGATIVE_INT,
-      tableCount: NON_NEGATIVE_INT,
+      legalHoldCheckedAt: ISO_DATE_TIME,
+      completedAt: ISO_DATE_TIME,
+      targetServiceCount: NON_NEGATIVE_INT,
+      proofHash: STRING,
+      proofVersion: NON_NEGATIVE_INT,
     },
-    ['confirmedAt', 'requestedBy', 'totalDeleted', 'auditRowsAnonymised', 'tableCount'],
+    [
+      'operationId',
+      'requestedAt',
+      'requestedBy',
+      'legalHoldCheckedAt',
+      'completedAt',
+      'targetServiceCount',
+      'proofHash',
+      'proofVersion',
+    ],
   ),
   TenantProvisioningFailed: tenantEventSchema('TenantProvisioningFailed', {
     error: LONG_STRING,

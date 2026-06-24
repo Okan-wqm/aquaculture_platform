@@ -3,8 +3,9 @@
  * Small connection point with 4 toggleable handles (top, bottom, left, right)
  */
 
-import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
+import { Handle, Position, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
+
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
@@ -102,7 +103,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
         <Handle
           id={`cp-top-${topType}`}
           type={topType}
-          position={undefined as any}
+          position={Position.Top}
           style={{
             position: 'relative',
             width: '100%',
@@ -138,7 +139,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
         <Handle
           id={`cp-bottom-${bottomType}`}
           type={bottomType}
-          position={undefined as any}
+          position={Position.Top}
           style={{
             position: 'relative',
             width: '100%',
@@ -174,7 +175,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
         <Handle
           id={`cp-left-${leftType}`}
           type={leftType}
-          position={undefined as any}
+          position={Position.Top}
           style={{
             position: 'relative',
             width: '100%',
@@ -210,7 +211,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
         <Handle
           id={`cp-right-${rightType}`}
           type={rightType}
-          position={undefined as any}
+          position={Position.Top}
           style={{
             position: 'relative',
             width: '100%',

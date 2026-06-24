@@ -1,8 +1,17 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
+import {
+  queryRowCountNormalized,
+  queryRowsWithStringColumn,
+  querySingleStringColumn,
+  type StringColumnRow,
+} from './query-result-normalizer';
 import { MODULE_SCHEMAS } from './schema-manager.service';
-import { listTenantSchemas } from './tenant-schema.utils';
 import { validateSqlIdentifier } from './sql-identifier.util';
+import { listTenantSchemas } from './tenant-schema.utils';
+
+type ColumnNameRow = StringColumnRow<'column_name'>;
 
 export interface SyncReport {
   /**
@@ -99,7 +108,10 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     try {
       const report = await this.detectAllTenantSchemas();
       this.emitReport(report);
-      if (report.tablesMissing + report.columnsMissing > 0 && this.isStrictMode()) {
+      if (
+        report.tablesMissing + report.columnsMissing + report.errors.length > 0 &&
+        strictMode
+      ) {
         // WHY: STRICT_TENANT_SCHEMA_DRIFT=true causes the service to fail
         // boot when drift is present. Operators opt in by setting the env
         // var on environments where drift signals an unrun migration AND
@@ -110,7 +122,7 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
         throw new Error(
           'TenantSchemaSyncService: tenant-schema drift detected and ' +
             'STRICT_TENANT_SCHEMA_DRIFT=true. Author a per-tenant ' +
-            'migration before booting (runbook: ' +
+            'migration or fix the schema SSoT before booting (runbook: ' +
             'docs/runbooks/tenant-schema-drift-response.md).',
         );
       }
@@ -144,20 +156,22 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
 
     const sourceSchema = await this.detectSourceSchema();
     if (!sourceSchema) {
-      this.logger.warn('Could not detect source schema from connection — skipping drift scan');
+      report.errors.push(
+        'Could not detect source schema from connection search_path; tenant drift scan cannot determine the source SSoT.',
+      );
       return report;
     }
 
     const mod = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
     if (!mod) {
-      this.logger.warn(
-        `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — skipping drift scan`,
+      report.errors.push(
+        `No MODULE_SCHEMAS entry for source schema "${sourceSchema}"; tenant drift scan cannot determine table ownership.`,
       );
       return report;
     }
 
     this.logger.log(
-      `Scanning ${tenantSchemas.length} tenant schemas against source "${sourceSchema}" (${mod.tables.length} tables) — read-only`,
+      `Scanning ${tenantSchemas.length} tenant schemas against source "${sourceSchema}" (${this.expectedTenantTables(mod).length} tables) — read-only`,
     );
 
     for (const tenantSchema of tenantSchemas) {
@@ -169,7 +183,7 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
 
   private async detectTenantDrift(
     tenantSchema: string,
-    mod: { sourceSchema: string; tables: string[] },
+    mod: { sourceSchema: string; tables: string[]; referenceDataTables?: string[] },
     report: SyncReport,
   ): Promise<void> {
     // WHY: Identifiers from listTenantSchemas + MODULE_SCHEMAS are
@@ -180,7 +194,7 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     const safeTenantSchema = validateSqlIdentifier(tenantSchema, 'schema');
     const safeSourceSchema = validateSqlIdentifier(mod.sourceSchema, 'schema');
 
-    for (const tableName of mod.tables) {
+    for (const tableName of this.expectedTenantTables(mod)) {
       try {
         const safeTableName = validateSqlIdentifier(tableName, 'table');
         const sourceExists = await this.tableExists(safeSourceSchema, safeTableName);
@@ -215,7 +229,7 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   ): Promise<void> {
     const sourceColumns = await this.getColumns(sourceSchema, tableName);
     const tenantColumns = await this.getColumns(tenantSchema, tableName);
-    const tenantColumnNames = new Set(tenantColumns.map((c: { column_name: string }) => c.column_name));
+    const tenantColumnNames = new Set(tenantColumns.map((c) => c.column_name));
 
     for (const col of sourceColumns) {
       if (!tenantColumnNames.has(col.column_name)) {
@@ -231,18 +245,15 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   }
 
   private async tableExists(schema: string, table: string): Promise<boolean> {
-    const rows = await this.dataSource.query(
+    const rowsResult: unknown = await this.dataSource.query(
       `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 AND table_type = 'BASE TABLE'`,
       [schema, table],
     );
-    return rows.length > 0;
+    return queryRowCountNormalized(rowsResult) > 0;
   }
 
-  private async getColumns(
-    schema: string,
-    table: string,
-  ): Promise<Array<{ column_name: string }>> {
-    return this.dataSource.query(
+  private async getColumns(schema: string, table: string): Promise<ColumnNameRow[]> {
+    const columnsResult: unknown = await this.dataSource.query(
       `SELECT a.attname AS column_name
        FROM pg_attribute a
        WHERE a.attrelid = ($1 || '.' || $2)::regclass
@@ -251,11 +262,20 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
        ORDER BY a.attnum`,
       [schema, table],
     );
+    return queryRowsWithStringColumn(
+      columnsResult,
+      'column_name',
+      `${schema}.${table} column scan`,
+    );
   }
 
   private async detectSourceSchema(): Promise<string | null> {
-    const result = await this.dataSource.query('SHOW search_path');
-    const searchPath: string = result[0]?.search_path || '';
+    const searchPathResult: unknown = await this.dataSource.query('SHOW search_path');
+    const searchPath = querySingleStringColumn(
+      searchPathResult,
+      'search_path',
+      'SHOW search_path',
+    );
     const schemas = searchPath
       .split(',')
       .map((s: string) => s.trim().replace(/"/g, ''))
@@ -272,8 +292,18 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   }
 
   private emitReport(report: SyncReport): void {
-    if (report.tablesMissing === 0 && report.columnsMissing === 0) {
+    if (
+      report.tablesMissing === 0 &&
+      report.columnsMissing === 0 &&
+      report.errors.length === 0
+    ) {
       this.logger.log('Tenant schema drift scan: all schemas up to date');
+      return;
+    }
+    if (report.errors.length > 0) {
+      this.logger.error(`Drift scan errors: ${report.errors.join('; ')}`);
+    }
+    if (report.tablesMissing === 0 && report.columnsMissing === 0) {
       return;
     }
     // Structured WARN so log aggregators trip an alert. Per-(tenant,table)
@@ -289,12 +319,16 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
           : `drift: ${entry.tenantSchema}.${entry.table}.${entry.column} — column missing`,
       );
     }
-    if (report.errors.length > 0) {
-      this.logger.error(`Drift scan errors: ${report.errors.join('; ')}`);
-    }
   }
 
   private distinctTenants(report: SyncReport): number {
     return new Set(report.drift.map((d) => d.tenantSchema)).size;
+  }
+
+  private expectedTenantTables(mod: {
+    tables: string[];
+    referenceDataTables?: string[];
+  }): string[] {
+    return [...mod.tables, ...(mod.referenceDataTables ?? [])];
   }
 }

@@ -51,7 +51,8 @@ export abstract class TenantScopedTool<
       // Delegate to parent execute (which calls this.run())
       return await super.execute(input, ctx);
     } catch (error) {
-      this.logger.error(`Failed to set search_path: ${error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to set search_path: ${message}`);
       return {
         success: false,
         error: 'Database schema unavailable',
@@ -60,7 +61,11 @@ export abstract class TenantScopedTool<
       };
     } finally {
       this.queryRunner = null;
-      await qr.query('RESET search_path').catch(() => {});
+      // Best-effort cleanup: a RESET failure on a connection we are about
+      // to release is non-actionable — the connection is discarded back to
+      // the pool which resets session state, so swallow rather than mask a
+      // primary error already being returned.
+      await qr.query('RESET search_path').catch(() => undefined);
       await qr.release();
     }
   }

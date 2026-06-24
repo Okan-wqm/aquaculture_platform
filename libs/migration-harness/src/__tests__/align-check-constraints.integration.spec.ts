@@ -1,11 +1,12 @@
 import { alignCheckConstraints, sql } from '@aquaculture/backend-common/database';
 
 import {
-  type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
+  type HarnessContext,
 } from '../index';
+
+import { expectHarnessContext, withHarnessSchema } from './test-helpers';
 
 describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   let ctx: HarnessContext | undefined;
@@ -19,7 +20,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   }, 30_000);
 
   it('adds a named CHECK constraint that the DB lacks', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS check_test`);
       try {
         await qr.query(
@@ -49,7 +51,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   });
 
   it('is idempotent — re-running a present constraint yields alreadyPresent', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS check_test`);
       try {
         await qr.query(
@@ -78,7 +81,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   });
 
   it('drops a constraint named in allowlistToDrop when present in DB', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS check_test`);
       try {
         await qr.query(
@@ -106,7 +110,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   });
 
   it('drop is idempotent — allowlist entry absent from DB → dropAlreadyAbsent', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS check_test`);
       try {
         await qr.query(
@@ -127,7 +132,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   });
 
   it('handles add + drop in one invocation (atomic under the envelope)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS check_test`);
       try {
         await qr.query(
@@ -157,7 +163,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   });
 
   it('rejects ambiguous intent (name in both desired + allowlistToDrop)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await expect(
         alignCheckConstraints(qr, {
           schema: 'check_test',
@@ -191,7 +198,8 @@ describe('alignCheckConstraints — Phase 3 Class G primitive', () => {
   });
 
   it('returns empty result when desired=[] and allowlistToDrop=[]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       const result = await alignCheckConstraints(qr, {
         schema: 'check_test',
         table: 'widget',

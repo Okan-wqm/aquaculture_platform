@@ -40,6 +40,12 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
   const svgContent = (config.svgContent ?? '') as string;
   const label = (config.label ?? '') as string;
 
+  // DOMPurify tabanli sanitizasyon -- regex bypass'larina karsi korunakli
+  // Security: memoize edilerek her render'da tekrar sanitize edilmez.
+  // Hook must run unconditionally (react-hooks/rules-of-hooks); it is
+  // evaluated before the early "no SVG" return below so hook order is stable.
+  const safeSvg = useMemo(() => sanitizeSvg(svgContent), [svgContent]);
+
   if (!svgContent) {
     return (
       <div style={{
@@ -66,10 +72,6 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
   if (animationState?.blinking) {
     style.animation = `scada-blink ${animationState.blinkInterval}ms ease-in-out infinite`;
   }
-
-  // DOMPurify tabanli sanitizasyon -- regex bypass'larina karsi korunakli
-  // Security: memoize edilerek her render'da tekrar sanitize edilmez
-  const safeSvg = useMemo(() => sanitizeSvg(svgContent), [svgContent]);
 
   return (
     <div style={style}>

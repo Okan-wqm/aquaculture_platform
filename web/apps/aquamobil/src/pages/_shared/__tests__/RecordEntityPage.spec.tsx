@@ -7,10 +7,18 @@
  * stay behavior-compatible with the pre-extraction duplicated code.
  */
 
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { RecordCullPage } from '../../cull/RecordCullPage';
+import { RecordHarvestPage } from '../../harvest/RecordHarvestPage';
+import { RecordMortalityPage } from '../../mortality/RecordMortalityPage';
+
 // ---------------------------------------------------------------------------
-// Mocks — must come before imports that transitively resolve them.
+// Mocks — registered via hoisted state so all real imports can sit at the top
+// (vitest hoists vi.mock above imports automatically; mock state that the
+// factories close over is created with vi.hoisted so it exists at hoist time).
 // Dual-React-instance mitigation: we mock every downstream hook the shell
 // touches so the test does not need the full OfflineProvider + QueryClient
 // tree (see vitest.config.ts note).
@@ -18,15 +26,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // FE-HIGH-050: addToQueue resolves a discriminated AddToQueueResult. Typed args so
 // mock.calls is `[string, Record<string, unknown>][]` and no cast is needed to read them.
-const mockAddToQueue = vi.fn<
-  (op: string, payload: Record<string, unknown>) => Promise<{ status: string; id: string }>
->(() => Promise.resolve({ status: 'queued', id: 'op-123' }));
-let mockIsOnline = true;
+const h = vi.hoisted(() => ({
+  addToQueue: vi.fn<
+    (op: string, payload: Record<string, unknown>) => Promise<{ status: string; id: string }>
+  >(() => Promise.resolve({ status: 'queued', id: 'op-123' })),
+  isOnline: true,
+  navigate: vi.fn(),
+}));
 
 vi.mock('@/hooks/useOfflineQueue', () => ({
   useOfflineQueue: () => ({
-    addToQueue: mockAddToQueue,
-    isOnline: mockIsOnline,
+    addToQueue: h.addToQueue,
+    isOnline: h.isOnline,
     pendingCount: 0,
     pendingOperations: [],
     isSyncing: false,
@@ -124,7 +135,7 @@ vi.mock('konsta/react', () => ({
 
 // lucide-react icons use forwardRef; stub each one the pages transitively need.
 vi.mock('lucide-react', () => {
-  const Stub = () => <svg data-testid="icon" />;
+  const Stub = (): React.ReactElement => <svg data-testid="icon" />;
   return {
     ArrowLeft: Stub,
     AlertCircle: Stub,
@@ -145,28 +156,35 @@ vi.mock('clsx', () => ({
 // Fully stub react-router-dom — importActual pulls real react-router which
 // attempts to useRef() against the local (null) React instance due to the
 // dual-React-copy quirk in this monorepo (see vitest.config.ts).
-const mockNavigate = vi.fn();
 vi.mock('react-router-dom', () => ({
-  useNavigate: () => mockNavigate,
+  useNavigate: () => h.navigate,
   useParams: () => ({}),
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
-import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
-import { RecordCullPage } from '../../cull/RecordCullPage';
-import { RecordMortalityPage } from '../../mortality/RecordMortalityPage';
-import { RecordHarvestPage } from '../../harvest/RecordHarvestPage';
-
-function renderPage(page: React.ReactElement) {
+function renderPage(page: ReactElement): ReturnType<typeof render> {
   return render(page);
 }
 
+/**
+ * Run a DOM-event body inside an async `act` and await it. This preserves the
+ * original `await act(async () => { fireEvent... })` flush semantics (effects +
+ * pending microtasks flush before the next assertion) while keeping a real await
+ * so require-await stays satisfied with a single SSoT helper. The body may be
+ * sync (plain fireEvent) or async (when it must `await screen.findBy*` first).
+ */
+async function actAsync(body: () => void | Promise<void>): Promise<void> {
+  await act(async () => {
+    await body();
+    // Yield once so any promise the fired handler kicked off (e.g. addToQueue)
+    // can settle within the act() scope, matching the previous behavior.
+    await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
-  mockAddToQueue.mockClear();
-  mockNavigate.mockClear();
-  mockIsOnline = true;
+  h.addToQueue.mockClear();
+  h.navigate.mockClear();
+  h.isOnline = true;
 });
 
 // vitest.config has `globals: false`, so @testing-library/react's auto-cleanup
@@ -187,14 +205,14 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     renderPage(<RecordCullPage />);
 
     const select = screen.getByRole('combobox');
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(select, { target: { value: 'tank-1' } });
     });
 
     const reviewBtn = screen.getByRole('button', { name: /Review .* Culled Fish/i });
     await waitFor(() => expect(reviewBtn).toHaveProperty('disabled', false));
 
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.click(reviewBtn);
     });
 
@@ -207,22 +225,22 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     renderPage(<RecordCullPage />);
 
     const select = screen.getByRole('combobox');
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(select, { target: { value: 'tank-1' } });
     });
 
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.click(screen.getByRole('button', { name: /Review .* Culled Fish/i }));
     });
 
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record/i }));
     });
 
     await waitFor(() => {
-      expect(mockAddToQueue).toHaveBeenCalledTimes(1);
+      expect(h.addToQueue).toHaveBeenCalledTimes(1);
     });
-    const [opName, payload] = mockAddToQueue.mock.calls[0] ?? [];
+    const [opName, payload] = h.addToQueue.mock.calls[0] ?? [];
     expect(opName).toBe('recordCull');
     expect(payload).toMatchObject({
       batchId: 'batch-1',
@@ -236,13 +254,13 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
 
   it('RecordCullPage: Go Back from confirm returns to entry step', async () => {
     renderPage(<RecordCullPage />);
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
     });
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.click(screen.getByRole('button', { name: /Review .* Culled Fish/i }));
     });
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Go Back & Edit/i }));
     });
     // Back on entry screen
@@ -251,18 +269,18 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
 
   it('RecordMortalityPage: enqueues recordMortality with observedAt date', async () => {
     renderPage(<RecordMortalityPage />);
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
     });
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.click(screen.getByRole('button', { name: /Review .* Dead Fish/i }));
     });
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record/i }));
     });
 
-    await waitFor(() => expect(mockAddToQueue).toHaveBeenCalledTimes(1));
-    const firstCall = mockAddToQueue.mock.calls[0];
+    await waitFor(() => expect(h.addToQueue).toHaveBeenCalledTimes(1));
+    const firstCall = h.addToQueue.mock.calls[0];
     if (!firstCall) throw new Error('addToQueue was not called');
     const [opName, payload] = firstCall;
     expect(opName).toBe('recordMortality');
@@ -278,7 +296,7 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     renderPage(<RecordHarvestPage />);
 
     // Select tank (triggers avgWeight prefill from metrics)
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
     });
 
@@ -288,7 +306,7 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
 
     // Enter quantity → review enables (avgWeight was prefilled to 200)
     const quantityInput = screen.getByPlaceholderText(/Enter fish count/i);
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.input(quantityInput, { target: { value: '100' } });
     });
     await waitFor(() => expect(reviewBtn).toHaveProperty('disabled', false));
@@ -297,24 +315,24 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
   it('RecordHarvestPage: enqueues createHarvestRecord with biomass math', async () => {
     renderPage(<RecordHarvestPage />);
 
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
     });
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.input(screen.getByPlaceholderText(/Enter fish count/i), {
         target: { value: '100' },
       });
     });
 
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.click(screen.getByRole('button', { name: /Review Harvest/i }));
     });
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record Harvest/i }));
     });
 
-    await waitFor(() => expect(mockAddToQueue).toHaveBeenCalledTimes(1));
-    const firstCall = mockAddToQueue.mock.calls[0];
+    await waitFor(() => expect(h.addToQueue).toHaveBeenCalledTimes(1));
+    const firstCall = h.addToQueue.mock.calls[0];
     if (!firstCall) throw new Error('addToQueue was not called');
     const [opName, rawPayload] = firstCall;
     const payload = rawPayload as {
@@ -334,16 +352,16 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
 describe('RecordEntityPage shell — duplicate (FE-HIGH-050)', () => {
   it('renders "Already recorded" instead of a success badge when the submit is deduped', async () => {
     // The queue collapsed a double-tap onto an existing op — status 'duplicate'.
-    mockAddToQueue.mockResolvedValueOnce({ status: 'duplicate', id: 'op-existing' });
+    h.addToQueue.mockResolvedValueOnce({ status: 'duplicate', id: 'op-existing' });
     renderPage(<RecordCullPage />);
 
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'tank-1' } });
     });
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Review .* Culled Fish/i }));
     });
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record/i }));
     });
 
@@ -355,16 +373,16 @@ describe('RecordEntityPage shell — duplicate (FE-HIGH-050)', () => {
 
 describe('RecordEntityPage shell — failure path', () => {
   it('surfaces queue errors on confirm screen without leaving the step machine broken', async () => {
-    mockAddToQueue.mockRejectedValueOnce(new Error('queue offline'));
+    h.addToQueue.mockRejectedValueOnce(new Error('queue offline'));
     renderPage(<RecordCullPage />);
 
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
     });
-    await act(async () => {
+    await actAsync(() => {
       fireEvent.click(screen.getByRole('button', { name: /Review .* Culled Fish/i }));
     });
-    await act(async () => {
+    await actAsync(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record/i }));
     });
 

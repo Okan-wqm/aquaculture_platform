@@ -369,6 +369,77 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     );
   }, 30_000);
 
+  it('reconciles legacy duplicate shared.user_consents before installing the unique tuple index', async () => {
+    const qr = ctx.dataSource.createQueryRunner();
+    const userId = '11111111-1111-4111-8111-111111111111';
+    const tenantId = '22222222-2222-4222-8222-222222222222';
+    const oldId = '33333333-3333-4333-8333-333333333333';
+    const newId = '44444444-4444-4444-8444-444444444444';
+    try {
+      await qr.query('DROP INDEX IF EXISTS shared."UQ_consent_user_type_version"');
+      await qr.query(
+        `INSERT INTO shared.user_consents
+           (id, "userId", "tenantId", "consentType", granted, version, metadata, "createdAt")
+         VALUES
+           ($1, $3, $4, 'analytics', false, 'v1', '{"source":"legacy-old"}'::jsonb, '2026-01-01T00:00:00Z'),
+           ($2, $3, $4, 'analytics', true,  'v1', '{"source":"legacy-new"}'::jsonb, '2026-01-02T00:00:00Z')`,
+        [oldId, newId, userId, tenantId],
+      );
+
+      await runPlatformBootstrap({
+        database: ctx.connectionOptions,
+        sqlDir: SQL_DIR,
+        log: silentLog,
+        lockTimeoutSeconds: 30,
+      });
+
+      const rows = (await qr.query(
+        `SELECT id::text,
+                granted,
+                metadata,
+                jsonb_array_length(metadata->'bootstrapDeduplicatedRows') AS archive_count
+           FROM shared.user_consents
+          WHERE "userId" = $1
+            AND "consentType" = 'analytics'
+            AND version = 'v1'`,
+        [userId],
+      )) as Array<{
+        id: string;
+        granted: boolean;
+        metadata: {
+          source?: string;
+          bootstrapDeduplicatedRows?: Array<{ id: string; granted: boolean; reason: string }>;
+        };
+        archive_count: number;
+      }>;
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        id: newId,
+        granted: true,
+        archive_count: 1,
+      });
+      expect(rows[0]?.metadata.source).toBe('legacy-new');
+      expect(rows[0]?.metadata.bootstrapDeduplicatedRows?.[0]).toMatchObject({
+        id: oldId,
+        granted: false,
+        reason: 'duplicate (userId, consentType, version) before UQ_consent_user_type_version',
+      });
+
+      const indexRows = (await qr.query(
+        `SELECT indexname
+           FROM pg_indexes
+          WHERE schemaname = 'shared'
+            AND tablename = 'user_consents'
+            AND indexname = 'UQ_consent_user_type_version'`,
+      )) as Array<{ indexname: string }>;
+      expect(indexRows).toHaveLength(1);
+    } finally {
+      await qr.query('DELETE FROM shared.user_consents WHERE "userId" = $1', [userId]);
+      await qr.release();
+    }
+  }, 90_000);
+
   it('hardens runtime database privileges after bootstrap', async () => {
     const qr = ctx.dataSource.createQueryRunner();
     try {

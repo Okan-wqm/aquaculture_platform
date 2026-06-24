@@ -162,7 +162,7 @@ function substitutePlaceholders(sql: string, vars: Record<string, string>): stri
           `${key}=${JSON.stringify(value)} — must match ${SAFE_IDENT_RE.source}.`,
       );
     }
-    out = out.split('\${' + key + '}').join(value);
+    out = out.split('${' + key + '}').join(value);
   }
   // After substitution there must be NO unresolved placeholders left.
   // Any survivor is a configuration error — fail loud, never silently
@@ -171,7 +171,7 @@ function substitutePlaceholders(sql: string, vars: Record<string, string>): stri
   if (stray) {
     throw new Error(
       `[platform-bootstrap] Unresolved placeholder ${stray[0]} after ` +
-        `substitution — every \${VAR} must have a matching entry in vars.`,
+        `substitution — every ${'${VAR}'} must have a matching entry in vars.`,
     );
   }
   return out;

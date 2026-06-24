@@ -23,6 +23,45 @@ burn-in'dir: discovery, memory, pressure, finding ve triage kanıtı üretir;
 aynı anda agent claim, tool run, PR, merge, promotion veya materialization
 olmadığını kanıtlar.
 
+## Production Autonomy Target Decisions (2026-06-20) / Production Otonomi Hedef Kararları (2026-06-20)
+
+This section records accepted operator target decisions for the next
+enterprise-autonomy implementation plan. Prose does not grant runtime
+authority: these decisions become live only when the machine-readable policy
+files, schemas, executable owners, required GitHub check, CODEOWNERS ownership,
+state-manifest declarations, and invariants listed here land on `main`.
+
+Bu bölüm bir sonraki enterprise-autonomy implementation plan için kabul edilen
+operator hedef kararlarını kaydeder. Prose runtime authority vermez: bu kararlar
+ancak burada listelenen machine-readable policy files, schemas, executable
+owners, required GitHub check, CODEOWNERS ownership, state-manifest declarations
+ve invariants `main` üzerine indiğinde canlı olur.
+
+ARIA's full-production autonomy target is built on:
+
+- executable kernel owners as the decision authority;
+- machine-readable policy and schema SSoTs under `docs/aria/policy/*.json`;
+- declared append-only ledgers in `state_manifest.py`;
+- GitHub branch protection plus the `aria-merge-authority` required status check;
+- short-lived GitHub App installation token leases for writes and `GITHUB_TOKEN` for CI proof;
+- external durable runtime state roots with hash-bound artifact snapshots and a signed-proof target;
+- rollback bundles and incident ledger rows for every autonomous merge.
+
+| Decision | Accepted target |
+|---|---|
+| Autonomy level | Full production autonomy: ARIA plans, implements, opens PRs, tests, merges, and manages rollback/incident records inside selected risk gates. |
+| Repo scope | Whole repo, risk-gated. |
+| L3 policy | Two-stage human policy approval; after approval ARIA completes test, merge, rollback bundle, and incident-ledger workflow. |
+| Rollback | Rollback bundle + incident ledger is mandatory for every autonomous merge. |
+| L2 unlock | 30 successful supervised L2 merges are required before L2 autonomous merge unlocks. |
+| Acceptance bar | 30 observe cycles, 30 L1 autonomous merges, 30 L2 supervised merges, 10 L2 autonomous merges, 5 L3 two-stage approval PRs, zero critical policy violations, and 3 rollback simulation or real rollback successes. |
+| Runtime | Hybrid runtime: GitHub Actions for checks/proofs and a self-hosted private runner for implementation work. |
+| Token model | Hybrid token model: GitHub App installation token for write leases, `GITHUB_TOKEN` for CI proof, no PAT runtime path. |
+| Merge authority | Kernel decision + `aria-merge-authority` required check + CODEOWNERS-protected policy files. |
+| Policy SSoT | Hybrid policy SSoT: `docs/aria/policy/*.json` and schemas are machine authority; `aria-kernel` modules enforce; this document is the subordinate index. |
+| Owner map | `risk_policy.py`, `autonomy_unlock.py`, `policy_approval.py`, `rollback_bundle.py`, `incident_ledger.py`; `merge_authority.py` reads those owners and remains the final merge orchestrator. |
+| Ledger/state | Hybrid ledger/state: external durable runtime ledgers are canonical; hash-bound artifact snapshots provide PR and CI evidence; signed snapshot proof is required before this target becomes live; all ledger paths are declared in `state_manifest.py` and all appends use declared JSONL writers. |
+
 ## Enterprise Gates / Kurumsal Kapılar
 
 | Gate | EN | TR | Executable Anchor |

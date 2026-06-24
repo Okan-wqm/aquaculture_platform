@@ -9,7 +9,7 @@
   },
   "required_status_checks": {
     "strict": true,
-    "contexts": ["sens-enterprise-summary", "merge-gate"]
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
   },
   "ci_affected_required_path_filters": [
     "sens-api-gateway/**",
@@ -62,6 +62,22 @@
             "sens-enterprise-validation"
           ],
           "required_markers": ["Assert required PR checks"]
+        }
+      ]
+    },
+    {
+      "workflow": ".github/workflows/aria-merge-authority.yml",
+      "contexts": [
+        {
+          "context": "aria-merge-authority",
+          "job_id": "aria-merge-authority",
+          "requires_jobs": [],
+          "required_markers": [
+            "npm run aria:compile",
+            "test_merge_authority_invariants.py",
+            "npm run gates:required-status-checks",
+            "npm run aria:docs:ssot"
+          ]
         }
       ]
     }

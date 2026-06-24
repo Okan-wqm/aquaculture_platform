@@ -13,14 +13,9 @@
  *
  * @module Sensor-Service/E2E/VfdDevice
  */
-import {
-  gql,
-  TENANT_A,
-  TENANT_B,
-  uniqueName,
-  uniqueSerial,
-  runCleanup,
-} from './helpers';
+import { assertDefined } from '../../../helpers/assertions';
+
+import { gql, TENANT_A, TENANT_B, uniqueName, uniqueSerial, runCleanup } from './helpers';
 
 // ============================================================================
 // GRAPHQL OPERATIONS
@@ -289,7 +284,7 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.registerVfdDevice as Record<string, unknown>;
+      const result = assertDefined(res.data).registerVfdDevice as Record<string, unknown>;
       expect(result.success).toBe(true);
 
       const device = result.vfdDevice as Record<string, unknown>;
@@ -305,7 +300,7 @@ describe('VFD Devices', () => {
       const res = await gql(GET_VFD_DEVICE, { id: vfdId });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.vfdDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).vfdDevice as Record<string, unknown>;
       expect(device.id).toBe(vfdId);
       expect(device.tenantId).toBe(TENANT_A.id);
     });
@@ -317,7 +312,7 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const conn = res.data!.vfdDevices as Record<string, unknown>;
+      const conn = assertDefined(res.data).vfdDevices as Record<string, unknown>;
       const items = conn.items as Array<Record<string, unknown>>;
 
       for (const d of items) {
@@ -351,12 +346,17 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
     });
 
     it('should start in DRAFT status', async () => {
       const res = await gql(GET_VFD_DEVICE, { id: vfdId });
-      const device = res.data!.vfdDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).vfdDevice as Record<string, unknown>;
       expect(device.status).toBe('draft');
     });
 
@@ -364,7 +364,7 @@ describe('VFD Devices', () => {
       const res = await gql(ACTIVATE_VFD, { id: vfdId });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.activateVfdDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).activateVfdDevice as Record<string, unknown>;
       expect(device.status).toBe('active');
     });
   });
@@ -387,7 +387,7 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.testVfdConnection as Record<string, unknown>;
+      const result = assertDefined(res.data).testVfdConnection as Record<string, unknown>;
       expect(typeof result.success).toBe('boolean');
       expect(result.testedAt).toBeDefined();
     });
@@ -413,21 +413,30 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
     });
 
     it('should activate VFD', async () => {
       const res = await gql(ACTIVATE_VFD, { id: vfdId });
 
       expect(res.errors).toBeUndefined();
-      expect((res.data!.activateVfdDevice as Record<string, unknown>).status).toBe('active');
+      expect((assertDefined(res.data).activateVfdDevice as Record<string, unknown>).status).toBe(
+        'active',
+      );
     });
 
     it('should deactivate VFD', async () => {
       const res = await gql(DEACTIVATE_VFD, { id: vfdId });
 
       expect(res.errors).toBeUndefined();
-      expect((res.data!.deactivateVfdDevice as Record<string, unknown>).status).toBe('suspended');
+      expect((assertDefined(res.data).deactivateVfdDevice as Record<string, unknown>).status).toBe(
+        'suspended',
+      );
     });
   });
 
@@ -439,7 +448,7 @@ describe('VFD Devices', () => {
       const res = await gql(VFD_BRANDS);
 
       expect(res.errors).toBeUndefined();
-      const brands = res.data!.vfdBrands;
+      const brands = assertDefined(res.data).vfdBrands;
       expect(brands).toBeDefined();
 
       // Brands should include known manufacturers
@@ -455,7 +464,7 @@ describe('VFD Devices', () => {
       const res = await gql(VFD_PROTOCOLS);
 
       expect(res.errors).toBeUndefined();
-      const protocols = res.data!.vfdProtocols;
+      const protocols = assertDefined(res.data).vfdProtocols;
       expect(protocols).toBeDefined();
     });
   });
@@ -471,7 +480,9 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const mappings = res.data!.vfdRegisterMappings as Array<Record<string, unknown>>;
+      const mappings = assertDefined(res.data).vfdRegisterMappings as Array<
+        Record<string, unknown>
+      >;
       expect(Array.isArray(mappings)).toBe(true);
 
       for (const mapping of mappings) {
@@ -504,7 +515,12 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
     });
 
     it('should query latest reading (may be null for new device)', async () => {
@@ -545,7 +561,12 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
     });
 
     it('should query readings with time range', async () => {
@@ -560,7 +581,7 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const readings = res.data!.vfdReadings as Array<Record<string, unknown>>;
+      const readings = assertDefined(res.data).vfdReadings as Array<Record<string, unknown>>;
       expect(Array.isArray(readings)).toBe(true);
     });
   });
@@ -573,7 +594,7 @@ describe('VFD Devices', () => {
       const res = await gql(VFD_STATS);
 
       expect(res.errors).toBeUndefined();
-      const stats = res.data!.vfdStats as Record<string, unknown>;
+      const stats = assertDefined(res.data).vfdStats as Record<string, unknown>;
       expect(typeof stats.total).toBe('number');
       expect(typeof stats.active).toBe('number');
       expect(typeof stats.inactive).toBe('number');
@@ -606,7 +627,12 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
       await gql(ACTIVATE_VFD, { id: vfdId });
     });
 
@@ -614,7 +640,7 @@ describe('VFD Devices', () => {
       const res = await gql(START_VFD, { vfdDeviceId: vfdId });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.startVfd as Record<string, unknown>;
+      const result = assertDefined(res.data).startVfd as Record<string, unknown>;
       expect(typeof result.success).toBe('boolean');
       // May fail if no actual VFD connected but structure should be correct
     });
@@ -623,7 +649,7 @@ describe('VFD Devices', () => {
       const res = await gql(STOP_VFD, { vfdDeviceId: vfdId });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.stopVfd as Record<string, unknown>;
+      const result = assertDefined(res.data).stopVfd as Record<string, unknown>;
       expect(typeof result.success).toBe('boolean');
     });
 
@@ -634,7 +660,7 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.setVfdFrequency as Record<string, unknown>;
+      const result = assertDefined(res.data).setVfdFrequency as Record<string, unknown>;
       expect(typeof result.success).toBe('boolean');
     });
 
@@ -648,7 +674,7 @@ describe('VFD Devices', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.sendVfdCommand as Record<string, unknown>;
+      const result = assertDefined(res.data).sendVfdCommand as Record<string, unknown>;
       expect(typeof result.success).toBe('boolean');
     });
   });
@@ -673,7 +699,12 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
       await gql(ACTIVATE_VFD, { id: vfdId });
     });
 
@@ -682,7 +713,7 @@ describe('VFD Devices', () => {
 
       // Should NOT get authorization error - emergencyStopVfd has no @Roles decorator
       expect(res.errors).toBeUndefined();
-      const result = res.data!.emergencyStopVfd as Record<string, unknown>;
+      const result = assertDefined(res.data).emergencyStopVfd as Record<string, unknown>;
       expect(typeof result.success).toBe('boolean');
     });
   });
@@ -712,14 +743,19 @@ describe('VFD Devices', () => {
           skipConnectionTest: true,
         },
       });
-      vfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      vfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
     });
 
     it('should delete VFD device', async () => {
       const res = await gql(DELETE_VFD_DEVICE, { id: vfdId });
 
       expect(res.errors).toBeUndefined();
-      expect(res.data!.deleteVfdDevice).toBe(true);
+      expect(assertDefined(res.data).deleteVfdDevice).toBe(true);
     });
 
     it('should return null when querying deleted VFD', async () => {
@@ -756,15 +792,16 @@ describe('VFD Devices', () => {
         },
         TENANT_A,
       );
-      tenantAVfdId = ((res.data!.registerVfdDevice as Record<string, unknown>).vfdDevice as Record<string, unknown>).id as string;
+      tenantAVfdId = (
+        (assertDefined(res.data).registerVfdDevice as Record<string, unknown>).vfdDevice as Record<
+          string,
+          unknown
+        >
+      ).id as string;
     });
 
     it('Tenant B should NOT see Tenant A VFD by ID', async () => {
-      const res = await gql(
-        GET_VFD_DEVICE,
-        { id: tenantAVfdId },
-        TENANT_B,
-      );
+      const res = await gql(GET_VFD_DEVICE, { id: tenantAVfdId }, TENANT_B);
 
       if (res.data?.vfdDevice) {
         expect(res.data.vfdDevice).toBeNull();
@@ -772,14 +809,10 @@ describe('VFD Devices', () => {
     });
 
     it('Tenant B VFD list should NOT include Tenant A devices', async () => {
-      const res = await gql(
-        LIST_VFD_DEVICES,
-        { pagination: { page: 1, limit: 100 } },
-        TENANT_B,
-      );
+      const res = await gql(LIST_VFD_DEVICES, { pagination: { page: 1, limit: 100 } }, TENANT_B);
 
       expect(res.errors).toBeUndefined();
-      const conn = res.data!.vfdDevices as Record<string, unknown>;
+      const conn = assertDefined(res.data).vfdDevices as Record<string, unknown>;
       const items = conn.items as Array<Record<string, unknown>>;
 
       for (const d of items) {
@@ -791,32 +824,24 @@ describe('VFD Devices', () => {
     });
 
     it('Tenant B should NOT delete Tenant A VFD', async () => {
-      const res = await gql(
-        DELETE_VFD_DEVICE,
-        { id: tenantAVfdId },
-        TENANT_B,
-      );
+      const res = await gql(DELETE_VFD_DEVICE, { id: tenantAVfdId }, TENANT_B);
 
       // Should fail
       if (res.errors) {
         expect(res.errors.length).toBeGreaterThan(0);
       } else {
-        expect(res.data!.deleteVfdDevice).toBe(false);
+        expect(assertDefined(res.data).deleteVfdDevice).toBe(false);
       }
     });
 
     it('Tenant B should NOT send commands to Tenant A VFD', async () => {
-      const res = await gql(
-        EMERGENCY_STOP_VFD,
-        { vfdDeviceId: tenantAVfdId },
-        TENANT_B,
-      );
+      const res = await gql(EMERGENCY_STOP_VFD, { vfdDeviceId: tenantAVfdId }, TENANT_B);
 
       // Cross-tenant command should fail
       if (res.errors) {
         expect(res.errors.length).toBeGreaterThan(0);
       } else {
-        const result = res.data!.emergencyStopVfd as Record<string, unknown>;
+        const result = assertDefined(res.data).emergencyStopVfd as Record<string, unknown>;
         expect(result.success).toBe(false);
       }
     });

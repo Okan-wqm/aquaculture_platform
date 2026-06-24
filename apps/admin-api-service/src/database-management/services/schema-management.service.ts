@@ -4,6 +4,13 @@
  * Multi-tenant database schema oluşturma, yönetim ve izolasyon servisi.
  */
 
+import { randomUUID } from 'crypto';
+
+import {
+  getTenantSchemaName,
+  listTenantSchemas,
+  queryRowsNormalized,
+} from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -35,9 +42,6 @@ export interface DestructiveActionContext {
 export class SchemaManagementService {
   private readonly logger = new Logger(SchemaManagementService.name);
 
-  // Schema naming convention - MUST match farm-service TenantSchemaMiddleware
-  private readonly SCHEMA_PREFIX = 'tenant_';
-
   constructor(
     @InjectRepository(TenantSchema)
     private readonly schemaRepository: Repository<TenantSchema>,
@@ -51,14 +55,9 @@ export class SchemaManagementService {
 
   /**
    * Generate schema name from tenant ID
-   * Uses 16 characters (without hyphens) for collision safety.
-   * MUST match farm-service TenantSchemaMiddleware.getTenantSchemaName()
    */
   generateSchemaName(tenantId: string): string {
-    // Remove dashes from UUID for cleaner schema name
-    // Use 16 chars to match farm-service convention
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    return `${this.SCHEMA_PREFIX}${cleanId}`;
+    return getTenantSchemaName(tenantId);
   }
 
   /**
@@ -547,7 +546,7 @@ export class SchemaManagementService {
     errors: string[];
   }> {
     this.logger.log('Starting tenant_schemas report-only backfill scan...');
-    const created = 0;
+    let created = 0;
     let skipped = 0;
     const errors: string[] = [];
 
@@ -555,16 +554,10 @@ export class SchemaManagementService {
     await queryRunner.connect();
 
     try {
-      // Find all tenant_* schemas in the database
-      const existingSchemas: Array<{ schema_name: string }> = await queryRunner.query(`
-        SELECT schema_name
-        FROM information_schema.schemata
-        WHERE schema_name LIKE 'tenant_%'
-        ORDER BY schema_name
-      `);
+      // Find all tenant schemas through the shared canonical validator.
+      const existingSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const row of existingSchemas) {
-        const schemaName = row.schema_name;
+      for (const schemaName of existingSchemas) {
 
         try {
           // Check if a tracking record already exists for this schema
@@ -578,13 +571,13 @@ export class SchemaManagementService {
           }
 
           // Resolve tenantId by matching the schema name pattern against the tenants table
-          const tenantRows: Array<{ id: string }> = await queryRunner.query(
+          const tenantRows = queryRowsNormalized<{ id: string }>(await queryRunner.query(
             `
             SELECT id FROM tenants
             WHERE LEFT(REPLACE(id::text, '-', ''), 16) = $1
           `,
             [schemaName.replace('tenant_', '')],
-          );
+          ));
 
           if (tenantRows.length === 0) {
             errors.push(`No matching tenant found for schema ${schemaName}`);
@@ -605,14 +598,33 @@ export class SchemaManagementService {
 
           // Get table count for this schema
           const tableCount = await this.getTableCount(schemaName);
+          const operationId = randomUUID();
 
-          void tableCount;
-          errors.push(
-            `${schemaName}: missing admin.tenant_schemas evidence; queue a db-migrate tenant-schema reconciliation job`,
+          await queryRunner.query(
+            `SELECT platform.request_tenant_schema_reconciliation(
+               $1::uuid,
+               $2::uuid,
+               $3::text,
+               $4::jsonb
+             )`,
+            [
+              operationId,
+              tenantId,
+              schemaName,
+              JSON.stringify({
+                operationId,
+                tenantId,
+                schemaName,
+                detectedBy: 'admin.schema-management.backfillTrackingRecords',
+                detectedAt: new Date().toISOString(),
+                tableCount,
+              }),
+            ],
           );
+          created++;
 
           this.logger.log(
-            `Detected missing tracking record: tenant ${tenantId} -> ${schemaName} (${tableCount} tables)`,
+            `Queued tenant schema reconciliation ${operationId}: tenant ${tenantId} -> ${schemaName} (${tableCount} tables)`,
           );
         } catch (err) {
           const error = err as Error;

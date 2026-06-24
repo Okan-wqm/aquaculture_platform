@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 
 /**
  * HR-MEDIUM-006: Schema name validation regex.
@@ -35,8 +34,6 @@ export function validateSchemaName(schemaName: string): void {
 @Injectable()
 export class SchemaMigrationService {
   private readonly logger = new Logger(SchemaMigrationService.name);
-
-  constructor(private readonly dataSource: DataSource) {}
 
   /**
    * Create a new tenant schema.
@@ -76,19 +73,9 @@ export class SchemaMigrationService {
   async migrateSchema(schemaName: string): Promise<void> {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
-
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      // Set search_path to the tenant schema before running migrations
-      await queryRunner.query(`SET search_path TO "${schemaName}"`);
-
-      this.logger.log(`Migration completed for schema: ${schemaName}`);
-    } finally {
-      // Reset search_path to default
-      await queryRunner.query('SET search_path TO public');
-      await queryRunner.release();
-    }
+    this.logger.warn(`Rejected runtime migration request for schema: ${schemaName}`);
+    throw new ConflictException(
+      'Runtime tenant schema migrations are aqua-db-migrate-owned. Use the deploy migration workflow.',
+    );
   }
 }

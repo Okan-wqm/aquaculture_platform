@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
   VersionColumn,
   Index,
+  Check,
 } from 'typeorm';
 
 // Re-export the canonical SSoT enums so downstream consumers that import
@@ -43,6 +44,8 @@ registerEnumType(TenantStatus, {
  */
 @ObjectType()
 @Entity('tenants', { schema: 'auth' })
+@Check(`"status" IN ('PENDING', 'PROVISIONING', 'PROVISIONING_FAILED', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED', 'CANCELLED', 'ARCHIVED', 'PURGED')`)
+@Check(`"plan" IN ('free', 'trial', 'starter', 'professional', 'enterprise')`)
 @Index('IDX_tenants_slug', ['slug'], { unique: true })
 @Index('IDX_tenants_status', ['status'])
 // DBR-MEDIUM-001 cure: enterprise custom-domain rows MUST be unique

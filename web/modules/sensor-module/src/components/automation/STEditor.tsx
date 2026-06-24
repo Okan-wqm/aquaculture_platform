@@ -98,10 +98,10 @@ const STEditor: React.FC<STEditorProps> = ({
                   },
                 },
               ],
-              [/[{}()\[\]]/, '@brackets'],
+              [/[{}()[\]]/, '@brackets'],
               [/:=/, 'operator'],
               [/[<>]=?|<>/, 'operator'],
-              [/[+\-*\/]/, 'operator'],
+              [/[+\-*/]/, 'operator'],
               [/;/, 'delimiter'],
             ],
             comment: [

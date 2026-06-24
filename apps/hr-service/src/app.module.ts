@@ -7,6 +7,7 @@ import {
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -104,8 +105,8 @@ import { TrainingModule } from './training/training.module';
  * in src/database/migrations/ (CreateHRModuleSchema,
  * CreateSchedulingTables, HRMediumFixes) will also execute if not
  * already recorded in the migrations meta table — their idempotency
- * guards handle re-applications on DBs where they were previously
- * applied via SourceSchemaBootstrap synchronize.
+ * guards handle re-applications on DBs where legacy synchronize/bootstrap
+ * paths previously applied overlapping DDL.
  */
 const HrMigrationRunnerService = createSchemaVersionGate('hr');
 const hrSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
@@ -305,6 +306,7 @@ interface ApolloGraphQLContext {
      * The OutboxWorkerService polls hr_outbox and publishes to NATS.
      */
     HrOutboxModule,
+    TenantErasureTargetModule.forService('hr-service'),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

@@ -8,6 +8,8 @@ interface TestEntity extends TenantEntity {
   tenantId: string;
   name: string;
   sensorId?: string;
+  status?: string;
+  ownerId?: string;
 }
 
 describe('TenantScopedRepository', () => {
@@ -37,6 +39,9 @@ describe('TenantScopedRepository', () => {
       delete: jest.fn().mockResolvedValue({ affected: 1, raw: [] }),
       softDelete: jest.fn().mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] }),
       createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+      metadata: {
+        findColumnWithPropertyName: jest.fn().mockReturnValue({ databaseName: 'tenant_id' }),
+      },
     } as unknown as jest.Mocked<Repository<TestEntity>>;
 
     mockDataSource = {
@@ -130,6 +135,21 @@ describe('TenantScopedRepository', () => {
       expect(mockRepository.find).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ tenantId }),
+        }),
+      );
+    });
+
+    it('should inject tenantId into every OR where branch', async () => {
+      await repo.find({
+        where: [{ status: 'active' }, { ownerId: 'user-1' }],
+      });
+
+      expect(mockRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: [
+            expect.objectContaining({ tenantId, status: 'active' }),
+            expect.objectContaining({ tenantId, ownerId: 'user-1' }),
+          ],
         }),
       );
     });
@@ -365,21 +385,32 @@ describe('TenantScopedRepository', () => {
     });
 
     it('should create query builder with tenant WHERE clause', () => {
+      const where = mockQueryBuilder.where;
       repo.createQueryBuilder('channel');
       expect(mockRepository.createQueryBuilder).toHaveBeenCalledWith('channel');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'channel."tenantId" = :tenantId',
+      expect(where).toHaveBeenCalledWith(
+        'channel."tenant_id" = :tenantId',
         { tenantId },
       );
     });
 
     it('should use default alias "entity" when none provided', () => {
+      const where = mockQueryBuilder.where;
       repo.createQueryBuilder();
       expect(mockRepository.createQueryBuilder).toHaveBeenCalledWith('entity');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'entity."tenantId" = :tenantId',
+      expect(where).toHaveBeenCalledWith(
+        'entity."tenant_id" = :tenantId',
         { tenantId },
       );
+    });
+
+    it('should reject predicate resetters after tenant scope is installed', () => {
+      const queryBuilder = repo.createQueryBuilder('channel');
+      const where = Reflect.get(queryBuilder, 'where') as () => never;
+      const orWhere = Reflect.get(queryBuilder, 'orWhere') as () => never;
+
+      expect(where).toThrow('TenantScopedRepository query builders are already tenant-scoped');
+      expect(orWhere).toThrow('TenantScopedRepository query builders are already tenant-scoped');
     });
   });
 

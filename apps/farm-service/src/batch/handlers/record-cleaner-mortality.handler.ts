@@ -22,6 +22,7 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { isMortalityReason } from '../entities/tank-operation.enums';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
+import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
 
@@ -59,6 +60,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     private readonly speciesRepository: Repository<Species>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly mortalityCullPolicy: MortalityCullPolicyService,
   ) {}
 
   async execute(command: RecordCleanerMortalityCommand): Promise<Batch> {
@@ -78,6 +80,13 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
         `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`
       );
     }
+
+    this.mortalityCullPolicy.assertStockMutable(cleanerBatch);
+    this.mortalityCullPolicy.assertQuantityWithinCurrent({
+      operation: 'Mortality',
+      quantity: payload.quantity,
+      currentQuantity: cleanerBatch.currentQuantity,
+    });
 
     // Tank'ı bul (Equipment entity)
     const tank = await this.equipmentRepository.findOne({
@@ -117,6 +126,10 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
         `Mortality miktarı (${payload.quantity}) tanktaki cleaner fish miktarından (${batchDetail.quantity}) fazla olamaz`
       );
     }
+    this.mortalityCullPolicy.assertAggregateWithinInitial({
+      batch: cleanerBatch,
+      addedRemoval: payload.quantity,
+    });
 
     // Species bilgisini al
     const species = await this.speciesRepository.findOne({

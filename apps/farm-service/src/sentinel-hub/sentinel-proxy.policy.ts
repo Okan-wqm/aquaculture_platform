@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
+import {
+  type SentinelProcessProductDefinition,
+  getSentinelProcessProduct,
+} from './sentinel-product-registry';
+
 const MAX_BBOX_DEGREES_AREA = 1;
 const MAX_DATE_RANGE_DAYS = 31;
 const MIN_DIMENSION = 64;
@@ -11,59 +16,6 @@ const ALLOWED_COLLECTIONS = new Set(['sentinel-2-l2a', 'sentinel-2-l1c']);
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/tiff']);
 const ALLOWED_JSON_TYPES = new Set(['application/json', 'application/geo+json']);
 const SAFE_LAYER_ID_REGEX = /^[A-Za-z0-9_-]+$/;
-
-type SentinelProductKey = 'natural-color' | 'chlorophyll' | 'turbidity' | 'ndwi';
-
-interface SentinelProductDefinition {
-  collection: string;
-  evalscript: string;
-}
-
-const PROCESS_PRODUCTS: Record<SentinelProductKey, SentinelProductDefinition> = {
-  'natural-color': {
-    collection: 'sentinel-2-l2a',
-    evalscript: `//VERSION=3
-function setup() {
-  return { input: ['B04', 'B03', 'B02', 'dataMask'], output: { bands: 4 } };
-}
-function evaluatePixel(sample) {
-  return [2.5 * sample.B04, 2.5 * sample.B03, 2.5 * sample.B02, sample.dataMask];
-}`,
-  },
-  chlorophyll: {
-    collection: 'sentinel-2-l2a',
-    evalscript: `//VERSION=3
-function setup() {
-  return { input: ['B03', 'B05', 'dataMask'], output: { bands: 4 } };
-}
-function evaluatePixel(sample) {
-  const index = (sample.B05 - sample.B03) / (sample.B05 + sample.B03 + 0.0001);
-  return [Math.max(index, 0), Math.max(1 - index, 0), 0.2, sample.dataMask];
-}`,
-  },
-  turbidity: {
-    collection: 'sentinel-2-l2a',
-    evalscript: `//VERSION=3
-function setup() {
-  return { input: ['B04', 'B03', 'dataMask'], output: { bands: 4 } };
-}
-function evaluatePixel(sample) {
-  const index = sample.B04 / (sample.B03 + 0.0001);
-  return [Math.min(index, 1), Math.max(1 - index, 0), 0.1, sample.dataMask];
-}`,
-  },
-  ndwi: {
-    collection: 'sentinel-2-l2a',
-    evalscript: `//VERSION=3
-function setup() {
-  return { input: ['B03', 'B08', 'dataMask'], output: { bands: 4 } };
-}
-function evaluatePixel(sample) {
-  const ndwi = (sample.B03 - sample.B08) / (sample.B03 + sample.B08 + 0.0001);
-  return [0.1, Math.max(ndwi, 0), Math.max(1 - ndwi, 0), sample.dataMask];
-}`,
-  },
-};
 
 export interface ProcessPolicyResult {
   bbox: number[];
@@ -212,12 +164,8 @@ export class SentinelProxyPolicy {
     }
   }
 
-  private parseProduct(value: string | undefined): SentinelProductDefinition {
-    if (!value) {
-      throw new BadRequestException('Missing required parameter: product');
-    }
-    const key = value as SentinelProductKey;
-    const product = PROCESS_PRODUCTS[key];
+  private parseProduct(value: string | undefined): SentinelProcessProductDefinition {
+    const product = getSentinelProcessProduct(value);
     if (!product) {
       throw new BadRequestException('Unsupported Sentinel product');
     }

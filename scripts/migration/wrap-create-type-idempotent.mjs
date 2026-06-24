@@ -49,7 +49,7 @@ function wrapFile(rel) {
   const p = resolve(REPO_ROOT, rel);
   if (!existsSync(p)) {
     console.log(`[skip] ${rel}: not found`);
-    return;
+    return 0;
   }
   let src = readFileSync(p, 'utf8');
   let wraps = 0;
@@ -63,14 +63,15 @@ function wrapFile(rel) {
   });
   if (wraps === 0) {
     console.log(`[noop] ${rel}`);
-    return;
+    return 0;
   }
   writeFileSync(p, next, 'utf8');
   console.log(`[ok]   ${rel} (${wraps} CREATE TYPE wraps)`);
+  return wraps;
 }
 
 let total = 0;
 for (const rel of BASELINE_LOCATIONS) {
-  wrapFile(rel);
+  total += wrapFile(rel);
 }
-console.log('\nDone.');
+console.log(`\nDone. total_create_type_wraps=${total}`);

@@ -64,7 +64,6 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
 
       const countResult = await countRepo
         .createQueryBuilder('ic')
-        .where('ic.tenantId = :tenantId', { tenantId })
         .andWhere('ic.countNumber LIKE :prefix', { prefix: `${prefix}%` })
         .getCount();
       const countNumber = `${prefix}${String(countResult + 1).padStart(3, '0')}`;

@@ -1,4 +1,4 @@
-import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
 import { ClientsModule } from '@nestjs/microservices';
@@ -19,12 +19,17 @@ import {
   TenantBillingInfo,
 } from './entities/tenant-activity.entity';
 import { Tenant, TenantInvitation } from './entities/tenant.entity';
+import { TenantErasureOperation } from './entities/tenant-erasure-operation.entity';
 import {
   SuspendTenantHandler,
   ActivateTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
 } from './handlers/suspend-tenant.handler';
+import {
+  RequestTenantErasureHandler,
+  TenantErasureProofHandler,
+} from './handlers/tenant-erasure.handler';
 import { TenantOnboardingAckHandler } from './handlers/tenant-onboarding-ack.handler';
 import { UpdateTenantHandler } from './handlers/update-tenant.handler';
 import {
@@ -50,6 +55,7 @@ const CommandHandlers = [
   ActivateTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
+  RequestTenantErasureHandler,
 ];
 
 const QueryHandlers = [
@@ -75,6 +81,7 @@ const QueryHandlers = [
     TypeOrmModule.forFeature([
       Tenant,
       TenantInvitation,
+      TenantErasureOperation,
       TenantActivity,
       TenantNote,
       TenantBillingInfo,
@@ -86,7 +93,7 @@ const QueryHandlers = [
     BillingModule,
     UsersModule,
     AdminOutboxModule,
-    LegalHoldModule.forRoot(),
+    TenantErasureTargetModule.forService('admin-api-service'),
   ],
   controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
   providers: [
@@ -98,6 +105,7 @@ const QueryHandlers = [
     TenantActivityService,
     TenantDetailService,
     ModuleAssignmentService,
+    TenantErasureProofHandler,
   ],
   exports: [
     TenantProvisioningService,

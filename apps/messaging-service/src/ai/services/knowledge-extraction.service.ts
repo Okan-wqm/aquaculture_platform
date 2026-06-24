@@ -13,9 +13,9 @@
  * which is the template schema — not any tenant's data.
  *
  * To enforce tenant isolation, the batch iterates over all provisioned tenant
- * schemas (via `listTenantSchemas()`) and explicitly sets `search_path` to the
- * tenant's schema for every batch query. The tank registry fetch also sends
- * the tenantId so farm-service can return the correct tenant's registry.
+ * schemas (via `listTenantSchemas()`) and pins transaction-local `search_path`
+ * to the tenant's schema for every batch query. The tank registry fetch also
+ * sends the tenantId so farm-service can return the correct tenant's registry.
  *
  * @see ADR-012 section 12.3 (Knowledge Extraction)
  */
@@ -25,6 +25,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
+import { pinTenantSchemaTransactionSearchPath } from '@aquaculture/backend-common/database';
 
 import {
   MessageEntityReference,
@@ -41,7 +42,7 @@ const NATS_TIMEOUT_MS = 30_000;
 
 /**
  * Regex to validate tenant schema names (tenant_<16 hex chars>).
- * Used to prevent SQL injection when constructing SET search_path statements.
+ * Used to prevent SQL injection when routing tenant schema work.
  */
 const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
 
@@ -126,7 +127,7 @@ export class KnowledgeExtractionService {
    *
    * SECURITY (C-07): This method iterates over each provisioned tenant schema
    * and processes messages within that schema's scope. Each tenant's queries
-   * use an explicit `SET search_path` to the tenant schema, ensuring:
+   * use an explicit transaction-local search_path pin to the tenant schema, ensuring:
    *   - No cross-tenant data leakage between batches
    *   - Knowledge entries and entity references are written to the correct
    *     tenant schema
@@ -161,7 +162,7 @@ export class KnowledgeExtractionService {
    * Process a single tenant schema's messages for knowledge extraction.
    *
    * SECURITY (C-07): All database operations within this method use a dedicated
-   * QueryRunner with search_path explicitly set to the tenant's schema. This
+   * QueryRunner with search_path pinned to the tenant's schema. This
    * guarantees tenant isolation even though we're running outside HTTP context.
    *
    * @param tenantSchema - Validated tenant schema name (e.g. "tenant_4b529829ea7948da")
@@ -171,12 +172,11 @@ export class KnowledgeExtractionService {
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
+    await queryRunner.startTransaction();
 
     try {
-      // Set search_path to the specific tenant schema for all subsequent queries
-      await queryRunner.query(
-        `SET search_path TO "${tenantSchema}", messaging, public`,
-      );
+      // Pin search_path to the specific tenant schema for all subsequent queries
+      await pinTenantSchemaTransactionSearchPath(queryRunner, 'messaging', tenantSchema);
 
       const messages: ProcessableMessage[] = await queryRunner.query(
         `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt"
@@ -193,6 +193,7 @@ export class KnowledgeExtractionService {
       );
 
       if (messages.length === 0) {
+        await queryRunner.commitTransaction();
         return;
       }
 
@@ -213,6 +214,12 @@ export class KnowledgeExtractionService {
           );
         }
       }
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      throw error;
     } finally {
       await queryRunner.release();
     }
@@ -221,7 +228,7 @@ export class KnowledgeExtractionService {
   /**
    * Process a single message for entity references and knowledge extraction.
    *
-   * Uses the provided QueryRunner (which has search_path set to the tenant schema)
+   * Uses the provided QueryRunner (which has search_path pinned to the tenant schema)
    * to ensure all writes go to the correct tenant.
    *
    * @param msg - The message to process

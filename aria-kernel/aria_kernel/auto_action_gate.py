@@ -28,9 +28,8 @@ V3 collapses both into ``AutoActionGate`` (CRIT-V3-003 + GAP-1
 Gate decision shape:
 
   * ``human_ack_required: bool`` — derived from policy flag +
-    profile. ``True`` for non-autonomous profiles. ``False`` for
-    profile == ``autonomous`` AND lane == ``L3-snowball`` AND
-    classifier_decision.passed AND breaker_state == ``ok``.
+    profile. Current mainline authority keeps this ``True`` for every
+    live lane; historical snowball lanes cannot auto-mint ack tokens.
   * ``consume_ack_token(token_id)`` — verifies HMAC + one-time
     consumption against ``ack_ledger``. Auto-ack tokens are
     minted by ``ack_ledger.mint_auto_ack`` from this module's
@@ -58,7 +57,7 @@ from .tool_registry import GovernanceError
 
 
 _AUTONOMOUS_PROFILE: str = "autonomous"
-_L3_SNOWBALL_LANE: str = "L3-snowball"
+AUTONOMOUS_AUTO_ACK_LANES: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -89,13 +88,15 @@ class AutoActionGate:
 
     @property
     def human_ack_required(self) -> bool:
-        """Plan ARIA-V3 §A4 + §2a — when an operator-minted ack token
-        is REQUIRED. Returns False ONLY when the autonomous profile
-        is permitted to auto-mint the token under L3-snowball.
+        """Return True when an operator-minted ack token is required.
+
+        The live SSOT currently has no autonomous auto-ack lane. Keeping the
+        allowlist empty prevents stale snowball classifications from enabling
+        materialization without an explicit operator ack.
         """
         if self.profile != _AUTONOMOUS_PROFILE:
             return True
-        if self.lane != _L3_SNOWBALL_LANE:
+        if self.lane not in AUTONOMOUS_AUTO_ACK_LANES:
             return True
         if not self.classifier.passed:
             return True
@@ -103,12 +104,8 @@ class AutoActionGate:
             return True
         if self.cost_state != "ok":
             return True
-        # Policy flag is the explicit operator override — even under
-        # autonomous + L3-snowball + classifier_pass + breaker_ok +
-        # cost_ok, the operator can force human-ack by leaving
-        # ``materialization_requires_acknowledge: true`` in policy.
-        # Auto-mint is permitted ONLY when the operator explicitly
-        # sets the flag to ``false``.
+        # Reserved for a future live lane contract. The empty
+        # AUTONOMOUS_AUTO_ACK_LANES set makes this branch unreachable today.
         return bool(self.policy_requires_acknowledge)
 
     def consume_ack_token(
@@ -149,9 +146,9 @@ class AutoActionGate:
         When ``human_ack_required`` is True: caller MUST pass
         ``ack_id``; we verify + consume.
 
-        When ``human_ack_required`` is False (autonomous + L3 +
-        passes + ok): we auto-mint a fresh token via
-        ``ack_ledger.mint_auto_ack`` AND immediately consume it.
+        When ``human_ack_required`` is False, a future live lane contract may
+        auto-mint a fresh token via ``ack_ledger.mint_auto_ack`` and consume it.
+        No current lane reaches that branch.
         The same materialize_event_id links the mint + consumption
         events through the audit chain.
         """

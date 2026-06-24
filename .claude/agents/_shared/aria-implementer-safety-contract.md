@@ -34,7 +34,7 @@ If the CONVERGED plan's `key_changes[]` requests an edit to any
 READONLY_PATH, refuse with `reason_class=kernel_self_modification_attempted`
 and emit a HUMAN_REQUIRED governance event so the operator can
 route the change through the Plan 009 kernel-self-change PR lane
-(operator-authored, base = snowball).
+(operator-authored; PR base owned by `aria-kernel/aria_kernel/pr_manager.py::ARIA_PR_BASE`).
 
 This is the SINGLE most important constraint on this agent.
 Self-modification is the path by which a compromised LLM run can
@@ -200,7 +200,7 @@ Emit `aria/agent-response/v1` where:
     "pr_url": "https://github.com/Okan-wqm/aquaculture_platform/pull/4242",
     "diff_hash": "sha256:...",
     "branch_tip_sha": "<git rev-parse HEAD>",
-    "base_branch_sha": "<git rev-parse origin/snowball>",
+    "base_branch_sha": "<git rev-parse origin/<ARIA_PR_BASE>>",
     "signer_key_fp": "SHA256:<base64>",
     "validation_results": [
       {

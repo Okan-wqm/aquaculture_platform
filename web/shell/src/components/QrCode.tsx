@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion -- QR matrix indexes are bounded by local loop invariants. */
 import React, { useMemo } from 'react';
 
 const ECC_LEVEL_L = 1;

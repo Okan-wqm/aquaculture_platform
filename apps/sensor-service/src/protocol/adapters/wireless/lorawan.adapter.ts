@@ -61,7 +61,7 @@ export class LorawanAdapter extends BaseProtocolAdapter {
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.logger.log(`Disconnecting LoRaWAN handle: ${handle.id}`);
     this.removeConnectionHandle(handle.id);
@@ -74,7 +74,7 @@ export class LorawanAdapter extends BaseProtocolAdapter {
    * Class A cihazlar sadece uplink sonrası kısa RX window'larında
    * dinleme yapar. Bu metod yapılandırma geçerliliğini kontrol eder.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     const cfg = _config as LorawanConfig;
     const validation = this.validateConfiguration(cfg);
@@ -102,7 +102,7 @@ export class LorawanAdapter extends BaseProtocolAdapter {
    * Bu metod, en son alınan veriyi döndürmek yerine bilgilendirici
    * bir yanıt döner.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
     // LoRaWAN push-based: veri MQTT topic'inden gelir, polling desteklenmez
     return {

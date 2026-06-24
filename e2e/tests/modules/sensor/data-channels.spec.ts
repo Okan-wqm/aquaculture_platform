@@ -8,14 +8,9 @@
  *
  * @module Sensor-Service/E2E/DataChannels
  */
-import {
-  gql,
-  TENANT_A,
-  TENANT_B,
-  uniqueSerial,
-  uniqueName,
-  runCleanup,
-} from './helpers';
+import { assertDefined } from '../../../helpers/assertions';
+
+import { gql, TENANT_A, TENANT_B, uniqueName, runCleanup } from './helpers';
 
 // ============================================================================
 // GRAPHQL OPERATIONS
@@ -185,8 +180,8 @@ describe('Data Channels', () => {
         skipConnectionTest: true,
       },
     });
-    const result = res.data!.registerSensor as Record<string, unknown>;
-    sensorId = ((result.sensor as Record<string, unknown>).id) as string;
+    const result = assertDefined(res.data).registerSensor as Record<string, unknown>;
+    sensorId = (result.sensor as Record<string, unknown>).id as string;
   });
 
   afterAll(async () => {
@@ -217,7 +212,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const channel = res.data!.createDataChannel as Record<string, unknown>;
+      const channel = assertDefined(res.data).createDataChannel as Record<string, unknown>;
       expect(channel.channelKey).toBe('temperature');
       expect(channel.displayLabel).toBe('Temperature');
       expect(channel.dataType).toBe('number');
@@ -232,12 +227,14 @@ describe('Data Channels', () => {
       const res = await gql(CHANNELS_BY_SENSOR, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      const channels = res.data!.dataChannelsBySensor as Array<Record<string, unknown>>;
+      const channels = assertDefined(res.data).dataChannelsBySensor as Array<
+        Record<string, unknown>
+      >;
       expect(channels.length).toBeGreaterThanOrEqual(1);
 
       const found = channels.find((c) => c.id === channelId);
       expect(found).toBeDefined();
-      expect(found!.channelKey).toBe('temperature');
+      expect(assertDefined(found).channelKey).toBe('temperature');
     });
   });
 
@@ -257,7 +254,8 @@ describe('Data Channels', () => {
           unit: 'pH',
         },
       });
-      channelId = (res.data!.createDataChannel as Record<string, unknown>).id as string;
+      channelId = (assertDefined(res.data).createDataChannel as Record<string, unknown>)
+        .id as string;
     });
 
     it('should update calibration multiplier and offset', async () => {
@@ -271,7 +269,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const ch = res.data!.updateDataChannel as Record<string, unknown>;
+      const ch = assertDefined(res.data).updateDataChannel as Record<string, unknown>;
       expect(ch.calibrationEnabled).toBe(true);
       expect(Number(ch.calibrationMultiplier)).toBeCloseTo(1.05, 2);
       expect(Number(ch.calibrationOffset)).toBeCloseTo(-0.2, 2);
@@ -295,7 +293,7 @@ describe('Data Channels', () => {
           },
         });
         channelIds.push(
-          (res.data!.createDataChannel as Record<string, unknown>).id as string,
+          (assertDefined(res.data).createDataChannel as Record<string, unknown>).id as string,
         );
       }
     });
@@ -314,7 +312,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.bulkUpdateDataChannels as Record<string, unknown>;
+      const result = assertDefined(res.data).bulkUpdateDataChannels as Record<string, unknown>;
       expect(result.success).toBe(true);
       expect(result.count).toBe(3);
     });
@@ -323,12 +321,17 @@ describe('Data Channels', () => {
       const res = await gql(CHANNELS_BY_SENSOR, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      const channels = res.data!.dataChannelsBySensor as Array<Record<string, unknown>>;
+      const channels = assertDefined(res.data).dataChannelsBySensor as Array<
+        Record<string, unknown>
+      >;
 
       for (const chId of channelIds) {
         const ch = channels.find((c) => c.id === chId);
         expect(ch).toBeDefined();
-        const thresholds = ch!.alertThresholds as Record<string, Record<string, number>>;
+        const thresholds = assertDefined(ch).alertThresholds as Record<
+          string,
+          Record<string, number>
+        >;
         expect(thresholds).toBeDefined();
         expect(thresholds.warning.low).toBe(5.0);
         expect(thresholds.warning.high).toBe(30.0);
@@ -355,14 +358,17 @@ describe('Data Channels', () => {
           isEnabled: false,
         },
       });
-      disabledChannelId = (res.data!.createDataChannel as Record<string, unknown>).id as string;
+      disabledChannelId = (assertDefined(res.data).createDataChannel as Record<string, unknown>)
+        .id as string;
     });
 
     it('should only return enabled channels', async () => {
       const res = await gql(ENABLED_CHANNELS, { sensorId });
 
       expect(res.errors).toBeUndefined();
-      const channels = res.data!.enabledChannelsBySensor as Array<Record<string, unknown>>;
+      const channels = assertDefined(res.data).enabledChannelsBySensor as Array<
+        Record<string, unknown>
+      >;
 
       for (const ch of channels) {
         expect(ch.isEnabled).toBe(true);
@@ -396,7 +402,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.discoverDataChannels as Record<string, unknown>;
+      const result = assertDefined(res.data).discoverDataChannels as Record<string, unknown>;
       expect(result.success).toBe(true);
 
       const channels = result.channels as Array<Record<string, unknown>>;
@@ -429,7 +435,7 @@ describe('Data Channels', () => {
           },
         });
         channelIds.push(
-          (res.data!.createDataChannel as Record<string, unknown>).id as string,
+          (assertDefined(res.data).createDataChannel as Record<string, unknown>).id as string,
         );
       }
     });
@@ -445,7 +451,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const result = res.data!.reorderDataChannels as Array<Record<string, unknown>>;
+      const result = assertDefined(res.data).reorderDataChannels as Array<Record<string, unknown>>;
       expect(result.length).toBe(3);
 
       // Verify display orders match reversed sequence
@@ -473,20 +479,23 @@ describe('Data Channels', () => {
           dataType: 'number',
         },
       });
-      channelId = (res.data!.createDataChannel as Record<string, unknown>).id as string;
+      channelId = (assertDefined(res.data).createDataChannel as Record<string, unknown>)
+        .id as string;
     });
 
     it('should delete a data channel', async () => {
       const res = await gql(DELETE_DATA_CHANNEL, { channelId });
 
       expect(res.errors).toBeUndefined();
-      expect(res.data!.deleteDataChannel).toBe(true);
+      expect(assertDefined(res.data).deleteDataChannel).toBe(true);
     });
 
     it('should not find deleted channel in sensor channels list', async () => {
       const res = await gql(CHANNELS_BY_SENSOR, { sensorId });
 
-      const channels = res.data!.dataChannelsBySensor as Array<Record<string, unknown>>;
+      const channels = assertDefined(res.data).dataChannelsBySensor as Array<
+        Record<string, unknown>
+      >;
       const found = channels.find((c) => c.id === channelId);
       expect(found).toBeUndefined();
     });
@@ -508,7 +517,12 @@ describe('Data Channels', () => {
           skipConnectionTest: true,
         },
       });
-      tempSensorId = ((sRes.data!.registerSensor as Record<string, unknown>).sensor as Record<string, unknown>).id as string;
+      tempSensorId = (
+        (assertDefined(sRes.data).registerSensor as Record<string, unknown>).sensor as Record<
+          string,
+          unknown
+        >
+      ).id as string;
 
       // Create multiple channels
       for (let i = 0; i < 3; i++) {
@@ -527,13 +541,15 @@ describe('Data Channels', () => {
       const res = await gql(DELETE_ALL_CHANNELS_FOR_SENSOR, { sensorId: tempSensorId });
 
       expect(res.errors).toBeUndefined();
-      expect(res.data!.deleteAllChannelsForSensor).toBe(true);
+      expect(assertDefined(res.data).deleteAllChannelsForSensor).toBe(true);
     });
 
     it('should have zero channels after bulk delete', async () => {
       const res = await gql(CHANNELS_BY_SENSOR, { sensorId: tempSensorId });
 
-      const channels = res.data!.dataChannelsBySensor as Array<Record<string, unknown>>;
+      const channels = assertDefined(res.data).dataChannelsBySensor as Array<
+        Record<string, unknown>
+      >;
       expect(channels.length).toBe(0);
     });
   });
@@ -556,7 +572,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const ch = res.data!.createDataChannel as Record<string, unknown>;
+      const ch = assertDefined(res.data).createDataChannel as Record<string, unknown>;
       expect(ch.calibrationEnabled).toBe(true);
       expect(Number(ch.calibrationMultiplier)).toBeCloseTo(1.1, 2);
       expect(Number(ch.calibrationOffset)).toBeCloseTo(-0.5, 2);
@@ -575,7 +591,8 @@ describe('Data Channels', () => {
           calibrationEnabled: false,
         },
       });
-      const channelId = (createRes.data!.createDataChannel as Record<string, unknown>).id as string;
+      const channelId = (assertDefined(createRes.data).createDataChannel as Record<string, unknown>)
+        .id as string;
 
       const updateRes = await gql(UPDATE_DATA_CHANNEL, {
         input: {
@@ -587,7 +604,7 @@ describe('Data Channels', () => {
       });
 
       expect(updateRes.errors).toBeUndefined();
-      const ch = updateRes.data!.updateDataChannel as Record<string, unknown>;
+      const ch = assertDefined(updateRes.data).updateDataChannel as Record<string, unknown>;
       expect(ch.calibrationEnabled).toBe(true);
       expect(Number(ch.calibrationMultiplier)).toBeCloseTo(0.98, 2);
       expect(Number(ch.calibrationOffset)).toBeCloseTo(0.15, 2);
@@ -615,7 +632,7 @@ describe('Data Channels', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const ch = res.data!.createDataChannel as Record<string, unknown>;
+      const ch = assertDefined(res.data).createDataChannel as Record<string, unknown>;
       const thresholds = ch.alertThresholds as Record<string, unknown>;
 
       expect(thresholds).toBeDefined();
@@ -640,7 +657,8 @@ describe('Data Channels', () => {
           dataType: 'number',
         },
       });
-      const channelId = (createRes.data!.createDataChannel as Record<string, unknown>).id as string;
+      const channelId = (assertDefined(createRes.data).createDataChannel as Record<string, unknown>)
+        .id as string;
 
       const updateRes = await gql(UPDATE_DATA_CHANNEL, {
         input: {
@@ -653,7 +671,7 @@ describe('Data Channels', () => {
       });
 
       expect(updateRes.errors).toBeUndefined();
-      const ch = updateRes.data!.updateDataChannel as Record<string, unknown>;
+      const ch = assertDefined(updateRes.data).updateDataChannel as Record<string, unknown>;
       const thresholds = ch.alertThresholds as Record<string, Record<string, number>>;
       expect(thresholds.warning.low).toBe(20.0);
       expect(thresholds.critical.high).toBe(33.0);
@@ -680,7 +698,12 @@ describe('Data Channels', () => {
         },
         TENANT_A,
       );
-      tenantASensorId = ((res.data!.registerSensor as Record<string, unknown>).sensor as Record<string, unknown>).id as string;
+      tenantASensorId = (
+        (assertDefined(res.data).registerSensor as Record<string, unknown>).sensor as Record<
+          string,
+          unknown
+        >
+      ).id as string;
 
       await gql(
         CREATE_DATA_CHANNEL,
@@ -697,11 +720,7 @@ describe('Data Channels', () => {
     });
 
     it('Tenant B should NOT see Tenant A channels', async () => {
-      const res = await gql(
-        CHANNELS_BY_SENSOR,
-        { sensorId: tenantASensorId },
-        TENANT_B,
-      );
+      const res = await gql(CHANNELS_BY_SENSOR, { sensorId: tenantASensorId }, TENANT_B);
 
       // Should either return empty list or error
       if (res.errors) {

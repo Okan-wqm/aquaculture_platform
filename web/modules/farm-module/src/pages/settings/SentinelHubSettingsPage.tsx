@@ -439,33 +439,15 @@ export const SentinelHubSettingsPage: React.FC = () => {
             adresine gidin
           </li>
           <li>Copernicus hesabinizla giris yapin</li>
-          <li><strong>Configuration</strong> bolumune gidin</li>
-          <li><strong>New Configuration</strong> butonuna tiklayin</li>
-          <li>Isim verin (ornegin: "Aquaculture")</li>
-          <li>Katmanlari ekleyin:
-            <ul className="list-disc list-inside ml-4 mt-1 text-blue-600">
-              <li>TRUE-COLOR (Gercek Renk)</li>
-              <li>CHLOROPHYLL (Klorofil)</li>
-              <li>TURBIDITY (Bulaniklik)</li>
-              <li>NDVI, MOISTURE vb.</li>
-            </ul>
-          </li>
-          <li>Kaydedin ve <strong>Instance ID</strong>'yi kopyalayin (UUID formatinda)</li>
+          <li>Hesap ayarlarindan client credential bilgilerini olusturun</li>
+          <li>Varsa mevcut <strong>Instance ID</strong> degerini kopyalayin (UUID formatinda)</li>
           <li>Yukaridaki Instance ID alanina yapistirin</li>
         </ol>
 
         <div className="mt-4 p-3 bg-white/50 rounded-md">
           <p className="text-xs text-blue-800">
-            <strong>Not:</strong> Her katman icin evalscript tanimlamaniz gerekir.
-            Varsayilan evalscript'ler icin{' '}
-            <a
-              href="https://docs.sentinel-hub.com/api/latest/evalscript/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
-            >
-              Sentinel Hub Dokumantasyonu
-            </a>'na bakin.
+            <strong>Not:</strong> Katman ve isleme tanimlari farm-service marine registry
+            tarafindan yonetilir; browser katman script'i veya upstream URL sahibi degildir.
           </p>
         </div>
       </Card>

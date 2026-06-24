@@ -583,9 +583,15 @@ export class BillingSchedulerService {
             `${change.currentPlanTier} → ${change.newPlanTier}, changeId=${change.id}`,
           );
 
-          // ── Publish event (non-blocking) ────────────────────────────────
+          // ── Publish event ───────────────────────────────────────────────
+          // Await the publish so the surrounding try/catch genuinely catches a
+          // publish rejection; an unawaited promise rejection would escape this
+          // synchronous catch and surface as an unhandled rejection. The publish
+          // runs after the transaction has already committed, so a failure here
+          // is logged-and-tolerated (the state change is durable) — it does not
+          // roll back the applied plan change.
           try {
-            this.eventBus?.publish({
+            await this.eventBus?.publish({
               ...createBaseEvent('SubscriptionUpdated', change.tenantId),
               subscriptionId: subscription.id,
               tier: change.newPlanTier,

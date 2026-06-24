@@ -1,14 +1,28 @@
-import { useState, useEffect } from 'react';
 import { Download, X, Smartphone } from 'lucide-react';
+import { useState, useEffect, type ReactElement } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+/**
+ * WHY: `navigator.standalone` is a non-standard, iOS-Safari-only boolean that is
+ * absent from the DOM `Navigator` lib type. This narrow shape models exactly
+ * that property so the installed-PWA check is fully typed without an unsafe cast.
+ */
+interface IosNavigator {
+  standalone?: boolean;
+}
+
+/** Reads the iOS-only standalone flag without widening the global Navigator. */
+function isIosStandalone(nav: Navigator): boolean {
+  return (nav as Navigator & IosNavigator).standalone === true;
+}
+
 const DISMISSED_KEY = 'aquamobil_install_dismissed';
 
-export function InstallPrompt() {
+export function InstallPrompt(): ReactElement | null {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
@@ -18,7 +32,7 @@ export function InstallPrompt() {
     // Check if already running as installed PWA
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true;
+      isIosStandalone(window.navigator);
     setIsStandalone(standalone);
 
     if (standalone) return;
@@ -39,7 +53,7 @@ export function InstallPrompt() {
     setIsIOS(ios);
 
     // Android/Chrome install prompt
-    const handler = (e: Event) => {
+    const handler = (e: Event): void => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setShowBanner(true);
@@ -59,7 +73,7 @@ export function InstallPrompt() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  const handleInstall = async () => {
+  const handleInstall = async (): Promise<void> => {
     if (!deferredPrompt) return;
 
     await deferredPrompt.prompt();
@@ -71,7 +85,7 @@ export function InstallPrompt() {
     setDeferredPrompt(null);
   };
 
-  const handleDismiss = () => {
+  const handleDismiss = (): void => {
     setShowBanner(false);
     localStorage.setItem(DISMISSED_KEY, Date.now().toString());
   };
@@ -89,7 +103,7 @@ export function InstallPrompt() {
             <h3 className="font-bold text-gray-900 dark:text-white text-sm">Install AquaMobil</h3>
             {isIOS ? (
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                Tap the <span className="inline-flex items-center"><svg className="w-4 h-4 inline text-ocean-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> share button, then <strong>"Add to Home Screen"</strong>
+                Tap the <span className="inline-flex items-center"><svg className="w-4 h-4 inline text-ocean-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> share button, then <strong>&quot;Add to Home Screen&quot;</strong>
               </p>
             ) : (
               <p className="text-xs text-gray-500 mt-1">
@@ -107,7 +121,9 @@ export function InstallPrompt() {
 
         {!isIOS && deferredPrompt && (
           <button
-            onClick={handleInstall}
+            onClick={() => {
+              void handleInstall();
+            }}
             className="w-full mt-3 py-2.5 bg-ocean-600 hover:bg-ocean-700 text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2 touch-feedback transition-colors"
           >
             <Download size={16} />

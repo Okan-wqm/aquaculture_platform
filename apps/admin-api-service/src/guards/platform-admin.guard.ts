@@ -12,10 +12,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import type { Request } from 'express';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
+// Bind the WRITER to the canonical request-user SSoT: AuthenticatedUser extends
+// JwtUser, so `request.user = { ... }` below fails type-check if it omits `sub`
+// (ORPHAN-146). The shared ThrottlerGuard reads that same `sub`.
+import { AuthenticatedRequest } from '../shared/authenticated-request';
 
 // WHY: Explicit @Inject() required — useClass + APP_GUARD relies on design:paramtypes
 // metadata which may not survive all build/runtime environments (Alpine musl, prod-only deps).
@@ -55,16 +58,6 @@ export const IS_PUBLIC_KEY = 'isPublic';
 // represents that platform-level operator with the existing SUPER_ADMIN role.
 const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
 
-interface AdminRequest extends Request {
-  user?: {
-    id: string;
-    email?: string;
-    roles: string[];
-    role?: string;
-    tenantId?: string;
-  };
-}
-
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
@@ -93,7 +86,7 @@ export class PlatformAdminGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<AdminRequest>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
@@ -129,8 +122,16 @@ export class PlatformAdminGuard implements CanActivate {
       // Normalize user roles - tekil role varsa array'e çevir
       const userRoles = payload.roles || (payload.role ? [payload.role] : []);
 
-      // Attach user to request first (for later use in controllers)
+      // Attach user to request first (for later use in controllers).
+      // WHY both `sub` and `id`: the shared backend-common ThrottlerGuard (and
+      // every `@CurrentUser('sub')` consumer) reads the canonical JWT subject
+      // as `request.user.sub`. This guard historically exposed ONLY `id`, so
+      // the throttler saw `user.sub === undefined`, classified every
+      // authenticated SUPER_ADMIN as ANONYMOUS (20 req/60s) AND keyed the bucket
+      // by IP instead of user — a single operator's admin-panel fan-out tripped
+      // 429s. `id` stays as admin-api's local convention (controllers read it).
       request.user = {
+        sub: payload.sub,
         id: payload.sub,
         email: payload.email,
         roles: userRoles,

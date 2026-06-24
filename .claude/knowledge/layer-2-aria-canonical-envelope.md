@@ -103,7 +103,7 @@ two-task state machine flow from a single agent submission.
 ```
 
 Each `risks[]` entry is structurally validated by
-`plan_convergence._validate_cross_review_risk` (line 1784). Every
+`plan_convergence._validate_cross_review_risk` (in plan_convergence.py). Every
 field above is REQUIRED and non-empty; the validator rejects any
 risk entry with a missing or empty value. Allowed
 `severity` values: `{"blocking", "material", "nice_to_have"}` OR

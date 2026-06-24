@@ -5,11 +5,9 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
-  Inject,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
 import {
   TenantSuspendedEvent,
   TenantActivatedEvent,
@@ -18,6 +16,7 @@ import {
   canTransition,
   createBaseEvent,
 } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
@@ -42,8 +41,7 @@ export class SuspendTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
@@ -101,6 +99,28 @@ export class SuspendTenantHandler
         [tenantId, data.reason || 'Tenant suspended', previousStatus, suspendedBy],
       );
 
+      await queryRunner.manager.save(Tenant, tenant);
+
+      const suspendedEvent: TenantSuspendedEvent = {
+        ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        reason: data.reason,
+        suspendedBy,
+      };
+      await this.outboxPublisher.enqueue(suspendedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
+
+      // Publish TenantStatusChangedEvent for generic status-change consumers
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        previousStatus,
+        newStatus: TenantStatus.SUSPENDED,
+        reason: data.reason,
+      };
+      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
+
       await queryRunner.commitTransaction();
 
       this.logger.warn(
@@ -117,22 +137,6 @@ export class SuspendTenantHandler
           previousStatus,
         },
       });
-
-      const suspendedEvent: TenantSuspendedEvent = {
-        ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        reason: data.reason,
-        suspendedBy,
-      };
-      await this.eventBus.publish(suspendedEvent);
-
-      // Publish TenantStatusChangedEvent for generic status-change consumers
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.SUSPENDED,
-        reason: data.reason,
-      };
-      await this.eventBus.publish(statusChangedEvent);
 
       return tenant;
     } catch (error) {
@@ -156,8 +160,7 @@ export class ActivateTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
@@ -216,6 +219,26 @@ export class ActivateTenantHandler
         [tenantId, previousStatus, activatedBy],
       );
 
+      await queryRunner.manager.save(Tenant, tenant);
+
+      const activatedEvent: TenantActivatedEvent = {
+        ...createBaseEvent<TenantActivatedEvent>('TenantActivated', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        activatedBy,
+      };
+      await this.outboxPublisher.enqueue(activatedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
+
+      // Publish TenantStatusChangedEvent for generic status-change consumers
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        previousStatus,
+        newStatus: TenantStatus.ACTIVE,
+      };
+      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
+
       await queryRunner.commitTransaction();
 
       this.logger.log(`Tenant activated: ${tenantId} by ${activatedBy}`);
@@ -227,20 +250,6 @@ export class ActivateTenantHandler
         performedBy: activatedBy,
         details: { previousStatus },
       });
-
-      const activatedEvent: TenantActivatedEvent = {
-        ...createBaseEvent<TenantActivatedEvent>('TenantActivated', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        activatedBy,
-      };
-      await this.eventBus.publish(activatedEvent);
-
-      // Publish TenantStatusChangedEvent for generic status-change consumers
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.ACTIVE,
-      };
-      await this.eventBus.publish(statusChangedEvent);
 
       return tenant;
     } catch (error) {
@@ -264,8 +273,7 @@ export class DeactivateTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
@@ -307,6 +315,17 @@ export class DeactivateTenantHandler
         reason,
       });
       tenant.status = TenantStatus.DEACTIVATED;
+      await queryRunner.manager.save(Tenant, tenant);
+
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        previousStatus,
+        newStatus: TenantStatus.DEACTIVATED,
+        reason,
+      };
+      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
 
       await queryRunner.commitTransaction();
 
@@ -319,14 +338,6 @@ export class DeactivateTenantHandler
         performedBy: deactivatedBy,
         details: { reason, previousStatus },
       });
-
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.DEACTIVATED,
-        reason,
-      };
-      await this.eventBus.publish(statusChangedEvent);
 
       return tenant;
     } catch (error) {
@@ -350,8 +361,7 @@ export class ArchiveTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
@@ -393,6 +403,25 @@ export class ArchiveTenantHandler
         ),
       });
       tenant.status = TenantStatus.ARCHIVED;
+      await queryRunner.manager.save(Tenant, tenant);
+
+      const archivedEvent: TenantArchivedEvent = {
+        ...createBaseEvent<TenantArchivedEvent>('TenantArchived', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        archivedBy,
+      };
+      await this.outboxPublisher.enqueue(archivedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
+
+      // Publish TenantStatusChangedEvent for generic status-change consumers
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
+        previousStatus,
+        newStatus: TenantStatus.ARCHIVED,
+      };
+      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
+        aggregateId: tenantId,
+      });
 
       await queryRunner.commitTransaction();
 
@@ -405,20 +434,6 @@ export class ArchiveTenantHandler
         performedBy: archivedBy,
         details: { previousStatus },
       });
-
-      const archivedEvent: TenantArchivedEvent = {
-        ...createBaseEvent<TenantArchivedEvent>('TenantArchived', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        archivedBy,
-      };
-      await this.eventBus.publish(archivedEvent);
-
-      // Publish TenantStatusChangedEvent for generic status-change consumers
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.ARCHIVED,
-      };
-      await this.eventBus.publish(statusChangedEvent);
 
       return tenant;
     } catch (error) {

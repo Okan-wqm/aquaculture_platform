@@ -1,10 +1,10 @@
-import { describe, it } from 'vitest';
 import {
   fractionNH3, calcNH3, calcNH4,
   fractionH2S, calcH2S, calcTotalSulfide,
   co2Level, calcDicOfAlk, calcForwardDosing,
   alkMgToMeq, alkMeqToMg, REAGENTS,
 } from '@platform/aquaculture-engines';
+import { describe, it } from 'vitest';
 
 // ============================================================================
 // SENARYO
@@ -134,6 +134,7 @@ describe('Risk Minimizasyonu — pH taraması', () => {
         [{ reagentKey: 'Add CO₂', amountGrams: g }]
       );
       const f = res[res.length - 1];
+      if (!f) throw new Error('calcForwardDosing returned no dosing steps');
       if (Math.abs(f.ph - optPH) < 0.01) { co2Dose = g; break; }
     }
     if (co2Dose > 0) {
@@ -143,6 +144,7 @@ describe('Risk Minimizasyonu — pH taraması', () => {
         [{ reagentKey: 'Add CO₂', amountGrams: co2Dose }]
       );
       const f = res[res.length - 1];
+      if (!f) throw new Error('calcForwardDosing returned no dosing steps');
       const rr = riskAt(f.ph, f.alk);
       console.log(`  CO₂ miktarı  : ${co2Dose.toFixed(1)} gram`);
       console.log(`  pH sonuç     : ${f.ph.toFixed(4)}`);
@@ -162,6 +164,7 @@ describe('Risk Minimizasyonu — pH taraması', () => {
         [{ reagentKey: 'Muriatic Acid', amountGrams: g }]
       );
       const f = res[res.length - 1];
+      if (!f) throw new Error('calcForwardDosing returned no dosing steps');
       if (Math.abs(f.ph - optPH) < 0.01) { hclDose = g; break; }
     }
     if (hclDose > 0) {
@@ -171,6 +174,7 @@ describe('Risk Minimizasyonu — pH taraması', () => {
         [{ reagentKey: 'Muriatic Acid', amountGrams: hclDose }]
       );
       const f = res[res.length - 1];
+      if (!f) throw new Error('calcForwardDosing returned no dosing steps');
       const rr = riskAt(f.ph, f.alk);
       console.log(`  HCl miktarı  : ${hclDose.toFixed(1)} gram`);
       console.log(`  pH sonuç     : ${f.ph.toFixed(4)}`);
@@ -211,7 +215,8 @@ describe('Risk Minimizasyonu — pH taraması', () => {
             S.vol,
             [{ reagentKey: 'Add CO₂', amountGrams: g }]
           );
-          if (Math.abs(res[res.length - 1].ph - bpH) < 0.01) { dose = g; break; }
+          const lastStep = res[res.length - 1];
+          if (lastStep && Math.abs(lastStep.ph - bpH) < 0.01) { dose = g; break; }
         }
       }
 
@@ -297,7 +302,8 @@ describe('Risk Minimizasyonu — pH taraması', () => {
         S.vol,
         [{ reagentKey: 'Add CO₂', amountGrams: g }]
       );
-      if (Math.abs(res[res.length - 1].ph - safePH) < 0.01) { co2Dose = g; break; }
+      const lastStep = res[res.length - 1];
+      if (lastStep && Math.abs(lastStep.ph - safePH) < 0.01) { co2Dose = g; break; }
     }
 
     const safeNH3 = calcNH3(safeTAN, safePH, S.tempC, S.sal);

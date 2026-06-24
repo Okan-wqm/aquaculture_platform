@@ -186,16 +186,21 @@ export class SuggestChannelsTool extends BaseTool<
     };
   }
 
+  // validate() is a trust boundary: tool input is supplied by the Claude
+  // model and may arrive structurally malformed. Accepting `unknown` (a legal
+  // widening of ITool.validate's TInput parameter) makes that explicit and
+  // forces every field to be narrowed before use — no unchecked field access.
   async validate(
-    input: SuggestChannelsInput,
+    input: unknown,
   ): Promise<{ valid: boolean; errors?: string[] }> {
     const errors: string[] = [];
-    if (!input.sensorId || typeof input.sensorId !== 'string') {
+    const candidate = (input ?? {}) as Partial<SuggestChannelsInput>;
+    if (!candidate.sensorId || typeof candidate.sensorId !== 'string') {
       errors.push('sensorId is required and must be a string');
     }
-    if (!input.detectedFields || !Array.isArray(input.detectedFields)) {
+    if (!candidate.detectedFields || !Array.isArray(candidate.detectedFields)) {
       errors.push('detectedFields must be a non-empty array');
-    } else if (input.detectedFields.length === 0) {
+    } else if (candidate.detectedFields.length === 0) {
       errors.push('detectedFields must contain at least one field');
     }
     return {

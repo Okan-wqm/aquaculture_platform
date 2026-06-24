@@ -1,4 +1,3 @@
-/* eslint-disable aquaculture/no-bare-graphql-query-string -- Centralized settings operations are codegen inputs; inline page queries remain disallowed. */
 import { gql } from 'graphql-tag';
 
 export const UPDATE_MY_PROFILE = gql`

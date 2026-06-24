@@ -9,16 +9,6 @@
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
-  "agent-doc-shape.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "all-services-env-aware-migrations.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
   "audit-action-exhaustiveness.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",
@@ -30,11 +20,6 @@
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
   "audit-immutability-triggers.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "audit-log-mandatory-shape.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
@@ -79,17 +64,7 @@
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
-  "entity-schema-declaration.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
   "event-contract-emit-has-interface.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "farm-service-migration-array-completeness.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
@@ -100,16 +75,6 @@
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
   "legal-hold-drop-partition-guard.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "messaging-e2e-tenant-context.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "migration-registration-completeness.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
@@ -134,32 +99,12 @@
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
-  "no-runtime-synchronize.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "no-shared-entity-decorators-via-main-barrel.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
   "pii-events-mandatory-crypto-shred.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
-  "required-signals-vs-emitters.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
   "service-identity-canonical-coverage.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
-  "strip-internal-headers-mounted.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."

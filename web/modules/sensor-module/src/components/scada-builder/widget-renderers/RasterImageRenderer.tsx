@@ -61,11 +61,6 @@ const RasterImageRenderer: React.FC<WidgetRendererProps> = ({
   const borderRadius = (config.borderRadius ?? 0) as number;
   const opacity = (config.opacity ?? 1) as number;
 
-  // Visibility from animation
-  if (animationState && !animationState.visible) {
-    return <div style={{ width, height, opacity: 0 }} />;
-  }
-
   // Validate URL before rendering
   const validUrl = isValidImageUrl(imageData);
 
@@ -91,6 +86,13 @@ const RasterImageRenderer: React.FC<WidgetRendererProps> = ({
     if (blobUrl) return blobUrl;
     return validUrl ? imageData : '';
   }, [blobUrl, validUrl, imageData]);
+
+  // Visibility from animation — evaluated AFTER all hooks so the hook call
+  // order stays identical across renders (react-hooks/rules-of-hooks). An
+  // invisible widget still runs its blob-URL effect, which is harmless.
+  if (animationState && !animationState.visible) {
+    return <div style={{ width, height, opacity: 0 }} />;
+  }
 
   // Animation styles
   const containerStyle: React.CSSProperties = { width, height, overflow: 'hidden' };

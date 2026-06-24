@@ -62,7 +62,6 @@ describe('SetupResolver', () => {
     it('has @Roles() decorator applied to hydroponicsStatus — prevents unauthenticated access', () => {
       // The Reflector reads the metadata set by @Roles() on the handler method
       const reflector = new Reflector();
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       const handler = resolver.hydroponicsStatus;
       const roles = reflector.get<string[]>(ROLES_KEY, handler);
 
@@ -74,7 +73,6 @@ describe('SetupResolver', () => {
     it('does NOT carry the @Public() decorator — all callers must be authenticated', () => {
       // @Public() sets IS_PUBLIC_KEY metadata. If present, RolesGuard skips auth.
       const IS_PUBLIC_KEY = 'isPublic';
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       const roles = Reflect.getMetadata(IS_PUBLIC_KEY, resolver.hydroponicsStatus);
       expect(roles).toBeUndefined();
     });

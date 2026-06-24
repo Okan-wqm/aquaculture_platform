@@ -5,8 +5,9 @@
  * and cross-tenant isolation for calendar views.
  */
 import { randomUUID } from 'crypto';
-import { GraphQLTestClient } from '../../../helpers/graphql-client';
+
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateTestToken } from '../../../helpers/jwt.helper';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
@@ -60,44 +61,48 @@ describe('Team Calendar & Leave Balances', () => {
     // Create employee
     const empData = await clientAdmin.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, {
-      input: {
-        firstName: 'Calendar',
-        lastName: 'Employee',
-        email: `e2e-cal-${Date.now()}@test.aquaculture.io`,
-        contactInfo: {
-          email: `e2e-cal-c-${Date.now()}@test.aquaculture.io`,
-          phone: '+90-555-222-3333',
+    `,
+      {
+        input: {
+          firstName: 'Calendar',
+          lastName: 'Employee',
+          email: `e2e-cal-${Date.now()}@test.aquaculture.io`,
+          contactInfo: {
+            email: `e2e-cal-c-${Date.now()}@test.aquaculture.io`,
+            phone: '+90-555-222-3333',
+          },
+          address: {
+            street: '456 Calendar Ave',
+            city: 'Bodrum',
+            state: 'Aegean',
+            postalCode: '48400',
+            country: 'Turkey',
+          },
+          dateOfBirth: '1994-12-25',
+          nationalId: 'TC88888888888',
+          employmentType: 'FULL_TIME',
+          department: 'QUALITY_CONTROL',
+          position: 'Lab Analyst',
+          hireDate: '2024-02-01',
+          baseSalary: 48000,
+          currency: 'TRY',
         },
-        address: {
-          street: '456 Calendar Ave',
-          city: 'Bodrum',
-          state: 'Aegean',
-          postalCode: '48400',
-          country: 'Turkey',
-        },
-        dateOfBirth: '1994-12-25',
-        nationalId: 'TC88888888888',
-        employmentType: 'FULL_TIME',
-        department: 'QUALITY_CONTROL',
-        position: 'Lab Analyst',
-        hireDate: '2024-02-01',
-        baseSalary: 48000,
-        currency: 'TRY',
       },
-    });
+    );
     employeeId = empData.createEmployee.id;
 
     // Link employee to user
     try {
-      await db.query(
-        `UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`,
-        [EMPLOYEE_USER_ID, employeeId, TENANT_A_ID],
-      );
+      await db.query(`UPDATE employees SET "userId" = $1 WHERE id = $2 AND "tenantId" = $3`, [
+        EMPLOYEE_USER_ID,
+        employeeId,
+        TENANT_A_ID,
+      ]);
     } catch (error) {
       console.warn('Could not link employee:', (error as Error).message);
     }
@@ -110,7 +115,7 @@ describe('Team Calendar & Leave Balances', () => {
         query LeaveTypes { leaveTypes { id } }
       `);
       if (ltData.leaveTypes.length > 0) {
-        leaveTypeId = ltData.leaveTypes[0]!.id;
+        leaveTypeId = ltData.leaveTypes[0].id;
       } else {
         leaveTypeId = randomUUID();
       }
@@ -122,35 +127,44 @@ describe('Team Calendar & Leave Balances', () => {
     try {
       const createData = await clientEmployee.mutate<{
         createLeaveRequest: { id: string };
-      }>(`
+      }>(
+        `
         mutation CreateLeave($input: CreateLeaveRequestInput!) {
           createLeaveRequest(input: $input) { id }
         }
-      `, {
-        input: {
-          employeeId,
-          leaveTypeId,
-          startDate: '2026-04-10',
-          endDate: '2026-04-14',
-          totalDays: 5,
-          reason: 'Calendar test leave',
+      `,
+        {
+          input: {
+            employeeId,
+            leaveTypeId,
+            startDate: '2026-04-10',
+            endDate: '2026-04-14',
+            totalDays: 5,
+            reason: 'Calendar test leave',
+          },
         },
-      });
+      );
       leaveRequestId = createData.createLeaveRequest.id;
 
       // Submit
-      await clientEmployee.mutate(`
+      await clientEmployee.mutate(
+        `
         mutation Submit($id: ID!) {
           submitLeaveRequest(id: $id) { id status }
         }
-      `, { id: leaveRequestId });
+      `,
+        { id: leaveRequestId },
+      );
 
       // Approve (by manager)
-      await clientManager.mutate(`
+      await clientManager.mutate(
+        `
         mutation Approve($id: ID!) {
           approveLeaveRequest(id: $id) { id status }
         }
-      `, { id: leaveRequestId });
+      `,
+        { id: leaveRequestId },
+      );
     } catch (error) {
       console.warn('Leave setup failed:', (error as Error).message);
     }
@@ -159,27 +173,33 @@ describe('Team Calendar & Leave Balances', () => {
     try {
       const pendingData = await clientEmployee.mutate<{
         createLeaveRequest: { id: string };
-      }>(`
+      }>(
+        `
         mutation CreateLeave($input: CreateLeaveRequestInput!) {
           createLeaveRequest(input: $input) { id }
         }
-      `, {
-        input: {
-          employeeId,
-          leaveTypeId,
-          startDate: '2026-05-20',
-          endDate: '2026-05-22',
-          totalDays: 3,
-          reason: 'Pending approval test',
+      `,
+        {
+          input: {
+            employeeId,
+            leaveTypeId,
+            startDate: '2026-05-20',
+            endDate: '2026-05-22',
+            totalDays: 3,
+            reason: 'Pending approval test',
+          },
         },
-      });
+      );
 
       // Submit but do NOT approve (keep in PENDING)
-      await clientEmployee.mutate(`
+      await clientEmployee.mutate(
+        `
         mutation Submit($id: ID!) {
           submitLeaveRequest(id: $id) { id status }
         }
-      `, { id: pendingData.createLeaveRequest.id });
+      `,
+        { id: pendingData.createLeaveRequest.id },
+      );
     } catch (error) {
       console.warn('Pending leave setup failed:', (error as Error).message);
     }
@@ -205,7 +225,8 @@ describe('Team Calendar & Leave Balances', () => {
         isHalfDayStart: boolean;
         isHalfDayEnd: boolean;
       }>;
-    }>(`
+    }>(
+      `
       query TeamCalendar($startDate: String!, $endDate: String!) {
         teamLeaveCalendar(startDate: $startDate, endDate: $endDate) {
           id
@@ -221,10 +242,12 @@ describe('Team Calendar & Leave Balances', () => {
           isHalfDayEnd
         }
       }
-    `, {
-      startDate: '2026-04-01',
-      endDate: '2026-04-30',
-    });
+    `,
+      {
+        startDate: '2026-04-01',
+        endDate: '2026-04-30',
+      },
+    );
 
     expect(data.teamLeaveCalendar).toBeDefined();
     expect(Array.isArray(data.teamLeaveCalendar)).toBe(true);
@@ -242,9 +265,7 @@ describe('Team Calendar & Leave Balances', () => {
 
     // Our approved leave should appear if within the date range
     if (leaveRequestId) {
-      const found = data.teamLeaveCalendar.find(
-        (e: { id: string }) => e.id === leaveRequestId,
-      );
+      const found = data.teamLeaveCalendar.find((e: { id: string }) => e.id === leaveRequestId);
       if (found) {
         expect(found.status).toBe('approved');
         expect(found.totalDays).toBe(5);
@@ -335,9 +356,7 @@ describe('Team Calendar & Leave Balances', () => {
 
     // Our created leaves should be in the list
     if (leaveRequestId) {
-      const found = data.myLeaveRequests.find(
-        (r: { id: string }) => r.id === leaveRequestId,
-      );
+      const found = data.myLeaveRequests.find((r: { id: string }) => r.id === leaveRequestId);
       if (found) {
         expect(found.status).toBe('approved');
       }
@@ -351,14 +370,17 @@ describe('Team Calendar & Leave Balances', () => {
         id: string;
         status: string;
       }>;
-    }>(`
+    }>(
+      `
       query MyLeavesFiltered($status: LeaveRequestStatus) {
         myLeaveRequests(status: $status) {
           id
           status
         }
       }
-    `, { status: 'APPROVED' });
+    `,
+      { status: 'APPROVED' },
+    );
 
     for (const request of data.myLeaveRequests) {
       expect(request.status).toBe('approved');
@@ -414,17 +436,20 @@ describe('Team Calendar & Leave Balances', () => {
   test('Test 4: Tenant B cannot see Tenant A team calendar', async () => {
     const data = await clientB.query<{
       teamLeaveCalendar: Array<{ id: string; employeeId: string }>;
-    }>(`
+    }>(
+      `
       query TeamCalendar($startDate: String!, $endDate: String!) {
         teamLeaveCalendar(startDate: $startDate, endDate: $endDate) {
           id
           employeeId
         }
       }
-    `, {
-      startDate: '2026-04-01',
-      endDate: '2026-04-30',
-    });
+    `,
+      {
+        startDate: '2026-04-01',
+        endDate: '2026-04-30',
+      },
+    );
 
     // Tenant B should not see Tenant A's calendar entries
     if (data.teamLeaveCalendar.length > 0) {
@@ -499,9 +524,7 @@ describe('Team Calendar & Leave Balances', () => {
       }
 
       // Verify approved leave exists
-      const approved = result.rows.find(
-        (r: { status: string }) => r.status === 'approved',
-      );
+      const approved = result.rows.find((r: { status: string }) => r.status === 'approved');
       if (approved) {
         expect(approved.id).toBe(leaveRequestId);
       }

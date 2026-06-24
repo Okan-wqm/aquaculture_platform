@@ -4771,7 +4771,7 @@ Status: OPEN (2026-06-24). Owner: auth-security-expert. Registry: orphan-finding
 ---
 
 
-## ORPHAN-MEDIUM-140 — auth in-place screen swaps (MFA step, recovery toggle) are not announced to screen readers
+## ORPHAN-MEDIUM-149 — auth in-place screen swaps (MFA step, recovery toggle) are not announced to screen readers
 
 Severity: MEDIUM (a11y / WCAG 4.1.3). Discovered 2026-06-24 by accessibility-auditor during the Suderra login-rebuild audit.
 
@@ -4784,7 +4784,7 @@ Status: OPEN (2026-06-24). Owner: frontend-expert. Registry: orphan-findings.md 
 ---
 
 
-## ORPHAN-LOW-141 — shared Button "loading" state has no perceivable busy status (only aria-busy)
+## ORPHAN-LOW-150 — shared Button "loading" state has no perceivable busy status (only aria-busy)
 
 Severity: LOW (a11y / status communication). Discovered 2026-06-24 by accessibility-auditor during the Suderra login-rebuild audit.
 
@@ -4842,8 +4842,169 @@ Severity: MEDIUM (a11y / WCAG 4.1.3). Discovered 2026-06-24 by accessibility-aud
 
 **Problem:** `AuthStatusScreen` (email-sent, password-reset, invitation-invalid) mounted in place of the form with no route change, so no announcement fired and focus fell to `<body>` — a screen-reader user got no feedback that the action succeeded/failed.
 
-**Resolution (this commit):** `AuthStatusScreen` now marks its container `role="status"` (success) / `role="alert"` (error) and moves focus to the heading (`tabIndex={-1}` + focus on mount) so the result is announced. SSoT for all four result screens. (The MFA-step in-place swap is a separate, deeper focus-management item tracked as ORPHAN-MEDIUM-140.)
+**Resolution (this commit):** `AuthStatusScreen` now marks its container `role="status"` (success) / `role="alert"` (error) and moves focus to the heading (`tabIndex={-1}` + focus on mount) so the result is announced. SSoT for all four result screens. (The MFA-step in-place swap is a separate, deeper focus-management item tracked as ORPHAN-MEDIUM-149.)
 
 Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
+
+---
+
+
+## ORPHAN-HIGH-133 - root stabilization gates passed without toolchain, manifest, generated-output, and gate-tool type SSoT coverage
+
+Severity: HIGH. Discovered 2026-06-20 during the 6-agent SSoT stabilization audit.
+
+**Problem:** `gates:all` did not execute a toolchain contract check, did not run a root stabilization manifest invariant, and did not type-check the gate tooling itself. The result was a control-plane false pass: the package scripts claimed root SSoT stabilization coverage while toolchain versions, the implementation-wave manifest, generated-output ownership, and gate TypeScript soundness were not all producer-owned and verified by the aggregate gate. Separately, generated service-catalog artifacts had a stale catalog hash, and `codegen:check` showed `web/shared-ui/src/generated/graphql-types.ts` was stale after the supergraph producer ran. Root `type-check` also depended on farm-module's `react-leaflet` package without a workspace-level dependency, so the full repo gate could fail outside the package-local install path.
+
+**Resolution (this PR):** added `tools/toolchain/versions.json` and `tools/toolchain/check-versions.mjs`, wired `toolchain:check`, `gates:tools-typecheck`, and `gates:root-ssot-stabilization` into `gates:all`, and added the machine-readable stabilization manifest plus invariant tests that enforce explicit finding scope, producer-file existence, non-editable generated outputs, and the final registry sweep as the only pattern-scope escape hatch. Gate-tool TypeScript fixes remove the compile gaps without suppressions. Service-catalog artifacts were regenerated through `npm run service-catalog:generate`; GraphQL types were regenerated through the supergraph producer plus `npm run codegen`; `react-leaflet` is now a root dependency so repo-wide type-check resolves the farm-module tile package from the same workspace dependency graph.
+
+**Verification:** `npm run type-check`, `node scripts/apollo-router/build-supergraph.mjs`, `npm run codegen:check`, `npm run toolchain:check`, `npm run gates:tools-typecheck`, `npm run gates:root-ssot-stabilization`, `npm run service-catalog:check`, `npm run gates:all`, targeted ESLint for the files changed by this PR, and `git diff --check` all passed in the clean control-plane worktree. Full `npx nx affected --target=lint` was also run and correctly failed on broader pre-existing repo-wide lint closure debt outside this slice; that is tracked as [[ORPHAN-HIGH-134]] instead of being hidden or bypassed.
+
+Status: RESOLVED (2026-06-20; fix branch `codex/root-ssot-control-plane`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-134 - full affected lint is not a usable merge gate because repo-wide closure debt is already red
+
+Severity: HIGH. Discovered 2026-06-20 while verifying the root SSoT control-plane slice.
+
+**Problem:** `npx nx affected --target=lint` fans out to broad repo scope after root `package.json` / lockfile changes and fails on existing lint debt across multiple owners, including `libs/migration-harness`, `web/modules/sensor-module`, `apps/admin-api-service`, `apps/auth-service`, `apps/billing-service`, `aqua-scripts`, and `e2e`. The failures are not one isolated style issue: they include unsafe `any` access, forbidden non-null assertions, hook-order violations, `Function` constructor usage, stale eslint-disable suppressions, floating promises, structured-logging JSON formatting, forbidden imports, and import-order drift. This means affected lint is fail-closed but currently too red to serve as a clean signal for unrelated root producer changes.
+
+**Immediate containment in this PR:** fixed the lint defects directly touched by this verification pass where the blast radius was small and behavior-preserving: alert-engine floating promises / async timer cleanup / JSON export formatting, hydroponics stale eslint-disable directives, and farm-shared import ordering. Targeted ESLint for those changed files passes.
+
+**Fix direction:** split a dedicated repo-wide closure branch by owner boundary: migration-harness typed test helpers first, sensor-module hook/script execution cleanup second, backend service stale suppressions/floating promises third, then e2e typed fixture/client cleanup. Each slice must remove suppressions and unsafe assertions by replacing them with typed helpers or corrected control flow, not by disabling rules.
+
+Status: OPEN (2026-06-20; owner: repo-wide closure / lint gate). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-140 - opentelemetry dependency family is fragmented across two Rust workspaces (extends ORPHAN-001)
+
+Severity: MEDIUM. Discovered 2026-06-23 while triaging dependabot #576 (opentelemetry 0.27 -> 0.32) during the controlled branch-to-main merge sweep.
+
+**Problem:** The otel crates are pinned at incoherent versions in two separate workspaces. Root `/Cargo.toml` (the workspace that compiles `crates/observability`, which actually uses the OTLP exporter in `trace_propagation.rs`/`lib.rs`): `opentelemetry = 0.27`, `opentelemetry_sdk = 0.32`, `opentelemetry-otlp = 0.27`, `tracing-opentelemetry = 0.33` — the SDK is already two minor lines ahead of `opentelemetry`/`otlp`. The separate `sens-api-gateway/Cargo.toml` workspace is further behind: `opentelemetry = 0.27`, `opentelemetry-otlp = 0.27`, `opentelemetry_sdk = 0.27`, `tracing-opentelemetry = 0.28`. `opentelemetry-otlp 0.27` targets the `opentelemetry 0.27` trait API, so spans/exporters built across the 0.27 and 0.32 lines do not share types — a latent trace-incoherence, exactly what ORPHAN-001 first flagged in April. Dependabot #576 bumped only `opentelemetry` to 0.32 and left `otlp` at 0.27; CI passed because the gap is masked (feature-gating / cargo dedup), not because it is coherent. #576 was closed as a partial bump.
+
+**Fix direction:** One coordinated otel `0.27 -> 0.32` upgrade across BOTH workspaces — move `opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp` all to 0.32 and `tracing-opentelemetry` to 0.33 in the same change — and migrate the `crates/observability` OTLP exporter-builder calls to the 0.32 API (the `SpanExporter`/pipeline builder surface changed across 0.27->0.32). Add a `cargo build --features telemetry` job to CI so the otel path is actually exercised by the gate instead of dedup-masked.
+
+Status: OPEN (2026-06-23; owner: edge/observability Rust). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-141 - RustCrypto digest 0.10 -> 0.11 line cannot be bumped piecemeal (sha2/hmac)
+
+Severity: MEDIUM. Discovered 2026-06-23 while triaging dependabot #574 (hmac 0.13) and #575 (sha2 0.11) during the controlled merge sweep.
+
+**Problem:** `sens-api-gateway/Cargo.toml` pins `hmac = "0.12"` and `sha2 = "0.10"`, both built on the `digest 0.10` trait crate. `sha2 0.11` requires `digest 0.11`; `hmac 0.13` requires `digest 0.11`. Bumping either crate in isolation leaves the other on `digest 0.10`, so `Hmac<Sha256>` fails its trait bound (digest 0.10 vs 0.11 are distinct trait crates) — CI red on clippy, `cargo test --workspace`, and the musl cross-builds. This code is load-bearing: ADR-019/ADR-020 master-derived audit-hmac chains (`sqlcipher_db_key`, `audit_hmac_chain_key`, device attestation) and the R1 router-coprocessor HMAC-SHA256 parity contract all depend on it. #574 and #575 were closed (cannot land alone).
+
+**Fix direction:** Migrate the whole RustCrypto `digest 0.10 -> 0.11` set in one coordinated change (`sha2`, `hmac`, `hkdf`, and any other crate sharing the `digest` traits), then re-run golden-vector parity tests for the audit-hmac chain and the coprocessor HMAC-SHA256 vectors before/after to prove byte-for-byte equivalence. Do not bump any single member ahead of the set.
+
+Status: OPEN (2026-06-23; owner: edge/crypto Rust). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-142 - cargo audit advisory RUSTSEC-2026-0185 (quinn-proto) is not in the ignore-list and reds the advisory gate
+
+Severity: MEDIUM. Discovered 2026-06-23 while merging dependabot GHA bumps (#581 etc., which surfaced as UNSTABLE) during the controlled merge sweep.
+
+**Problem:** `cargo audit` fails on `RUSTSEC-2026-0185` in `quinn-proto` (a transitive dependency). The Rust CI ignore-list currently carries `RUSTSEC-2023-0071`, `RUSTSEC-2025-0141`, `RUSTSEC-2024-0388`, `RUSTSEC-2023-0089`, and `RUSTSEC-2026-0173` but not `RUSTSEC-2026-0185`, so the `cargo audit` / "Sens API Gateway summary" checks are red on every PR and on main. These are NON-required checks, so they do not block merges (PRs read UNSTABLE, not BLOCKED), but they degrade the advisory signal to noise.
+
+**Fix direction:** Triage `RUSTSEC-2026-0185` — bump `quinn`/`quinn-proto` to a patched release if one exists (preferred), otherwise add it to the `--ignore` list WITH an inline justification comment and a tracked re-review date. Do not silently suppress; the ignore-list must stay a reviewed, dated allowlist.
+
+Status: OPEN (2026-06-23; owner: edge/supply-chain Rust). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-143 - `availableTanks` GraphQL query declared by two resolvers → non-deterministic schema → intermittent `Unknown argument "siteId"` 400
+
+Severity: HIGH. Discovered 2026-06-24 from a live browser error reported by the operator: `[useAvailableTanks] GraphQLClientError: Unknown argument "siteId" on field "Query.availableTanks"` (HTTP 400), with the symptom "data sometimes loads, sometimes doesn't".
+
+**Problem:** Two farm-service resolvers registered the same root field name `availableTanks`:
+- `apps/farm-service/src/batch/resolvers/batch.resolver.ts:192` `listAvailableTanks(siteId, departmentId, excludeFullTanks) → [AvailableTankResponse!]!` — the complete contract the frontend (`web/modules/farm-module/src/hooks/useBatches.ts` `useAvailableTanks` / `AVAILABLE_TANKS_QUERY`) targets, including the capacity/site fields it selects.
+- `apps/farm-service/src/tank/resolvers/tank.resolver.ts:226` `getAvailableTanks(departmentId) → [Tank!]!` — a stale, incomplete duplicate routing to `ListTanksQuery`, with NO `siteId`/`excludeFullTanks`.
+
+NestJS code-first builds the schema by collecting resolver metadata; when a root field name is declared twice, only one definition survives and which one wins depends on module/resolver load order — non-deterministic across rebuilds/restarts. When the stripped-down `tank.resolver` definition won, the runtime schema lost the `siteId` argument, so the gateway rejected the FE document with a 400. The committed `apps/farm-service/schema.graphql` snapshot happened to capture the batch-resolver version, so the FE↔BE parity invariant passed — it folds the backend surface into a `Set<string>`, silently deduping the two declarations and never seeing the conflict.
+
+**Fix:** Removed the duplicate `getAvailableTanks` from `tank.resolver.ts` — `availableTanks` now has exactly one owner (`batch.resolver.listAvailableTanks`), the capacity-rich contract the FE expects (all 15 selected fields match `AvailableTankResponse`; same RBAC roles). Strengthened SSoT enforcement so the wrong state fails CI instead of the user's browser: extracted the resolver-surface scan into a shared SSoT helper (`tests/invariants/helpers/farm-graphql-surface.ts`) consumed by both the parity gate (refactored off its private copy of the extractor) and a new `tests/invariants/farm-graphql-resolver-field-uniqueness.spec.ts` that asserts every root operation (Query/Mutation/Subscription) is declared by exactly one resolver. Verified 0 remaining duplicates across 411 root fields.
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-HIGH-143`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-144 - invariant specs are not strict-type-checked; ts-jest `isolatedModules` hides latent strict-null errors
+
+Severity: MEDIUM. Discovered 2026-06-24 while type-checking `tests/invariants` during the ORPHAN-HIGH-143 fix (`tsc --noEmit -p tests/invariants/tsconfig.spec.json`).
+
+**Problem:** The invariant Jest config (`tests/invariants/jest.config.ts`) runs ts-jest with `isolatedModules` (syntactic transpile only, no full type-check, for the <15s `invariants:fast` SLO). A standalone `tsc --noEmit -p tests/invariants/tsconfig.spec.json` (which IS `strict: true`) is currently RED with strict-null violations in pre-existing specs that the Jest run never surfaces:
+- `no-boot-time-tenant-schema-ddl.spec.ts:122` (TS2532)
+- `pii-events-mandatory-crypto-shred.spec.ts:125,140,154,164` (TS2322)
+- `rls-predicate-canonical.spec.ts:178,182,186,188` (TS18048/TS2345)
+- `shared-schema-canonical.spec.ts:90,103,107` (TS2532/TS2345)
+
+These are latent — the specs still assert correctly at runtime — but the gap means a real type regression in an invariant spec would not be caught by the invariant suite itself. NOT introduced by ORPHAN-HIGH-143 (those files are untouched here); the new helper + specs added by that fix type-check clean.
+
+**Fix direction:** Either (a) wire a `tsc --noEmit -p tests/invariants/tsconfig.spec.json` step into CI alongside the Jest run, then fix the strict-null sites above (narrow with guards, not `!`/`as`), or (b) accept ts-jest's transpile-only mode and explicitly document that platform-wide `npm run type-check` is the type authority for these files — and confirm it actually includes `tests/invariants` (verify scope). Option (a) is the stronger SSoT (the suite that owns the invariants also owns their type safety).
+
+Status: OPEN (2026-06-24; owner: invariants/build). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-145 - admin-api throttler treats every authenticated SUPER_ADMIN as anonymous (20/60s, IP-keyed) → operator 429 storm
+
+Severity: HIGH. Discovered 2026-06-24 from a live operator report: the admin panel (RoleManagementPage, UserManagementPage) failed with HTTP 429 "Too many requests" while ONLY ONE operator was connected — `/api/users/roles/*`, `/api/users/stats`, `/api/users`, `/api/admin/tenants` all 429.
+
+**Problem:** a `request.user` shape contract mismatch between the writer and the reader inside admin-api-service.
+- Writer — `apps/admin-api-service/src/guards/platform-admin.guard.ts` set `request.user = { id: payload.sub, ... }` (only `id`, never the canonical `sub`).
+- Reader — the shared `libs/backend-common/src/security/throttler/throttler.guard.ts` (global APP_GUARD in admin-api) reads identity as `request.user?.sub ?? request.user?.userId`:
+  - `getThrottleConfig`: `isAuthenticated = !!user.sub || !!user.userId` → **false** → applies `THROTTLE_ANONYMOUS_LIMIT` (20) instead of `THROTTLE_DEFAULT_LIMIT` (100).
+  - `generateKey`: `userId = user.sub || user.userId` → undefined; SUPER_ADMIN has no `tenantId` either, so the bucket falls back to `throttle:ip:<ip>`.
+
+So every authenticated platform admin was rate-limited at the 20-req/60s ANONYMOUS tier, keyed by IP. The admin panel fans out 6-7 parallel GETs per page across several pages (plus React StrictMode double-invoke + the http-client's retry), so a single operator's normal dashboard load exceeds 20/60s within seconds → sustained 429. "Only I connect but it says too many requests" is exactly this: the bucket is per-user-by-design but the user was never recognized.
+
+**Fix:** PlatformAdminGuard now attaches the canonical `sub` (the JWT subject) alongside admin-api's local `id`. The throttler sees an authenticated user → 100-req/60s default tier, keyed `throttle:user:<sub>`. `id` stays for admin-api controllers that read `req.user.id`. Regression test added to `platform-admin.guard.spec.ts` asserting the guard exposes `sub`.
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-HIGH-145`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-146 - admin-api hand-rolls a non-canonical `request.user` ({id}) instead of the platform user-context shape ({sub}) — the systemic cause of ORPHAN-HIGH-145
+
+Severity: MEDIUM. Discovered 2026-06-24 while root-causing ORPHAN-HIGH-145.
+
+**Problem:** gateway-api populates `request.user` via the shared `UserContextMiddleware` (canonical `{ sub, tenantId, roles, ... }`), but admin-api-service has NO such middleware (its `AppModule` does not implement `configure()`); identity is attached ad-hoc by `PlatformAdminGuard` in a bespoke `{ id, ... }` shape. Because no SHARED type binds the writer (service guard) to the readers (shared ThrottlerGuard, `@CurrentUser('sub')`), the two silently drifted — undetectable at compile time. ORPHAN-HIGH-145 is one symptom; any other backend-common consumer keying off `sub` would misbehave the same way in admin-api.
+
+**Fix (tier-1 make-it-impossible):** the canonical type already existed — `JwtUser` (`libs/backend-common/src/types/tenant-request.interface.ts`, identity = REQUIRED `sub`), the `user` field of the canonical `TenantRequest`. The drift was that neither side consumed it:
+- READER: the shared `ThrottlerGuard` redeclared a private `{ sub?, userId?, tenantId? }` request shape. Rebound it to `TenantRequest` (`user: JwtUser`) and dropped the dead `userId` fallback (no runtime writer ever set `userId` — verified across all services; canonical writers like `verified-user-assertion.middleware` set `sub`). The shared READER now keys off the SSoT's `sub`.
+- WRITER: admin-api's `shared/authenticated-request.ts` `AuthenticatedUser` now `extends JwtUser` (so `sub` is compiler-REQUIRED) + keeps the admin-api-local `id`/`name`. `PlatformAdminGuard` dropped its bespoke local `AdminRequest` and types `request` as the shared `AuthenticatedRequest`, so its `request.user = { ... }` assignment fails type-check if it omits `sub`. A guard that forgets `sub` can no longer compile.
+
+Verified: admin-api app `tsc --noEmit` clean (10 controllers consuming `AuthenticatedUser` unaffected), backend-common throttler `tsc` clean, `platform-admin.guard.spec` 31/31. ThrottlerGuard's other consumers (messaging, ai, hydroponics) unaffected — they attach `req.user` via shared middleware using `sub`, never `userId`.
+
+**Remaining (separate, NOT throttler-relevant):** admin-api still carries two OTHER `@CurrentUser` decorator user types (`decorators/current-user.decorator.ts` `CurrentUserData`, `tenant.controller.ts` `AdminUser`) distinct from `JwtUser`. Unifying those is a follow-on cleanup; this finding closes the request.user/throttler SSoT drift that caused the 429.
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-MEDIUM-146`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-147 - admin-api contract-validation.spec.ts is RED on main (10 endpoint groups) and does not gate CI
+
+Severity: MEDIUM. Discovered 2026-06-24 while running admin-api tests for ORPHAN-HIGH-145 (failure reproduces with my changes stashed → pre-existing).
+
+**Problem:** `apps/admin-api-service/src/__tests__/contract-validation.spec.ts` fails for System Metrics (`/system/*`), Analytics, Tenants, Users, Billing, Reports, Support, Settings, Impersonation, and Security endpoint groups — i.e. the FE-declared admin contract surface does not match the backend controller routes the spec discovers. It is RED on `main` yet PRs are green, so the admin-api `test` target is effectively non-gating (consistent with the known affected-target quarantine for admin-api unit tests — see ORPHAN-MEDIUM-088). A contract spec that never blocks is audit theater.
+
+**Fix direction:** triage the 10 groups — for each, either the spec's expected route list is stale (update it) or the backend genuinely lacks the route the FE calls (implement it). Then un-quarantine admin-api's `test` target (or add this spec to a gating lane) so the contract drift cannot silently return. Out-of-band from the throttler fix; recorded so the drift is tracked.
+
+Status: OPEN (2026-06-24; owner: admin-api). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-148 - `/api/security/compliance/reports?limit=50` returns 400 (separate from the 429 class)
+
+Severity: MEDIUM. Discovered 2026-06-24 in the same operator console log as ORPHAN-HIGH-145, but a DISTINCT failure (HTTP 400 Bad Request, not 429).
+
+**Problem:** the compliance reports list endpoint rejects the FE's `?limit=50` request with 400 — likely a DTO/validation mismatch (ValidationPipe `whitelist`+`forbidNonWhitelisted` rejecting `limit`, a type-coercion gap on the numeric query param, or a required param the FE omits). Not yet root-caused. Unrelated to the rate-limit identity bug; it would persist after ORPHAN-HIGH-145 is fixed.
+
+**Root cause (confirmed):** `QueryReportsDto` (compliance.controller.ts) declared `@IsNumber()` on `page`/`limit` WITHOUT `@Type(() => Number)`. Query params arrive as strings, so under the global ValidationPipe `@IsNumber` ran against `"50"` and 400'd every request that sent `page`/`limit` — the endpoint never worked with `?limit=50`. The sibling `QueryDataRequestsDto` in the same file carried the IDENTICAL defect (so `/data-requests?limit=` 400'd too); the audit-trail / security-monitoring controllers already use `@Type(() => Number)`, so these two DTOs were the outliers.
+
+**Fix:** added `@Type(() => Number)` to `page` + `limit` on BOTH `QueryReportsDto` and `QueryDataRequestsDto` (class-transformer coercion before validation), matching the sibling-controller pattern. Exported `QueryReportsDto` and added `__tests__/compliance-query-reports.dto.spec.ts` pinning the coercion (`?page=2&limit=50` → numbers, validates clean; non-numeric still rejected; absent stays optional).
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-MEDIUM-148`). Registry: orphan-findings.md only.
 
 ---

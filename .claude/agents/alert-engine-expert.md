@@ -86,7 +86,7 @@ Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation â
 
 ## Active findings this agent owns
 
-Inherited from the platform-services split (Phase 11): general alert-engine observations.
+Inherited from the retired platform review split (Phase 11): general alert-engine observations.
 
 New (to be cataloged in first cycle after Phase 11):
 - LIFE_SAFETY subject taxonomy not yet split from main alert queue (cross-check needed)

@@ -528,9 +528,6 @@ services:
       DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -561,7 +558,6 @@ services:
       THROTTLE_DEFAULT_LIMIT: 500
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
     ports:
@@ -648,7 +644,6 @@ services:
       DATABASE_USER: ${AUTH_SERVICE_DB_USER:-auth_service}
       DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false'
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       DATABASE_LOGGING: 'true'
@@ -726,7 +721,6 @@ services:
       DATABASE_USER: ${FARM_SERVICE_DB_USER:-farm_service}
       DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:?FARM_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -799,13 +793,9 @@ services:
       DATABASE_USER: ${SENSOR_SERVICE_DB_USER:-sensor_service}
       DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:?SENSOR_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-sensor-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -886,7 +876,6 @@ services:
       DATABASE_USER: ${ADMIN_SERVICE_DB_USER:-admin_service}
       DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_HOST: redis
@@ -964,7 +953,6 @@ services:
       DATABASE_USER: ${ALERT_SERVICE_DB_USER:-alert_service}
       DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:?ALERT_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -1019,7 +1007,6 @@ services:
       DATABASE_USER: ${BILLING_SERVICE_DB_USER:-billing_service}
       DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:?BILLING_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       # ADR-016/031: production schema DDL belongs to aqua-db-migrate.
       # Keep this as a real container env var, not only a .env value, because
       # AppModule import-time wiring decides whether runtime DDL providers are registered.
@@ -1102,7 +1089,6 @@ services:
       DATABASE_USER: ${HR_SERVICE_DB_USER:-hr_service}
       DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:?HR_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -1157,7 +1143,6 @@ services:
       DATABASE_USER: ${HYDROPONICS_SERVICE_DB_USER:-hydroponics_service}
       DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:?HYDROPONICS_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -1212,13 +1197,9 @@ services:
       DATABASE_USER: ${NOTIFICATION_SERVICE_DB_USER:-notification_service}
       DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:?NOTIFICATION_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-notification-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -1354,7 +1335,6 @@ services:
       DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}
       DATABASE_PASSWORD: ${CONFIG_SERVICE_DB_PASS:?CONFIG_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -1408,7 +1388,6 @@ services:
       DATABASE_USER: ${EVENT_STORE_SERVICE_DB_USER:-event_store_service}
       DATABASE_PASSWORD: ${EVENT_STORE_SERVICE_DB_PASS:?EVENT_STORE_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false'
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING is required}
@@ -1449,7 +1428,6 @@ services:
       DATABASE_USER: ${MESSAGING_SERVICE_DB_USER:-messaging_service}
       DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:?MESSAGING_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false'
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_HOST: redis

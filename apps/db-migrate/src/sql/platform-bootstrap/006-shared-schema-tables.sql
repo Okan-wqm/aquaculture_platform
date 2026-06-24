@@ -265,12 +265,52 @@ BEGIN
       "errorMessage"    TEXT,
       "recordsAffected" INT          NOT NULL DEFAULT 0,
       "createdAt"       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      "updatedAt"       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      "updatedAt"       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      CONSTRAINT chk_shared_gdpr_data_requests_request_type
+        CHECK ("requestType" IN ('export', 'deletion', 'rectification', 'restriction', 'portability')),
+      CONSTRAINT chk_shared_gdpr_data_requests_status
+        CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled'))
     );
     CREATE INDEX "IDX_data_request_user"   ON shared.gdpr_data_requests ("userId");
     CREATE INDEX "IDX_data_request_tenant" ON shared.gdpr_data_requests ("tenantId");
     CREATE INDEX "IDX_data_request_type"   ON shared.gdpr_data_requests ("requestType");
     CREATE INDEX "IDX_data_request_status" ON shared.gdpr_data_requests (status);
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF to_regclass('shared.gdpr_data_requests') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1
+         FROM pg_constraint
+        WHERE conrelid = 'shared.gdpr_data_requests'::regclass
+          AND conname = 'chk_shared_gdpr_data_requests_request_type'
+     )
+  THEN
+    ALTER TABLE shared.gdpr_data_requests
+      ADD CONSTRAINT chk_shared_gdpr_data_requests_request_type
+      CHECK ("requestType" IN ('export', 'deletion', 'rectification', 'restriction', 'portability'))
+      NOT VALID;
+    ALTER TABLE shared.gdpr_data_requests
+      VALIDATE CONSTRAINT chk_shared_gdpr_data_requests_request_type;
+  END IF;
+
+  IF to_regclass('shared.gdpr_data_requests') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1
+         FROM pg_constraint
+        WHERE conrelid = 'shared.gdpr_data_requests'::regclass
+          AND conname = 'chk_shared_gdpr_data_requests_status'
+     )
+  THEN
+    ALTER TABLE shared.gdpr_data_requests
+      ADD CONSTRAINT chk_shared_gdpr_data_requests_status
+      CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled'))
+      NOT VALID;
+    ALTER TABLE shared.gdpr_data_requests
+      VALIDATE CONSTRAINT chk_shared_gdpr_data_requests_status;
   END IF;
 END
 $$;
@@ -300,9 +340,104 @@ BEGIN
     CREATE INDEX "IDX_consent_tenant"    ON shared.user_consents ("tenantId");
     CREATE INDEX "IDX_consent_type"      ON shared.user_consents ("consentType");
     CREATE INDEX "IDX_consent_user_type" ON shared.user_consents ("userId", "consentType");
+    CREATE UNIQUE INDEX "UQ_consent_user_type_version"
+      ON shared.user_consents ("userId", "consentType", version);
   END IF;
 END
 $$;
+
+-- Live-DB repair path for pre-index duplicate consent decisions.
+--
+-- `UQ_consent_user_type_version` is the entity-level SSoT: a
+-- (userId, consentType, version) tuple represents exactly one consent
+-- decision. Some legacy production rows predate that invariant and can
+-- contain duplicate tuples. Keep the newest row as the canonical decision,
+-- preserve every duplicate row under metadata.bootstrapDeduplicatedRows,
+-- then delete the duplicate rows before the unique index is installed.
+WITH ranked_consents AS (
+  SELECT
+    ctid AS row_ctid,
+    id,
+    "userId",
+    "tenantId",
+    "consentType",
+    granted,
+    version,
+    "ipAddress",
+    "userAgent",
+    "expiresAt",
+    metadata,
+    "withdrawalReason",
+    "createdAt",
+    row_number() OVER (
+      PARTITION BY "userId", "consentType", version
+      ORDER BY "createdAt" DESC NULLS LAST, id DESC
+    ) AS rn
+  FROM shared.user_consents
+),
+duplicate_consents AS (
+  SELECT *
+  FROM ranked_consents
+  WHERE rn > 1
+),
+archived_duplicates AS (
+  SELECT
+    keep.id AS keep_id,
+    jsonb_agg(
+      jsonb_build_object(
+        'id', dup.id::text,
+        'userId', dup."userId"::text,
+        'tenantId', dup."tenantId"::text,
+        'consentType', dup."consentType",
+        'granted', dup.granted,
+        'version', dup.version,
+        'ipAddress', dup."ipAddress",
+        'userAgent', dup."userAgent",
+        'expiresAt', dup."expiresAt",
+        'metadata', dup.metadata,
+        'withdrawalReason', dup."withdrawalReason",
+        'createdAt', dup."createdAt",
+        'archivedAt', now(),
+        'reason', 'duplicate (userId, consentType, version) before UQ_consent_user_type_version'
+      )
+      ORDER BY dup."createdAt" DESC NULLS LAST, dup.id DESC
+    ) AS archived_rows
+  FROM ranked_consents keep
+  JOIN duplicate_consents dup
+    ON dup."userId" = keep."userId"
+   AND dup."consentType" = keep."consentType"
+   AND dup.version = keep.version
+  WHERE keep.rn = 1
+  GROUP BY keep.id
+),
+archive_update AS (
+  UPDATE shared.user_consents c
+  SET metadata = jsonb_set(
+    CASE
+      WHEN c.metadata IS NULL THEN '{}'::jsonb
+      WHEN jsonb_typeof(c.metadata) = 'object' THEN c.metadata
+      ELSE jsonb_build_object('legacyMetadata', c.metadata)
+    END,
+    '{bootstrapDeduplicatedRows}',
+    (
+      CASE
+        WHEN jsonb_typeof(c.metadata->'bootstrapDeduplicatedRows') = 'array'
+          THEN c.metadata->'bootstrapDeduplicatedRows'
+        ELSE '[]'::jsonb
+      END
+    ) || archived_duplicates.archived_rows,
+    true
+  )
+  FROM archived_duplicates
+  WHERE c.id = archived_duplicates.keep_id
+  RETURNING c.id
+)
+DELETE FROM shared.user_consents c
+USING duplicate_consents dup
+WHERE c.ctid = dup.row_ctid;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_consent_user_type_version"
+  ON shared.user_consents ("userId", "consentType", version);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- shared.user_permissions

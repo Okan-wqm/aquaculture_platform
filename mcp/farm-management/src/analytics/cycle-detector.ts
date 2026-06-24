@@ -36,8 +36,9 @@
 //   - Anomali → kosul eslemesi ANOMALY_TO_CONDITIONS haritasi ile genisletilir
 // ============================================================================
 
-import type { Anomaly } from './anomaly-detector.js';
 import { VICIOUS_CYCLES, detectCycleStage } from '../knowledge/vicious-cycles.js';
+
+import type { Anomaly } from './anomaly-detector.js';
 
 // ── Tip Tanimlari ─────────────────────────────────────────────────────────────
 

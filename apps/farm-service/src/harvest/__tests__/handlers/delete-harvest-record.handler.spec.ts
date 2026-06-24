@@ -29,6 +29,9 @@ import { Batch } from '../../../batch/entities/batch.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+
+const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
 interface HarnessOpts {
   record?: Partial<HarvestRecord> | null;
@@ -44,7 +47,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'hr-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           batchId: 'batch-1',
           tankId: 'tank-1',
           status: HarvestRecordStatus.IN_PROGRESS,
@@ -58,7 +61,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'batch-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           currentQuantity: 900,
           harvestedQuantity: 100,
           initialQuantity: 1000,
@@ -71,7 +74,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'tb-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           tankId: 'tank-1',
           totalQuantity: 200,
           totalBiomassKg: 700,
@@ -86,7 +89,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'tank-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           currentBiomass: 500,
           currentCount: 200,
           ...(opts.tank ?? {}),
@@ -131,6 +134,10 @@ function makeHarness(opts: HarnessOpts = {}) {
     return undefined;
   });
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
+  const farmStockProjection = new FarmStockProjectionService();
+  const refreshContainers = jest
+    .spyOn(farmStockProjection, 'refreshContainers')
+    .mockResolvedValue(undefined);
 
   const handler = new DeleteHarvestRecordHandler(
     harvestRepository as unknown as Repository<HarvestRecord>,
@@ -139,18 +146,19 @@ function makeHarness(opts: HarnessOpts = {}) {
     tankRepository,
     dataSource as DataSource,
     outboxPublisher,
+    farmStockProjection,
   );
 
-  return { handler, enqueue, commit, rollback };
+  return { handler, enqueue, commit, rollback, refreshContainers };
 }
 
 function makeCommand() {
-  return new DeleteHarvestRecordCommand('tenant-1', 'hr-1', 'user-1');
+  return new DeleteHarvestRecordCommand(TENANT_ID, 'hr-1', 'user-1');
 }
 
 describe('DeleteHarvestRecordHandler — transactional outbox', () => {
   it('cancellation path: emits HarvestRecordCancelled with reversed quantity + biomass', async () => {
-    const { handler, enqueue, commit } = makeHarness();
+    const { handler, enqueue, commit, refreshContainers } = makeHarness();
 
     const result = await handler.execute(makeCommand());
 
@@ -165,6 +173,11 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     expect(event['reversedBiomassKg']).toBe(350);
     expect(event['cancelledAt']).toBeInstanceOf(Date);
 
+    expect(refreshContainers).toHaveBeenCalledWith(
+      expect.any(Object),
+      TENANT_ID,
+      ['tank-1'],
+    );
     expect(commit).toHaveBeenCalledTimes(1);
   });
 
@@ -217,7 +230,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     const { handler, enqueue } = makeHarness({
       record: {
         id: 'hr-2',
-        tenantId: 'tenant-1',
+        tenantId: TENANT_ID,
         batchId: 'batch-1',
         status: HarvestRecordStatus.IN_PROGRESS,
         quantityHarvested: 50,

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
 import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -94,7 +95,7 @@ function addMRU(id: string): void {
 // COMPONENT
 // ============================================================================
 
-export function WaterQualityRecordPage() {
+export function WaterQualityRecordPage(): JSX.Element {
   const navigate = useNavigate();
   const { equipmentId: routeEquipmentId } = useParams<{ equipmentId?: string }>();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
@@ -128,7 +129,7 @@ export function WaterQualityRecordPage() {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const equipment = equipmentData ?? [];
+  const equipment = useMemo(() => equipmentData ?? [], [equipmentData]);
 
   // -- MRU-sorted + grouped equipment for <select> ---------------------------
   const mruIds = useMemo(() => getMRU(), []);
@@ -342,7 +343,9 @@ export function WaterQualityRecordPage() {
           <DynamicMeasurementForm
             variant="mobile"
             parameters={parameterConfigs}
-            onSubmit={handleSubmit}
+            onSubmit={(values, notes, weatherConditions) => {
+              void handleSubmit(values, notes, weatherConditions);
+            }}
             isSubmitting={isSubmitting || isQueueSubmitting}
             error={submitError}
             showWeather

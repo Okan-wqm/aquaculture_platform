@@ -8,9 +8,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
+
+import { Tenant } from '../../tenant/entities/tenant.entity';
 
 // Register Role enum for GraphQL
 registerEnumType(Role, {
@@ -103,6 +107,10 @@ export class User {
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
+
+  @ManyToOne(() => Tenant, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'tenantId' })
+  tenant?: Tenant | null;
 
   /**
    * Access type — which platforms this user can access.

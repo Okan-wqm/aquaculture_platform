@@ -9,6 +9,8 @@
  *
  * @module Sensor-Service/E2E/EdgeDevice
  */
+import { assertDefined } from '../../../helpers/assertions';
+
 import {
   gql,
   TENANT_A,
@@ -213,7 +215,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.registerEdgeDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).registerEdgeDevice as Record<string, unknown>;
       expect(device.deviceCode).toBe(deviceCode);
       expect(device.deviceModel).toBe('revolution_pi_connect_4');
       expect(device.lifecycleState).toBe('registered');
@@ -227,19 +229,19 @@ describe('Edge Device Management', () => {
       const res = await gql(LIST_EDGE_DEVICES, { page: 1, limit: 50 });
 
       expect(res.errors).toBeUndefined();
-      const conn = res.data!.edgeDevices as Record<string, unknown>;
+      const conn = assertDefined(res.data).edgeDevices as Record<string, unknown>;
       const items = conn.items as Array<Record<string, unknown>>;
 
       const found = items.find((d) => d.id === deviceId);
       expect(found).toBeDefined();
-      expect(found!.deviceCode).toBe(deviceCode);
+      expect(assertDefined(found).deviceCode).toBe(deviceCode);
     });
 
     it('should retrieve by ID', async () => {
       const res = await gql(GET_EDGE_DEVICE, { id: deviceId });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.edgeDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).edgeDevice as Record<string, unknown>;
       expect(device.id).toBe(deviceId);
       expect(device.tenantId).toBe(TENANT_A.id);
     });
@@ -260,12 +262,13 @@ describe('Edge Device Management', () => {
           deviceModel: 'raspberry_pi_4',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
     });
 
     it('should start in REGISTERED state', async () => {
       const res = await gql(GET_EDGE_DEVICE, { id: deviceId });
-      const device = res.data!.edgeDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).edgeDevice as Record<string, unknown>;
       expect(device.lifecycleState).toBe('registered');
     });
 
@@ -277,7 +280,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const conn = res.data!.edgeDevices as Record<string, unknown>;
+      const conn = assertDefined(res.data).edgeDevices as Record<string, unknown>;
       const items = conn.items as Array<Record<string, unknown>>;
 
       for (const d of items) {
@@ -300,14 +303,15 @@ describe('Edge Device Management', () => {
           deviceModel: 'raspberry_pi_5',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
     });
 
     it('should approve device and set ACTIVE', async () => {
       const res = await gql(APPROVE_EDGE_DEVICE, { id: deviceId });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.approveEdgeDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).approveEdgeDevice as Record<string, unknown>;
       expect(device.lifecycleState).toBe('active');
       expect(device.commissionedAt).toBeDefined();
     });
@@ -327,7 +331,8 @@ describe('Edge Device Management', () => {
           deviceModel: 'industrial_pc',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
       await gql(APPROVE_EDGE_DEVICE, { id: deviceId });
     });
 
@@ -335,7 +340,7 @@ describe('Edge Device Management', () => {
       const res = await gql(SET_MAINTENANCE_MODE, { id: deviceId, enabled: true });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.setDeviceMaintenanceMode as Record<string, unknown>;
+      const device = assertDefined(res.data).setDeviceMaintenanceMode as Record<string, unknown>;
       expect(device.lifecycleState).toBe('maintenance');
     });
 
@@ -343,7 +348,7 @@ describe('Edge Device Management', () => {
       const res = await gql(SET_MAINTENANCE_MODE, { id: deviceId, enabled: false });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.setDeviceMaintenanceMode as Record<string, unknown>;
+      const device = assertDefined(res.data).setDeviceMaintenanceMode as Record<string, unknown>;
       expect(device.lifecycleState).toBe('active');
     });
   });
@@ -362,7 +367,8 @@ describe('Edge Device Management', () => {
           deviceModel: 'raspberry_pi_4',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
       await gql(APPROVE_EDGE_DEVICE, { id: deviceId });
     });
 
@@ -373,13 +379,13 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const device = res.data!.decommissionEdgeDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).decommissionEdgeDevice as Record<string, unknown>;
       expect(device.lifecycleState).toBe('decommissioned');
     });
 
     it('should verify decommissioned state via query', async () => {
       const res = await gql(GET_EDGE_DEVICE, { id: deviceId });
-      const device = res.data!.edgeDevice as Record<string, unknown>;
+      const device = assertDefined(res.data).edgeDevice as Record<string, unknown>;
       expect(device.lifecycleState).toBe('decommissioned');
     });
   });
@@ -398,14 +404,15 @@ describe('Edge Device Management', () => {
           deviceModel: 'raspberry_pi_4',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
     });
 
     it('should return PingResult with expected fields', async () => {
       const res = await gql(PING_EDGE_DEVICE, { id: deviceId });
 
       expect(res.errors).toBeUndefined();
-      const ping = res.data!.pingEdgeDevice as Record<string, unknown>;
+      const ping = assertDefined(res.data).pingEdgeDevice as Record<string, unknown>;
       expect(typeof ping.success).toBe('boolean');
       expect(ping.deviceCode).toBeDefined();
       expect(ping.timestamp).toBeDefined();
@@ -431,7 +438,8 @@ describe('Edge Device Management', () => {
           deviceModel: 'revolution_pi_compact',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
     });
 
     it('should send reboot command', async () => {
@@ -443,7 +451,7 @@ describe('Edge Device Management', () => {
       // May fail if device is offline, but should not throw unexpected errors
       expect(res.errors).toBeUndefined();
       // Returns boolean
-      expect(typeof res.data!.rebootEdgeDevice).toBe('boolean');
+      expect(typeof assertDefined(res.data).rebootEdgeDevice).toBe('boolean');
     });
   });
 
@@ -455,7 +463,7 @@ describe('Edge Device Management', () => {
       const res = await gql(EDGE_DEVICE_STATS);
 
       expect(res.errors).toBeUndefined();
-      const stats = res.data!.edgeDeviceStats as Record<string, unknown>;
+      const stats = assertDefined(res.data).edgeDeviceStats as Record<string, unknown>;
       expect(typeof stats.total).toBe('number');
       expect(typeof stats.online).toBe('number');
       expect(typeof stats.offline).toBe('number');
@@ -486,7 +494,8 @@ describe('Edge Device Management', () => {
           deviceModel: 'revolution_pi_connect_4',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
     });
 
     it('should add I/O config to device', async () => {
@@ -503,7 +512,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const config = res.data!.addDeviceIoConfig as Record<string, unknown>;
+      const config = assertDefined(res.data).addDeviceIoConfig as Record<string, unknown>;
       expect(config.tagName).toBe('DI_01');
       expect(config.ioType).toBe('DI');
       expect(config.dataType).toBe('bool');
@@ -533,7 +542,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const config = res.data!.addDeviceIoConfig as Record<string, unknown>;
+      const config = assertDefined(res.data).addDeviceIoConfig as Record<string, unknown>;
       expect(config.tagName).toBe('AI_TEMP');
       expect(config.ioType).toBe('AI');
       expect(config.dataType).toBe('float32');
@@ -555,7 +564,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const key = res.data!.createTenantProvisioningKey as Record<string, unknown>;
+      const key = assertDefined(res.data).createTenantProvisioningKey as Record<string, unknown>;
       expect(key.id).toBeDefined();
       expect(key.keyToken).toBeDefined();
       expect(typeof key.keyToken).toBe('string');
@@ -575,7 +584,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const key = res.data!.createTenantProvisioningKey as Record<string, unknown>;
+      const key = assertDefined(res.data).createTenantProvisioningKey as Record<string, unknown>;
       expect(key.autoApprove).toBe(true);
       expect(key.maxDevices).toBeNull();
     });
@@ -595,7 +604,8 @@ describe('Edge Device Management', () => {
           deviceModel: 'raspberry_pi_5',
         },
       });
-      deviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      deviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
 
       // Generate events by performing lifecycle transitions
       await gql(APPROVE_EDGE_DEVICE, { id: deviceId });
@@ -611,7 +621,7 @@ describe('Edge Device Management', () => {
       });
 
       expect(res.errors).toBeUndefined();
-      const conn = res.data!.deviceEvents as Record<string, unknown>;
+      const conn = assertDefined(res.data).deviceEvents as Record<string, unknown>;
       expect(typeof conn.total).toBe('number');
       expect(conn.page).toBe(1);
 
@@ -645,15 +655,12 @@ describe('Edge Device Management', () => {
         },
         TENANT_A,
       );
-      tenantADeviceId = (res.data!.registerEdgeDevice as Record<string, unknown>).id as string;
+      tenantADeviceId = (assertDefined(res.data).registerEdgeDevice as Record<string, unknown>)
+        .id as string;
     });
 
     it('Tenant B should NOT see Tenant A device by ID', async () => {
-      const res = await gql(
-        GET_EDGE_DEVICE,
-        { id: tenantADeviceId },
-        TENANT_B,
-      );
+      const res = await gql(GET_EDGE_DEVICE, { id: tenantADeviceId }, TENANT_B);
 
       // Should return null
       if (res.data?.edgeDevice) {
@@ -662,14 +669,10 @@ describe('Edge Device Management', () => {
     });
 
     it('Tenant B device list should NOT include Tenant A devices', async () => {
-      const res = await gql(
-        LIST_EDGE_DEVICES,
-        { page: 1, limit: 100 },
-        TENANT_B,
-      );
+      const res = await gql(LIST_EDGE_DEVICES, { page: 1, limit: 100 }, TENANT_B);
 
       expect(res.errors).toBeUndefined();
-      const conn = res.data!.edgeDevices as Record<string, unknown>;
+      const conn = assertDefined(res.data).edgeDevices as Record<string, unknown>;
       const items = conn.items as Array<Record<string, unknown>>;
 
       for (const d of items) {
@@ -678,11 +681,7 @@ describe('Edge Device Management', () => {
     });
 
     it('Tenant B should NOT approve Tenant A device', async () => {
-      const res = await gql(
-        APPROVE_EDGE_DEVICE,
-        { id: tenantADeviceId },
-        TENANT_B,
-      );
+      const res = await gql(APPROVE_EDGE_DEVICE, { id: tenantADeviceId }, TENANT_B);
 
       // Should fail
       expect(res.errors).toBeDefined();

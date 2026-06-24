@@ -36,6 +36,7 @@
  */
 
 import type { IEvent } from '../../../platform/libs/event-bus/src';
+import { assertDefined } from '../../helpers/assertions';
 
 /**
  * Construct the publisher subject the way `NatsEventBus.deriveSubject`
@@ -207,15 +208,11 @@ describe('NATS subject contract (ORPHAN-013 regression guard)', () => {
      */
     function assertSafeTenantSegment(tenantId: unknown): void {
       if (typeof tenantId !== 'string' || tenantId.length === 0) {
-        throw new TypeError(
-          `subscribeForTenant: tenantId must be a non-empty string`,
-        );
+        throw new TypeError(`subscribeForTenant: tenantId must be a non-empty string`);
       }
       if (/[\s.*>]/.test(tenantId)) {
         const masked =
-          tenantId.length > 8
-            ? `${tenantId.substring(0, 8)}…`
-            : tenantId.substring(0, 8);
+          tenantId.length > 8 ? `${tenantId.substring(0, 8)}…` : tenantId.substring(0, 8);
         throw new TypeError(
           `subscribeForTenant: tenantId contains forbidden characters ` +
             `(NATS subject metacharacters or whitespace). ` +
@@ -244,7 +241,7 @@ describe('NATS subject contract (ORPHAN-013 regression guard)', () => {
     it('rejects non-string tenantId', () => {
       expect(() => assertSafeTenantSegment(undefined)).toThrow(TypeError);
       expect(() => assertSafeTenantSegment(null)).toThrow(TypeError);
-      expect(() => assertSafeTenantSegment(42 as unknown)).toThrow(TypeError);
+      expect(() => assertSafeTenantSegment(42)).toThrow(TypeError);
     });
 
     it('masks the bad value to first 8 chars in the error message (no exfil)', () => {
@@ -256,7 +253,7 @@ describe('NATS subject contract (ORPHAN-013 regression guard)', () => {
         caught = e as TypeError;
       }
       expect(caught).toBeInstanceOf(TypeError);
-      const msg = caught!.message;
+      const msg = assertDefined(caught).message;
       // First 8 chars present, full value NOT.
       expect(msg).toContain('attacker');
       expect(msg).not.toContain('secret-tenant');

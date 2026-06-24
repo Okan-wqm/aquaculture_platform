@@ -1,24 +1,18 @@
-"""Plan ARIA-V3 §2c + §A0 — kernel-derived lane classification.
+"""Kernel-derived ARIA lane classification.
 
-The `lane` value (e.g. ``L3-snowball``, ``L0-main``) is the trust gate
-that decides whether autonomous materialization is permissible. Phase 1
-of the architectural fix (CRIT-V3-002) makes the lane **kernel-derived**
-from PR metadata — the operator CLI has no ``--lane`` flag and cannot
-forge the value. This makes lane spoofing structurally impossible
-(Tier-1): a malicious or sloppy CLI invocation simply has no surface
-to attack.
+The lane value is derived from PR metadata only; the operator CLI has no
+``--lane`` flag and cannot forge it. Current mainline authority makes
+``main`` the only live target branch and treats historical ``snowball``
+branches as evidence sources, not runtime lanes.
 
-Lane derivation rules (from PR base branch):
+Lane derivation rules:
 
-  * ``snowball``         → ``L3-snowball``
-  * ``main``             → ``L0-main``
-  * anything else        → ``None``  (autonomous loop refuses)
+  * ``main``      → ``L0-main`` (live base branch; human approval still required)
+  * ``snowball``  → ``None`` (historical, not live runtime authority)
+  * anything else → ``None``
 
-Why a separate module: lane derivation MUST be invoked from
-``auto_action_gate.AutoActionGate.from_policy`` AND
-``auto_merge.merge_if_green`` AND the diff classifier. A free-standing
-module guarantees a single source of truth (no implementation drift
-between materialize-time and merge-time decisions).
+Auto-materialization is closed unless a future executable contract adds a
+new lane and updates this SSoT plus its invariants in the same change.
 """
 
 from __future__ import annotations
@@ -30,8 +24,9 @@ from pathlib import Path
 from typing import Any
 
 
-_L3_BASE_BRANCH = "snowball"
-_L0_BASE_BRANCH = "main"
+LIVE_BASE_BRANCH = "main"
+HISTORICAL_SNOWBALL_BRANCH = "snowball"
+LIVE_MAIN_LANE = "L0-main"
 
 
 @dataclass(frozen=True)
@@ -48,30 +43,28 @@ class LaneDecision:
     decision_reason: str
 
     def is_autonomous_eligible(self) -> bool:
-        """Only the L3-snowball lane permits autonomous materialization
-        + merge (Plan ARIA-V3 §B2 + §B3 SPEC amendment).
-        """
-        return self.lane == "L3-snowball"
+        """No current lane permits automatic materialization."""
+        return False
 
 
 def derive_lane_from_base_branch(base_branch: str) -> LaneDecision:
     """Plan ARIA-V3 §2c — pure function mapping base branch → lane.
 
-    The function is deliberately narrow: only ``snowball`` and ``main``
-    are recognised. Anything else returns ``lane=None`` so the
-    autonomous loop refuses to engage. Adding a new lane requires an
-    explicit code change here + a corresponding ADR per Plan ARIA-V3 §B3.
+    The function is deliberately narrow: only ``main`` is a live base
+    branch. ``snowball`` is recognised only as historical evidence and
+    returns ``lane=None``. Adding a new live lane requires an explicit
+    code change here + an invariant update.
     """
     normalized = (base_branch or "").strip().lower()
-    if normalized == _L3_BASE_BRANCH:
+    if normalized == HISTORICAL_SNOWBALL_BRANCH:
         return LaneDecision(
-            lane="L3-snowball",
+            lane=None,
             base_branch=base_branch,
-            decision_reason="base_branch_is_snowball",
+            decision_reason="base_branch_is_historical_snowball",
         )
-    if normalized == _L0_BASE_BRANCH:
+    if normalized == LIVE_BASE_BRANCH:
         return LaneDecision(
-            lane="L0-main",
+            lane=LIVE_MAIN_LANE,
             base_branch=base_branch,
             decision_reason="base_branch_is_main",
         )

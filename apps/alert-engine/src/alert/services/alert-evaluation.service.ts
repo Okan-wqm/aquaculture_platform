@@ -1,7 +1,12 @@
-import { createBaseEvent } from '@platform/event-contracts';
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not } from 'typeorm';
+import {
+  createBaseEvent,
+  AlertTriggeredEvent,
+  AlertResolvedEvent,
+} from '@platform/event-contracts';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, In, DataSource, EntityManager } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import {
   AlertRule,
   AlertCondition,
@@ -15,7 +20,6 @@ import {
   TimelineEventType,
 } from '../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../escalation/escalation-manager.service';
-import { IEventBus } from '@platform/event-bus';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
 /**
@@ -50,8 +54,9 @@ export class AlertEvaluationService {
     private readonly historyRepository: Repository<AlertHistory>,
     @InjectRepository(AlertIncident)
     private readonly incidentRepository: Repository<AlertIncident>,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly redisService: RedisService,
     private readonly escalationManager: EscalationManagerService,
   ) {}
@@ -267,61 +272,94 @@ export class AlertEvaluationService {
     reading: SensorReadingData,
     condition: AlertCondition,
   ): Promise<void> {
-    try {
-      // Attempt to acquire the cooldown lock atomically.
-      // SET NX succeeds (returns 'OK') only if the key does not exist.
-      if (rule.cooldownMinutes > 0) {
-        const cooldownKey = `cooldown:${reading.tenantId}:${rule.id}`;
-        const wasSet = await this.redisService.setNx(
-          cooldownKey,
-          '1',
-          rule.cooldownMinutes * 60,
-        );
-        if (!wasSet) {
-          this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
-          return;
-        }
+    // Attempt to acquire the cooldown lock atomically.
+    // SET NX succeeds (returns 'OK') only if the key does not exist.
+    if (rule.cooldownMinutes > 0) {
+      const cooldownKey = `cooldown:${reading.tenantId}:${rule.id}`;
+      const wasSet = await this.redisService.setNx(
+        cooldownKey,
+        '1',
+        rule.cooldownMinutes * 60,
+      );
+      if (!wasSet) {
+        this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
+        return;
       }
+    }
 
-      // Cooldown cleared – save the alert history record.
-      const currentValue = reading.readings[condition.parameter];
-      const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
+    // Cooldown cleared – build the alert history record.
+    const currentValue = reading.readings[condition.parameter];
+    const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
 
-      const history = this.historyRepository.create({
-        ruleId: rule.id,
-        ruleName: rule.name,
-        tenantId: reading.tenantId,
-        farmId: reading.farmId,
-        pondId: reading.pondId,
+    const history = this.historyRepository.create({
+      ruleId: rule.id,
+      ruleName: rule.name,
+      tenantId: reading.tenantId,
+      farmId: reading.farmId,
+      pondId: reading.pondId,
+      sensorId: reading.sensorId,
+      severity: condition.severity,
+      message,
+      triggeringData: {
         sensorId: reading.sensorId,
-        severity: condition.severity,
-        message,
-        triggeringData: {
-          sensorId: reading.sensorId,
-          readings: reading.readings,
-          timestamp: reading.timestamp,
-          condition: {
-            parameter: condition.parameter,
-            operator: condition.operator,
-            threshold: condition.threshold,
-            actualValue: currentValue,
-          },
+        readings: reading.readings,
+        timestamp: reading.timestamp,
+        condition: {
+          parameter: condition.parameter,
+          operator: condition.operator,
+          threshold: condition.threshold,
+          actualValue: currentValue,
         },
-        triggeredAt: reading.timestamp,
-      });
+      },
+      triggeredAt: reading.timestamp,
+    });
 
-      const savedHistory = await this.historyRepository.save(history);
+    // LIFE-SAFETY (ALERT-CRITICAL-001): the history row (which represents
+    // "an alert fired"), the incident it feeds, and the AlertTriggered event
+    // that notifies the operator MUST commit atomically. The AlertTriggered
+    // event is enqueued into the transactional outbox on the SAME
+    // EntityManager as the state writes — either all three commit or none.
+    // A swallowed publish after commit (the previous behaviour) left an
+    // incident persisted but the operator never notified of, e.g., a
+    // dissolved-oxygen crash. No try/catch wraps the enqueue: a failed
+    // enqueue MUST propagate so the transaction rolls back.
+    const newIncident = await this.dataSource.transaction(async (manager) => {
+      const savedHistory = await manager.save(AlertHistory, history);
 
       // Create or update an AlertIncident to feed the escalation pipeline.
-      await this.ensureIncident(rule, reading, condition, savedHistory, message);
-
-      // Publish event after the DB write succeeds.
-      await this.publishAlertEvent(rule, reading, condition, savedHistory.id, message);
-    } catch (error) {
-      // Log but don't throw – we don't want to fail other rule evaluations.
-      this.logger.error(
-        `Failed to trigger alert for rule ${rule.id}: ${(error as Error).message}`,
+      const created = await this.ensureIncident(
+        manager,
+        rule,
+        reading,
+        condition,
+        savedHistory,
+        message,
       );
+
+      const event = this.buildAlertTriggeredEvent(
+        rule,
+        reading,
+        condition,
+        savedHistory.id,
+        message,
+      );
+      await this.outboxPublisher.enqueue(event, manager);
+
+      return created;
+    });
+
+    // Start the escalation pipeline only for freshly-created incidents, and
+    // only AFTER the trigger has durably committed. Escalation manages its
+    // own Redis-backed timers/state outside this transaction, so it must run
+    // post-commit — never inside it (a rollback would orphan the timers).
+    if (newIncident) {
+      this.escalationManager
+        .startEscalation(newIncident, condition.severity, rule.id, reading.farmId)
+        .catch((err: Error) => {
+          this.logger.error(
+            `Failed to start escalation for incident ${newIncident.id}: ${err.message}`,
+          );
+        });
     }
   }
 
@@ -334,135 +372,151 @@ export class AlertEvaluationService {
    * escalation pipeline.
    */
   private async ensureIncident(
+    manager: EntityManager,
     rule: AlertRule,
     reading: SensorReadingData,
     condition: AlertCondition,
     savedHistory: AlertHistory,
     message: string,
-  ): Promise<void> {
-    try {
-      // Look for an existing open incident for this rule + tenant.
-      const activeStatuses: IncidentStatus[] = [
-        IncidentStatus.NEW,
-        IncidentStatus.ACKNOWLEDGED,
-        IncidentStatus.INVESTIGATING,
-      ];
+  ): Promise<AlertIncident | null> {
+    // Look for an existing open incident for this rule + tenant.
+    const activeStatuses: IncidentStatus[] = [
+      IncidentStatus.NEW,
+      IncidentStatus.ACKNOWLEDGED,
+      IncidentStatus.INVESTIGATING,
+    ];
 
-      const existingIncident = await this.incidentRepository.findOne({
-        where: {
-          ruleId: rule.id,
-          tenantId: reading.tenantId,
-          status: In(activeStatuses),
-        },
-        order: { createdAt: 'DESC' },
-      });
-
-      if (existingIncident) {
-        // Bump occurrence count on the existing incident.
-        existingIncident.recordOccurrence();
-        await this.incidentRepository.save(existingIncident);
-        this.logger.debug(
-          `Updated existing incident ${existingIncident.id} for rule ${rule.id} ` +
-          `(occurrences: ${existingIncident.occurrenceCount})`,
-        );
-        return;
-      }
-
-      // No active incident – create a new one.
-      const incident = this.incidentRepository.create({
-        tenantId: reading.tenantId,
+    const existingIncident = await manager.findOne(AlertIncident, {
+      where: {
         ruleId: rule.id,
-        title: `${rule.name}: ${condition.parameter} ${this.formatOperator(condition.operator)} ${condition.threshold}`,
-        description: message,
-        severity: condition.severity,
-        status: IncidentStatus.NEW,
-        riskScore: 0,
-        triggerData: {
-          historyId: savedHistory.id,
-          sensorId: reading.sensorId,
-          readings: reading.readings,
-          timestamp: reading.timestamp,
-          condition: {
-            parameter: condition.parameter,
-            operator: condition.operator,
-            threshold: condition.threshold,
-            actualValue: reading.readings[condition.parameter],
-          },
-        },
-        farmId: reading.farmId,
-        pondId: reading.pondId,
-        sensorId: reading.sensorId,
-        escalationLevel: 0,
-        timeline: [],
-        relatedIncidentIds: [],
-        occurrenceCount: 1,
-        lastOccurredAt: reading.timestamp,
-      });
+        tenantId: reading.tenantId,
+        status: In(activeStatuses),
+      },
+      order: { createdAt: 'DESC' },
+    });
 
-      // Seed the timeline with a CREATED event.
-      incident.addTimelineEvent({
-        type: TimelineEventType.CREATED,
-        description: message,
-      });
-
-      const savedIncident = await this.incidentRepository.save(incident);
-
-      this.logger.log(
-        `Created incident ${savedIncident.id} for rule ${rule.id} (severity: ${condition.severity})`,
+    if (existingIncident) {
+      // Bump occurrence count on the existing incident.
+      existingIncident.recordOccurrence();
+      await manager.save(AlertIncident, existingIncident);
+      this.logger.debug(
+        `Updated existing incident ${existingIncident.id} for rule ${rule.id} ` +
+        `(occurrences: ${existingIncident.occurrenceCount})`,
       );
-
-      // Start the escalation pipeline (non-blocking for the alert flow).
-      this.escalationManager
-        .startEscalation(savedIncident, condition.severity, rule.id, reading.farmId)
-        .catch((err: Error) => {
-          this.logger.error(
-            `Failed to start escalation for incident ${savedIncident.id}: ${err.message}`,
-          );
-        });
-    } catch (error) {
-      // Incident/escalation failure must not break the existing AlertHistory flow.
-      this.logger.error(
-        `Failed to ensure incident for rule ${rule.id}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
+      // No new incident → no fresh escalation pipeline to start post-commit.
+      return null;
     }
+
+    // No active incident – create a new one.
+    const incident = this.incidentRepository.create({
+      tenantId: reading.tenantId,
+      ruleId: rule.id,
+      title: `${rule.name}: ${condition.parameter} ${this.formatOperator(condition.operator)} ${condition.threshold}`,
+      description: message,
+      severity: condition.severity,
+      status: IncidentStatus.NEW,
+      riskScore: 0,
+      triggerData: {
+        historyId: savedHistory.id,
+        sensorId: reading.sensorId,
+        readings: reading.readings,
+        timestamp: reading.timestamp,
+        condition: {
+          parameter: condition.parameter,
+          operator: condition.operator,
+          threshold: condition.threshold,
+          actualValue: reading.readings[condition.parameter],
+        },
+      },
+      farmId: reading.farmId,
+      pondId: reading.pondId,
+      sensorId: reading.sensorId,
+      escalationLevel: 0,
+      timeline: [],
+      relatedIncidentIds: [],
+      occurrenceCount: 1,
+      lastOccurredAt: reading.timestamp,
+    });
+
+    // Seed the timeline with a CREATED event.
+    incident.addTimelineEvent({
+      type: TimelineEventType.CREATED,
+      description: message,
+    });
+
+    const savedIncident = await manager.save(AlertIncident, incident);
+
+    this.logger.log(
+      `Created incident ${savedIncident.id} for rule ${rule.id} (severity: ${condition.severity})`,
+    );
+
+    // The escalation pipeline is started by the caller AFTER commit (it
+    // manages Redis timers/state outside this DB transaction).
+    return savedIncident;
   }
 
   /**
-   * Publish AlertTriggered event (v2 — flat triggerXxx fields)
-   * ARCH-C01: Emits flat fields instead of nested `triggeringData` object.
+   * Build the AlertTriggered domain event (v2 — flat triggerXxx fields).
+   *
+   * Pure builder: performs NO I/O. The caller enqueues the returned event on
+   * the transaction manager so it commits atomically with the history +
+   * incident writes (ALERT-CRITICAL-001).
+   *
+   * ARCH-C01: Emits flat fields instead of a nested `triggeringData` object.
    */
-  private async publishAlertEvent(
+  private buildAlertTriggeredEvent(
     rule: AlertRule,
     reading: SensorReadingData,
     condition: AlertCondition,
     alertId: string,
     message: string,
-  ): Promise<void> {
-    try {
-      await this.eventBus.publish({
-        ...createBaseEvent('AlertTriggered', reading.tenantId, { aggregateId: alertId, aggregateType: 'Alert', version: 2 }),
-        alertId,
-        ruleId: rule.id,
-        ruleName: rule.name,
-        severity: condition.severity,
-        message,
-        channels: rule.notificationChannels || [],
-        recipients: rule.recipients || [],
-        triggerSensorId: reading.sensorId,
-        triggerFarmId: reading.farmId,
-        triggerPondId: reading.pondId,
-        triggerParameter: condition.parameter,
-        triggerValue: reading.readings[condition.parameter],
-        triggerThreshold: condition.threshold,
-      });
-    } catch (error) {
-      this.logger.error(
-        `Failed to publish alert event: ${(error as Error).message}`,
-      );
-    }
+  ): AlertTriggeredEvent {
+    return {
+      ...createBaseEvent<AlertTriggeredEvent>('AlertTriggered', reading.tenantId, {
+        aggregateId: alertId,
+        aggregateType: 'Alert',
+        version: 2,
+      }),
+      alertId,
+      ruleId: rule.id,
+      ruleName: rule.name,
+      severity: condition.severity,
+      message,
+      channels: rule.notificationChannels || [],
+      recipients: rule.recipients || [],
+      triggerSensorId: reading.sensorId,
+      triggerFarmId: reading.farmId,
+      triggerPondId: reading.pondId,
+      triggerParameter: condition.parameter,
+      triggerValue: reading.readings[condition.parameter],
+      triggerThreshold: condition.threshold,
+    };
   }
 
+  /**
+   * Build the AlertResolved domain event for an auto-resolved incident.
+   *
+   * Pure builder: performs NO I/O. The caller enqueues the returned event on
+   * the transaction manager so it commits atomically with the incident
+   * resolution write (ALERT-CRITICAL-001).
+   */
+  private buildAlertResolvedEvent(
+    tenantId: string,
+    incidentId: string,
+    resolvedAt: Date,
+  ): AlertResolvedEvent {
+    return {
+      ...createBaseEvent<AlertResolvedEvent>('AlertResolved', tenantId, {
+        aggregateId: incidentId,
+        aggregateType: 'AlertIncident',
+      }),
+      alertId: incidentId,
+      resolvedBy: 'SYSTEM_AUTO_RESOLVE',
+      resolvedAt,
+      resolution: 'Sensor readings returned to normal range',
+      autoResolved: true,
+    };
+  }
 
   /**
    * Format operator for human-readable message
@@ -527,8 +581,9 @@ export class AlertEvaluationService {
           continue;
         }
 
+        const resolvedAt = new Date();
         incident.status = IncidentStatus.RESOLVED;
-        incident.resolvedAt = new Date();
+        incident.resolvedAt = resolvedAt;
         incident.resolvedBy = 'SYSTEM_AUTO_RESOLVE';
         incident.resolutionNotes =
           'Automatically resolved: sensor readings returned to normal range.';
@@ -539,23 +594,22 @@ export class AlertEvaluationService {
             'Auto-resolved: all sensor readings within normal thresholds.',
         });
 
-        await this.incidentRepository.save(incident);
-
-        // Publish AlertResolved event so downstream services (notification, audit) are notified
-        try {
-          await this.eventBus.publish({
-            ...createBaseEvent('AlertResolved', reading.tenantId, { aggregateId: incident.id, aggregateType: 'AlertIncident' }),
-            incidentId: incident.id,
-            sensorId: reading.sensorId,
-            severity: incident.severity,
-            resolvedBy: 'SYSTEM_AUTO_RESOLVE',
-            reason: 'Sensor readings returned to normal range',
-          });
-        } catch (pubErr) {
-          this.logger.warn(
-            `Failed to publish AlertResolved event for incident ${incident.id}: ${(pubErr as Error).message}`,
-          );
-        }
+        // LIFE-SAFETY (ALERT-CRITICAL-001): the incident-resolution state
+        // write and the AlertResolved event commit atomically via the
+        // transactional outbox. A swallowed publish after commit (the
+        // previous behaviour) could leave downstream services (notification,
+        // audit) believing an incident was still open. No try/catch wraps the
+        // enqueue — a failed enqueue rolls back the resolution. Each incident
+        // gets its own transaction so one failure does not unwind siblings.
+        const event = this.buildAlertResolvedEvent(
+          reading.tenantId,
+          incident.id,
+          resolvedAt,
+        );
+        await this.dataSource.transaction(async (manager) => {
+          await manager.save(AlertIncident, incident);
+          await this.outboxPublisher.enqueue(event, manager);
+        });
 
         this.logger.log(
           `Auto-resolved incident ${incident.id} (severity: ${incident.severity}) ` +

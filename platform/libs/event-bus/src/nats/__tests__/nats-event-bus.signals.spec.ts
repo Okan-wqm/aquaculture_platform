@@ -37,7 +37,7 @@ jest.mock('@nats-io/jetstream', () => {
   };
 });
 
-function config(): ConfigService {
+function config(overrides: Record<string, unknown> = {}): ConfigService {
   return {
     get: jest.fn((key: string, defaultValue?: unknown) => {
       const values: Record<string, unknown> = {
@@ -46,6 +46,7 @@ function config(): ConfigService {
         SERVICE_NAME: 'auth-service',
         NATS_MAX_RECONNECT_ATTEMPTS: 1,
         NATS_RECONNECT_TIME_WAIT_MS: 1,
+        ...overrides,
       };
       return key in values ? values[key] : defaultValue;
     }),
@@ -67,8 +68,10 @@ function successfulConnection(): NatsConnection {
 describe('NatsEventBus boot invariant signals', () => {
   let logSpy: jest.SpyInstance;
   let errorSpy: jest.SpyInstance;
+  let originalNodeEnv: string | undefined;
 
   beforeEach(() => {
+    originalNodeEnv = process.env['NODE_ENV'];
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
     errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
     jest.mocked(buildNatsConnectionOptions).mockReturnValue({
@@ -81,7 +84,101 @@ describe('NatsEventBus boot invariant signals', () => {
   });
 
   afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env['NODE_ENV'];
+    } else {
+      process.env['NODE_ENV'] = originalNodeEnv;
+    }
     jest.restoreAllMocks();
+  });
+
+  // Replica count is a TOPOLOGY property, not an environment property: a
+  // single-node production deployment is valid because durability is owned by
+  // the transactional outbox + event-store, not JetStream replication. The old
+  // "must be ≥3 in production or throw" contract bricked the single-node droplet
+  // (it demanded an R3 stream a standalone server cannot recover), so it is
+  // gone — the value is range-validated and clamped to the live topology.
+  it('accepts single-replica JetStream in production (durability is outbox-owned, not JetStream)', () => {
+    process.env['NODE_ENV'] = 'production';
+
+    expect(
+      () => new NatsEventBus(config({ NATS_STREAM_REPLICAS: '1' })),
+    ).not.toThrow();
+  });
+
+  it('defaults stream replicas to 1 when NATS_STREAM_REPLICAS is unset', () => {
+    process.env['NODE_ENV'] = 'production';
+
+    expect(() => new NatsEventBus(config())).not.toThrow();
+  });
+
+  it('rejects an out-of-range NATS_STREAM_REPLICAS', () => {
+    process.env['NODE_ENV'] = 'production';
+
+    expect(
+      () => new NatsEventBus(config({ NATS_STREAM_REPLICAS: '6' })),
+    ).toThrow('NATS_STREAM_REPLICAS must be an integer from 1 to 5');
+  });
+
+  it('clamps JetStream stream replicas to 1 on a standalone server and warns', async () => {
+    process.env['NODE_ENV'] = 'production';
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const streamsAdd = jest.fn().mockResolvedValue(undefined);
+    const manager = Object.assign(
+      {} as Awaited<ReturnType<typeof jetstreamManager>>,
+      {
+        streams: {
+          info: jest.fn().mockRejectedValue(new Error('stream not found')),
+          add: streamsAdd,
+        },
+      },
+    );
+    // Standalone server: ServerInfo carries no `cluster` name.
+    jest
+      .mocked(connect)
+      .mockResolvedValue(
+        Object.assign(successfulConnection(), { info: { cluster: undefined } }),
+      );
+    jest.mocked(jetstream).mockReturnValue({} as ReturnType<typeof jetstream>);
+    jest.mocked(jetstreamManager).mockResolvedValue(manager);
+
+    await new NatsEventBus(config({ NATS_STREAM_REPLICAS: '3' })).onModuleInit();
+
+    expect(streamsAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ num_replicas: 1 }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('clamping JetStream stream'),
+      expect.objectContaining({ effectiveReplicas: 1 }),
+    );
+  });
+
+  it('keeps the requested replicas on a clustered server', async () => {
+    process.env['NODE_ENV'] = 'production';
+    const streamsAdd = jest.fn().mockResolvedValue(undefined);
+    const manager = Object.assign(
+      {} as Awaited<ReturnType<typeof jetstreamManager>>,
+      {
+        streams: {
+          info: jest.fn().mockRejectedValue(new Error('stream not found')),
+          add: streamsAdd,
+        },
+      },
+    );
+    // Clustered server: ServerInfo reports a cluster name.
+    jest
+      .mocked(connect)
+      .mockResolvedValue(
+        Object.assign(successfulConnection(), { info: { cluster: 'aqua-cluster' } }),
+      );
+    jest.mocked(jetstream).mockReturnValue({} as ReturnType<typeof jetstream>);
+    jest.mocked(jetstreamManager).mockResolvedValue(manager);
+
+    await new NatsEventBus(config({ NATS_STREAM_REPLICAS: '3' })).onModuleInit();
+
+    expect(streamsAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ num_replicas: 3 }),
+    );
   });
 
   it('emits nats_auth_mode_mtls only after a successful connect', async () => {

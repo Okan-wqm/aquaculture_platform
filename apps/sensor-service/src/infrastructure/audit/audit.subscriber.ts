@@ -153,7 +153,8 @@ export class AuditSubscriber implements EntitySubscriberInterface {
   // No listenTo() — subscribe to all entities; we filter by @Auditable() ourselves.
 
   async afterInsert(event: InsertEvent<object>): Promise<void> {
-    if (!isAuditable(event.metadata.target as Function)) return;
+    const target = event.metadata.target;
+    if (typeof target !== 'function' || !isAuditable(target)) return;
 
     try {
       const entity = event.entity as Record<string, unknown>;
@@ -182,7 +183,8 @@ export class AuditSubscriber implements EntitySubscriberInterface {
 
   async afterUpdate(event: UpdateEvent<object>): Promise<void> {
     if (!event.entity) return;
-    if (!isAuditable(event.metadata.target as Function)) return;
+    const target = event.metadata.target;
+    if (typeof target !== 'function' || !isAuditable(target)) return;
 
     try {
       const entity = event.entity as Record<string, unknown>;
@@ -229,7 +231,8 @@ export class AuditSubscriber implements EntitySubscriberInterface {
   }
 
   async afterRemove(event: RemoveEvent<object>): Promise<void> {
-    if (!isAuditable(event.metadata.target as Function)) return;
+    const target = event.metadata.target;
+    if (typeof target !== 'function' || !isAuditable(target)) return;
 
     try {
       // databaseEntity holds the entity state before deletion

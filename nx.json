@@ -32,7 +32,8 @@
       "inputs": [
         "default",
         "{workspaceRoot}/eslint.config.mjs",
-        "{workspaceRoot}/eslint.project-overrides.mjs"
+        "{workspaceRoot}/eslint.project-overrides.mjs",
+        "{workspaceRoot}/tools/toolchain/**"
       ],
       "cache": true
     },

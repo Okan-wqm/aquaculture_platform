@@ -12,9 +12,9 @@
  * @see ADR-012 section 5.3 (Voice Notes)
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Play, Pause } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Play, Pause } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactElement } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,7 +67,7 @@ export function VoicePlayer({
   src,
   durationSeconds,
   isOwn = false,
-}: VoicePlayerProps) {
+}: VoicePlayerProps): ReactElement {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -93,17 +93,17 @@ export function VoicePlayer({
     audio.preload = 'metadata';
     audioRef.current = audio;
 
-    const handleLoadedMetadata = () => {
+    const handleLoadedMetadata = (): void => {
       if (isFinite(audio.duration)) {
         setDuration(audio.duration);
       }
     };
 
-    const handleTimeUpdate = () => {
+    const handleTimeUpdate = (): void => {
       setCurrentTime(audio.currentTime);
     };
 
-    const handleEnded = () => {
+    const handleEnded = (): void => {
       setIsPlaying(false);
       setCurrentTime(0);
       audio.currentTime = 0;
@@ -173,11 +173,49 @@ export function VoicePlayer({
     });
   }, []);
 
+  /**
+   * Keyboard seek: Left/Right arrows nudge playback ±5s, Home/End jump to the
+   * ends. WHY: the progress bar is an interactive seek surface, so it must be
+   * keyboard operable for assistive-technology and physical-keyboard users.
+   */
+  const handleSeekKey = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      const audio = audioRef.current;
+      if (!audio || duration === 0) return;
+
+      const SEEK_STEP = 5;
+      let nextTime: number | null = null;
+      switch (e.key) {
+        case 'ArrowLeft':
+          nextTime = Math.max(0, audio.currentTime - SEEK_STEP);
+          break;
+        case 'ArrowRight':
+          nextTime = Math.min(duration, audio.currentTime + SEEK_STEP);
+          break;
+        case 'Home':
+          nextTime = 0;
+          break;
+        case 'End':
+          nextTime = duration;
+          break;
+        default:
+          return;
+      }
+
+      e.preventDefault();
+      audio.currentTime = nextTime;
+      setCurrentTime(nextTime);
+    },
+    [duration],
+  );
+
   return (
     <div className="flex items-center gap-2 py-1 min-w-[200px] max-w-[280px]">
       {/* Play/Pause button */}
       <button
-        onClick={handlePlayPause}
+        onClick={() => {
+          void handlePlayPause();
+        }}
         className={clsx(
           'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full shrink-0 touch-feedback transition-colors',
           isOwn
@@ -205,13 +243,15 @@ export function VoicePlayer({
       <div className="flex-1 min-w-0">
         {/* Waveform bars with progress overlay */}
         <div
-          className="flex items-center gap-[1px] h-6 cursor-pointer relative"
+          className="flex items-center gap-[1px] h-6 cursor-pointer relative focus:outline-none focus:ring-2 focus:ring-ocean-500/40 rounded"
           onClick={handleSeek}
-          role="progressbar"
+          onKeyDown={handleSeekKey}
+          role="slider"
+          tabIndex={0}
           aria-valuenow={Math.round(progress)}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label="Audio progress"
+          aria-label="Seek audio position"
         >
           {barHeights.map((height, i) => {
             const barProgress = ((i + 1) / BAR_COUNT) * 100;

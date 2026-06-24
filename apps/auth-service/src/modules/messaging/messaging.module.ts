@@ -16,5 +16,5 @@ import { MessagingService } from './services/messaging.service';
   providers: [MessagingService, MessagingResolver],
   exports: [MessagingService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+ 
 export class MessagingModule {}

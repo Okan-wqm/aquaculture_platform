@@ -4,6 +4,7 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
+import { createAbortSignalTimeout } from '@aquaculture/backend-common/utils';
 
 /**
  * Mask phone number for logging (shows last 4 digits only)
@@ -96,13 +97,14 @@ export class SmsService {
     if (!isImplemented && !isPlanned) {
       this.logger.error(
         `Unknown SMS provider configured: ${this.provider}. ` +
-        `Valid options: ${[...SmsService.IMPLEMENTED_PROVIDERS, ...SmsService.PLANNED_PROVIDERS].join(', ')}`,
+          `Valid options: ${[...SmsService.IMPLEMENTED_PROVIDERS, ...SmsService.PLANNED_PROVIDERS].join(', ')}`,
       );
       this.providerHealthy = false;
     }
 
     if (isPlanned && !isImplemented) {
-      const message = `SMS provider '${this.provider}' is configured but not yet implemented. ` +
+      const message =
+        `SMS provider '${this.provider}' is configured but not yet implemented. ` +
         `Falling back to mock provider. Set SMS_PROVIDER=mock to silence this warning.`;
 
       if (this.isProduction) {
@@ -121,11 +123,13 @@ export class SmsService {
           !this.twilioAccountSid && 'TWILIO_ACCOUNT_SID',
           !this.twilioAuthToken && 'TWILIO_AUTH_TOKEN',
           !this.twilioFromNumber && 'TWILIO_FROM_NUMBER',
-        ].filter(Boolean).join(', ');
+        ]
+          .filter(Boolean)
+          .join(', ');
 
         this.logger.error(
           `Twilio SMS provider is missing required env vars: ${missing}. ` +
-          `SMS sending will fail until these are configured.`,
+            `SMS sending will fail until these are configured.`,
         );
         this.providerHealthy = false;
       }
@@ -142,7 +146,12 @@ export class SmsService {
   /**
    * Get provider status for health checks
    */
-  getProviderStatus(): { provider: string; enabled: boolean; healthy: boolean; implemented: boolean } {
+  getProviderStatus(): {
+    provider: string;
+    enabled: boolean;
+    healthy: boolean;
+    implemented: boolean;
+  } {
     return {
       provider: this.provider,
       enabled: this.isEnabled,
@@ -219,12 +228,11 @@ export class SmsService {
   /**
    * Mock SMS provider (for development/testing)
    */
-  private async sendViaMock(
-    phoneNumber: string,
-    message: string,
-  ): Promise<string> {
+  private async sendViaMock(phoneNumber: string, message: string): Promise<string> {
     // Don't log full phone number or message content for privacy
-    this.logger.debug(`[MOCK SMS] To: ${maskPhoneNumber(phoneNumber)}, Length: ${message.length} chars`);
+    this.logger.debug(
+      `[MOCK SMS] To: ${maskPhoneNumber(phoneNumber)}, Length: ${message.length} chars`,
+    );
     return `mock-sms-${Date.now()}`;
   }
 
@@ -234,23 +242,19 @@ export class SmsService {
    *
    * API docs: https://www.twilio.com/docs/sms/api/message-resource#create-a-message-resource
    */
-  private async sendViaTwilio(
-    phoneNumber: string,
-    message: string,
-  ): Promise<string> {
+  private async sendViaTwilio(phoneNumber: string, message: string): Promise<string> {
     if (!this.twilioAccountSid || !this.twilioAuthToken || !this.twilioFromNumber) {
       throw new Error(
         'Twilio SMS provider is not configured. ' +
-        'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER env vars.',
+          'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER env vars.',
       );
     }
 
     const url = `https://api.twilio.com/2010-04-01/Accounts/${this.twilioAccountSid}/Messages.json`;
 
     // Twilio uses HTTP Basic Auth: accountSid:authToken
-    const authHeader = 'Basic ' + Buffer.from(
-      `${this.twilioAccountSid}:${this.twilioAuthToken}`,
-    ).toString('base64');
+    const authHeader =
+      'Basic ' + Buffer.from(`${this.twilioAccountSid}:${this.twilioAuthToken}`).toString('base64');
 
     const body = new URLSearchParams({
       To: phoneNumber,
@@ -258,8 +262,7 @@ export class SmsService {
       Body: message,
     });
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeout = createAbortSignalTimeout(15000);
 
     try {
       // CIRCUIT-HIGH-005 cure: Twilio call rides through the canonical
@@ -282,7 +285,7 @@ export class SmsService {
                   'Content-Type': 'application/x-www-form-urlencoded',
                 },
                 body: body.toString(),
-                signal: controller.signal,
+                signal: timeout.signal,
               }),
           })
         : await fetch(url, {
@@ -292,20 +295,16 @@ export class SmsService {
               'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: body.toString(),
-            signal: controller.signal,
+            signal: timeout.signal,
           });
       const response = fetchResponse;
 
-      clearTimeout(timeoutId);
-
-      const responseBody = await response.json() as Record<string, unknown>;
+      const responseBody = (await response.json()) as Record<string, unknown>;
 
       if (!response.ok) {
         const twilioError = (responseBody['message'] as string) || `HTTP ${response.status}`;
         const errorCode = responseBody['code'] || 'unknown';
-        throw new Error(
-          `Twilio API error (${errorCode}): ${twilioError}`,
-        );
+        throw new Error(`Twilio API error (${errorCode}): ${twilioError}`);
       }
 
       const sid = responseBody['sid'] as string;
@@ -313,29 +312,24 @@ export class SmsService {
         throw new Error('Twilio response missing message SID');
       }
 
-      this.logger.debug(
-        `Twilio SMS sent to ${maskPhoneNumber(phoneNumber)}: ${sid}`,
-      );
+      this.logger.debug(`Twilio SMS sent to ${maskPhoneNumber(phoneNumber)}: ${sid}`);
 
       return sid;
     } catch (error) {
-      clearTimeout(timeoutId);
-
       if ((error as Error).name === 'AbortError') {
         throw new Error('Twilio API request timed out after 15 seconds');
       }
 
       throw error;
+    } finally {
+      timeout.clear();
     }
   }
 
   /**
    * AWS SNS SMS provider (placeholder - implement when needed)
    */
-  private async sendViaAwsSns(
-    _phoneNumber: string,
-    _message: string,
-  ): Promise<string> {
+  private async sendViaAwsSns(_phoneNumber: string, _message: string): Promise<string> {
     // TODO: Implement AWS SNS integration
     // const sns = new AWS.SNS();
     // const result = await sns.publish({ PhoneNumber: phoneNumber, Message: message }).promise();
@@ -350,7 +344,7 @@ export class SmsService {
    * Clean phone number (remove spaces, dashes, etc.)
    */
   private cleanPhoneNumber(phoneNumber: string): string {
-    return phoneNumber.replace(/[\s\-\(\)\.]/g, '');
+    return phoneNumber.replace(/[\s\-().]/g, '');
   }
 
   /**

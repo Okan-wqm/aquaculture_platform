@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, PaymentRefundedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { Money } from '@aquaculture/backend-common/monetary';
@@ -19,7 +19,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
 
   constructor(
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RefundPaymentCommand): Promise<Payment> {
@@ -154,29 +154,24 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         `status=${savedPayment.status}, reason="${sanitizedReason ?? ''}"`,
       );
 
-      // Publish NATS event
-      try {
-        const event: PaymentRefundedEvent = {
-          ...createBaseEvent<PaymentRefundedEvent>('PaymentRefunded', tenantId, { userId }),
-          paymentId: savedPayment.id,
-          invoiceId: payment.invoiceId,
-          refundAmount: input.amount,
-          totalRefunded: savedPayment.refundedAmount.toNumber(),
-          currency: payment.currency,
-          reason: sanitizedReason ?? '',
-          refundId: input.refundId,
-          isFullRefund,
-          refundedAt: refundInfo.refundedAt,
-        };
-        await this.eventBus?.publish(event);
-      } catch (eventError) {
-        // Event publish failure must not block the main operation
-        this.logger.warn(
-          `Failed to publish PaymentRefunded event for ${savedPayment.id}: ${
-            eventError instanceof Error ? eventError.message : 'Unknown error'
-          }`,
-        );
-      }
+      // Enqueue PaymentRefunded into the transactional outbox so the event
+      // commits atomically with the payment + invoice writes. A relay publishes
+      // to NATS after commit; an enqueue failure rolls the refund back rather
+      // than committing a financial change without its event (replaces the prior
+      // fire-and-forget eventBus.publish swallowing try/catch).
+      const event: PaymentRefundedEvent = {
+        ...createBaseEvent<PaymentRefundedEvent>('PaymentRefunded', tenantId, { userId }),
+        paymentId: savedPayment.id,
+        invoiceId: payment.invoiceId,
+        refundAmount: input.amount,
+        totalRefunded: savedPayment.refundedAmount.toNumber(),
+        currency: payment.currency,
+        reason: sanitizedReason ?? '',
+        refundId: input.refundId,
+        isFullRefund,
+        refundedAt: refundInfo.refundedAt,
+      };
+      await this.outboxPublisher.enqueue(event, manager);
 
       return savedPayment;
     });

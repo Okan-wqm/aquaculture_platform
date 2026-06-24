@@ -14,6 +14,8 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { GrowthMeasurement } from '../../growth/entities/growth-measurement.entity';
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 /**
  * Biomass hesaplama sonucu
  */
@@ -105,7 +107,11 @@ export class BiomassCalculatorService {
   /**
    * Batch için güncel biomass hesaplar
    */
-  async getBatchBiomass(batchId: string, tenantId: string): Promise<BiomassResult> {
+  async getBatchBiomass(
+    batchId: string,
+    tenantId: string,
+    asOf: Date = new Date(),
+  ): Promise<BiomassResult> {
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId },
     });
@@ -127,7 +133,10 @@ export class BiomassCalculatorService {
     let lastMeasurementDate: Date | undefined;
 
     if (latestMeasurement) {
-      const daysSinceMeasurement = this.daysBetween(latestMeasurement.measurementDate, new Date());
+      const daysSinceMeasurement = this.daysBetween(
+        latestMeasurement.measurementDate,
+        asOf,
+      );
 
       if (daysSinceMeasurement <= 7) {
         // Son 7 gün içinde ölçüm var - yüksek güven
@@ -418,6 +427,7 @@ export class BiomassCalculatorService {
     batchId: string,
     tenantId: string,
     daysForward: number,
+    asOf: Date = new Date(),
   ): Promise<BiomassProjection> {
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId },
@@ -428,7 +438,7 @@ export class BiomassCalculatorService {
       throw new Error(`Batch ${batchId} bulunamadı`);
     }
 
-    const currentBiomass = await this.getBatchBiomass(batchId, tenantId);
+    const currentBiomass = await this.getBatchBiomass(batchId, tenantId, asOf);
 
     // Büyüme parametreleri
     const dailyGrowthG = batch.species?.growthParameters?.avgDailyGrowth || 1;
@@ -450,7 +460,7 @@ export class BiomassCalculatorService {
     const projectedBiomassKg = this.calculateBiomass(projectedQuantity, projectedAvgWeightG);
     const dailyGrowthKg = (projectedBiomassKg - currentBiomass.biomassKg) / daysForward;
 
-    const projectedDate = new Date();
+    const projectedDate = new Date(asOf);
     projectedDate.setDate(projectedDate.getDate() + daysForward);
 
     return {
@@ -510,6 +520,16 @@ export class BiomassCalculatorService {
   private daysBetween(start: Date, end: Date): number {
     const startDate = new Date(start);
     const endDate = new Date(end);
-    return Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const startUtcDay = Date.UTC(
+      startDate.getUTCFullYear(),
+      startDate.getUTCMonth(),
+      startDate.getUTCDate(),
+    );
+    const endUtcDay = Date.UTC(
+      endDate.getUTCFullYear(),
+      endDate.getUTCMonth(),
+      endDate.getUTCDate(),
+    );
+    return Math.max(0, Math.floor((endUtcDay - startUtcDay) / MS_PER_DAY));
   }
 }

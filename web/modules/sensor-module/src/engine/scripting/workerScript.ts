@@ -120,6 +120,46 @@ function $log(message) {
 }
 
 // ===================================================================
+// Phase 2c: Backward-compatible aliases for the legacy main-thread
+//           client-script API ($setView, $console). Legacy operator
+//           scripts were authored against these names; they route
+//           through the same audited message channel as $navigate/$log
+//           so there is exactly ONE execution path (this worker).
+// ===================================================================
+
+// $setView(screenId) — legacy alias. The legacy hook opened the target
+// screen as a dialog overlay; the main-thread executor maps the
+// resulting 'navigate' dispatch to that same dialog overlay, preserving
+// behaviour exactly.
+function $setView(screenId) {
+  $navigate(screenId);
+}
+
+// Build a console-shaped helper that serialises each argument the same
+// way the legacy hook did (strings verbatim, everything else JSON or
+// String) and forwards the joined line through $log. All four legacy
+// levels collapse to the single rate-limited log channel.
+function _formatConsoleArgs(args) {
+  var parts = [];
+  for (var i = 0; i < args.length; i++) {
+    var a = args[i];
+    if (typeof a === 'string') {
+      parts.push(a);
+    } else {
+      try { parts.push(JSON.stringify(a)); } catch (e) { parts.push(String(a)); }
+    }
+  }
+  return parts.join(' ');
+}
+
+var $console = {
+  log: function () { $log('[log] ' + _formatConsoleArgs(arguments)); },
+  warn: function () { $log('[warn] ' + _formatConsoleArgs(arguments)); },
+  error: function () { $log('[error] ' + _formatConsoleArgs(arguments)); },
+  info: function () { $log('[info] ' + _formatConsoleArgs(arguments)); },
+};
+
+// ===================================================================
 // Phase 2b: Extended API functions (Phase 9D)
 // ===================================================================
 
@@ -242,12 +282,14 @@ self.onmessage = function(e) {
     const fn = new Function(
       '$getTag', '$setTag', '$navigate', '$openCard', '$openUrl', '$log',
       '$setProperty', '$getProperty', '$closeDialog', '$setAlarm',
+      '$setView', '$console',
       '$params',
       code
     );
     const result = fn(
       $getTag, $setTag, $navigate, $openCard, $openUrl, $log,
       $setProperty, $getProperty, $closeDialog, $setAlarm,
+      $setView, $console,
       params || {}
     );
     self.postMessage({ type: 'result', scriptId: scriptId, returnValue: result });

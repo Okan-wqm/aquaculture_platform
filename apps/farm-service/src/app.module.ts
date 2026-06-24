@@ -10,6 +10,7 @@ import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -20,7 +21,7 @@ import {
   UserContextMiddleware,
   VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
@@ -99,6 +100,7 @@ import { InventoryModule } from './storage/storage.module';
 import { WorkerModule } from './worker/worker.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
+import { MarineDataModule } from './marine-data/marine-data.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
 import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
@@ -149,10 +151,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'farm',
           schema: 'farm',
-          // migrationsRun: false (default) — MigrationRunnerService in
-          // database.module executes migrations at OnApplicationBootstrap
-          // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)
-          // creates base tables BEFORE any ALTER statement runs.
+          // migrationsRun: false (default) — db-migrate / MigrationRunnerService
+          // own migration application. SourceSchemaBootstrapService only
+          // verifies the post-migration source schema at OnApplicationBootstrap
+          // and refuses any runtime synchronize() fallback.
           migrations: [...FARM_MIGRATIONS],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -339,19 +341,18 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
-        password: configService.get('REDIS_PASSWORD'),
-        db: parseInt(configService.get('REDIS_DB', '0'), 10),
-        keyPrefix: 'farm:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'farm', 'optional'),
     }),
 
     // Targeted jsonb_set UPDATE helper — phase 5.7. Lets
     // concurrent handlers patch DIFFERENT keys of the same JSONB
     // column without tripping each other's @VersionColumn.
     JsonbPatchModule,
+
+    // Canonical legal-hold registry. Tenant erasure and every destructive
+    // compliance path fail closed if this provider cannot answer.
+    LegalHoldModule.forRoot(),
 
     // GDPR primitives — phase 6.3. Tenant export (right-of-access)
     // and two-step erasure (right-to-erasure) with audit-row
@@ -426,6 +427,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     WorkerModule,
     SystemModule,
     SentinelHubModule,
+    MarineDataModule,
     RegulatoryModule,
     WeatherModule,
     SchedulerModule,

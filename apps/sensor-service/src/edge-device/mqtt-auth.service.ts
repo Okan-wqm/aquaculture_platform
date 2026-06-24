@@ -479,7 +479,7 @@ export class MqttAuthService implements OnModuleInit {
           const result = await this._addDeviceCredentialsFile(username, passwordHash);
           resolve(result);
         } catch (err) {
-          reject(err);
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
     });
@@ -502,7 +502,7 @@ export class MqttAuthService implements OnModuleInit {
           const result = await this._removeDeviceCredentialsFile(username);
           resolve(result);
         } catch (err) {
-          reject(err);
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
     });

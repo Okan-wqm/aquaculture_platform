@@ -98,13 +98,12 @@ Generic real-defect classes (injection, secret-in-log, money/precision, error-sw
 
 ## Active findings this agent owns
 
-Inherited from the platform-services split (Phase 11):
+Inherited from the retired platform review split (Phase 11):
 - Stripe webhook dedup persistence — `billing.stripe_webhook_events` now SHIPS (`StripeWebhookEvent` entity + Baseline migration + controller usage + integration test). Open work: confirm every webhook path consults it (no Redis-only bypass).
 - `MT-HIGH-002` (PLAN_LIMITS defined but unconsumed by any enforcement path) — billing-expert primary; multi-tenant retains contract review.
 
 Historical references:
-- `docs/reviews/platform-services/2026-04-*.md` — pre-split cycles
-- `docs/research/platform-services/` — Stripe + metered billing research
+- Older April 2026 pre-split review and research notes are archival evidence only; this file owns live billing prefix and routing.
 
 ## Operating Modes
 

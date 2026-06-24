@@ -240,7 +240,7 @@ jobs:
           # Staging always builds every backend service from the current sha.
           # Mirrors the FULL_DEPLOY=true path of prod so staging == prod compiler
           # output for the commit being promoted.
-          npx nx run-many -t build \
+          node tools/toolchain/run.mjs npx nx run-many -t build \
             --projects=db-migrate,gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service,messaging-service \
             --parallel=3
         env:
@@ -336,7 +336,7 @@ jobs:
           read -r -a NON_NX_FRONTEND <<< "${CATALOG_NON_NX_FRONTEND_PROJECTS:-}"
 
           if [ "${#NX_FRONTEND[@]}" -gt 0 ]; then
-            npx nx run-many -t build \
+            node tools/toolchain/run.mjs npx nx run-many -t build \
               --projects="$(IFS=,; echo "${NX_FRONTEND[*]}")" \
               --parallel=3
           fi
@@ -414,7 +414,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -496,7 +496,7 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}

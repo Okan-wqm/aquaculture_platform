@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { useAuth } from './useAuth';
@@ -12,6 +12,18 @@ import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 
 type Segment = 'today' | 'upcoming' | 'overdue';
+
+/** Return shape of {@link useMyTasks}. */
+export interface UseMyTasksReturn {
+  /** Tasks filtered to the requested segment. */
+  tasks: Task[];
+  /** True during the initial fetch. */
+  loading: boolean;
+  /** Human-readable error message, or null. */
+  error: string | null;
+  /** Manually re-run the underlying query (TanStack Query refetch). */
+  refetch: UseQueryResult<Task[], Error>['refetch'];
+}
 
 function filterBySegment(tasks: Task[], segment: Segment): Task[] {
   const now = new Date();
@@ -35,7 +47,7 @@ function filterBySegment(tasks: Task[], segment: Segment): Task[] {
   }
 }
 
-export function useMyTasks(segment: Segment = 'today') {
+export function useMyTasks(segment: Segment = 'today'): UseMyTasksReturn {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   const query = useQuery<Task[]>({

@@ -1080,7 +1080,7 @@ export class BehaviorTreeService implements OnModuleInit {
     if (!tree) {
       throw new Error(`Behavior tree not found: ${treeId}`);
     }
-    return JSON.stringify(tree, null, 2);
+    return JSON.stringify(tree);
   }
 
   /**

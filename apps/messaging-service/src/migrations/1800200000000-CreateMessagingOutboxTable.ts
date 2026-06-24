@@ -2,6 +2,10 @@ import {
   pinSearchPath,
   SourceOnlyMigration,
 } from '@aquaculture/backend-common/database';
+import {
+  buildTenantErasureTargetProofLedgerDownSql,
+  buildTenantErasureTargetProofLedgerUpSql,
+} from '@platform/outbox';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -100,6 +104,14 @@ export class CreateMessagingOutboxTable1800200000000
         ON messaging.messaging_outbox ("tenantId", "idempotencyKey")
         WHERE "idempotencyKey" IS NOT NULL
     `);
+    for (const sql of buildTenantErasureTargetProofLedgerUpSql({
+      schema: 'messaging',
+      tenantIndexName: 'idx_messaging_erasure_proofs_tenant',
+      eventIndexName: 'idx_messaging_erasure_proofs_event',
+      targetIndexName: 'idx_messaging_erasure_proofs_target',
+    })) {
+      await queryRunner.query(sql);
+    }
   }
 
   public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
@@ -129,7 +141,15 @@ export class CreateMessagingOutboxTable1800200000000
     return Number(tenantCount) === 0;
   }
 
-  public async down(_queryRunner: QueryRunner): Promise<void> {
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    for (const sql of buildTenantErasureTargetProofLedgerDownSql({
+      schema: 'messaging',
+      tenantIndexName: 'idx_messaging_erasure_proofs_tenant',
+      eventIndexName: 'idx_messaging_erasure_proofs_event',
+      targetIndexName: 'idx_messaging_erasure_proofs_target',
+    })) {
+      await queryRunner.query(sql);
+    }
     // Forward-only repair: this table may already exist in deployed databases.
   }
 }

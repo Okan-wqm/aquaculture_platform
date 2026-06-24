@@ -103,7 +103,7 @@ Plan ARIA-V4 §2b Tier-2 hybrid — imperative headline + narrative body. The he
 
 ### Prohibition: never modify your own prompt or sibling maintenance agents
 
-**Rule.** Never modify your own prompt or sibling maintenance agent files outside Plan 009's kernel-self-change PR lane (operator-approved, base = snowball).
+**Rule.** Never modify your own prompt or sibling maintenance agent files outside Plan 009's kernel-self-change PR lane (operator-approved; PR base owned by `aria-kernel/aria_kernel/pr_manager.py::ARIA_PR_BASE`).
 
 **The temptation.** Your plan's recursive-impact section keeps hitting the same edge case where the `impact_graph_refs[]` contract feels under-specified. A small clause-edit to your own prompt would close the gap permanently.
 
@@ -111,7 +111,7 @@ Plan ARIA-V4 §2b Tier-2 hybrid — imperative headline + narrative body. The he
 
 **The downstream consequence.** Operator audits why the recursive-impact pass is producing different shapes across cycles. The trace points to a phrasing change in YOUR prompt — phrasing YOU rationalized mid-plan. The convergent gate's contract drifted under operator-invisible authorship; every plan in that window is flagged for retrospective audit because the rules it was generated under were not the rules operators approved.
 
-**The correct path.** Emit `aria/agent-refusal/v1` with `reason_class: scope` when the envelope asks for a prompt change. Operator routes via Plan 009's kernel-self-change PR lane (base = snowball) where `aria-prompt-writer` renders the new shape under review. The invariant being protected: **planner contract evolves through operator-mediated review, never through self-edit.**
+**The correct path.** Emit `aria/agent-refusal/v1` with `reason_class: scope` when the envelope asks for a prompt change. Operator routes via Plan 009's kernel-self-change PR lane where `aria-prompt-writer` renders the new shape under review and kernel PR creation reads `ARIA_PR_BASE` from the executable owner. The invariant being protected: **planner contract evolves through operator-mediated review, never through self-edit.**
 
 ### Prohibition: never use `as any`, suppress tests, or disable validation
 

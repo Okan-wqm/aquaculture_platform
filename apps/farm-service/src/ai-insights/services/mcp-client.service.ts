@@ -24,6 +24,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { spawn, ChildProcess } from 'child_process';
+import {
+  loadOptionalMcpSdk,
+  McpClientPort,
+} from './mcp-sdk.port';
 
 /**
  * WHY: Enum makes circuit breaker state transitions explicit and prevents
@@ -47,12 +51,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 export class McpClientService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(McpClientService.name);
 
-  /**
-   * WHY: Using 'any' for MCP SDK types because the package is optional.
-   * Dynamic import prevents webpack from bundling it as a hard dependency.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private client: any = null;
+  private client: McpClientPort | null = null;
   private childProcess: ChildProcess | null = null;
   private available = false;
 
@@ -143,8 +142,7 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
       // explicit .js extensions in its package.json "exports" map. Node's ESM resolver
       // requires the file extension for ESM packages — bare specifiers without .js fail
       // with ERR_MODULE_NOT_FOUND. This is the SDK's documented import style.
-      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-      const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+      const { Client, StdioClientTransport } = await loadOptionalMcpSdk();
 
       // Kill the raw process — SDK manages its own
       this.childProcess.kill();

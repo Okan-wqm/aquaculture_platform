@@ -51,7 +51,18 @@ coprocessor:
   subgraph:
     all:
       request:
+        # The coprocessor signs a service-identity HMAC-v2 over the canonical fields
+        # the subgraph guard re-derives. ALL of these must be forwarded or the signed
+        # claims diverge from what the guard observes and 100% of router→subgraph
+        # traffic is rejected:
+        #   headers → wire content-type (the guard binds it byte-for-byte)
+        #   body    → sha256(body) (without it the coprocessor signs sha256("") — CRIT-B)
+        #   uri     → path + query string (the guard observes originalUrl-minus-query)
+        #   method  → HTTP verb (POST), upper-cased into the canonical
         headers: true
+        body: true
+        uri: true
+        method: true
         context: true
       response:
         headers: true

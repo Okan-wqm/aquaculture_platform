@@ -5,8 +5,10 @@
 
 import type { NodeProps, Node } from '@xyflow/react';
 import React from 'react';
-import BaseNode from './BaseNode';
+
 import { NodeRegistry } from '../registry/NodeRegistry';
+
+import BaseNode from './BaseNode';
 
 interface UVUnitNodeData extends Record<string, unknown> {
   rotation?: number;

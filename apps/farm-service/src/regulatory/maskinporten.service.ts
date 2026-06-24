@@ -20,6 +20,11 @@ import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
+import {
+  clearManagedTimer,
+  createManagedInterval,
+  type ManagedInterval,
+} from '@aquaculture/backend-common/utils';
 import { RegulatorySettingsService } from './regulatory-settings.service';
 
 // ============================================================================
@@ -116,10 +121,11 @@ export class MaskinportenService implements OnModuleDestroy {
   private tokenCache: Map<string, CacheEntry<CachedToken>> = new Map();
 
   /** Discovery cache per environment: Map<environment, CacheEntry<{ tokenEndpoint, issuer }>> */
-  private discoveryCache: Map<string, CacheEntry<{ tokenEndpoint: string; issuer: string }>> = new Map();
+  private discoveryCache: Map<string, CacheEntry<{ tokenEndpoint: string; issuer: string }>> =
+    new Map();
 
   /** Interval for periodic cache cleanup */
-  private cleanupInterval: NodeJS.Timeout;
+  private cleanupInterval: ManagedInterval | null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -127,7 +133,10 @@ export class MaskinportenService implements OnModuleDestroy {
     private readonly settingsService: RegulatorySettingsService,
   ) {
     // Start periodic cleanup to prevent memory leaks
-    this.cleanupInterval = setInterval(() => this.cleanupExpiredEntries(), this.CLEANUP_INTERVAL);
+    this.cleanupInterval = createManagedInterval(
+      () => this.cleanupExpiredEntries(),
+      this.CLEANUP_INTERVAL,
+    );
   }
 
   /**
@@ -136,7 +145,8 @@ export class MaskinportenService implements OnModuleDestroy {
   onModuleDestroy(): void {
     this.logger.debug('Cleaning up MaskinportenService resources');
     if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+      clearManagedTimer(this.cleanupInterval);
+      this.cleanupInterval = null;
     }
     this.tokenCache.clear();
     this.discoveryCache.clear();
@@ -166,7 +176,7 @@ export class MaskinportenService implements OnModuleDestroy {
 
     if (tokenCleanedCount > 0 || discoveryCleanedCount > 0) {
       this.logger.debug(
-        `Cache cleanup: removed ${tokenCleanedCount} token entries and ${discoveryCleanedCount} discovery entries`
+        `Cache cleanup: removed ${tokenCleanedCount} token entries and ${discoveryCleanedCount} discovery entries`,
       );
     }
   }
@@ -217,15 +227,18 @@ export class MaskinportenService implements OnModuleDestroy {
   /**
    * Discover OAuth2 endpoints from well-known configuration
    */
-  private async discoverEndpoints(environment: string): Promise<{ tokenEndpoint: string; issuer: string }> {
+  private async discoverEndpoints(
+    environment: string,
+  ): Promise<{ tokenEndpoint: string; issuer: string }> {
     // Check cache first
     const cached = this.getCacheEntry(this.discoveryCache, environment);
     if (cached) {
       return cached;
     }
 
-    const envConfig = MASKINPORTEN_ENVIRONMENTS[environment as keyof typeof MASKINPORTEN_ENVIRONMENTS]
-      || MASKINPORTEN_ENVIRONMENTS.TEST;
+    const envConfig =
+      MASKINPORTEN_ENVIRONMENTS[environment as keyof typeof MASKINPORTEN_ENVIRONMENTS] ||
+      MASKINPORTEN_ENVIRONMENTS.TEST;
 
     try {
       this.logger.debug(`Discovering Maskinporten endpoints for environment: ${environment}`);
@@ -265,7 +278,9 @@ export class MaskinportenService implements OnModuleDestroy {
     const config = await this.settingsService.getMaskinportenConfig(tenantId);
 
     if (!clientId || !privateKey) {
-      throw new Error('Maskinporten not configured for this tenant. Please configure credentials in Setup > Company & Regulatory.');
+      throw new Error(
+        'Maskinporten not configured for this tenant. Please configure credentials in Setup > Company & Regulatory.',
+      );
     }
 
     const requestedScopes = scopes || ALL_MATTILSYNET_SCOPES;
@@ -283,7 +298,9 @@ export class MaskinportenService implements OnModuleDestroy {
     const discovery = await this.discoverEndpoints(environment);
 
     // Request new token
-    this.logger.debug(`Requesting new Maskinporten token for tenant ${tenantId}, scopes: ${requestedScopes.join(', ')}`);
+    this.logger.debug(
+      `Requesting new Maskinporten token for tenant ${tenantId}, scopes: ${requestedScopes.join(', ')}`,
+    );
     const token = await this.requestTokenWithCredentials(
       clientId,
       this.normalizePrivateKey(privateKey),
@@ -434,7 +451,7 @@ export class MaskinportenService implements OnModuleDestroy {
         keysToDelete.push(key);
       }
     }
-    keysToDelete.forEach(key => this.tokenCache.delete(key));
+    keysToDelete.forEach((key) => this.tokenCache.delete(key));
     this.logger.debug(`Token cache cleared for tenant: ${tenantId}`);
   }
 

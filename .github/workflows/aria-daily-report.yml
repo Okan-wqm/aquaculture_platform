@@ -104,6 +104,7 @@ jobs:
           report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
           verdict = verify_workflow_preflight(
               workflow_id="aria-daily-report",
+              job_id="generate-report",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[report],
@@ -116,6 +117,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="generate and upload daily ARIA report artifact",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-daily-report-generate-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
@@ -149,6 +151,7 @@ jobs:
         with:
           name: aria-daily-report-${{ steps.target.outputs.date }}
           path: aria-tools/reports/daily/${{ steps.target.outputs.date }}.md
+          if-no-files-found: error
           retention-days: 365
 
   commit-report:
@@ -182,6 +185,7 @@ jobs:
           report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
           verdict = verify_workflow_preflight(
               workflow_id="aria-daily-report",
+              job_id="commit-report",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[report],
@@ -193,6 +197,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="publish daily ARIA report through automation PR",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-daily-report-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
@@ -229,3 +234,13 @@ jobs:
           export COMMIT_MESSAGE="chore(aria-reports): daily ${REPORT_DATE}"
           export CHANGED_PATHS="$REPORT"
           bash tools/scripts/automation/open-report-pr.sh
+
+      # ADR-036 — upload the enterprise-preflight audit proof so the
+      # commit-report job's governed-write decision is retained as CI evidence.
+      - name: Upload commit-report preflight proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-daily-report-commit-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-daily-report-preflight.json
+          if-no-files-found: error
+          retention-days: 365

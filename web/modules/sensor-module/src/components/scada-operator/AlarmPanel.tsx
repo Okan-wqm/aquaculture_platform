@@ -310,7 +310,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
     if (tab === 'history') {
       void handleHistoryQuery();
     }
-  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab]);  
 
   // ── CSV export ───────────────────────────────────────────────────────────
   const handleExport = useCallback(() => {

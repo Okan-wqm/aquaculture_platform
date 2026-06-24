@@ -44,6 +44,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .workflow_contract_registry import (
+    WORKFLOW_CONTRACTS,
+    WorkflowJobContract,
+    workflow_hash as compute_workflow_hash,
+    workflow_job_contract,
+    workflow_job_contract_hash,
+)
 from .workflow_contracts import verify_workflow_contract
 
 
@@ -68,7 +75,9 @@ class PreflightVerdict:
 
 @dataclass(frozen=True)
 class WorkflowPreflightVerdict:
+    schema_version: int
     workflow_id: str
+    job_id: str
     profile: str
     kill_switch_active: bool
     network_policy: tuple[str, ...]
@@ -80,6 +89,8 @@ class WorkflowPreflightVerdict:
     audit_reason: str | None
     valid: bool
     workflow_hash: str | None = None
+    contract_hash: str | None = None
+    runtime_write_paths: tuple[str, ...] = ()
     network_enforcement_evidence: str | None = None
     audit_artifact_path: str | None = None
     worktree_clean: bool | None = None
@@ -93,13 +104,13 @@ class WorkflowPreflightVerdict:
 # arbiter approval + invariant update. The list ordering MUST stay
 # stable (governance rows reference these keys).
 #
-# V10.3-B prereq amendment (2026-05-19, operator-acknowledged via
-# aria-tools/preflight/snowball-branch-protection-v4.json): the
+# V10.3-B prereq amendment (2026-05-19, operator-acknowledged for
+# the mainline branch-protection decision): the
 # original V9.0-C 4-rule list included `restrictions.users` non-empty
 # (push-restriction list). GitHub's classic Branch Protection UI
 # exposes this checkbox conditionally — Free-plan public repos may
-# not surface it depending on rolling UI changes. Snowball is the
-# ARIA experimental branch (not production), and the remaining Tier-1
+# not surface it depending on rolling UI changes. Main is the
+# current ARIA target branch, and the remaining Tier-1
 # anchors (required_signatures + required_status_checks.strict +
 # enforce_admins) PLUS Tier-2 anchors that are checked via
 # `verify_preflight()` independently (required_pull_request_reviews
@@ -335,6 +346,7 @@ def verify_preflight(
 def verify_workflow_preflight(
     *,
     workflow_id: str,
+    job_id: str,
     profile: str,
     workspace_root: str | Path,
     allowed_write_roots: tuple[str, ...] | list[str],
@@ -350,17 +362,35 @@ def verify_workflow_preflight(
     require_github_app: bool = True,
     external_root_allowlist: tuple[str, ...] | list[str] = (),
 ) -> WorkflowPreflightVerdict:
-    """Enterprise workflow preflight for governed ARIA write paths.
+    """Enterprise per-job workflow preflight for governed ARIA write paths.
 
-    This verdict is intentionally separate from ``verify_preflight``:
-    branch/profile checks are repo capability checks, while workflows also
-    need kill-switch precedence, explicit write roots, DLP mode, network
-    capability declaration, and token provenance. The verdict is frozen so
-    a workflow can persist it as audit evidence without mutation risk.
+    ADR-036 — ``job_id`` is REQUIRED (BREAKING CHANGE, D5). When the
+    (workflow_id, job_id) pair resolves to a registered ``WorkflowJobContract``
+    the verdict is bound to that contract: network policy, token provenance,
+    write paths and the audit-artifact path are checked against the contract
+    exactly. When no job contract matches (standalone / un-registered callers)
+    the verdict falls back to main's pre-ADR-036 checks, INCLUDING the
+    github-app token-VALUE allowlist (``allowed_token_provenance``), so a
+    standalone caller does not silently lose the token-value security check.
+
+    The verdict is frozen so a workflow can persist it as audit evidence
+    without mutation risk.
     """
     reasons: list[str] = []
     failure_classes: list[str] = []
     workspace = Path(workspace_root).resolve()
+    contract = WORKFLOW_CONTRACTS.get(workflow_id)
+    job_contract = workflow_job_contract(workflow_id, job_id)
+    contract_digest = workflow_job_contract_hash(workflow_id, job_id)
+    observed_workflow_hash: str | None = None
+    if contract is not None and job_contract is not None:
+        workflow_path = workspace / contract.workflow_file
+        if workflow_path.exists():
+            observed_workflow_hash = compute_workflow_hash(workflow_path)
+        else:
+            reasons.append(f"workflow_yaml_missing:{contract.workflow_file}")
+            failure_classes.append("workflow_preflight_contract")
+
     kill_switch = (
         _env_truthy("ARIA_GLOBAL_KILL_SWITCH")
         or _env_truthy("ARIA_STOP")
@@ -368,11 +398,19 @@ def verify_workflow_preflight(
         or (workspace / "aria-tools" / "KILL_SWITCH").exists()
     )
 
-    roots = tuple(str(root).strip() for root in allowed_write_roots if str(root).strip())
-    allowlist = tuple(str(item).strip() for item in path_allowlist if str(item).strip())
     external_roots = tuple(
         str(item).strip()
         for item in external_root_allowlist
+        if str(item).strip()
+    )
+    roots = tuple(
+        _normalise_runtime_path(str(root).strip(), workspace=workspace, external_roots=external_roots)
+        for root in allowed_write_roots
+        if str(root).strip()
+    )
+    allowlist = tuple(
+        _normalise_runtime_path(str(item).strip(), workspace=workspace, external_roots=external_roots)
+        for item in path_allowlist
         if str(item).strip()
     )
     network = tuple(str(item).strip() for item in network_policy if str(item).strip())
@@ -382,6 +420,9 @@ def verify_workflow_preflight(
         failure_classes.append("global_kill_switch")
     if not workflow_id.strip():
         reasons.append("workflow_id_missing")
+        failure_classes.append("workflow_preflight_contract")
+    if not job_id.strip():
+        reasons.append("workflow_job_id_missing")
         failure_classes.append("workflow_preflight_contract")
     if profile == "frozen" and roots:
         reasons.append("frozen_profile_blocks_mutating_workflow")
@@ -401,20 +442,62 @@ def verify_workflow_preflight(
     if workflow_hash and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(workflow_hash)):
         reasons.append("workflow_hash_invalid")
         failure_classes.append("workflow_preflight_contract")
+    if workflow_hash and observed_workflow_hash and workflow_hash != observed_workflow_hash:
+        reasons.append("workflow_hash_mismatch")
+        failure_classes.append("workflow_preflight_contract")
     if not audit_reason or not audit_reason.strip():
         reasons.append("audit_reason_missing")
         failure_classes.append("workflow_preflight_contract")
-    if require_github_app and not token_provenance:
-        reasons.append("token_provenance_missing")
-        failure_classes.append("token_provenance_required")
-    allowed_token_provenance = {
-        "github_app:installation",
-        "github_app:installation_token",
-        "github_app:verified",
-    }
-    if require_github_app and token_provenance and token_provenance not in allowed_token_provenance:
-        reasons.append("github_app_token_required")
-        failure_classes.append("token_provenance_required")
+
+    if job_contract is not None:
+        # ADR-036 contracted path — bind the verdict to the per-job contract.
+        if tuple(sorted(network)) != tuple(sorted(job_contract.network_policy)):
+            reasons.append(
+                f"network_policy_mismatch:{tuple(sorted(network))}!={tuple(sorted(job_contract.network_policy))}"
+            )
+            failure_classes.append("network_policy_required")
+        if (token_provenance or "") != job_contract.token_source:
+            reasons.append(f"token_provenance_mismatch:{token_provenance}!={job_contract.token_source}")
+            failure_classes.append("token_provenance_required")
+        if audit_artifact_path is not None:
+            audit_label = _normalise_runtime_path(
+                str(audit_artifact_path),
+                workspace=workspace,
+                external_roots=external_roots,
+            )
+            if not re.fullmatch(job_contract.preflight_artifact_path_pattern, audit_label):
+                reasons.append(f"preflight_artifact_path_mismatch:{audit_label}")
+                failure_classes.append("workflow_preflight_contract")
+        for item in roots:
+            if not _matches_contract_path(job_contract, item):
+                reasons.append(f"allowed_write_root_outside_contract:{item}")
+                failure_classes.append("path_allowlist_violation")
+        for item in allowlist:
+            if not _matches_contract_path(job_contract, item):
+                reasons.append(f"path_allowlist_outside_contract:{item}")
+                failure_classes.append("path_allowlist_violation")
+        if set(roots) != set(allowlist):
+            reasons.append("allowed_write_roots_and_path_allowlist_mismatch")
+            failure_classes.append("path_allowlist_violation")
+    else:
+        # No registered job contract — preserve main's pre-ADR-036 checks,
+        # INCLUDING the github-app token-VALUE allowlist so standalone callers
+        # keep the token-value security check (canonical dropped this).
+        if workflow_id.strip() and job_id.strip():
+            reasons.append(f"workflow_job_contract_missing:{workflow_id}:{job_id}")
+            failure_classes.append("workflow_preflight_contract")
+        if require_github_app and not token_provenance:
+            reasons.append("token_provenance_missing")
+            failure_classes.append("token_provenance_required")
+        allowed_token_provenance = {
+            "github_app:installation",
+            "github_app:installation_token",
+            "github_app:verified",
+        }
+        if require_github_app and token_provenance and token_provenance not in allowed_token_provenance:
+            reasons.append("github_app_token_required")
+            failure_classes.append("token_provenance_required")
+
     if not network:
         reasons.append("network_policy_missing")
         failure_classes.append("network_policy_required")
@@ -432,29 +515,14 @@ def verify_workflow_preflight(
         failure_classes.append("workflow_preflight_contract")
 
     for root in roots:
-        root_path = Path(root)
-        if root_path.is_absolute():
-            resolved = root_path.resolve()
-            try:
-                rel = resolved.relative_to(workspace)
-            except ValueError:
-                if not _is_under_any_external_root(resolved, external_roots):
-                    reasons.append(f"external_write_root_not_allowlisted:{resolved.as_posix()}")
-                    failure_classes.append("path_allowlist_violation")
-                continue
-        else:
-            rel = root_path
-            resolved = (workspace / root_path).resolve()
-        rel_text = rel.as_posix().strip("/")
-        if not rel_text or rel_text == "." or resolved == workspace:
+        if not root or root == ".":
             reasons.append(f"allowed_write_root_is_workspace_root:{root}")
-            failure_classes.append("path_allowlist_violation")
-        elif rel_text not in allowlist:
-            reasons.append(f"allowed_write_root_not_exactly_allowlisted:{rel_text}")
             failure_classes.append("path_allowlist_violation")
 
     verdict = WorkflowPreflightVerdict(
+        schema_version=1,
         workflow_id=workflow_id,
+        job_id=job_id,
         profile=profile,
         kill_switch_active=kill_switch,
         network_policy=network,
@@ -464,7 +532,9 @@ def verify_workflow_preflight(
         token_provenance=token_provenance,
         dlp_mode=dlp_mode,
         audit_reason=audit_reason,
-        workflow_hash=workflow_hash,
+        workflow_hash=workflow_hash or observed_workflow_hash,
+        contract_hash=contract_digest,
+        runtime_write_paths=roots,
         network_enforcement_evidence=network_enforcement_evidence,
         audit_artifact_path=str(audit_artifact_path) if audit_artifact_path is not None else None,
         worktree_clean=worktree_clean,
@@ -478,17 +548,33 @@ def verify_workflow_preflight(
     return verdict
 
 
-def _is_under_any_external_root(path: Path, roots: tuple[str, ...]) -> bool:
-    for root in roots:
-        root_path = Path(root)
-        if not root_path.is_absolute():
-            continue
+def _normalise_runtime_path(path: str, *, workspace: Path, external_roots: tuple[str, ...]) -> str:
+    raw = path.strip().strip('"').strip("'")
+    raw = re.sub(r"\$\{\{\s*runner\.temp\s*\}\}", "runner-temp", raw)
+    if not raw:
+        return raw
+    raw_path = Path(raw)
+    if raw_path.is_absolute():
+        resolved = raw_path.resolve()
         try:
-            path.relative_to(root_path.resolve())
-            return True
+            return resolved.relative_to(workspace).as_posix().strip("/")
         except ValueError:
-            continue
-    return False
+            for external in external_roots:
+                external_path = Path(external)
+                if not external_path.is_absolute():
+                    continue
+                try:
+                    rel = resolved.relative_to(external_path.resolve())
+                    rel_text = rel.as_posix().strip("/")
+                    return "runner-temp" if not rel_text else f"runner-temp/{rel_text}"
+                except ValueError:
+                    continue
+            return resolved.as_posix()
+    return raw.strip("/")
+
+
+def _matches_contract_path(job_contract: WorkflowJobContract, path: str) -> bool:
+    return any(re.fullmatch(pattern, path) for pattern in job_contract.allowed_write_path_patterns)
 
 
 def _env_truthy(name: str) -> bool:

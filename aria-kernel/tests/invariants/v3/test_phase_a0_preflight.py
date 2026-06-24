@@ -5,7 +5,7 @@ Locks:
   * I-V3-00b — `lane` derivation rejects operator override (CLI has no `--lane`)
   * I-V3-00c — auto_action_policy L3 exclusion list contains every required entry
   * I-V3-00d — secret-rotation runbook + workflow govern ARIA ack key and do not list legacy Claude token
-  * I-V3-00e — snowball branch protection capture file exists OR documented
+  * I-V3-00e — snowball runtime captures are not tracked live state
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -76,7 +77,7 @@ class PhaseA0Preflight(unittest.TestCase):
             "derive_lane_from_base_branch",
             "derive_lane_from_pr_metadata",
             "LaneDecision",
-            "L3-snowball",
+            "HISTORICAL_SNOWBALL_BRANCH",
             "L0-main",
         ):
             self.assertIn(required, text)
@@ -89,12 +90,17 @@ class PhaseA0Preflight(unittest.TestCase):
             sys.path.insert(0, str(kernel_root))
         from aria_kernel.lane_classifier import derive_lane_from_base_branch
 
-        self.assertEqual(derive_lane_from_base_branch("snowball").lane, "L3-snowball")
+        snowball = derive_lane_from_base_branch("snowball")
+        self.assertIsNone(snowball.lane)
+        self.assertEqual(
+            snowball.decision_reason,
+            "base_branch_is_historical_snowball",
+        )
         self.assertEqual(derive_lane_from_base_branch("main").lane, "L0-main")
         self.assertIsNone(derive_lane_from_base_branch("feature/foo").lane)
         self.assertIsNone(derive_lane_from_base_branch("").lane)
         # Whitespace + case tolerance
-        self.assertEqual(derive_lane_from_base_branch("  SnowBall  ").lane, "L3-snowball")
+        self.assertIsNone(derive_lane_from_base_branch("  SnowBall  ").lane)
 
     def test_i_v3_00c_auto_action_policy_l3_exclusion_list_present(self) -> None:
         path = (
@@ -173,50 +179,29 @@ class PhaseA0Preflight(unittest.TestCase):
         ):
             self.assertIn(required, text, f"DR runbook missing section: {required!r}")
 
-    def test_i_v3_00e_aria_findings_f009_present_with_v3_claim_type(self) -> None:
-        path = _REPO_ROOT / "aria-findings" / "F-009.json"
-        self.assertTrue(path.exists(), f"F-009 finding doc missing at {path}")
-        data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data["finding_id"], "F-009")
-        self.assertIn("plan_aria_v3", data["claim_type"])
-        self.assertIn("aria-kernel", data["scope"])
-
-    def test_i_v3_00e_snowball_branch_protection_capture_present(self) -> None:
-        """Plan ARIA-V3 §A0 + INFRA-HIGH-006 — operator pre-flight
-        captured the snowball branch protection state via gh api. The
-        capture file must exist, carry a `compatibility_decision`, and
-        an `operator_acknowledgement` block referencing an approval ref.
-        Failing this invariant blocks Phase A1 entry.
-        """
-        path = (
-            _REPO_ROOT
-            / "aria-tools"
-            / "preflight"
-            / "snowball-branch-protection-v3.json"
+    def test_i_v3_00e_historical_runtime_state_is_not_tracked(self) -> None:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(_REPO_ROOT),
+                "ls-files",
+                "aria-findings",
+                "aria-tools/preflight",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
         )
-        self.assertTrue(
-            path.exists(),
+        result = completed.stdout.splitlines()
+        self.assertEqual(
+            result,
+            [],
             msg=(
-                "Pre-flight capture absent. Operator MUST run "
-                "`gh api repos/<owner>/<repo>/branches/snowball/protection` "
-                "and persist the response to this path before Phase A1 starts."
+                "Historical ARIA findings and snowball preflight captures are "
+                f"runtime state, not live authority: {result}"
             ),
         )
-        data = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(data.get("plan"), "ARIA-V3")
-        self.assertEqual(data.get("phase"), "A0")
-        # Decision must be one of two architecturally-valid outcomes.
-        compatibility = data.get("compatibility_decision")
-        self.assertIn(
-            compatibility,
-            {"compatible_no_protection", "compatible_with_protection"},
-            msg=f"Unrecognised compatibility_decision: {compatibility!r}",
-        )
-        ack = data.get("operator_acknowledgement") or {}
-        self.assertIsInstance(ack, dict)
-        for required in ("approved_by", "approval_ref", "acknowledgement_text"):
-            self.assertIn(required, ack, msg=f"Pre-flight ack missing {required!r}")
-        self.assertEqual(data.get("documented_finding_id"), "INFRA-HIGH-006")
 
 
 if __name__ == "__main__":

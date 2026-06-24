@@ -51,6 +51,11 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import {
+  commitMessageClosesFinding,
+  readCommitMessage,
+} from '../../tools/gates/finding-traceability';
+
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
@@ -98,7 +103,7 @@ function commitExists(sha: string): boolean {
 
 function commitMessage(sha: string): string {
   try {
-    return execSync(`git log -1 --format=%B ${sha}`, { cwd: REPO_ROOT, encoding: 'utf8' });
+    return readCommitMessage(REPO_ROOT, sha);
   } catch {
     return '';
   }
@@ -487,17 +492,7 @@ describe('three-store invariants', () => {
           if (LEGACY_DRIFT_SET.has(`${e.id}::${sha}`)) continue;
 
           const msg = commitMessage(sha);
-          // Accept either:
-          //   Closes: ...#<finding-id>            (anchor reference)
-          //   Closes: <finding-id>                (bare reference)
-          //   Closes: BACKLOG-<word>              (legacy backlog reference,
-          //                                        registry cross-listed)
-          const idPattern = e.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const closesRx = new RegExp(
-            `^Closes:\\s+.*\\b(${idPattern}|BACKLOG-[A-Z0-9_-]+)\\b`,
-            'm',
-          );
-          if (!closesRx.test(msg)) {
+          if (!commitMessageClosesFinding(msg, e.id)) {
             throw new Error(
               `Finding ${e.id} claims SHA ${sha} as a closer but the commit message has no matching Closes: trailer. ` +
                 `Either fix the Closes: trailer (requires rebase/amend on an unmerged commit), update the registry entry, ` +

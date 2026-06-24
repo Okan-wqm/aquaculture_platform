@@ -11,7 +11,55 @@ export type Scalars = {
   DateTime: { input: string; output: string; }
   /** The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf). */
   JSON: { input: Record<string, unknown>; output: Record<string, unknown>; }
+  join__FieldSet: { input: unknown; output: unknown; }
+  link__Import: { input: unknown; output: unknown; }
 };
+
+export type AcceptInvitationInput = {
+  firstName?: InputMaybe<Scalars['String']['input']>;
+  lastName?: InputMaybe<Scalars['String']['input']>;
+  password: Scalars['String']['input'];
+  token: Scalars['String']['input'];
+};
+
+/** Controls which platforms the user can access */
+export type AccessType =
+  | 'BOTH'
+  | 'MOBILE_ONLY'
+  | 'PANEL_ONLY';
+
+export type AcknowledgeAlarmInput = {
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type AcknowledgeAlertInput = {
+  alertId: Scalars['ID']['input'];
+  note?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** IEC 61131-3 action qualifier determining when/how action executes */
+export type ActionQualifier =
+  | 'D'
+  | 'DS'
+  | 'L'
+  | 'N'
+  | 'P'
+  | 'P0'
+  | 'P1'
+  | 'R'
+  | 'S'
+  | 'SD'
+  | 'SL';
+
+/** Type of action to perform */
+export type ActionType =
+  | 'ALARM'
+  | 'ASSIGN'
+  | 'CALL_FB'
+  | 'CUSTOM_ST'
+  | 'LOG'
+  | 'SET_OUTPUT'
+  | 'TIMER';
 
 export type ActiveTankResponse = {
   avgWeightG: Scalars['Float']['output'];
@@ -22,6 +70,13 @@ export type ActiveTankResponse = {
   tankCode?: Maybe<Scalars['String']['output']>;
   tankId: Scalars['ID']['output'];
   tankName?: Maybe<Scalars['String']['output']>;
+};
+
+export type ActuatorUsageStats = {
+  aerationOnTimePercent: Scalars['Float']['output'];
+  avgBlowerSpeed: Scalars['Float']['output'];
+  avgDoserSpeed: Scalars['Float']['output'];
+  feedingTimePercent: Scalars['Float']['output'];
 };
 
 export type AddChemicalDocumentInput = {
@@ -49,6 +104,67 @@ export type AddFeedInventoryInput = {
   unitPricePerKg?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type AddIoConfigInput = {
+  alarmH?: InputMaybe<Scalars['Float']['input']>;
+  alarmHH?: InputMaybe<Scalars['Float']['input']>;
+  alarmL?: InputMaybe<Scalars['Float']['input']>;
+  alarmLL?: InputMaybe<Scalars['Float']['input']>;
+  busType?: InputMaybe<Scalars['String']['input']>;
+  channel: Scalars['Int']['input'];
+  dataType: IoDataType;
+  deadband?: InputMaybe<Scalars['Float']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  driverType?: InputMaybe<Scalars['String']['input']>;
+  engMax?: InputMaybe<Scalars['Float']['input']>;
+  engMin?: InputMaybe<Scalars['Float']['input']>;
+  engUnit?: InputMaybe<Scalars['String']['input']>;
+  gpioMode?: InputMaybe<Scalars['String']['input']>;
+  gpioPin?: InputMaybe<Scalars['Int']['input']>;
+  i2cAddress?: InputMaybe<Scalars['Int']['input']>;
+  i2cBus?: InputMaybe<Scalars['Int']['input']>;
+  invertValue?: InputMaybe<Scalars['Boolean']['input']>;
+  ioType: IoType;
+  modbusFunction?: InputMaybe<Scalars['Int']['input']>;
+  modbusRegister?: InputMaybe<Scalars['Int']['input']>;
+  modbusSlaveId?: InputMaybe<Scalars['Int']['input']>;
+  moduleAddress: Scalars['Int']['input'];
+  rawMax?: InputMaybe<Scalars['Float']['input']>;
+  rawMin?: InputMaybe<Scalars['Float']['input']>;
+  spiBus?: InputMaybe<Scalars['Int']['input']>;
+  spiCs?: InputMaybe<Scalars['Int']['input']>;
+  tagName: Scalars['String']['input'];
+  uartPort?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type AddLoRaDeviceInput = {
+  activationMode?: InputMaybe<LoRaActivationMode>;
+  /** Enable Adaptive Data Rate */
+  adrEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** Application EUI for OTAA activation (16 hex chars) */
+  appEui?: InputMaybe<Scalars['String']['input']>;
+  /** Application Key for OTAA (32 hex chars) */
+  appKey: Scalars['String']['input'];
+  /** Payload codec: cayenne_lpp, raw, json */
+  codec?: InputMaybe<Scalars['String']['input']>;
+  /** Device EUI - 16 hex character unique identifier */
+  devEui: Scalars['String']['input'];
+  deviceClass?: InputMaybe<LoRaDeviceClass>;
+  /** Human-friendly device name */
+  name: Scalars['String']['input'];
+  /** Tag name prefix for I/O data (e.g. "LORA_PH") */
+  tagPrefix: Scalars['String']['input'];
+};
+
+export type AddMemberInputType = {
+  deviceId: Scalars['String']['input'];
+  deviceType: DeviceMemberType;
+};
+
+export type AddSuppressionWindowInput = {
+  policyId: Scalars['ID']['input'];
+  window: SuppressionWindowInput;
+};
+
 export type AddTankInput = {
   equipmentId: Scalars['ID']['input'];
   temperatureSensorCode?: InputMaybe<Scalars['String']['input']>;
@@ -61,6 +177,28 @@ export type AddTankToProgramInput = {
   feedingProgramId: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
   temperatureSensorId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type AddTicketCommentInput = {
+  content: Scalars['String']['input'];
+  isInternal?: Scalars['Boolean']['input'];
+  ticketId: Scalars['String']['input'];
+};
+
+export type Address = {
+  city: Scalars['String']['output'];
+  country: Scalars['String']['output'];
+  postalCode: Scalars['String']['output'];
+  state: Scalars['String']['output'];
+  street: Scalars['String']['output'];
+};
+
+export type AddressInput = {
+  city: Scalars['String']['input'];
+  country: Scalars['String']['input'];
+  postalCode: Scalars['String']['input'];
+  state: Scalars['String']['input'];
+  street: Scalars['String']['input'];
 };
 
 export type AdjustFeedInventoryInput = {
@@ -98,6 +236,156 @@ export type AffectedPopulationInput = {
   spreadRate?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type AggregatedReading = {
+  avgAmmonia?: Maybe<Scalars['Float']['output']>;
+  avgDissolvedOxygen?: Maybe<Scalars['Float']['output']>;
+  avgNitrate?: Maybe<Scalars['Float']['output']>;
+  avgNitrite?: Maybe<Scalars['Float']['output']>;
+  avgPh?: Maybe<Scalars['Float']['output']>;
+  avgSalinity?: Maybe<Scalars['Float']['output']>;
+  avgTemperature?: Maybe<Scalars['Float']['output']>;
+  avgTurbidity?: Maybe<Scalars['Float']['output']>;
+  avgWaterLevel?: Maybe<Scalars['Float']['output']>;
+  bucket: Scalars['DateTime']['output'];
+  count: Scalars['Int']['output'];
+  maxAmmonia?: Maybe<Scalars['Float']['output']>;
+  maxDissolvedOxygen?: Maybe<Scalars['Float']['output']>;
+  maxPh?: Maybe<Scalars['Float']['output']>;
+  maxSalinity?: Maybe<Scalars['Float']['output']>;
+  maxTemperature?: Maybe<Scalars['Float']['output']>;
+  minAmmonia?: Maybe<Scalars['Float']['output']>;
+  minDissolvedOxygen?: Maybe<Scalars['Float']['output']>;
+  minPh?: Maybe<Scalars['Float']['output']>;
+  minSalinity?: Maybe<Scalars['Float']['output']>;
+  minTemperature?: Maybe<Scalars['Float']['output']>;
+};
+
+export type AggregatedReadingsResponse = {
+  data: Array<AggregatedReading>;
+  endTime: Scalars['DateTime']['output'];
+  interval: Scalars['String']['output'];
+  sensorId: Scalars['String']['output'];
+  sensorName?: Maybe<Scalars['String']['output']>;
+  startTime: Scalars['DateTime']['output'];
+  totalDataPoints: Scalars['Int']['output'];
+};
+
+/** Time bucket interval for data aggregation */
+export type AggregationInterval =
+  | 'FIFTEEN_MINUTES'
+  | 'FIVE_MINUTES'
+  | 'FOUR_HOURS'
+  | 'ONE_DAY'
+  | 'ONE_HOUR'
+  | 'ONE_MINUTE'
+  | 'ONE_WEEK';
+
+export type AiPersonaType = {
+  /** List of capability labels */
+  capabilities: Array<Scalars['String']['output']>;
+  /** Theme color key for UI styling */
+  color: Scalars['String']['output'];
+  /** Short description of persona specialization */
+  description: Scalars['String']['output'];
+  /** Icon identifier (Lucide icon name) */
+  icon: Scalars['String']['output'];
+  /** Persona ID (null = general assistant) */
+  id?: Maybe<Scalars['String']['output']>;
+  /** Human-readable display name */
+  name: Scalars['String']['output'];
+};
+
+export type AiSettingsType = {
+  /** Tenant-level AI analysis master switch */
+  tenantAiEnabled: Scalars['Boolean']['output'];
+  /** User-level AI analysis consent */
+  userAiConsent: Scalars['Boolean']['output'];
+};
+
+export type AlarmCountBySeverity = {
+  critical: Scalars['Int']['output'];
+  emergency: Scalars['Int']['output'];
+  info: Scalars['Int']['output'];
+  warning: Scalars['Int']['output'];
+};
+
+export type AlarmCountBySource = {
+  count: Scalars['Int']['output'];
+  source: Scalars['String']['output'];
+};
+
+export type AlarmSeverity =
+  | 'CRITICAL'
+  | 'EMERGENCY'
+  | 'INFO'
+  | 'WARNING';
+
+export type AlarmSource =
+  | 'BLOWER_VFD'
+  | 'COMMUNICATION'
+  | 'DOSER_VFD'
+  | 'FEEDING_SYSTEM'
+  | 'FLOW_SENSOR'
+  | 'OXYGEN_SENSOR'
+  | 'PH_SENSOR'
+  | 'PLC_SYSTEM'
+  | 'TEMPERATURE_SENSOR';
+
+export type AlertConditionInput = {
+  operator: AlertOperator;
+  parameter: Scalars['String']['input'];
+  severity: AlertSeverity;
+  threshold: Scalars['Float']['input'];
+};
+
+export type AlertHistory = {
+  acknowledged: Scalars['Boolean']['output'];
+  acknowledgedAt?: Maybe<Scalars['DateTime']['output']>;
+  acknowledgedBy?: Maybe<Scalars['String']['output']>;
+  acknowledgementNote?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  farmId?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  message: Scalars['String']['output'];
+  pondId?: Maybe<Scalars['String']['output']>;
+  resolved: Scalars['Boolean']['output'];
+  resolvedAt?: Maybe<Scalars['DateTime']['output']>;
+  ruleId: Scalars['String']['output'];
+  ruleName: Scalars['String']['output'];
+  sensorId?: Maybe<Scalars['String']['output']>;
+  severity: AlertSeverity;
+  tenantId: Scalars['String']['output'];
+  triggeredAt: Scalars['DateTime']['output'];
+  triggeringData: Scalars['JSON']['output'];
+};
+
+/** Comparison operator for alert conditions */
+export type AlertOperator =
+  | 'EQ'
+  | 'GT'
+  | 'GTE'
+  | 'LT'
+  | 'LTE';
+
+export type AlertRule = {
+  conditions: Scalars['JSON']['output'];
+  cooldownMinutes: Scalars['Int']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  farmId?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  notificationChannels?: Maybe<Array<Scalars['String']['output']>>;
+  pondId?: Maybe<Scalars['String']['output']>;
+  recipients?: Maybe<Array<Scalars['String']['output']>>;
+  sensorId?: Maybe<Scalars['String']['output']>;
+  severity?: Maybe<AlertSeverity>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
 export type AlertSettingsInput = {
   daysBeforeDue?: Scalars['Int']['input'];
   emailNotification?: Scalars['Boolean']['input'];
@@ -106,13 +394,82 @@ export type AlertSettingsInput = {
   smsNotification?: Scalars['Boolean']['input'];
 };
 
+/** Severity level for alerts */
+export type AlertSeverity =
+  | 'CRITICAL'
+  | 'HIGH'
+  | 'INFO'
+  | 'LOW'
+  | 'MEDIUM'
+  | 'WARNING';
+
+export type AlertThreshold = {
+  high?: Maybe<Scalars['Float']['output']>;
+  low?: Maybe<Scalars['Float']['output']>;
+};
+
+export type AlertThresholdRangeInput = {
+  high?: InputMaybe<Scalars['Float']['input']>;
+  low?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type AlertThresholdRangeType = {
+  high?: Maybe<Scalars['Float']['output']>;
+  low?: Maybe<Scalars['Float']['output']>;
+};
+
+export type AlertThresholdValueInput = {
+  high?: InputMaybe<Scalars['Float']['input']>;
+  low?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type AlertThresholdValueType = {
+  high?: Maybe<Scalars['Float']['output']>;
+  low?: Maybe<Scalars['Float']['output']>;
+};
+
+export type AlertThresholds = {
+  critical?: Maybe<AlertThreshold>;
+  hysteresis?: Maybe<Scalars['Float']['output']>;
+  warning?: Maybe<AlertThreshold>;
+};
+
+export type AlertThresholdsInput = {
+  critical?: InputMaybe<AlertThresholdValueInput>;
+  hysteresis?: InputMaybe<Scalars['Float']['input']>;
+  warning?: InputMaybe<AlertThresholdValueInput>;
+};
+
+export type AlertThresholdsType = {
+  critical?: Maybe<AlertThresholdValueType>;
+  hysteresis?: Maybe<Scalars['Float']['output']>;
+  warning?: Maybe<AlertThresholdValueType>;
+};
+
+export type AllMessagesSinceResponse = {
+  hasMore: Scalars['Boolean']['output'];
+  messages: Array<Message>;
+  /** Opaque sync token for next request */
+  syncToken?: Maybe<Scalars['String']['output']>;
+};
+
 export type AllocateToTankInput = {
   allocatedAt?: InputMaybe<Scalars['DateTime']['input']>;
   allocationType?: AllocationType;
   avgWeightG: Scalars['Float']['input'];
   batchId: Scalars['ID']['input'];
+  clientCommandId: Scalars['ID']['input'];
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  payloadHash: Scalars['String']['input'];
   quantity: Scalars['Int']['input'];
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   tankId: Scalars['ID']['input'];
 };
 
@@ -125,12 +482,124 @@ export type AllocationType =
   | 'TRANSFER_IN'
   | 'TRANSFER_OUT';
 
+export type Announcement = {
+  acknowledgmentCount: Scalars['Float']['output'];
+  content: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['String']['output'];
+  createdByName: Scalars['String']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  isGlobal: Scalars['Boolean']['output'];
+  publishAt?: Maybe<Scalars['DateTime']['output']>;
+  requiresAcknowledgment: Scalars['Boolean']['output'];
+  scope: AnnouncementScope;
+  status: AnnouncementStatus;
+  targetCriteria?: Maybe<AnnouncementTarget>;
+  tenantId?: Maybe<Scalars['String']['output']>;
+  title: Scalars['String']['output'];
+  type: AnnouncementType;
+  updatedAt: Scalars['DateTime']['output'];
+  viewCount: Scalars['Float']['output'];
+};
+
+export type AnnouncementAcknowledgment = {
+  acknowledgedAt?: Maybe<Scalars['DateTime']['output']>;
+  announcementId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  tenantId?: Maybe<Scalars['String']['output']>;
+  tenantName?: Maybe<Scalars['String']['output']>;
+  userId: Scalars['String']['output'];
+  userName: Scalars['String']['output'];
+  viewedAt: Scalars['DateTime']['output'];
+};
+
+export type AnnouncementListItem = {
+  acknowledgmentCount: Scalars['Float']['output'];
+  content: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdByName: Scalars['String']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  hasAcknowledged?: Maybe<Scalars['Boolean']['output']>;
+  hasViewed?: Maybe<Scalars['Boolean']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isGlobal: Scalars['Boolean']['output'];
+  publishAt?: Maybe<Scalars['DateTime']['output']>;
+  requiresAcknowledgment: Scalars['Boolean']['output'];
+  scope: AnnouncementScope;
+  status: AnnouncementStatus;
+  title: Scalars['String']['output'];
+  type: AnnouncementType;
+  viewCount: Scalars['Float']['output'];
+};
+
+/** Who can create/see the announcement */
+export type AnnouncementScope =
+  | 'PLATFORM'
+  | 'TENANT';
+
+export type AnnouncementStats = {
+  draft: Scalars['Float']['output'];
+  expired: Scalars['Float']['output'];
+  published: Scalars['Float']['output'];
+  scheduled: Scalars['Float']['output'];
+  total: Scalars['Float']['output'];
+  totalAcknowledgments: Scalars['Float']['output'];
+  totalViews: Scalars['Float']['output'];
+};
+
+/** Announcement publication status */
+export type AnnouncementStatus =
+  | 'CANCELLED'
+  | 'DRAFT'
+  | 'EXPIRED'
+  | 'PUBLISHED'
+  | 'SCHEDULED';
+
+export type AnnouncementTarget = {
+  excludeTenantIds?: Maybe<Array<Scalars['String']['output']>>;
+  modules?: Maybe<Array<Scalars['String']['output']>>;
+  plans?: Maybe<Array<Scalars['String']['output']>>;
+  regions?: Maybe<Array<Scalars['String']['output']>>;
+  tenantIds?: Maybe<Array<Scalars['String']['output']>>;
+};
+
+export type AnnouncementTargetInput = {
+  excludeTenantIds?: InputMaybe<Array<Scalars['String']['input']>>;
+  modules?: InputMaybe<Array<Scalars['String']['input']>>;
+  plans?: InputMaybe<Array<Scalars['String']['input']>>;
+  regions?: InputMaybe<Array<Scalars['String']['input']>>;
+  tenantIds?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+/** Announcement type/severity */
+export type AnnouncementType =
+  | 'CRITICAL'
+  | 'INFO'
+  | 'MAINTENANCE'
+  | 'WARNING';
+
 export type ApplyParameterTemplateInput = {
   /** Overwrite existing parameter configs with same code */
   overwrite?: Scalars['Boolean']['input'];
   /** Template identifier to apply */
   templateId: Scalars['String']['input'];
 };
+
+export type ApprovalHistoryEntry = {
+  action: Scalars['String']['output'];
+  actorId: Scalars['String']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  timestamp: Scalars['DateTime']['output'];
+};
+
+export type ApprovalStatus =
+  | 'AUTO_APPROVED'
+  | 'HR_APPROVED'
+  | 'MANAGER_APPROVED'
+  | 'PENDING_REVIEW'
+  | 'REJECTED';
 
 export type ApproveWorkOrderInput = {
   approvalNotes?: InputMaybe<Scalars['String']['input']>;
@@ -145,6 +614,14 @@ export type ArrivalMethod =
   | 'OTHER'
   | 'RAIL'
   | 'TRUCK';
+
+export type AssessmentAttempt = {
+  attemptNumber: Scalars['Int']['output'];
+  attemptedAt: Scalars['DateTime']['output'];
+  durationMinutes?: Maybe<Scalars['Int']['output']>;
+  passed: Scalars['Boolean']['output'];
+  score: Scalars['Float']['output'];
+};
 
 /** Varlık tipi */
 export type AssetType =
@@ -167,6 +644,184 @@ export type AssignFeedsToBatchInput = {
   feedAssignments: Array<FeedAssignmentEntryInput>;
   /** Optional notes */
   notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type AssignModuleManagerInput = {
+  moduleId: Scalars['String']['input'];
+  userId: Scalars['String']['input'];
+};
+
+export type AssignTicketInput = {
+  assigneeId: Scalars['String']['input'];
+  ticketId: Scalars['String']['input'];
+};
+
+export type AssignUserRoleInput = {
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  permissionOverrides?: InputMaybe<PermissionOverridesInput>;
+  roleId: Scalars['ID']['input'];
+};
+
+export type AssignUserToModuleInput = {
+  email: Scalars['String']['input'];
+  firstName: Scalars['String']['input'];
+  lastName: Scalars['String']['input'];
+  moduleId: Scalars['String']['input'];
+  role?: Scalars['String']['input'];
+};
+
+export type AssignUserToSiteInput = {
+  siteId: Scalars['ID']['input'];
+  userId: Scalars['ID']['input'];
+};
+
+export type AssignmentResult = {
+  isNewUser: Scalars['Boolean']['output'];
+  message: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+  userId?: Maybe<Scalars['String']['output']>;
+};
+
+export type AttendanceRecord = {
+  adjustedBy?: Maybe<Scalars['String']['output']>;
+  adjustmentReason?: Maybe<Scalars['String']['output']>;
+  approvalStatus: ApprovalStatus;
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['String']['output']>;
+  breakEndTime?: Maybe<Scalars['DateTime']['output']>;
+  breakMinutes: Scalars['Int']['output'];
+  breakStartTime?: Maybe<Scalars['DateTime']['output']>;
+  clockIn?: Maybe<Scalars['DateTime']['output']>;
+  clockInLocation?: Maybe<GeoLocation>;
+  clockInMethod?: Maybe<ClockMethod>;
+  clockOut?: Maybe<Scalars['DateTime']['output']>;
+  clockOutLocation?: Maybe<GeoLocation>;
+  clockOutMethod?: Maybe<ClockMethod>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  date: Scalars['DateTime']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  departmentId?: Maybe<Scalars['String']['output']>;
+  earlyLeaveMinutes: Scalars['Int']['output'];
+  employee?: Maybe<Employee>;
+  employeeId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isAdjusted: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isManualEntry: Scalars['Boolean']['output'];
+  isOffshore: Scalars['Boolean']['output'];
+  lateMinutes: Scalars['Int']['output'];
+  overtimeMinutes: Scalars['Int']['output'];
+  reason?: Maybe<Scalars['String']['output']>;
+  recordNumber: Scalars['String']['output'];
+  remarks?: Maybe<Scalars['String']['output']>;
+  shiftId?: Maybe<Scalars['String']['output']>;
+  status: AttendanceStatus;
+  tenantId: Scalars['String']['output'];
+  timezone?: Maybe<Scalars['String']['output']>;
+  totalBreakMinutes?: Maybe<Scalars['Int']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  workAreaId?: Maybe<Scalars['String']['output']>;
+  workedMinutes: Scalars['Int']['output'];
+};
+
+export type AttendanceRecordConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<AttendanceRecord>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type AttendanceStatus =
+  | 'ABSENT'
+  | 'EARLY_LEAVE'
+  | 'HALF_DAY'
+  | 'HOLIDAY'
+  | 'LATE'
+  | 'OFFSHORE'
+  | 'ON_LEAVE'
+  | 'PRESENT'
+  | 'REST_DAY'
+  | 'WORK_FROM_HOME';
+
+export type AttendanceSummary = {
+  absentDays: Scalars['Int']['output'];
+  attendanceRate: Scalars['Float']['output'];
+  earlyLeaveDays: Scalars['Int']['output'];
+  employeeId: Scalars['String']['output'];
+  holidayDays: Scalars['Int']['output'];
+  lateDays: Scalars['Int']['output'];
+  leaveDays: Scalars['Int']['output'];
+  month: Scalars['Int']['output'];
+  offshoreDays: Scalars['Int']['output'];
+  presentDays: Scalars['Int']['output'];
+  totalLateMinutes: Scalars['Int']['output'];
+  totalOvertimeMinutes: Scalars['Int']['output'];
+  totalWorkDays: Scalars['Int']['output'];
+  totalWorkedMinutes: Scalars['Int']['output'];
+  year: Scalars['Int']['output'];
+};
+
+export type AuditLogEntryResponse = {
+  action: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  details?: Maybe<Scalars['JSON']['output']>;
+  entityId?: Maybe<Scalars['String']['output']>;
+  entityType: Scalars['String']['output'];
+  id: Scalars['String']['output'];
+  ipAddress?: Maybe<Scalars['String']['output']>;
+  performedBy: Scalars['String']['output'];
+  performedByEmail?: Maybe<Scalars['String']['output']>;
+  severity: Scalars['String']['output'];
+  userAgent?: Maybe<Scalars['String']['output']>;
+};
+
+export type AuditLogFilterInput = {
+  action?: InputMaybe<ComplianceAction>;
+  endDate?: InputMaybe<Scalars['DateTime']['input']>;
+  resourceType?: InputMaybe<Scalars['String']['input']>;
+  startDate?: InputMaybe<Scalars['DateTime']['input']>;
+  userId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type AuditLogPage = {
+  data: Array<AuditLogEntryResponse>;
+  total: Scalars['Int']['output'];
+};
+
+export type AuditLogPageType = {
+  cursor?: Maybe<Scalars['String']['output']>;
+  hasMore: Scalars['Boolean']['output'];
+  items: Array<ComplianceAuditLog>;
+  totalCount: Scalars['Int']['output'];
+};
+
+export type AuthPayload = {
+  accessToken: Scalars['String']['output'];
+  expiresIn: Scalars['Int']['output'];
+  mfaRequired?: Maybe<Scalars['Boolean']['output']>;
+  mfaToken?: Maybe<Scalars['String']['output']>;
+  redirectUrl: Scalars['String']['output'];
+  /**
+   * Deprecated: refresh token is now stored in httpOnly cookie. This field returns empty string.
+   * @deprecated Refresh token is now in httpOnly cookie; this field returns empty string and will be removed in the next release. Read the cookie via the auth flow instead.
+   */
+  refreshToken: Scalars['String']['output'];
+  tokenType: Scalars['String']['output'];
+  user: User;
 };
 
 export type AutoRule = {
@@ -198,6 +853,73 @@ export type AutoRuleTrigger =
   | 'STOCK_LOW'
   | 'WATER_PARAM_ALERT';
 
+export type AutomationDeployStepResultType = {
+  commandId?: Maybe<Scalars['String']['output']>;
+  message?: Maybe<Scalars['String']['output']>;
+  programId: Scalars['ID']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
+export type AutomationProgram = {
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['String']['output']>;
+  category?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currentStep?: Maybe<Scalars['String']['output']>;
+  deployTarget: DeployTarget;
+  deployedAt?: Maybe<Scalars['DateTime']['output']>;
+  deployedBy?: Maybe<Scalars['String']['output']>;
+  deployedVersion?: Maybe<Scalars['Int']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  deviceId?: Maybe<Scalars['String']['output']>;
+  executionMode: ExecutionMode;
+  id: Scalars['ID']['output'];
+  isLocked: Scalars['Boolean']['output'];
+  lastExecutionTime?: Maybe<Scalars['DateTime']['output']>;
+  lockedAt?: Maybe<Scalars['DateTime']['output']>;
+  lockedBy?: Maybe<Scalars['String']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  priority: Scalars['Int']['output'];
+  processTemplateId?: Maybe<Scalars['String']['output']>;
+  programCode: Scalars['String']['output'];
+  programName: Scalars['String']['output'];
+  programType: ProgramType;
+  scanCycleMs: Scalars['Int']['output'];
+  sfcDefinition?: Maybe<Scalars['JSON']['output']>;
+  status: ProgramStatus;
+  stepCount: Scalars['Int']['output'];
+  structuredTextCode?: Maybe<Scalars['String']['output']>;
+  tags?: Maybe<Scalars['JSON']['output']>;
+  targetPlcAddress?: Maybe<Scalars['String']['output']>;
+  targetPlcModel?: Maybe<Scalars['String']['output']>;
+  targetPlcPort?: Maybe<Scalars['Float']['output']>;
+  targetPlcProtocol?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  transitionCount: Scalars['Int']['output'];
+  triggerConfig?: Maybe<Scalars['JSON']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  variableCount: Scalars['Int']['output'];
+  version: Scalars['Int']['output'];
+};
+
+export type AutomationProgramConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<AutomationProgram>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
 export type AvailableTankResponse = {
   availableCapacity: Scalars['Float']['output'];
   code: Scalars['String']['output'];
@@ -214,6 +936,14 @@ export type AvailableTankResponse = {
   siteName?: Maybe<Scalars['String']['output']>;
   status: Scalars['String']['output'];
   volume: Scalars['Float']['output'];
+};
+
+export type BankDetailsInput = {
+  accountNumber: Scalars['String']['input'];
+  bankName: Scalars['String']['input'];
+  iban?: InputMaybe<Scalars['String']['input']>;
+  routingNumber: Scalars['String']['input'];
+  swiftCode?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type Batch = {
@@ -414,6 +1144,10 @@ export type BatchHistoryEventType =
   | 'TRANSFERRED'
   | 'UPDATED';
 
+export type BatchIngestInput = {
+  readings: Array<IngestReadingInput>;
+};
+
 /** Batch girdi tipi */
 export type BatchInputType =
   | 'ADULTS'
@@ -516,6 +1250,43 @@ export type BatchStatus =
 export type BatchType =
   | 'CLEANER_FISH'
   | 'PRODUCTION';
+
+export type BatchUpdateSensorsInputType = {
+  departmentId?: InputMaybe<Scalars['String']['input']>;
+  equipmentId?: InputMaybe<Scalars['String']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<SensorStatus>;
+  systemId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type BillingAddress = {
+  attention?: Maybe<Scalars['String']['output']>;
+  city: Scalars['String']['output'];
+  companyName: Scalars['String']['output'];
+  country: Scalars['String']['output'];
+  postalCode: Scalars['String']['output'];
+  state: Scalars['String']['output'];
+  street: Scalars['String']['output'];
+  taxId?: Maybe<Scalars['String']['output']>;
+};
+
+export type BillingAddressInput = {
+  attention?: InputMaybe<Scalars['String']['input']>;
+  city: Scalars['String']['input'];
+  companyName: Scalars['String']['input'];
+  country: Scalars['String']['input'];
+  postalCode: Scalars['String']['input'];
+  state: Scalars['String']['input'];
+  street: Scalars['String']['input'];
+  taxId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type BillingCycle =
+  | 'ANNUAL'
+  | 'MONTHLY'
+  | 'QUARTERLY'
+  | 'SEMI_ANNUAL';
 
 export type BiomassCurrentStockInput = {
   bySpecies: Array<BiomassSpeciesBreakdownInput>;
@@ -627,6 +1398,67 @@ export type BlockingHealthEventOutput = {
   withdrawalPeriodDays?: Maybe<Scalars['Int']['output']>;
 };
 
+export type BreakPeriod = {
+  endTime: Scalars['String']['output'];
+  isPaid: Scalars['Boolean']['output'];
+  startTime: Scalars['String']['output'];
+};
+
+export type BreakPeriodInput = {
+  endTime: Scalars['String']['input'];
+  isPaid?: Scalars['Boolean']['input'];
+  startTime: Scalars['String']['input'];
+};
+
+export type BulkAcknowledgeAlarmsInput = {
+  alarmIds: Array<Scalars['ID']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type BulkAddIoConfigResult = {
+  /** Successfully created I/O configs */
+  created: Array<DeviceIoConfig>;
+  /** Number of configs created */
+  createdCount: Scalars['Int']['output'];
+  /** Tag names that were skipped (already exist) */
+  skipped: Array<Scalars['String']['output']>;
+  /** Number of configs skipped (duplicate tagName) */
+  skippedCount: Scalars['Int']['output'];
+};
+
+export type BulkAssignError = {
+  error: Scalars['String']['output'];
+  userId: Scalars['String']['output'];
+};
+
+export type BulkAssignResult = {
+  failed: Array<BulkAssignError>;
+  success: Array<Scalars['String']['output']>;
+};
+
+export type BulkAssignResultType = {
+  errors: Array<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+  updatedCount: Scalars['Int']['output'];
+};
+
+export type BulkAssignRoleInput = {
+  roleId: Scalars['ID']['input'];
+  userIds: Array<Scalars['ID']['input']>;
+};
+
+export type BulkAssignShiftsInput = {
+  assignments: Array<ShiftAssignmentInput>;
+  weeklyPlanId: Scalars['ID']['input'];
+};
+
+export type BulkConsentResult = {
+  ids: Array<Scalars['ID']['output']>;
+  message: Scalars['String']['output'];
+  recordedCount: Scalars['Float']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
 export type BulkFeedingFailure = {
   error: Scalars['String']['output'];
   executionId: Scalars['ID']['output'];
@@ -637,6 +1469,16 @@ export type BulkFeedingResult = {
   successful: Array<DailyFeedingExecution>;
   totalFailed: Scalars['Int']['output'];
   totalSuccessful: Scalars['Int']['output'];
+};
+
+export type BulkFirmwareUpdateFailure = {
+  error: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+};
+
+export type BulkFirmwareUpdateResult = {
+  failed: Array<BulkFirmwareUpdateFailure>;
+  success: Array<Scalars['ID']['output']>;
 };
 
 export type BulkMapParamsEquipmentInput = {
@@ -654,10 +1496,48 @@ export type BulkStockInItemInput = {
   sparePartId: Scalars['ID']['input'];
 };
 
+export type BulkUpdateDataChannelItem = {
+  alertThresholds?: InputMaybe<AlertThresholdsInput>;
+  channelId: Scalars['ID']['input'];
+};
+
+export type BulkUpdateDataChannelsInput = {
+  updates: Array<BulkUpdateDataChannelItem>;
+};
+
+export type BulkUpdateDataChannelsResult = {
+  count: Scalars['Int']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
+export type BulkUpdateMobileSettingsInput = {
+  cull?: InputMaybe<Scalars['Boolean']['input']>;
+  feeding?: InputMaybe<Scalars['Boolean']['input']>;
+  harvest?: InputMaybe<Scalars['Boolean']['input']>;
+  isMobileEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  mortality?: InputMaybe<Scalars['Boolean']['input']>;
+  storage?: InputMaybe<Scalars['Boolean']['input']>;
+  tankView?: InputMaybe<Scalars['Boolean']['input']>;
+  userIds: Array<Scalars['ID']['input']>;
+  waterQuality?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+/** Byte order for data parsing */
+export type ByteOrder =
+  | 'BIG'
+  | 'LITTLE';
+
 export type Co2RangeInput = {
   max: Scalars['Float']['input'];
   min: Scalars['Float']['input'];
   warning?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type CategoryStatsType = {
+  industrial: Scalars['Int']['output'];
+  iot: Scalars['Int']['output'];
+  serial: Scalars['Int']['output'];
+  wireless: Scalars['Int']['output'];
 };
 
 export type CategoryTotal = {
@@ -665,6 +1545,208 @@ export type CategoryTotal = {
   itemCount: Scalars['Int']['output'];
   totalQuantity: Scalars['Float']['output'];
   totalValue: Scalars['Float']['output'];
+};
+
+export type CertificationCategory =
+  | 'DIVING'
+  | 'ENVIRONMENTAL'
+  | 'EQUIPMENT'
+  | 'FIRST_AID'
+  | 'FOOD_HANDLING'
+  | 'MANAGEMENT'
+  | 'OTHER'
+  | 'SAFETY'
+  | 'TECHNICAL'
+  | 'VESSEL';
+
+export type CertificationDocument = {
+  documentId: Scalars['String']['output'];
+  documentType?: Maybe<Scalars['String']['output']>;
+  fileName: Scalars['String']['output'];
+  uploadedAt: Scalars['DateTime']['output'];
+};
+
+export type CertificationRequirement =
+  | 'MANDATORY'
+  | 'OPTIONAL'
+  | 'RECOMMENDED';
+
+export type CertificationStatus =
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'EXPIRING_SOON'
+  | 'PENDING'
+  | 'REVOKED'
+  | 'SUSPENDED';
+
+export type CertificationType = {
+  applicableWorkAreas?: Maybe<Array<Scalars['String']['output']>>;
+  category: CertificationCategory;
+  code: Scalars['String']['output'];
+  colorCode?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isDivingRequired: Scalars['Boolean']['output'];
+  isOffshoreRequired: Scalars['Boolean']['output'];
+  isSTCW: Scalars['Boolean']['output'];
+  issuingAuthority?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  prerequisiteCertifications?: Maybe<Array<Scalars['String']['output']>>;
+  renewalReminderDays?: Maybe<Scalars['Int']['output']>;
+  requirement: CertificationRequirement;
+  requiresPhysicalAssessment: Scalars['Boolean']['output'];
+  requiresRenewal: Scalars['Boolean']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  validityMonths?: Maybe<Scalars['Int']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type ChangeMyPasswordInput = {
+  currentPassword: Scalars['String']['input'];
+  newPassword: Scalars['String']['input'];
+};
+
+export type ChangeMyPasswordResponse = {
+  message: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
+export type ChangePasswordInput = {
+  currentPassword: Scalars['String']['input'];
+  newPassword: Scalars['String']['input'];
+};
+
+export type ChangeSubscriptionPlanInput = {
+  immediate?: InputMaybe<Scalars['Boolean']['input']>;
+  newPlanId: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type Channel = {
+  aiPersona?: Maybe<Scalars['String']['output']>;
+  aiServiceUrl?: Maybe<Scalars['String']['output']>;
+  avatarUrl?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isArchived: Scalars['Boolean']['output'];
+  /** Most recent message in the channel */
+  lastMessage?: Maybe<Message>;
+  /** Active member count */
+  memberCount?: Maybe<Scalars['Int']['output']>;
+  /** Active channel members */
+  members?: Maybe<Array<ChannelMember>>;
+  name?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  type: ChannelType;
+  /** Unread message count for the current user */
+  unreadCount?: Maybe<Scalars['Int']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Data type of the channel value */
+export type ChannelDataType =
+  | 'BOOLEAN'
+  | 'ENUM'
+  | 'NUMBER'
+  | 'STRING';
+
+export type ChannelDetectionLog = {
+  aiAnalysis: Scalars['JSON']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  finalChannels?: Maybe<Scalars['JSON']['output']>;
+  id: Scalars['ID']['output'];
+  proposedChannels: Scalars['JSON']['output'];
+  rawSample: Scalars['JSON']['output'];
+  sensor: Sensor;
+  sensorId: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  userAction?: Maybe<Scalars['String']['output']>;
+};
+
+export type ChannelDisplaySettingsInput = {
+  chartConfig?: InputMaybe<Scalars['JSON']['input']>;
+  color?: InputMaybe<Scalars['String']['input']>;
+  icon?: InputMaybe<Scalars['String']['input']>;
+  precision?: InputMaybe<Scalars['Int']['input']>;
+  showOnDashboard?: InputMaybe<Scalars['Boolean']['input']>;
+  widgetType?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ChannelDisplaySettingsType = {
+  chartConfig?: Maybe<Scalars['JSON']['output']>;
+  color?: Maybe<Scalars['String']['output']>;
+  icon?: Maybe<Scalars['String']['output']>;
+  precision?: Maybe<Scalars['Int']['output']>;
+  showOnDashboard?: Maybe<Scalars['Boolean']['output']>;
+  widgetType?: Maybe<Scalars['String']['output']>;
+};
+
+export type ChannelFilterInput = {
+  /** Maximum items to return (1-100) */
+  limit?: Scalars['Int']['input'];
+  /** Offset for pagination */
+  offset?: Scalars['Int']['input'];
+};
+
+export type ChannelMember = {
+  channelId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  joinedAt: Scalars['DateTime']['output'];
+  lastReadAt?: Maybe<Scalars['DateTime']['output']>;
+  leftAt?: Maybe<Scalars['DateTime']['output']>;
+  notificationPreference: NotificationPreference;
+  role: ChannelMemberRole;
+  tenantId: Scalars['String']['output'];
+  /** User profile details for this channel member */
+  user?: Maybe<User>;
+  userId: Scalars['String']['output'];
+};
+
+/** Channel membership role hierarchy: OWNER > ADMIN > MEMBER */
+export type ChannelMemberRole =
+  /** Channel admin — manage members + content */
+  | 'ADMIN'
+  /** Regular channel member */
+  | 'MEMBER'
+  /** Channel owner — full administrative + delete */
+  | 'OWNER';
+
+export type ChannelPage = {
+  items: Array<Channel>;
+  total: Scalars['Int']['output'];
+};
+
+export type ChannelSensorInfo = {
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+  type?: Maybe<Scalars['String']['output']>;
+};
+
+export type ChannelType =
+  | 'AI'
+  | 'DIRECT'
+  | 'GROUP';
+
+export type CheckInHistoryEntry = {
+  location?: Maybe<CheckInLocation>;
+  method: Scalars['String']['output'];
+  time: Scalars['DateTime']['output'];
+};
+
+export type CheckInLocation = {
+  lat: Scalars['Float']['output'];
+  lng: Scalars['Float']['output'];
 };
 
 export type ChecklistItemInput = {
@@ -806,6 +1888,24 @@ export type ChemicalTypeResponse = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+export type ChildSensorType = {
+  alertThresholds?: Maybe<SensorAlertThresholdsType>;
+  calibrationEnabled?: Maybe<Scalars['Boolean']['output']>;
+  calibrationMultiplier?: Maybe<Scalars['Float']['output']>;
+  calibrationOffset?: Maybe<Scalars['Float']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  dataPath: Scalars['String']['output'];
+  displaySettings?: Maybe<DisplaySettingsType>;
+  id: Scalars['ID']['output'];
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  name: Scalars['String']['output'];
+  registrationStatus: SensorRegistrationStatus;
+  tenantId: Scalars['String']['output'];
+  type: SensorType;
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
 export type CleanerFishDetailResponse = {
   avgWeightG: Scalars['Float']['output'];
   batchId: Scalars['ID']['output'];
@@ -838,6 +1938,89 @@ export type CleanerFishSpeciesInfo = {
   scientificName: Scalars['String']['output'];
 };
 
+export type ClockInInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['String']['input']>;
+  location?: InputMaybe<GeoLocationInput>;
+  method?: ClockMethod;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  remarks?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+  workAreaId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ClockMethod =
+  | 'BIOMETRIC'
+  | 'CARD'
+  | 'GPS'
+  | 'MANUAL'
+  | 'MOBILE'
+  | 'WEB';
+
+export type ClockOutInput = {
+  breakEndTime?: InputMaybe<Scalars['DateTime']['input']>;
+  breakStartTime?: InputMaybe<Scalars['DateTime']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['String']['input']>;
+  location?: InputMaybe<GeoLocationInput>;
+  method?: ClockMethod;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  remarks?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ClonePolicyInput = {
+  newName: Scalars['String']['input'];
+  policyId: Scalars['ID']['input'];
+};
+
+export type ColumnInfo = {
+  columnDefault?: Maybe<Scalars['String']['output']>;
+  columnName: Scalars['String']['output'];
+  dataType: Scalars['String']['output'];
+  foreignKeyColumn?: Maybe<Scalars['String']['output']>;
+  foreignKeyTable?: Maybe<Scalars['String']['output']>;
+  isForeignKey: Scalars['Boolean']['output'];
+  isNullable: Scalars['Boolean']['output'];
+  isPrimaryKey: Scalars['Boolean']['output'];
+};
+
+/** Who wrote the comment */
+export type CommentAuthorType =
+  | 'SUPER_ADMIN'
+  | 'SYSTEM'
+  | 'TENANT_ADMIN';
+
+export type CommentItem = {
+  attachments?: Maybe<Array<TicketAttachment>>;
+  authorId: Scalars['String']['output'];
+  authorName: Scalars['String']['output'];
+  authorType: CommentAuthorType;
+  content: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isInternal: Scalars['Boolean']['output'];
+  ticketId: Scalars['String']['output'];
+};
+
 export type CompanyAddressInput = {
   city?: InputMaybe<Scalars['String']['input']>;
   country?: InputMaybe<Scalars['String']['input']>;
@@ -850,6 +2033,21 @@ export type CompanyAddressOutput = {
   country?: Maybe<Scalars['String']['output']>;
   postalCode?: Maybe<Scalars['String']['output']>;
   street?: Maybe<Scalars['String']['output']>;
+};
+
+export type CompetencyRating = {
+  comments?: Maybe<Scalars['String']['output']>;
+  competencyId: Scalars['String']['output'];
+  competencyName: Scalars['String']['output'];
+  finalRating?: Maybe<Scalars['Float']['output']>;
+  managerRating?: Maybe<Scalars['Float']['output']>;
+  selfRating?: Maybe<Scalars['Float']['output']>;
+};
+
+export type CompetencyRatingInput = {
+  comments?: InputMaybe<Scalars['String']['input']>;
+  competencyId: Scalars['String']['input'];
+  rating: Scalars['Float']['input'];
 };
 
 export type CompleteMaintenanceInput = {
@@ -866,12 +2064,52 @@ export type CompleteWorkOrderInput = {
   usedMaterials?: InputMaybe<Array<UsedMaterialInput>>;
 };
 
+export type ComplianceAction =
+  | 'CHANNEL_ARCHIVE'
+  | 'CHANNEL_CREATE'
+  | 'DATA_ANONYMIZE'
+  | 'LEGAL_HOLD_TOGGLE'
+  | 'MEMBER_ADD'
+  | 'MEMBER_REMOVE'
+  | 'MESSAGE_DELETE'
+  | 'MESSAGE_EDIT'
+  | 'MESSAGE_EXPORT'
+  | 'MESSAGE_SEND'
+  | 'RETENTION_SET';
+
+export type ComplianceAuditLog = {
+  action: ComplianceAction;
+  createdAt: Scalars['DateTime']['output'];
+  details?: Maybe<Scalars['JSON']['output']>;
+  id: Scalars['ID']['output'];
+  ipAddress?: Maybe<Scalars['String']['output']>;
+  resourceId: Scalars['String']['output'];
+  resourceType: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  userAgent?: Maybe<Scalars['String']['output']>;
+  userId: Scalars['String']['output'];
+};
+
 export type ComplianceReportResponse = {
   activeSchedules: Scalars['Int']['output'];
   avgComplianceRate: Scalars['Float']['output'];
   overdueSchedules: Scalars['Int']['output'];
   totalSchedules: Scalars['Int']['output'];
 };
+
+export type ComplianceStats = {
+  activeHoldsCount: Scalars['Int']['output'];
+  auditLogEntriesCount: Scalars['Int']['output'];
+  messagesUnderHold: Scalars['Int']['output'];
+  retentionPoliciesCount: Scalars['Int']['output'];
+};
+
+/** Type of transition condition */
+export type ConditionType =
+  | 'ALWAYS'
+  | 'EVENT'
+  | 'EXPRESSION'
+  | 'TIMEOUT';
 
 export type ConditionWarning = {
   field: Scalars['String']['output'];
@@ -881,6 +2119,77 @@ export type ConditionWarning = {
   locationMin?: Maybe<Scalars['Float']['output']>;
   message: Scalars['String']['output'];
 };
+
+/** Environment for configuration */
+export type ConfigEnvironment =
+  | 'ALL'
+  | 'DEVELOPMENT'
+  | 'PRODUCTION'
+  | 'STAGING';
+
+/** Type of configuration value */
+export type ConfigValueType =
+  | 'BOOLEAN'
+  | 'JSON'
+  | 'NUMBER'
+  | 'SECRET'
+  | 'STRING';
+
+export type ConnectionDiagnosticsType = {
+  authenticationMs?: Maybe<Scalars['Int']['output']>;
+  dnsResolutionMs?: Maybe<Scalars['Int']['output']>;
+  firstByteMs?: Maybe<Scalars['Int']['output']>;
+  sslHandshakeMs?: Maybe<Scalars['Int']['output']>;
+  tcpConnectMs?: Maybe<Scalars['Int']['output']>;
+  totalMs: Scalars['Int']['output'];
+};
+
+export type ConnectionTestResultType = {
+  error?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Float']['output']>;
+  sampleData?: Maybe<Scalars['JSON']['output']>;
+  success: Scalars['Boolean']['output'];
+  testedAt: Scalars['DateTime']['output'];
+};
+
+/** Type of physical connection */
+export type ConnectionType =
+  | 'BLUETOOTH'
+  | 'ETHERNET'
+  | 'HYBRID'
+  | 'I2C'
+  | 'ONE_WIRE'
+  | 'SERIAL'
+  | 'SPI'
+  | 'TCP'
+  | 'UDP'
+  | 'USB'
+  | 'WIRELESS';
+
+export type ConsentHistoryResponse = {
+  records: Array<UserConsentRecord>;
+  totalCount: Scalars['Float']['output'];
+};
+
+export type ConsentItemInput = {
+  consentType: ConsentType;
+  granted: Scalars['Boolean']['input'];
+};
+
+export type ConsentStatusItem = {
+  consentType: ConsentType;
+  granted: Scalars['Boolean']['output'];
+};
+
+/** Types of consent that can be granted or withdrawn */
+export type ConsentType =
+  | 'ANALYTICS'
+  | 'DATA_PROCESSING'
+  | 'DATA_SHARING'
+  | 'ESSENTIAL'
+  | 'MARKETING'
+  | 'PROFILING'
+  | 'THIRD_PARTY';
 
 /** Category of consumable item */
 export type ConsumableCategory =
@@ -955,6 +2264,48 @@ export type ConsumptionReason =
   | 'TRANSFER'
   | 'WASTE';
 
+export type ContactInfo = {
+  email: Scalars['String']['output'];
+  emergencyContact?: Maybe<Scalars['String']['output']>;
+  emergencyPhone?: Maybe<Scalars['String']['output']>;
+  phone: Scalars['String']['output'];
+};
+
+export type ContactInfoInput = {
+  email: Scalars['String']['input'];
+  emergencyContact?: InputMaybe<Scalars['String']['input']>;
+  emergencyPhone?: InputMaybe<Scalars['String']['input']>;
+  phone: Scalars['String']['input'];
+};
+
+export type CreateActionInput = {
+  /** IEC 61131-3 Structured Text code */
+  actionCode: Scalars['String']['input'];
+  actionName: Scalars['String']['input'];
+  actionOrder?: Scalars['Int']['input'];
+  actionType?: ActionType;
+  delayMs?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  durationMs?: InputMaybe<Scalars['Int']['input']>;
+  isActive?: Scalars['Boolean']['input'];
+  params?: InputMaybe<Scalars['JSON']['input']>;
+  qualifier?: ActionQualifier;
+  stepId: Scalars['ID']['input'];
+  targetRef?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateAlertRuleInput = {
+  conditions: Array<AlertConditionInput>;
+  cooldownMinutes?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  name: Scalars['String']['input'];
+  notificationChannels?: InputMaybe<Array<Scalars['String']['input']>>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  recipients?: InputMaybe<Array<Scalars['String']['input']>>;
+  sensorId?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type CreateAutoRuleInput = {
   assignTo?: InputMaybe<Scalars['ID']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -1007,6 +2358,21 @@ export type CreateBiomassReportInput = {
   stockings: Array<BiomassStockingRecordInput>;
   submit?: InputMaybe<Scalars['Boolean']['input']>;
   transfers: Array<BiomassTransferRecordInput>;
+};
+
+export type CreateChannelInput = {
+  /** AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels. */
+  aiPersona?: InputMaybe<Scalars['String']['input']>;
+  /** Custom MCP server URL override. Only for AI channels. */
+  aiServiceUrl?: InputMaybe<Scalars['String']['input']>;
+  /** Channel description */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** Member user IDs to add to the channel */
+  memberIds: Array<Scalars['String']['input']>;
+  /** Channel name (required for GROUP) */
+  name?: InputMaybe<Scalars['String']['input']>;
+  /** Channel type: DIRECT, GROUP, or AI */
+  type: ChannelType;
 };
 
 export type CreateChemicalInput = {
@@ -1078,6 +2444,25 @@ export type CreateConsumableInput = {
   unitPrice?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type CreateDataChannelInput = {
+  alertThresholds?: InputMaybe<AlertThresholdsInput>;
+  calibrationEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  calibrationMultiplier?: InputMaybe<Scalars['Float']['input']>;
+  calibrationOffset?: InputMaybe<Scalars['Float']['input']>;
+  channelKey: Scalars['String']['input'];
+  dataPath?: InputMaybe<Scalars['String']['input']>;
+  dataType?: InputMaybe<ChannelDataType>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayLabel: Scalars['String']['input'];
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  displaySettings?: InputMaybe<ChannelDisplaySettingsInput>;
+  isEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  maxValue?: InputMaybe<Scalars['Float']['input']>;
+  minValue?: InputMaybe<Scalars['Float']['input']>;
+  sampleValue?: InputMaybe<Scalars['JSON']['input']>;
+  unit?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type CreateDepartmentInput = {
   /** Area in square meters */
   area?: InputMaybe<Scalars['Float']['input']>;
@@ -1093,6 +2478,36 @@ export type CreateDepartmentInput = {
   settings?: InputMaybe<DepartmentSettingsInput>;
   siteId: Scalars['ID']['input'];
   type: DepartmentType;
+};
+
+export type CreateDeviceGroupInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  name: Scalars['String']['input'];
+  parentGroupId?: InputMaybe<Scalars['ID']['input']>;
+  type?: InputMaybe<DeviceGroupType>;
+};
+
+export type CreateEmployeeInput = {
+  address: AddressInput;
+  bankDetails?: InputMaybe<BankDetailsInput>;
+  baseSalary: Scalars['Float']['input'];
+  certifications?: InputMaybe<Array<Scalars['String']['input']>>;
+  contactInfo: ContactInfoInput;
+  currency?: InputMaybe<Scalars['String']['input']>;
+  dateOfBirth: Scalars['String']['input'];
+  department: HrDepartment;
+  email: Scalars['String']['input'];
+  employmentType: EmploymentType;
+  farmId?: InputMaybe<Scalars['String']['input']>;
+  firstName: Scalars['String']['input'];
+  hireDate: Scalars['String']['input'];
+  isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
+  lastName: Scalars['String']['input'];
+  nationalId: Scalars['String']['input'];
+  position: Scalars['String']['input'];
+  skills?: InputMaybe<Array<Scalars['String']['input']>>;
+  supervisorId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CreateEquipmentInput = {
@@ -1124,6 +2539,22 @@ export type CreateEquipmentInput = {
   /** Systems this equipment serves (many-to-many) */
   systemIds: Array<Scalars['ID']['input']>;
   warrantyEndDate?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type CreateEscalationPolicyInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  farmIds?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isDefault?: InputMaybe<Scalars['Boolean']['input']>;
+  levels: Array<EscalationLevelInput>;
+  maxRepeats?: InputMaybe<Scalars['Int']['input']>;
+  name: Scalars['String']['input'];
+  onCallSchedule?: InputMaybe<Array<OnCallScheduleInput>>;
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  repeatIntervalMinutes?: InputMaybe<Scalars['Int']['input']>;
+  ruleIds?: InputMaybe<Array<Scalars['ID']['input']>>;
+  severity: Array<AlertSeverity>;
+  suppressionWindows?: InputMaybe<Array<SuppressionWindowInput>>;
+  timezone?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CreateFarmInput = {
@@ -1203,6 +2634,20 @@ export type CreateFeedInput = {
   unitSize?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type CreateFeedingParameterInput = {
+  biomassKg: Scalars['Float']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  fcr: Scalars['Float']['input'];
+  name: Scalars['String']['input'];
+  plcConnectionId: Scalars['ID']['input'];
+  schedule: Array<PlcFeedingScheduleEntryInput>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  targetDailyFeedKg: Scalars['Float']['input'];
+  thresholds: ThresholdConfigInput;
+  version?: InputMaybe<Scalars['String']['input']>;
+  vfdSettings: VfdSettingsInput;
+};
+
 export type CreateFeedingProgramInput = {
   code: Scalars['String']['input'];
   description?: InputMaybe<Scalars['String']['input']>;
@@ -1259,6 +2704,30 @@ export type CreateFeedingRecordInput = {
   wasteAmount?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type CreateGoalInput = {
+  alignedReviewId?: InputMaybe<Scalars['String']['input']>;
+  category?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  employeeId: Scalars['String']['input'];
+  keyResults?: InputMaybe<Array<KeyResultInput>>;
+  parentGoalId?: InputMaybe<Scalars['String']['input']>;
+  priority: GoalPriority;
+  startDate: Scalars['String']['input'];
+  targetDate: Scalars['String']['input'];
+  title: Scalars['String']['input'];
+};
+
+export type CreateHrDepartmentInput = {
+  budgetCode?: InputMaybe<Scalars['String']['input']>;
+  code: Scalars['String']['input'];
+  costCenter?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  managerId?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  parentDepartmentId?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type CreateHarvestPlanInput = {
   /** Attachment URLs */
   attachments?: InputMaybe<Array<Scalars['String']['input']>>;
@@ -1307,8 +2776,14 @@ export type CreateHarvestRecordInput = {
   batchId: Scalars['ID']['input'];
   /** Buyer name */
   buyerName?: InputMaybe<Scalars['String']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** Currency code */
   currency?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   /** Harvest operation cost */
   harvestCost?: InputMaybe<Scalars['Float']['input']>;
   /** Harvest date (ISO 8601 format) */
@@ -1321,6 +2796,10 @@ export type CreateHarvestRecordInput = {
   mortalityDuringHarvest?: InputMaybe<Scalars['Int']['input']>;
   /** Additional notes */
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
   /** Pond ID (alternative to tank) */
   pondId?: InputMaybe<Scalars['ID']['input']>;
   /** Price per kilogram */
@@ -1335,6 +2814,8 @@ export type CreateHarvestRecordInput = {
   rejectedQuantity?: InputMaybe<Scalars['Float']['input']>;
   /** Reason for rejection */
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Tank ID */
   tankId: Scalars['ID']['input'];
   /** Total biomass in kg */
@@ -1428,11 +2909,55 @@ export type CreateHealthEventInput = {
   withdrawalPeriodDays?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type CreateHydroponicsConfigInput = {
+  configName?: InputMaybe<Scalars['String']['input']>;
+  settings?: InputMaybe<Scalars['JSON']['input']>;
+};
+
 export type CreateInventoryCountInput = {
   /** Optional notes for this count session */
   notes?: InputMaybe<Scalars['String']['input']>;
   /** Target storage location to count */
   storageLocationId: Scalars['ID']['input'];
+};
+
+export type CreateInvoiceInput = {
+  billingAddress: BillingAddressInput;
+  currency?: InputMaybe<Scalars['String']['input']>;
+  discount?: InputMaybe<Scalars['Float']['input']>;
+  discountCode?: InputMaybe<Scalars['String']['input']>;
+  dueDate: Scalars['String']['input'];
+  lineItems: Array<InvoiceLineItemInput>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  periodEnd: Scalars['String']['input'];
+  periodStart: Scalars['String']['input'];
+  subscriptionId?: InputMaybe<Scalars['String']['input']>;
+  tax?: InputMaybe<TaxInfoInput>;
+};
+
+export type CreateLeaveRequestInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  contactDuringLeave?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  employeeId?: InputMaybe<Scalars['String']['input']>;
+  endDate: Scalars['String']['input'];
+  halfDayPeriod?: InputMaybe<HalfDayPeriod>;
+  isHalfDayEnd?: Scalars['Boolean']['input'];
+  isHalfDayStart?: Scalars['Boolean']['input'];
+  leaveTypeId: Scalars['String']['input'];
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  reason?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+  startDate: Scalars['String']['input'];
+  totalDays: Scalars['Float']['input'];
 };
 
 export type CreateMaintenanceScheduleInput = {
@@ -1524,6 +3049,81 @@ export type CreateParameterConfigInput = {
   warningMin?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type CreatePayrollInput = {
+  currency?: InputMaybe<Scalars['String']['input']>;
+  deductions?: InputMaybe<DeductionsInput>;
+  earnings: EarningsInput;
+  employeeId: Scalars['String']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  payPeriodEnd: Scalars['String']['input'];
+  payPeriodStart: Scalars['String']['input'];
+  payPeriodType: PayPeriodType;
+  workHours: WorkHoursInput;
+};
+
+export type CreatePerformanceReviewInput = {
+  employeeId: Scalars['String']['input'];
+  periodEnd: Scalars['String']['input'];
+  periodStart: Scalars['String']['input'];
+  periodType: ReviewPeriodType;
+  reviewerId: Scalars['String']['input'];
+};
+
+export type CreatePlanInput = {
+  basePrice: Scalars['Float']['input'];
+  billingCycle?: InputMaybe<BillingCycle>;
+  currency?: InputMaybe<Scalars['String']['input']>;
+  features?: InputMaybe<Array<Scalars['String']['input']>>;
+  isPublic?: InputMaybe<Scalars['Boolean']['input']>;
+  limits: PlanLimitsInput;
+  name: Scalars['String']['input'];
+  pricing: PlanPricingInput;
+  sortOrder?: InputMaybe<Scalars['Int']['input']>;
+  tier: PlanTier;
+};
+
+export type CreatePlatformAnnouncementInput = {
+  content: Scalars['String']['input'];
+  expiresAt?: InputMaybe<Scalars['String']['input']>;
+  isGlobal?: Scalars['Boolean']['input'];
+  publishAt?: InputMaybe<Scalars['String']['input']>;
+  requiresAcknowledgment?: Scalars['Boolean']['input'];
+  targetCriteria?: InputMaybe<AnnouncementTargetInput>;
+  title: Scalars['String']['input'];
+  type?: AnnouncementType;
+};
+
+export type CreatePlcConnectionInput = {
+  alarmsNodeId?: InputMaybe<Scalars['String']['input']>;
+  authMode?: InputMaybe<Scalars['String']['input']>;
+  autoReconnect?: InputMaybe<Scalars['Boolean']['input']>;
+  clientCertificate?: InputMaybe<Scalars['String']['input']>;
+  clientPrivateKey?: InputMaybe<Scalars['String']['input']>;
+  connectTimeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  endpointUrl: Scalars['String']['input'];
+  failoverEndpointUrl?: InputMaybe<Scalars['String']['input']>;
+  keepAliveIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  maxReconnectAttempts?: InputMaybe<Scalars['Int']['input']>;
+  maxReconnectDelayMs?: InputMaybe<Scalars['Int']['input']>;
+  name: Scalars['String']['input'];
+  parametersNodeId?: InputMaybe<Scalars['String']['input']>;
+  password?: InputMaybe<Scalars['String']['input']>;
+  publishingIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  reconnectDelayMs?: InputMaybe<Scalars['Int']['input']>;
+  requestTimeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  samplingIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  securityMode?: InputMaybe<Scalars['String']['input']>;
+  securityPolicy?: InputMaybe<Scalars['String']['input']>;
+  serverCertificate?: InputMaybe<Scalars['String']['input']>;
+  sessionTimeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  siteId: Scalars['ID']['input'];
+  statusNodeId?: InputMaybe<Scalars['String']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  telemetryNodeId?: InputMaybe<Scalars['String']['input']>;
+  username?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type CreatePondInput = {
   capacity: Scalars['Float']['input'];
   depth?: InputMaybe<Scalars['Float']['input']>;
@@ -1532,6 +3132,58 @@ export type CreatePondInput = {
   status?: InputMaybe<PondStatus>;
   surfaceArea?: InputMaybe<Scalars['Float']['input']>;
   waterType?: InputMaybe<WaterType>;
+};
+
+export type CreateProcessInput = {
+  departmentId?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  edges?: InputMaybe<Scalars['JSON']['input']>;
+  isTemplate?: InputMaybe<Scalars['Boolean']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  name: Scalars['String']['input'];
+  nodes?: InputMaybe<Scalars['JSON']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<ProcessStatus>;
+  templateName?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateProgramInput = {
+  category?: InputMaybe<Scalars['String']['input']>;
+  deployTarget?: DeployTarget;
+  description?: InputMaybe<Scalars['String']['input']>;
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  executionMode?: ExecutionMode;
+  priority?: Scalars['Int']['input'];
+  processTemplateId?: InputMaybe<Scalars['String']['input']>;
+  programCode: Scalars['String']['input'];
+  programName: Scalars['String']['input'];
+  programType?: ProgramType;
+  scanCycleMs?: Scalars['Int']['input'];
+  sfcDefinition?: InputMaybe<Scalars['JSON']['input']>;
+  structuredTextCode?: InputMaybe<Scalars['String']['input']>;
+  tags?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** PLC IP address for Codesys/setpoint targets */
+  targetPlcAddress?: InputMaybe<Scalars['String']['input']>;
+  /** PLC model (e.g., WAGO PFC200, Beckhoff CX) */
+  targetPlcModel?: InputMaybe<Scalars['String']['input']>;
+  /** PLC port (e.g., 1217 for Codesys Gateway) */
+  targetPlcPort?: InputMaybe<Scalars['Int']['input']>;
+  /** PLC protocol: codesys_v3, opcua, modbus, s7comm */
+  targetPlcProtocol?: InputMaybe<Scalars['String']['input']>;
+  triggerConfig?: InputMaybe<Scalars['JSON']['input']>;
+};
+
+export type CreateProvisionedDeviceInput = {
+  /** Device description or location */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** Hardware model */
+  deviceModel?: InputMaybe<DeviceModel>;
+  /** Human-readable device name */
+  deviceName?: InputMaybe<Scalars['String']['input']>;
+  /** Device serial number */
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  /** Site to assign device to */
+  siteId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CreatePurchaseOrderInput = {
@@ -1556,6 +3208,69 @@ export type CreateRecurringTemplateInput = {
   priority: TaskPriority;
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
   title: Scalars['String']['input'];
+};
+
+export type CreateSafetyTrainingRecordInput = {
+  certificateNumber?: InputMaybe<Scalars['String']['input']>;
+  completedDate?: InputMaybe<Scalars['String']['input']>;
+  employeeId: Scalars['ID']['input'];
+  expiryDate?: InputMaybe<Scalars['String']['input']>;
+  instructor?: InputMaybe<Scalars['String']['input']>;
+  isMandatoryForOffshore?: InputMaybe<Scalars['Boolean']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  trainingType: SafetyTrainingType;
+  workAreaId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateScadaPackageInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  packageData: Scalars['JSON']['input'];
+  processId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateSensorInput = {
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  firmwareVersion?: InputMaybe<Scalars['String']['input']>;
+  manufacturer?: InputMaybe<Scalars['String']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  serialNumber: Scalars['String']['input'];
+  type: SensorType;
+  /** Dynamic sensor type definition ID (optional, supplements the type ENUM) */
+  typeDefinitionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type CreateSensorTypeInput = {
+  category?: InputMaybe<Scalars['String']['input']>;
+  defaultChannels?: InputMaybe<Scalars['JSON']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayName: Scalars['String']['input'];
+  icon?: InputMaybe<Scalars['String']['input']>;
+  industry?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  typeKey: Scalars['String']['input'];
+};
+
+export type CreateShiftInput = {
+  breakMinutes?: Scalars['Int']['input'];
+  breakPeriods?: InputMaybe<Array<BreakPeriodInput>>;
+  code: Scalars['String']['input'];
+  colorCode?: InputMaybe<Scalars['String']['input']>;
+  crossesMidnight?: Scalars['Boolean']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayOrder?: Scalars['Int']['input'];
+  earlyClockInMinutes?: Scalars['Int']['input'];
+  endTime: Scalars['String']['input'];
+  graceMinutes?: Scalars['Int']['input'];
+  lateClockOutMinutes?: Scalars['Int']['input'];
+  name: Scalars['String']['input'];
+  shiftType?: ShiftType;
+  startTime: Scalars['String']['input'];
+  totalMinutes?: InputMaybe<Scalars['Int']['input']>;
+  workDays?: InputMaybe<Array<WeekDay>>;
 };
 
 export type CreateSiteInput = {
@@ -1618,6 +3333,24 @@ export type CreateSpeciesInput = {
   waterType?: SpeciesWaterType;
 };
 
+export type CreateStepInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** IEC 61131-3 ST code for entry action */
+  entryAction?: InputMaybe<Scalars['String']['input']>;
+  /** IEC 61131-3 ST code for exit action */
+  exitAction?: InputMaybe<Scalars['String']['input']>;
+  onTimeout?: InputMaybe<TimeoutBehavior>;
+  positionX?: Scalars['Int']['input'];
+  positionY?: Scalars['Int']['input'];
+  programId: Scalars['ID']['input'];
+  stepCode: Scalars['String']['input'];
+  stepName: Scalars['String']['input'];
+  stepOrder?: Scalars['Int']['input'];
+  stepType?: StepType;
+  timeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  timeoutTargetStep?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type CreateStorageLocationInput = {
   capacity?: InputMaybe<Scalars['Float']['input']>;
   capacityUnit?: InputMaybe<Scalars['String']['input']>;
@@ -1648,6 +3381,18 @@ export type CreateSubEquipmentInput = {
   subEquipmentTypeId: Scalars['ID']['input'];
 };
 
+export type CreateSubscriptionInput = {
+  autoRenew?: InputMaybe<Scalars['Boolean']['input']>;
+  billingCycle: BillingCycle;
+  limits: PlanLimitsInput;
+  planName: Scalars['String']['input'];
+  planTier: PlanTier;
+  pricing: PlanPricingInput;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+  stripeCustomerId?: InputMaybe<Scalars['String']['input']>;
+  trialDays?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type CreateSupplierInput = {
   address?: InputMaybe<SupplierAddressInput>;
   categories?: InputMaybe<Array<Scalars['String']['input']>>;
@@ -1673,6 +3418,12 @@ export type CreateSupplierInput = {
   website?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type CreateSystemDefaultLayoutInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  widgets: Scalars['JSON']['input'];
+};
+
 export type CreateSystemInput = {
   code: Scalars['String']['input'];
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -1691,12 +3442,35 @@ export type CreateSystemInput = {
   type: SystemType;
 };
 
+export type CreateTagInput = {
+  alarmH?: InputMaybe<Scalars['Float']['input']>;
+  alarmHH?: InputMaybe<Scalars['Float']['input']>;
+  alarmL?: InputMaybe<Scalars['Float']['input']>;
+  alarmLL?: InputMaybe<Scalars['Float']['input']>;
+  dataType: TagDataType;
+  deadband?: InputMaybe<Scalars['Float']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  direction?: InputMaybe<TagDirection>;
+  displayName?: InputMaybe<Scalars['String']['input']>;
+  engMax?: InputMaybe<Scalars['Float']['input']>;
+  engMin?: InputMaybe<Scalars['Float']['input']>;
+  engUnit?: InputMaybe<Scalars['String']['input']>;
+  fqn: Scalars['String']['input'];
+  hierarchy?: InputMaybe<Scalars['JSON']['input']>;
+  ioType: TagIoType;
+  localName: Scalars['String']['input'];
+  source?: InputMaybe<Scalars['JSON']['input']>;
+};
+
 export type CreateTankInput = {
   aeration?: InputMaybe<AerationInput>;
+  containerKind?: InputMaybe<TankContainerKind>;
   departmentId: Scalars['String']['input'];
   depth: Scalars['Float']['input'];
   description?: InputMaybe<Scalars['String']['input']>;
   diameter?: InputMaybe<Scalars['Float']['input']>;
+  equipmentTypeCode?: InputMaybe<Scalars['String']['input']>;
+  equipmentTypeId?: InputMaybe<Scalars['String']['input']>;
   freeboard?: InputMaybe<Scalars['Float']['input']>;
   installationDate?: InputMaybe<Scalars['String']['input']>;
   length?: InputMaybe<Scalars['Float']['input']>;
@@ -1709,6 +3483,8 @@ export type CreateTankInput = {
   status?: TankStatus;
   systemId?: InputMaybe<Scalars['String']['input']>;
   tankType?: TankType;
+  /** Manual volume for non-geometric pond/cage containers */
+  volume?: InputMaybe<Scalars['Float']['input']>;
   waterDepth?: InputMaybe<Scalars['Float']['input']>;
   waterFlow?: InputMaybe<WaterFlowInput>;
   waterType?: WaterType;
@@ -1733,13 +3509,136 @@ export type CreateTaskInput = {
   title: Scalars['String']['input'];
 };
 
+export type CreateTenantAnnouncementInput = {
+  content: Scalars['String']['input'];
+  expiresAt?: InputMaybe<Scalars['String']['input']>;
+  publishAt?: InputMaybe<Scalars['String']['input']>;
+  requiresAcknowledgment?: Scalars['Boolean']['input'];
+  title: Scalars['String']['input'];
+  type?: AnnouncementType;
+};
+
+export type CreateTenantKeyInput = {
+  /** If true, devices are automatically set to ACTIVE (no manual approval needed) */
+  autoApprove?: InputMaybe<Scalars['Boolean']['input']>;
+  /** Default site to assign registered devices to */
+  defaultSiteId?: InputMaybe<Scalars['String']['input']>;
+  /** Expiry in days from now (null = never expires) */
+  expiresInDays?: InputMaybe<Scalars['Int']['input']>;
+  /** Maximum number of devices that can register with this key (null = unlimited) */
+  maxDevices?: InputMaybe<Scalars['Int']['input']>;
+  /** Human-readable name for this key (e.g., "Production Line Installer") */
+  name?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateTenantRoleInput = {
+  color?: Scalars['String']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  icon?: Scalars['String']['input'];
+  isDefault?: Scalars['Boolean']['input'];
+  level?: Scalars['Int']['input'];
+  name: Scalars['String']['input'];
+  panelPermissions: Scalars['JSON']['input'];
+};
+
+export type CreateTenantUserInput = {
+  /** Platform access type: PANEL_ONLY, MOBILE_ONLY, or BOTH */
+  accessType?: InputMaybe<AccessType>;
+  email: Scalars['String']['input'];
+  firstName: Scalars['String']['input'];
+  lastName: Scalars['String']['input'];
+  /** Optional password. If not provided, an invitation email will be sent. */
+  password?: InputMaybe<Scalars['String']['input']>;
+  permissionOverrides?: InputMaybe<PermissionOverridesInput>;
+  roleId: Scalars['ID']['input'];
+  /** Send invitation email to the user */
+  sendInvitation?: Scalars['Boolean']['input'];
+};
+
+export type CreateTicketInput = {
+  category: TicketCategory;
+  description: Scalars['String']['input'];
+  priority?: TicketPriority;
+  subject: Scalars['String']['input'];
+  tags?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+export type CreateTransitionInput = {
+  /** IEC 61131-3 ST expression */
+  conditionExpression: Scalars['String']['input'];
+  conditionType?: ConditionType;
+  controlPoints?: InputMaybe<Scalars['JSON']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  eventType?: InputMaybe<Scalars['String']['input']>;
+  fromStepCode?: InputMaybe<Scalars['String']['input']>;
+  fromStepId: Scalars['ID']['input'];
+  isActive?: Scalars['Boolean']['input'];
+  priority?: Scalars['Int']['input'];
+  programId: Scalars['ID']['input'];
+  timeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  toStepCode?: InputMaybe<Scalars['String']['input']>;
+  toStepId: Scalars['ID']['input'];
+  transitionCode: Scalars['String']['input'];
+  transitionName?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateVariableInput = {
+  alarmH?: InputMaybe<Scalars['Float']['input']>;
+  alarmHH?: InputMaybe<Scalars['Float']['input']>;
+  alarmL?: InputMaybe<Scalars['Float']['input']>;
+  alarmLL?: InputMaybe<Scalars['Float']['input']>;
+  dataType?: VariableDataType;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayName?: InputMaybe<Scalars['String']['input']>;
+  engUnit?: InputMaybe<Scalars['String']['input']>;
+  /** Reference to equipment node in process template */
+  equipmentNodeId?: InputMaybe<Scalars['String']['input']>;
+  equipmentProperty?: InputMaybe<Scalars['String']['input']>;
+  initialValue?: InputMaybe<Scalars['String']['input']>;
+  /** Reference to DeviceIoConfig.id */
+  ioConfigId?: InputMaybe<Scalars['String']['input']>;
+  ioTagName?: InputMaybe<Scalars['String']['input']>;
+  maxValue?: InputMaybe<Scalars['Float']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  minValue?: InputMaybe<Scalars['Float']['input']>;
+  programId: Scalars['ID']['input'];
+  scope?: VariableScope;
+  /** Reference to sensor data channel */
+  sensorChannelId?: InputMaybe<Scalars['String']['input']>;
+  varName: Scalars['String']['input'];
+  varOrder?: Scalars['Int']['input'];
+};
+
+export type CreateVfdAutomationRuleInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  parameterChanges: Scalars['JSON']['input'];
+  priority?: Scalars['Int']['input'];
+  requiresApproval?: Scalars['Boolean']['input'];
+  targetVfdDeviceIds: Array<Scalars['String']['input']>;
+  triggerCondition: Scalars['JSON']['input'];
+};
+
+export type CreateVfdChangeSetInput = {
+  description: Scalars['String']['input'];
+  items?: InputMaybe<Array<VfdChangeSetItemInput>>;
+  scheduledAt?: InputMaybe<Scalars['DateTime']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
 export type CreateWaterQualityInput = {
   /** Batch ID */
   batchId?: InputMaybe<Scalars['ID']['input']>;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   /** Dynamic parameters (tenant-configured JSONB) */
-  dynamicParameters?: InputMaybe<Scalars['JSON']['input']>;
+  dynamicParameters: Scalars['JSON']['input'];
   /** Equipment ID */
-  equipmentId?: InputMaybe<Scalars['ID']['input']>;
+  equipmentId: Scalars['ID']['input'];
   /** Idempotency key for offline retry safety */
   idempotencyKey?: InputMaybe<Scalars['ID']['input']>;
   /** Ölçüm tarihi */
@@ -1748,12 +3647,16 @@ export type CreateWaterQualityInput = {
   measuredBy?: InputMaybe<Scalars['ID']['input']>;
   /** Notlar */
   notes?: InputMaybe<Scalars['String']['input']>;
-  /** Su parametreleri */
-  parameters?: InputMaybe<WaterParametersInput>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
   /** Havuz ID */
   pondId?: InputMaybe<Scalars['ID']['input']>;
   /** Source sensor_readings row that produced this measurement */
   relatedSensorReadingId?: InputMaybe<Scalars['ID']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Site ID */
   siteId?: InputMaybe<Scalars['ID']['input']>;
   /** Ölçüm kaynağı */
@@ -1762,6 +3665,35 @@ export type CreateWaterQualityInput = {
   tankId?: InputMaybe<Scalars['ID']['input']>;
   /** Hava durumu */
   weatherConditions?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateWeeklyPlanInput = {
+  defaultOffDays?: InputMaybe<Array<WeekDay>>;
+  defaultShiftId?: InputMaybe<Scalars['ID']['input']>;
+  employeeId: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  weekStartDate: Scalars['String']['input'];
+};
+
+export type CreateWorkAreaInput = {
+  code: Scalars['String']['input'];
+  colorCode?: InputMaybe<Scalars['String']['input']>;
+  coordinates?: InputMaybe<GeoCoordinatesInput>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  emergencyContact?: InputMaybe<Scalars['String']['input']>;
+  emergencyProcedure?: InputMaybe<Scalars['String']['input']>;
+  isOffshore?: InputMaybe<Scalars['Boolean']['input']>;
+  maxCapacity?: InputMaybe<Scalars['Int']['input']>;
+  name: Scalars['String']['input'];
+  requiredCertifications?: InputMaybe<Array<Scalars['String']['input']>>;
+  requiredPPE?: InputMaybe<Array<Scalars['String']['input']>>;
+  requiresDivingCertification?: InputMaybe<Scalars['Boolean']['input']>;
+  requiresSeaWorthy?: InputMaybe<Scalars['Boolean']['input']>;
+  requiresVesselCertification?: InputMaybe<Scalars['Boolean']['input']>;
+  riskLevel?: InputMaybe<WorkAreaRiskLevel>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  workAreaType: WorkAreaType;
 };
 
 export type CreateWorkOrderInput = {
@@ -1785,12 +3717,45 @@ export type CreateWorkOrderInput = {
   type?: WorkOrderType;
 };
 
+export type CreateWorkRotationInput = {
+  accommodationInfo?: InputMaybe<Scalars['String']['input']>;
+  daysOff: Scalars['Int']['input'];
+  daysOn: Scalars['Int']['input'];
+  employeeId: Scalars['ID']['input'];
+  endDate: Scalars['String']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  reliefEmployeeId?: InputMaybe<Scalars['String']['input']>;
+  rotationType: RotationType;
+  startDate: Scalars['String']['input'];
+  supervisorId?: InputMaybe<Scalars['String']['input']>;
+  workAreaId: Scalars['ID']['input'];
+};
+
 export type CreateWorkerInput = {
   email: Scalars['String']['input'];
   firstName: Scalars['String']['input'];
   lastName: Scalars['String']['input'];
   phone?: InputMaybe<Scalars['String']['input']>;
   position: Scalars['String']['input'];
+};
+
+export type CreatedTenantUserResult = {
+  createdAt: Scalars['DateTime']['output'];
+  email: Scalars['String']['output'];
+  firstName?: Maybe<Scalars['String']['output']>;
+  invitationSent: Scalars['Boolean']['output'];
+  lastName?: Maybe<Scalars['String']['output']>;
+  roleAssignment: UserRoleAssignment;
+  userId: Scalars['ID']['output'];
+};
+
+export type CrewAssignment = {
+  assignedEmployeeIds: Array<Scalars['String']['output']>;
+  currentCount: Scalars['Int']['output'];
+  maxCapacity: Scalars['Int']['output'];
+  occupancyRate: Scalars['Float']['output'];
+  workAreaId: Scalars['ID']['output'];
+  workAreaName: Scalars['String']['output'];
 };
 
 export type CullReason =
@@ -1845,6 +3810,21 @@ export type CustomerOrderInput = {
   orderUnit?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type DailyActiveUsersResponse = {
+  count: Scalars['Int']['output'];
+  date: Scalars['String']['output'];
+};
+
+export type DailyAttendanceOverview = {
+  absent: Scalars['Int']['output'];
+  attendanceRate: Scalars['Float']['output'];
+  late: Scalars['Int']['output'];
+  offshore: Scalars['Int']['output'];
+  onLeave: Scalars['Int']['output'];
+  present: Scalars['Int']['output'];
+  totalEmployees: Scalars['Int']['output'];
+};
+
 /** Daily feeding execution record for a tank */
 export type DailyFeedingExecution = {
   /** Actual feed given in kilograms */
@@ -1871,7 +3851,9 @@ export type DailyFeedingExecution = {
   feederName?: Maybe<Scalars['String']['output']>;
   /** Feeding method used (manual, automatic, etc.) */
   feedingMethod?: Maybe<FeedingMethod>;
+  feedingProgram?: Maybe<FeedingProgram>;
   feedingProgramId: Scalars['String']['output'];
+  feedingProgramTank?: Maybe<FeedingProgramTank>;
   feedingProgramTankId: Scalars['String']['output'];
   /** Whether there is a feed transition warning */
   hasTransitionWarning: Scalars['Boolean']['output'];
@@ -1904,6 +3886,51 @@ export type DailyFeedingPlanResponse = {
   totalPlannedKg: Scalars['Float']['output'];
 };
 
+export type DashboardLayout = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  gridConfig?: Maybe<Scalars['JSON']['output']>;
+  gridVersion?: Maybe<Scalars['Float']['output']>;
+  id: Scalars['ID']['output'];
+  isDefault: Scalars['Boolean']['output'];
+  isSystemDefault: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  processBackground?: Maybe<Scalars['JSON']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  userId?: Maybe<Scalars['String']['output']>;
+  widgets: Scalars['JSON']['output'];
+};
+
+export type DataChannelType = {
+  alertThresholds?: Maybe<AlertThresholdsType>;
+  calibrationEnabled: Scalars['Boolean']['output'];
+  calibrationMultiplier: Scalars['Float']['output'];
+  calibrationOffset: Scalars['Float']['output'];
+  channelKey: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  dataPath?: Maybe<Scalars['String']['output']>;
+  dataType: ChannelDataType;
+  description?: Maybe<Scalars['String']['output']>;
+  discoveredAt?: Maybe<Scalars['DateTime']['output']>;
+  discoverySource?: Maybe<DiscoverySource>;
+  displayLabel: Scalars['String']['output'];
+  displayOrder: Scalars['Int']['output'];
+  displaySettings?: Maybe<ChannelDisplaySettingsType>;
+  id: Scalars['ID']['output'];
+  isEnabled: Scalars['Boolean']['output'];
+  lastCalibratedAt?: Maybe<Scalars['DateTime']['output']>;
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  sampleValue?: Maybe<Scalars['JSON']['output']>;
+  sensor?: Maybe<ChannelSensorInfo>;
+  sensorId: Scalars['ID']['output'];
+  tenantId: Scalars['String']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
 export type DateRangeInput = {
   /** End date of the range */
   endDate: Scalars['DateTime']['input'];
@@ -1911,8 +3938,41 @@ export type DateRangeInput = {
   startDate: Scalars['DateTime']['input'];
 };
 
+export type DayEntry = {
+  date: Scalars['String']['output'];
+  dayOfWeek: WeekDay;
+  endTime?: Maybe<Scalars['String']['output']>;
+  entryType: WeeklyPlanEntryType;
+  plannedMinutes: Scalars['Int']['output'];
+  shiftCode?: Maybe<Scalars['String']['output']>;
+  shiftName?: Maybe<Scalars['String']['output']>;
+  startTime?: Maybe<Scalars['String']['output']>;
+};
+
+export type DaySummary = {
+  date: Scalars['String']['output'];
+  dayOfWeek: WeekDay;
+  leaveCount: Scalars['Int']['output'];
+  offCount: Scalars['Int']['output'];
+  workingCount: Scalars['Int']['output'];
+};
+
+export type DeductionsInput = {
+  healthInsurance?: InputMaybe<Scalars['Float']['input']>;
+  otherDeductions?: InputMaybe<Scalars['Float']['input']>;
+  retirement?: InputMaybe<Scalars['Float']['input']>;
+  socialSecurity?: InputMaybe<Scalars['Float']['input']>;
+  tax?: InputMaybe<Scalars['Float']['input']>;
+};
+
 export type DeleteMaintenanceScheduleResponse = {
   id: Scalars['ID']['output'];
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type DeleteProcessResultType = {
+  deletedId?: Maybe<Scalars['ID']['output']>;
   message?: Maybe<Scalars['String']['output']>;
   success: Scalars['Boolean']['output'];
 };
@@ -1967,6 +4027,29 @@ export type DepartmentFilterInput = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
   status?: InputMaybe<DepartmentStatus>;
   type?: InputMaybe<DepartmentType>;
+};
+
+export type DepartmentHr = {
+  budgetCode?: Maybe<Scalars['String']['output']>;
+  code: Scalars['String']['output'];
+  costCenter?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  managerId?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  parentDepartmentId?: Maybe<Scalars['String']['output']>;
+  siteId?: Maybe<Scalars['String']['output']>;
+  sortOrder: Scalars['Int']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
 };
 
 export type DepartmentResponse = {
@@ -2047,6 +4130,332 @@ export type DeployCleanerFishInput = {
   targetTankId: Scalars['ID']['input'];
 };
 
+export type DeployLogFilterInput = {
+  deviceId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  packageId?: InputMaybe<Scalars['ID']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type DeployProcessResultType = {
+  deviceId?: Maybe<Scalars['ID']['output']>;
+  message?: Maybe<Scalars['String']['output']>;
+  processId?: Maybe<Scalars['ID']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type DeployProgramInput = {
+  /** Target edge device ID */
+  deviceId: Scalars['ID']['input'];
+  /** Force deployment even if device is offline (will queue) */
+  forceQueue?: InputMaybe<Scalars['Boolean']['input']>;
+  /** Program ID to deploy */
+  programId: Scalars['ID']['input'];
+};
+
+export type DeployScadaPackageResultType = {
+  deviceId?: Maybe<Scalars['ID']['output']>;
+  message?: Maybe<Scalars['String']['output']>;
+  packageId?: Maybe<Scalars['ID']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type DeployScadaWithAutomationInput = {
+  deviceId: Scalars['ID']['input'];
+  packageId: Scalars['ID']['input'];
+  /** Override which automation programs to deploy. If omitted, uses programs from package automationBindings. */
+  programIds?: InputMaybe<Array<Scalars['ID']['input']>>;
+};
+
+/** Where the automation program is deployed to */
+export type DeployTarget =
+  | 'CODESYS_PLC'
+  | 'PLC_SETPOINT'
+  | 'RUST_ENGINE';
+
+export type DeploymentLog = {
+  commandId: Scalars['String']['output'];
+  completedAt?: Maybe<Scalars['DateTime']['output']>;
+  deployedAt: Scalars['DateTime']['output'];
+  deployedBy?: Maybe<Scalars['String']['output']>;
+  deviceId: Scalars['String']['output'];
+  edgeAckAt?: Maybe<Scalars['DateTime']['output']>;
+  edgeScript?: Maybe<Scalars['JSON']['output']>;
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  programId: Scalars['String']['output'];
+  status: DeploymentStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt?: Maybe<Scalars['DateTime']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type DeploymentLogConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<DeploymentLog>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type DeploymentResult = {
+  /** Deployment command ID for tracking */
+  commandId?: Maybe<Scalars['String']['output']>;
+  /** Timestamp when deployment was sent */
+  deployedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Version of the deployed program */
+  deployedVersion?: Maybe<Scalars['Float']['output']>;
+  deviceId: Scalars['ID']['output'];
+  error?: Maybe<Scalars['String']['output']>;
+  message?: Maybe<Scalars['String']['output']>;
+  programId: Scalars['ID']['output'];
+  /** If true, deployment was queued for offline device */
+  queued?: Maybe<Scalars['Boolean']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+/** Status of a program deployment to edge device */
+export type DeploymentStatus =
+  | 'DEPLOYING'
+  | 'FAILED'
+  | 'PENDING'
+  | 'ROLLED_BACK'
+  | 'SUCCESS';
+
+export type DeviceEventConnection = {
+  items: Array<DeviceEventItem>;
+  limit: Scalars['Int']['output'];
+  page: Scalars['Int']['output'];
+  total: Scalars['Int']['output'];
+};
+
+export type DeviceEventItem = {
+  createdAt: Scalars['DateTime']['output'];
+  deviceId?: Maybe<Scalars['String']['output']>;
+  eventType: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  message: Scalars['String']['output'];
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  severity: Scalars['String']['output'];
+};
+
+export type DeviceGroup = {
+  childGroups?: Maybe<Array<DeviceGroup>>;
+  createdAt: Scalars['DateTime']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  memberCount?: Maybe<Scalars['Float']['output']>;
+  members?: Maybe<Array<DeviceGroupMember>>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  name: Scalars['String']['output'];
+  parentGroup?: Maybe<DeviceGroup>;
+  parentGroupId?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  type: DeviceGroupType;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type DeviceGroupMember = {
+  addedAt: Scalars['DateTime']['output'];
+  deviceId: Scalars['String']['output'];
+  deviceType: DeviceMemberType;
+  group: DeviceGroup;
+  groupId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+};
+
+/** Type of device group */
+export type DeviceGroupType =
+  | 'CUSTOM'
+  | 'DEPARTMENT'
+  | 'EQUIPMENT_TYPE'
+  | 'SITE'
+  | 'SYSTEM';
+
+export type DeviceInstallCommands = {
+  /** curl command to install the agent */
+  installCommand: Scalars['String']['output'];
+  /** Direct URL to the install script */
+  installUrl: Scalars['String']['output'];
+  /** curl command to uninstall the agent */
+  uninstallCommand: Scalars['String']['output'];
+  /** Direct URL to the uninstall script */
+  uninstallUrl: Scalars['String']['output'];
+  /** curl command to update the agent to the configured explicit release version */
+  updateCommand: Scalars['String']['output'];
+  /** Direct URL to the update script */
+  updateUrl: Scalars['String']['output'];
+};
+
+export type DeviceIoConfig = {
+  alarmH?: Maybe<Scalars['Float']['output']>;
+  alarmHH?: Maybe<Scalars['Float']['output']>;
+  alarmL?: Maybe<Scalars['Float']['output']>;
+  alarmLL?: Maybe<Scalars['Float']['output']>;
+  busType?: Maybe<Scalars['String']['output']>;
+  channel: Scalars['Int']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  dataType: IoDataType;
+  deadband?: Maybe<Scalars['Float']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  device: EdgeDevice;
+  deviceId: Scalars['String']['output'];
+  driverType?: Maybe<Scalars['String']['output']>;
+  engMax?: Maybe<Scalars['Float']['output']>;
+  engMin?: Maybe<Scalars['Float']['output']>;
+  engUnit?: Maybe<Scalars['String']['output']>;
+  gpioMode?: Maybe<Scalars['String']['output']>;
+  gpioPin?: Maybe<Scalars['Int']['output']>;
+  i2cAddress?: Maybe<Scalars['Int']['output']>;
+  i2cBus?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  invertValue: Scalars['Boolean']['output'];
+  ioType: IoType;
+  isActive: Scalars['Boolean']['output'];
+  modbusFunction?: Maybe<Scalars['Int']['output']>;
+  modbusRegister?: Maybe<Scalars['Int']['output']>;
+  modbusSlaveId?: Maybe<Scalars['Int']['output']>;
+  moduleAddress: Scalars['Int']['output'];
+  rawMax?: Maybe<Scalars['Float']['output']>;
+  rawMin?: Maybe<Scalars['Float']['output']>;
+  spiBus?: Maybe<Scalars['Int']['output']>;
+  spiCs?: Maybe<Scalars['Int']['output']>;
+  tagName: Scalars['String']['output'];
+  uartPort?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Lifecycle state of the edge device */
+export type DeviceLifecycleState =
+  | 'ACTIVE'
+  | 'DECOMMISSIONED'
+  | 'ERROR'
+  | 'MAINTENANCE'
+  | 'OFFLINE'
+  | 'PENDING_APPROVAL'
+  | 'PROVISIONING'
+  | 'REGISTERED'
+  | 'REVOKED';
+
+/** Type of device that can be a group member */
+export type DeviceMemberType =
+  | 'EDGE_DEVICE'
+  | 'PLC_CONNECTION'
+  | 'SENSOR'
+  | 'VFD_DEVICE';
+
+/** Hardware model of the edge device */
+export type DeviceModel =
+  | 'CUSTOM'
+  | 'INDUSTRIAL_PC'
+  | 'RASPBERRY_PI_4'
+  | 'RASPBERRY_PI_4_LORA'
+  | 'RASPBERRY_PI_5'
+  | 'RASPBERRY_PI_5_LORA'
+  | 'REVOLUTION_PI_COMPACT'
+  | 'REVOLUTION_PI_CONNECT_4';
+
+export type DiagnosticItem = {
+  code?: Maybe<Scalars['String']['output']>;
+  column: Scalars['Int']['output'];
+  line: Scalars['Int']['output'];
+  message: Scalars['String']['output'];
+  severity: Scalars['String']['output'];
+};
+
+export type DisableMfaInput = {
+  code: Scalars['String']['input'];
+  password: Scalars['String']['input'];
+};
+
+export type DisableMfaResponse = {
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type DiscoverChannelsInput = {
+  payloadFormat?: InputMaybe<Scalars['String']['input']>;
+  protocolCode: Scalars['String']['input'];
+  protocolConfiguration: Scalars['JSON']['input'];
+  sampleData?: InputMaybe<Scalars['JSON']['input']>;
+};
+
+export type DiscoveredChannelType = {
+  channelKey: Scalars['String']['output'];
+  dataPath?: Maybe<Scalars['String']['output']>;
+  inferredDataType: ChannelDataType;
+  inferredUnit?: Maybe<Scalars['String']['output']>;
+  sampleValue?: Maybe<Scalars['JSON']['output']>;
+  suggestedLabel: Scalars['String']['output'];
+  suggestedMax?: Maybe<Scalars['Float']['output']>;
+  suggestedMin?: Maybe<Scalars['Float']['output']>;
+};
+
+export type DiscoveredIoChannel = {
+  /** Bus type: i2c, spi, uart */
+  busType?: Maybe<Scalars['String']['output']>;
+  /** Channel/pin number within the module */
+  channel: Scalars['Int']['output'];
+  /** Data type: BOOL, INT16, INT32, FLOAT32 etc. */
+  dataType: Scalars['String']['output'];
+  /** Human-readable description */
+  description?: Maybe<Scalars['String']['output']>;
+  /** GPIO pin number (RPi only) */
+  gpioPin?: Maybe<Scalars['Int']['output']>;
+  /** I2C device address */
+  i2cAddress?: Maybe<Scalars['Int']['output']>;
+  /** I2C bus number */
+  i2cBus?: Maybe<Scalars['Int']['output']>;
+  /** Known I2C device name */
+  i2cDeviceName?: Maybe<Scalars['String']['output']>;
+  /** I/O type: DI, DO, AI, AO */
+  ioType: Scalars['String']['output'];
+  /** Module address (piControl byte offset or GPIO chip base) */
+  moduleAddress: Scalars['Int']['output'];
+  /** Discovery source: picontrol, gpiochip, sysfs */
+  source: Scalars['String']['output'];
+  /** SPI bus number */
+  spiBus?: Maybe<Scalars['Int']['output']>;
+  /** SPI chip select */
+  spiCs?: Maybe<Scalars['Int']['output']>;
+  /** Auto-generated tag name (e.g. "DI_01", "GPIO_17") */
+  tagName: Scalars['String']['output'];
+  /** UART port path */
+  uartPort?: Maybe<Scalars['String']['output']>;
+};
+
+export type DiscoveredOpcUaEndpoint = {
+  endpointUrl: Scalars['String']['output'];
+  securityLevel: Scalars['Int']['output'];
+  securityMode: Scalars['String']['output'];
+  securityPolicy: Scalars['String']['output'];
+  serverCertificate?: Maybe<Scalars['String']['output']>;
+  transportProfileUri?: Maybe<Scalars['String']['output']>;
+};
+
+export type DiscoveryResultType = {
+  channels: Array<DiscoveredChannelType>;
+  error?: Maybe<Scalars['String']['output']>;
+  rawPayload?: Maybe<Scalars['JSON']['output']>;
+  sampleData?: Maybe<Scalars['JSON']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+/** How the channel was discovered/created */
+export type DiscoverySource =
+  | 'AUTO'
+  | 'MANUAL'
+  | 'TEMPLATE';
+
 /** Hastalık kategorisi */
 export type DiseaseCategory =
   | 'BACTERIAL'
@@ -2058,12 +4467,353 @@ export type DiseaseCategory =
   | 'UNKNOWN'
   | 'VIRAL';
 
+export type DiseaseCategoryInput =
+  | 'A'
+  | 'C'
+  | 'F';
+
+export type DiseaseConfirmationInput =
+  | 'CONFIRMED'
+  | 'SUSPECTED';
+
+export type DisplaySettings = {
+  chartConfig?: Maybe<Scalars['JSON']['output']>;
+  color?: Maybe<Scalars['String']['output']>;
+  icon?: Maybe<Scalars['String']['output']>;
+  precision?: Maybe<Scalars['Int']['output']>;
+  showOnDashboard?: Maybe<Scalars['Boolean']['output']>;
+  widgetType?: Maybe<Scalars['String']['output']>;
+};
+
+export type DisplaySettingsInput = {
+  color?: InputMaybe<Scalars['String']['input']>;
+  decimalPlaces?: InputMaybe<Scalars['Float']['input']>;
+  showOnDashboard?: InputMaybe<Scalars['Boolean']['input']>;
+  sortOrder?: InputMaybe<Scalars['Float']['input']>;
+  widgetType?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type DisplaySettingsType = {
+  color?: Maybe<Scalars['String']['output']>;
+  decimalPlaces?: Maybe<Scalars['Float']['output']>;
+  showOnDashboard?: Maybe<Scalars['Boolean']['output']>;
+  sortOrder?: Maybe<Scalars['Float']['output']>;
+  widgetType?: Maybe<Scalars['String']['output']>;
+};
+
 export type DissolvedOxygenInput = {
   critical?: InputMaybe<Scalars['Float']['input']>;
   min: Scalars['Float']['input'];
   optimal: Scalars['Float']['input'];
   unit?: Scalars['String']['input'];
 };
+
+export type EarningsInput = {
+  allowances?: InputMaybe<Scalars['Float']['input']>;
+  baseSalary: Scalars['Float']['input'];
+  bonus?: InputMaybe<Scalars['Float']['input']>;
+  commission?: InputMaybe<Scalars['Float']['input']>;
+  overtime?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type EdgeDevice = {
+  activeAlarmCount?: Maybe<Scalars['Int']['output']>;
+  agentVersion?: Maybe<Scalars['String']['output']>;
+  capabilities?: Maybe<Scalars['JSON']['output']>;
+  certificateExpiresAt?: Maybe<Scalars['DateTime']['output']>;
+  certificateThumbprint?: Maybe<Scalars['String']['output']>;
+  commissionedAt?: Maybe<Scalars['DateTime']['output']>;
+  commissionedBy?: Maybe<Scalars['String']['output']>;
+  config?: Maybe<Scalars['JSON']['output']>;
+  connectionQuality?: Maybe<Scalars['Int']['output']>;
+  cpuUsage?: Maybe<Scalars['Int']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  deviceCode: Scalars['String']['output'];
+  deviceModel: DeviceModel;
+  deviceName: Scalars['String']['output'];
+  fingerprint?: Maybe<Scalars['JSON']['output']>;
+  firmwareUpdatedAt?: Maybe<Scalars['DateTime']['output']>;
+  firmwareVersion?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  ioConfig: Array<DeviceIoConfig>;
+  ipAddress?: Maybe<Scalars['String']['output']>;
+  isOnline: Scalars['Boolean']['output'];
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  lifecycleState: DeviceLifecycleState;
+  memoryUsage?: Maybe<Scalars['Int']['output']>;
+  mqttClientId?: Maybe<Scalars['String']['output']>;
+  programCount?: Maybe<Scalars['Int']['output']>;
+  scanRateMs?: Maybe<Scalars['Int']['output']>;
+  securityLevel?: Maybe<Scalars['Int']['output']>;
+  sensorCount?: Maybe<Scalars['Int']['output']>;
+  serialNumber?: Maybe<Scalars['String']['output']>;
+  siteId?: Maybe<Scalars['String']['output']>;
+  storageUsage?: Maybe<Scalars['Int']['output']>;
+  tags?: Maybe<Scalars['JSON']['output']>;
+  targetFirmwareVersion?: Maybe<Scalars['String']['output']>;
+  temperatureCelsius?: Maybe<Scalars['Float']['output']>;
+  tenantId: Scalars['String']['output'];
+  timezone?: Maybe<Scalars['String']['output']>;
+  tokenExpiresAt?: Maybe<Scalars['DateTime']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  uptimeSeconds?: Maybe<Scalars['Int']['output']>;
+};
+
+export type EdgeDeviceConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<EdgeDevice>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type EdgeDeviceStats = {
+  byModel: Array<ModelCount>;
+  byState: Array<StateCount>;
+  offline: Scalars['Int']['output'];
+  online: Scalars['Int']['output'];
+  total: Scalars['Int']['output'];
+};
+
+export type EditMessageInput = {
+  /** New message content (max 4000 chars) */
+  content: Scalars['String']['input'];
+};
+
+export type EffectiveConfigurationDto = {
+  cachePolicy: Scalars['JSON']['output'];
+  contentHash: Scalars['String']['output'];
+  environment: ConfigEnvironment;
+  key: Scalars['String']['output'];
+  requiresRestart: Scalars['Boolean']['output'];
+  resolvedAt: Scalars['DateTime']['output'];
+  revision: Scalars['Float']['output'];
+  secretMode: Scalars['String']['output'];
+  serviceId: Scalars['String']['output'];
+  source: Scalars['String']['output'];
+  sourceChain: Array<Scalars['String']['output']>;
+  sourceConfigurationId: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  tombstoned: Scalars['Boolean']['output'];
+  value?: Maybe<Scalars['JSON']['output']>;
+  valueType: ConfigValueType;
+  version: Scalars['Float']['output'];
+};
+
+export type EffectivePermissions = {
+  overrides: PermissionOverrides;
+  panelPermissions: Scalars['JSON']['output'];
+  resourcePermissions: Array<Scalars['String']['output']>;
+  roleId: Scalars['ID']['output'];
+  roleName: Scalars['String']['output'];
+};
+
+export type Employee = {
+  address: Address;
+  assignedWorkAreas?: Maybe<Array<WorkAreaType>>;
+  certifications?: Maybe<Array<Scalars['String']['output']>>;
+  contactInfo: ContactInfo;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  currentRotationId?: Maybe<Scalars['String']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  department: HrDepartment;
+  departmentHr?: Maybe<DepartmentHr>;
+  departmentHrId?: Maybe<Scalars['String']['output']>;
+  email: Scalars['String']['output'];
+  employeeNumber: Scalars['String']['output'];
+  employmentType: EmploymentType;
+  farmId?: Maybe<Scalars['String']['output']>;
+  firstName: Scalars['String']['output'];
+  hireDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isFarmWorker: Scalars['Boolean']['output'];
+  lastName: Scalars['String']['output'];
+  personnelCategory?: Maybe<PersonnelCategory>;
+  position: Scalars['String']['output'];
+  positionId?: Maybe<Scalars['String']['output']>;
+  seaWorthy: Scalars['Boolean']['output'];
+  skills?: Maybe<Array<Scalars['String']['output']>>;
+  status: EmployeeStatus;
+  supervisorId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  terminationDate?: Maybe<Scalars['DateTime']['output']>;
+  timezone?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  userId?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type EmployeeCertification = {
+  certificationNumber: Scalars['String']['output'];
+  certificationType?: Maybe<CertificationType>;
+  certificationTypeId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  daysUntilExpiry?: Maybe<Scalars['Int']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  documents?: Maybe<Array<CertificationDocument>>;
+  employee?: Maybe<Employee>;
+  employeeId: Scalars['String']['output'];
+  expiryDate?: Maybe<Scalars['DateTime']['output']>;
+  externalCertificationId?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isRenewal: Scalars['Boolean']['output'];
+  issueDate: Scalars['DateTime']['output'];
+  issuingAuthority?: Maybe<Scalars['String']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  previousCertificationId?: Maybe<Scalars['String']['output']>;
+  reminderSent: Scalars['Boolean']['output'];
+  reminderSentAt?: Maybe<Scalars['DateTime']['output']>;
+  revocationReason?: Maybe<Scalars['String']['output']>;
+  revokedAt?: Maybe<Scalars['DateTime']['output']>;
+  revokedBy?: Maybe<Scalars['String']['output']>;
+  status: CertificationStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  verificationStatus: VerificationStatus;
+  verifiedAt?: Maybe<Scalars['DateTime']['output']>;
+  verifiedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type EmployeeCertificationConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<EmployeeCertification>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type EmployeeConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<Employee>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type EmployeeFilterInput = {
+  department?: InputMaybe<HrDepartment>;
+  employmentType?: InputMaybe<EmploymentType>;
+  farmId?: InputMaybe<Scalars['String']['input']>;
+  /** Filter by personnel category (OFFSHORE/ONSHORE/HYBRID) */
+  personnelCategory?: InputMaybe<PersonnelCategory>;
+  /** Filter by sea-worthiness certification status */
+  seaWorthy?: InputMaybe<Scalars['Boolean']['input']>;
+  status?: InputMaybe<EmployeeStatus>;
+  supervisorId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type EmployeeKpi = {
+  achievementPercent: Scalars['Float']['output'];
+  category: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currentValue: Scalars['Float']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  employee?: Maybe<Employee>;
+  employeeId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  periodEnd: Scalars['DateTime']['output'];
+  periodStart: Scalars['DateTime']['output'];
+  targetValue: Scalars['Float']['output'];
+  tenantId: Scalars['String']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  weight: Scalars['Float']['output'];
+};
+
+export type EmployeeOvertimeSummary = {
+  actualOvertimeMinutes: Scalars['Int']['output'];
+  employeeId: Scalars['ID']['output'];
+  employeeName: Scalars['String']['output'];
+  plannedOvertimeMinutes: Scalars['Int']['output'];
+  weekCount: Scalars['Int']['output'];
+};
+
+export type EmployeePaginationInput = {
+  /** Items per page (max 100) */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /** Page number (1-based) */
+  page?: InputMaybe<Scalars['Int']['input']>;
+  /** Sort field */
+  sortBy?: InputMaybe<Scalars['String']['input']>;
+  /** Sort direction */
+  sortOrder?: InputMaybe<SortOrder>;
+};
+
+export type EmployeeStatus =
+  | 'ACTIVE'
+  | 'ON_LEAVE'
+  | 'SUSPENDED'
+  | 'TERMINATED';
+
+export type EmployeeWeekSummary = {
+  days: Array<DayEntry>;
+  employeeId: Scalars['ID']['output'];
+  employeeName: Scalars['String']['output'];
+  overtimeMinutes: Scalars['Int']['output'];
+  planStatus?: Maybe<Scalars['String']['output']>;
+  position?: Maybe<Scalars['String']['output']>;
+  totalMinutes: Scalars['Int']['output'];
+  totalWorkDays: Scalars['Int']['output'];
+  weeklyPlanId?: Maybe<Scalars['ID']['output']>;
+};
+
+export type EmploymentType =
+  | 'CONTRACT'
+  | 'FULL_TIME'
+  | 'PART_TIME'
+  | 'SEASONAL';
+
+export type EnrollmentStatus =
+  | 'COMPLETED'
+  | 'ENROLLED'
+  | 'EXPIRED'
+  | 'FAILED'
+  | 'IN_PROGRESS'
+  | 'PASSED'
+  | 'WITHDRAWN';
 
 export type EnvironmentalImpactInput = {
   /** CO2-eq with Land Use Change (kg CO2/kg feed) */
@@ -2322,6 +5072,62 @@ export type ErasureTicketResponse = {
   token: Scalars['String']['output'];
 };
 
+/** Type of escalation action */
+export type EscalationActionType =
+  | 'ASSIGN'
+  | 'AUTO_RESOLVE'
+  | 'CREATE_TICKET'
+  | 'ESCALATE_TO_MANAGER'
+  | 'NOTIFY'
+  | 'WEBHOOK';
+
+export type EscalationLevel = {
+  action: EscalationActionType;
+  actionConfig?: Maybe<Scalars['String']['output']>;
+  channels: Array<NotificationChannel>;
+  level: Scalars['Int']['output'];
+  messageTemplate?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  notifyTeamIds?: Maybe<Array<Scalars['String']['output']>>;
+  notifyUserIds: Array<Scalars['String']['output']>;
+  timeoutMinutes: Scalars['Int']['output'];
+};
+
+export type EscalationLevelInput = {
+  action: EscalationActionType;
+  actionConfig?: InputMaybe<Scalars['String']['input']>;
+  channels: Array<NotificationChannel>;
+  level: Scalars['Int']['input'];
+  messageTemplate?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  notifyTeamIds?: InputMaybe<Array<Scalars['String']['input']>>;
+  notifyUserIds: Array<Scalars['String']['input']>;
+  timeoutMinutes: Scalars['Int']['input'];
+};
+
+export type EscalationPolicy = {
+  conditions?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  farmIds?: Maybe<Array<Scalars['String']['output']>>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDefault: Scalars['Boolean']['output'];
+  levels: Array<EscalationLevel>;
+  maxRepeats: Scalars['Int']['output'];
+  name: Scalars['String']['output'];
+  onCallSchedule?: Maybe<Array<OnCallSchedule>>;
+  priority: Scalars['Int']['output'];
+  repeatIntervalMinutes: Scalars['Int']['output'];
+  ruleIds?: Maybe<Array<Scalars['String']['output']>>;
+  severity: Array<AlertSeverity>;
+  suppressionWindows?: Maybe<Array<SuppressionWindow>>;
+  tenantId: Scalars['String']['output'];
+  timezone?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
 export type ExecutedSlaughterLocalityInput = {
   /** Quality grades per species */
   arter: Array<KvalitetsklasserPerArtInput>;
@@ -2331,6 +5137,13 @@ export type ExecutedSlaughterLocalityInput = {
   organisasjonsnummer: Scalars['String']['input'];
 };
 
+/** How the program is triggered to run */
+export type ExecutionMode =
+  | 'CONTINUOUS'
+  | 'MANUAL'
+  | 'SCHEDULED'
+  | 'TRIGGERED';
+
 /** Günlük yemleme çalıştırma durumu */
 export type ExecutionStatus =
   | 'COMPLETED'
@@ -2338,6 +5151,20 @@ export type ExecutionStatus =
   | 'PARTIAL'
   | 'PLANNED'
   | 'SKIPPED';
+
+export type ExportFormat =
+  | 'CSV'
+  | 'JSON';
+
+export type ExportJobType = {
+  data: Scalars['String']['output'];
+  exportedAt: Scalars['String']['output'];
+  format: Scalars['String']['output'];
+  isUnderLegalHold: Scalars['Boolean']['output'];
+  jobId: Scalars['String']['output'];
+  recordCount: Scalars['Int']['output'];
+  status: Scalars['String']['output'];
+};
 
 export type FcrInfo = {
   actual: Scalars['Float']['output'];
@@ -2420,6 +5247,78 @@ export type FarmPaginationInput = {
   sortBy?: InputMaybe<Scalars['String']['input']>;
   /** Sort direction */
   sortOrder?: InputMaybe<SortOrder>;
+};
+
+export type FarmStockBatchSnapshot = {
+  avgWeightG: Scalars['Float']['output'];
+  batchId: Scalars['ID']['output'];
+  batchNumber?: Maybe<Scalars['String']['output']>;
+  batchStatus?: Maybe<Scalars['String']['output']>;
+  biomassKg: Scalars['Float']['output'];
+  containerId: Scalars['ID']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  densityKgM3?: Maybe<Scalars['Float']['output']>;
+  harvestedQuantity: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isPrimary: Scalars['Boolean']['output'];
+  lastMortalityAt?: Maybe<Scalars['DateTime']['output']>;
+  quantity: Scalars['Int']['output'];
+  tenantId: Scalars['ID']['output'];
+  totalCull: Scalars['Int']['output'];
+  totalMortality: Scalars['Int']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type FarmStockContainerSnapshot = {
+  capacityUsedPercent?: Maybe<Scalars['Float']['output']>;
+  code: Scalars['String']['output'];
+  containerId: Scalars['ID']['output'];
+  containerSource: FarmStockContainerSource;
+  createdAt: Scalars['DateTime']['output'];
+  currentBiomassKg?: Maybe<Scalars['Float']['output']>;
+  currentQuantity?: Maybe<Scalars['Int']['output']>;
+  departmentId?: Maybe<Scalars['ID']['output']>;
+  hasActiveBatch: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isOverCapacity: Scalars['Boolean']['output'];
+  lastStockEventAt?: Maybe<Scalars['DateTime']['output']>;
+  maxBiomassKg?: Maybe<Scalars['Float']['output']>;
+  name: Scalars['String']['output'];
+  siteId?: Maybe<Scalars['ID']['output']>;
+  status?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  volume?: Maybe<Scalars['Float']['output']>;
+};
+
+export type FarmStockContainerSource =
+  | 'EQUIPMENT'
+  | 'TANK';
+
+export type FarmStockInventoryConnection = {
+  items: Array<FarmStockInventoryItem>;
+  limit: Scalars['Int']['output'];
+  page: Scalars['Int']['output'];
+  total: Scalars['Int']['output'];
+  totalPages: Scalars['Int']['output'];
+};
+
+export type FarmStockInventoryFilterInput = {
+  containerSources?: InputMaybe<Array<FarmStockContainerSource>>;
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  hasActiveBatch?: InputMaybe<Scalars['Boolean']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type FarmStockInventoryItem = {
+  batches: Array<FarmStockBatchSnapshot>;
+  container: FarmStockContainerSnapshot;
 };
 
 export type FeedAssignmentEntryInput = {
@@ -2847,6 +5746,48 @@ export type FeedingPaginationInput = {
   sortOrder?: InputMaybe<SortOrder>;
 };
 
+export type FeedingParameter = {
+  acknowledgedAt?: Maybe<Scalars['DateTime']['output']>;
+  activatedAt?: Maybe<Scalars['DateTime']['output']>;
+  biomassKg: Scalars['Float']['output'];
+  checksum?: Maybe<Scalars['String']['output']>;
+  connection?: Maybe<PlcConnection>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  fcr: Scalars['Float']['output'];
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+  plcConnectionId: Scalars['String']['output'];
+  schedule: Scalars['JSON']['output'];
+  sentAt?: Maybe<Scalars['DateTime']['output']>;
+  status: FeedingParameterStatus;
+  tankId?: Maybe<Scalars['String']['output']>;
+  targetDailyFeedKg: Scalars['Float']['output'];
+  tenantId: Scalars['String']['output'];
+  thresholds: Scalars['JSON']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  version: Scalars['String']['output'];
+  vfdSettings: Scalars['JSON']['output'];
+};
+
+export type FeedingParameterFilterInput = {
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type FeedingParameterStatus =
+  | 'ACKNOWLEDGED'
+  | 'ACTIVE'
+  | 'DRAFT'
+  | 'ERROR'
+  | 'PENDING'
+  | 'SENT'
+  | 'SUPERSEDED';
+
 export type FeedingProgram = {
   activatedAt?: Maybe<Scalars['DateTime']['output']>;
   code: Scalars['String']['output'];
@@ -2906,6 +5847,7 @@ export type FeedingProgramTank = {
   equipmentId: Scalars['String']['output'];
   equipmentName: Scalars['String']['output'];
   equipmentType: ProgramEquipmentType;
+  feedingProgram?: Maybe<FeedingProgram>;
   feedingProgramId: Scalars['String']['output'];
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
@@ -3078,6 +6020,14 @@ export type FeedingScheduleResponse = {
   totalMealsPerDay: Scalars['Int']['output'];
 };
 
+export type FeedingStats = {
+  avgFeedingAmountKg: Scalars['Float']['output'];
+  lastFeedingAmountKg?: Maybe<Scalars['Float']['output']>;
+  lastFeedingTime?: Maybe<Scalars['DateTime']['output']>;
+  totalFeedKg: Scalars['Float']['output'];
+  totalFeedings: Scalars['Int']['output'];
+};
+
 export type FeedingSummaryResponse = {
   avgFeedingKg: Scalars['Float']['output'];
   batchId?: Maybe<Scalars['ID']['output']>;
@@ -3102,6 +6052,13 @@ export type FeedingTemperatureRangeInput = {
   unit?: Scalars['String']['input'];
 };
 
+export type FinalizeReviewInput = {
+  calibrationNotes?: InputMaybe<Scalars['String']['input']>;
+  finalRating: Scalars['Float']['input'];
+  reviewId: Scalars['String']['input'];
+  reviewerComments?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type FinancialProjectionInput = {
   /** Currency code (e.g., TRY, USD, EUR) */
   currency: Scalars['String']['input'];
@@ -3117,6 +6074,13 @@ export type FinancialProjectionInput = {
   margin: Scalars['Float']['input'];
   /** Price unit: per_kg or per_piece */
   priceUnit: Scalars['String']['input'];
+};
+
+export type FirmwareVersionInfo = {
+  name: Scalars['String']['output'];
+  prerelease: Scalars['Boolean']['output'];
+  publishedAt: Scalars['DateTime']['output'];
+  tag: Scalars['String']['output'];
 };
 
 export type FirstAidInfoInput = {
@@ -3166,6 +6130,10 @@ export type FolsomhetsundersokelseInput = {
   utfortDato: Scalars['String']['input'];
 };
 
+export type ForgotPasswordInput = {
+  email: Scalars['String']['input'];
+};
+
 export type GenerateDailyPlanInput = {
   date: Scalars['DateTime']['input'];
   programId: Scalars['ID']['input'];
@@ -3177,6 +6145,104 @@ export type GenerateDailyPlanResult = {
   generatedCount: Scalars['Int']['output'];
   warnings?: Maybe<Array<Scalars['String']['output']>>;
 };
+
+export type GeoCoordinates = {
+  latitude: Scalars['Float']['output'];
+  longitude: Scalars['Float']['output'];
+};
+
+export type GeoCoordinatesInput = {
+  latitude: Scalars['Float']['input'];
+  longitude: Scalars['Float']['input'];
+};
+
+export type GeoLocation = {
+  accuracy?: Maybe<Scalars['Float']['output']>;
+  address?: Maybe<Scalars['String']['output']>;
+  latitude: Scalars['Float']['output'];
+  longitude: Scalars['Float']['output'];
+};
+
+export type GeoLocationInput = {
+  accuracy?: InputMaybe<Scalars['Float']['input']>;
+  address?: InputMaybe<Scalars['String']['input']>;
+  latitude: Scalars['Float']['input'];
+  longitude: Scalars['Float']['input'];
+};
+
+export type GetTableDataInput = {
+  limit?: Scalars['Float']['input'];
+  offset?: Scalars['Float']['input'];
+  schemaName: Scalars['String']['input'];
+  tableName: Scalars['String']['input'];
+};
+
+export type Goal = {
+  alignedReviewId?: Maybe<Scalars['String']['output']>;
+  category?: Maybe<Scalars['String']['output']>;
+  childGoals?: Maybe<Array<Goal>>;
+  completedDate?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  daysOverdue?: Maybe<Scalars['Int']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  employee?: Maybe<Employee>;
+  employeeId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  keyResults?: Maybe<Array<KeyResult>>;
+  milestones?: Maybe<Array<GoalMilestone>>;
+  parentGoal?: Maybe<Goal>;
+  parentGoalId?: Maybe<Scalars['String']['output']>;
+  priority: GoalPriority;
+  progressPercent: Scalars['Float']['output'];
+  startDate: Scalars['DateTime']['output'];
+  status: GoalStatus;
+  targetDate: Scalars['DateTime']['output'];
+  tenantId: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type GoalConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<Goal>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type GoalMilestone = {
+  completedDate?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isCompleted: Scalars['Boolean']['output'];
+  targetDate: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
+export type GoalPriority =
+  | 'CRITICAL'
+  | 'HIGH'
+  | 'LOW'
+  | 'MEDIUM';
+
+export type GoalStatus =
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'DEFERRED'
+  | 'IN_PROGRESS'
+  | 'NOT_STARTED';
 
 export type GrowthAnalysisResponse = {
   analysisDate: Scalars['DateTime']['output'];
@@ -3444,6 +6510,52 @@ export type GrowthTrend = {
   fcrChangeLast7Days: Scalars['Float']['output'];
   fcrTrend: Scalars['String']['output'];
   growthAcceleration: Scalars['Float']['output'];
+};
+
+export type HrDashboardStats = {
+  activeEmployees: Scalars['Int']['output'];
+  attendanceRate: Scalars['Float']['output'];
+  newHiresThisMonth: Scalars['Int']['output'];
+  offshoreEmployees: Scalars['Int']['output'];
+  onLeaveEmployees: Scalars['Int']['output'];
+  onshoreEmployees: Scalars['Int']['output'];
+  pendingLeaveRequests: Scalars['Int']['output'];
+  terminatedEmployees: Scalars['Int']['output'];
+  totalDepartments: Scalars['Int']['output'];
+  totalEmployees: Scalars['Int']['output'];
+};
+
+export type HrDepartment =
+  | 'ADMINISTRATION'
+  | 'FEEDING'
+  | 'LOGISTICS'
+  | 'MAINTENANCE'
+  | 'MANAGEMENT'
+  | 'OPERATIONS'
+  | 'QUALITY_CONTROL'
+  | 'SECURITY';
+
+export type HalfDayPeriod =
+  | 'AM'
+  | 'PM';
+
+export type HardwareScanResultType = {
+  /** Discovered I/O channels */
+  discoveredChannels: Array<DiscoveredIoChannel>;
+  /** Error message if scan failed */
+  error?: Maybe<Scalars['String']['output']>;
+  /** I2C bus scan results */
+  i2cBuses?: Maybe<Array<I2cBusScanInfo>>;
+  /** Detected platform: RevolutionPi, RaspberryPi, GenericLinux, Unknown */
+  platform: Scalars['String']['output'];
+  /** SPI bus info */
+  spiBuses?: Maybe<Array<SpiBusInfo>>;
+  /** Whether the scan completed successfully */
+  success: Scalars['Boolean']['output'];
+  /** Total number of I/O channels found */
+  totalFound: Scalars['Int']['output'];
+  /** UART port info */
+  uartPorts?: Maybe<Array<UartPortInfo>>;
 };
 
 export type HarvestCriteriaInput = {
@@ -3986,6 +7098,40 @@ export type HealthSeverity =
   | 'MODERATE'
   | 'SEVERE';
 
+export type HydroponicsConfig = {
+  configName: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  settings?: Maybe<Scalars['JSON']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type HydroponicsStatusResponse = {
+  configured: Scalars['Boolean']['output'];
+  moduleName: Scalars['String']['output'];
+};
+
+export type I2cBusScanInfo = {
+  /** I2C bus number (e.g. 0 or 1) */
+  bus: Scalars['Int']['output'];
+  /** Number of devices found on this bus */
+  deviceCount: Scalars['Int']['output'];
+  /** Devices found on this bus */
+  devices: Array<I2cDeviceInfo>;
+};
+
+export type I2cDeviceInfo = {
+  /** I2C device address (0x03-0x77) */
+  address: Scalars['Int']['output'];
+  /** Hex representation of address (e.g. "0x76") */
+  addressHex: Scalars['String']['output'];
+  /** Device description */
+  deviceDescription?: Maybe<Scalars['String']['output']>;
+  /** Known device name (e.g. "BME280") */
+  deviceName?: Maybe<Scalars['String']['output']>;
+};
+
 export type IkkeMedikamentellBehandlingInput = {
   /** Number of cages treated (if not entire site) */
   antallMerder?: InputMaybe<Scalars['Int']['input']>;
@@ -4005,12 +7151,60 @@ export type IkkeMedikamentellBehandlingType =
   | 'MEKANISK_BEHANDLING'
   | 'TERMISK_BEHANDLING';
 
+export type InAppNotification = {
+  body: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  data?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isRead: Scalars['Boolean']['output'];
+  readAt?: Maybe<Scalars['String']['output']>;
+  title: Scalars['String']['output'];
+};
+
+export type IncidentTimelineEvent = {
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['String']['output'];
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  timestamp: Scalars['DateTime']['output'];
+  type: TimelineEventType;
+  userEmail?: Maybe<Scalars['String']['output']>;
+  userId?: Maybe<Scalars['String']['output']>;
+};
+
+export type IndexInfo = {
+  columnName: Scalars['String']['output'];
+  indexName: Scalars['String']['output'];
+  isPrimary: Scalars['Boolean']['output'];
+  isUnique: Scalars['Boolean']['output'];
+};
+
 export type IndividualMeasurementInput = {
   length?: InputMaybe<Scalars['Float']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   sampleNumber: Scalars['Int']['input'];
   weight: Scalars['Float']['input'];
   width?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type IndustryTemplate = {
+  alertPresets?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  dashboardLayout?: Maybe<Scalars['JSON']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayName: Scalars['String']['output'];
+  icon?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  sensorTypes: Scalars['JSON']['output'];
+  templateKey: Scalars['String']['output'];
+};
+
+export type IngestReadingInput = {
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  readings: SensorReadingsInput;
+  sensorId: Scalars['ID']['input'];
+  timestamp?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type InitialLocationInput = {
@@ -4092,6 +7286,110 @@ export type InventoryStatus =
   | 'OUT_OF_STOCK'
   | 'QUARANTINE';
 
+export type InvitationValidationResponse = {
+  email?: Maybe<Scalars['String']['output']>;
+  expired?: Maybe<Scalars['Boolean']['output']>;
+  firstName?: Maybe<Scalars['String']['output']>;
+  lastName?: Maybe<Scalars['String']['output']>;
+  role?: Maybe<Role>;
+  valid: Scalars['Boolean']['output'];
+};
+
+export type Invoice = {
+  amountDue: Scalars['Float']['output'];
+  amountPaid: Scalars['Float']['output'];
+  billingAddress: BillingAddress;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  discount?: Maybe<Scalars['Float']['output']>;
+  discountCode?: Maybe<Scalars['String']['output']>;
+  dueDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  invoiceNumber: Scalars['String']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  issueDate: Scalars['DateTime']['output'];
+  lineItems: Array<InvoiceLineItem>;
+  notes?: Maybe<Scalars['String']['output']>;
+  paidAt?: Maybe<Scalars['DateTime']['output']>;
+  pdfUrl?: Maybe<Scalars['String']['output']>;
+  periodEnd: Scalars['DateTime']['output'];
+  periodStart: Scalars['DateTime']['output'];
+  status: InvoiceStatus;
+  subscriptionId?: Maybe<Scalars['String']['output']>;
+  subtotal: Scalars['Float']['output'];
+  tax?: Maybe<TaxInfo>;
+  tenantId: Scalars['String']['output'];
+  total: Scalars['Float']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type InvoiceLineItem = {
+  amount: Scalars['Float']['output'];
+  description: Scalars['String']['output'];
+  productCode?: Maybe<Scalars['String']['output']>;
+  quantity: Scalars['Float']['output'];
+  unitPrice: Scalars['Float']['output'];
+};
+
+export type InvoiceLineItemInput = {
+  description: Scalars['String']['input'];
+  productCode?: InputMaybe<Scalars['String']['input']>;
+  quantity: Scalars['Float']['input'];
+  unitPrice: Scalars['Float']['input'];
+};
+
+export type InvoiceStatus =
+  | 'DRAFT'
+  | 'OVERDUE'
+  | 'PAID'
+  | 'PARTIALLY_PAID'
+  | 'PENDING'
+  | 'REFUNDED'
+  | 'SENT'
+  | 'VOID';
+
+/** Data type for I/O values */
+export type IoDataType =
+  | 'BOOL'
+  | 'FLOAT32'
+  | 'FLOAT64'
+  | 'INT16'
+  | 'INT32'
+  | 'UINT16'
+  | 'UINT32';
+
+/** Type of I/O point (DI, DO, AI, AO) */
+export type IoType =
+  | 'AI'
+  | 'AO'
+  | 'DI'
+  | 'DO';
+
+export type KeyResult = {
+  currentValue: Scalars['Float']['output'];
+  description: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isCompleted: Scalars['Boolean']['output'];
+  targetValue: Scalars['Float']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
+export type KeyResultInput = {
+  currentValue?: Scalars['Float']['input'];
+  description: Scalars['String']['input'];
+  targetValue: Scalars['Float']['input'];
+  unit?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type KeyResultUpdateInput = {
+  currentValue: Scalars['Float']['input'];
+  id: Scalars['String']['input'];
+};
+
 export type KombinasjonsbehandlingInput = {
   /** Non-medicated treatments in combination */
   ikkeMedikamentelleBehandlinger?: InputMaybe<Array<IkkeMedikamentellBehandlingInput>>;
@@ -4161,10 +7459,241 @@ export type LaborRecordInput = {
   userName?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type LatestTelemetrySummary = {
+  activeAlarmCount?: Maybe<Scalars['Int']['output']>;
+  aerationOn?: Maybe<Scalars['Boolean']['output']>;
+  blowerSpeed?: Maybe<Scalars['Int']['output']>;
+  doserSpeed?: Maybe<Scalars['Int']['output']>;
+  feedingInProgress?: Maybe<Scalars['Boolean']['output']>;
+  flowRate?: Maybe<Scalars['Float']['output']>;
+  oxygen?: Maybe<Scalars['Float']['output']>;
+  ph?: Maybe<Scalars['Float']['output']>;
+  plcConnectionId: Scalars['ID']['output'];
+  plcMode?: Maybe<Scalars['String']['output']>;
+  temperature?: Maybe<Scalars['Float']['output']>;
+  timestamp: Scalars['DateTime']['output'];
+};
+
+export type LeaveAttachment = {
+  documentId: Scalars['String']['output'];
+  fileName: Scalars['String']['output'];
+  uploadedAt: Scalars['DateTime']['output'];
+};
+
+export type LeaveBalance = {
+  accrued: Scalars['Float']['output'];
+  adjustment: Scalars['Float']['output'];
+  availableBalance: Scalars['Float']['output'];
+  carriedOver: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currentBalance: Scalars['Float']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  employeeId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  lastAccrualDate?: Maybe<Scalars['DateTime']['output']>;
+  leaveTypeId: Scalars['String']['output'];
+  openingBalance: Scalars['Float']['output'];
+  pending: Scalars['Float']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  used: Scalars['Float']['output'];
+  version: Scalars['Int']['output'];
+  year: Scalars['Int']['output'];
+};
+
+export type LeaveCalendarEntry = {
+  employeeId: Scalars['String']['output'];
+  employeeName: Scalars['String']['output'];
+  endDate: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isHalfDayEnd: Scalars['Boolean']['output'];
+  isHalfDayStart: Scalars['Boolean']['output'];
+  leaveTypeColor: Scalars['String']['output'];
+  leaveTypeName: Scalars['String']['output'];
+  startDate: Scalars['DateTime']['output'];
+  status: LeaveRequestStatus;
+  totalDays: Scalars['Float']['output'];
+};
+
+export type LeaveCategory =
+  | 'ANNUAL'
+  | 'BEREAVEMENT'
+  | 'COMPENSATORY'
+  | 'EMERGENCY'
+  | 'OTHER'
+  | 'PARENTAL'
+  | 'PERSONAL'
+  | 'ROTATION_BREAK'
+  | 'SABBATICAL'
+  | 'SHORE_LEAVE'
+  | 'SICK'
+  | 'STUDY'
+  | 'UNPAID';
+
+export type LeaveRequest = {
+  approvalHistory?: Maybe<Array<ApprovalHistoryEntry>>;
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['String']['output']>;
+  attachments?: Maybe<Array<LeaveAttachment>>;
+  cancellationReason?: Maybe<Scalars['String']['output']>;
+  cancelledAt?: Maybe<Scalars['DateTime']['output']>;
+  cancelledBy?: Maybe<Scalars['String']['output']>;
+  contactDuringLeave?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currentApprovalLevel: Scalars['Int']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  employee?: Maybe<Employee>;
+  employeeId: Scalars['String']['output'];
+  endDate: Scalars['DateTime']['output'];
+  halfDayPeriod?: Maybe<HalfDayPeriod>;
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isHalfDayEnd: Scalars['Boolean']['output'];
+  isHalfDayStart: Scalars['Boolean']['output'];
+  leaveType?: Maybe<LeaveType>;
+  leaveTypeId: Scalars['String']['output'];
+  originalCloseReason?: Maybe<Scalars['String']['output']>;
+  originalClosedAt?: Maybe<Scalars['DateTime']['output']>;
+  reason?: Maybe<Scalars['String']['output']>;
+  rejectedAt?: Maybe<Scalars['DateTime']['output']>;
+  rejectedBy?: Maybe<Scalars['String']['output']>;
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  requestNumber: Scalars['String']['output'];
+  startDate: Scalars['DateTime']['output'];
+  status: LeaveRequestStatus;
+  tenantId: Scalars['String']['output'];
+  totalDays: Scalars['Float']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type LeaveRequestConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<LeaveRequest>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type LeaveRequestStatus =
+  | 'APPROVED'
+  | 'CANCELLED'
+  | 'DRAFT'
+  | 'PENDING'
+  | 'REJECTED'
+  | 'WITHDRAWN';
+
+export type LeaveType = {
+  accrualRate?: Maybe<Scalars['Float']['output']>;
+  accrualStartAfterMonths: Scalars['Int']['output'];
+  applicableForOffshore: Scalars['Boolean']['output'];
+  approvalLevels: Scalars['Int']['output'];
+  category: LeaveCategory;
+  code: Scalars['String']['output'];
+  color?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  defaultDaysPerYear?: Maybe<Scalars['Float']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isAccrued: Scalars['Boolean']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isAquacultureSpecific: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isPaid: Scalars['Boolean']['output'];
+  maxCarryOverDays?: Maybe<Scalars['Float']['output']>;
+  maxConsecutiveDays?: Maybe<Scalars['Int']['output']>;
+  minDaysNotice?: Maybe<Scalars['Int']['output']>;
+  name: Scalars['String']['output'];
+  requiresApproval: Scalars['Boolean']['output'];
+  sortOrder: Scalars['Int']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type LegalHold = {
+  channelId?: Maybe<Scalars['String']['output']>;
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  legalMatterDescription?: Maybe<Scalars['String']['output']>;
+  legalMatterId: Scalars['String']['output'];
+  reason: Scalars['String']['output'];
+  releaseReason?: Maybe<Scalars['String']['output']>;
+  releasedAt?: Maybe<Scalars['DateTime']['output']>;
+  releasedBy?: Maybe<Scalars['String']['output']>;
+  releasedByApprover?: Maybe<Scalars['String']['output']>;
+  requestedBy?: Maybe<Scalars['String']['output']>;
+  startedAt: Scalars['DateTime']['output'];
+  startedBy: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+};
+
 export type LightRegimeInput = {
   darkHours: Scalars['Float']['input'];
   lightHours: Scalars['Float']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** LoRaWAN activation mode: OTAA (Over-The-Air) or ABP (Activation By Personalization) */
+export type LoRaActivationMode =
+  | 'ABP'
+  | 'OTAA';
+
+/** LoRaWAN device class: A (lowest power), B (beacon-synced), C (continuous RX) */
+export type LoRaDeviceClass =
+  | 'A'
+  | 'B'
+  | 'C';
+
+export type LoRaDeviceType = {
+  activationMode: LoRaActivationMode;
+  adrEnabled: Scalars['Boolean']['output'];
+  appEui?: Maybe<Scalars['String']['output']>;
+  /** Masked application key (first 4 + last 4 chars) */
+  appKeyMasked: Scalars['String']['output'];
+  codec: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  devAddr?: Maybe<Scalars['String']['output']>;
+  devEui: Scalars['String']['output'];
+  deviceClass: LoRaDeviceClass;
+  edgeDeviceId: Scalars['ID']['output'];
+  fPort: Scalars['Int']['output'];
+  /** Uplink frame counter */
+  frameCountUp?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  /** Whether device has successfully joined the network */
+  isJoined: Scalars['Boolean']['output'];
+  joinedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** RSSI in dBm */
+  lastRssi?: Maybe<Scalars['Float']['output']>;
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  /** SNR in dB */
+  lastSnr?: Maybe<Scalars['Float']['output']>;
+  name: Scalars['String']['output'];
+  tagPrefix: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
 };
 
 export type Location = {
@@ -4192,6 +7721,11 @@ export type LocationType =
   | 'POND'
   | 'TANK';
 
+export type LoginInput = {
+  email: Scalars['String']['input'];
+  password: Scalars['String']['input'];
+};
+
 export type LogisticsPlanInput = {
   /** Cold chain required */
   coldChainRequired?: InputMaybe<Scalars['Boolean']['input']>;
@@ -4211,6 +7745,11 @@ export type LogisticsPlanInput = {
   transportCapacity?: InputMaybe<Scalars['Float']['input']>;
   /** Transport type: truck, boat, or container */
   transportType?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type LogoutResponse = {
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
 };
 
 export type LowStockAlert = {
@@ -4336,6 +7875,15 @@ export type MaintenanceScheduleStatus =
   | 'EXPIRED'
   | 'PAUSED';
 
+export type ManualAttendanceInput = {
+  clockIn?: InputMaybe<Scalars['String']['input']>;
+  clockOut?: InputMaybe<Scalars['String']['input']>;
+  date: Scalars['String']['input'];
+  employeeId: Scalars['String']['input'];
+  reason: Scalars['String']['input'];
+  shiftId?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type MarineObservation = {
   createdAt: Scalars['DateTime']['output'];
   dataType: WeatherDataType;
@@ -4354,6 +7902,13 @@ export type MarineObservation = {
   waveDirection?: Maybe<Scalars['Float']['output']>;
   waveHeight?: Maybe<Scalars['Float']['output']>;
   wavePeriod?: Maybe<Scalars['Float']['output']>;
+};
+
+export type MarkReadInput = {
+  /** Channel UUID */
+  channelId: Scalars['ID']['input'];
+  /** Last read message UUID */
+  messageId: Scalars['ID']['input'];
 };
 
 /** Result of Maskinporten connection test */
@@ -4380,6 +7935,12 @@ export type MattilsynetStatus = {
   maskinportenConfigured: Scalars['Boolean']['output'];
 };
 
+export type MePayload = {
+  modules: Array<UserModule>;
+  redirectPath: Scalars['String']['output'];
+  user: User;
+};
+
 export type MeasurementConditionsInput = {
   dissolvedOxygen?: InputMaybe<Scalars['Float']['input']>;
   feedingStatus: Scalars['String']['input'];
@@ -4404,6 +7965,15 @@ export type MeasurementType =
   | 'ROUTINE'
   | 'SPOT_CHECK'
   | 'TRANSFER';
+
+export type MediaUploadResponse = {
+  /** URL expiration timestamp */
+  expiresAt: Scalars['DateTime']['output'];
+  /** Storage key to reference in sendMessage */
+  storageKey: Scalars['String']['output'];
+  /** Presigned PUT URL */
+  uploadUrl: Scalars['String']['output'];
+};
 
 export type MedicationInput = {
   /** Active ingredient */
@@ -4450,6 +8020,115 @@ export type MengdeEnhet =
   | 'LITER'
   | 'TONN';
 
+export type Message = {
+  attachments: Array<MessageAttachment>;
+  channelId: Scalars['String']['output'];
+  content?: Maybe<Scalars['String']['output']>;
+  contentType: MessageContentType;
+  createdAt: Scalars['DateTime']['output'];
+  editedAt?: Maybe<Scalars['DateTime']['output']>;
+  forwardedFrom?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isAiGenerated: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  parentId?: Maybe<Scalars['String']['output']>;
+  /** Aggregated emoji reaction counts */
+  reactionSummary?: Maybe<Array<ReactionSummary>>;
+  /** Read/delivery receipts for this message */
+  receipts?: Maybe<Array<MessageReceipt>>;
+  sender?: Maybe<User>;
+  senderId: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+export type MessageAttachment = {
+  /** Presigned download URL for the attachment (tenant-scoped, expiring). */
+  downloadUrl?: Maybe<Scalars['String']['output']>;
+  durationSeconds?: Maybe<Scalars['Float']['output']>;
+  fileSize: Scalars['Float']['output'];
+  height?: Maybe<Scalars['Float']['output']>;
+  id: Scalars['ID']['output'];
+  mimeType: Scalars['String']['output'];
+  originalFilename: Scalars['String']['output'];
+  /** Presigned thumbnail URL for image/video attachments (tenant-scoped, expiring). */
+  thumbnailUrl?: Maybe<Scalars['String']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+export type MessageContentType =
+  | 'FILE'
+  | 'IMAGE'
+  | 'SYSTEM'
+  | 'TEXT'
+  | 'VOICE';
+
+export type MessageFilterInput = {
+  /** Return messages created after this timestamp */
+  after?: InputMaybe<Scalars['DateTime']['input']>;
+  /** Return messages created before this timestamp */
+  before?: InputMaybe<Scalars['DateTime']['input']>;
+  /** Opaque cursor for keyset pagination */
+  cursor?: InputMaybe<Scalars['String']['input']>;
+  /** Number of messages to return (max 100) */
+  limit?: Scalars['Int']['input'];
+};
+
+export type MessagePageType = {
+  cursor?: Maybe<Scalars['String']['output']>;
+  hasMore: Scalars['Boolean']['output'];
+  items: Array<Message>;
+};
+
+export type MessageReceipt = {
+  deliveredAt?: Maybe<Scalars['DateTime']['output']>;
+  readAt?: Maybe<Scalars['DateTime']['output']>;
+  status: ReceiptStatus;
+  userId: Scalars['String']['output'];
+};
+
+export type MfaStepUpInput = {
+  /** TOTP code or recovery code */
+  code: Scalars['String']['input'];
+};
+
+export type MilestoneInput = {
+  targetDate: Scalars['String']['input'];
+  title: Scalars['String']['input'];
+};
+
+export type MobileStockEvent = {
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  note?: Maybe<Scalars['String']['output']>;
+  quantity: Scalars['Int']['output'];
+  tankName: Scalars['String']['output'];
+  type: Scalars['String']['output'];
+};
+
+export type MobileUserSettings = {
+  allowedFeatures: Scalars['JSON']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isMobileEnabled: Scalars['Boolean']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  userId: Scalars['String']['output'];
+};
+
+export type ModelCount = {
+  count: Scalars['Int']['output'];
+  model: DeviceModel;
+};
+
+export type ModuleUsageStatResponse = {
+  actionsLastMonth: Scalars['Int']['output'];
+  actionsThisMonth: Scalars['Int']['output'];
+  lastAccessAt?: Maybe<Scalars['DateTime']['output']>;
+  moduleCode: Scalars['String']['output'];
+  userCount: Scalars['Int']['output'];
+};
+
 /** Frequency at which a water quality parameter is monitored on equipment */
 export type MonitoringFrequency =
   | 'CONTINUOUS'
@@ -4480,98 +8159,243 @@ export type MovementType =
   | 'WASTE';
 
 export type Mutation = {
+  acceptInvitation: AuthPayload;
+  acknowledgeAlert: AlertHistory;
+  acknowledgeAllAlarmsForConnection: Scalars['Int']['output'];
+  acknowledgeAnnouncement: AnnouncementAcknowledgment;
+  acknowledgePlcAlarm: PlcAlarm;
+  acknowledgeReview: PerformanceReview;
+  activateFeedingParameter: FeedingParameter;
   /** Yemleme programini aktif et */
   activateFeedingProgram: FeedingProgram;
+  activatePlcConnection: PlcConnection;
+  activateSensor: RegisteredSensorType;
+  activateTenant: Tenant;
+  activateTenantUser: User;
+  activateVfdDevice: VfdDevice;
+  addAlarmNotes: PlcAlarm;
+  /** Add a member to a channel */
+  addChannelMember: ChannelMember;
   addChemicalDocument: ChemicalResponse;
+  addDeviceIoConfig: DeviceIoConfig;
+  addDevicesToGroup: Array<DeviceGroupMember>;
+  addEmployeeCertification: EmployeeCertification;
   /** Programa yem atamasi ekle */
   addFeedAssignment: FeedingProgram;
   addFeedInventory: FeedInventory;
+  addKeyResult: Goal;
+  addLoRaDevice: LoRaDeviceType;
+  addMilestone: Goal;
+  addProgramStep: ProgramStep;
+  addProgramTransition: ProgramTransition;
+  addProgramVariable: ProgramVariable;
+  addReaction: Scalars['Boolean']['output'];
+  addStepAction: StepAction;
+  addSuppressionWindow: EscalationPolicy;
   /** Programa tank ekle */
   addTankToProgram: FeedingProgramTank;
   /** Programa birden fazla tank ekle */
   addTanksToProgram: Array<FeedingProgramTank>;
   addTaskNote: Task;
+  addTicketComment: TicketComment;
+  addVfdChangeSetItems: VfdChangeSet;
   adjustFeedInventory: FeedInventory;
   allocateBatchToTank: Batch;
+  anonymizeMyData: Scalars['Boolean']['output'];
+  applyIndustryTemplate: Array<SensorTypeDefinition>;
   applyParameterTemplate: Array<WaterQualityParameterConfig>;
+  applyProtocolDefaults: Scalars['JSON']['output'];
+  approveAttendance: AttendanceRecord;
+  approveChannelProposal: Array<SensorDataChannel>;
+  approveEdgeDevice: EdgeDevice;
   /** Approve a harvest plan */
   approveHarvestPlan: HarvestPlan;
   approveInventoryCount: InventoryCountResponse;
+  approveLeaveRequest: LeaveRequest;
+  approvePayroll: Payroll;
+  approvePlcAlarm: PlcAlarm;
+  approveProgram: AutomationProgram;
+  approvePurchaseOrder: PurchaseOrderResponse;
+  approveRotation: WorkRotation;
+  approveVfdChangeSet: VfdChangeSet;
   approveWorkOrder: WorkOrder;
+  /** Archive a channel */
+  archiveChannel: Scalars['Boolean']['output'];
+  archiveProgram: AutomationProgram;
+  archiveSupportThread: SupportMessageThread;
   assignFeedsToBatch: BatchFeedAssignmentResponse;
+  assignModuleManager: TenantModule;
   /** Tanka sicaklik sensoru bagla */
   assignTemperatureSensor: FeedingProgramTank;
+  assignTicket: SupportTicket;
+  assignUserRole: UserRoleAssignment;
+  assignUserToModule: AssignmentResult;
+  assignUserToSite: SiteAssignmentResult;
+  autoBindTags: TagDiscoveryResultType;
+  batchActivateSensors: Scalars['Boolean']['output'];
+  batchDeactivateSensors: Scalars['Boolean']['output'];
+  batchIngestReadings: Scalars['Int']['output'];
+  batchUpdateSensors: Scalars['Boolean']['output'];
+  bulkAcknowledgePlcAlarms: Scalars['Int']['output'];
+  bulkAddDeviceIoConfigs: BulkAddIoConfigResult;
+  bulkAssignShifts: BulkAssignResultType;
+  bulkAssignUserRole: BulkAssignResult;
   bulkMapParamsToEquipment: Array<WaterQualityParamEquipment>;
   bulkStockIn: Array<SparePart>;
+  bulkUpdateDataChannels: BulkUpdateDataChannelsResult;
+  bulkUpdateEdgeDeviceFirmware: BulkFirmwareUpdateResult;
+  bulkUpdateMobileSettings: Array<MobileUserSettings>;
+  callOpcUaMethod: OpcUaMethodCallResult;
+  cancelAnnouncement: Announcement;
   /** Yemleme programini iptal et */
   cancelFeedingProgram: FeedingProgram;
+  cancelGoal: Goal;
   /** Cancel a harvest plan */
   cancelHarvestPlan: HarvestPlan;
+  cancelLeaveRequest: LeaveRequest;
   cancelPurchaseOrder: PurchaseOrderResponse;
+  cancelRotation: WorkRotation;
+  cancelSubscription: Subscription;
+  cancelTenant: Tenant;
   cancelWorkOrder: WorkOrder;
+  changeMyPassword: ChangeMyPasswordResponse;
+  /** @deprecated Use changeMyPassword. This compatibility alias will be removed after rollout. */
+  changePassword: ChangeMyPasswordResponse;
+  changeSubscriptionPlan: Subscription;
+  clockIn: AttendanceRecord;
+  clockOut: AttendanceRecord;
+  cloneAutomationProgram: AutomationProgram;
+  cloneEscalationPolicy: EscalationPolicy;
+  cloneFeedingParameter: FeedingParameter;
   /** Programi kopyala */
   cloneFeedingProgram: FeedingProgram;
   closeBatch: Batch;
+  closeSupportThread: SupportMessageThread;
   /** Yemleme programini tamamla */
   completeFeedingProgram: FeedingProgram;
+  completeGoal: Goal;
   /** Complete harvest for a plan */
   completeHarvestPlan: HarvestPlan;
   completeMaintenance: MaintenanceSchedule;
+  completeMilestone: Goal;
   completeTask: Task;
+  completeTraining: TrainingEnrollment;
   completeWorkOrder: WorkOrder;
+  /** Confirm and execute a proposed AI action */
+  confirmAiAction: Scalars['Boolean']['output'];
+  confirmSafetyTrainingAttendance: SafetyTrainingRecord;
   confirmTenantErasure: ErasureResultResponse;
   consumeFeedInventory: FeedInventory;
+  copyWeeklyPlan: WeeklyPlan;
+  createAlertRule: AlertRule;
   createAutoRule: AutoRule;
+  createAutomationProgram: AutomationProgram;
   createBatch: Batch;
   createBatchWaterQualityMeasurements: Array<WaterQualityMeasurement>;
   /** Create or update (if draft) a monthly biomass report for a site. Pass submit=true to finalise — a SUBMITTED report becomes immutable. */
   createBiomassReport: BiomassReport;
+  /** Create a new channel */
+  createChannel: Channel;
   createChemical: ChemicalResponse;
   createCleanerFishBatch: Batch;
   createConsumable: ConsumableResponse;
+  createDataChannel: DataChannelType;
   createDepartment: DepartmentResponse;
+  createDeviceGroup: DeviceGroup;
+  createEmployee: Employee;
   createEquipment: EquipmentResponse;
+  createEscalationPolicy: EscalationPolicy;
   /** @deprecated Legacy farm concept. Use createSite (SiteResolver) — Site → Department → System → Tank. */
   createFarm: Farm;
   createFeed: FeedResponse;
+  createFeedingParameter: FeedingParameter;
   /** Yeni yemleme programi olustur */
   createFeedingProgram: FeedingProgram;
   /** Create a new feeding protocol */
   createFeedingProtocol: FeedingProtocolResponse;
   createFeedingRecord: FeedingRecord;
+  createGoal: Goal;
+  createHRDepartment: DepartmentHr;
   /** Create a new harvest plan */
   createHarvestPlan: HarvestPlan;
   /** Create a harvest record and update batch/tank quantities */
   createHarvestRecord: HarvestRecord;
   /** Create a new health event */
   createHealthEvent: HealthEvent;
+  /** Create a hydroponics configuration */
+  createHydroponicsConfiguration: HydroponicsConfig;
   createInventoryCount: InventoryCountResponse;
+  createInvoice: Invoice;
+  createLeaveRequest: LeaveRequest;
   createMaintenanceSchedule: MaintenanceSchedule;
+  createManualAttendance: AttendanceRecord;
   createParamEquipmentMapping: WaterQualityParamEquipment;
   createParameterConfig: WaterQualityParameterConfig;
+  createPayroll: Payroll;
+  createPerformanceReview: PerformanceReview;
+  createPlan: Plan;
+  createPlatformAnnouncement: Announcement;
+  createPlcConnection: PlcConnection;
   /** @deprecated Legacy pond concept. Use createTank (TankResolver) — equipment with is_tank=true. */
   createPond: Pond;
+  createProcess: ProcessResultType;
+  createProcessFromTemplate: ProcessResultType;
+  createProvisionedDevice: ProvisionedDeviceResponse;
   createPurchaseOrder: PurchaseOrderResponse;
   createRecurringTemplate: RecurringTemplate;
+  createSafetyTrainingRecord: SafetyTrainingRecord;
+  createScadaPackage: ScadaPackageType;
+  createSensor: Sensor;
+  createSensorType: SensorTypeDefinition;
+  createShift: Shift;
   createSite: SiteResponse;
   createSparePart: SparePart;
   createSpecies: Species;
   createStorageLocation: StorageLocationResponse;
   createSubEquipment: SubEquipmentResponse;
+  createSubscription: Subscription;
   createSupplier: SupplierResponse;
+  createSupportThread: SupportMessageThread;
   createSystem: SystemResponse;
   createTank: Tank;
   createTask: Task;
+  createTenantAnnouncement: Announcement;
+  createTenantProvisioningKey: TenantKeyResponse;
+  createTenantRole: TenantRole;
+  createTenantUser: CreatedTenantUserResult;
+  createTicket: SupportTicket;
+  createUnifiedTag: UnifiedTagType;
+  createVfdAutomationRule: VfdAutomationRule;
+  createVfdChangeSet: VfdChangeSet;
   createWaterQualityMeasurement: WaterQualityMeasurement;
+  createWeeklyPlan: WeeklyPlan;
+  createWorkArea: WorkArea;
   createWorkOrder: WorkOrder;
+  createWorkRotation: WorkRotation;
   createWorker: WorkerResponse;
+  deactivatePlan: Plan;
+  deactivatePlcConnection: PlcConnection;
+  deactivateTenantUser: User;
+  deactivateVfdDevice: VfdDevice;
+  deactivateWorkArea: WorkArea;
+  decommissionEdgeDevice: EdgeDevice;
+  deferGoal: Goal;
+  deleteAlertRule: Scalars['Boolean']['output'];
+  deleteAllChannelsForSensor: Scalars['Boolean']['output'];
+  deleteAnnouncement: Scalars['Boolean']['output'];
   deleteAutoRule: Scalars['Boolean']['output'];
+  deleteAutomationProgram: Scalars['Boolean']['output'];
   deleteBatchFeedAssignment: Scalars['Boolean']['output'];
   deleteChemical: Scalars['Boolean']['output'];
   deleteConsumable: Scalars['Boolean']['output'];
+  deleteDashboardLayout: Scalars['Boolean']['output'];
+  deleteDataChannel: Scalars['Boolean']['output'];
   deleteDepartment: Scalars['Boolean']['output'];
+  deleteDeviceGroup: Scalars['Boolean']['output'];
   deleteEquipment: Scalars['Boolean']['output'];
+  deleteEscalationPolicy: Scalars['Boolean']['output'];
   deleteFeed: Scalars['Boolean']['output'];
+  deleteFeedingParameter: Scalars['Boolean']['output'];
   /** Yemleme programini sil */
   deleteFeedingProgram: FeedingProgram;
   /** Delete a feeding protocol */
@@ -4582,10 +8406,22 @@ export type Mutation = {
   deleteHarvestRecord: Scalars['Boolean']['output'];
   /** Delete a health event */
   deleteHealthEvent: Scalars['Boolean']['output'];
+  /** Delete a hydroponics configuration */
+  deleteHydroponicsConfiguration: Scalars['Boolean']['output'];
   deleteMaintenanceSchedule: DeleteMaintenanceScheduleResponse;
+  deleteMessage: Scalars['Boolean']['output'];
+  deleteOldPlcAlarms: Scalars['Int']['output'];
+  deleteOldPlcTelemetry: Scalars['Int']['output'];
+  deleteOldVfdReadings: Scalars['Int']['output'];
   deleteParamEquipmentMapping: Scalars['Boolean']['output'];
   deleteParameterConfig: Scalars['Boolean']['output'];
+  deleteParentWithChildren: Scalars['Boolean']['output'];
+  deletePlcConnection: Scalars['Boolean']['output'];
+  deleteProcess: DeleteProcessResultType;
   deleteRecurringTemplate: Scalars['Boolean']['output'];
+  deleteScadaPackage: DeleteProcessResultType;
+  deleteSensor: Scalars['Boolean']['output'];
+  deleteSensorType: Scalars['Boolean']['output'];
   deleteSentinelHubSettings: Scalars['Boolean']['output'];
   deleteSite: Scalars['Boolean']['output'];
   deleteSparePart: DeleteSparePartResponse;
@@ -4596,48 +8432,143 @@ export type Mutation = {
   deleteSystem: Scalars['Boolean']['output'];
   deleteTank: DeleteTankResponse;
   deleteTask: Scalars['Boolean']['output'];
+  deleteTenantRole: Scalars['Boolean']['output'];
+  deleteTenantUser: Scalars['Boolean']['output'];
+  deleteUnifiedTag: Scalars['Boolean']['output'];
+  deleteVfdAutomationRule: Scalars['Boolean']['output'];
+  deleteVfdDevice: Scalars['Boolean']['output'];
   deleteWaterQualityMeasurement: Scalars['Boolean']['output'];
+  deleteWeeklyPlan: Scalars['Boolean']['output'];
   deleteWorkOrder: DeleteWorkOrderResponse;
   deleteWorker: Scalars['Boolean']['output'];
   deployCleanerFish: Batch;
+  deployProcessToEdge: DeployProcessResultType;
+  deployProgram: DeploymentResult;
+  deployScadaPackageToEdge: DeployScadaPackageResultType;
+  deployScadaWithAutomation: UnifiedDeployResultType;
+  detectSensorChannels: ChannelDetectionLog;
+  /** Disable MFA (requires password + TOTP code) */
+  disableMfa: DisableMfaResponse;
+  discoverDataChannels: DiscoveryResultType;
+  discoverTags: TagDiscoveryResultType;
+  duplicateProcess: ProcessResultType;
+  editMessage: Message;
+  emergencyStopVfd: VfdCommandResult;
   /** End quarantine for a health event */
   endHealthEventQuarantine: HealthEvent;
   /** End treatment for a health event */
   endHealthEventTreatment: HealthEvent;
+  endRotation: WorkRotation;
+  enrollInTraining: TrainingEnrollment;
+  escalatePlcAlarm: PlcAlarm;
+  /** Export channel message history. */
+  exportChannelData: ExportJobType;
+  exportMyMessages: Scalars['JSON']['output'];
   exportTenantData: TenantExportBundleResponse;
+  /** Export all tenant message history (async, returns job handle). */
+  exportTenantMessages: ExportJobType;
+  finalizeInvoice: Invoice;
+  finalizeReview: PerformanceReview;
+  forgotPassword: Scalars['Boolean']['output'];
+  forwardMessage: Message;
   /** Gunluk yemleme plani olustur */
   generateDailyPlan: GenerateDailyPlanResult;
   generateWorkOrderFromSchedule: WorkOrder;
+  ingestReading: SensorReading;
   initiateTenantErasure: ErasureTicketResponse;
+  lockProgram: AutomationProgram;
+  login: AuthPayload;
+  logout: LogoutResponse;
+  markAllNotificationsAsRead: Scalars['Boolean']['output'];
+  markMessagesRead: Scalars['Boolean']['output'];
+  markNotificationAsRead: Scalars['Boolean']['output'];
+  /** MFA step-up: re-verify identity for elevated operations */
+  mfaStepUp: AuthPayload;
   /** Yemleme programini duraklat */
   pauseFeedingProgram: FeedingProgram;
   pauseMaintenanceSchedule: MaintenanceSchedule;
+  pinMessage: PinnedMessage;
+  pingEdgeDevice: PingResult;
+  pingProtocol: PingTestResultType;
   /** Postpone a harvest plan */
   postponeHarvestPlan: HarvestPlan;
   processAutoGenerateWorkOrders: Array<WorkOrder>;
+  publishAnnouncement: Announcement;
+  publishWeeklyPlan: WeeklyPlan;
+  pushIoConfigToDevice: PushIoConfigResult;
   putWorkOrderOnHold: WorkOrder;
+  rateTicket: SupportTicket;
+  reactivateSensor: RegisteredSensorType;
   /** Tanki programa tekrar dahil et */
   reactivateTankInProgram: FeedingProgramTank;
+  readVfdCriticalParameters?: Maybe<VfdReadResultDto>;
+  readVfdParameters?: Maybe<VfdReadResultDto>;
+  rebootEdgeDevice: Scalars['Boolean']['output'];
   /** Gunluk plani yeniden hesapla */
   recalculateDailyPlan: DailyFeedingExecution;
   receiveDelivery: PurchaseOrderResponse;
+  /** Record multiple consent preferences at once */
+  recordBulkConsent: BulkConsentResult;
   /** Toplu yemleme kaydi */
   recordBulkFeeding: BulkFeedingResult;
   recordCleanerMortality: Batch;
+  /** Record a single consent preference */
+  recordConsent: RecordConsentResult;
   recordCull: Batch;
   /** Gunluk yemleme kaydet */
   recordDailyFeeding: DailyFeedingExecution;
   recordGrowthSample: GrowthMeasurement;
   recordMortality: Batch;
+  recordPayment: Payment;
   recordSparePartStockMovement: SparePart;
   recordStockMovement: StockMovementResponse;
+  refreshToken: AuthPayload;
+  refundPayment: Payment;
+  regenerateDeviceToken: RegenerateTokenResponse;
+  /** Regenerate MFA recovery codes (invalidates previous) */
+  regenerateMfaRecoveryCodes: RegenerateMfaRecoveryCodesResponse;
+  registerDeviceToken: Scalars['Boolean']['output'];
+  registerEdgeDevice: EdgeDevice;
+  registerParentWithChildren: ParentWithChildrenResultType;
+  registerSensor: SensorRegistrationResultType;
+  registerVfdDevice: VfdRegistrationResult;
+  /** Register a new biometric credential */
+  registerWebAuthnCredential: WebAuthnRegisterResponse;
+  rejectChannelProposal: Scalars['Boolean']['output'];
+  rejectLeaveRequest: LeaveRequest;
+  rejectProgram: AutomationProgram;
+  rejectVfdChangeSet: VfdChangeSet;
+  /** Remove a member from a channel */
+  removeChannelMember: Scalars['Boolean']['output'];
   removeChemicalDocument: Scalars['Boolean']['output'];
   removeCleanerFish: Batch;
+  removeDeviceIoConfig: Scalars['Boolean']['output'];
+  removeDevicesFromGroup: Scalars['Boolean']['output'];
   /** Yem atamasini kaldir */
   removeFeedAssignment: FeedingProgram;
+  removeLoRaDevice: Scalars['Boolean']['output'];
+  removeModuleManager: TenantModule;
+  removeProgramStep: Scalars['Boolean']['output'];
+  removeProgramTransition: Scalars['Boolean']['output'];
+  removeProgramVariable: Scalars['Boolean']['output'];
+  removeReaction: Scalars['Boolean']['output'];
+  removeStepAction: Scalars['Boolean']['output'];
+  removeSuppressionWindow: EscalationPolicy;
   /** Programdan tank cikar */
   removeTankFromProgram: FeedingProgramTank;
+  removeUserFromModule: Scalars['Boolean']['output'];
+  removeVfdChangeSetItem: VfdChangeSet;
+  /** Remove a biometric credential */
+  removeWebAuthnCredential: WebAuthnRemoveResponse;
+  reopenReview: PerformanceReview;
+  reopenSupportThread: SupportMessageThread;
+  reorderDataChannels: Array<DataChannelType>;
   reorderParameterConfigs: Array<WaterQualityParameterConfig>;
+  requestMediaUpload: MediaUploadResponse;
+  resetDeviceForReprovisioning: RegenerateTokenResponse;
+  resetPassword: AuthPayload;
+  resetVfdFault: VfdCommandResult;
+  resolveAlert: AlertHistory;
   /** Resolve a health event */
   resolveHealthEvent: HealthEvent;
   restoreBatchFeedAssignment: BatchFeedAssignmentResponse;
@@ -4653,14 +8584,40 @@ export type Mutation = {
   restoreSystem: SystemResponse;
   resumeMaintenanceSchedule: MaintenanceSchedule;
   resumeWorkOrder: WorkOrder;
+  revokeCertification: EmployeeCertification;
+  revokeTenantProvisioningKey: Scalars['Boolean']['output'];
+  revokeUserRole: Scalars['Boolean']['output'];
+  rollbackDeployedProgram: DeploymentResult;
+  rollbackVfdChangeSet: VfdChangeSet;
+  saveDashboardLayout: DashboardLayout;
+  saveDiscoveredChannels: Array<DataChannelType>;
   saveFeederCalibrations: Array<FeederCalibrationResponse>;
   saveSentinelHubSettings: Scalars['Boolean']['output'];
+  saveSystemDefaultLayout: DashboardLayout;
+  scanEdgeDeviceHardware: HardwareScanResultType;
   /** Schedule a harvest plan */
   scheduleHarvestPlan: HarvestPlan;
   seedDefaultWaterQualityParameterConfigs: SeedDefaultParameterConfigsResponse;
+  seedTenantRoles: Array<TenantRole>;
+  sendFeedingParameterToPlc: ParameterSendResult;
+  sendLoRaDownlink: SendLoRaDownlinkResult;
+  sendMessage: Message;
+  sendSupportMessage: SupportMessage;
+  sendVfdCommand: VfdCommandResult;
+  setChecklistItem: Task;
+  setConfiguration: EffectiveConfigurationDto;
   /** Set a protocol as default for species/stage */
   setDefaultFeedingProtocol: FeedingProtocolResponse;
+  setDeviceMaintenanceMode: EdgeDevice;
+  setDigitalOutput: SetDigitalOutputResult;
+  setLayoutAsDefault: DashboardLayout;
+  /** Set or update a retention policy. */
+  setRetentionPolicy: RetentionPolicy;
   setSupplierApprovedSites: Array<SupplierSiteResponse>;
+  setVfdFrequency: VfdCommandResult;
+  setVfdSpeed: VfdCommandResult;
+  /** Initiate MFA setup for the current user */
+  setupMfa: SetupMfaResponse;
   /** Gunluk yemlemeyi atla */
   skipDailyFeeding: DailyFeedingExecution;
   /** Start harvest for a plan */
@@ -4669,71 +8626,142 @@ export type Mutation = {
   startHealthEventQuarantine: HealthEvent;
   /** Start treatment for a health event */
   startHealthEventTreatment: HealthEvent;
+  startRotation: WorkRotation;
   startTask: Task;
+  startVfd: VfdCommandResult;
   startWorkOrder: WorkOrder;
+  stopVfd: VfdCommandResult;
   /** Submit Cleaner Fish report to Mattilsynet */
   submitCleanerFishReport: ReportSubmissionResult;
+  /** Submit immediate Disease Outbreak report (varsling) to Mattilsynet */
+  submitDiseaseOutbreak: ReportSubmissionResult;
+  /** Submit immediate Escape report (varsling) to Mattilsynet */
+  submitEscapeReport: ReportSubmissionResult;
   /** Submit Executed Slaughter report to Mattilsynet */
   submitExecutedSlaughterReport: ReportSubmissionResult;
   submitInventoryCount: InventoryCountResponse;
+  submitLeaveRequest: LeaveRequest;
+  submitManagerAssessment: PerformanceReview;
   /** Submit Planned Slaughter report to Mattilsynet */
   submitPlannedSlaughterReport: ReportSubmissionResult;
+  submitProgramForReview: AutomationProgram;
   /** Submit Sea Lice report to Mattilsynet */
   submitSeaLiceReport: ReportSubmissionResult;
+  submitSelfAssessment: PerformanceReview;
   /** Submit Smolt report to Mattilsynet */
   submitSmoltReport: ReportSubmissionResult;
+  submitVfdChangeSetForApproval: VfdChangeSet;
+  /** Submit immediate Welfare Event report (varsling) to Mattilsynet */
+  submitWelfareEvent: ReportSubmissionResult;
   submitWorkOrderForApproval: WorkOrder;
+  suspendSensor: RegisteredSensorType;
+  suspendTenant: Tenant;
+  syncProgramVariables: SyncProgramVariablesResult;
   syncWeatherData: WeatherSyncResult;
+  terminateEmployee: Employee;
   /** Test Maskinporten connection using tenant credentials */
   testMaskinportenConnection: MaskinportenConnectionTestResult;
+  testParentConnection: ConnectionTestResultType;
+  testPlcConnection: PlcConnectionTestResult;
+  testProtocolConnection: ProtocolConnectionTestResultType;
+  testSensorConnection: ConnectionTestResultType;
+  testVfdConnection: VfdConnectionTestResult;
   toggleAutoRuleActive: AutoRule;
-  toggleChecklistItem: Task;
+  toggleFarmWorker: Employee;
+  /** Activate or release a legal hold. */
+  toggleLegalHold: LegalHold;
   toggleRecurringTemplateActive: RecurringTemplate;
+  toggleVfdAutomationRule: VfdAutomationRule;
   transferBatch: Batch;
   transferCleanerFish: Batch;
   transferStock: StockMovementResponse;
   /** Tankin yem gecisini manuel yap */
   transitionTankFeed: FeedingProgramTank;
+  unassignUserFromSite: SiteAssignmentResult;
+  unlockProgram: AutomationProgram;
+  unpinMessage: Scalars['Boolean']['output'];
+  unregisterDeviceToken: Scalars['Boolean']['output'];
+  updateAlertRule: AlertRule;
   updateAutoRule: AutoRule;
+  updateAutomationProgram: AutomationProgram;
   updateBatch: Batch;
   updateBatchFeedAssignment: BatchFeedAssignmentResponse;
   updateBatchStatus: Batch;
   updateBatchWeightFromSample: GrowthMeasurement;
+  /** Update channel metadata */
+  updateChannel: Channel;
   updateChemical: ChemicalResponse;
   updateConsumable: ConsumableResponse;
+  updateDataChannel: DataChannelType;
   updateDepartment: DepartmentResponse;
+  updateDeviceGroup: DeviceGroup;
+  updateDeviceIoConfig: DeviceIoConfig;
+  updateEdgeDevice: EdgeDevice;
+  updateEdgeDeviceFirmware: Scalars['Boolean']['output'];
+  updateEmployee: Employee;
   updateEquipment: EquipmentResponse;
+  updateEscalationPolicy: EscalationPolicy;
   /** FCR tablosunu guncelle */
   updateFCRTable: FeedingProgram;
   updateFeed: FeedResponse;
   /** Yem atamasini guncelle */
   updateFeedAssignment: FeedingProgram;
+  updateFeedingParameter: FeedingParameter;
   /** Yemleme programini guncelle */
   updateFeedingProgram: FeedingProgram;
   /** Update a feeding protocol */
   updateFeedingProtocol: FeedingProtocolResponse;
   updateFeedingRecord: FeedingRecord;
+  updateGoal: Goal;
+  updateGoalProgress: Goal;
+  updateHRDepartment: DepartmentHr;
   /** Update a harvest plan */
   updateHarvestPlan: HarvestPlan;
   /** Update an existing harvest record */
   updateHarvestRecord: HarvestRecord;
   /** Update a health event */
   updateHealthEvent: HealthEvent;
+  /** Update a hydroponics configuration */
+  updateHydroponicsConfiguration: HydroponicsConfig;
   updateInventoryCountItems: InventoryCountResponse;
+  updateKeyResult: Goal;
   updateMaintenanceSchedule: MaintenanceSchedule;
   updateMeterReading: MaintenanceSchedule;
+  updateMobileUserSettings: MobileUserSettings;
+  /** Update the current user's notification preferences */
+  updateMyNotificationPreferences: NotificationPreferences;
+  updateMyProfile: User;
+  /** Update notification preference for a channel */
+  updateNotificationPreference: ChannelMember;
+  updateOnCallSchedule: EscalationPolicy;
   updateParamEquipmentMapping: WaterQualityParamEquipment;
   updateParameterConfig: WaterQualityParameterConfig;
+  updatePlan: Plan;
+  updatePlanEntry: WeeklyPlanEntry;
+  updatePlcConnection: PlcConnection;
+  updateProcess: ProcessResultType;
+  /** @deprecated Use updateMyProfile. This compatibility alias will be removed after rollout. */
+  updateProfile: User;
   /** Program ayarlarini guncelle */
   updateProgramSettings: FeedingProgram;
+  updateProgramStep: ProgramStep;
+  updateProgramTransition: ProgramTransition;
+  updateProgramVariable: ProgramVariable;
   updatePurchaseOrderStatus: PurchaseOrderResponse;
   updateRecurringTemplate: RecurringTemplate;
   /** Update regulatory settings for the current tenant */
   updateRegulatorySettings: RegulatorySettingsOutput;
+  updateScadaPackage: ScadaPackageType;
+  updateSchedulingSettings: SchedulingSettings;
+  updateSensor: Sensor;
+  updateSensorInfo: RegisteredSensorType;
+  updateSensorProtocol: SensorRegistrationResultType;
+  updateSensorType: SensorTypeDefinition;
   updateSentinelHubInstanceId: Scalars['Boolean']['output'];
   updateSite: SiteResponse;
   updateSparePart: SparePart;
   updateSpecies: Species;
+  updateStepAction: StepAction;
   updateStorageLocation: StorageLocationResponse;
   updateSubEquipment: SubEquipmentResponse;
   updateSupplier: SupplierResponse;
@@ -4741,13 +8769,83 @@ export type Mutation = {
   updateTank: Tank;
   updateTankStatus: Tank;
   updateTask: Task;
+  updateTenant: Tenant;
+  /** Enable/disable AI analysis for the tenant (TENANT_ADMIN only) */
+  updateTenantAiSetting: Scalars['Boolean']['output'];
+  updateTenantRole: TenantRole;
+  updateTenantUser: User;
+  updateTicketStatus: SupportTicket;
+  updateUnifiedTag: UnifiedTagType;
+  /** Update user AI analysis consent */
+  updateUserAiConsent: Scalars['Boolean']['output'];
+  updateUserRole: UserRoleAssignment;
+  updateVfdAutomationRule: VfdAutomationRule;
+  updateVfdDevice: VfdDevice;
   updateWaterQualityMeasurement: WaterQualityMeasurement;
   updateWeatherSettings: WeatherSettings;
+  updateWorkArea: WorkArea;
   updateWorkOrder: WorkOrder;
+  updateWorkRotation: WorkRotation;
   updateWorker: WorkerResponse;
   upsertSiteContacts: Array<SiteContactResponse>;
+  validateProtocolConfig: ValidationResultType;
+  validateStructuredText: ValidationResult;
+  verifyCertification: EmployeeCertification;
   verifyMeasurement: GrowthMeasurement;
+  /** Verify MFA during login (TOTP or recovery code) */
+  verifyMfaLogin: AuthPayload;
+  /** Verify TOTP code to complete MFA setup */
+  verifyMfaSetup: VerifyMfaSetupResponse;
+  /** Verify biometric assertion and login */
+  verifyWebAuthnLogin: AuthPayload;
   verifyWorkOrder: WorkOrder;
+  viewAnnouncement: AnnouncementAcknowledgment;
+  voidInvoice: Invoice;
+  /** Generate challenge for biometric login */
+  webAuthnLoginChallenge: WebAuthnLoginChallengeResponse;
+  /** Generate challenge for biometric credential registration */
+  webAuthnRegistrationChallenge: WebAuthnRegistrationChallengeResponse;
+  /** Withdraw a previously granted consent */
+  withdrawConsent: WithdrawConsentResult;
+  writeOpcUaNode: Scalars['Boolean']['output'];
+};
+
+
+export type MutationAcceptInvitationArgs = {
+  input: AcceptInvitationInput;
+};
+
+
+export type MutationAcknowledgeAlertArgs = {
+  input: AcknowledgeAlertInput;
+};
+
+
+export type MutationAcknowledgeAllAlarmsForConnectionArgs = {
+  notes?: InputMaybe<Scalars['String']['input']>;
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
+export type MutationAcknowledgeAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationAcknowledgePlcAlarmArgs = {
+  id: Scalars['ID']['input'];
+  input?: InputMaybe<AcknowledgeAlarmInput>;
+};
+
+
+export type MutationAcknowledgeReviewArgs = {
+  comments?: InputMaybe<Scalars['String']['input']>;
+  reviewId: Scalars['ID']['input'];
+};
+
+
+export type MutationActivateFeedingParameterArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -4756,8 +8854,69 @@ export type MutationActivateFeedingProgramArgs = {
 };
 
 
+export type MutationActivatePlcConnectionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationActivateSensorArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationActivateTenantArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationActivateTenantUserArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationActivateVfdDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationAddAlarmNotesArgs = {
+  id: Scalars['ID']['input'];
+  notes: Scalars['String']['input'];
+};
+
+
+export type MutationAddChannelMemberArgs = {
+  channelId: Scalars['ID']['input'];
+  role?: ChannelMemberRole;
+  userId: Scalars['ID']['input'];
+};
+
+
 export type MutationAddChemicalDocumentArgs = {
   input: AddChemicalDocumentInput;
+};
+
+
+export type MutationAddDeviceIoConfigArgs = {
+  deviceId: Scalars['ID']['input'];
+  input: AddIoConfigInput;
+};
+
+
+export type MutationAddDevicesToGroupArgs = {
+  groupId: Scalars['ID']['input'];
+  members: Array<AddMemberInputType>;
+};
+
+
+export type MutationAddEmployeeCertificationArgs = {
+  certificationTypeId: Scalars['ID']['input'];
+  employeeId: Scalars['ID']['input'];
+  expiryDate?: InputMaybe<Scalars['String']['input']>;
+  externalCertificationId?: InputMaybe<Scalars['String']['input']>;
+  issueDate: Scalars['String']['input'];
+  issuingAuthority?: InputMaybe<Scalars['String']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -4769,6 +8928,55 @@ export type MutationAddFeedAssignmentArgs = {
 
 export type MutationAddFeedInventoryArgs = {
   input: AddFeedInventoryInput;
+};
+
+
+export type MutationAddKeyResultArgs = {
+  goalId: Scalars['ID']['input'];
+  keyResult: KeyResultInput;
+};
+
+
+export type MutationAddLoRaDeviceArgs = {
+  edgeDeviceId: Scalars['ID']['input'];
+  input: AddLoRaDeviceInput;
+};
+
+
+export type MutationAddMilestoneArgs = {
+  goalId: Scalars['ID']['input'];
+  milestone: MilestoneInput;
+};
+
+
+export type MutationAddProgramStepArgs = {
+  input: CreateStepInput;
+};
+
+
+export type MutationAddProgramTransitionArgs = {
+  input: CreateTransitionInput;
+};
+
+
+export type MutationAddProgramVariableArgs = {
+  input: CreateVariableInput;
+};
+
+
+export type MutationAddReactionArgs = {
+  emoji: Scalars['String']['input'];
+  messageId: Scalars['ID']['input'];
+};
+
+
+export type MutationAddStepActionArgs = {
+  input: CreateActionInput;
+};
+
+
+export type MutationAddSuppressionWindowArgs = {
+  input: AddSuppressionWindowInput;
 };
 
 
@@ -4789,6 +8997,17 @@ export type MutationAddTaskNoteArgs = {
 };
 
 
+export type MutationAddTicketCommentArgs = {
+  input: AddTicketCommentInput;
+};
+
+
+export type MutationAddVfdChangeSetItemsArgs = {
+  changeSetId: Scalars['ID']['input'];
+  items: Array<VfdChangeSetItemInput>;
+};
+
+
 export type MutationAdjustFeedInventoryArgs = {
   input: AdjustFeedInventoryInput;
 };
@@ -4799,8 +9018,41 @@ export type MutationAllocateBatchToTankArgs = {
 };
 
 
+export type MutationAnonymizeMyDataArgs = {
+  confirmPassword: Scalars['String']['input'];
+};
+
+
+export type MutationApplyIndustryTemplateArgs = {
+  templateKey: Scalars['String']['input'];
+};
+
+
 export type MutationApplyParameterTemplateArgs = {
   input: ApplyParameterTemplateInput;
+};
+
+
+export type MutationApplyProtocolDefaultsArgs = {
+  config: Scalars['JSON']['input'];
+  protocolCode: Scalars['String']['input'];
+};
+
+
+export type MutationApproveAttendanceArgs = {
+  id: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationApproveChannelProposalArgs = {
+  modifications?: InputMaybe<Scalars['JSON']['input']>;
+  proposalId: Scalars['ID']['input'];
+};
+
+
+export type MutationApproveEdgeDeviceArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -4814,8 +9066,62 @@ export type MutationApproveInventoryCountArgs = {
 };
 
 
+export type MutationApproveLeaveRequestArgs = {
+  id: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationApprovePayrollArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationApprovePlcAlarmArgs = {
+  id: Scalars['ID']['input'];
+  level: Scalars['Int']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationApproveProgramArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationApprovePurchaseOrderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationApproveRotationArgs = {
+  notes?: InputMaybe<Scalars['String']['input']>;
+  rotationId: Scalars['ID']['input'];
+};
+
+
+export type MutationApproveVfdChangeSetArgs = {
+  changeSetId: Scalars['ID']['input'];
+};
+
+
 export type MutationApproveWorkOrderArgs = {
   input: ApproveWorkOrderInput;
+};
+
+
+export type MutationArchiveChannelArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationArchiveProgramArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationArchiveSupportThreadArgs = {
+  threadId: Scalars['ID']['input'];
 };
 
 
@@ -4824,10 +9130,84 @@ export type MutationAssignFeedsToBatchArgs = {
 };
 
 
+export type MutationAssignModuleManagerArgs = {
+  input: AssignModuleManagerInput;
+};
+
+
 export type MutationAssignTemperatureSensorArgs = {
   feedingProgramTankId: Scalars['ID']['input'];
   sensorCode?: InputMaybe<Scalars['String']['input']>;
   sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationAssignTicketArgs = {
+  input: AssignTicketInput;
+};
+
+
+export type MutationAssignUserRoleArgs = {
+  input: AssignUserRoleInput;
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationAssignUserToModuleArgs = {
+  input: AssignUserToModuleInput;
+};
+
+
+export type MutationAssignUserToSiteArgs = {
+  input: AssignUserToSiteInput;
+};
+
+
+export type MutationAutoBindTagsArgs = {
+  deviceId: Scalars['ID']['input'];
+  processId: Scalars['ID']['input'];
+};
+
+
+export type MutationBatchActivateSensorsArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationBatchDeactivateSensorsArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationBatchIngestReadingsArgs = {
+  input: BatchIngestInput;
+};
+
+
+export type MutationBatchUpdateSensorsArgs = {
+  input: BatchUpdateSensorsInputType;
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationBulkAcknowledgePlcAlarmsArgs = {
+  input: BulkAcknowledgeAlarmsInput;
+};
+
+
+export type MutationBulkAddDeviceIoConfigsArgs = {
+  deviceId: Scalars['ID']['input'];
+  inputs: Array<AddIoConfigInput>;
+};
+
+
+export type MutationBulkAssignShiftsArgs = {
+  input: BulkAssignShiftsInput;
+};
+
+
+export type MutationBulkAssignUserRoleArgs = {
+  input: BulkAssignRoleInput;
 };
 
 
@@ -4842,8 +9222,41 @@ export type MutationBulkStockInArgs = {
 };
 
 
+export type MutationBulkUpdateDataChannelsArgs = {
+  input: BulkUpdateDataChannelsInput;
+};
+
+
+export type MutationBulkUpdateEdgeDeviceFirmwareArgs = {
+  deviceIds: Array<Scalars['ID']['input']>;
+  targetVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationBulkUpdateMobileSettingsArgs = {
+  input: BulkUpdateMobileSettingsInput;
+};
+
+
+export type MutationCallOpcUaMethodArgs = {
+  input: OpcUaCallMethodInput;
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
+export type MutationCancelAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationCancelFeedingProgramArgs = {
   id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationCancelGoalArgs = {
+  goalId: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
@@ -4853,7 +9266,30 @@ export type MutationCancelHarvestPlanArgs = {
 };
 
 
+export type MutationCancelLeaveRequestArgs = {
+  id: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type MutationCancelPurchaseOrderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationCancelRotationArgs = {
+  reason: Scalars['String']['input'];
+  rotationId: Scalars['ID']['input'];
+};
+
+
+export type MutationCancelSubscriptionArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationCancelTenantArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -4861,6 +9297,48 @@ export type MutationCancelPurchaseOrderArgs = {
 export type MutationCancelWorkOrderArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationChangeMyPasswordArgs = {
+  input: ChangeMyPasswordInput;
+};
+
+
+export type MutationChangePasswordArgs = {
+  input: ChangePasswordInput;
+};
+
+
+export type MutationChangeSubscriptionPlanArgs = {
+  input: ChangeSubscriptionPlanInput;
+};
+
+
+export type MutationClockInArgs = {
+  input: ClockInInput;
+};
+
+
+export type MutationClockOutArgs = {
+  input: ClockOutInput;
+};
+
+
+export type MutationCloneAutomationProgramArgs = {
+  id: Scalars['ID']['input'];
+  newCode: Scalars['String']['input'];
+};
+
+
+export type MutationCloneEscalationPolicyArgs = {
+  input: ClonePolicyInput;
+};
+
+
+export type MutationCloneFeedingParameterArgs = {
+  id: Scalars['ID']['input'];
+  newName?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -4880,9 +9358,20 @@ export type MutationCloseBatchArgs = {
 };
 
 
+export type MutationCloseSupportThreadArgs = {
+  threadId: Scalars['ID']['input'];
+};
+
+
 export type MutationCompleteFeedingProgramArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationCompleteGoalArgs = {
+  completionNotes?: InputMaybe<Scalars['String']['input']>;
+  goalId: Scalars['ID']['input'];
 };
 
 
@@ -4899,13 +9388,37 @@ export type MutationCompleteMaintenanceArgs = {
 };
 
 
+export type MutationCompleteMilestoneArgs = {
+  goalId: Scalars['ID']['input'];
+  milestoneId: Scalars['ID']['input'];
+};
+
+
 export type MutationCompleteTaskArgs = {
-  id: Scalars['ID']['input'];
+  input: TaskLifecycleInput;
+};
+
+
+export type MutationCompleteTrainingArgs = {
+  enrollmentId: Scalars['ID']['input'];
+  feedback?: InputMaybe<Scalars['String']['input']>;
+  feedbackRating?: InputMaybe<Scalars['Int']['input']>;
+  score?: InputMaybe<Scalars['Float']['input']>;
 };
 
 
 export type MutationCompleteWorkOrderArgs = {
   input: CompleteWorkOrderInput;
+};
+
+
+export type MutationConfirmAiActionArgs = {
+  actionId: Scalars['ID']['input'];
+};
+
+
+export type MutationConfirmSafetyTrainingAttendanceArgs = {
+  recordId: Scalars['ID']['input'];
 };
 
 
@@ -4919,8 +9432,24 @@ export type MutationConsumeFeedInventoryArgs = {
 };
 
 
+export type MutationCopyWeeklyPlanArgs = {
+  sourceId: Scalars['ID']['input'];
+  targetWeekStartDate: Scalars['String']['input'];
+};
+
+
+export type MutationCreateAlertRuleArgs = {
+  input: CreateAlertRuleInput;
+};
+
+
 export type MutationCreateAutoRuleArgs = {
   input: CreateAutoRuleInput;
+};
+
+
+export type MutationCreateAutomationProgramArgs = {
+  input: CreateProgramInput;
 };
 
 
@@ -4939,6 +9468,11 @@ export type MutationCreateBiomassReportArgs = {
 };
 
 
+export type MutationCreateChannelArgs = {
+  input: CreateChannelInput;
+};
+
+
 export type MutationCreateChemicalArgs = {
   input: CreateChemicalInput;
 };
@@ -4954,13 +9488,34 @@ export type MutationCreateConsumableArgs = {
 };
 
 
+export type MutationCreateDataChannelArgs = {
+  input: CreateDataChannelInput;
+  sensorId: Scalars['ID']['input'];
+};
+
+
 export type MutationCreateDepartmentArgs = {
   input: CreateDepartmentInput;
 };
 
 
+export type MutationCreateDeviceGroupArgs = {
+  input: CreateDeviceGroupInput;
+};
+
+
+export type MutationCreateEmployeeArgs = {
+  input: CreateEmployeeInput;
+};
+
+
 export type MutationCreateEquipmentArgs = {
   input: CreateEquipmentInput;
+};
+
+
+export type MutationCreateEscalationPolicyArgs = {
+  input: CreateEscalationPolicyInput;
 };
 
 
@@ -4971,6 +9526,11 @@ export type MutationCreateFarmArgs = {
 
 export type MutationCreateFeedArgs = {
   input: CreateFeedInput;
+};
+
+
+export type MutationCreateFeedingParameterArgs = {
+  input: CreateFeedingParameterInput;
 };
 
 
@@ -4989,6 +9549,16 @@ export type MutationCreateFeedingRecordArgs = {
 };
 
 
+export type MutationCreateGoalArgs = {
+  input: CreateGoalInput;
+};
+
+
+export type MutationCreateHrDepartmentArgs = {
+  input: CreateHrDepartmentInput;
+};
+
+
 export type MutationCreateHarvestPlanArgs = {
   input: CreateHarvestPlanInput;
 };
@@ -5004,13 +9574,33 @@ export type MutationCreateHealthEventArgs = {
 };
 
 
+export type MutationCreateHydroponicsConfigurationArgs = {
+  input: CreateHydroponicsConfigInput;
+};
+
+
 export type MutationCreateInventoryCountArgs = {
   input: CreateInventoryCountInput;
 };
 
 
+export type MutationCreateInvoiceArgs = {
+  input: CreateInvoiceInput;
+};
+
+
+export type MutationCreateLeaveRequestArgs = {
+  input: CreateLeaveRequestInput;
+};
+
+
 export type MutationCreateMaintenanceScheduleArgs = {
   input: CreateMaintenanceScheduleInput;
+};
+
+
+export type MutationCreateManualAttendanceArgs = {
+  input: ManualAttendanceInput;
 };
 
 
@@ -5024,8 +9614,49 @@ export type MutationCreateParameterConfigArgs = {
 };
 
 
+export type MutationCreatePayrollArgs = {
+  input: CreatePayrollInput;
+};
+
+
+export type MutationCreatePerformanceReviewArgs = {
+  input: CreatePerformanceReviewInput;
+};
+
+
+export type MutationCreatePlanArgs = {
+  input: CreatePlanInput;
+};
+
+
+export type MutationCreatePlatformAnnouncementArgs = {
+  input: CreatePlatformAnnouncementInput;
+};
+
+
+export type MutationCreatePlcConnectionArgs = {
+  input: CreatePlcConnectionInput;
+};
+
+
 export type MutationCreatePondArgs = {
   input: CreatePondInput;
+};
+
+
+export type MutationCreateProcessArgs = {
+  input: CreateProcessInput;
+};
+
+
+export type MutationCreateProcessFromTemplateArgs = {
+  name: Scalars['String']['input'];
+  templateId: Scalars['ID']['input'];
+};
+
+
+export type MutationCreateProvisionedDeviceArgs = {
+  input: CreateProvisionedDeviceInput;
 };
 
 
@@ -5036,6 +9667,31 @@ export type MutationCreatePurchaseOrderArgs = {
 
 export type MutationCreateRecurringTemplateArgs = {
   input: CreateRecurringTemplateInput;
+};
+
+
+export type MutationCreateSafetyTrainingRecordArgs = {
+  input: CreateSafetyTrainingRecordInput;
+};
+
+
+export type MutationCreateScadaPackageArgs = {
+  input: CreateScadaPackageInput;
+};
+
+
+export type MutationCreateSensorArgs = {
+  input: CreateSensorInput;
+};
+
+
+export type MutationCreateSensorTypeArgs = {
+  input: CreateSensorTypeInput;
+};
+
+
+export type MutationCreateShiftArgs = {
+  input: CreateShiftInput;
 };
 
 
@@ -5064,8 +9720,18 @@ export type MutationCreateSubEquipmentArgs = {
 };
 
 
+export type MutationCreateSubscriptionArgs = {
+  input: CreateSubscriptionInput;
+};
+
+
 export type MutationCreateSupplierArgs = {
   input: CreateSupplierInput;
+};
+
+
+export type MutationCreateSupportThreadArgs = {
+  input: SupportCreateThreadInput;
 };
 
 
@@ -5084,8 +9750,58 @@ export type MutationCreateTaskArgs = {
 };
 
 
+export type MutationCreateTenantAnnouncementArgs = {
+  input: CreateTenantAnnouncementInput;
+};
+
+
+export type MutationCreateTenantProvisioningKeyArgs = {
+  input: CreateTenantKeyInput;
+};
+
+
+export type MutationCreateTenantRoleArgs = {
+  input: CreateTenantRoleInput;
+};
+
+
+export type MutationCreateTenantUserArgs = {
+  input: CreateTenantUserInput;
+};
+
+
+export type MutationCreateTicketArgs = {
+  input: CreateTicketInput;
+};
+
+
+export type MutationCreateUnifiedTagArgs = {
+  input: CreateTagInput;
+};
+
+
+export type MutationCreateVfdAutomationRuleArgs = {
+  input: CreateVfdAutomationRuleInput;
+};
+
+
+export type MutationCreateVfdChangeSetArgs = {
+  input: CreateVfdChangeSetInput;
+};
+
+
 export type MutationCreateWaterQualityMeasurementArgs = {
   input: CreateWaterQualityInput;
+};
+
+
+export type MutationCreateWeeklyPlanArgs = {
+  input: CreateWeeklyPlanInput;
+};
+
+
+export type MutationCreateWorkAreaArgs = {
+  input: CreateWorkAreaInput;
 };
 
 
@@ -5094,12 +9810,75 @@ export type MutationCreateWorkOrderArgs = {
 };
 
 
+export type MutationCreateWorkRotationArgs = {
+  input: CreateWorkRotationInput;
+};
+
+
 export type MutationCreateWorkerArgs = {
   input: CreateWorkerInput;
 };
 
 
+export type MutationDeactivatePlanArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeactivatePlcConnectionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeactivateTenantUserArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeactivateVfdDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeactivateWorkAreaArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDecommissionEdgeDeviceArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationDeferGoalArgs = {
+  goalId: Scalars['ID']['input'];
+  newTargetDate: Scalars['String']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationDeleteAlertRuleArgs = {
+  ruleId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteAllChannelsForSensorArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteAutoRuleArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteAutomationProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -5119,8 +9898,23 @@ export type MutationDeleteConsumableArgs = {
 };
 
 
+export type MutationDeleteDashboardLayoutArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteDataChannelArgs = {
+  channelId: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteDepartmentArgs = {
   cascade?: Scalars['Boolean']['input'];
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteDeviceGroupArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -5131,7 +9925,17 @@ export type MutationDeleteEquipmentArgs = {
 };
 
 
+export type MutationDeleteEscalationPolicyArgs = {
+  policyId: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteFeedArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteFeedingParameterArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -5161,8 +9965,33 @@ export type MutationDeleteHealthEventArgs = {
 };
 
 
+export type MutationDeleteHydroponicsConfigurationArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteMaintenanceScheduleArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteMessageArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteOldPlcAlarmsArgs = {
+  olderThan: Scalars['DateTime']['input'];
+};
+
+
+export type MutationDeleteOldPlcTelemetryArgs = {
+  olderThan: Scalars['DateTime']['input'];
+};
+
+
+export type MutationDeleteOldVfdReadingsArgs = {
+  olderThan: Scalars['DateTime']['input'];
 };
 
 
@@ -5176,7 +10005,37 @@ export type MutationDeleteParameterConfigArgs = {
 };
 
 
+export type MutationDeleteParentWithChildrenArgs = {
+  parentId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeletePlcConnectionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteProcessArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteRecurringTemplateArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteScadaPackageArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteSensorArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteSensorTypeArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -5228,7 +10087,37 @@ export type MutationDeleteTaskArgs = {
 };
 
 
+export type MutationDeleteTenantRoleArgs = {
+  roleId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteTenantUserArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteUnifiedTagArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteVfdAutomationRuleArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteVfdDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteWaterQualityMeasurementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteWeeklyPlanArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -5248,6 +10137,66 @@ export type MutationDeployCleanerFishArgs = {
 };
 
 
+export type MutationDeployProcessToEdgeArgs = {
+  deviceId: Scalars['ID']['input'];
+  processId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeployProgramArgs = {
+  input: DeployProgramInput;
+};
+
+
+export type MutationDeployScadaPackageToEdgeArgs = {
+  deviceId: Scalars['ID']['input'];
+  packageId: Scalars['ID']['input'];
+};
+
+
+export type MutationDeployScadaWithAutomationArgs = {
+  input: DeployScadaWithAutomationInput;
+};
+
+
+export type MutationDetectSensorChannelsArgs = {
+  samples: Scalars['JSON']['input'];
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationDisableMfaArgs = {
+  input: DisableMfaInput;
+};
+
+
+export type MutationDiscoverDataChannelsArgs = {
+  input: DiscoverChannelsInput;
+};
+
+
+export type MutationDiscoverTagsArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationDuplicateProcessArgs = {
+  id: Scalars['ID']['input'];
+  newName: Scalars['String']['input'];
+};
+
+
+export type MutationEditMessageArgs = {
+  id: Scalars['ID']['input'];
+  input: EditMessageInput;
+};
+
+
+export type MutationEmergencyStopVfdArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
 export type MutationEndHealthEventQuarantineArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5256,6 +10205,61 @@ export type MutationEndHealthEventQuarantineArgs = {
 export type MutationEndHealthEventTreatmentArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationEndRotationArgs = {
+  actualEndDate?: InputMaybe<Scalars['String']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  rotationId: Scalars['ID']['input'];
+};
+
+
+export type MutationEnrollInTrainingArgs = {
+  dueDate?: InputMaybe<Scalars['String']['input']>;
+  employeeId: Scalars['ID']['input'];
+  instructor?: InputMaybe<Scalars['String']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  sessionId?: InputMaybe<Scalars['String']['input']>;
+  trainingCourseId: Scalars['ID']['input'];
+};
+
+
+export type MutationEscalatePlcAlarmArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationExportChannelDataArgs = {
+  channelId: Scalars['ID']['input'];
+  format?: ExportFormat;
+};
+
+
+export type MutationExportTenantMessagesArgs = {
+  format?: ExportFormat;
+};
+
+
+export type MutationFinalizeInvoiceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationFinalizeReviewArgs = {
+  input: FinalizeReviewInput;
+};
+
+
+export type MutationForgotPasswordArgs = {
+  input: ForgotPasswordInput;
+};
+
+
+export type MutationForwardMessageArgs = {
+  sourceMessageCreatedAt: Scalars['DateTime']['input'];
+  sourceMessageId: Scalars['ID']['input'];
+  targetChannelId: Scalars['ID']['input'];
 };
 
 
@@ -5271,6 +10275,36 @@ export type MutationGenerateWorkOrderFromScheduleArgs = {
 };
 
 
+export type MutationIngestReadingArgs = {
+  input: IngestReadingInput;
+};
+
+
+export type MutationLockProgramArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationLoginArgs = {
+  input: LoginInput;
+};
+
+
+export type MutationMarkMessagesReadArgs = {
+  input: MarkReadInput;
+};
+
+
+export type MutationMarkNotificationAsReadArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationMfaStepUpArgs = {
+  input: MfaStepUpInput;
+};
+
+
 export type MutationPauseFeedingProgramArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
@@ -5282,9 +10316,42 @@ export type MutationPauseMaintenanceScheduleArgs = {
 };
 
 
+export type MutationPinMessageArgs = {
+  channelId: Scalars['ID']['input'];
+  messageId: Scalars['ID']['input'];
+};
+
+
+export type MutationPingEdgeDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationPingProtocolArgs = {
+  config: Scalars['JSON']['input'];
+  count?: InputMaybe<Scalars['Int']['input']>;
+  protocolCode: Scalars['String']['input'];
+};
+
+
 export type MutationPostponeHarvestPlanArgs = {
   id: Scalars['ID']['input'];
   newDate: Scalars['DateTime']['input'];
+};
+
+
+export type MutationPublishAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationPublishWeeklyPlanArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationPushIoConfigToDeviceArgs = {
+  deviceId: Scalars['ID']['input'];
 };
 
 
@@ -5294,8 +10361,35 @@ export type MutationPutWorkOrderOnHoldArgs = {
 };
 
 
+export type MutationRateTicketArgs = {
+  input: RateTicketInput;
+};
+
+
+export type MutationReactivateSensorArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
 export type MutationReactivateTankInProgramArgs = {
   feedingProgramTankId: Scalars['ID']['input'];
+};
+
+
+export type MutationReadVfdCriticalParametersArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationReadVfdParametersArgs = {
+  parameters?: InputMaybe<Array<Scalars['String']['input']>>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationRebootEdgeDeviceArgs = {
+  id: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -5310,6 +10404,11 @@ export type MutationReceiveDeliveryArgs = {
 };
 
 
+export type MutationRecordBulkConsentArgs = {
+  input: RecordBulkConsentInput;
+};
+
+
 export type MutationRecordBulkFeedingArgs = {
   inputs: Array<RecordDailyFeedingInput>;
 };
@@ -5317,6 +10416,11 @@ export type MutationRecordBulkFeedingArgs = {
 
 export type MutationRecordCleanerMortalityArgs = {
   input: RecordCleanerMortalityInput;
+};
+
+
+export type MutationRecordConsentArgs = {
+  input: RecordConsentInput;
 };
 
 
@@ -5340,6 +10444,11 @@ export type MutationRecordMortalityArgs = {
 };
 
 
+export type MutationRecordPaymentArgs = {
+  input: RecordPaymentInput;
+};
+
+
 export type MutationRecordSparePartStockMovementArgs = {
   input: StockMovementInput;
 };
@@ -5347,6 +10456,85 @@ export type MutationRecordSparePartStockMovementArgs = {
 
 export type MutationRecordStockMovementArgs = {
   input: RecordStockMovementInput;
+};
+
+
+export type MutationRefreshTokenArgs = {
+  input: RefreshTokenInput;
+};
+
+
+export type MutationRefundPaymentArgs = {
+  input: RefundPaymentInput;
+};
+
+
+export type MutationRegenerateDeviceTokenArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationRegenerateMfaRecoveryCodesArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type MutationRegisterDeviceTokenArgs = {
+  platform: Scalars['String']['input'];
+  token: Scalars['String']['input'];
+};
+
+
+export type MutationRegisterEdgeDeviceArgs = {
+  input: RegisterEdgeDeviceInput;
+};
+
+
+export type MutationRegisterParentWithChildrenArgs = {
+  input: RegisterParentWithChildrenInput;
+};
+
+
+export type MutationRegisterSensorArgs = {
+  input: RegisterSensorInput;
+};
+
+
+export type MutationRegisterVfdDeviceArgs = {
+  input: RegisterVfdInput;
+};
+
+
+export type MutationRegisterWebAuthnCredentialArgs = {
+  input: WebAuthnRegisterCredentialInput;
+};
+
+
+export type MutationRejectChannelProposalArgs = {
+  proposalId: Scalars['ID']['input'];
+};
+
+
+export type MutationRejectLeaveRequestArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationRejectProgramArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationRejectVfdChangeSetArgs = {
+  input: RejectVfdChangeSetInput;
+};
+
+
+export type MutationRemoveChannelMemberArgs = {
+  channelId: Scalars['ID']['input'];
+  userId: Scalars['ID']['input'];
 };
 
 
@@ -5361,9 +10549,64 @@ export type MutationRemoveCleanerFishArgs = {
 };
 
 
+export type MutationRemoveDeviceIoConfigArgs = {
+  deviceId: Scalars['ID']['input'];
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveDevicesFromGroupArgs = {
+  groupId: Scalars['ID']['input'];
+  memberIds: Array<Scalars['ID']['input']>;
+};
+
+
 export type MutationRemoveFeedAssignmentArgs = {
   feedId: Scalars['ID']['input'];
   feedingProgramId: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveLoRaDeviceArgs = {
+  edgeDeviceId: Scalars['ID']['input'];
+  loraDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveModuleManagerArgs = {
+  moduleId: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveProgramStepArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveProgramTransitionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveProgramVariableArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveReactionArgs = {
+  emoji: Scalars['String']['input'];
+  messageId: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveStepActionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveSuppressionWindowArgs = {
+  policyId: Scalars['ID']['input'];
+  windowId: Scalars['ID']['input'];
 };
 
 
@@ -5374,8 +10617,66 @@ export type MutationRemoveTankFromProgramArgs = {
 };
 
 
+export type MutationRemoveUserFromModuleArgs = {
+  moduleId: Scalars['ID']['input'];
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveVfdChangeSetItemArgs = {
+  changeSetId: Scalars['ID']['input'];
+  itemId: Scalars['ID']['input'];
+};
+
+
+export type MutationRemoveWebAuthnCredentialArgs = {
+  credentialId: Scalars['String']['input'];
+};
+
+
+export type MutationReopenReviewArgs = {
+  reason: Scalars['String']['input'];
+  reviewId: Scalars['ID']['input'];
+};
+
+
+export type MutationReopenSupportThreadArgs = {
+  threadId: Scalars['ID']['input'];
+};
+
+
+export type MutationReorderDataChannelsArgs = {
+  input: ReorderChannelsInput;
+};
+
+
 export type MutationReorderParameterConfigsArgs = {
   input: ReorderParameterConfigsInput;
+};
+
+
+export type MutationRequestMediaUploadArgs = {
+  input: RequestMediaUploadInput;
+};
+
+
+export type MutationResetDeviceForReprovisioningArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationResetPasswordArgs = {
+  input: ResetPasswordInput;
+};
+
+
+export type MutationResetVfdFaultArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationResolveAlertArgs = {
+  alertId: Scalars['ID']['input'];
 };
 
 
@@ -5445,6 +10746,42 @@ export type MutationResumeWorkOrderArgs = {
 };
 
 
+export type MutationRevokeCertificationArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationRevokeTenantProvisioningKeyArgs = {
+  keyId: Scalars['ID']['input'];
+};
+
+
+export type MutationRevokeUserRoleArgs = {
+  input: RevokeUserRoleInput;
+};
+
+
+export type MutationRollbackDeployedProgramArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationRollbackVfdChangeSetArgs = {
+  input: RollbackVfdChangeSetInput;
+};
+
+
+export type MutationSaveDashboardLayoutArgs = {
+  input: SaveDashboardLayoutInput;
+};
+
+
+export type MutationSaveDiscoveredChannelsArgs = {
+  input: SaveDiscoveredChannelsInput;
+};
+
+
 export type MutationSaveFeederCalibrationsArgs = {
   input: SaveFeederCalibrationsInput;
 };
@@ -5457,9 +10794,62 @@ export type MutationSaveSentinelHubSettingsArgs = {
 };
 
 
+export type MutationSaveSystemDefaultLayoutArgs = {
+  input: CreateSystemDefaultLayoutInput;
+};
+
+
+export type MutationScanEdgeDeviceHardwareArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
 export type MutationScheduleHarvestPlanArgs = {
   confirmedDate: Scalars['DateTime']['input'];
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationSendFeedingParameterToPlcArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationSendLoRaDownlinkArgs = {
+  edgeDeviceId: Scalars['ID']['input'];
+  input: SendLoRaDownlinkInput;
+  loraDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationSendMessageArgs = {
+  input: SendMessageInput;
+};
+
+
+export type MutationSendSupportMessageArgs = {
+  input: SupportSendMessageInput;
+};
+
+
+export type MutationSendVfdCommandArgs = {
+  command: VfdCommandInput;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetChecklistItemArgs = {
+  input: SetChecklistItemInput;
+};
+
+
+export type MutationSetConfigurationArgs = {
+  environment?: InputMaybe<ConfigEnvironment>;
+  isSecret?: InputMaybe<Scalars['Boolean']['input']>;
+  key: Scalars['String']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  service: Scalars['String']['input'];
+  value: Scalars['String']['input'];
 };
 
 
@@ -5468,10 +10858,43 @@ export type MutationSetDefaultFeedingProtocolArgs = {
 };
 
 
+export type MutationSetDeviceMaintenanceModeArgs = {
+  enabled: Scalars['Boolean']['input'];
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationSetDigitalOutputArgs = {
+  input: SetDigitalOutputInput;
+};
+
+
+export type MutationSetLayoutAsDefaultArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationSetRetentionPolicyArgs = {
+  input: SetRetentionPolicyInput;
+};
+
+
 export type MutationSetSupplierApprovedSitesArgs = {
   preferredSiteId?: InputMaybe<Scalars['ID']['input']>;
   siteIds: Array<Scalars['ID']['input']>;
   supplierId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetVfdFrequencyArgs = {
+  frequencyHz: Scalars['Float']['input'];
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetVfdSpeedArgs = {
+  speedPercent: Scalars['Float']['input'];
+  vfdDeviceId: Scalars['ID']['input'];
 };
 
 
@@ -5497,8 +10920,19 @@ export type MutationStartHealthEventTreatmentArgs = {
 };
 
 
+export type MutationStartRotationArgs = {
+  actualStartDate?: InputMaybe<Scalars['String']['input']>;
+  rotationId: Scalars['ID']['input'];
+};
+
+
 export type MutationStartTaskArgs = {
-  id: Scalars['ID']['input'];
+  input: TaskLifecycleInput;
+};
+
+
+export type MutationStartVfdArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
 };
 
 
@@ -5507,8 +10941,23 @@ export type MutationStartWorkOrderArgs = {
 };
 
 
+export type MutationStopVfdArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
 export type MutationSubmitCleanerFishReportArgs = {
   input: SubmitCleanerFishReportInput;
+};
+
+
+export type MutationSubmitDiseaseOutbreakArgs = {
+  input: SubmitDiseaseOutbreakInput;
+};
+
+
+export type MutationSubmitEscapeReportArgs = {
+  input: SubmitEscapeReportInput;
 };
 
 
@@ -5522,8 +10971,23 @@ export type MutationSubmitInventoryCountArgs = {
 };
 
 
+export type MutationSubmitLeaveRequestArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationSubmitManagerAssessmentArgs = {
+  input: SubmitManagerAssessmentInput;
+};
+
+
 export type MutationSubmitPlannedSlaughterReportArgs = {
   input: SubmitPlannedSlaughterInput;
+};
+
+
+export type MutationSubmitProgramForReviewArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -5532,8 +10996,23 @@ export type MutationSubmitSeaLiceReportArgs = {
 };
 
 
+export type MutationSubmitSelfAssessmentArgs = {
+  input: SubmitSelfAssessmentInput;
+};
+
+
 export type MutationSubmitSmoltReportArgs = {
   input: SubmitSmoltReportInput;
+};
+
+
+export type MutationSubmitVfdChangeSetForApprovalArgs = {
+  changeSetId: Scalars['ID']['input'];
+};
+
+
+export type MutationSubmitWelfareEventArgs = {
+  input: SubmitWelfareEventInput;
 };
 
 
@@ -5542,8 +11021,55 @@ export type MutationSubmitWorkOrderForApprovalArgs = {
 };
 
 
+export type MutationSuspendSensorArgs = {
+  reason?: InputMaybe<Scalars['String']['input']>;
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationSuspendTenantArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationSyncProgramVariablesArgs = {
+  input: SyncProgramVariablesInput;
+};
+
+
 export type MutationSyncWeatherDataArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type MutationTerminateEmployeeArgs = {
+  id: Scalars['ID']['input'];
+  terminationDate: Scalars['String']['input'];
+};
+
+
+export type MutationTestParentConnectionArgs = {
+  parentId: Scalars['ID']['input'];
+};
+
+
+export type MutationTestPlcConnectionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationTestProtocolConnectionArgs = {
+  input: TestConnectionInput;
+};
+
+
+export type MutationTestSensorConnectionArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type MutationTestVfdConnectionArgs = {
+  input: TestVfdConnectionInput;
 };
 
 
@@ -5552,14 +11078,25 @@ export type MutationToggleAutoRuleActiveArgs = {
 };
 
 
-export type MutationToggleChecklistItemArgs = {
-  itemId: Scalars['String']['input'];
-  taskId: Scalars['ID']['input'];
+export type MutationToggleFarmWorkerArgs = {
+  id: Scalars['ID']['input'];
+  isFarmWorker: Scalars['Boolean']['input'];
+};
+
+
+export type MutationToggleLegalHoldArgs = {
+  input: ToggleLegalHoldInput;
 };
 
 
 export type MutationToggleRecurringTemplateActiveArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationToggleVfdAutomationRuleArgs = {
+  id: Scalars['ID']['input'];
+  isActive: Scalars['Boolean']['input'];
 };
 
 
@@ -5587,8 +11124,41 @@ export type MutationTransitionTankFeedArgs = {
 };
 
 
+export type MutationUnassignUserFromSiteArgs = {
+  siteId: Scalars['ID']['input'];
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationUnlockProgramArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationUnpinMessageArgs = {
+  channelId: Scalars['ID']['input'];
+  messageId: Scalars['ID']['input'];
+};
+
+
+export type MutationUnregisterDeviceTokenArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type MutationUpdateAlertRuleArgs = {
+  input: UpdateAlertRuleInput;
+};
+
+
 export type MutationUpdateAutoRuleArgs = {
   input: UpdateAutoRuleInput;
+};
+
+
+export type MutationUpdateAutomationProgramArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateProgramInput;
 };
 
 
@@ -5615,6 +11185,12 @@ export type MutationUpdateBatchWeightFromSampleArgs = {
 };
 
 
+export type MutationUpdateChannelArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateChannelInput;
+};
+
+
 export type MutationUpdateChemicalArgs = {
   input: UpdateChemicalInput;
 };
@@ -5625,13 +11201,53 @@ export type MutationUpdateConsumableArgs = {
 };
 
 
+export type MutationUpdateDataChannelArgs = {
+  input: UpdateDataChannelInput;
+};
+
+
 export type MutationUpdateDepartmentArgs = {
   input: UpdateDepartmentInput;
 };
 
 
+export type MutationUpdateDeviceGroupArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateDeviceGroupInput;
+};
+
+
+export type MutationUpdateDeviceIoConfigArgs = {
+  deviceId: Scalars['ID']['input'];
+  id: Scalars['ID']['input'];
+  input: UpdateIoConfigInput;
+};
+
+
+export type MutationUpdateEdgeDeviceArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateEdgeDeviceInput;
+};
+
+
+export type MutationUpdateEdgeDeviceFirmwareArgs = {
+  id: Scalars['ID']['input'];
+  targetVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationUpdateEmployeeArgs = {
+  input: UpdateEmployeeInput;
+};
+
+
 export type MutationUpdateEquipmentArgs = {
   input: UpdateEquipmentInput;
+};
+
+
+export type MutationUpdateEscalationPolicyArgs = {
+  input: UpdateEscalationPolicyInput;
 };
 
 
@@ -5653,6 +11269,12 @@ export type MutationUpdateFeedAssignmentArgs = {
 };
 
 
+export type MutationUpdateFeedingParameterArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateFeedingParameterInput;
+};
+
+
 export type MutationUpdateFeedingProgramArgs = {
   id?: InputMaybe<Scalars['ID']['input']>;
   input: UpdateFeedingProgramInput;
@@ -5667,6 +11289,21 @@ export type MutationUpdateFeedingProtocolArgs = {
 export type MutationUpdateFeedingRecordArgs = {
   id: Scalars['ID']['input'];
   input: UpdateFeedingRecordInput;
+};
+
+
+export type MutationUpdateGoalArgs = {
+  input: UpdateGoalInput;
+};
+
+
+export type MutationUpdateGoalProgressArgs = {
+  input: UpdateGoalProgressInput;
+};
+
+
+export type MutationUpdateHrDepartmentArgs = {
+  input: UpdateHrDepartmentInput;
 };
 
 
@@ -5686,8 +11323,20 @@ export type MutationUpdateHealthEventArgs = {
 };
 
 
+export type MutationUpdateHydroponicsConfigurationArgs = {
+  input: UpdateHydroponicsConfigInput;
+};
+
+
 export type MutationUpdateInventoryCountItemsArgs = {
   input: UpdateInventoryCountItemsInput;
+};
+
+
+export type MutationUpdateKeyResultArgs = {
+  currentValue: Scalars['Float']['input'];
+  goalId: Scalars['ID']['input'];
+  keyResultId: Scalars['ID']['input'];
 };
 
 
@@ -5701,6 +11350,32 @@ export type MutationUpdateMeterReadingArgs = {
 };
 
 
+export type MutationUpdateMobileUserSettingsArgs = {
+  input: UpdateMobileUserSettingsInput;
+};
+
+
+export type MutationUpdateMyNotificationPreferencesArgs = {
+  input: UpdateNotificationPreferencesInput;
+};
+
+
+export type MutationUpdateMyProfileArgs = {
+  input: UpdateMyProfileInput;
+};
+
+
+export type MutationUpdateNotificationPreferenceArgs = {
+  channelId: Scalars['ID']['input'];
+  preference: NotificationPreference;
+};
+
+
+export type MutationUpdateOnCallScheduleArgs = {
+  input: UpdateOnCallScheduleInput;
+};
+
+
 export type MutationUpdateParamEquipmentMappingArgs = {
   input: UpdateParamEquipmentInput;
 };
@@ -5711,9 +11386,54 @@ export type MutationUpdateParameterConfigArgs = {
 };
 
 
+export type MutationUpdatePlanArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdatePlanInput;
+};
+
+
+export type MutationUpdatePlanEntryArgs = {
+  input: UpdatePlanEntryInput;
+};
+
+
+export type MutationUpdatePlcConnectionArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdatePlcConnectionInput;
+};
+
+
+export type MutationUpdateProcessArgs = {
+  input: UpdateProcessInput;
+};
+
+
+export type MutationUpdateProfileArgs = {
+  input: UpdateProfileInput;
+};
+
+
 export type MutationUpdateProgramSettingsArgs = {
   feedingProgramId: Scalars['ID']['input'];
   settings: ProgramSettingsInput;
+};
+
+
+export type MutationUpdateProgramStepArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateStepInput;
+};
+
+
+export type MutationUpdateProgramTransitionArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateTransitionInput;
+};
+
+
+export type MutationUpdateProgramVariableArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateVariableInput;
 };
 
 
@@ -5729,6 +11449,38 @@ export type MutationUpdateRecurringTemplateArgs = {
 
 export type MutationUpdateRegulatorySettingsArgs = {
   input: UpdateRegulatorySettingsInput;
+};
+
+
+export type MutationUpdateScadaPackageArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateScadaPackageInput;
+};
+
+
+export type MutationUpdateSchedulingSettingsArgs = {
+  input: UpdateSchedulingSettingsInput;
+};
+
+
+export type MutationUpdateSensorArgs = {
+  input: UpdateSensorInput;
+};
+
+
+export type MutationUpdateSensorInfoArgs = {
+  input: UpdateSensorInfoInput;
+};
+
+
+export type MutationUpdateSensorProtocolArgs = {
+  input: UpdateSensorProtocolInput;
+};
+
+
+export type MutationUpdateSensorTypeArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateSensorTypeInput;
 };
 
 
@@ -5749,6 +11501,12 @@ export type MutationUpdateSparePartArgs = {
 
 export type MutationUpdateSpeciesArgs = {
   input: UpdateSpeciesInput;
+};
+
+
+export type MutationUpdateStepActionArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateActionInput;
 };
 
 
@@ -5787,6 +11545,62 @@ export type MutationUpdateTaskArgs = {
 };
 
 
+export type MutationUpdateTenantArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateTenantInput;
+};
+
+
+export type MutationUpdateTenantAiSettingArgs = {
+  enabled: Scalars['Boolean']['input'];
+};
+
+
+export type MutationUpdateTenantRoleArgs = {
+  input: UpdateTenantRoleInput;
+  roleId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpdateTenantUserArgs = {
+  input: UpdateTenantUserInput;
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpdateTicketStatusArgs = {
+  input: UpdateTicketStatusInput;
+};
+
+
+export type MutationUpdateUnifiedTagArgs = {
+  input: UpdateTagInput;
+};
+
+
+export type MutationUpdateUserAiConsentArgs = {
+  consent: Scalars['Boolean']['input'];
+};
+
+
+export type MutationUpdateUserRoleArgs = {
+  input: UpdateUserRoleInput;
+  userId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpdateVfdAutomationRuleArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateVfdAutomationRuleInput;
+};
+
+
+export type MutationUpdateVfdDeviceArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateVfdInput;
+};
+
+
 export type MutationUpdateWaterQualityMeasurementArgs = {
   input: UpdateWaterQualityInput;
 };
@@ -5797,8 +11611,18 @@ export type MutationUpdateWeatherSettingsArgs = {
 };
 
 
+export type MutationUpdateWorkAreaArgs = {
+  input: UpdateWorkAreaInput;
+};
+
+
 export type MutationUpdateWorkOrderArgs = {
   input: UpdateWorkOrderInput;
+};
+
+
+export type MutationUpdateWorkRotationArgs = {
+  input: UpdateWorkRotationInput;
 };
 
 
@@ -5813,14 +11637,117 @@ export type MutationUpsertSiteContactsArgs = {
 };
 
 
+export type MutationValidateProtocolConfigArgs = {
+  input: ValidateConfigInput;
+};
+
+
+export type MutationValidateStructuredTextArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type MutationVerifyCertificationArgs = {
+  id: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type MutationVerifyMeasurementArgs = {
   measurementId: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
 
+export type MutationVerifyMfaLoginArgs = {
+  input: VerifyMfaLoginInput;
+};
+
+
+export type MutationVerifyMfaSetupArgs = {
+  input: VerifyMfaSetupInput;
+};
+
+
+export type MutationVerifyWebAuthnLoginArgs = {
+  input: WebAuthnVerifyLoginInput;
+};
+
+
 export type MutationVerifyWorkOrderArgs = {
   input: VerifyWorkOrderInput;
+};
+
+
+export type MutationViewAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationVoidInvoiceArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationWebAuthnLoginChallengeArgs = {
+  input: WebAuthnLoginChallengeInput;
+};
+
+
+export type MutationWebAuthnRegistrationChallengeArgs = {
+  input?: InputMaybe<WebAuthnRegistrationChallengeInput>;
+};
+
+
+export type MutationWithdrawConsentArgs = {
+  input: WithdrawConsentInput;
+};
+
+
+export type MutationWriteOpcUaNodeArgs = {
+  input: WriteOpcUaNodeInput;
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+export type MySecuritySettings = {
+  mfaAvailable: Scalars['Boolean']['output'];
+  mfaEnabled: Scalars['Boolean']['output'];
+  mfaUnavailableReason?: Maybe<Scalars['String']['output']>;
+};
+
+/** Notification delivery channel */
+export type NotificationChannel =
+  | 'EMAIL'
+  | 'PAGERDUTY'
+  | 'PUSH'
+  | 'SLACK'
+  | 'SMS'
+  | 'TEAMS'
+  | 'WEBHOOK';
+
+/** Channel notification preference: ALL > MENTIONS > NONE */
+export type NotificationPreference =
+  /** Notify on every message */
+  | 'ALL'
+  /** Notify only on @mentions */
+  | 'MENTIONS'
+  /** No notifications */
+  | 'NONE';
+
+export type NotificationPreferences = {
+  alertNotifications: Scalars['Boolean']['output'];
+  emailEnabled: Scalars['Boolean']['output'];
+  pushEnabled: Scalars['Boolean']['output'];
+  /** HH:mm format, e.g. "07:00" */
+  quietHoursEnd?: Maybe<Scalars['String']['output']>;
+  /** HH:mm format, e.g. "22:00" */
+  quietHoursStart?: Maybe<Scalars['String']['output']>;
+  /** IANA timezone, e.g. "Europe/Istanbul" */
+  quietHoursTimezone: Scalars['String']['output'];
+  smsEnabled: Scalars['Boolean']['output'];
+  systemNotifications: Scalars['Boolean']['output'];
+  taskNotifications: Scalars['Boolean']['output'];
 };
 
 export type NutritionalContentInput = {
@@ -5899,6 +11826,54 @@ export type ObservedSymptomsInput = {
   respiratory?: InputMaybe<Array<Scalars['String']['input']>>;
 };
 
+export type OnCallSchedule = {
+  backupUserId?: Maybe<Scalars['String']['output']>;
+  dayOfWeek: Scalars['Float']['output'];
+  endTime: Scalars['String']['output'];
+  startTime: Scalars['String']['output'];
+  userId: Scalars['String']['output'];
+};
+
+export type OnCallScheduleInput = {
+  backupUserId?: InputMaybe<Scalars['String']['input']>;
+  dayOfWeek: Scalars['Int']['input'];
+  endTime: Scalars['String']['input'];
+  startTime: Scalars['String']['input'];
+  userId: Scalars['String']['input'];
+};
+
+export type OpcUaCallMethodInput = {
+  inputArguments?: InputMaybe<Array<OpcUaMethodArgumentInput>>;
+  methodId: Scalars['String']['input'];
+  objectId: Scalars['String']['input'];
+};
+
+export type OpcUaHistoricalDataPoint = {
+  timestamp: Scalars['DateTime']['output'];
+  value?: Maybe<Scalars['String']['output']>;
+};
+
+export type OpcUaMethodArgumentInput = {
+  dataType: Scalars['String']['input'];
+  value: Scalars['String']['input'];
+};
+
+export type OpcUaMethodCallResult = {
+  outputArguments: Array<Scalars['String']['output']>;
+  statusCode: Scalars['Int']['output'];
+};
+
+export type OpcUaNodeBrowseResult = {
+  browseName: Scalars['String']['output'];
+  dataType?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayName: Scalars['String']['output'];
+  hasChildren: Scalars['Boolean']['output'];
+  nodeClass: Scalars['String']['output'];
+  nodeId: Scalars['String']['output'];
+  value?: Maybe<Scalars['String']['output']>;
+};
+
 export type OperatingTemperatureInput = {
   max: Scalars['Float']['input'];
   min: Scalars['Float']['input'];
@@ -5927,6 +11902,15 @@ export type OptimalTemperatureResponse = {
   max: Scalars['Float']['output'];
   min: Scalars['Float']['output'];
   unit: Scalars['String']['output'];
+};
+
+export type OvertimeSummary = {
+  byEmployee: Array<EmployeeOvertimeSummary>;
+  employeeCount: Scalars['Int']['output'];
+  month: Scalars['Int']['output'];
+  totalActualOvertimeMinutes: Scalars['Int']['output'];
+  totalPlannedOvertimeMinutes: Scalars['Int']['output'];
+  year: Scalars['Int']['output'];
 };
 
 export type PhRangeInput = {
@@ -5993,6 +11977,23 @@ export type PaginatedEquipmentResponse = {
   hasPreviousPage: Scalars['Boolean']['output'];
   /** Array of items */
   items: Array<EquipmentResponse>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PaginatedFeedingParameters = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<FeedingParameter>;
   /** Items per page */
   limit: Scalars['Int']['output'];
   /** Current page number */
@@ -6095,6 +12096,57 @@ export type PaginatedInventoryCountsResponse = {
   hasPreviousPage: Scalars['Boolean']['output'];
   /** Array of items */
   items: Array<InventoryCountResponse>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PaginatedPlcAlarms = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<PlcAlarm>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PaginatedPlcConnections = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<PlcConnection>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PaginatedPlcTelemetry = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<PlcTelemetry>;
   /** Items per page */
   limit: Scalars['Int']['output'];
   /** Current page number */
@@ -6224,6 +12276,23 @@ export type PaginatedSystemsResponse = {
   totalPages: Scalars['Int']['output'];
 };
 
+export type PaginatedVfdDeviceList = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<VfdDeviceOutput>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
 export type ParameterConfigFilterInput = {
   /** Filter by parameter group */
   group?: InputMaybe<ParameterGroup>;
@@ -6248,6 +12317,13 @@ export type ParameterGroup =
   | 'NITROGEN_CYCLE'
   | 'ORGANIC';
 
+export type ParameterSendResult = {
+  checksum?: Maybe<Scalars['String']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  sentAt: Scalars['DateTime']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
 export type ParameterTemplateResponse = {
   description: Scalars['String']['output'];
   name: Scalars['String']['output'];
@@ -6256,6 +12332,110 @@ export type ParameterTemplateResponse = {
   species: Array<Scalars['String']['output']>;
   templateId: Scalars['String']['output'];
 };
+
+export type ParentDeviceType = {
+  childSensors?: Maybe<Array<ChildSensorType>>;
+  connectionStatus?: Maybe<SensorConnectionStatusType>;
+  createdAt: Scalars['DateTime']['output'];
+  departmentId?: Maybe<Scalars['ID']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  equipmentId?: Maybe<Scalars['ID']['output']>;
+  farmId?: Maybe<Scalars['ID']['output']>;
+  id: Scalars['ID']['output'];
+  location?: Maybe<Scalars['String']['output']>;
+  manufacturer?: Maybe<Scalars['String']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  pondId?: Maybe<Scalars['ID']['output']>;
+  protocolCode: Scalars['String']['output'];
+  protocolConfiguration: Scalars['JSON']['output'];
+  registrationStatus: SensorRegistrationStatus;
+  serialNumber?: Maybe<Scalars['String']['output']>;
+  siteId?: Maybe<Scalars['ID']['output']>;
+  systemId?: Maybe<Scalars['ID']['output']>;
+  tankId?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type ParentWithChildrenResultType = {
+  children?: Maybe<Array<ChildSensorType>>;
+  connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Float']['output']>;
+  parent?: Maybe<ParentDeviceType>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type PayPeriodType =
+  | 'BI_WEEKLY'
+  | 'MONTHLY'
+  | 'SEMI_MONTHLY'
+  | 'WEEKLY';
+
+export type Payment = {
+  amount: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  failureReason?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  invoiceId: Scalars['String']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  paymentDate: Scalars['DateTime']['output'];
+  paymentMethod: PaymentMethod;
+  paymentMethodDetails?: Maybe<PaymentMethodDetails>;
+  processedAt?: Maybe<Scalars['DateTime']['output']>;
+  refundedAmount: Scalars['Float']['output'];
+  refunds?: Maybe<Array<RefundInfo>>;
+  status: PaymentStatus;
+  tenantId: Scalars['String']['output'];
+  transactionId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type PaymentMethod =
+  | 'ACH'
+  | 'BANK_TRANSFER'
+  | 'CASH'
+  | 'CHECK'
+  | 'CREDIT_CARD'
+  | 'DEBIT_CARD'
+  | 'OTHER'
+  | 'PAYPAL'
+  | 'SEPA'
+  | 'WIRE_TRANSFER';
+
+export type PaymentMethodDetails = {
+  bankAccountLast4?: Maybe<Scalars['String']['output']>;
+  bankName?: Maybe<Scalars['String']['output']>;
+  cardBrand?: Maybe<Scalars['String']['output']>;
+  cardLast4?: Maybe<Scalars['String']['output']>;
+  checkNumber?: Maybe<Scalars['String']['output']>;
+};
+
+export type PaymentMethodDetailsInput = {
+  bankAccountLast4?: InputMaybe<Scalars['String']['input']>;
+  bankName?: InputMaybe<Scalars['String']['input']>;
+  cardBrand?: InputMaybe<Scalars['String']['input']>;
+  cardExpMonth?: InputMaybe<Scalars['Float']['input']>;
+  cardExpYear?: InputMaybe<Scalars['Float']['input']>;
+  cardLast4?: InputMaybe<Scalars['String']['input']>;
+  checkNumber?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type PaymentStatus =
+  | 'CANCELLED'
+  | 'FAILED'
+  | 'PARTIALLY_REFUNDED'
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'REFUNDED'
+  | 'SUCCEEDED';
 
 export type PaymentTermsInput = {
   creditLimit?: InputMaybe<Scalars['Float']['input']>;
@@ -6275,12 +12455,293 @@ export type PaymentTermsResponse = {
   paymentDays: Scalars['Int']['output'];
 };
 
+export type Payroll = {
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  deductionsHealthInsurance?: Maybe<Scalars['Float']['output']>;
+  deductionsOther?: Maybe<Scalars['Float']['output']>;
+  deductionsRetirement?: Maybe<Scalars['Float']['output']>;
+  deductionsSocialSecurity?: Maybe<Scalars['Float']['output']>;
+  deductionsTax?: Maybe<Scalars['Float']['output']>;
+  deductionsTotal: Scalars['Float']['output'];
+  earningsAllowances?: Maybe<Scalars['Float']['output']>;
+  earningsBaseSalary: Scalars['Float']['output'];
+  earningsBonus?: Maybe<Scalars['Float']['output']>;
+  earningsCommission?: Maybe<Scalars['Float']['output']>;
+  earningsGrossPay: Scalars['Float']['output'];
+  earningsOvertime?: Maybe<Scalars['Float']['output']>;
+  employee: Employee;
+  employeeId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  netPay: Scalars['Float']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  payPeriodEnd: Scalars['DateTime']['output'];
+  payPeriodStart: Scalars['DateTime']['output'];
+  payPeriodType: PayPeriodType;
+  paymentDate?: Maybe<Scalars['DateTime']['output']>;
+  paymentReference?: Maybe<Scalars['String']['output']>;
+  payrollNumber: Scalars['String']['output'];
+  status: PayrollStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  workHours: WorkHours;
+};
+
+export type PayrollConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<Payroll>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PayrollStatus =
+  | 'APPROVED'
+  | 'CANCELLED'
+  | 'DRAFT'
+  | 'PAID'
+  | 'PENDING_APPROVAL'
+  | 'PROCESSING';
+
+export type PendingAttendanceApprovalsConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<AttendanceRecord>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PendingLeaveApprovalsConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<LeaveRequest>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type PerformanceReview = {
+  acknowledgedAt?: Maybe<Scalars['DateTime']['output']>;
+  acknowledgedBy?: Maybe<Scalars['String']['output']>;
+  areasForImprovement?: Maybe<Array<Scalars['String']['output']>>;
+  calibrationNotes?: Maybe<Scalars['String']['output']>;
+  competencyRatings?: Maybe<Array<CompetencyRating>>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  developmentPlan?: Maybe<Scalars['String']['output']>;
+  employee?: Maybe<Employee>;
+  employeeComments?: Maybe<Scalars['String']['output']>;
+  employeeId: Scalars['String']['output'];
+  finalRating?: Maybe<Scalars['Float']['output']>;
+  finalizedAt?: Maybe<Scalars['DateTime']['output']>;
+  finalizedBy?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  managerAssessment?: Maybe<Scalars['String']['output']>;
+  managerRating?: Maybe<Scalars['Float']['output']>;
+  periodEnd: Scalars['DateTime']['output'];
+  periodStart: Scalars['DateTime']['output'];
+  periodType: ReviewPeriodType;
+  reviewer?: Maybe<Employee>;
+  reviewerComments?: Maybe<Scalars['String']['output']>;
+  reviewerId: Scalars['String']['output'];
+  selfAssessment?: Maybe<Scalars['String']['output']>;
+  selfRating?: Maybe<Scalars['Float']['output']>;
+  status: ReviewStatus;
+  strengths?: Maybe<Array<Scalars['String']['output']>>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type PerformanceReviewConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<PerformanceReview>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
 export type PerformanceStatusType =
   | 'AVERAGE'
   | 'BELOW_AVERAGE'
   | 'EXCELLENT'
   | 'GOOD'
   | 'POOR';
+
+export type PerformanceSummary = {
+  activeGoals: Scalars['Int']['output'];
+  averageGoalProgress: Scalars['Float']['output'];
+  completedGoals: Scalars['Int']['output'];
+  currentReview?: Maybe<ReviewSummaryItem>;
+  employeeId: Scalars['String']['output'];
+  kpiAchievement: Scalars['Float']['output'];
+  overdueGoals: Scalars['Int']['output'];
+  previousReview?: Maybe<ReviewSummaryItem>;
+  ratingTrend: Scalars['String']['output'];
+};
+
+export type PermissionCategory = {
+  categoryKey: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  resources: Array<PermissionResource>;
+};
+
+export type PermissionOverrides = {
+  grants: Array<Scalars['String']['output']>;
+  revokes: Array<Scalars['String']['output']>;
+};
+
+export type PermissionOverridesInput = {
+  grants?: Array<Scalars['String']['input']>;
+  revokes?: Array<Scalars['String']['input']>;
+};
+
+export type PermissionResource = {
+  actions: Array<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+};
+
+export type PersonnelCategory =
+  | 'HYBRID'
+  | 'OFFSHORE'
+  | 'ONSHORE';
+
+export type PingResult = {
+  /** Device code that was pinged */
+  deviceCode: Scalars['String']['output'];
+  /** Error message if ping failed */
+  error?: Maybe<Scalars['String']['output']>;
+  /** Round-trip latency in milliseconds */
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  success: Scalars['Boolean']['output'];
+  /** Timestamp of ping result */
+  timestamp: Scalars['DateTime']['output'];
+};
+
+export type PingTestResultType = {
+  avgLatencyMs: Scalars['Int']['output'];
+  loss: Scalars['Int']['output'];
+  maxLatencyMs: Scalars['Int']['output'];
+  minLatencyMs: Scalars['Int']['output'];
+};
+
+export type PinnedMessage = {
+  channelId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  message: Message;
+  pinnedAt: Scalars['DateTime']['output'];
+  pinnedBy: Scalars['String']['output'];
+};
+
+export type Plan = {
+  basePrice: Scalars['Float']['output'];
+  billingCycle: BillingCycle;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currency: Scalars['String']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  features: Array<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isPublic: Scalars['Boolean']['output'];
+  limits: PlanLimits;
+  name: Scalars['String']['output'];
+  pricing: PlanPricing;
+  sortOrder: Scalars['Int']['output'];
+  tier: PlanTier;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type PlanLimits = {
+  alertsEnabled: Scalars['Boolean']['output'];
+  apiAccessEnabled: Scalars['Boolean']['output'];
+  customIntegrationsEnabled: Scalars['Boolean']['output'];
+  dataRetentionDays: Scalars['Int']['output'];
+  maxFarms: Scalars['Int']['output'];
+  maxPonds: Scalars['Int']['output'];
+  maxSensors: Scalars['Int']['output'];
+  maxUsers: Scalars['Int']['output'];
+  reportsEnabled: Scalars['Boolean']['output'];
+};
+
+export type PlanLimitsInput = {
+  alertsEnabled: Scalars['Boolean']['input'];
+  apiAccessEnabled: Scalars['Boolean']['input'];
+  customIntegrationsEnabled: Scalars['Boolean']['input'];
+  dataRetentionDays: Scalars['Int']['input'];
+  maxFarms: Scalars['Int']['input'];
+  maxPonds: Scalars['Int']['input'];
+  maxSensors: Scalars['Int']['input'];
+  maxUsers: Scalars['Int']['input'];
+  reportsEnabled: Scalars['Boolean']['input'];
+};
+
+export type PlanPricing = {
+  basePrice: Scalars['Float']['output'];
+  currency: Scalars['String']['output'];
+  perFarmPrice?: Maybe<Scalars['Float']['output']>;
+  perSensorPrice?: Maybe<Scalars['Float']['output']>;
+  perUserPrice?: Maybe<Scalars['Float']['output']>;
+};
+
+export type PlanPricingInput = {
+  basePrice: Scalars['Float']['input'];
+  currency?: InputMaybe<Scalars['String']['input']>;
+  perFarmPrice?: InputMaybe<Scalars['Float']['input']>;
+  perSensorPrice?: InputMaybe<Scalars['Float']['input']>;
+  perUserPrice?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type PlanTier =
+  | 'CUSTOM'
+  | 'ENTERPRISE'
+  | 'PROFESSIONAL'
+  | 'STARTER';
 
 export type PlannedFeeding = {
   actualAmountKg: Scalars['Float']['output'];
@@ -6305,6 +12766,188 @@ export type PlannedSlaughterLocalityInput = {
   ukeplanPerArt: Array<UkeplanPerArtInput>;
 };
 
+export type PlcAlarm = {
+  acknowledged: Scalars['Boolean']['output'];
+  acknowledgedAt?: Maybe<Scalars['DateTime']['output']>;
+  acknowledgedBy?: Maybe<Scalars['String']['output']>;
+  action?: Maybe<Scalars['String']['output']>;
+  alarmCode: Scalars['String']['output'];
+  approvalChain?: Maybe<Scalars['JSON']['output']>;
+  approvalLevel: Scalars['Int']['output'];
+  autoEscalateAfterMs?: Maybe<Scalars['Int']['output']>;
+  clearedAt?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  escalatedAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  message: Scalars['String']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  plcConnectionId: Scalars['String']['output'];
+  requiredApprovalLevel: Scalars['Int']['output'];
+  severity: AlarmSeverity;
+  slaBreached: Scalars['Boolean']['output'];
+  slaDeadline?: Maybe<Scalars['DateTime']['output']>;
+  source: AlarmSource;
+  tankId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  threshold?: Maybe<Scalars['Float']['output']>;
+  timestamp: Scalars['DateTime']['output'];
+  value?: Maybe<Scalars['Float']['output']>;
+};
+
+export type PlcAlarmFilterInput = {
+  acknowledged?: InputMaybe<Scalars['Boolean']['input']>;
+  fromDate?: InputMaybe<Scalars['DateTime']['input']>;
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  severity?: InputMaybe<Scalars['String']['input']>;
+  source?: InputMaybe<Scalars['String']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  toDate?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type PlcAlarmStats = {
+  criticalCount: Scalars['Int']['output'];
+  emergencyCount: Scalars['Int']['output'];
+  infoCount: Scalars['Int']['output'];
+  last7DaysCount: Scalars['Int']['output'];
+  last24HoursCount: Scalars['Int']['output'];
+  totalActive: Scalars['Int']['output'];
+  totalUnacknowledged: Scalars['Int']['output'];
+  warningCount: Scalars['Int']['output'];
+};
+
+export type PlcAuthMode =
+  | 'ANONYMOUS'
+  | 'CERTIFICATE'
+  | 'USERNAME';
+
+export type PlcConnection = {
+  activeAlarmCount: Scalars['Int']['output'];
+  activeParameter?: Maybe<FeedingParameter>;
+  alarmsNodeId?: Maybe<Scalars['String']['output']>;
+  authMode: PlcAuthMode;
+  autoReconnect: Scalars['Boolean']['output'];
+  connectTimeoutMs: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  endpointUrl: Scalars['String']['output'];
+  failoverEndpointUrl?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  keepAliveIntervalMs: Scalars['Float']['output'];
+  lastConnectedAt?: Maybe<Scalars['DateTime']['output']>;
+  lastError?: Maybe<Scalars['String']['output']>;
+  latestTelemetry?: Maybe<LatestTelemetrySummary>;
+  maxReconnectAttempts: Scalars['Float']['output'];
+  maxReconnectDelayMs: Scalars['Float']['output'];
+  name: Scalars['String']['output'];
+  parametersNodeId?: Maybe<Scalars['String']['output']>;
+  publishingIntervalMs: Scalars['Float']['output'];
+  reconnectDelayMs: Scalars['Float']['output'];
+  requestTimeoutMs: Scalars['Float']['output'];
+  samplingIntervalMs: Scalars['Float']['output'];
+  securityMode: PlcSecurityMode;
+  securityPolicy?: Maybe<Scalars['String']['output']>;
+  sessionTimeoutMs: Scalars['Float']['output'];
+  siteId: Scalars['String']['output'];
+  status: PlcConnectionStatus;
+  statusNodeId?: Maybe<Scalars['String']['output']>;
+  tankId?: Maybe<Scalars['String']['output']>;
+  telemetryNodeId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  username?: Maybe<Scalars['String']['output']>;
+};
+
+export type PlcConnectionCountByStatus = {
+  connecting: Scalars['Int']['output'];
+  error: Scalars['Int']['output'];
+  offline: Scalars['Int']['output'];
+  online: Scalars['Int']['output'];
+};
+
+export type PlcConnectionFilterInput = {
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type PlcConnectionStatus =
+  | 'CONNECTING'
+  | 'ERROR'
+  | 'OFFLINE'
+  | 'ONLINE';
+
+export type PlcConnectionTestResult = {
+  error?: Maybe<Scalars['String']['output']>;
+  errorCode?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  serverInfo?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+  testedAt: Scalars['DateTime']['output'];
+};
+
+export type PlcFeedingScheduleEntryInput = {
+  amountKg: Scalars['Float']['input'];
+  blowerSpeedPercent?: InputMaybe<Scalars['Int']['input']>;
+  doserSpeedPercent?: InputMaybe<Scalars['Int']['input']>;
+  durationSeconds?: InputMaybe<Scalars['Int']['input']>;
+  feedType?: InputMaybe<Scalars['String']['input']>;
+  time: Scalars['String']['input'];
+};
+
+export type PlcPaginationInput = {
+  /** Items per page (max 100) */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /** Page number (1-based) */
+  page?: InputMaybe<Scalars['Int']['input']>;
+  /** Sort field */
+  sortBy?: InputMaybe<Scalars['String']['input']>;
+  /** Sort direction */
+  sortOrder?: InputMaybe<SortOrder>;
+};
+
+export type PlcSecurityMode =
+  | 'NONE'
+  | 'SIGN'
+  | 'SIGN_AND_ENCRYPT';
+
+export type PlcTelemetry = {
+  activeParameterId?: Maybe<Scalars['String']['output']>;
+  actuators: Scalars['JSON']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  feeding: Scalars['JSON']['output'];
+  id: Scalars['ID']['output'];
+  plcConnectionId: Scalars['String']['output'];
+  plcStatus: Scalars['JSON']['output'];
+  sensors: Scalars['JSON']['output'];
+  tankId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+};
+
+export type PlcTelemetryFilterInput = {
+  fromDate?: InputMaybe<Scalars['DateTime']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  toDate?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type PlcTelemetryStats = {
+  flowRate?: Maybe<SensorStats>;
+  from: Scalars['DateTime']['output'];
+  oxygen: SensorStats;
+  ph?: Maybe<SensorStats>;
+  plcConnectionId: Scalars['ID']['output'];
+  temperature: SensorStats;
+  to: Scalars['DateTime']['output'];
+  totalRecords: Scalars['Int']['output'];
+};
+
 export type Pond = {
   capacity: Scalars['Float']['output'];
   createdAt: Scalars['DateTime']['output'];
@@ -6327,6 +12970,74 @@ export type PondStatus =
   | 'INACTIVE'
   | 'MAINTENANCE'
   | 'PREPARING';
+
+export type ProcessFilterInput = {
+  departmentId?: InputMaybe<Scalars['String']['input']>;
+  isTemplate?: InputMaybe<Scalars['Boolean']['input']>;
+  searchTerm?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<ProcessStatus>;
+};
+
+export type ProcessListType = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<ProcessType>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type ProcessPaginationInput = {
+  /** Items per page (max 100) */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /** Page number (1-based) */
+  page?: InputMaybe<Scalars['Int']['input']>;
+  /** Sort field */
+  sortBy?: InputMaybe<Scalars['String']['input']>;
+  /** Sort direction */
+  sortOrder?: InputMaybe<SortOrder>;
+};
+
+export type ProcessResultType = {
+  message?: Maybe<Scalars['String']['output']>;
+  process?: Maybe<ProcessType>;
+  success: Scalars['Boolean']['output'];
+};
+
+/** Status of the process diagram */
+export type ProcessStatus =
+  | 'ACTIVE'
+  | 'ARCHIVED'
+  | 'DRAFT'
+  | 'INACTIVE';
+
+export type ProcessType = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  departmentId?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  edges: Scalars['JSON']['output'];
+  id: Scalars['ID']['output'];
+  isTemplate: Scalars['Boolean']['output'];
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  name: Scalars['String']['output'];
+  nodes: Scalars['JSON']['output'];
+  siteId?: Maybe<Scalars['String']['output']>;
+  status: ProcessStatus;
+  templateName?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
 
 /** Ürün formu */
 export type ProductForm =
@@ -6368,6 +13079,17 @@ export type ProgramEquipmentType =
   | 'POND'
   | 'TANK';
 
+export type ProgramFilterInput = {
+  category?: InputMaybe<Scalars['String']['input']>;
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  isLocked?: InputMaybe<Scalars['Boolean']['input']>;
+  processTemplateId?: InputMaybe<Scalars['String']['input']>;
+  programType?: InputMaybe<ProgramType>;
+  /** Search in name and code */
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<ProgramStatus>;
+};
+
 export type ProgramSettingsInput = {
   autoTransition?: Scalars['Boolean']['input'];
   defaultMealsPerDay?: InputMaybe<Scalars['Int']['input']>;
@@ -6376,6 +13098,237 @@ export type ProgramSettingsInput = {
   minFeedingRatePercent?: InputMaybe<Scalars['Float']['input']>;
   notifyOnTransition?: Scalars['Boolean']['input'];
   transitionBuffer?: Scalars['Float']['input'];
+};
+
+export type ProgramStats = {
+  byStatus: Array<StatusCount>;
+  byType: Array<TypeCount>;
+  deployedCount: Scalars['Int']['output'];
+  lockedCount: Scalars['Int']['output'];
+  total: Scalars['Int']['output'];
+};
+
+/** Current status of the automation program */
+export type ProgramStatus =
+  | 'APPROVED'
+  | 'ARCHIVED'
+  | 'DEPLOYED'
+  | 'DEPLOYING'
+  | 'DRAFT'
+  | 'PENDING_REVIEW';
+
+export type ProgramStep = {
+  actionCount: Scalars['Int']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  /** N qualifier - executed while step is active */
+  entryAction?: Maybe<Scalars['String']['output']>;
+  /** P1 qualifier - executed once on step exit */
+  exitAction?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  incomingTransitionCount?: Maybe<Scalars['Int']['output']>;
+  onTimeout?: Maybe<TimeoutBehavior>;
+  outgoingTransitionCount?: Maybe<Scalars['Int']['output']>;
+  positionX: Scalars['Int']['output'];
+  positionY: Scalars['Int']['output'];
+  programId: Scalars['String']['output'];
+  stepCode: Scalars['String']['output'];
+  stepName: Scalars['String']['output'];
+  stepOrder: Scalars['Int']['output'];
+  stepType: StepType;
+  timeoutMs?: Maybe<Scalars['Int']['output']>;
+  /** Target step code for GOTO timeout behavior */
+  timeoutTargetStep?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type ProgramTransition = {
+  /** IEC 61131-3 Structured Text expression */
+  conditionExpression: Scalars['String']['output'];
+  conditionType: ConditionType;
+  controlPoints?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  eventType?: Maybe<Scalars['String']['output']>;
+  fromStepCode?: Maybe<Scalars['String']['output']>;
+  fromStepId: Scalars['String']['output'];
+  fromStepName?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  /** Priority for parallel transitions (lower = higher priority) */
+  priority: Scalars['Int']['output'];
+  programId: Scalars['String']['output'];
+  /** Timeout in milliseconds */
+  timeoutMs?: Maybe<Scalars['Int']['output']>;
+  toStepCode?: Maybe<Scalars['String']['output']>;
+  toStepId: Scalars['String']['output'];
+  toStepName?: Maybe<Scalars['String']['output']>;
+  transitionCode: Scalars['String']['output'];
+  transitionName?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** IEC 61131-3 programming language type */
+export type ProgramType =
+  | 'FBD'
+  | 'LD'
+  | 'SFC'
+  | 'ST';
+
+export type ProgramVariable = {
+  alarmH?: Maybe<Scalars['Float']['output']>;
+  alarmHH?: Maybe<Scalars['Float']['output']>;
+  alarmL?: Maybe<Scalars['Float']['output']>;
+  alarmLL?: Maybe<Scalars['Float']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  currentValue?: Maybe<Scalars['String']['output']>;
+  dataType: VariableDataType;
+  description?: Maybe<Scalars['String']['output']>;
+  displayName?: Maybe<Scalars['String']['output']>;
+  engUnit?: Maybe<Scalars['String']['output']>;
+  /** Reference to equipment node in process template */
+  equipmentNodeId?: Maybe<Scalars['String']['output']>;
+  equipmentProperty?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  initialValue?: Maybe<Scalars['String']['output']>;
+  /** Reference to DeviceIoConfig.id */
+  ioConfigId?: Maybe<Scalars['String']['output']>;
+  /** I/O tag name for quick reference */
+  ioTagName?: Maybe<Scalars['String']['output']>;
+  lastUpdated?: Maybe<Scalars['DateTime']['output']>;
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  programId: Scalars['String']['output'];
+  scope: VariableScope;
+  /** Reference to sensor data channel */
+  sensorChannelId?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  varName: Scalars['String']['output'];
+  varOrder: Scalars['Float']['output'];
+};
+
+export type ProtocolCapabilitiesType = {
+  supportedDataTypes: Array<Scalars['String']['output']>;
+  supportsAuthentication: Scalars['Boolean']['output'];
+  supportsBidirectional: Scalars['Boolean']['output'];
+  supportsDiscovery: Scalars['Boolean']['output'];
+  supportsEncryption: Scalars['Boolean']['output'];
+  supportsPolling: Scalars['Boolean']['output'];
+  supportsSubscription: Scalars['Boolean']['output'];
+};
+
+/** Protocol category */
+export type ProtocolCategory =
+  | 'INDUSTRIAL'
+  | 'IOT'
+  | 'SERIAL'
+  | 'WIRELESS';
+
+export type ProtocolConfigurationInput = {
+  baudRate?: InputMaybe<Scalars['Int']['input']>;
+  connectionTimeout?: InputMaybe<Scalars['Int']['input']>;
+  connectionType?: InputMaybe<Scalars['String']['input']>;
+  dataBits?: InputMaybe<Scalars['Int']['input']>;
+  deviceInstance?: InputMaybe<Scalars['Int']['input']>;
+  deviceName?: InputMaybe<Scalars['String']['input']>;
+  edsFile?: InputMaybe<Scalars['String']['input']>;
+  gsdFile?: InputMaybe<Scalars['String']['input']>;
+  gsdmlFile?: InputMaybe<Scalars['String']['input']>;
+  heartbeatProducerTime?: InputMaybe<Scalars['Int']['input']>;
+  host?: InputMaybe<Scalars['String']['input']>;
+  interface?: InputMaybe<Scalars['String']['input']>;
+  ipAddress?: InputMaybe<Scalars['String']['input']>;
+  keepAlive?: InputMaybe<Scalars['Boolean']['input']>;
+  macAddress?: InputMaybe<Scalars['Int']['input']>;
+  masterAddress?: InputMaybe<Scalars['Int']['input']>;
+  maxApduLength?: InputMaybe<Scalars['Int']['input']>;
+  nodeId?: InputMaybe<Scalars['Int']['input']>;
+  parity?: InputMaybe<Scalars['String']['input']>;
+  port?: InputMaybe<Scalars['Int']['input']>;
+  responseTimeout?: InputMaybe<Scalars['Int']['input']>;
+  retryCount?: InputMaybe<Scalars['Int']['input']>;
+  rpi?: InputMaybe<Scalars['Int']['input']>;
+  serialPort?: InputMaybe<Scalars['String']['input']>;
+  slaveId?: InputMaybe<Scalars['Int']['input']>;
+  stationAddress?: InputMaybe<Scalars['Int']['input']>;
+  stopBits?: InputMaybe<Scalars['Int']['input']>;
+  subnetMask?: InputMaybe<Scalars['String']['input']>;
+  timeout?: InputMaybe<Scalars['Int']['input']>;
+  unitId?: InputMaybe<Scalars['Int']['input']>;
+  updateRate?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type ProtocolConnectionTestResultType = {
+  configUsed: Scalars['JSON']['output'];
+  diagnostics?: Maybe<ConnectionDiagnosticsType>;
+  error?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  protocolCode: Scalars['String']['output'];
+  sampleData?: Maybe<SensorReadingDataType>;
+  success: Scalars['Boolean']['output'];
+  testedAt: Scalars['DateTime']['output'];
+};
+
+export type ProtocolDetailsType = {
+  category: ProtocolCategory;
+  code: Scalars['String']['output'];
+  configurationSchema: Scalars['JSON']['output'];
+  connectionType: Scalars['String']['output'];
+  defaultConfiguration: Scalars['JSON']['output'];
+  description: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  subcategory: Scalars['String']['output'];
+};
+
+export type ProtocolInfoType = {
+  capabilities: ProtocolCapabilitiesType;
+  category: ProtocolCategory;
+  code: Scalars['String']['output'];
+  connectionType: Scalars['String']['output'];
+  description: Scalars['String']['output'];
+  displayName: Scalars['String']['output'];
+  subcategory: Scalars['String']['output'];
+};
+
+/** Subcategory of communication protocol */
+export type ProtocolSubcategory =
+  | 'BUILDING_AUTOMATION'
+  | 'BUS'
+  | 'ETHERNET_INDUSTRIAL'
+  | 'FIELDBUS'
+  | 'LPWAN'
+  | 'MESH'
+  | 'MESSAGE_QUEUE'
+  | 'MODBUS'
+  | 'NETWORK'
+  | 'PLC'
+  | 'PLC_NATIVE'
+  | 'REALTIME'
+  | 'REALTIME_ETHERNET'
+  | 'REQUEST_RESPONSE'
+  | 'SERIAL_PORT'
+  | 'SHORT_RANGE'
+  | 'SOCKET'
+  | 'WIRED_SERIAL';
+
+export type ProtocolSummaryType = {
+  category: ProtocolCategory;
+  code: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  subcategory: Scalars['String']['output'];
+};
+
+export type ProvisionedDeviceResponse = {
+  deviceCode: Scalars['String']['output'];
+  deviceId: Scalars['ID']['output'];
+  installerCommand: Scalars['String']['output'];
+  installerUrl: Scalars['String']['output'];
+  provisioningToken: Scalars['String']['output'];
+  status: Scalars['String']['output'];
+  tokenExpiresAt: Scalars['DateTime']['output'];
 };
 
 /** Category of purchase order */
@@ -6417,6 +13370,9 @@ export type PurchaseOrderItemResponse = {
 
 export type PurchaseOrderResponse = {
   actualDeliveryDate?: Maybe<Scalars['DateTime']['output']>;
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['ID']['output']>;
+  approvedByName?: Maybe<Scalars['String']['output']>;
   category: PurchaseOrderCategory;
   createdAt: Scalars['DateTime']['output'];
   currency: Scalars['String']['output'];
@@ -6434,11 +13390,19 @@ export type PurchaseOrderResponse = {
 
 /** Status of purchase order */
 export type PurchaseOrderStatus =
+  | 'APPROVED'
   | 'CANCELLED'
   | 'DRAFT'
   | 'ORDERED'
   | 'PARTIALLY_RECEIVED'
-  | 'RECEIVED';
+  | 'RECEIVED'
+  | 'SUBMITTED';
+
+export type PushIoConfigResult = {
+  /** Error message if push failed */
+  error?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
 
 /** Kalite sınıfı */
 export type QualityGrade =
@@ -6462,15 +13426,48 @@ export type QualityRequirementsInput = {
 };
 
 export type Query = {
+  activeEmployees: Array<Employee>;
+  activeFeedingParameter?: Maybe<FeedingParameter>;
   /** Aktif yemleme programlarini getir */
   activeFeedingPrograms: Array<FeedingProgram>;
+  activePlcAlarms: Array<PlcAlarm>;
+  activeProcesses: Array<ProcessType>;
+  activeRotations: Array<WorkRotation>;
   activeSites: Array<SiteResponse>;
   activeSpecies: Array<Species>;
   /** Get all active tanks with fish for simulation */
   activeTanks: Array<ActiveTankResponse>;
+  actuatorUsageStats: ActuatorUsageStats;
+  aggregatedReadings: AggregatedReadingsResponse;
+  /** Current AI analysis settings for tenant and user */
+  aiSettings: AiSettingsType;
+  alarmCountBySeverity: AlarmCountBySeverity;
+  alarmCountBySource: Array<AlarmCountBySource>;
+  alertHistory: Array<AlertHistory>;
+  alertRule?: Maybe<AlertRule>;
+  alertRules: Array<AlertRule>;
+  allCertifications: EmployeeCertificationConnection;
+  allConnectionsTelemetrySummary: Array<LatestTelemetrySummary>;
+  allDataChannels: Array<DataChannelType>;
+  allMessagesSince: AllMessagesSinceResponse;
+  allPlans: Array<Plan>;
+  announcement: Announcement;
+  announcementStats: AnnouncementStats;
+  attendanceRecords: AttendanceRecordConnection;
+  attendanceSummary: AttendanceSummary;
+  /** Paginated compliance audit log. */
+  auditLog: AuditLogPageType;
   autoRule: AutoRule;
   autoRules: Array<AutoRule>;
-  availableTanks: Array<AvailableTankResponse>;
+  automationProgram?: Maybe<AutomationProgram>;
+  automationProgramByCode?: Maybe<AutomationProgram>;
+  automationProgramStats: ProgramStats;
+  automationPrograms: AutomationProgramConnection;
+  automationProgramsConnection: AutomationProgramConnection;
+  /** List AI personas available for the current tenant */
+  availableAiPersonas: Array<AiPersonaType>;
+  availableFirmwareVersions: Array<FirmwareVersionInfo>;
+  availableTanks: Array<Tank>;
   batch: Batch;
   batchFeedAssignment?: Maybe<BatchFeedAssignmentResponse>;
   batchGrowthHistory: Array<GrowthMeasurement>;
@@ -6485,32 +13482,74 @@ export type Query = {
   biomassReport?: Maybe<BiomassReport>;
   /** List biomass reports for a site, newest period first. `limit` is clamped to 120. */
   biomassReports: Array<BiomassReport>;
+  browseOpcUaNodes: Array<OpcUaNodeBrowseResult>;
+  certificationTypes: Array<CertificationType>;
+  /** Get a channel by ID */
+  channel: Channel;
+  channelEligibleUsers: Array<User>;
   chemical?: Maybe<ChemicalResponse>;
   chemicalSuppliers: Array<SupplierResponse>;
   chemicalTypes: Array<ChemicalTypeResponse>;
   chemicals: PaginatedChemicalsResponse;
   chemicalsByType: Array<ChemicalResponse>;
+  childSensors: Array<ChildSensorType>;
   childSystems: Array<SystemResponse>;
   cleanerFishBatches: Array<Batch>;
   cleanerFishSpecies: Array<CleanerFishSpeciesInfo>;
+  /** Compliance statistics. */
+  complianceStats: ComplianceStats;
   consumable?: Maybe<ConsumableResponse>;
   consumables: PaginatedConsumablesResponse;
+  crewAssignments: Array<CrewAssignment>;
   /** Get critical health events */
   criticalHealthEvents: Array<HealthEvent>;
   criticalWaterQuality: Array<WaterQualityMeasurement>;
+  /** Get current consent version */
+  currentConsentVersion: Scalars['String']['output'];
+  currentOnCallUser?: Maybe<Scalars['String']['output']>;
+  currentUser: User;
   currentWeather?: Maybe<CurrentWeatherResponse>;
+  currentlyOffshore: Array<Employee>;
+  dailyAttendanceOverview: DailyAttendanceOverview;
   /** Gunluk yemleme calistirmasi getir */
   dailyFeedingExecution?: Maybe<DailyFeedingExecution>;
   /** Belirli tarihteki gunluk yemleme calistirmalarini listele */
   dailyFeedingExecutions: Array<DailyFeedingExecution>;
   dailyFeedingPlan: DailyFeedingPlanResponse;
+  dashboardLayout?: Maybe<DashboardLayout>;
+  dashboardLayouts: Array<DashboardLayout>;
+  dataChannel?: Maybe<DataChannelType>;
+  dataChannelsBySensor: Array<DataChannelType>;
+  deadLetterCount: Scalars['Int']['output'];
+  defaultEscalationPolicy?: Maybe<EscalationPolicy>;
   /** Get default protocol for species/stage */
   defaultFeedingProtocol?: Maybe<FeedingProtocolResponse>;
+  defaultTenantRole?: Maybe<TenantRole>;
   department?: Maybe<DepartmentResponse>;
   departmentDeletePreview: DepartmentDeletePreviewResponse;
   departments: PaginatedDepartmentsResponse;
   departmentsBySite: Array<DepartmentResponse>;
+  deploymentHistory: DeploymentLogConnection;
+  deploymentLog?: Maybe<DeploymentLog>;
+  deviceEvents: DeviceEventConnection;
+  deviceGroup?: Maybe<DeviceGroup>;
+  deviceGroups: Array<DeviceGroup>;
+  deviceInstallCommands: DeviceInstallCommands;
+  /** Get or create a direct channel with another user */
+  directChannel: Channel;
+  discoverOpcUaEndpoints: Array<DiscoveredOpcUaEndpoint>;
   disinfectantChemicals: Array<ChemicalResponse>;
+  edgeDevice?: Maybe<EdgeDevice>;
+  edgeDeviceStats: EdgeDeviceStats;
+  edgeDevices: EdgeDeviceConnection;
+  effectiveConfiguration: EffectiveConfigurationDto;
+  effectiveConfigurationsByService: Array<EffectiveConfigurationDto>;
+  employee: Employee;
+  employeeCertifications: Array<EmployeeCertification>;
+  employeeKPIs: Array<EmployeeKpi>;
+  employees: EmployeeConnection;
+  employeesByDepartment: Array<Employee>;
+  enabledChannelsBySensor: Array<DataChannelType>;
   equipment?: Maybe<EquipmentResponse>;
   equipmentByDepartment: Array<EquipmentResponse>;
   equipmentDeletePreview: EquipmentDeletePreviewResponse;
@@ -6519,13 +13558,18 @@ export type Query = {
   equipmentSuppliers: Array<SupplierResponse>;
   equipmentType?: Maybe<EquipmentTypeResponse>;
   equipmentTypes: Array<EquipmentTypeResponse>;
+  escalationPolicies: Array<EscalationPolicy>;
+  escalationPolicy?: Maybe<EscalationPolicy>;
   /** Estimate SGR for species at temperature */
   estimateSGR: Scalars['Float']['output'];
+  expiredCertifications: Array<EmployeeCertification>;
+  expiringCertifications: Array<EmployeeCertification>;
   farm?: Maybe<Farm>;
   /** Active anomalies detected across the entire farm */
   farmAnomalies: Array<FarmAnomaly>;
   /** Aggregated AI insights for the farm dashboard (risk + anomalies + feeding) */
   farmDashboardInsights: FarmDashboardInsights;
+  farmStockInventory: FarmStockInventoryConnection;
   farms: Array<Farm>;
   feed?: Maybe<FeedResponse>;
   /** Forecast feed consumption and stockout dates */
@@ -6536,6 +13580,9 @@ export type Query = {
   feederCalibrations: Array<FeederCalibrationResponse>;
   /** AI-driven feeding recommendation for a specific tank */
   feedingAdvice?: Maybe<FeedingAdvice>;
+  feedingParameter?: Maybe<FeedingParameter>;
+  feedingParameterHistory: Array<FeedingParameter>;
+  feedingParameters: PaginatedFeedingParameters;
   /** Yemleme programi getir */
   feedingProgram?: Maybe<FeedingProgram>;
   /** Yemleme programlarini listele */
@@ -6548,12 +13595,21 @@ export type Query = {
   feedingProtocolsBySpecies: Array<FeedingProtocolResponse>;
   feedingRecord?: Maybe<FeedingRecord>;
   feedingRecords: FeedingRecordConnection;
+  feedingStats: FeedingStats;
   feedingSummary: FeedingSummaryResponse;
   feeds: PaginatedFeedsResponse;
   feedsByPelletSize: Array<FeedResponse>;
   feedsByType: Array<FeedResponse>;
   feedsForSpecies: Array<FeedResponse>;
   generateBatchNumber: Scalars['String']['output'];
+  getMobileUserSettings: MobileUserSettings;
+  getMobileUsersSettings: Array<MobileUserSettings>;
+  getMyMobileSettings: MobileUserSettings;
+  /** Get the current user's notification preferences */
+  getMyNotificationPreferences: NotificationPreferences;
+  getUserEffectivePermissions: EffectivePermissions;
+  goal: Goal;
+  goals: GoalConnection;
   growthAnalysis: GrowthAnalysisResponse;
   growthMeasurement?: Maybe<GrowthMeasurement>;
   growthMeasurements: GrowthMeasurementConnection;
@@ -6577,6 +13633,10 @@ export type Query = {
   harvests: PaginatedHarvestsResponse;
   /** Get harvest records for a specific batch */
   harvestsByBatch: PaginatedHarvestsResponse;
+  /** Check if user has given specific consent */
+  hasConsent: Scalars['Boolean']['output'];
+  /** Check if the current user has biometric login enabled */
+  hasWebAuthnCredentials: Scalars['Boolean']['output'];
   /** Get health event by ID */
   healthEvent?: Maybe<HealthEvent>;
   /** Get health event statistics */
@@ -6585,11 +13645,36 @@ export type Query = {
   healthEvents: PaginatedHealthEventsResponse;
   /** Get health events for a batch */
   healthEventsByBatch: Array<HealthEvent>;
+  hrDashboardStats: HrDashboardStats;
+  hrDepartment: DepartmentHr;
+  hrDepartments: Array<DepartmentHr>;
+  /** Get a hydroponics configuration by ID */
+  hydroponicsConfiguration: HydroponicsConfig;
+  /** List hydroponics configurations */
+  hydroponicsConfigurations: Array<HydroponicsConfig>;
+  /** Get hydroponics module status */
+  hydroponicsStatus: HydroponicsStatusResponse;
+  industryTemplates: Array<IndustryTemplate>;
   inventoryCount?: Maybe<InventoryCountResponse>;
   inventoryCounts: PaginatedInventoryCountsResponse;
+  invoices: Array<Invoice>;
+  /** Check if user needs to update their consent preferences */
+  isConsentOutdated: Scalars['Boolean']['output'];
   isSentinelHubConfigured: Scalars['Boolean']['output'];
   latestGrowthMeasurement?: Maybe<GrowthMeasurement>;
+  latestPlcTelemetry?: Maybe<PlcTelemetry>;
+  latestReading?: Maybe<SensorReading>;
+  latestReadingsBatch: Array<SensorReading>;
+  latestScadaDeployLog?: Maybe<ScadaDeployLogType>;
+  latestTelemetrySummary?: Maybe<LatestTelemetrySummary>;
   latestWaterQuality?: Maybe<WaterQualityMeasurement>;
+  leaveBalances: Array<LeaveBalance>;
+  leaveRequest: LeaveRequest;
+  leaveRequests: LeaveRequestConnection;
+  leaveTypes: Array<LeaveType>;
+  /** All legal holds for current tenant. */
+  legalHolds: Array<LegalHold>;
+  loraDevices: Array<LoRaDeviceType>;
   lowStockAlerts: Array<LowStockAlertResponse>;
   maintenanceAlerts: Array<ScheduleAlertResponse>;
   maintenanceComplianceReport: ComplianceReportResponse;
@@ -6601,26 +13686,107 @@ export type Query = {
   maskinportenStatus: MaskinportenStatus;
   /** Get Mattilsynet API configuration status */
   mattilsynetStatus: MattilsynetStatus;
+  me: MePayload;
+  messages: MessagePageType;
+  messagesSince: Array<Message>;
+  moduleUsageStats: Array<ModuleUsageStatResponse>;
+  moduleUsers: Array<User>;
+  myAnnouncements: Array<AnnouncementListItem>;
+  myAttendanceRecords: Array<AttendanceRecord>;
+  myAttendanceSummary: AttendanceSummary;
+  myCertifications: Array<EmployeeCertification>;
+  /** List channels for the current user */
+  myChannels: ChannelPage;
+  /** Get consent history for the authenticated user */
+  myConsentHistory: ConsentHistoryResponse;
+  /** Get current consent status for the authenticated user */
+  myConsentStatus: UserConsentStatus;
+  myDefaultLayout?: Maybe<DashboardLayout>;
+  myGoals: Array<Goal>;
+  myLeaveBalances: Array<LeaveBalance>;
+  myLeaveRequests: Array<LeaveRequest>;
+  myModules: Array<UserModuleInfo>;
+  myNotifications: Array<InAppNotification>;
+  myPerformanceReviews: Array<PerformanceReview>;
+  mySchedule: WeeklyPlanConnection;
+  mySecuritySettings: MySecuritySettings;
+  mySupportThreads: Array<SupportThreadListItem>;
   myTasks: Array<Task>;
+  myTenant: Tenant;
+  myTenantModules: Array<TenantModule>;
+  myTickets: Array<TicketListItem>;
+  myTodaysAttendance: Array<AttendanceRecord>;
+  myTrainingEnrollments: Array<TrainingEnrollment>;
+  /** List biometric credentials for the current user */
+  myWebAuthnCredentials: Array<WebAuthnCredentialInfo>;
   myWorkOrders: Array<WorkOrder>;
+  myWorkRotations: Array<WorkRotation>;
+  offshoreWorkAreas: Array<WorkArea>;
+  onlinePlcConnections: Array<PlcConnection>;
+  overdueGoals: Array<Goal>;
   /** Get overdue harvest plans */
   overdueHarvestPlans: Array<HarvestPlan>;
   /** Get events with overdue follow-ups */
   overdueHealthFollowUps: Array<HealthEvent>;
+  overdueInvoices: Array<Invoice>;
   overdueMaintenanceSchedules: Array<MaintenanceSchedule>;
   overdueWorkOrders: Array<WorkOrder>;
+  overtimeSummary: OvertimeSummary;
   parameterConfig?: Maybe<WaterQualityParameterConfig>;
   parameterConfigByCode?: Maybe<WaterQualityParameterConfig>;
   parameterConfigs: Array<WaterQualityParameterConfig>;
   parameterEquipmentMappings: Array<WaterQualityParamEquipment>;
   parameterTemplates: Array<ParameterTemplateResponse>;
+  parentDevice?: Maybe<ParentDeviceType>;
+  parentDevices: SensorListType;
+  payments: Array<Payment>;
+  payrolls: PayrollConnection;
+  pendingAttendanceApprovals: PendingAttendanceApprovalsConnection;
+  pendingChannelProposals: Array<ChannelDetectionLog>;
   pendingDeliveries: Array<PurchaseOrderResponse>;
+  pendingLeaveApprovals: PendingLeaveApprovalsConnection;
+  pendingPayrolls: Array<Payroll>;
+  pendingReviews: Array<PerformanceReview>;
+  performanceReview: PerformanceReview;
+  performanceReviews: PerformanceReviewConnection;
+  performanceSummary: PerformanceSummary;
+  permissionCategories: Array<PermissionCategory>;
+  pinnedMessages: Array<PinnedMessage>;
+  plan?: Maybe<Plan>;
+  plans: Array<Plan>;
+  plcAlarm?: Maybe<PlcAlarm>;
+  plcAlarmStats: PlcAlarmStats;
+  plcAlarms: PaginatedPlcAlarms;
+  plcConnection?: Maybe<PlcConnection>;
+  plcConnectionCountByStatus: PlcConnectionCountByStatus;
+  plcConnections: PaginatedPlcConnections;
+  plcConnectionsBySite: Array<PlcConnection>;
+  plcTelemetry: PaginatedPlcTelemetry;
+  plcTelemetryByTimeRange: Array<PlcTelemetry>;
+  plcTelemetryStats: PlcTelemetryStats;
   pond?: Maybe<Pond>;
   predefinedSpeciesTags: Array<Scalars['String']['output']>;
+  process?: Maybe<ProcessType>;
+  processTemplates: Array<ProcessType>;
+  processes: ProcessListType;
+  programSteps: Array<ProgramStep>;
+  programTransitions: Array<ProgramTransition>;
+  programVariables: Array<ProgramVariable>;
   /** Project harvest date for target weight */
   projectHarvestDate: Scalars['DateTime']['output'];
+  protocolCapabilities?: Maybe<ProtocolCapabilitiesType>;
+  protocolCategoryStats: CategoryStatsType;
+  protocolCodes: Array<Scalars['String']['output']>;
+  protocolDefaults?: Maybe<Scalars['JSON']['output']>;
+  protocolDetails?: Maybe<ProtocolDetailsType>;
+  protocolSchema?: Maybe<Scalars['JSON']['output']>;
+  protocolSummaries: Array<ProtocolSummaryType>;
+  protocols: Array<ProtocolInfoType>;
   purchaseOrder?: Maybe<PurchaseOrderResponse>;
   purchaseOrders: PaginatedPurchaseOrdersResponse;
+  readOpcUaHistoricalData: Array<OpcUaHistoricalDataPoint>;
+  readings: Array<SensorReading>;
+  recentPlcAlarms: Array<PlcAlarm>;
   recurringTemplate: RecurringTemplate;
   recurringTemplates: Array<RecurringTemplate>;
   /** Get regulatory configuration status for the current tenant */
@@ -6629,11 +13795,30 @@ export type Query = {
   regulatoryHealth: RegulatoryHealthStatus;
   /** Get regulatory settings for the current tenant */
   regulatorySettings: RegulatorySettingsOutput;
+  /** All retention policies for current tenant. */
+  retentionPolicies: Array<RetentionPolicy>;
   rootSystems: Array<SystemResponse>;
+  scadaDeployLogs: ScadaDeployLogListType;
+  scadaPackage?: Maybe<ScadaPackageType>;
+  scadaPackages: ScadaPackageListType;
+  schedulingSettings: SchedulingSettings;
+  searchMessages: Array<Message>;
+  searchTags: Array<UnifiedTagType>;
+  sensor?: Maybe<Sensor>;
+  sensorRawList: Array<Sensor>;
+  sensorStats: SensorStatsType;
+  sensorTypes: Array<SensorTypeDefinition>;
+  sensors: SensorListType;
+  sensorsByProtocol: Array<RegisteredSensorType>;
+  /** Weekly aggregate sentiment trends per channel (TENANT_ADMIN only) */
+  sentimentTrends: Array<SentimentTrendType>;
   sentinelHubCredentials?: Maybe<SentinelHubCredentials>;
   sentinelHubStatus: SentinelHubStatus;
   sentinelHubToken?: Maybe<SentinelHubToken>;
   sentinelHubWmtsConfig?: Maybe<SentinelHubWmtsConfig>;
+  shifts: ShiftConnection;
+  /** Semantic similarity search across messages */
+  similarMessages: Array<SimilarMessageType>;
   site?: Maybe<SiteResponse>;
   siteContacts: Array<SiteContactResponse>;
   siteDeletePreview: SiteDeletePreviewResponse;
@@ -6647,6 +13832,8 @@ export type Query = {
   speciesByCode: Species;
   speciesList: SpeciesListResponse;
   speciesTags: Array<Scalars['String']['output']>;
+  stepActions: Array<StepAction>;
+  stockEventsSummary: StockEventsSummary;
   stockMovements: PaginatedStockMovementsResponse;
   stockSummary: StockSummaryResponse;
   storageInventory: Array<StorageInventoryResponse>;
@@ -6660,16 +13847,24 @@ export type Query = {
   subEquipmentType?: Maybe<SubEquipmentTypeResponse>;
   subEquipmentTypes: Array<SubEquipmentTypeResponse>;
   subEquipmentTypesForEquipment: Array<SubEquipmentTypeResponse>;
+  subscription?: Maybe<Subscription>;
   supplier?: Maybe<SupplierResponse>;
   supplierSites: Array<SupplierSiteResponse>;
   supplierTypes: Array<SupplierTypeResponse>;
   suppliers: PaginatedSuppliersResponse;
   suppliersByType: Array<SupplierResponse>;
+  supportMessagingStats: SupportMessagingStats;
+  supportStats: SupportStats;
+  supportThread: SupportMessageThread;
+  supportThreadMessages: Array<SupportMessageItem>;
   system?: Maybe<SystemResponse>;
+  systemDefaultLayout?: Maybe<DashboardLayout>;
   systemDeletePreview: SystemDeletePreviewResponse;
   systems: PaginatedSystemsResponse;
   systemsByDepartment: Array<SystemResponse>;
   systemsBySite: Array<SystemResponse>;
+  tableData: TableDataResult;
+  tableSchema: TableSchemaInfo;
   tank: Tank;
   tankCleanerFish?: Maybe<TankCleanerFishInfo>;
   /** AI-powered risk assessment for a specific tank (0-100 score with factors) */
@@ -6679,15 +13874,79 @@ export type Query = {
   task: Task;
   taskStats: TaskStatsResponse;
   tasks: TaskListResponse;
+  teamGoals: Array<Goal>;
+  teamLeaveCalendar: Array<LeaveCalendarEntry>;
+  teamWeeklyOverview: TeamWeeklyOverview;
+  tenant: Tenant;
+  tenantActivity: TenantActivityResponse;
+  tenantAuditLogs: AuditLogPage;
+  tenantBilling: TenantBillingResponse;
+  tenantBySlug: TenantPublicInfo;
+  tenantDatabase: TenantDatabaseInfo;
+  tenantProvisioningKeys: Array<TenantProvisioningKey>;
+  tenantRole?: Maybe<TenantRole>;
+  tenantRoles: Array<TenantRole>;
+  tenantStats: TenantStats;
+  tenantTables: Array<TenantTableInfo>;
+  tenantUsers: Array<User>;
+  tenants: Array<Tenant>;
+  ticket: SupportTicket;
+  ticketComments: Array<CommentItem>;
+  todaysAttendance: Array<AttendanceRecord>;
+  todaysDailyOpsCounts: TodaysDailyOpsCounts;
   /** Program icin bugunun yemleme planini getir */
   todaysFeedingPlan: Array<DailyFeedingExecution>;
   todaysTasks: Array<Task>;
+  totalUnreadMessageCount: Scalars['Int']['output'];
   /** Trace all stock movements for a lot number (regulatory traceability) */
   traceLot: Array<StockMovementResponse>;
+  trainingCourses: TrainingCourseConnection;
+  trainingEnrollments: TrainingEnrollmentConnection;
   treatmentChemicals: Array<ChemicalResponse>;
+  unacknowledgedPlcAlarms: Array<PlcAlarm>;
+  unifiedTag?: Maybe<UnifiedTagType>;
+  unifiedTags: UnifiedTagListType;
+  unpaidInvoices: Array<Invoice>;
+  unreadNotificationCount: Scalars['Int']['output'];
   /** Get upcoming harvest plans within specified days */
   upcomingHarvestPlans: Array<HarvestPlan>;
   upcomingMaintenanceSchedules: Array<MaintenanceSchedule>;
+  /** Get consent history for any user (SuperAdmin only) */
+  userConsentHistory: ConsentHistoryResponse;
+  /** Get consent status for any user (SuperAdmin only) */
+  userConsentStatus: UserConsentStatus;
+  userPresence: Array<User>;
+  validateInvitation: InvitationValidationResponse;
+  validateToken: TokenValidationResponse;
+  validateVfdConfig: VfdValidationResult;
+  vfdAutomationRule?: Maybe<VfdAutomationRule>;
+  vfdAutomationRuleHistory: Array<VfdParameterAuditLog>;
+  vfdAutomationRules: Array<VfdAutomationRule>;
+  vfdAutomationRulesByDevice: Array<VfdAutomationRule>;
+  vfdBrandCommands?: Maybe<Scalars['JSON']['output']>;
+  vfdBrands?: Maybe<Scalars['JSON']['output']>;
+  vfdChangeSet?: Maybe<VfdChangeSet>;
+  vfdChangeSets: Array<VfdChangeSet>;
+  vfdCurrentParameterValues: Scalars['JSON']['output'];
+  vfdDevice?: Maybe<VfdDevice>;
+  /** Returns JSON object with status counts */
+  vfdDeviceCountByStatus: Scalars['String']['output'];
+  vfdDevices: PaginatedVfdDeviceList;
+  vfdDevicesByFarm: Array<VfdDevice>;
+  vfdDevicesByTank: Array<VfdDevice>;
+  vfdLatestReading?: Maybe<VfdReading>;
+  vfdParameterAuditLog: Array<VfdParameterAuditLog>;
+  vfdParameterDefinitions: Array<VfdParameterDefinition>;
+  vfdPendingApprovalCount: Scalars['Int']['output'];
+  vfdProtocolDefaultConfig?: Maybe<Scalars['JSON']['output']>;
+  vfdProtocolSchema?: Maybe<Scalars['JSON']['output']>;
+  vfdProtocols?: Maybe<Scalars['JSON']['output']>;
+  vfdReadingStats?: Maybe<VfdReadingStatsByPeriod>;
+  vfdReadings: Array<VfdReading>;
+  vfdRegisterMappings: Array<VfdRegisterMapping>;
+  vfdRegisterMappingsByCategory: Array<VfdRegisterMapping>;
+  vfdStats: VfdStats;
+  warehouseSummary: WarehouseSummaryResponse;
   waterQuality?: Maybe<WaterQualityMeasurement>;
   waterQualityChart: Array<WaterQualityMeasurement>;
   waterQualityChartBySystem: Array<WaterQualityMeasurement>;
@@ -6697,11 +13956,26 @@ export type Query = {
   weatherForecast: Array<WeatherObservation>;
   weatherObservations: Array<WeatherObservation>;
   weatherSettings: WeatherSettings;
+  weeklyPlan: WeeklyPlan;
+  weeklyPlans: WeeklyPlanConnection;
+  workAreas: WorkAreaConnection;
   workOrder: WorkOrder;
   workOrderByCode: WorkOrder;
   workOrderStatistics: WorkOrderStatisticsResponse;
   workOrders: WorkOrderListResponse;
+  workRotations: WorkRotationConnection;
   workers: Array<WorkerResponse>;
+};
+
+
+export type QueryActiveEmployeesArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryActiveFeedingParameterArgs = {
+  plcConnectionId: Scalars['ID']['input'];
 };
 
 
@@ -6710,15 +13984,149 @@ export type QueryActiveFeedingProgramsArgs = {
 };
 
 
+export type QueryActivePlcAlarmsArgs = {
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryActiveProcessesArgs = {
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryActiveRotationsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  workAreaId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryActuatorUsageStatsArgs = {
+  plcConnectionId: Scalars['ID']['input'];
+  timeRange: TelemetryTimeRangeInput;
+};
+
+
+export type QueryAggregatedReadingsArgs = {
+  endTime: Scalars['DateTime']['input'];
+  interval?: InputMaybe<AggregationInterval>;
+  sensorId: Scalars['ID']['input'];
+  startTime: Scalars['DateTime']['input'];
+};
+
+
+export type QueryAlarmCountBySeverityArgs = {
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryAlarmCountBySourceArgs = {
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryAlertHistoryArgs = {
+  acknowledged?: InputMaybe<Scalars['Boolean']['input']>;
+  endDate?: InputMaybe<Scalars['DateTime']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  ruleId?: InputMaybe<Scalars['ID']['input']>;
+  severity?: InputMaybe<AlertSeverity>;
+  startDate?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+
+export type QueryAlertRuleArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryAlertRulesArgs = {
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryAllCertificationsArgs = {
+  category?: InputMaybe<CertificationCategory>;
+  certificationTypeId?: InputMaybe<Scalars['ID']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<CertificationStatus>;
+};
+
+
+export type QueryAllMessagesSinceArgs = {
+  limit?: Scalars['Int']['input'];
+  since: Scalars['DateTime']['input'];
+  syncToken?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryAttendanceRecordsArgs = {
+  approvalStatus?: InputMaybe<ApprovalStatus>;
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<AttendanceStatus>;
+};
+
+
+export type QueryAttendanceSummaryArgs = {
+  employeeId: Scalars['ID']['input'];
+  month: Scalars['Int']['input'];
+  year: Scalars['Int']['input'];
+};
+
+
+export type QueryAuditLogArgs = {
+  cursor?: InputMaybe<Scalars['String']['input']>;
+  filters?: InputMaybe<AuditLogFilterInput>;
+  limit?: Scalars['Int']['input'];
+};
+
+
 export type QueryAutoRuleArgs = {
   id: Scalars['ID']['input'];
 };
 
 
+export type QueryAutomationProgramArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryAutomationProgramByCodeArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type QueryAutomationProgramsArgs = {
+  filter?: InputMaybe<ProgramFilterInput>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryAutomationProgramsConnectionArgs = {
+  filter?: InputMaybe<ProgramFilterInput>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type QueryAvailableTanksArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
-  excludeFullTanks?: InputMaybe<Scalars['Boolean']['input']>;
-  siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -6785,6 +14193,23 @@ export type QueryBiomassReportsArgs = {
 };
 
 
+export type QueryBrowseOpcUaNodesArgs = {
+  parentNodeId?: InputMaybe<Scalars['String']['input']>;
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
+export type QueryCertificationTypesArgs = {
+  category?: InputMaybe<CertificationCategory>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryChannelArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type QueryChemicalArgs = {
   id: Scalars['ID']['input'];
 };
@@ -6798,6 +14223,11 @@ export type QueryChemicalsArgs = {
 
 export type QueryChemicalsByTypeArgs = {
   type: ChemicalType;
+};
+
+
+export type QueryChildSensorsArgs = {
+  parentId: Scalars['ID']['input'];
 };
 
 
@@ -6822,8 +14252,23 @@ export type QueryConsumablesArgs = {
 };
 
 
+export type QueryCurrentOnCallUserArgs = {
+  policyId: Scalars['ID']['input'];
+};
+
+
 export type QueryCurrentWeatherArgs = {
   siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryCurrentlyOffshoreArgs = {
+  workAreaId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryDailyAttendanceOverviewArgs = {
+  date?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -6841,6 +14286,21 @@ export type QueryDailyFeedingExecutionsArgs = {
 export type QueryDailyFeedingPlanArgs = {
   date?: InputMaybe<Scalars['DateTime']['input']>;
   siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryDashboardLayoutArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryDataChannelArgs = {
+  channelId: Scalars['ID']['input'];
+};
+
+
+export type QueryDataChannelsBySensorArgs = {
+  sensorId: Scalars['ID']['input'];
 };
 
 
@@ -6869,6 +14329,110 @@ export type QueryDepartmentsArgs = {
 
 export type QueryDepartmentsBySiteArgs = {
   siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryDeploymentHistoryArgs = {
+  deviceId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryDeploymentLogArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryDeviceEventsArgs = {
+  deviceId?: InputMaybe<Scalars['ID']['input']>;
+  eventType?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryDeviceGroupArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryDeviceInstallCommandsArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryDirectChannelArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type QueryDiscoverOpcUaEndpointsArgs = {
+  endpointUrl: Scalars['String']['input'];
+};
+
+
+export type QueryEdgeDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryEdgeDevicesArgs = {
+  isOnline?: InputMaybe<Scalars['Boolean']['input']>;
+  lifecycleState?: InputMaybe<DeviceLifecycleState>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryEffectiveConfigurationArgs = {
+  environment?: InputMaybe<ConfigEnvironment>;
+  key: Scalars['String']['input'];
+  serviceId: Scalars['String']['input'];
+};
+
+
+export type QueryEffectiveConfigurationsByServiceArgs = {
+  environment?: InputMaybe<ConfigEnvironment>;
+  service: Scalars['String']['input'];
+};
+
+
+export type QueryEmployeeArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryEmployeeCertificationsArgs = {
+  employeeId: Scalars['ID']['input'];
+  status?: InputMaybe<CertificationStatus>;
+};
+
+
+export type QueryEmployeeKpIsArgs = {
+  employeeId: Scalars['ID']['input'];
+  periodEnd?: InputMaybe<Scalars['String']['input']>;
+  periodStart?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryEmployeesArgs = {
+  filter?: InputMaybe<EmployeeFilterInput>;
+  pagination?: InputMaybe<EmployeePaginationInput>;
+};
+
+
+export type QueryEmployeesByDepartmentArgs = {
+  department: HrDepartment;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryEnabledChannelsBySensorArgs = {
+  sensorId: Scalars['ID']['input'];
 };
 
 
@@ -6909,14 +14473,40 @@ export type QueryEquipmentTypesArgs = {
 };
 
 
+export type QueryEscalationPoliciesArgs = {
+  activeOnly?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryEscalationPolicyArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type QueryEstimateSgrArgs = {
   species: Scalars['String']['input'];
   temperature: Scalars['Float']['input'];
 };
 
 
+export type QueryExpiredCertificationsArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryExpiringCertificationsArgs = {
+  daysUntilExpiry?: Scalars['Int']['input'];
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryFarmArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryFarmStockInventoryArgs = {
+  filter?: InputMaybe<FarmStockInventoryFilterInput>;
 };
 
 
@@ -6951,6 +14541,23 @@ export type QueryFeederCalibrationsArgs = {
 
 export type QueryFeedingAdviceArgs = {
   tankId: Scalars['ID']['input'];
+};
+
+
+export type QueryFeedingParameterArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryFeedingParameterHistoryArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
+export type QueryFeedingParametersArgs = {
+  filter?: InputMaybe<FeedingParameterFilterInput>;
+  pagination?: InputMaybe<PlcPaginationInput>;
 };
 
 
@@ -6991,6 +14598,12 @@ export type QueryFeedingRecordsArgs = {
 };
 
 
+export type QueryFeedingStatsArgs = {
+  plcConnectionId: Scalars['ID']['input'];
+  timeRange: TelemetryTimeRangeInput;
+};
+
+
 export type QueryFeedingSummaryArgs = {
   endDate?: InputMaybe<Scalars['DateTime']['input']>;
   entityId: Scalars['ID']['input'];
@@ -7017,6 +14630,29 @@ export type QueryFeedsByTypeArgs = {
 
 export type QueryFeedsForSpeciesArgs = {
   species: Scalars['String']['input'];
+};
+
+
+export type QueryGetMobileUserSettingsArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type QueryGetUserEffectivePermissionsArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type QueryGoalArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryGoalsArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -7084,6 +14720,11 @@ export type QueryHarvestsByBatchArgs = {
 };
 
 
+export type QueryHasConsentArgs = {
+  consentType: ConsentType;
+};
+
+
 export type QueryHealthEventArgs = {
   id: Scalars['ID']['input'];
 };
@@ -7100,6 +14741,27 @@ export type QueryHealthEventsByBatchArgs = {
 };
 
 
+export type QueryHrDepartmentArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryHrDepartmentsArgs = {
+  isDeleted?: InputMaybe<Scalars['Boolean']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryHydroponicsConfigurationArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryHydroponicsConfigurationsArgs = {
+  type?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type QueryInventoryCountArgs = {
   id: Scalars['ID']['input'];
 };
@@ -7110,13 +14772,77 @@ export type QueryInventoryCountsArgs = {
 };
 
 
+export type QueryInvoicesArgs = {
+  status?: InputMaybe<InvoiceStatus>;
+};
+
+
 export type QueryLatestGrowthMeasurementArgs = {
   batchId: Scalars['ID']['input'];
 };
 
 
+export type QueryLatestPlcTelemetryArgs = {
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
+export type QueryLatestReadingArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type QueryLatestReadingsBatchArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type QueryLatestScadaDeployLogArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryLatestTelemetrySummaryArgs = {
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
 export type QueryLatestWaterQualityArgs = {
   tankId: Scalars['ID']['input'];
+};
+
+
+export type QueryLeaveBalancesArgs = {
+  employeeId: Scalars['ID']['input'];
+  leaveTypeId?: InputMaybe<Scalars['ID']['input']>;
+  year?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryLeaveRequestArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryLeaveRequestsArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  leaveTypeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<LeaveRequestStatus>;
+};
+
+
+export type QueryLeaveTypesArgs = {
+  category?: InputMaybe<LeaveCategory>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryLoraDevicesArgs = {
+  edgeDeviceId: Scalars['ID']['input'];
 };
 
 
@@ -7145,13 +14871,146 @@ export type QueryMarineObservationsArgs = {
 };
 
 
+export type QueryMessagesArgs = {
+  channelId: Scalars['ID']['input'];
+  filter?: InputMaybe<MessageFilterInput>;
+};
+
+
+export type QueryMessagesSinceArgs = {
+  channelId: Scalars['ID']['input'];
+  since: Scalars['DateTime']['input'];
+};
+
+
+export type QueryModuleUsersArgs = {
+  moduleId: Scalars['ID']['input'];
+};
+
+
+export type QueryMyAnnouncementsArgs = {
+  status?: InputMaybe<AnnouncementStatus>;
+  type?: InputMaybe<AnnouncementType>;
+};
+
+
+export type QueryMyAttendanceRecordsArgs = {
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryMyAttendanceSummaryArgs = {
+  month: Scalars['Int']['input'];
+  year: Scalars['Int']['input'];
+};
+
+
+export type QueryMyCertificationsArgs = {
+  status?: InputMaybe<CertificationStatus>;
+};
+
+
+export type QueryMyChannelsArgs = {
+  filter?: InputMaybe<ChannelFilterInput>;
+};
+
+
+export type QueryMyConsentHistoryArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryMyGoalsArgs = {
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryMyLeaveBalancesArgs = {
+  year?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryMyLeaveRequestsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<LeaveRequestStatus>;
+};
+
+
+export type QueryMyNotificationsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  unreadOnly?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryMyPerformanceReviewsArgs = {
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryMyScheduleArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  weekStartDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryMySupportThreadsArgs = {
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<SupportThreadStatus>;
+};
+
+
 export type QueryMyTasksArgs = {
   status?: InputMaybe<Array<TaskStatus>>;
 };
 
 
+export type QueryMyTicketsArgs = {
+  priority?: InputMaybe<TicketPriority>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<TicketStatus>;
+};
+
+
+export type QueryMyTrainingEnrollmentsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<EnrollmentStatus>;
+};
+
+
 export type QueryMyWorkOrdersArgs = {
   activeOnly?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryMyWorkRotationsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<RotationStatus>;
+};
+
+
+export type QueryOffshoreWorkAreasArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryOverdueGoalsArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryOvertimeSummaryArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  month: Scalars['Int']['input'];
+  year: Scalars['Int']['input'];
 };
 
 
@@ -7177,8 +15036,167 @@ export type QueryParameterEquipmentMappingsArgs = {
 };
 
 
+export type QueryParentDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryParentDevicesArgs = {
+  filter?: InputMaybe<SensorFilterInput>;
+  pagination?: InputMaybe<SensorPaginationInput>;
+};
+
+
+export type QueryPaymentsArgs = {
+  invoiceId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<PaymentStatus>;
+};
+
+
+export type QueryPayrollsArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<PayrollStatus>;
+};
+
+
+export type QueryPendingAttendanceApprovalsArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryPendingChannelProposalsArgs = {
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type QueryPendingLeaveApprovalsArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryPendingPayrollsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryPendingReviewsArgs = {
+  reviewerId: Scalars['ID']['input'];
+};
+
+
+export type QueryPerformanceReviewArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryPerformanceReviewsArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryPerformanceSummaryArgs = {
+  employeeId: Scalars['ID']['input'];
+};
+
+
+export type QueryPinnedMessagesArgs = {
+  channelId: Scalars['ID']['input'];
+};
+
+
+export type QueryPlanArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryPlcAlarmArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryPlcAlarmStatsArgs = {
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryPlcAlarmsArgs = {
+  filter?: InputMaybe<PlcAlarmFilterInput>;
+  pagination?: InputMaybe<PlcPaginationInput>;
+};
+
+
+export type QueryPlcConnectionArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryPlcConnectionsArgs = {
+  filter?: InputMaybe<PlcConnectionFilterInput>;
+  pagination?: InputMaybe<PlcPaginationInput>;
+};
+
+
+export type QueryPlcConnectionsBySiteArgs = {
+  siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryPlcTelemetryArgs = {
+  filter?: InputMaybe<PlcTelemetryFilterInput>;
+};
+
+
+export type QueryPlcTelemetryByTimeRangeArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  plcConnectionId: Scalars['ID']['input'];
+  timeRange: TelemetryTimeRangeInput;
+};
+
+
+export type QueryPlcTelemetryStatsArgs = {
+  plcConnectionId: Scalars['ID']['input'];
+  timeRange: TelemetryTimeRangeInput;
+};
+
+
 export type QueryPondArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryProcessArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryProcessesArgs = {
+  filter?: InputMaybe<ProcessFilterInput>;
+  pagination?: InputMaybe<ProcessPaginationInput>;
+};
+
+
+export type QueryProgramStepsArgs = {
+  programId: Scalars['ID']['input'];
+};
+
+
+export type QueryProgramTransitionsArgs = {
+  programId: Scalars['ID']['input'];
+};
+
+
+export type QueryProgramVariablesArgs = {
+  programId: Scalars['ID']['input'];
 };
 
 
@@ -7187,6 +15205,31 @@ export type QueryProjectHarvestDateArgs = {
   sgr: Scalars['Float']['input'];
   startDate?: InputMaybe<Scalars['DateTime']['input']>;
   targetWeightG: Scalars['Float']['input'];
+};
+
+
+export type QueryProtocolCapabilitiesArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type QueryProtocolDefaultsArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type QueryProtocolDetailsArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type QueryProtocolSchemaArgs = {
+  code: Scalars['String']['input'];
+};
+
+
+export type QueryProtocolsArgs = {
+  category?: InputMaybe<ProtocolCategory>;
 };
 
 
@@ -7200,6 +15243,26 @@ export type QueryPurchaseOrdersArgs = {
 };
 
 
+export type QueryReadOpcUaHistoricalDataArgs = {
+  input: ReadHistoricalDataInput;
+  plcConnectionId: Scalars['ID']['input'];
+};
+
+
+export type QueryReadingsArgs = {
+  endTime: Scalars['DateTime']['input'];
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  sensorId: Scalars['ID']['input'];
+  startTime: Scalars['DateTime']['input'];
+};
+
+
+export type QueryRecentPlcAlarmsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryRecurringTemplateArgs = {
   id: Scalars['ID']['input'];
 };
@@ -7207,6 +15270,75 @@ export type QueryRecurringTemplateArgs = {
 
 export type QueryRootSystemsArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryScadaDeployLogsArgs = {
+  filter: DeployLogFilterInput;
+};
+
+
+export type QueryScadaPackageArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryScadaPackagesArgs = {
+  filter?: InputMaybe<ScadaPackageFilterInput>;
+  pagination?: InputMaybe<ProcessPaginationInput>;
+};
+
+
+export type QuerySearchMessagesArgs = {
+  input: SearchMessagesInput;
+};
+
+
+export type QuerySearchTagsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  query: Scalars['String']['input'];
+};
+
+
+export type QuerySensorArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QuerySensorRawListArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<SensorStatus>;
+};
+
+
+export type QuerySensorsArgs = {
+  filter?: InputMaybe<SensorFilterInput>;
+  pagination?: InputMaybe<SensorPaginationInput>;
+};
+
+
+export type QuerySensorsByProtocolArgs = {
+  protocolCode: Scalars['String']['input'];
+};
+
+
+export type QuerySentimentTrendsArgs = {
+  input: SentimentTrendsInput;
+};
+
+
+export type QueryShiftsArgs = {
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  shiftType?: InputMaybe<ShiftType>;
+};
+
+
+export type QuerySimilarMessagesArgs = {
+  input: SimilarMessagesInput;
 };
 
 
@@ -7273,6 +15405,16 @@ export type QuerySpeciesByCodeArgs = {
 
 export type QuerySpeciesListArgs = {
   filter?: InputMaybe<SpeciesFilterInput>;
+};
+
+
+export type QueryStepActionsArgs = {
+  stepId: Scalars['ID']['input'];
+};
+
+
+export type QueryStockEventsSummaryArgs = {
+  daysBack?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -7362,6 +15504,16 @@ export type QuerySuppliersByTypeArgs = {
 };
 
 
+export type QuerySupportThreadArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QuerySupportThreadMessagesArgs = {
+  threadId: Scalars['ID']['input'];
+};
+
+
 export type QuerySystemArgs = {
   id: Scalars['ID']['input'];
   includeRelations?: InputMaybe<Scalars['Boolean']['input']>;
@@ -7386,6 +15538,17 @@ export type QuerySystemsByDepartmentArgs = {
 
 export type QuerySystemsBySiteArgs = {
   siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryTableDataArgs = {
+  input: GetTableDataInput;
+};
+
+
+export type QueryTableSchemaArgs = {
+  schemaName: Scalars['String']['input'];
+  tableName: Scalars['String']['input'];
 };
 
 
@@ -7424,6 +15587,85 @@ export type QueryTasksArgs = {
 };
 
 
+export type QueryTeamGoalsArgs = {
+  managerId: Scalars['ID']['input'];
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryTeamLeaveCalendarArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  endDate: Scalars['String']['input'];
+  startDate: Scalars['String']['input'];
+};
+
+
+export type QueryTeamWeeklyOverviewArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  weekStartDate: Scalars['String']['input'];
+};
+
+
+export type QueryTenantArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryTenantActivityArgs = {
+  period?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryTenantAuditLogsArgs = {
+  action?: InputMaybe<Scalars['String']['input']>;
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  performedBy?: InputMaybe<Scalars['String']['input']>;
+  severity?: InputMaybe<Scalars['String']['input']>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryTenantBySlugArgs = {
+  slug: Scalars['String']['input'];
+};
+
+
+export type QueryTenantRoleArgs = {
+  roleId: Scalars['ID']['input'];
+};
+
+
+export type QueryTenantUsersArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  role?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryTicketArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryTicketCommentsArgs = {
+  ticketId: Scalars['ID']['input'];
+};
+
+
+export type QueryTodaysAttendanceArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryTodaysDailyOpsCountsArgs = {
+  clientDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type QueryTodaysFeedingPlanArgs = {
   programId: Scalars['ID']['input'];
 };
@@ -7434,6 +15676,40 @@ export type QueryTraceLotArgs = {
 };
 
 
+export type QueryTrainingCoursesArgs = {
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  isMandatory?: InputMaybe<Scalars['Boolean']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  trainingType?: InputMaybe<TrainingType>;
+};
+
+
+export type QueryTrainingEnrollmentsArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<EnrollmentStatus>;
+  trainingCourseId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryUnacknowledgedPlcAlarmsArgs = {
+  plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryUnifiedTagArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryUnifiedTagsArgs = {
+  filter?: InputMaybe<TagFilterInput>;
+  pagination?: InputMaybe<ProcessPaginationInput>;
+};
+
+
 export type QueryUpcomingHarvestPlansArgs = {
   days?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -7441,6 +15717,156 @@ export type QueryUpcomingHarvestPlansArgs = {
 
 export type QueryUpcomingMaintenanceSchedulesArgs = {
   days?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryUserConsentHistoryArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  userId: Scalars['ID']['input'];
+};
+
+
+export type QueryUserConsentStatusArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
+export type QueryUserPresenceArgs = {
+  userIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type QueryValidateInvitationArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type QueryValidateTokenArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type QueryValidateVfdConfigArgs = {
+  configuration: Scalars['JSON']['input'];
+  protocol: VfdProtocol;
+};
+
+
+export type QueryVfdAutomationRuleArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdAutomationRuleHistoryArgs = {
+  limit?: Scalars['Int']['input'];
+  ruleId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdAutomationRulesByDeviceArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdBrandCommandsArgs = {
+  brand: VfdBrand;
+};
+
+
+export type QueryVfdChangeSetArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdChangeSetsArgs = {
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+  status?: InputMaybe<VfdChangeSetStatus>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdCurrentParameterValuesArgs = {
+  parameterNames: Array<Scalars['String']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdDevicesArgs = {
+  filter?: InputMaybe<VfdDeviceFilterInput>;
+  pagination?: InputMaybe<VfdPaginationInput>;
+};
+
+
+export type QueryVfdDevicesByFarmArgs = {
+  farmId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdDevicesByTankArgs = {
+  tankId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdLatestReadingArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdParameterAuditLogArgs = {
+  limit?: Scalars['Int']['input'];
+  parameterName?: InputMaybe<Scalars['String']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdParameterDefinitionsArgs = {
+  group?: InputMaybe<Scalars['String']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdProtocolDefaultConfigArgs = {
+  protocol: VfdProtocol;
+};
+
+
+export type QueryVfdProtocolSchemaArgs = {
+  protocol: VfdProtocol;
+};
+
+
+export type QueryVfdReadingStatsArgs = {
+  from?: InputMaybe<Scalars['DateTime']['input']>;
+  period?: InputMaybe<Scalars['String']['input']>;
+  to?: InputMaybe<Scalars['DateTime']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdReadingsArgs = {
+  from?: InputMaybe<Scalars['DateTime']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  to?: InputMaybe<Scalars['DateTime']['input']>;
+  vfdDeviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryVfdRegisterMappingsArgs = {
+  brand: VfdBrand;
+  modelSeries: Scalars['String']['input'];
+};
+
+
+export type QueryVfdRegisterMappingsByCategoryArgs = {
+  brand: VfdBrand;
+  category: VfdParameterCategory;
 };
 
 
@@ -7492,6 +15918,31 @@ export type QueryWeatherObservationsArgs = {
 };
 
 
+export type QueryWeeklyPlanArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryWeeklyPlansArgs = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<WeeklyPlanStatus>;
+  weekStartDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryWorkAreasArgs = {
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  isOffshore?: InputMaybe<Scalars['Boolean']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  workAreaType?: InputMaybe<WorkAreaType>;
+};
+
+
 export type QueryWorkOrderArgs = {
   id: Scalars['ID']['input'];
 };
@@ -7516,12 +15967,47 @@ export type QueryWorkOrdersArgs = {
   sortOrder?: InputMaybe<Scalars['String']['input']>;
 };
 
+
+export type QueryWorkRotationsArgs = {
+  employeeId?: InputMaybe<Scalars['ID']['input']>;
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  page?: InputMaybe<Scalars['Int']['input']>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<RotationStatus>;
+  workAreaId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type RateTicketInput = {
+  comment?: InputMaybe<Scalars['String']['input']>;
+  rating: Scalars['Int']['input'];
+  ticketId: Scalars['String']['input'];
+};
+
+export type ReactionSummary = {
+  count: Scalars['Int']['output'];
+  emoji: Scalars['String']['output'];
+  hasReacted: Scalars['Boolean']['output'];
+  userIds: Array<Scalars['String']['output']>;
+};
+
+export type ReadHistoricalDataInput = {
+  endTime: Scalars['DateTime']['input'];
+  maxValues?: InputMaybe<Scalars['Int']['input']>;
+  nodeId: Scalars['String']['input'];
+  startTime: Scalars['DateTime']['input'];
+};
+
 export type RecalculateParametersInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   biomassKg?: InputMaybe<Scalars['Float']['input']>;
   fishCount?: InputMaybe<Scalars['Int']['input']>;
   waterTempC?: InputMaybe<Scalars['Float']['input']>;
 };
+
+export type ReceiptStatus =
+  | 'DELIVERED'
+  | 'READ';
 
 export type ReceiveDeliveryInput = {
   items: Array<ReceiveDeliveryItemInput>;
@@ -7536,6 +16022,23 @@ export type ReceiveDeliveryItemInput = {
   quantityReceived: Scalars['Float']['input'];
 };
 
+export type RecentLoginResponse = {
+  deviceType?: Maybe<Scalars['String']['output']>;
+  email: Scalars['String']['output'];
+  firstName?: Maybe<Scalars['String']['output']>;
+  id: Scalars['String']['output'];
+  ipAddress?: Maybe<Scalars['String']['output']>;
+  lastName?: Maybe<Scalars['String']['output']>;
+  loginAt: Scalars['DateTime']['output'];
+  success: Scalars['Boolean']['output'];
+  userAgent?: Maybe<Scalars['String']['output']>;
+  userId: Scalars['String']['output'];
+};
+
+export type RecordBulkConsentInput = {
+  consents: Array<ConsentItemInput>;
+};
+
 export type RecordCleanerMortalityInput = {
   cleanerBatchId: Scalars['ID']['input'];
   detail?: InputMaybe<Scalars['String']['input']>;
@@ -7546,25 +16049,59 @@ export type RecordCleanerMortalityInput = {
   tankId: Scalars['ID']['input'];
 };
 
+export type RecordConsentInput = {
+  consentType: ConsentType;
+  granted: Scalars['Boolean']['input'];
+  version?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type RecordConsentResult = {
+  id: Scalars['ID']['output'];
+  message: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
 export type RecordCullInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
+  clientCommandId: Scalars['ID']['input'];
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   culledAt: Scalars['DateTime']['input'];
   detail?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  payloadHash: Scalars['String']['input'];
   quantity: Scalars['Int']['input'];
   reason: CullReason;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   tankId: Scalars['ID']['input'];
 };
 
 export type RecordDailyFeedingInput = {
   actualKg: Scalars['Float']['input'];
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   executionId: Scalars['ID']['input'];
   /** SubEquipment feeder ID (for automatic feeders) */
   feederEquipmentId?: InputMaybe<Scalars['ID']['input']>;
   /** Feeding method used */
   feedingMethod?: InputMaybe<FeedingMethod>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type RecordGrowthSampleInput = {
@@ -7585,16 +16122,44 @@ export type RecordGrowthSampleInput = {
 export type RecordMortalityInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
+  clientCommandId: Scalars['ID']['input'];
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   detail?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   observedAt: Scalars['DateTime']['input'];
   observedBy?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  payloadHash: Scalars['String']['input'];
   quantity: Scalars['Int']['input'];
   reason: MortalityReason;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   tankId: Scalars['ID']['input'];
 };
 
+export type RecordPaymentInput = {
+  amount: Scalars['Float']['input'];
+  currency?: InputMaybe<Scalars['String']['input']>;
+  invoiceId: Scalars['String']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  paymentDate?: InputMaybe<Scalars['String']['input']>;
+  paymentMethod: PaymentMethod;
+  paymentMethodDetails?: InputMaybe<PaymentMethodDetailsInput>;
+  stripeChargeId?: InputMaybe<Scalars['String']['input']>;
+  stripePaymentIntentId?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type RecordStockMovementInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   expiryDate?: InputMaybe<Scalars['DateTime']['input']>;
   /** Source location (required for OUT, WASTE) */
   fromLocationId?: InputMaybe<Scalars['ID']['input']>;
@@ -7606,9 +16171,15 @@ export type RecordStockMovementInput = {
   /** Authoritative event date for FEFO as-of scoping. Defaults to now when omitted. */
   movementDate?: InputMaybe<Scalars['DateTime']['input']>;
   movementType: MovementType;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
   quantity: Scalars['Float']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   reference?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Target location (required for IN) */
   toLocationId?: InputMaybe<Scalars['ID']['input']>;
 };
@@ -7674,6 +16245,158 @@ export type RecurringTemplate = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+export type RefreshTokenInput = {
+  /** Optional: refresh token is now read from httpOnly cookie. This field is kept for backward compatibility. */
+  refreshToken?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type RefundInfo = {
+  amount: Scalars['Float']['output'];
+  reason: Scalars['String']['output'];
+  refundId?: Maybe<Scalars['String']['output']>;
+  refundedAt: Scalars['DateTime']['output'];
+};
+
+export type RefundPaymentInput = {
+  amount: Scalars['Float']['input'];
+  paymentId: Scalars['String']['input'];
+  reason: Scalars['String']['input'];
+  refundId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type RegenerateMfaRecoveryCodesResponse = {
+  /** New one-time recovery codes (previous codes are invalidated) */
+  recoveryCodes: Array<Scalars['String']['output']>;
+};
+
+export type RegenerateTokenResponse = {
+  deviceCode: Scalars['String']['output'];
+  deviceId: Scalars['ID']['output'];
+  installerCommand: Scalars['String']['output'];
+  installerUrl: Scalars['String']['output'];
+  tokenExpiresAt: Scalars['DateTime']['output'];
+};
+
+export type RegisterChildSensorInput = {
+  alertThresholds?: InputMaybe<SensorAlertThresholdsInput>;
+  calibrationEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  calibrationMultiplier?: InputMaybe<Scalars['Float']['input']>;
+  calibrationOffset?: InputMaybe<Scalars['Float']['input']>;
+  dataPath: Scalars['String']['input'];
+  displaySettings?: InputMaybe<DisplaySettingsInput>;
+  maxValue?: InputMaybe<Scalars['Float']['input']>;
+  minValue?: InputMaybe<Scalars['Float']['input']>;
+  name: Scalars['String']['input'];
+  type: SensorType;
+  unit?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type RegisterEdgeDeviceInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  deviceCode: Scalars['String']['input'];
+  deviceModel: DeviceModel;
+  deviceName: Scalars['String']['input'];
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  timezone?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type RegisterParentDeviceInput = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  equipmentId?: InputMaybe<Scalars['ID']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  manufacturer?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  protocolCode: Scalars['String']['input'];
+  protocolConfiguration: Scalars['JSON']['input'];
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type RegisterParentWithChildrenInput = {
+  children: Array<RegisterChildSensorInput>;
+  parent: RegisterParentDeviceInput;
+  skipConnectionTest?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type RegisterSensorInput = {
+  dataChannels?: InputMaybe<Array<CreateDataChannelInput>>;
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  equipmentId?: InputMaybe<Scalars['ID']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  manufacturer?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  protocolCode: Scalars['String']['input'];
+  protocolConfiguration: Scalars['JSON']['input'];
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  skipConnectionTest?: InputMaybe<Scalars['Boolean']['input']>;
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  type: SensorType;
+};
+
+export type RegisterVfdInput = {
+  brand: Scalars['String']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+  modelSeries?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  protocol: Scalars['String']['input'];
+  protocolConfiguration: ProtocolConfigurationInput;
+  pumpId?: InputMaybe<Scalars['ID']['input']>;
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  skipConnectionTest?: InputMaybe<Scalars['Boolean']['input']>;
+  tags?: InputMaybe<Array<Scalars['String']['input']>>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type RegisteredSensorType = {
+  connectionStatus?: Maybe<SensorConnectionStatusType>;
+  createdAt: Scalars['DateTime']['output'];
+  dataChannels?: Maybe<Array<DataChannelType>>;
+  dataPath?: Maybe<Scalars['String']['output']>;
+  departmentId?: Maybe<Scalars['ID']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  equipmentId?: Maybe<Scalars['ID']['output']>;
+  farmId?: Maybe<Scalars['ID']['output']>;
+  id: Scalars['ID']['output'];
+  isParentDevice?: Maybe<Scalars['Boolean']['output']>;
+  location?: Maybe<Scalars['String']['output']>;
+  manufacturer?: Maybe<Scalars['String']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  parentId?: Maybe<Scalars['ID']['output']>;
+  pondId?: Maybe<Scalars['ID']['output']>;
+  protocolCode: Scalars['String']['output'];
+  protocolConfiguration: Scalars['JSON']['output'];
+  registrationStatus: SensorRegistrationStatus;
+  sensorRole?: Maybe<SensorRole>;
+  serialNumber?: Maybe<Scalars['String']['output']>;
+  siteId?: Maybe<Scalars['ID']['output']>;
+  systemId?: Maybe<Scalars['ID']['output']>;
+  tankId?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  type: SensorType;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
 /** Summary of regulatory configuration status */
 export type RegulatoryConfigurationStatus = {
   hasCompanyInfo: Scalars['Boolean']['output'];
@@ -7711,6 +16434,11 @@ export type RegulatorySettingsOutput = {
   siteLocalityMappings?: Maybe<Array<SiteLocalityMappingOutput>>;
   slaughterApprovalNumber?: Maybe<Scalars['String']['output']>;
   updatedAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
+export type RejectVfdChangeSetInput = {
+  changeSetId: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
 };
 
 export type RelatedAssetInput = {
@@ -7780,6 +16508,11 @@ export type RensefiskUttakInput = {
   antallSelvdod: Scalars['Int']['input'];
 };
 
+export type ReorderChannelsInput = {
+  channelIds: Array<Scalars['ID']['input']>;
+  sensorId: Scalars['ID']['input'];
+};
+
 export type ReorderParameterConfigsInput = {
   /** Parameter config IDs in desired display order */
   orderedIds: Array<Scalars['ID']['input']>;
@@ -7805,12 +16538,28 @@ export type ReportValidationError = {
   melding: Scalars['String']['output'];
 };
 
+export type RequestMediaUploadInput = {
+  /** Channel the file belongs to */
+  channelId: Scalars['ID']['input'];
+  /** File size in bytes (max 25 MB = 26214400) */
+  fileSize: Scalars['Int']['input'];
+  /** Original filename */
+  filename: Scalars['String']['input'];
+  /** MIME type of the file */
+  mimeType: Scalars['String']['input'];
+};
+
 export type RequiredMaterialInput = {
   estimatedCost?: InputMaybe<Scalars['Float']['input']>;
   name: Scalars['String']['input'];
   quantity: Scalars['Float']['input'];
   sparePartId?: InputMaybe<Scalars['ID']['input']>;
   unit: Scalars['String']['input'];
+};
+
+export type ResetPasswordInput = {
+  newPassword: Scalars['String']['input'];
+  token: Scalars['String']['input'];
 };
 
 export type ResistensAarsakType =
@@ -7842,6 +16591,122 @@ export type ResistensType =
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
 
+export type RetentionPolicy = {
+  channelId?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  retentionDays: Scalars['Int']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type ReviewPeriodType =
+  | 'ANNUAL'
+  | 'PROBATION'
+  | 'PROJECT'
+  | 'QUARTERLY'
+  | 'SEMI_ANNUAL';
+
+export type ReviewStatus =
+  | 'ACKNOWLEDGED'
+  | 'CALIBRATION'
+  | 'DRAFT'
+  | 'FINALIZED'
+  | 'MANAGER_REVIEW'
+  | 'SELF_ASSESSMENT';
+
+export type ReviewSummaryItem = {
+  finalRating?: Maybe<Scalars['Float']['output']>;
+  id: Scalars['ID']['output'];
+  periodEnd?: Maybe<Scalars['String']['output']>;
+  periodStart?: Maybe<Scalars['String']['output']>;
+  periodType?: Maybe<Scalars['String']['output']>;
+  status?: Maybe<Scalars['String']['output']>;
+};
+
+export type RevokeUserRoleInput = {
+  /** If true, permanently deletes the role assignment. If false, sets is_active = false. */
+  hardDelete?: Scalars['Boolean']['input'];
+  userId: Scalars['ID']['input'];
+};
+
+/** Risk level for VFD parameter changes */
+export type RiskLevel =
+  | 'CRITICAL'
+  | 'HIGH'
+  | 'LOW'
+  | 'MEDIUM';
+
+/** User roles in the system */
+export type Role =
+  | 'MODULE_MANAGER'
+  | 'MODULE_USER'
+  | 'SUPER_ADMIN'
+  | 'TENANT_ADMIN';
+
+export type RollbackVfdChangeSetInput = {
+  changeSetId: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+export type RotationStatus =
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'EXTENDED'
+  | 'IN_PROGRESS'
+  | 'SCHEDULED';
+
+export type RotationType =
+  | 'FIELD'
+  | 'MIXED'
+  | 'OFFSHORE'
+  | 'ONSHORE'
+  | 'VESSEL';
+
+export type SafetyTrainingRecord = {
+  certificateNumber?: Maybe<Scalars['String']['output']>;
+  completedDate?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  employeeId: Scalars['String']['output'];
+  expiryDate?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  instructor?: Maybe<Scalars['String']['output']>;
+  isMandatoryForOffshore: Scalars['Boolean']['output'];
+  location?: Maybe<Scalars['String']['output']>;
+  nextDueDate?: Maybe<Scalars['DateTime']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  reminderSent: Scalars['Boolean']['output'];
+  status: SafetyTrainingStatus;
+  tenantId: Scalars['String']['output'];
+  trainingType: SafetyTrainingType;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type SafetyTrainingStatus =
+  | 'COMPLETED'
+  | 'EXPIRED'
+  | 'IN_PROGRESS'
+  | 'NOT_STARTED'
+  | 'OVERDUE';
+
+export type SafetyTrainingType =
+  | 'BIOSECURITY'
+  | 'CHEMICAL_HANDLING'
+  | 'CONFINED_SPACE'
+  | 'DIVING_SAFETY'
+  | 'EMERGENCY_RESPONSE'
+  | 'FALL_PROTECTION'
+  | 'FIRE_SAFETY'
+  | 'FIRST_AID'
+  | 'HELICOPTER_SAFETY'
+  | 'INDUCTION'
+  | 'SEA_SURVIVAL'
+  | 'VESSEL_SAFETY';
+
 export type SalinityInput = {
   max: Scalars['Float']['input'];
   min: Scalars['Float']['input'];
@@ -7849,9 +16714,113 @@ export type SalinityInput = {
   unit?: Scalars['String']['input'];
 };
 
+export type SaveDashboardLayoutInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  gridConfig?: InputMaybe<Scalars['JSON']['input']>;
+  gridVersion?: InputMaybe<Scalars['Float']['input']>;
+  id?: InputMaybe<Scalars['ID']['input']>;
+  isDefault?: InputMaybe<Scalars['Boolean']['input']>;
+  name: Scalars['String']['input'];
+  processBackground?: InputMaybe<Scalars['JSON']['input']>;
+  widgets: Scalars['JSON']['input'];
+};
+
+export type SaveDiscoveredChannelsInput = {
+  channels: Array<CreateDataChannelInput>;
+  replaceExisting?: InputMaybe<Scalars['Boolean']['input']>;
+  sensorId: Scalars['ID']['input'];
+};
+
 export type SaveFeederCalibrationsInput = {
   calibrations: Array<FeederCalibrationItemInput>;
   equipmentId: Scalars['String']['input'];
+};
+
+export type ScadaDeployLogListType = {
+  items: Array<ScadaDeployLogType>;
+  total: Scalars['Int']['output'];
+};
+
+export type ScadaDeployLogType = {
+  commandId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  deployedAt?: Maybe<Scalars['DateTime']['output']>;
+  deployedBy?: Maybe<Scalars['String']['output']>;
+  deviceId: Scalars['String']['output'];
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  healthCheckResults?: Maybe<Scalars['JSON']['output']>;
+  id: Scalars['ID']['output'];
+  packageId: Scalars['String']['output'];
+  receivedAt?: Maybe<Scalars['DateTime']['output']>;
+  rolledBackTo?: Maybe<Scalars['Int']['output']>;
+  sentAt: Scalars['DateTime']['output'];
+  status: ScadaDeployStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt?: Maybe<Scalars['DateTime']['output']>;
+  verifiedAt?: Maybe<Scalars['DateTime']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+/** Status of a SCADA package deployment to edge device */
+export type ScadaDeployStatus =
+  | 'DEPLOYING'
+  | 'FAILED'
+  | 'PENDING'
+  | 'RECEIVED'
+  | 'ROLLED_BACK'
+  | 'SENT'
+  | 'SUCCESS'
+  | 'VERIFYING';
+
+export type ScadaDeployStepResultType = {
+  message?: Maybe<Scalars['String']['output']>;
+  packageId: Scalars['ID']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
+export type ScadaPackageFilterInput = {
+  processId?: InputMaybe<Scalars['String']['input']>;
+  searchTerm?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<ScadaPackageStatus>;
+};
+
+export type ScadaPackageListType = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<ScadaPackageType>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+/** Status of the SCADA package */
+export type ScadaPackageStatus =
+  | 'ARCHIVED'
+  | 'DRAFT'
+  | 'PUBLISHED';
+
+export type ScadaPackageType = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+  packageData: Scalars['JSON']['output'];
+  processId?: Maybe<Scalars['String']['output']>;
+  processName?: Maybe<Scalars['String']['output']>;
+  status: ScadaPackageStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
 };
 
 export type ScheduleAlertResponse = {
@@ -7860,9 +16829,396 @@ export type ScheduleAlertResponse = {
   schedule: MaintenanceSchedule;
 };
 
+export type SchedulingSettings = {
+  allowOvertimeWithoutApproval: Scalars['Boolean']['output'];
+  autoNotifyEmployees: Scalars['Boolean']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  defaultShiftId?: Maybe<Scalars['String']['output']>;
+  jurisdictionCode?: Maybe<Scalars['String']['output']>;
+  maxConsecutiveWorkDays: Scalars['Int']['output'];
+  maxOvertimeMinutesPerMonth: Scalars['Int']['output'];
+  maxOvertimeMinutesPerWeek: Scalars['Int']['output'];
+  minRestMinutesBetweenShifts: Scalars['Int']['output'];
+  notifyDaysBefore: Scalars['Int']['output'];
+  standardWeeklyMinutes: Scalars['Int']['output'];
+  tenantId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  workWeekStartDay: WeekDay;
+};
+
+export type SearchMessagesInput = {
+  /** Optional channel filter */
+  channelId?: InputMaybe<Scalars['ID']['input']>;
+  /** Max results (max 50) */
+  limit?: Scalars['Int']['input'];
+  /** Full-text search query (2-200 chars) */
+  query: Scalars['String']['input'];
+};
+
 export type SeedDefaultParameterConfigsResponse = {
   seeded: Array<Scalars['String']['output']>;
   skipped: Array<Scalars['String']['output']>;
+};
+
+export type SendLoRaDownlinkInput = {
+  /** Request confirmed downlink (device ACK) */
+  confirmed?: InputMaybe<Scalars['Boolean']['input']>;
+  /** Application port (1-223) */
+  fPort?: InputMaybe<Scalars['Int']['input']>;
+  /** Downlink payload as hex string */
+  payload: Scalars['String']['input'];
+};
+
+export type SendLoRaDownlinkResult = {
+  error?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type SendMessageInput = {
+  /** Storage keys for pre-uploaded attachments */
+  attachmentKeys?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** Target channel UUID */
+  channelId: Scalars['ID']['input'];
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Message text content (max 4000 chars) */
+  content?: InputMaybe<Scalars['String']['input']>;
+  /** Content type of the message */
+  contentType?: MessageContentType;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  /** Client-generated UUID for idempotent send */
+  idempotencyKey: Scalars['ID']['input'];
+  /** Arbitrary metadata JSON */
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** Parent message ID for threading / replies */
+  parentId?: InputMaybe<Scalars['ID']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type Sensor = {
+  alertThresholds?: Maybe<Scalars['JSON']['output']>;
+  calibrationData?: Maybe<Scalars['JSON']['output']>;
+  calibrationEnabled?: Maybe<Scalars['Boolean']['output']>;
+  calibrationMultiplier?: Maybe<Scalars['Float']['output']>;
+  calibrationOffset?: Maybe<Scalars['Float']['output']>;
+  childSensors?: Maybe<Array<Sensor>>;
+  configuration?: Maybe<Scalars['JSON']['output']>;
+  connectionStatus?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  dataPath?: Maybe<Scalars['String']['output']>;
+  departmentId?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displaySettings?: Maybe<Scalars['JSON']['output']>;
+  equipmentId?: Maybe<Scalars['String']['output']>;
+  farmId?: Maybe<Scalars['String']['output']>;
+  firmwareVersion?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isParentDevice: Scalars['Boolean']['output'];
+  lastCalibratedAt?: Maybe<Scalars['DateTime']['output']>;
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  location?: Maybe<Scalars['String']['output']>;
+  manufacturer?: Maybe<Scalars['String']['output']>;
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  parentId?: Maybe<Scalars['ID']['output']>;
+  parentSensor?: Maybe<Sensor>;
+  pondId?: Maybe<Scalars['String']['output']>;
+  protocol?: Maybe<SensorProtocol>;
+  protocolConfiguration?: Maybe<Scalars['JSON']['output']>;
+  protocolId?: Maybe<Scalars['String']['output']>;
+  registrationStatus: SensorRegistrationStatus;
+  sensorRole?: Maybe<SensorRole>;
+  serialNumber: Scalars['String']['output'];
+  siteId?: Maybe<Scalars['String']['output']>;
+  status: SensorStatus;
+  systemId?: Maybe<Scalars['String']['output']>;
+  tankId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  type: SensorType;
+  typeDefinitionId?: Maybe<Scalars['String']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SensorAlertThresholdsInput = {
+  critical?: InputMaybe<AlertThresholdRangeInput>;
+  warning?: InputMaybe<AlertThresholdRangeInput>;
+};
+
+export type SensorAlertThresholdsType = {
+  critical?: Maybe<AlertThresholdRangeType>;
+  warning?: Maybe<AlertThresholdRangeType>;
+};
+
+export type SensorConnectionStatusType = {
+  isConnected: Scalars['Boolean']['output'];
+  lastError?: Maybe<Scalars['String']['output']>;
+  lastTestedAt?: Maybe<Scalars['DateTime']['output']>;
+  latency?: Maybe<Scalars['Float']['output']>;
+};
+
+export type SensorDataChannel = {
+  alertThresholds?: Maybe<AlertThresholds>;
+  calibrationEnabled: Scalars['Boolean']['output'];
+  calibrationMultiplier: Scalars['Float']['output'];
+  calibrationOffset: Scalars['Float']['output'];
+  calibrationPolynomial?: Maybe<Scalars['JSON']['output']>;
+  channelKey: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  dataPath?: Maybe<Scalars['String']['output']>;
+  dataType: ChannelDataType;
+  description?: Maybe<Scalars['String']['output']>;
+  discoveredAt?: Maybe<Scalars['DateTime']['output']>;
+  discoverySource?: Maybe<DiscoverySource>;
+  displayLabel: Scalars['String']['output'];
+  displayOrder: Scalars['Int']['output'];
+  displaySettings?: Maybe<DisplaySettings>;
+  id: Scalars['ID']['output'];
+  isEnabled: Scalars['Boolean']['output'];
+  lastCalibratedAt?: Maybe<Scalars['DateTime']['output']>;
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  nextCalibrationDue?: Maybe<Scalars['DateTime']['output']>;
+  operationalMax?: Maybe<Scalars['Float']['output']>;
+  operationalMin?: Maybe<Scalars['Float']['output']>;
+  physicalMax?: Maybe<Scalars['Float']['output']>;
+  physicalMin?: Maybe<Scalars['Float']['output']>;
+  protocolConfig?: Maybe<Scalars['JSON']['output']>;
+  sampleValue?: Maybe<Scalars['JSON']['output']>;
+  sensor: Sensor;
+  sensorId: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+  unitSymbol?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SensorFilterInput = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  equipmentId?: InputMaybe<Scalars['ID']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  protocolCode?: InputMaybe<Scalars['String']['input']>;
+  registrationStatus?: InputMaybe<SensorRegistrationStatus>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  type?: InputMaybe<SensorType>;
+};
+
+export type SensorListType = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<RegisteredSensorType>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type SensorPaginationInput = {
+  /** Items per page (max 100) */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /** Page number (1-based) */
+  page?: InputMaybe<Scalars['Int']['input']>;
+  /** Sort field */
+  sortBy?: InputMaybe<Scalars['String']['input']>;
+  /** Sort direction */
+  sortOrder?: InputMaybe<SortOrder>;
+};
+
+export type SensorProtocol = {
+  category: ProtocolCategory;
+  code: Scalars['String']['output'];
+  configurationSchema: Scalars['JSON']['output'];
+  connectionType: ConnectionType;
+  createdAt: Scalars['DateTime']['output'];
+  defaultBaudRate?: Maybe<Scalars['Float']['output']>;
+  defaultConfiguration?: Maybe<Scalars['JSON']['output']>;
+  defaultPort?: Maybe<Scalars['Float']['output']>;
+  defaultTimeout?: Maybe<Scalars['Float']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  documentationUrl?: Maybe<Scalars['String']['output']>;
+  gatewayProtocol?: Maybe<Scalars['String']['output']>;
+  iconName?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  maxConnectionsPerInstance?: Maybe<Scalars['Float']['output']>;
+  name: Scalars['String']['output'];
+  requiredPermissions?: Maybe<Array<Scalars['String']['output']>>;
+  requiresGateway: Scalars['Boolean']['output'];
+  sortOrder?: Maybe<Scalars['Float']['output']>;
+  subcategory?: Maybe<ProtocolSubcategory>;
+  supportedDataTypes?: Maybe<Array<Scalars['String']['output']>>;
+  supportsBidirectional: Scalars['Boolean']['output'];
+  supportsDiscovery: Scalars['Boolean']['output'];
+  supportsPolling: Scalars['Boolean']['output'];
+  supportsSubscription: Scalars['Boolean']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SensorReading = {
+  farmId?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  pondId?: Maybe<Scalars['String']['output']>;
+  quality?: Maybe<Scalars['Float']['output']>;
+  readings: SensorReadings;
+  sensorId: Scalars['String']['output'];
+  source?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+};
+
+export type SensorReadingDataType = {
+  quality: Scalars['Int']['output'];
+  source: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+  values: Scalars['JSON']['output'];
+};
+
+export type SensorReadings = {
+  ammonia?: Maybe<Scalars['Float']['output']>;
+  dissolvedOxygen?: Maybe<Scalars['Float']['output']>;
+  nitrate?: Maybe<Scalars['Float']['output']>;
+  nitrite?: Maybe<Scalars['Float']['output']>;
+  ph?: Maybe<Scalars['Float']['output']>;
+  salinity?: Maybe<Scalars['Float']['output']>;
+  temperature?: Maybe<Scalars['Float']['output']>;
+  turbidity?: Maybe<Scalars['Float']['output']>;
+  waterLevel?: Maybe<Scalars['Float']['output']>;
+};
+
+export type SensorReadingsInput = {
+  ammonia?: InputMaybe<Scalars['Float']['input']>;
+  dissolvedOxygen?: InputMaybe<Scalars['Float']['input']>;
+  nitrate?: InputMaybe<Scalars['Float']['input']>;
+  nitrite?: InputMaybe<Scalars['Float']['input']>;
+  ph?: InputMaybe<Scalars['Float']['input']>;
+  salinity?: InputMaybe<Scalars['Float']['input']>;
+  temperature?: InputMaybe<Scalars['Float']['input']>;
+  turbidity?: InputMaybe<Scalars['Float']['input']>;
+  waterLevel?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type SensorRegistrationResultType = {
+  connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Float']['output']>;
+  sensor?: Maybe<RegisteredSensorType>;
+  success: Scalars['Boolean']['output'];
+};
+
+/** Sensor registration status */
+export type SensorRegistrationStatus =
+  | 'ACTIVE'
+  | 'DRAFT'
+  | 'PENDING_TEST'
+  | 'SUSPENDED'
+  | 'TESTING'
+  | 'TEST_FAILED';
+
+/** Sensor role - parent device or child sensor */
+export type SensorRole =
+  | 'CHILD'
+  | 'PARENT';
+
+export type SensorStats = {
+  avg?: Maybe<Scalars['Float']['output']>;
+  count: Scalars['Int']['output'];
+  max?: Maybe<Scalars['Float']['output']>;
+  min?: Maybe<Scalars['Float']['output']>;
+  stdDev?: Maybe<Scalars['Float']['output']>;
+};
+
+export type SensorStatsType = {
+  active: Scalars['Int']['output'];
+  byProtocol: Scalars['JSON']['output'];
+  byType: Scalars['JSON']['output'];
+  failed: Scalars['Int']['output'];
+  inactive: Scalars['Int']['output'];
+  testing: Scalars['Int']['output'];
+  total: Scalars['Int']['output'];
+};
+
+/** Current status of the sensor */
+export type SensorStatus =
+  | 'ACTIVE'
+  | 'ERROR'
+  | 'INACTIVE'
+  | 'MAINTENANCE'
+  | 'OFFLINE';
+
+/** Type of sensor */
+export type SensorType =
+  | 'AMMONIA'
+  | 'CHLORINE'
+  | 'CO2'
+  | 'CONDUCTIVITY'
+  | 'DISSOLVED_OXYGEN'
+  | 'FLOW_RATE'
+  | 'MULTI_PARAMETER'
+  | 'NITRATE'
+  | 'NITRITE'
+  | 'ORP'
+  | 'PH'
+  | 'SALINITY'
+  | 'TEMPERATURE'
+  | 'TURBIDITY'
+  | 'WATER_LEVEL';
+
+export type SensorTypeDefinition = {
+  category?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  defaultChannels: Scalars['JSON']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  displayName: Scalars['String']['output'];
+  icon?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  industry?: Maybe<Scalars['String']['output']>;
+  isSystem: Scalars['Boolean']['output'];
+  metadata: Scalars['JSON']['output'];
+  tenantId: Scalars['String']['output'];
+  typeKey: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SentimentTrendType = {
+  avgScore: Scalars['Float']['output'];
+  channelId: Scalars['ID']['output'];
+  channelName: Scalars['String']['output'];
+  messageCount: Scalars['Int']['output'];
+  trend: Scalars['String']['output'];
+  weekStart: Scalars['String']['output'];
+};
+
+export type SentimentTrendsInput = {
+  /** Filter by specific channel. Omit for all channels. */
+  channelId?: InputMaybe<Scalars['ID']['input']>;
+  /** Number of weeks to look back (1-52) */
+  weeks?: Scalars['Int']['input'];
 };
 
 export type SentinelHubCredentials = {
@@ -7890,6 +17246,127 @@ export type SentinelHubWmtsConfig = {
   instanceId: Scalars['String']['output'];
 };
 
+export type SetChecklistItemInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  isCompleted: Scalars['Boolean']['input'];
+  itemId: Scalars['String']['input'];
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+  taskId: Scalars['ID']['input'];
+};
+
+export type SetDigitalOutputInput = {
+  deviceId: Scalars['ID']['input'];
+  ioConfigId: Scalars['ID']['input'];
+  value: Scalars['Boolean']['input'];
+};
+
+export type SetDigitalOutputResult = {
+  error?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+  tagName?: Maybe<Scalars['String']['output']>;
+  value?: Maybe<Scalars['Boolean']['output']>;
+};
+
+export type SetRetentionPolicyInput = {
+  /** Channel ID for channel-level override. Null = tenant default. */
+  channelId?: InputMaybe<Scalars['String']['input']>;
+  /** Retention period in days: 90, 365, 1095, or -1 (indefinite). */
+  retentionDays: Scalars['Int']['input'];
+};
+
+export type SetupMfaResponse = {
+  /** otpauth:// URI for QR code generation */
+  qrCodeUri: Scalars['String']['output'];
+  /** One-time recovery codes (store securely) */
+  recoveryCodes: Array<Scalars['String']['output']>;
+  /** Base32-encoded TOTP secret for manual entry */
+  secret: Scalars['String']['output'];
+};
+
+export type Shift = {
+  breakMinutes: Scalars['Int']['output'];
+  breakPeriods?: Maybe<Array<BreakPeriod>>;
+  code: Scalars['String']['output'];
+  colorCode?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  crossesMidnight: Scalars['Boolean']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  earlyClockInMinutes: Scalars['Int']['output'];
+  endTime: Scalars['String']['output'];
+  graceMinutes: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  lateClockOutMinutes: Scalars['Int']['output'];
+  name: Scalars['String']['output'];
+  shiftType: ShiftType;
+  startTime: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  totalMinutes: Scalars['Int']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  workDays: Array<WeekDay>;
+};
+
+export type ShiftAssignmentInput = {
+  date: Scalars['String']['input'];
+  isOffDay: Scalars['Boolean']['input'];
+  shiftId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type ShiftConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<Shift>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type ShiftType =
+  | 'FLEXIBLE'
+  | 'NIGHT'
+  | 'OFFSHORE'
+  | 'REGULAR'
+  | 'ROTATION';
+
+export type SimilarMessageType = {
+  message: Message;
+  similarity: Scalars['Float']['output'];
+};
+
+export type SimilarMessagesInput = {
+  /** Restrict search to a specific channel */
+  channelId?: InputMaybe<Scalars['ID']['input']>;
+  /** Maximum number of results (1-50) */
+  limit?: Scalars['Int']['input'];
+  /** Natural language search query (max 1000 chars) */
+  query: Scalars['String']['input'];
+};
+
 export type SiteAddressInput = {
   city?: InputMaybe<Scalars['String']['input']>;
   country?: InputMaybe<Scalars['String']['input']>;
@@ -7912,6 +17389,13 @@ export type SiteAffectedItems = {
   systems: Array<SystemSummary>;
   tanks: Array<TankSummary>;
   totalCount: Scalars['Int']['output'];
+};
+
+export type SiteAssignmentResult = {
+  message: Scalars['String']['output'];
+  siteId: Scalars['ID']['output'];
+  success: Scalars['Boolean']['output'];
+  userId: Scalars['ID']['output'];
 };
 
 export type SiteContactInput = {
@@ -8216,10 +17700,61 @@ export type SpecificationFieldResponse = {
   unit?: Maybe<Scalars['String']['output']>;
 };
 
+export type SpiBusInfo = {
+  /** SPI bus number */
+  bus: Scalars['Int']['output'];
+  /** Chip select number */
+  chipSelect: Scalars['Int']['output'];
+  /** Device path (e.g. "/dev/spidev0.0") */
+  devicePath: Scalars['String']['output'];
+};
+
 export type StartWorkOrderInput = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
   startTime?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type StateCount = {
+  count: Scalars['Int']['output'];
+  state: DeviceLifecycleState;
+};
+
+export type StatusCount = {
+  count: Scalars['Int']['output'];
+  status: Scalars['String']['output'];
+};
+
+export type StepAction = {
+  actionCode: Scalars['String']['output'];
+  actionName: Scalars['String']['output'];
+  actionOrder: Scalars['Int']['output'];
+  actionType: ActionType;
+  createdAt: Scalars['DateTime']['output'];
+  /** Delay in milliseconds (D qualifier) */
+  delayMs?: Maybe<Scalars['Int']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  /** Duration in milliseconds (L qualifier) */
+  durationMs?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  params?: Maybe<Scalars['JSON']['output']>;
+  qualifier: ActionQualifier;
+  stepId: Scalars['String']['output'];
+  /** Target variable/output/function block */
+  targetRef?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Type of SFC step */
+export type StepType =
+  | 'FINAL'
+  | 'INITIAL'
+  | 'NORMAL';
+
+export type StockEventsSummary = {
+  recentEvents: Array<MobileStockEvent>;
+  thisWeekEventsCount: Scalars['Int']['output'];
 };
 
 export type StockMovementFilterInput = {
@@ -8468,6 +18003,82 @@ export type SubmitCleanerFishReportInput = {
   vatforKg?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type SubmitDiseaseOutbreakInput = {
+  /** Estimated number of affected fish */
+  affectedCount: Scalars['Int']['input'];
+  /** Affected percentage of population */
+  affectedPercentage: Scalars['Float']['input'];
+  /** Observed clinical signs */
+  clinicalSigns: Array<Scalars['String']['input']>;
+  /** Suspected or lab-confirmed */
+  confirmation: DiseaseConfirmationInput;
+  /** When the incident was detected (ISO 8601) */
+  detectedAt: Scalars['String']['input'];
+  /** Disease list category (A/C/F) */
+  diseaseCategory: DiseaseCategoryInput;
+  /** Disease name */
+  diseaseName: Scalars['String']['input'];
+  /** Client reference — unique identifier for the submission (UUID) */
+  klientReferanse: Scalars['String']['input'];
+  /** Contact person (required object) */
+  kontaktperson: VarslingKontaktpersonInput;
+  /** Site/Locality registration number (NUMBER, not string!) */
+  lokalitetsnummer: Scalars['Int']['input'];
+  /** Norwegian organization number (9 digits) */
+  organisasjonsnummer: Scalars['String']['input'];
+  /** Name of the person submitting the report */
+  reportedBy: Scalars['String']['input'];
+  /** Site code (optional) */
+  siteCode?: InputMaybe<Scalars['String']['input']>;
+  /** Internal site identifier */
+  siteId: Scalars['String']['input'];
+  /** Site-manager CC recipient */
+  siteManagerEmail?: InputMaybe<Scalars['String']['input']>;
+  /** Human-readable site name */
+  siteName: Scalars['String']['input'];
+  /** Veterinarian name */
+  veterinarianName?: InputMaybe<Scalars['String']['input']>;
+  /** Whether a veterinarian has been notified */
+  veterinarianNotified: Scalars['Boolean']['input'];
+};
+
+export type SubmitEscapeReportInput = {
+  /** Affected units (cage/tank identifiers) */
+  affectedUnits: Array<Scalars['String']['input']>;
+  /** Average weight (grams) */
+  avgWeightG: Scalars['Float']['input'];
+  /** Cause of escape */
+  cause: Scalars['String']['input'];
+  /** When the incident was detected (ISO 8601) */
+  detectedAt: Scalars['String']['input'];
+  /** Estimated number of escaped fish */
+  estimatedCount: Scalars['Int']['input'];
+  /** Client reference — unique identifier for the submission (UUID) */
+  klientReferanse: Scalars['String']['input'];
+  /** Contact person (required object) */
+  kontaktperson: VarslingKontaktpersonInput;
+  /** Site/Locality registration number (NUMBER, not string!) */
+  lokalitetsnummer: Scalars['Int']['input'];
+  /** Norwegian organization number (9 digits) */
+  organisasjonsnummer: Scalars['String']['input'];
+  /** Whether recovery efforts are ongoing */
+  recoveryOngoing: Scalars['Boolean']['input'];
+  /** Name of the person submitting the report */
+  reportedBy: Scalars['String']['input'];
+  /** Site code (optional) */
+  siteCode?: InputMaybe<Scalars['String']['input']>;
+  /** Internal site identifier */
+  siteId: Scalars['String']['input'];
+  /** Site-manager CC recipient */
+  siteManagerEmail?: InputMaybe<Scalars['String']['input']>;
+  /** Human-readable site name */
+  siteName: Scalars['String']['input'];
+  /** Species */
+  species: Scalars['String']['input'];
+  /** Total escaped biomass (kg) */
+  totalBiomassKg: Scalars['Float']['input'];
+};
+
 export type SubmitExecutedSlaughterInput = {
   /** Slaughter facility approval number (1-6 alphanumeric characters) */
   godkjenningsnummer: Scalars['String']['input'];
@@ -8485,6 +18096,16 @@ export type SubmitExecutedSlaughterInput = {
   slakteuke: Scalars['Int']['input'];
   /** Executed slaughters by locality */
   utforteLokaliteter: Array<ExecutedSlaughterLocalityInput>;
+};
+
+export type SubmitManagerAssessmentInput = {
+  areasForImprovement?: InputMaybe<Array<Scalars['String']['input']>>;
+  competencyRatings?: InputMaybe<Array<CompetencyRatingInput>>;
+  developmentPlan?: InputMaybe<Scalars['String']['input']>;
+  managerAssessment: Scalars['String']['input'];
+  managerRating: Scalars['Float']['input'];
+  reviewId: Scalars['String']['input'];
+  strengths?: InputMaybe<Array<Scalars['String']['input']>>;
 };
 
 export type SubmitPlannedSlaughterInput = {
@@ -8535,6 +18156,13 @@ export type SubmitSeaLiceReportInput = {
   sjotemperatur: Scalars['Float']['input'];
 };
 
+export type SubmitSelfAssessmentInput = {
+  competencyRatings?: InputMaybe<Array<CompetencyRatingInput>>;
+  reviewId: Scalars['String']['input'];
+  selfAssessment: Scalars['String']['input'];
+  selfRating: Scalars['Float']['input'];
+};
+
 export type SubmitSmoltReportInput = {
   /** Client reference - unique identifier for the submission (UUID) */
   klientReferanse: Scalars['String']['input'];
@@ -8551,6 +18179,78 @@ export type SubmitSmoltReportInput = {
   /** Reporting month (1-12) */
   rapporteringsmaaned: Scalars['Int']['input'];
 };
+
+export type SubmitWelfareEventInput = {
+  /** Affected batch numbers */
+  affectedBatches?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** Incident description */
+  description: Scalars['String']['input'];
+  /** When the incident was detected (ISO 8601) */
+  detectedAt: Scalars['String']['input'];
+  /** Immediate actions taken (at least one required) */
+  immediateActions: Array<Scalars['String']['input']>;
+  /** Client reference — unique identifier for the submission (UUID) */
+  klientReferanse: Scalars['String']['input'];
+  /** Contact person (required object) */
+  kontaktperson: VarslingKontaktpersonInput;
+  /** Site/Locality registration number (NUMBER, not string!) */
+  lokalitetsnummer: Scalars['Int']['input'];
+  /** Mortality period (e.g., 1_day / 3_day / 7_day) */
+  mortalityPeriod?: InputMaybe<Scalars['String']['input']>;
+  /** Mortality rate (%) — for mortality_threshold */
+  mortalityRate?: InputMaybe<Scalars['Float']['input']>;
+  /** Norwegian organization number (9 digits) */
+  organisasjonsnummer: Scalars['String']['input'];
+  /** Name of the person submitting the report */
+  reportedBy: Scalars['String']['input'];
+  /** Severity */
+  severity: WelfareSeverityInput;
+  /** Site code (optional) */
+  siteCode?: InputMaybe<Scalars['String']['input']>;
+  /** Internal site identifier */
+  siteId: Scalars['String']['input'];
+  /** Site-manager CC recipient */
+  siteManagerEmail?: InputMaybe<Scalars['String']['input']>;
+  /** Human-readable site name */
+  siteName: Scalars['String']['input'];
+  /** Welfare event type */
+  welfareEventType: WelfareEventTypeInput;
+};
+
+export type Subscription = {
+  autoRenew: Scalars['Boolean']['output'];
+  billingCycle: BillingCycle;
+  cancellationReason?: Maybe<Scalars['String']['output']>;
+  cancelledAt?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  currentPeriodEnd: Scalars['DateTime']['output'];
+  currentPeriodStart: Scalars['DateTime']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  endDate?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  limits: PlanLimits;
+  planId?: Maybe<Scalars['String']['output']>;
+  planName: Scalars['String']['output'];
+  planTier: PlanTier;
+  pricing: PlanPricing;
+  startDate: Scalars['DateTime']['output'];
+  status: SubscriptionStatus;
+  tenantId: Scalars['String']['output'];
+  trialEndDate?: Maybe<Scalars['DateTime']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type SubscriptionStatus =
+  | 'ACTIVE'
+  | 'CANCELLED'
+  | 'EXPIRED'
+  | 'PAST_DUE'
+  | 'SUSPENDED'
+  | 'TRIAL';
 
 export type SupplierAddressInput = {
   city: Scalars['String']['input'];
@@ -8664,6 +18364,192 @@ export type SupplierTypeResponse = {
   name: Scalars['String']['output'];
   sortOrder: Scalars['Int']['output'];
   updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SupportCreateThreadInput = {
+  initialMessage: Scalars['String']['input'];
+  subject: Scalars['String']['input'];
+  tenantId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SupportMessage = {
+  attachments?: Maybe<Array<SupportMessageAttachment>>;
+  content: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isInternal: Scalars['Boolean']['output'];
+  readAt?: Maybe<Scalars['DateTime']['output']>;
+  senderId: Scalars['String']['output'];
+  senderName: Scalars['String']['output'];
+  senderType: SupportSenderType;
+  status: SupportMessageStatus;
+  threadId: Scalars['String']['output'];
+};
+
+export type SupportMessageAttachment = {
+  filename: Scalars['String']['output'];
+  id: Scalars['String']['output'];
+  mimeType: Scalars['String']['output'];
+  size: Scalars['Float']['output'];
+  url: Scalars['String']['output'];
+};
+
+export type SupportMessageItem = {
+  attachments?: Maybe<Array<SupportMessageAttachment>>;
+  content: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isInternal: Scalars['Boolean']['output'];
+  readAt?: Maybe<Scalars['DateTime']['output']>;
+  senderId: Scalars['String']['output'];
+  senderName: Scalars['String']['output'];
+  /** Support message sender type */
+  senderType: SupportSenderType;
+  /** Support message delivery status */
+  status: SupportMessageStatus;
+  threadId: Scalars['String']['output'];
+};
+
+/** Support message delivery status */
+export type SupportMessageStatus =
+  | 'DELIVERED'
+  | 'READ'
+  | 'SENT';
+
+export type SupportMessageThread = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['String']['output'];
+  createdByAdmin: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  lastMessage?: Maybe<Scalars['String']['output']>;
+  lastMessageAt?: Maybe<Scalars['DateTime']['output']>;
+  lastMessageBy?: Maybe<Scalars['String']['output']>;
+  messageCount: Scalars['Float']['output'];
+  status: SupportThreadStatus;
+  subject: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  tenantName?: Maybe<Scalars['String']['output']>;
+  unreadCountAdmin: Scalars['Float']['output'];
+  unreadCountTenant: Scalars['Float']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SupportMessagingStats = {
+  activeThreads: Scalars['Float']['output'];
+  avgResponseTimeMinutes: Scalars['Float']['output'];
+  closedThreads: Scalars['Float']['output'];
+  totalMessages: Scalars['Float']['output'];
+  totalThreads: Scalars['Float']['output'];
+  unreadMessages: Scalars['Float']['output'];
+};
+
+export type SupportSendMessageInput = {
+  content: Scalars['String']['input'];
+  isInternal?: Scalars['Boolean']['input'];
+  threadId: Scalars['String']['input'];
+};
+
+/** Who sent the support message (admin-to-tenant) */
+export type SupportSenderType =
+  | 'SUPER_ADMIN'
+  | 'SYSTEM'
+  | 'TENANT_ADMIN';
+
+export type SupportStats = {
+  avgResolutionMinutes: Scalars['Float']['output'];
+  avgResponseMinutes: Scalars['Float']['output'];
+  inProgress: Scalars['Float']['output'];
+  open: Scalars['Float']['output'];
+  resolved: Scalars['Float']['output'];
+  satisfactionAvg: Scalars['Float']['output'];
+  slaComplianceRate: Scalars['Float']['output'];
+  total: Scalars['Float']['output'];
+  waitingCustomer: Scalars['Float']['output'];
+};
+
+export type SupportThreadListItem = {
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  lastMessage?: Maybe<Scalars['String']['output']>;
+  lastMessageAt?: Maybe<Scalars['DateTime']['output']>;
+  messageCount: Scalars['Float']['output'];
+  status: SupportThreadStatus;
+  subject: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  tenantName: Scalars['String']['output'];
+  unreadCount: Scalars['Float']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Support message thread status */
+export type SupportThreadStatus =
+  | 'ARCHIVED'
+  | 'CLOSED'
+  | 'OPEN';
+
+export type SupportTicket = {
+  assignedTo?: Maybe<Scalars['String']['output']>;
+  assignedToName?: Maybe<Scalars['String']['output']>;
+  category: TicketCategory;
+  commentCount: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  description: Scalars['String']['output'];
+  firstResponseAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  priority: TicketPriority;
+  reportedBy: Scalars['String']['output'];
+  reportedByName: Scalars['String']['output'];
+  resolvedAt?: Maybe<Scalars['DateTime']['output']>;
+  satisfactionComment?: Maybe<Scalars['String']['output']>;
+  satisfactionRating?: Maybe<Scalars['Float']['output']>;
+  slaResolutionDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slaResponseDeadline?: Maybe<Scalars['DateTime']['output']>;
+  status: TicketStatus;
+  subject: Scalars['String']['output'];
+  tags?: Maybe<Array<Scalars['String']['output']>>;
+  tenantId: Scalars['String']['output'];
+  tenantName?: Maybe<Scalars['String']['output']>;
+  ticketNumber: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type SuppressionWindow = {
+  createdBy: Scalars['String']['output'];
+  endTime: Scalars['DateTime']['output'];
+  id: Scalars['String']['output'];
+  isRecurring: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  reason?: Maybe<Scalars['String']['output']>;
+  recurringPattern?: Maybe<Scalars['String']['output']>;
+  startTime: Scalars['DateTime']['output'];
+};
+
+export type SuppressionWindowInput = {
+  endTime: Scalars['String']['input'];
+  isRecurring: Scalars['Boolean']['input'];
+  name: Scalars['String']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  recurringPattern?: InputMaybe<Scalars['String']['input']>;
+  startTime: Scalars['String']['input'];
+};
+
+export type SyncProgramVariablesInput = {
+  programId: Scalars['ID']['input'];
+  variables: Array<SyncVariableInput>;
+};
+
+export type SyncProgramVariablesResult = {
+  added: Scalars['Int']['output'];
+  removed: Scalars['Int']['output'];
+  unchanged: Scalars['Int']['output'];
+  updated: Scalars['Int']['output'];
+};
+
+export type SyncVariableInput = {
+  dataType?: VariableDataType;
+  initialValue?: InputMaybe<Scalars['String']['input']>;
+  scope?: VariableScope;
+  varName: Scalars['String']['input'];
 };
 
 export type System = {
@@ -8785,11 +18671,76 @@ export type SystemType =
   | 'RACEWAY'
   | 'RAS';
 
+export type TableDataResult = {
+  columns: Array<Scalars['String']['output']>;
+  limit: Scalars['Float']['output'];
+  offset: Scalars['Float']['output'];
+  rows: Scalars['String']['output'];
+  tableName: Scalars['String']['output'];
+  totalRows: Scalars['Float']['output'];
+};
+
+export type TableInfo = {
+  indexCount: Scalars['Int']['output'];
+  lastModified: Scalars['DateTime']['output'];
+  name: Scalars['String']['output'];
+  rowCount: Scalars['Int']['output'];
+  size: Scalars['String']['output'];
+};
+
+export type TableSchemaInfo = {
+  columns: Array<ColumnInfo>;
+  indexes: Array<IndexInfo>;
+  schemaName: Scalars['String']['output'];
+  tableName: Scalars['String']['output'];
+};
+
+/** Data type for tag values */
+export type TagDataType =
+  | 'BOOL'
+  | 'FLOAT32'
+  | 'FLOAT64'
+  | 'INT16'
+  | 'INT32'
+  | 'UINT16'
+  | 'UINT32';
+
+/** Direction of the tag I/O */
+export type TagDirection =
+  | 'BIDIRECTIONAL'
+  | 'INPUT'
+  | 'OUTPUT';
+
+export type TagDiscoveryResultType = {
+  createdCount: Scalars['Int']['output'];
+  discoveredCount: Scalars['Int']['output'];
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+  tags: Array<UnifiedTagType>;
+};
+
+export type TagFilterInput = {
+  dataType?: InputMaybe<TagDataType>;
+  direction?: InputMaybe<TagDirection>;
+  edgeDeviceId?: InputMaybe<Scalars['String']['input']>;
+  equipmentId?: InputMaybe<Scalars['String']['input']>;
+  ioType?: InputMaybe<TagIoType>;
+  searchTerm?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** Type of I/O point (DI, DO, AI, AO) */
+export type TagIoType =
+  | 'AI'
+  | 'AO'
+  | 'DI'
+  | 'DO';
+
 export type Tank = {
   aeration?: Maybe<Scalars['JSON']['output']>;
   batchMetrics?: Maybe<TankBatchMetrics>;
   capacityInfo: TankCapacityInfo;
   code: Scalars['String']['output'];
+  containerKind: TankContainerKind;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   currentBiomass: Scalars['Float']['output'];
@@ -8800,6 +18751,8 @@ export type Tank = {
   description?: Maybe<Scalars['String']['output']>;
   diameter?: Maybe<Scalars['Float']['output']>;
   effectiveVolume: Scalars['Float']['output'];
+  equipmentTypeCode?: Maybe<Scalars['String']['output']>;
+  equipmentTypeId?: Maybe<Scalars['String']['output']>;
   freeboard?: Maybe<Scalars['Float']['output']>;
   id: Scalars['ID']['output'];
   installationDate?: Maybe<Scalars['DateTime']['output']>;
@@ -8870,6 +18823,12 @@ export type TankCleanerFishInfo = {
   tankId: Scalars['ID']['output'];
   tankName: Scalars['String']['output'];
 };
+
+/** Canonical setup container kind for tank-like equipment compatibility */
+export type TankContainerKind =
+  | 'CAGE'
+  | 'POND'
+  | 'TANK';
 
 export type TankDepartmentInfo = {
   id: Scalars['ID']['output'];
@@ -8986,7 +18945,7 @@ export type Task = {
   category: TaskCategory;
   checklistItems?: Maybe<Scalars['JSON']['output']>;
   completedAt?: Maybe<Scalars['DateTime']['output']>;
-  completedBy?: Maybe<Scalars['String']['output']>;
+  completedBy?: Maybe<Scalars['ID']['output']>;
   createdAt: Scalars['DateTime']['output'];
   createdBy: Scalars['String']['output'];
   deletedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -9040,6 +18999,22 @@ export type TaskFilterInput = {
   status?: InputMaybe<Array<TaskStatus>>;
 };
 
+export type TaskLifecycleInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type TaskListResponse = {
   /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
@@ -9081,6 +19056,32 @@ export type TaskStatus =
   | 'OVERDUE'
   | 'PENDING';
 
+export type TaxInfo = {
+  taxAmount: Scalars['Float']['output'];
+  taxId?: Maybe<Scalars['String']['output']>;
+  taxName?: Maybe<Scalars['String']['output']>;
+  taxRate: Scalars['Float']['output'];
+};
+
+export type TaxInfoInput = {
+  taxId?: InputMaybe<Scalars['String']['input']>;
+  taxName?: InputMaybe<Scalars['String']['input']>;
+  taxRate: Scalars['Float']['input'];
+};
+
+export type TeamWeeklyOverview = {
+  daysSummary: Array<DaySummary>;
+  employeePlans: Array<EmployeeWeekSummary>;
+  totalEmployees: Scalars['Int']['output'];
+  weekEndDate: Scalars['String']['output'];
+  weekStartDate: Scalars['String']['output'];
+};
+
+export type TelemetryTimeRangeInput = {
+  from: Scalars['DateTime']['input'];
+  to: Scalars['DateTime']['input'];
+};
+
 export type TemperatureRangeInput = {
   criticalMax?: InputMaybe<Scalars['Float']['input']>;
   criticalMin?: InputMaybe<Scalars['Float']['input']>;
@@ -9098,6 +19099,65 @@ export type TemperatureRangeResponse = {
   unit: Scalars['String']['output'];
 };
 
+export type Tenant = {
+  address?: Maybe<Scalars['String']['output']>;
+  contactEmail?: Maybe<Scalars['String']['output']>;
+  contactPhone?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  customDomain?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isTrialActive: Scalars['Boolean']['output'];
+  logoUrl?: Maybe<Scalars['String']['output']>;
+  maxStorage: Scalars['Float']['output'];
+  maxUsers: Scalars['Float']['output'];
+  name: Scalars['String']['output'];
+  plan: TenantPlan;
+  settings?: Maybe<Scalars['String']['output']>;
+  slug: Scalars['String']['output'];
+  status: TenantStatus;
+  subscriptionEndsAt?: Maybe<Scalars['String']['output']>;
+  taxId?: Maybe<Scalars['String']['output']>;
+  trialEndsAt?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  userCount: Scalars['Float']['output'];
+};
+
+export type TenantActivityResponse = {
+  activeSessions: Scalars['Int']['output'];
+  dailyActiveUsers: Array<DailyActiveUsersResponse>;
+  recentLogins: Array<RecentLoginResponse>;
+  userActivitySummaries: Array<UserActivitySummaryResponse>;
+};
+
+export type TenantBillingPeriod =
+  | 'MONTHLY'
+  | 'YEARLY';
+
+export type TenantBillingResponse = {
+  invoices: Array<TenantInvoiceDto>;
+  planLimits?: Maybe<TenantPlanLimitsDto>;
+  subscription?: Maybe<TenantSubscriptionDto>;
+  usageMetrics?: Maybe<TenantUsageMetricsDto>;
+};
+
+export type TenantDatabaseInfo = {
+  activeConnections: Scalars['Int']['output'];
+  databaseName: Scalars['String']['output'];
+  databaseType: Scalars['String']['output'];
+  encryption: Scalars['String']['output'];
+  isolationLevel: Scalars['String']['output'];
+  lastBackup?: Maybe<Scalars['DateTime']['output']>;
+  maxConnections: Scalars['Int']['output'];
+  region: Scalars['String']['output'];
+  schemaName: Scalars['String']['output'];
+  status: Scalars['String']['output'];
+  tableCount: Scalars['Int']['output'];
+  tables: Array<TableInfo>;
+  totalSize: Scalars['String']['output'];
+};
+
 export type TenantExportBundleResponse = {
   exportedAt: Scalars['String']['output'];
   summary: TenantExportSummary;
@@ -9111,17 +19171,443 @@ export type TenantExportSummary = {
   totalRows: Scalars['Int']['output'];
 };
 
+export type TenantInvoiceDto = {
+  amount: Scalars['Float']['output'];
+  currency: Scalars['String']['output'];
+  description: Scalars['String']['output'];
+  dueDate: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  invoiceNumber: Scalars['String']['output'];
+  issuedAt: Scalars['String']['output'];
+  paidAt?: Maybe<Scalars['String']['output']>;
+  status: TenantInvoiceStatus;
+};
+
+export type TenantInvoiceStatus =
+  | 'DRAFT'
+  | 'OVERDUE'
+  | 'PAID'
+  | 'PENDING'
+  | 'VOID';
+
+export type TenantKeyResponse = {
+  autoApprove: Scalars['Boolean']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  installerCommand: Scalars['String']['output'];
+  installerUrl: Scalars['String']['output'];
+  keyToken: Scalars['String']['output'];
+  maxDevices?: Maybe<Scalars['Int']['output']>;
+};
+
+export type TenantModule = {
+  activatedAt: Scalars['DateTime']['output'];
+  assignedBy: Scalars['String']['output'];
+  configuration?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  isEnabled: Scalars['Boolean']['output'];
+  managerId?: Maybe<Scalars['String']['output']>;
+  maxModuleUsers?: Maybe<Scalars['Int']['output']>;
+  moduleId: Scalars['String']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Tenant subscription plans */
+export type TenantPlan =
+  | 'ENTERPRISE'
+  | 'FREE'
+  | 'PROFESSIONAL'
+  | 'STARTER'
+  | 'TRIAL';
+
+export type TenantPlanLimitsDto = {
+  currentFarms: Scalars['Int']['output'];
+  currentSensors: Scalars['Int']['output'];
+  currentStorage: Scalars['Float']['output'];
+  currentUsers: Scalars['Int']['output'];
+  maxFarms: Scalars['Int']['output'];
+  maxSensors: Scalars['Int']['output'];
+  maxStorage: Scalars['Float']['output'];
+  maxUsers: Scalars['Int']['output'];
+};
+
+export type TenantProvisioningKey = {
+  autoApprove: Scalars['Boolean']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  defaultSiteId?: Maybe<Scalars['String']['output']>;
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  keyToken: Scalars['String']['output'];
+  maxDevices?: Maybe<Scalars['Int']['output']>;
+  name?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  usedCount: Scalars['Int']['output'];
+};
+
+export type TenantPublicInfo = {
+  logoUrl?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  slug: Scalars['String']['output'];
+};
+
+export type TenantRole = {
+  color: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  icon: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isDefault: Scalars['Boolean']['output'];
+  isSystem: Scalars['Boolean']['output'];
+  level: Scalars['Int']['output'];
+  name: Scalars['String']['output'];
+  permissions?: Maybe<TenantRolePermissions>;
+  updatedAt: Scalars['DateTime']['output'];
+  userCount: Scalars['Int']['output'];
+};
+
+export type TenantRolePermissions = {
+  id: Scalars['ID']['output'];
+  panelPermissions: Scalars['JSON']['output'];
+  resourcePermissions: Array<Scalars['String']['output']>;
+  roleId: Scalars['ID']['output'];
+};
+
+export type TenantStats = {
+  activeModules: Scalars['Int']['output'];
+  activeSessions: Scalars['Int']['output'];
+  activeUsers: Scalars['Int']['output'];
+  inactiveUsers: Scalars['Int']['output'];
+  lastActivityAt: Scalars['DateTime']['output'];
+  monthlyGrowthPercent?: Maybe<Scalars['Float']['output']>;
+  pendingUsers: Scalars['Int']['output'];
+  totalModules: Scalars['Int']['output'];
+  totalUsers: Scalars['Int']['output'];
+};
+
+/** Tenant account status */
+export type TenantStatus =
+  | 'ACTIVE'
+  | 'ARCHIVED'
+  | 'CANCELLED'
+  | 'DEACTIVATED'
+  | 'PENDING'
+  | 'PROVISIONING'
+  | 'PROVISIONING_FAILED'
+  | 'PURGED'
+  | 'SUSPENDED';
+
+export type TenantSubscriptionDto = {
+  billingPeriod: TenantBillingPeriod;
+  currency: Scalars['String']['output'];
+  currentPeriodEnd: Scalars['String']['output'];
+  currentPeriodStart: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  monthlyPrice: Scalars['Float']['output'];
+  plan: Scalars['String']['output'];
+  status: TenantSubscriptionStatus;
+  trialEndDate?: Maybe<Scalars['String']['output']>;
+};
+
+export type TenantSubscriptionStatus =
+  | 'ACTIVE'
+  | 'CANCELLED'
+  | 'PAST_DUE'
+  | 'SUSPENDED'
+  | 'TRIAL';
+
+export type TenantTableInfo = {
+  module?: Maybe<Scalars['String']['output']>;
+  rowCount: Scalars['Float']['output'];
+  tableName: Scalars['String']['output'];
+};
+
+export type TenantUsageMetricsDto = {
+  apiCallsLimit: Scalars['Int']['output'];
+  apiCallsThisMonth: Scalars['Int']['output'];
+  sensorReadingsLimit: Scalars['Int']['output'];
+  sensorReadingsThisMonth: Scalars['Int']['output'];
+  storageLimit: Scalars['Float']['output'];
+  storageUsedGb: Scalars['Float']['output'];
+};
+
+export type TestConnectionInput = {
+  config: Scalars['JSON']['input'];
+  fetchSampleData?: InputMaybe<Scalars['Boolean']['input']>;
+  protocolCode: Scalars['String']['input'];
+  timeout?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type TestVfdConnectionInput = {
+  brand?: InputMaybe<Scalars['String']['input']>;
+  configuration: Scalars['JSON']['input'];
+  modelSeries?: InputMaybe<Scalars['String']['input']>;
+  protocol: Scalars['String']['input'];
+  timeout?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type Testresultat =
   | 'FOLSOM'
   | 'NEDSATT_FOLSOMHET'
   | 'RESISTENS';
 
+export type ThresholdConfigInput = {
+  oxygenCritical: Scalars['Float']['input'];
+  oxygenMin: Scalars['Float']['input'];
+  phMax?: InputMaybe<Scalars['Float']['input']>;
+  phMin?: InputMaybe<Scalars['Float']['input']>;
+  tempCritical: Scalars['Float']['input'];
+  tempMax: Scalars['Float']['input'];
+};
+
+export type TicketAttachment = {
+  filename: Scalars['String']['output'];
+  id: Scalars['String']['output'];
+  size: Scalars['Float']['output'];
+  url: Scalars['String']['output'];
+};
+
+/** Support ticket category */
+export type TicketCategory =
+  | 'BILLING'
+  | 'BUG'
+  | 'FEATURE_REQUEST'
+  | 'GENERAL'
+  | 'TECHNICAL';
+
+export type TicketComment = {
+  attachments?: Maybe<Array<TicketAttachment>>;
+  authorId: Scalars['String']['output'];
+  authorName: Scalars['String']['output'];
+  authorType: CommentAuthorType;
+  content: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isInternal: Scalars['Boolean']['output'];
+  ticketId: Scalars['String']['output'];
+};
+
+export type TicketListItem = {
+  assignedToName?: Maybe<Scalars['String']['output']>;
+  category: TicketCategory;
+  commentCount: Scalars['Float']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  isResolutionSLABreached: Scalars['Boolean']['output'];
+  isResponseSLABreached: Scalars['Boolean']['output'];
+  priority: TicketPriority;
+  reportedByName: Scalars['String']['output'];
+  status: TicketStatus;
+  subject: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  tenantName: Scalars['String']['output'];
+  ticketNumber: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Support ticket priority level */
+export type TicketPriority =
+  | 'CRITICAL'
+  | 'HIGH'
+  | 'LOW'
+  | 'MEDIUM';
+
+/** Support ticket status */
+export type TicketStatus =
+  | 'CLOSED'
+  | 'IN_PROGRESS'
+  | 'OPEN'
+  | 'RESOLVED'
+  | 'WAITING_CUSTOMER';
+
+/** Type of timeline event */
+export type TimelineEventType =
+  | 'ACKNOWLEDGED'
+  | 'ASSIGNED'
+  | 'COMMENT_ADDED'
+  | 'CREATED'
+  | 'ESCALATED'
+  | 'NOTIFICATION_SENT'
+  | 'REOPENED'
+  | 'RESOLVED'
+  | 'STATUS_CHANGE';
+
+/** Behavior when step times out */
+export type TimeoutBehavior =
+  | 'ABORT'
+  | 'ALARM'
+  | 'GOTO'
+  | 'SKIP';
+
+export type TodaysDailyOpsCounts = {
+  cullCount: Scalars['Int']['output'];
+  feedingCompletedCount: Scalars['Int']['output'];
+  feedingTotalCount: Scalars['Int']['output'];
+  mortalityCount: Scalars['Int']['output'];
+  wqReadingsCount: Scalars['Int']['output'];
+};
+
+export type ToggleLegalHoldInput = {
+  /** True to activate, false to release. */
+  activate: Scalars['Boolean']['input'];
+  /** Required when releasing. ID of the second SUPER_ADMIN countersigning (dual-approver protocol). */
+  approverId?: InputMaybe<Scalars['String']['input']>;
+  /** Required when activating. Null = tenant-wide. */
+  channelId?: InputMaybe<Scalars['String']['input']>;
+  /** Optional expiration date for the hold (GDPR proportionality). */
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  /** Required when releasing. The hold ID. */
+  holdId?: InputMaybe<Scalars['String']['input']>;
+  /** Optional description of the legal matter. */
+  legalMatterDescription?: InputMaybe<Scalars['String']['input']>;
+  /** Required when activating. UUID of the legal matter (GDPR proportionality). */
+  legalMatterId?: InputMaybe<Scalars['String']['input']>;
+  /** Required when activating. Reason for the hold. */
+  reason?: InputMaybe<Scalars['String']['input']>;
+  /** Required when releasing. Free-text justification (≥ 50 chars). */
+  releaseReason?: InputMaybe<Scalars['String']['input']>;
+  /** Optional UUID of the user/entity that requested the hold. */
+  requestedBy?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type TokenValidationResponse = {
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  role?: Maybe<Role>;
+  tenantId?: Maybe<Scalars['String']['output']>;
+  userId?: Maybe<Scalars['String']['output']>;
+  valid: Scalars['Boolean']['output'];
+};
+
+export type TrainingCourse = {
+  certificationTypeId?: Maybe<Scalars['String']['output']>;
+  code: Scalars['String']['output'];
+  cost?: Maybe<Scalars['Float']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  durationMinutes: Scalars['Int']['output'];
+  externalUrl?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isMandatory: Scalars['Boolean']['output'];
+  isOffshoreRequired: Scalars['Boolean']['output'];
+  level: TrainingLevel;
+  maxAttempts?: Maybe<Scalars['Int']['output']>;
+  name: Scalars['String']['output'];
+  passingScore?: Maybe<Scalars['Float']['output']>;
+  prerequisites?: Maybe<Array<Scalars['String']['output']>>;
+  provider?: Maybe<Scalars['String']['output']>;
+  requiresAssessment: Scalars['Boolean']['output'];
+  targetDepartments?: Maybe<Array<Scalars['String']['output']>>;
+  targetRoles?: Maybe<Array<Scalars['String']['output']>>;
+  tenantId: Scalars['String']['output'];
+  trainingType: TrainingType;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  validityMonths?: Maybe<Scalars['Int']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type TrainingCourseConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<TrainingCourse>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type TrainingEnrollment = {
+  assessmentAttempts?: Maybe<Array<AssessmentAttempt>>;
+  attemptCount: Scalars['Int']['output'];
+  certificateId?: Maybe<Scalars['String']['output']>;
+  completedAt?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  dueDate?: Maybe<Scalars['DateTime']['output']>;
+  employeeId: Scalars['String']['output'];
+  enrollmentDate: Scalars['DateTime']['output'];
+  feedback?: Maybe<Scalars['String']['output']>;
+  feedbackRating?: Maybe<Scalars['Int']['output']>;
+  finalScore?: Maybe<Scalars['Float']['output']>;
+  id: Scalars['ID']['output'];
+  instructor?: Maybe<Scalars['String']['output']>;
+  isDeleted: Scalars['Boolean']['output'];
+  location?: Maybe<Scalars['String']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  progressPercent: Scalars['Float']['output'];
+  sessionId?: Maybe<Scalars['String']['output']>;
+  startedAt?: Maybe<Scalars['DateTime']['output']>;
+  status: EnrollmentStatus;
+  tenantId: Scalars['String']['output'];
+  trainingCourseId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+};
+
+export type TrainingEnrollmentConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<TrainingEnrollment>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type TrainingLevel =
+  | 'ADVANCED'
+  | 'BEGINNER'
+  | 'EXPERT'
+  | 'INTERMEDIATE';
+
+export type TrainingType =
+  | 'BLENDED'
+  | 'IN_PERSON'
+  | 'ONLINE'
+  | 'ON_THE_JOB'
+  | 'SELF_PACED';
+
 export type TransferBatchInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
   batchId: Scalars['ID']['input'];
+  clientCommandId: Scalars['ID']['input'];
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   destinationTankId: Scalars['ID']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  payloadHash: Scalars['String']['input'];
   quantity: Scalars['Int']['input'];
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Kapasite kontrolünü atla */
   skipCapacityCheck?: InputMaybe<Scalars['Boolean']['input']>;
   sourceTankId: Scalars['ID']['input'];
@@ -9153,15 +19639,45 @@ export type TransferReason =
   | 'WATER_QUALITY';
 
 export type TransferStockInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   fromLocationId: Scalars['ID']['input'];
+  /** Client-generated idempotency key for at-most-once transfer execution */
+  idempotencyKey?: InputMaybe<Scalars['String']['input']>;
   itemId: Scalars['ID']['input'];
   itemType: StorageItemType;
   lotNumber?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
   quantity: Scalars['Float']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   reference?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
   toLocationId: Scalars['ID']['input'];
 };
+
+export type TransportInfo = {
+  actualTime?: Maybe<Scalars['DateTime']['output']>;
+  arrivalPoint?: Maybe<Scalars['String']['output']>;
+  departurePoint?: Maybe<Scalars['String']['output']>;
+  method: TransportMethod;
+  notes?: Maybe<Scalars['String']['output']>;
+  scheduledTime?: Maybe<Scalars['DateTime']['output']>;
+  vehicleId?: Maybe<Scalars['String']['output']>;
+};
+
+export type TransportMethod =
+  | 'BOAT'
+  | 'HELICOPTER'
+  | 'OTHER'
+  | 'VEHICLE';
 
 export type TreatmentDetailsInput = {
   /** Treatment cost */
@@ -9201,6 +19717,18 @@ export type TreatmentMethod =
   | 'TOPICAL'
   | 'VACCINATION';
 
+export type TypeCount = {
+  count: Scalars['Int']['output'];
+  type: Scalars['String']['output'];
+};
+
+export type UartPortInfo = {
+  /** Device path (e.g. "/dev/ttyAMA0") */
+  devicePath: Scalars['String']['output'];
+  /** Port type: hardware, software, usb-serial, usb-acm */
+  portType: Scalars['String']['output'];
+};
+
 export type UkeplanPerArtInput = {
   /** Species code (FAO 3-letter code, e.g., SAL, RBT) */
   artskode: Scalars['String']['input'];
@@ -9218,6 +19746,79 @@ export type UkeplanPerArtInput = {
   tirsdagKg?: InputMaybe<Scalars['Int']['input']>;
   /** Planned slaughter Thursday (gutted weight kg) */
   torsdagKg?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type UnifiedDeployResultType = {
+  automationResults: Array<AutomationDeployStepResultType>;
+  message?: Maybe<Scalars['String']['output']>;
+  scadaResult?: Maybe<ScadaDeployStepResultType>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type UnifiedTagListType = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<UnifiedTagType>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type UnifiedTagType = {
+  alarmH?: Maybe<Scalars['Float']['output']>;
+  alarmHH?: Maybe<Scalars['Float']['output']>;
+  alarmL?: Maybe<Scalars['Float']['output']>;
+  alarmLL?: Maybe<Scalars['Float']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  dataType: TagDataType;
+  deadband?: Maybe<Scalars['Float']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  direction: TagDirection;
+  displayName?: Maybe<Scalars['String']['output']>;
+  engMax?: Maybe<Scalars['Float']['output']>;
+  engMin?: Maybe<Scalars['Float']['output']>;
+  engUnit?: Maybe<Scalars['String']['output']>;
+  fqn: Scalars['String']['output'];
+  hierarchy: Scalars['JSON']['output'];
+  id: Scalars['ID']['output'];
+  ioType: TagIoType;
+  localName: Scalars['String']['output'];
+  source: Scalars['JSON']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type UpdateActionInput = {
+  actionCode?: InputMaybe<Scalars['String']['input']>;
+  actionName?: InputMaybe<Scalars['String']['input']>;
+  actionOrder?: InputMaybe<Scalars['Int']['input']>;
+  actionType?: InputMaybe<ActionType>;
+  delayMs?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  durationMs?: InputMaybe<Scalars['Int']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  params?: InputMaybe<Scalars['JSON']['input']>;
+  qualifier?: InputMaybe<ActionQualifier>;
+  targetRef?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateAlertRuleInput = {
+  conditions?: InputMaybe<Array<AlertConditionInput>>;
+  cooldownMinutes?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  notificationChannels?: InputMaybe<Array<Scalars['String']['input']>>;
+  recipients?: InputMaybe<Array<Scalars['String']['input']>>;
+  ruleId: Scalars['ID']['input'];
 };
 
 export type UpdateAutoRuleInput = {
@@ -9251,6 +19852,15 @@ export type UpdateBatchInput = {
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   targetFCR?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdateChannelInput = {
+  /** Updated channel avatar URL */
+  avatarUrl?: InputMaybe<Scalars['String']['input']>;
+  /** Updated channel description */
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** Updated channel name */
+  name?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateChecklistItemInput = {
@@ -9319,6 +19929,23 @@ export type UpdateConsumableInput = {
   unitPrice?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type UpdateDataChannelInput = {
+  alertThresholds?: InputMaybe<AlertThresholdsInput>;
+  calibrationEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  calibrationMultiplier?: InputMaybe<Scalars['Float']['input']>;
+  calibrationOffset?: InputMaybe<Scalars['Float']['input']>;
+  channelId: Scalars['ID']['input'];
+  dataPath?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayLabel?: InputMaybe<Scalars['String']['input']>;
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  displaySettings?: InputMaybe<ChannelDisplaySettingsInput>;
+  isEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  maxValue?: InputMaybe<Scalars['Float']['input']>;
+  minValue?: InputMaybe<Scalars['Float']['input']>;
+  unit?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type UpdateDepartmentInput = {
   /** Area in square meters */
   area?: InputMaybe<Scalars['Float']['input']>;
@@ -9336,6 +19963,50 @@ export type UpdateDepartmentInput = {
   settings?: InputMaybe<DepartmentSettingsInput>;
   status?: InputMaybe<DepartmentStatus>;
   type?: InputMaybe<DepartmentType>;
+};
+
+export type UpdateDeviceGroupInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  parentGroupId?: InputMaybe<Scalars['ID']['input']>;
+  type?: InputMaybe<DeviceGroupType>;
+};
+
+export type UpdateEdgeDeviceInput = {
+  capabilities?: InputMaybe<Scalars['JSON']['input']>;
+  config?: InputMaybe<Scalars['JSON']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  deviceName?: InputMaybe<Scalars['String']['input']>;
+  scanRateMs?: InputMaybe<Scalars['Int']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  tags?: InputMaybe<Array<Scalars['String']['input']>>;
+  timezone?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateEmployeeInput = {
+  address?: InputMaybe<AddressInput>;
+  bankDetails?: InputMaybe<BankDetailsInput>;
+  baseSalary?: InputMaybe<Scalars['Float']['input']>;
+  certifications?: InputMaybe<Array<Scalars['String']['input']>>;
+  contactInfo?: InputMaybe<ContactInfoInput>;
+  currency?: InputMaybe<Scalars['String']['input']>;
+  dateOfBirth?: InputMaybe<Scalars['String']['input']>;
+  department?: InputMaybe<HrDepartment>;
+  email?: InputMaybe<Scalars['String']['input']>;
+  employmentType?: InputMaybe<EmploymentType>;
+  farmId?: InputMaybe<Scalars['String']['input']>;
+  firstName?: InputMaybe<Scalars['String']['input']>;
+  hireDate?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['String']['input'];
+  isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
+  lastName?: InputMaybe<Scalars['String']['input']>;
+  nationalId?: InputMaybe<Scalars['String']['input']>;
+  position?: InputMaybe<Scalars['String']['input']>;
+  skills?: InputMaybe<Array<Scalars['String']['input']>>;
+  status?: InputMaybe<EmployeeStatus>;
+  supervisorId?: InputMaybe<Scalars['String']['input']>;
+  terminationDate?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateEquipmentInput = {
@@ -9369,6 +20040,23 @@ export type UpdateEquipmentInput = {
   /** Systems this equipment serves (many-to-many) */
   systemIds?: InputMaybe<Array<Scalars['ID']['input']>>;
   warrantyEndDate?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type UpdateEscalationPolicyInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  farmIds?: InputMaybe<Array<Scalars['ID']['input']>>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  isDefault?: InputMaybe<Scalars['Boolean']['input']>;
+  levels?: InputMaybe<Array<EscalationLevelInput>>;
+  maxRepeats?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  onCallSchedule?: InputMaybe<Array<OnCallScheduleInput>>;
+  policyId: Scalars['ID']['input'];
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  repeatIntervalMinutes?: InputMaybe<Scalars['Int']['input']>;
+  ruleIds?: InputMaybe<Array<Scalars['ID']['input']>>;
+  severity?: InputMaybe<Array<AlertSeverity>>;
+  timezone?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateFeedInput = {
@@ -9431,6 +20119,19 @@ export type UpdateFeedInput = {
   unitSize?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateFeedingParameterInput = {
+  biomassKg?: InputMaybe<Scalars['Float']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  fcr?: InputMaybe<Scalars['Float']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  schedule?: InputMaybe<Array<PlcFeedingScheduleEntryInput>>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  targetDailyFeedKg?: InputMaybe<Scalars['Float']['input']>;
+  thresholds?: InputMaybe<ThresholdConfigInput>;
+  version?: InputMaybe<Scalars['String']['input']>;
+  vfdSettings?: InputMaybe<VfdSettingsInput>;
+};
+
 export type UpdateFeedingProgramInput = {
   code?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -9471,6 +20172,36 @@ export type UpdateFeedingRecordInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
   verifiedBy?: InputMaybe<Scalars['ID']['input']>;
   wasteAmount?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdateGoalInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['String']['input'];
+  priority?: InputMaybe<GoalPriority>;
+  status?: InputMaybe<GoalStatus>;
+  targetDate?: InputMaybe<Scalars['String']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateGoalProgressInput = {
+  goalId: Scalars['String']['input'];
+  keyResultUpdates?: InputMaybe<Array<KeyResultUpdateInput>>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  progressPercent: Scalars['Float']['input'];
+};
+
+export type UpdateHrDepartmentInput = {
+  budgetCode?: InputMaybe<Scalars['String']['input']>;
+  code?: InputMaybe<Scalars['String']['input']>;
+  costCenter?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  isDeleted?: InputMaybe<Scalars['Boolean']['input']>;
+  managerId?: InputMaybe<Scalars['String']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  parentDepartmentId?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateHarvestPlanInput = {
@@ -9654,11 +20385,33 @@ export type UpdateHealthEventInput = {
   withdrawalPeriodDays?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type UpdateHydroponicsConfigInput = {
+  configName?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  settings?: InputMaybe<Scalars['JSON']['input']>;
+};
+
 export type UpdateInventoryCountItemsInput = {
   /** ID of the inventory count session */
   countId: Scalars['ID']['input'];
   /** Items to update with actual quantities */
   items: Array<InventoryCountItemUpdateInput>;
+};
+
+export type UpdateIoConfigInput = {
+  alarmH?: InputMaybe<Scalars['Float']['input']>;
+  alarmHH?: InputMaybe<Scalars['Float']['input']>;
+  alarmL?: InputMaybe<Scalars['Float']['input']>;
+  alarmLL?: InputMaybe<Scalars['Float']['input']>;
+  deadband?: InputMaybe<Scalars['Float']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  engMax?: InputMaybe<Scalars['Float']['input']>;
+  engMin?: InputMaybe<Scalars['Float']['input']>;
+  engUnit?: InputMaybe<Scalars['String']['input']>;
+  invertValue?: InputMaybe<Scalars['Boolean']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  rawMax?: InputMaybe<Scalars['Float']['input']>;
+  rawMin?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type UpdateMaintenanceScheduleInput = {
@@ -9690,6 +20443,43 @@ export type UpdateMaintenanceScheduleInput = {
 export type UpdateMeterReadingInput = {
   id: Scalars['ID']['input'];
   meterReading: Scalars['Float']['input'];
+};
+
+export type UpdateMobileUserSettingsInput = {
+  cull?: InputMaybe<Scalars['Boolean']['input']>;
+  feeding?: InputMaybe<Scalars['Boolean']['input']>;
+  harvest?: InputMaybe<Scalars['Boolean']['input']>;
+  isMobileEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  mortality?: InputMaybe<Scalars['Boolean']['input']>;
+  storage?: InputMaybe<Scalars['Boolean']['input']>;
+  tankView?: InputMaybe<Scalars['Boolean']['input']>;
+  userId: Scalars['ID']['input'];
+  waterQuality?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type UpdateMyProfileInput = {
+  firstName?: InputMaybe<Scalars['String']['input']>;
+  lastName?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateNotificationPreferencesInput = {
+  alertNotifications?: InputMaybe<Scalars['Boolean']['input']>;
+  emailEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  pushEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  /** HH:mm format, e.g. "07:00". Set to null to disable quiet hours. */
+  quietHoursEnd?: InputMaybe<Scalars['String']['input']>;
+  /** HH:mm format, e.g. "22:00". Set to null to disable quiet hours. */
+  quietHoursStart?: InputMaybe<Scalars['String']['input']>;
+  /** IANA timezone, e.g. "Europe/Istanbul" */
+  quietHoursTimezone?: InputMaybe<Scalars['String']['input']>;
+  smsEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  systemNotifications?: InputMaybe<Scalars['Boolean']['input']>;
+  taskNotifications?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type UpdateOnCallScheduleInput = {
+  policyId: Scalars['ID']['input'];
+  schedule: Array<OnCallScheduleInput>;
 };
 
 export type UpdateParamEquipmentInput = {
@@ -9758,6 +20548,101 @@ export type UpdateParameterConfigInput = {
   warningMin?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type UpdatePlanEntryInput = {
+  entryId: Scalars['ID']['input'];
+  entryType?: InputMaybe<WeeklyPlanEntryType>;
+  isOffDay?: InputMaybe<Scalars['Boolean']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  plannedEndTime?: InputMaybe<Scalars['String']['input']>;
+  plannedStartTime?: InputMaybe<Scalars['String']['input']>;
+  shiftId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type UpdatePlanInput = {
+  basePrice?: InputMaybe<Scalars['Float']['input']>;
+  billingCycle?: InputMaybe<BillingCycle>;
+  currency?: InputMaybe<Scalars['String']['input']>;
+  expectedVersion: Scalars['Int']['input'];
+  features?: InputMaybe<Array<Scalars['String']['input']>>;
+  isPublic?: InputMaybe<Scalars['Boolean']['input']>;
+  limits?: InputMaybe<PlanLimitsInput>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  pricing?: InputMaybe<PlanPricingInput>;
+  sortOrder?: InputMaybe<Scalars['Int']['input']>;
+  tier?: InputMaybe<PlanTier>;
+};
+
+export type UpdatePlcConnectionInput = {
+  alarmsNodeId?: InputMaybe<Scalars['String']['input']>;
+  authMode?: InputMaybe<Scalars['String']['input']>;
+  autoReconnect?: InputMaybe<Scalars['Boolean']['input']>;
+  clientCertificate?: InputMaybe<Scalars['String']['input']>;
+  clientPrivateKey?: InputMaybe<Scalars['String']['input']>;
+  connectTimeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  endpointUrl?: InputMaybe<Scalars['String']['input']>;
+  failoverEndpointUrl?: InputMaybe<Scalars['String']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  keepAliveIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  maxReconnectAttempts?: InputMaybe<Scalars['Int']['input']>;
+  maxReconnectDelayMs?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  parametersNodeId?: InputMaybe<Scalars['String']['input']>;
+  password?: InputMaybe<Scalars['String']['input']>;
+  publishingIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  reconnectDelayMs?: InputMaybe<Scalars['Int']['input']>;
+  requestTimeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  samplingIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  securityMode?: InputMaybe<Scalars['String']['input']>;
+  securityPolicy?: InputMaybe<Scalars['String']['input']>;
+  serverCertificate?: InputMaybe<Scalars['String']['input']>;
+  sessionTimeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  statusNodeId?: InputMaybe<Scalars['String']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  telemetryNodeId?: InputMaybe<Scalars['String']['input']>;
+  username?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateProcessInput = {
+  departmentId?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  edges?: InputMaybe<Scalars['JSON']['input']>;
+  isTemplate?: InputMaybe<Scalars['Boolean']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  nodes?: InputMaybe<Scalars['JSON']['input']>;
+  processId: Scalars['ID']['input'];
+  siteId?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<ProcessStatus>;
+  templateName?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateProfileInput = {
+  /** @deprecated Email changes require a verified-email workflow. */
+  email?: InputMaybe<Scalars['String']['input']>;
+  firstName?: InputMaybe<Scalars['String']['input']>;
+  lastName?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateProgramInput = {
+  category?: InputMaybe<Scalars['String']['input']>;
+  deployTarget?: InputMaybe<DeployTarget>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  executionMode?: InputMaybe<ExecutionMode>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  programName?: InputMaybe<Scalars['String']['input']>;
+  scanCycleMs?: InputMaybe<Scalars['Int']['input']>;
+  sfcDefinition?: InputMaybe<Scalars['JSON']['input']>;
+  structuredTextCode?: InputMaybe<Scalars['String']['input']>;
+  tags?: InputMaybe<Array<Scalars['String']['input']>>;
+  targetPlcAddress?: InputMaybe<Scalars['String']['input']>;
+  targetPlcModel?: InputMaybe<Scalars['String']['input']>;
+  targetPlcPort?: InputMaybe<Scalars['Int']['input']>;
+  targetPlcProtocol?: InputMaybe<Scalars['String']['input']>;
+  triggerConfig?: InputMaybe<Scalars['JSON']['input']>;
+};
+
 export type UpdatePurchaseOrderStatusInput = {
   id: Scalars['ID']['input'];
   status: PurchaseOrderStatus;
@@ -9804,6 +20689,72 @@ export type UpdateRegulatorySettingsInput = {
   siteLocalityMappings?: InputMaybe<Array<SiteLocalityMappingInput>>;
   /** Slaughter facility approval number */
   slaughterApprovalNumber?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateScadaPackageInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  name?: InputMaybe<Scalars['String']['input']>;
+  packageData?: InputMaybe<Scalars['JSON']['input']>;
+  processId?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<ScadaPackageStatus>;
+};
+
+export type UpdateSchedulingSettingsInput = {
+  allowOvertimeWithoutApproval?: InputMaybe<Scalars['Boolean']['input']>;
+  autoNotifyEmployees?: InputMaybe<Scalars['Boolean']['input']>;
+  defaultShiftId?: InputMaybe<Scalars['ID']['input']>;
+  maxConsecutiveWorkDays?: InputMaybe<Scalars['Int']['input']>;
+  maxOvertimeMinutesPerMonth?: InputMaybe<Scalars['Int']['input']>;
+  maxOvertimeMinutesPerWeek?: InputMaybe<Scalars['Int']['input']>;
+  minRestMinutesBetweenShifts?: InputMaybe<Scalars['Int']['input']>;
+  notifyDaysBefore?: InputMaybe<Scalars['Int']['input']>;
+  standardWeeklyMinutes?: InputMaybe<Scalars['Int']['input']>;
+  workWeekStartDay?: InputMaybe<WeekDay>;
+};
+
+export type UpdateSensorInfoInput = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  equipmentId?: InputMaybe<Scalars['ID']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  manufacturer?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  sensorId: Scalars['ID']['input'];
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  type?: InputMaybe<SensorType>;
+};
+
+export type UpdateSensorInput = {
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  firmwareVersion?: InputMaybe<Scalars['String']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  pondId?: InputMaybe<Scalars['ID']['input']>;
+  sensorId: Scalars['ID']['input'];
+  status?: InputMaybe<SensorStatus>;
+};
+
+export type UpdateSensorProtocolInput = {
+  protocolCode?: InputMaybe<Scalars['String']['input']>;
+  protocolConfiguration: Scalars['JSON']['input'];
+  sensorId: Scalars['ID']['input'];
+};
+
+export type UpdateSensorTypeInput = {
+  category?: InputMaybe<Scalars['String']['input']>;
+  defaultChannels?: InputMaybe<Scalars['JSON']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayName?: InputMaybe<Scalars['String']['input']>;
+  icon?: InputMaybe<Scalars['String']['input']>;
+  industry?: InputMaybe<Scalars['String']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
 };
 
 export type UpdateSiteInput = {
@@ -9871,6 +20822,19 @@ export type UpdateSpeciesInput = {
   supplierId?: InputMaybe<Scalars['String']['input']>;
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
   waterType?: InputMaybe<SpeciesWaterType>;
+};
+
+export type UpdateStepInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  entryAction?: InputMaybe<Scalars['String']['input']>;
+  exitAction?: InputMaybe<Scalars['String']['input']>;
+  onTimeout?: InputMaybe<TimeoutBehavior>;
+  positionX?: InputMaybe<Scalars['Int']['input']>;
+  positionY?: InputMaybe<Scalars['Int']['input']>;
+  stepName?: InputMaybe<Scalars['String']['input']>;
+  stepOrder?: InputMaybe<Scalars['Int']['input']>;
+  timeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  timeoutTargetStep?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateStorageLocationInput = {
@@ -9952,12 +20916,37 @@ export type UpdateSystemInput = {
   type?: InputMaybe<SystemType>;
 };
 
+export type UpdateTagInput = {
+  alarmH?: InputMaybe<Scalars['Float']['input']>;
+  alarmHH?: InputMaybe<Scalars['Float']['input']>;
+  alarmL?: InputMaybe<Scalars['Float']['input']>;
+  alarmLL?: InputMaybe<Scalars['Float']['input']>;
+  dataType?: InputMaybe<TagDataType>;
+  deadband?: InputMaybe<Scalars['Float']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  direction?: InputMaybe<TagDirection>;
+  displayName?: InputMaybe<Scalars['String']['input']>;
+  engMax?: InputMaybe<Scalars['Float']['input']>;
+  engMin?: InputMaybe<Scalars['Float']['input']>;
+  engUnit?: InputMaybe<Scalars['String']['input']>;
+  fqn?: InputMaybe<Scalars['String']['input']>;
+  hierarchy?: InputMaybe<Scalars['JSON']['input']>;
+  id: Scalars['ID']['input'];
+  ioType?: InputMaybe<TagIoType>;
+  localName?: InputMaybe<Scalars['String']['input']>;
+  source?: InputMaybe<Scalars['JSON']['input']>;
+};
+
 export type UpdateTankInput = {
   aeration?: InputMaybe<AerationInput>;
+  code?: InputMaybe<Scalars['String']['input']>;
+  containerKind?: InputMaybe<TankContainerKind>;
   departmentId?: InputMaybe<Scalars['String']['input']>;
   depth?: InputMaybe<Scalars['Float']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
   diameter?: InputMaybe<Scalars['Float']['input']>;
+  equipmentTypeCode?: InputMaybe<Scalars['String']['input']>;
+  equipmentTypeId?: InputMaybe<Scalars['String']['input']>;
   freeboard?: InputMaybe<Scalars['Float']['input']>;
   id: Scalars['ID']['input'];
   installationDate?: InputMaybe<Scalars['String']['input']>;
@@ -9971,6 +20960,8 @@ export type UpdateTankInput = {
   status?: InputMaybe<TankStatus>;
   systemId?: InputMaybe<Scalars['String']['input']>;
   tankType?: InputMaybe<TankType>;
+  /** Manual volume for non-geometric pond/cage containers */
+  volume?: InputMaybe<Scalars['Float']['input']>;
   waterDepth?: InputMaybe<Scalars['Float']['input']>;
   waterFlow?: InputMaybe<WaterFlowInput>;
   waterType?: InputMaybe<WaterType>;
@@ -10004,13 +20995,116 @@ export type UpdateTaskInput = {
   title?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateTenantInput = {
+  address?: InputMaybe<Scalars['String']['input']>;
+  contactEmail?: InputMaybe<Scalars['String']['input']>;
+  contactPhone?: InputMaybe<Scalars['String']['input']>;
+  customDomain?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  logoUrl?: InputMaybe<Scalars['String']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  settings?: InputMaybe<Scalars['JSON']['input']>;
+  taxId?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateTenantRoleInput = {
+  color?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  icon?: InputMaybe<Scalars['String']['input']>;
+  isDefault?: InputMaybe<Scalars['Boolean']['input']>;
+  level?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  panelPermissions?: InputMaybe<Scalars['JSON']['input']>;
+};
+
+export type UpdateTenantUserInput = {
+  /** Platform access type: PANEL_ONLY, MOBILE_ONLY, or BOTH */
+  accessType?: InputMaybe<AccessType>;
+  firstName?: InputMaybe<Scalars['String']['input']>;
+  lastName?: InputMaybe<Scalars['String']['input']>;
+  /** Tenant role ID to assign. If changed, updates the user role assignment. */
+  roleId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type UpdateTicketStatusInput = {
+  status: TicketStatus;
+  ticketId: Scalars['String']['input'];
+};
+
+export type UpdateTransitionInput = {
+  conditionExpression?: InputMaybe<Scalars['String']['input']>;
+  conditionType?: InputMaybe<ConditionType>;
+  controlPoints?: InputMaybe<Scalars['JSON']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  eventType?: InputMaybe<Scalars['String']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  timeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  transitionName?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateUserRoleInput = {
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  permissionOverrides?: InputMaybe<PermissionOverridesInput>;
+  roleId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type UpdateVariableInput = {
+  alarmH?: InputMaybe<Scalars['Float']['input']>;
+  alarmHH?: InputMaybe<Scalars['Float']['input']>;
+  alarmL?: InputMaybe<Scalars['Float']['input']>;
+  alarmLL?: InputMaybe<Scalars['Float']['input']>;
+  dataType?: InputMaybe<VariableDataType>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayName?: InputMaybe<Scalars['String']['input']>;
+  engUnit?: InputMaybe<Scalars['String']['input']>;
+  equipmentNodeId?: InputMaybe<Scalars['String']['input']>;
+  equipmentProperty?: InputMaybe<Scalars['String']['input']>;
+  initialValue?: InputMaybe<Scalars['String']['input']>;
+  ioConfigId?: InputMaybe<Scalars['String']['input']>;
+  ioTagName?: InputMaybe<Scalars['String']['input']>;
+  maxValue?: InputMaybe<Scalars['Float']['input']>;
+  metadata?: InputMaybe<Scalars['JSON']['input']>;
+  minValue?: InputMaybe<Scalars['Float']['input']>;
+  scope?: InputMaybe<VariableScope>;
+  sensorChannelId?: InputMaybe<Scalars['String']['input']>;
+  varOrder?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type UpdateVfdAutomationRuleInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  parameterChanges?: InputMaybe<Scalars['JSON']['input']>;
+  priority?: InputMaybe<Scalars['Int']['input']>;
+  requiresApproval?: InputMaybe<Scalars['Boolean']['input']>;
+  targetVfdDeviceIds?: InputMaybe<Array<Scalars['String']['input']>>;
+  triggerCondition?: InputMaybe<Scalars['JSON']['input']>;
+};
+
+export type UpdateVfdInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  isPollingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  location?: InputMaybe<Scalars['String']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  pollIntervalMs?: InputMaybe<Scalars['Int']['input']>;
+  protocol?: InputMaybe<Scalars['String']['input']>;
+  protocolConfiguration?: InputMaybe<ProtocolConfigurationInput>;
+  serialNumber?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  tags?: InputMaybe<Array<Scalars['String']['input']>>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type UpdateWaterQualityInput = {
+  /** Dynamic parameters (tenant-configured JSONB) */
+  dynamicParameters?: InputMaybe<Scalars['JSON']['input']>;
   /** Ölçüm ID */
   id: Scalars['ID']['input'];
   /** Notlar */
   notes?: InputMaybe<Scalars['String']['input']>;
-  /** Su parametreleri */
-  parameters?: InputMaybe<WaterParametersInput>;
   /** Hava durumu */
   weatherConditions?: InputMaybe<Scalars['String']['input']>;
 };
@@ -10019,6 +21113,27 @@ export type UpdateWeatherSettingsInput = {
   enabled?: InputMaybe<Scalars['Boolean']['input']>;
   forecastDays?: InputMaybe<Scalars['Int']['input']>;
   syncIntervalMinutes?: InputMaybe<Scalars['Int']['input']>;
+};
+
+export type UpdateWorkAreaInput = {
+  colorCode?: InputMaybe<Scalars['String']['input']>;
+  coordinates?: InputMaybe<GeoCoordinatesInput>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  displayOrder?: InputMaybe<Scalars['Int']['input']>;
+  emergencyContact?: InputMaybe<Scalars['String']['input']>;
+  emergencyProcedure?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  isOffshore?: InputMaybe<Scalars['Boolean']['input']>;
+  maxCapacity?: InputMaybe<Scalars['Int']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  requiredCertifications?: InputMaybe<Array<Scalars['String']['input']>>;
+  requiredPPE?: InputMaybe<Array<Scalars['String']['input']>>;
+  requiresDivingCertification?: InputMaybe<Scalars['Boolean']['input']>;
+  requiresSeaWorthy?: InputMaybe<Scalars['Boolean']['input']>;
+  requiresVesselCertification?: InputMaybe<Scalars['Boolean']['input']>;
+  riskLevel?: InputMaybe<WorkAreaRiskLevel>;
+  siteId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateWorkOrderInput = {
@@ -10042,6 +21157,18 @@ export type UpdateWorkOrderInput = {
   title?: InputMaybe<Scalars['String']['input']>;
   type?: InputMaybe<WorkOrderType>;
   usedMaterials?: InputMaybe<Array<UsedMaterialInput>>;
+};
+
+export type UpdateWorkRotationInput = {
+  accommodationInfo?: InputMaybe<Scalars['String']['input']>;
+  daysOff?: InputMaybe<Scalars['Int']['input']>;
+  daysOn?: InputMaybe<Scalars['Int']['input']>;
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  reliefEmployeeId?: InputMaybe<Scalars['String']['input']>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+  supervisorId?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateWorkerInput = {
@@ -10088,6 +21215,170 @@ export type UsedMaterialInput = {
   unitCost?: InputMaybe<Scalars['Float']['input']>;
 };
 
+export type User = {
+  accessType: AccessType;
+  createdAt: Scalars['DateTime']['output'];
+  email: Scalars['String']['output'];
+  firstName?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isEmailVerified: Scalars['Boolean']['output'];
+  isOnline: Scalars['Boolean']['output'];
+  lastLoginAt?: Maybe<Scalars['DateTime']['output']>;
+  lastName?: Maybe<Scalars['String']['output']>;
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  mfaEnabled: Scalars['Boolean']['output'];
+  preferredLanguage?: Maybe<Scalars['String']['output']>;
+  profileImageUrl?: Maybe<Scalars['String']['output']>;
+  role: Role;
+  tenantId?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type UserActivitySummaryResponse = {
+  email: Scalars['String']['output'];
+  firstName?: Maybe<Scalars['String']['output']>;
+  lastActiveAt?: Maybe<Scalars['DateTime']['output']>;
+  lastName?: Maybe<Scalars['String']['output']>;
+  loginCount: Scalars['Int']['output'];
+  totalActions: Scalars['Int']['output'];
+  userId: Scalars['String']['output'];
+};
+
+export type UserConsentRecord = {
+  consentType: ConsentType;
+  createdAt: Scalars['DateTime']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  granted: Scalars['Boolean']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  tenantId?: Maybe<Scalars['ID']['output']>;
+  userId: Scalars['ID']['output'];
+  version: Scalars['String']['output'];
+};
+
+export type UserConsentStatus = {
+  consentVersion: Scalars['String']['output'];
+  consents: Array<ConsentStatusItem>;
+  isOutdated: Scalars['Boolean']['output'];
+  lastUpdated: Scalars['DateTime']['output'];
+  userId: Scalars['ID']['output'];
+};
+
+export type UserModule = {
+  code: Scalars['String']['output'];
+  defaultRoute: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+};
+
+export type UserModuleInfo = {
+  code: Scalars['String']['output'];
+  color?: Maybe<Scalars['String']['output']>;
+  defaultRoute?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  icon?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isEnabled: Scalars['Boolean']['output'];
+  moduleId: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+};
+
+export type UserRoleAssignment = {
+  assignedAt: Scalars['DateTime']['output'];
+  assignedBy: Scalars['ID']['output'];
+  effectivePermissions: Array<Scalars['String']['output']>;
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  panelPermissions: Scalars['JSON']['output'];
+  permissionOverrides: PermissionOverrides;
+  resourcePermissions: Array<Scalars['String']['output']>;
+  roleColor: Scalars['String']['output'];
+  roleIcon: Scalars['String']['output'];
+  roleId: Scalars['ID']['output'];
+  roleLevel: Scalars['Int']['output'];
+  roleName: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
+export type ValidateConfigInput = {
+  config: Scalars['JSON']['input'];
+  protocolCode: Scalars['String']['input'];
+};
+
+export type ValidationErrorType = {
+  field: Scalars['String']['output'];
+  message: Scalars['String']['output'];
+};
+
+export type ValidationResult = {
+  errors: Array<DiagnosticItem>;
+  infos: Array<DiagnosticItem>;
+  parsedSymbols: Array<Scalars['String']['output']>;
+  valid: Scalars['Boolean']['output'];
+  warnings: Array<DiagnosticItem>;
+};
+
+export type ValidationResultType = {
+  errors: Array<ValidationErrorType>;
+  isValid: Scalars['Boolean']['output'];
+};
+
+/** IEC 61131-3 variable data type */
+export type VariableDataType =
+  | 'BOOL'
+  | 'DATE'
+  | 'DINT'
+  | 'DT'
+  | 'INT'
+  | 'LREAL'
+  | 'REAL'
+  | 'STRING'
+  | 'TIME'
+  | 'TOD'
+  | 'UDINT'
+  | 'UINT';
+
+/** Scope/usage of the variable */
+export type VariableScope =
+  | 'CONSTANT'
+  | 'INOUT'
+  | 'INPUT'
+  | 'LOCAL'
+  | 'OUTPUT'
+  | 'RETAIN';
+
+export type VarslingKontaktpersonInput = {
+  /** Contact person email */
+  epost: Scalars['String']['input'];
+  /** Contact person name */
+  navn: Scalars['String']['input'];
+  /** Contact person phone number (e.g., +4798989898) */
+  telefonnummer?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type VerificationStatus =
+  | 'PENDING_VERIFICATION'
+  | 'UNVERIFIED'
+  | 'VERIFICATION_FAILED'
+  | 'VERIFIED';
+
+export type VerifyMfaLoginInput = {
+  /** TOTP code or recovery code */
+  code: Scalars['String']['input'];
+  /** Short-lived MFA token received from login */
+  mfaToken: Scalars['String']['input'];
+};
+
+export type VerifyMfaSetupInput = {
+  code: Scalars['String']['input'];
+};
+
+export type VerifyMfaSetupResponse = {
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
 export type VerifyWorkOrderInput = {
   approved?: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
@@ -10114,6 +21405,511 @@ export type VetConsultationInput = {
   vetLicense?: InputMaybe<Scalars['String']['input']>;
   /** Veterinarian name */
   vetName: Scalars['String']['input'];
+};
+
+/** VFD audit trail action types */
+export type VfdAuditAction =
+  | 'APPLY'
+  | 'AUTO_APPLY'
+  | 'EMERGENCY_OVERRIDE'
+  | 'ROLLBACK';
+
+/** VFD automation rule for event-driven parameter changes */
+export type VfdAutomationRule = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['String']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  lastTriggeredAt?: Maybe<Scalars['DateTime']['output']>;
+  name: Scalars['String']['output'];
+  parameterChanges: Scalars['JSON']['output'];
+  priority: Scalars['Int']['output'];
+  requiresApproval: Scalars['Boolean']['output'];
+  targetVfdDeviceIds: Scalars['JSON']['output'];
+  tenantId: Scalars['String']['output'];
+  triggerCondition: Scalars['JSON']['output'];
+  triggerCount: Scalars['Int']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** VFD manufacturer brands */
+export type VfdBrand =
+  | 'ABB'
+  | 'DANFOSS'
+  | 'DELTA'
+  | 'MITSUBISHI'
+  | 'ROCKWELL'
+  | 'SCHNEIDER'
+  | 'SIEMENS'
+  | 'YASKAWA';
+
+/** VFD parameter change set (Maker-Checker) */
+export type VfdChangeSet = {
+  appliedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['String']['output']>;
+  automationRuleId?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['String']['output'];
+  description: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  items: Array<VfdChangeSetItem>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  rejectedBy?: Maybe<Scalars['String']['output']>;
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  rollbackOfId?: Maybe<Scalars['String']['output']>;
+  scheduledAt?: Maybe<Scalars['DateTime']['output']>;
+  status: VfdChangeSetStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  verifiedAt?: Maybe<Scalars['DateTime']['output']>;
+  vfdDeviceId: Scalars['String']['output'];
+};
+
+/** Individual parameter change within a VFD change set */
+export type VfdChangeSetItem = {
+  appliedAt?: Maybe<Scalars['DateTime']['output']>;
+  appliedValue?: Maybe<Scalars['Float']['output']>;
+  changeSetId: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  parameterDefinitionId: Scalars['String']['output'];
+  parameterName: Scalars['String']['output'];
+  previousValue?: Maybe<Scalars['Float']['output']>;
+  requestedValue: Scalars['Float']['output'];
+  status: VfdChangeSetItemStatus;
+};
+
+export type VfdChangeSetItemInput = {
+  parameterName: Scalars['String']['input'];
+  requestedValue: Scalars['Float']['input'];
+};
+
+/** VFD change set item status */
+export type VfdChangeSetItemStatus =
+  | 'APPLIED'
+  | 'FAILED'
+  | 'PENDING'
+  | 'ROLLED_BACK'
+  | 'VERIFIED';
+
+/** VFD change set workflow status */
+export type VfdChangeSetStatus =
+  | 'APPLIED'
+  | 'APPLYING'
+  | 'APPROVED'
+  | 'DRAFT'
+  | 'FAILED'
+  | 'PENDING_APPROVAL'
+  | 'REJECTED'
+  | 'ROLLED_BACK'
+  | 'VERIFIED';
+
+export type VfdCommandInput = {
+  command: Scalars['String']['input'];
+  timeoutMs?: InputMaybe<Scalars['Int']['input']>;
+  value?: InputMaybe<Scalars['Float']['input']>;
+  waitForAck?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+export type VfdCommandResult = {
+  acknowledgedAt?: Maybe<Scalars['DateTime']['output']>;
+  commandSent?: Maybe<Scalars['String']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  newValue?: Maybe<Scalars['Float']['output']>;
+  previousValue?: Maybe<Scalars['Float']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type VfdConnectionStatus = {
+  consecutiveFailures?: Maybe<Scalars['Int']['output']>;
+  isConnected: Scalars['Boolean']['output'];
+  lastError?: Maybe<Scalars['String']['output']>;
+  lastSuccessAt?: Maybe<Scalars['DateTime']['output']>;
+  lastTestedAt?: Maybe<Scalars['DateTime']['output']>;
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+};
+
+export type VfdConnectionTestResult = {
+  deviceInfo?: Maybe<VfdDeviceInfo>;
+  diagnostics?: Maybe<VfdDiagnostics>;
+  error?: Maybe<Scalars['String']['output']>;
+  errorCode?: Maybe<Scalars['String']['output']>;
+  firmwareVersion?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  sampleData?: Maybe<Scalars['JSON']['output']>;
+  statusBits?: Maybe<Scalars['JSON']['output']>;
+  success: Scalars['Boolean']['output'];
+  testedAt: Scalars['DateTime']['output'];
+};
+
+/** VFD data types for register mapping */
+export type VfdDataType =
+  | 'CONTROL_WORD'
+  | 'FLOAT32'
+  | 'INT16'
+  | 'INT32'
+  | 'STATUS_WORD'
+  | 'UINT16'
+  | 'UINT32';
+
+/** VFD (Variable Frequency Drive) device */
+export type VfdDevice = {
+  brand: VfdBrand;
+  connectionStatus?: Maybe<Scalars['JSON']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  customRegisterMappings?: Maybe<Scalars['JSON']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  farmId?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isPollingEnabled: Scalars['Boolean']['output'];
+  latestReading?: Maybe<VfdReading>;
+  location?: Maybe<Scalars['String']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  pollIntervalMs: Scalars['Float']['output'];
+  protocol: VfdProtocol;
+  protocolConfiguration: Scalars['JSON']['output'];
+  serialNumber?: Maybe<Scalars['String']['output']>;
+  status: VfdDeviceStatus;
+  tankId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+};
+
+export type VfdDeviceFilterInput = {
+  brand?: InputMaybe<Scalars['String']['input']>;
+  farmId?: InputMaybe<Scalars['ID']['input']>;
+  isConnected?: InputMaybe<Scalars['Boolean']['input']>;
+  isPollingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  protocol?: InputMaybe<Scalars['String']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type VfdDeviceInfo = {
+  manufacturer?: Maybe<Scalars['String']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  serialNumber?: Maybe<Scalars['String']['output']>;
+};
+
+export type VfdDeviceOutput = {
+  brand: Scalars['String']['output'];
+  connectionStatus?: Maybe<VfdConnectionStatus>;
+  createdAt: Scalars['DateTime']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  farmId?: Maybe<Scalars['ID']['output']>;
+  id: Scalars['ID']['output'];
+  isPollingEnabled: Scalars['Boolean']['output'];
+  location?: Maybe<Scalars['String']['output']>;
+  model?: Maybe<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  pollIntervalMs: Scalars['Int']['output'];
+  protocol: Scalars['String']['output'];
+  serialNumber?: Maybe<Scalars['String']['output']>;
+  status: Scalars['String']['output'];
+  tankId?: Maybe<Scalars['ID']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** VFD device status */
+export type VfdDeviceStatus =
+  | 'ACTIVE'
+  | 'DRAFT'
+  | 'OFFLINE'
+  | 'PENDING_TEST'
+  | 'SUSPENDED'
+  | 'TESTING'
+  | 'TEST_FAILED';
+
+export type VfdDiagnostics = {
+  averageLatency: Scalars['Int']['output'];
+  communicationErrors: Scalars['Int']['output'];
+  maxLatency: Scalars['Int']['output'];
+  packetsReceived: Scalars['Int']['output'];
+  packetsSent: Scalars['Int']['output'];
+  retries: Scalars['Int']['output'];
+};
+
+export type VfdPaginationInput = {
+  /** Items per page (max 100) */
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  /** Page number (1-based) */
+  page?: InputMaybe<Scalars['Int']['input']>;
+  /** Field to sort by (name, brand, status, createdAt, updatedAt) */
+  sortBy?: InputMaybe<Scalars['String']['input']>;
+  /** Sort direction */
+  sortOrder?: InputMaybe<SortOrder>;
+};
+
+/** Immutable VFD parameter change audit log */
+export type VfdParameterAuditLog = {
+  action: VfdAuditAction;
+  automationRuleId?: Maybe<Scalars['String']['output']>;
+  changeSetId?: Maybe<Scalars['String']['output']>;
+  clientIp?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  newValue: Scalars['Float']['output'];
+  parameterName: Scalars['String']['output'];
+  performedBy: Scalars['String']['output'];
+  previousValue?: Maybe<Scalars['Float']['output']>;
+  tenantId: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+  userAgent?: Maybe<Scalars['String']['output']>;
+  vfdDeviceId: Scalars['String']['output'];
+};
+
+/** VFD parameter categories */
+export type VfdParameterCategory =
+  | 'CONFIGURATION'
+  | 'CONTROL'
+  | 'ENERGY'
+  | 'FAULT'
+  | 'MOTOR'
+  | 'STATUS'
+  | 'THERMAL';
+
+/** VFD writable parameter definition */
+export type VfdParameterDefinition = {
+  brand: VfdBrand;
+  byteOrder: Scalars['String']['output'];
+  category: Scalars['String']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  dataType: Scalars['String']['output'];
+  defaultValue?: Maybe<Scalars['Float']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayName: Scalars['String']['output'];
+  displayOrder: Scalars['Int']['output'];
+  functionCode: Scalars['Int']['output'];
+  group: VfdParameterGroup;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isReadable: Scalars['Boolean']['output'];
+  isWritable: Scalars['Boolean']['output'];
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  modelSeries?: Maybe<Scalars['String']['output']>;
+  offset: Scalars['Float']['output'];
+  parameterName: Scalars['String']['output'];
+  registerAddress: Scalars['Int']['output'];
+  registerCount: Scalars['Int']['output'];
+  requiresMotorStop: Scalars['Boolean']['output'];
+  riskLevel: RiskLevel;
+  scalingFactor: Scalars['Float']['output'];
+  step?: Maybe<Scalars['Float']['output']>;
+  tenantId?: Maybe<Scalars['String']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  wordOrder: Scalars['String']['output'];
+};
+
+/** VFD configuration parameter groups */
+export type VfdParameterGroup =
+  | 'ADVANCED'
+  | 'COMMUNICATION'
+  | 'CURRENT_LIMITS'
+  | 'DIGITAL_IO'
+  | 'FREQUENCY_LIMITS'
+  | 'JOG'
+  | 'MOTOR_NAMEPLATE'
+  | 'PID_CONTROLLER'
+  | 'PROTECTION'
+  | 'RAMP_TIMES'
+  | 'VF_CONTROL';
+
+export type VfdParameters = {
+  alarmWord?: Maybe<Scalars['Int']['output']>;
+  ambientTemperature?: Maybe<Scalars['Float']['output']>;
+  controlCardTemperature?: Maybe<Scalars['Float']['output']>;
+  dcBusVoltage?: Maybe<Scalars['Float']['output']>;
+  driveTemperature?: Maybe<Scalars['Float']['output']>;
+  energyConsumption?: Maybe<Scalars['Float']['output']>;
+  faultCode?: Maybe<Scalars['Int']['output']>;
+  frequencyReference?: Maybe<Scalars['Float']['output']>;
+  motorCurrent?: Maybe<Scalars['Float']['output']>;
+  motorSpeed?: Maybe<Scalars['Float']['output']>;
+  motorThermal?: Maybe<Scalars['Float']['output']>;
+  motorTorque?: Maybe<Scalars['Float']['output']>;
+  motorVoltage?: Maybe<Scalars['Float']['output']>;
+  outputFrequency?: Maybe<Scalars['Float']['output']>;
+  outputPower?: Maybe<Scalars['Float']['output']>;
+  powerFactor?: Maybe<Scalars['Float']['output']>;
+  powerOnHours?: Maybe<Scalars['Float']['output']>;
+  runningHours?: Maybe<Scalars['Float']['output']>;
+  speedReference?: Maybe<Scalars['Float']['output']>;
+  startCount?: Maybe<Scalars['Int']['output']>;
+  statusWord?: Maybe<Scalars['Int']['output']>;
+  warningWord?: Maybe<Scalars['Int']['output']>;
+};
+
+/** VFD communication protocols */
+export type VfdProtocol =
+  | 'BACNET_IP'
+  | 'BACNET_MSTP'
+  | 'CANOPEN'
+  | 'ETHERNET_IP'
+  | 'MODBUS_RTU'
+  | 'MODBUS_TCP'
+  | 'PROFIBUS_DP'
+  | 'PROFINET';
+
+export type VfdProtocolField = {
+  defaultValue?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  label: Scalars['String']['output'];
+  max?: Maybe<Scalars['Int']['output']>;
+  min?: Maybe<Scalars['Int']['output']>;
+  name: Scalars['String']['output'];
+  options?: Maybe<Array<Scalars['String']['output']>>;
+  required: Scalars['Boolean']['output'];
+  type: Scalars['String']['output'];
+};
+
+/** Result of reading VFD parameters from device */
+export type VfdReadResultDto = {
+  /** Any errors during reading */
+  errors?: Maybe<Array<Scalars['String']['output']>>;
+  /** Communication latency in milliseconds */
+  latencyMs: Scalars['Int']['output'];
+  /** VFD parameters read from device */
+  parameters: Scalars['JSON']['output'];
+  /** Raw register values */
+  rawValues: Scalars['JSON']['output'];
+  /** Parsed status bits */
+  statusBits?: Maybe<Scalars['JSON']['output']>;
+  /** Timestamp of the reading */
+  timestamp: Scalars['DateTime']['output'];
+};
+
+/** VFD device reading with parameters */
+export type VfdReading = {
+  createdAt: Scalars['DateTime']['output'];
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isValid: Scalars['Boolean']['output'];
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  parameters: Scalars['JSON']['output'];
+  rawValues?: Maybe<Scalars['JSON']['output']>;
+  statusBits?: Maybe<Scalars['JSON']['output']>;
+  tenantId: Scalars['String']['output'];
+  timestamp: Scalars['DateTime']['output'];
+  vfdDevice?: Maybe<VfdDevice>;
+  vfdDeviceId: Scalars['String']['output'];
+};
+
+export type VfdReadingOutput = {
+  createdAt: Scalars['DateTime']['output'];
+  errorMessage?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isValid: Scalars['Boolean']['output'];
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  parameters: VfdParameters;
+  rawValues?: Maybe<Scalars['JSON']['output']>;
+  statusBits?: Maybe<VfdStatusBits>;
+  tenantId: Scalars['ID']['output'];
+  timestamp: Scalars['DateTime']['output'];
+  vfdDeviceId: Scalars['ID']['output'];
+};
+
+export type VfdReadingStatsByPeriod = {
+  avgCurrent?: Maybe<Scalars['Float']['output']>;
+  avgFrequency?: Maybe<Scalars['Float']['output']>;
+  avgPower?: Maybe<Scalars['Float']['output']>;
+  faultCount: Scalars['Int']['output'];
+  maxCurrent?: Maybe<Scalars['Float']['output']>;
+  maxFrequency?: Maybe<Scalars['Float']['output']>;
+  maxPower?: Maybe<Scalars['Float']['output']>;
+  period: Scalars['String']['output'];
+  runningTime?: Maybe<Scalars['Float']['output']>;
+  totalEnergy?: Maybe<Scalars['Float']['output']>;
+  vfdDeviceId: Scalars['ID']['output'];
+};
+
+/** VFD register mapping configuration */
+export type VfdRegisterMapping = {
+  bitDefinitions?: Maybe<Scalars['JSON']['output']>;
+  brand: VfdBrand;
+  byteOrder: ByteOrder;
+  category: VfdParameterCategory;
+  createdAt: Scalars['DateTime']['output'];
+  dataType: VfdDataType;
+  description?: Maybe<Scalars['String']['output']>;
+  displayName: Scalars['String']['output'];
+  displayOrder: Scalars['Int']['output'];
+  functionCode: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isBitField: Scalars['Boolean']['output'];
+  isCritical: Scalars['Boolean']['output'];
+  isReadable: Scalars['Boolean']['output'];
+  isWritable: Scalars['Boolean']['output'];
+  maxValue?: Maybe<Scalars['Float']['output']>;
+  metadata?: Maybe<Scalars['JSON']['output']>;
+  minValue?: Maybe<Scalars['Float']['output']>;
+  modelSeries?: Maybe<Scalars['String']['output']>;
+  offset: Scalars['Float']['output'];
+  parameterName: Scalars['String']['output'];
+  recommendedPollIntervalMs: Scalars['Int']['output'];
+  registerAddress: Scalars['Int']['output'];
+  registerCount: Scalars['Int']['output'];
+  scalingFactor: Scalars['Float']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  wordOrder: ByteOrder;
+};
+
+export type VfdRegistrationResult = {
+  connectionTestPassed?: Maybe<Scalars['Boolean']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  latencyMs?: Maybe<Scalars['Int']['output']>;
+  success: Scalars['Boolean']['output'];
+  vfdDevice?: Maybe<VfdDeviceOutput>;
+};
+
+export type VfdSettingsInput = {
+  blowerMaxSpeed: Scalars['Int']['input'];
+  blowerMinSpeed: Scalars['Int']['input'];
+  doserMaxSpeed: Scalars['Int']['input'];
+  doserMinSpeed: Scalars['Int']['input'];
+};
+
+export type VfdStats = {
+  active: Scalars['Int']['output'];
+  byBrand: Scalars['JSON']['output'];
+  byProtocol: Scalars['JSON']['output'];
+  byStatus: Scalars['JSON']['output'];
+  faulted: Scalars['Int']['output'];
+  inactive: Scalars['Int']['output'];
+  maintenance: Scalars['Int']['output'];
+  total: Scalars['Int']['output'];
+};
+
+export type VfdStatusBits = {
+  atSetpoint?: Maybe<Scalars['Boolean']['output']>;
+  direction?: Maybe<Scalars['String']['output']>;
+  fault?: Maybe<Scalars['Boolean']['output']>;
+  internalLimit?: Maybe<Scalars['Boolean']['output']>;
+  quickStopActive?: Maybe<Scalars['Boolean']['output']>;
+  ready?: Maybe<Scalars['Boolean']['output']>;
+  remote?: Maybe<Scalars['Boolean']['output']>;
+  running?: Maybe<Scalars['Boolean']['output']>;
+  switchOnDisabled?: Maybe<Scalars['Boolean']['output']>;
+  targetReached?: Maybe<Scalars['Boolean']['output']>;
+  voltageEnabled?: Maybe<Scalars['Boolean']['output']>;
+  warning?: Maybe<Scalars['Boolean']['output']>;
+};
+
+export type VfdValidationResult = {
+  errors?: Maybe<Array<Scalars['String']['output']>>;
+  valid: Scalars['Boolean']['output'];
 };
 
 export type VirkestoffInput = {
@@ -10152,6 +21948,32 @@ export type VirkestoffType =
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
 
+export type WarehouseLowStockItem = {
+  currentQty: Scalars['Float']['output'];
+  id: Scalars['ID']['output'];
+  itemType: Scalars['String']['output'];
+  minQty: Scalars['Float']['output'];
+  name: Scalars['String']['output'];
+  unit: Scalars['String']['output'];
+};
+
+export type WarehouseRecentMovement = {
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  itemName: Scalars['String']['output'];
+  movementType: Scalars['String']['output'];
+  quantity: Scalars['Float']['output'];
+  unit: Scalars['String']['output'];
+};
+
+export type WarehouseSummaryResponse = {
+  lowStockAlertCount: Scalars['Int']['output'];
+  lowStockItems: Array<WarehouseLowStockItem>;
+  recentMovements: Array<WarehouseRecentMovement>;
+  todaysMovementCount: Scalars['Int']['output'];
+  totalItems: Scalars['Int']['output'];
+};
+
 export type WaterFlowInput = {
   drainType?: InputMaybe<Scalars['String']['input']>;
   exchangeRate?: InputMaybe<Scalars['Float']['input']>;
@@ -10166,29 +21988,6 @@ export type WaterFlowInput = {
 export type WaterParameterLimitInput = {
   max: Scalars['Float']['input'];
   warning?: InputMaybe<Scalars['Float']['input']>;
-};
-
-export type WaterParametersInput = {
-  /** Alkalinite (mg/L CaCO3) */
-  alkalinity?: InputMaybe<Scalars['Float']['input']>;
-  /** Amonyak (mg/L) */
-  ammonia?: InputMaybe<Scalars['Float']['input']>;
-  /** Çözünmüş Oksijen (mg/L) */
-  dissolvedOxygen?: InputMaybe<Scalars['Float']['input']>;
-  /** Sertlik (mg/L CaCO3) */
-  hardness?: InputMaybe<Scalars['Float']['input']>;
-  /** Nitrat (mg/L) */
-  nitrate?: InputMaybe<Scalars['Float']['input']>;
-  /** Nitrit (mg/L) */
-  nitrite?: InputMaybe<Scalars['Float']['input']>;
-  /** pH değeri */
-  pH?: InputMaybe<Scalars['Float']['input']>;
-  /** Tuzluluk (ppt) */
-  salinity?: InputMaybe<Scalars['Float']['input']>;
-  /** Sıcaklık (°C) */
-  temperature?: InputMaybe<Scalars['Float']['input']>;
-  /** Bulanıklık (NTU) */
-  turbidity?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type WaterQualityFilterInput = {
@@ -10433,6 +22232,284 @@ export type WeatherSyncResult = {
   totalWeather: Scalars['Float']['output'];
 };
 
+export type WebAuthnCredentialInfo = {
+  createdAt: Scalars['DateTime']['output'];
+  credentialId: Scalars['String']['output'];
+  deviceName: Scalars['String']['output'];
+  lastUsedAt: Scalars['DateTime']['output'];
+};
+
+export type WebAuthnLoginChallengeInput = {
+  /** Email address of the user attempting biometric login */
+  email: Scalars['String']['input'];
+};
+
+export type WebAuthnLoginChallengeResponse = {
+  /** Allowed credential IDs for this user */
+  allowedCredentialIds: Array<Scalars['String']['output']>;
+  /** Random challenge for authentication ceremony */
+  challenge: Scalars['String']['output'];
+  /** Relying party ID (domain) */
+  rpId: Scalars['String']['output'];
+};
+
+export type WebAuthnRegisterCredentialInput = {
+  /** Challenge string that was used during registration */
+  challenge: Scalars['String']['input'];
+  /** Base64url-encoded attestation client data JSON */
+  clientDataJSON: Scalars['String']['input'];
+  /** Base64url-encoded credential ID from navigator.credentials.create() */
+  credentialId: Scalars['String']['input'];
+  /** Device name for this credential */
+  deviceName?: InputMaybe<Scalars['String']['input']>;
+  /** Origin of the request (e.g., https://example.com) */
+  origin: Scalars['String']['input'];
+  /** Base64url-encoded raw public key (COSE format) */
+  publicKey: Scalars['String']['input'];
+  /** Supported transports (usb, nfc, ble, internal) */
+  transports?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+export type WebAuthnRegisterResponse = {
+  credentialId?: Maybe<Scalars['String']['output']>;
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type WebAuthnRegistrationChallengeInput = {
+  /** Optional device name for credential identification */
+  deviceName: Scalars['String']['input'];
+};
+
+export type WebAuthnRegistrationChallengeResponse = {
+  /** Random challenge for registration ceremony */
+  challenge: Scalars['String']['output'];
+  /** Relying party ID (domain) */
+  rpId: Scalars['String']['output'];
+  /** Relying party name */
+  rpName: Scalars['String']['output'];
+  /** User ID for the credential */
+  userId: Scalars['String']['output'];
+  /** User display name */
+  userName: Scalars['String']['output'];
+};
+
+export type WebAuthnRemoveResponse = {
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+};
+
+export type WebAuthnVerifyLoginInput = {
+  /** Base64url-encoded authenticator data */
+  authenticatorData: Scalars['String']['input'];
+  /** Challenge string from the login challenge */
+  challenge: Scalars['String']['input'];
+  /** Base64url-encoded client data JSON */
+  clientDataJSON: Scalars['String']['input'];
+  /** Base64url-encoded credential ID */
+  credentialId: Scalars['String']['input'];
+  /** Origin of the request */
+  origin: Scalars['String']['input'];
+  /** Base64url-encoded signature */
+  signature: Scalars['String']['input'];
+};
+
+export type WeekDay =
+  | 'FRIDAY'
+  | 'MONDAY'
+  | 'SATURDAY'
+  | 'SUNDAY'
+  | 'THURSDAY'
+  | 'TUESDAY'
+  | 'WEDNESDAY';
+
+export type WeeklyPlan = {
+  actualOvertimeMinutes: Scalars['Int']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  employee?: Maybe<Employee>;
+  employeeId: Scalars['String']['output'];
+  entries?: Maybe<Array<WeeklyPlanEntry>>;
+  id: Scalars['ID']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  notifiedAt?: Maybe<Scalars['DateTime']['output']>;
+  plannedOffDays: Scalars['Int']['output'];
+  plannedOvertimeMinutes: Scalars['Int']['output'];
+  plannedTotalMinutes: Scalars['Int']['output'];
+  plannedWorkDays: Scalars['Int']['output'];
+  publishedAt?: Maybe<Scalars['DateTime']['output']>;
+  standardWeeklyMinutes: Scalars['Int']['output'];
+  status: WeeklyPlanStatus;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  weekEndDate: Scalars['DateTime']['output'];
+  weekStartDate: Scalars['DateTime']['output'];
+};
+
+export type WeeklyPlanConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<WeeklyPlan>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type WeeklyPlanEntry = {
+  createdAt: Scalars['DateTime']['output'];
+  date: Scalars['DateTime']['output'];
+  dayOfWeek: WeekDay;
+  displayOrder: Scalars['Int']['output'];
+  employeeId: Scalars['String']['output'];
+  entryType: WeeklyPlanEntryType;
+  id: Scalars['ID']['output'];
+  isLeaveDay: Scalars['Boolean']['output'];
+  isOffDay: Scalars['Boolean']['output'];
+  leaveRequest?: Maybe<LeaveRequest>;
+  leaveRequestId?: Maybe<Scalars['String']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  plannedEndTime?: Maybe<Scalars['DateTime']['output']>;
+  plannedMinutes: Scalars['Int']['output'];
+  plannedStartTime?: Maybe<Scalars['DateTime']['output']>;
+  shift?: Maybe<Shift>;
+  shiftId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  weeklyPlan: WeeklyPlan;
+  weeklyPlanId: Scalars['String']['output'];
+};
+
+export type WeeklyPlanEntryType =
+  | 'HOLIDAY'
+  | 'LEAVE'
+  | 'OFF'
+  | 'TRAINING'
+  | 'WORK';
+
+export type WeeklyPlanStatus =
+  | 'CLOSED'
+  | 'DRAFT'
+  | 'PUBLISHED';
+
+export type WelfareEventTypeInput =
+  | 'EQUIPMENT_FAILURE'
+  | 'MORTALITY_THRESHOLD'
+  | 'WELFARE_IMPACT';
+
+export type WelfareSeverityInput =
+  | 'CRITICAL'
+  | 'HIGH';
+
+export type WithdrawConsentInput = {
+  consentType: ConsentType;
+  reason?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type WithdrawConsentResult = {
+  consentType: ConsentType;
+  message: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
+export type WorkArea = {
+  code: Scalars['String']['output'];
+  colorCode?: Maybe<Scalars['String']['output']>;
+  coordinates?: Maybe<GeoCoordinates>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  displayOrder: Scalars['Int']['output'];
+  emergencyContact?: Maybe<Scalars['String']['output']>;
+  emergencyProcedure?: Maybe<Scalars['String']['output']>;
+  /** Geofence radius in meters for GPS clock-in validation */
+  geofenceRadiusMeters?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDeleted: Scalars['Boolean']['output'];
+  isOffshore: Scalars['Boolean']['output'];
+  maxCapacity?: Maybe<Scalars['Int']['output']>;
+  name: Scalars['String']['output'];
+  requiredCertifications?: Maybe<Array<Scalars['String']['output']>>;
+  requiredPPE?: Maybe<Array<Scalars['String']['output']>>;
+  requiresDivingCertification: Scalars['Boolean']['output'];
+  requiresSeaWorthy: Scalars['Boolean']['output'];
+  requiresVesselCertification: Scalars['Boolean']['output'];
+  riskLevel: WorkAreaRiskLevel;
+  siteId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  workAreaType: WorkAreaType;
+};
+
+export type WorkAreaConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<WorkArea>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
+export type WorkAreaRiskLevel =
+  | 'CRITICAL'
+  | 'HIGH'
+  | 'LOW'
+  | 'MEDIUM';
+
+export type WorkAreaType =
+  | 'FEED_BARGE'
+  | 'FLOATING_PLATFORM'
+  | 'HATCHERY'
+  | 'LABORATORY'
+  | 'OFFICE'
+  | 'OTHER'
+  | 'PROCESSING_PLANT'
+  | 'SEA_CAGE'
+  | 'SHORE_FACILITY'
+  | 'VESSEL'
+  | 'WAREHOUSE'
+  | 'WORKSHOP';
+
+export type WorkHours = {
+  holidayHours?: Maybe<Scalars['Float']['output']>;
+  overtimeHours?: Maybe<Scalars['Float']['output']>;
+  regularHours: Scalars['Float']['output'];
+  sickLeaveHours?: Maybe<Scalars['Float']['output']>;
+  vacationHours?: Maybe<Scalars['Float']['output']>;
+};
+
+export type WorkHoursInput = {
+  holidayHours?: InputMaybe<Scalars['Float']['input']>;
+  overtimeHours?: InputMaybe<Scalars['Float']['input']>;
+  regularHours: Scalars['Float']['input'];
+  sickLeaveHours?: InputMaybe<Scalars['Float']['input']>;
+  vacationHours?: InputMaybe<Scalars['Float']['input']>;
+};
+
 export type WorkOrder = {
   actualDurationMinutes?: Maybe<Scalars['Int']['output']>;
   actualEndTime?: Maybe<Scalars['DateTime']['output']>;
@@ -10561,6 +22638,57 @@ export type WorkOrderType =
   | 'ROUTINE'
   | 'UPGRADE';
 
+export type WorkRotation = {
+  accommodationInfo?: Maybe<Scalars['String']['output']>;
+  actualEndTime?: Maybe<Scalars['DateTime']['output']>;
+  actualStartTime?: Maybe<Scalars['DateTime']['output']>;
+  checkInHistory?: Maybe<Array<CheckInHistoryEntry>>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  daysOff: Scalars['Int']['output'];
+  daysOn: Scalars['Int']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  employeeId: Scalars['String']['output'];
+  endDate: Scalars['DateTime']['output'];
+  extensionDays?: Maybe<Scalars['Int']['output']>;
+  extensionReason?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  inboundTransport?: Maybe<TransportInfo>;
+  isDeleted: Scalars['Boolean']['output'];
+  isExtended: Scalars['Boolean']['output'];
+  lastCheckInTime?: Maybe<Scalars['DateTime']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  outboundTransport?: Maybe<TransportInfo>;
+  reliefEmployeeId?: Maybe<Scalars['String']['output']>;
+  rotationType: RotationType;
+  startDate: Scalars['DateTime']['output'];
+  status: RotationStatus;
+  supervisorId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['String']['output']>;
+  version: Scalars['Int']['output'];
+  workAreaId: Scalars['String']['output'];
+};
+
+export type WorkRotationConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
+  items: Array<WorkRotation>;
+  /** Items per page */
+  limit: Scalars['Int']['output'];
+  /** Current page number */
+  page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
+  total: Scalars['Int']['output'];
+  /** Total number of pages */
+  totalPages: Scalars['Int']['output'];
+};
+
 export type WorkerResponse = {
   createdAt: Scalars['DateTime']['output'];
   department: Scalars['String']['output'];
@@ -10574,3 +22702,27 @@ export type WorkerResponse = {
   position: Scalars['String']['output'];
   status: Scalars['String']['output'];
 };
+
+export type WriteOpcUaNodeInput = {
+  dataType?: InputMaybe<Scalars['String']['input']>;
+  nodeId: Scalars['String']['input'];
+  value: Scalars['String']['input'];
+};
+
+export type Join__Graph =
+  | 'ALERT'
+  | 'AUTH'
+  | 'BILLING'
+  | 'CONFIG'
+  | 'FARM'
+  | 'HR'
+  | 'HYDROPONICS'
+  | 'MESSAGING'
+  | 'NOTIFICATION'
+  | 'SENSOR';
+
+export type Link__Purpose =
+  /** `EXECUTION` features provide metadata necessary for operation execution. */
+  | 'EXECUTION'
+  /** `SECURITY` features provide metadata necessary to securely resolve fields. */
+  | 'SECURITY';

@@ -54,7 +54,6 @@ export class EventUpcasterRegistry {
     const chain = this.upcasters.get(eventType);
     if (!chain || chain.length === 0) return event;
 
-    const version = (event['version'] as number) ?? 1;
     let result = event;
 
     for (const upcaster of chain) {

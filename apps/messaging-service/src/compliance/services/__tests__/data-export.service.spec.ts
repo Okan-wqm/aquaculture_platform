@@ -15,7 +15,6 @@ import {
   resetUuidCounter,
   MockRepository,
   MockQueryRunner,
-  TENANT_A,
 } from '../../../__tests__/test-helpers';
 
 describe('DataExportService', () => {
@@ -28,6 +27,7 @@ describe('DataExportService', () => {
 
   const channelId = fakeUuid('ch');
   const userId = fakeUuid('usr');
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   beforeEach(async () => {
     resetUuidCounter();
@@ -35,7 +35,7 @@ describe('DataExportService', () => {
     messageRepo = createMockRepository<Message>();
     legalHoldService = { isUnderLegalHold: jest.fn().mockResolvedValue(false) };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
-    // The service opens a QueryRunner to SET search_path for tenant routing
+    // The service opens a QueryRunner transaction for tenant routing
     // (cross-service / cron contexts), then connects / queries / releases it.
     // The current createMockDataSource API takes a MockQueryRunner and exposes
     // createQueryRunner() returning it, so the spec must supply both.
@@ -71,9 +71,11 @@ describe('DataExportService', () => {
       }),
       createMockMessage({ channelId, content: 'World', attachments: [] }),
     ];
-    messageRepo.find.mockResolvedValue(messages);
+    mockQueryRunner.manager.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(messages);
 
-    const result = await service.exportChannel(TENANT_A, channelId, 'json', userId);
+    const result = await service.exportChannel(tenantId, channelId, 'json', userId);
 
     expect(result.format).toBe('json');
     expect(result.recordCount).toBe(2);
@@ -92,9 +94,11 @@ describe('DataExportService', () => {
     const messages = [
       createMockMessage({ channelId, content: 'Hello', attachments: [] }),
     ];
-    messageRepo.find.mockResolvedValue(messages);
+    mockQueryRunner.manager.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(messages);
 
-    const result = await service.exportChannel(TENANT_A, channelId, 'csv', userId);
+    const result = await service.exportChannel(tenantId, channelId, 'csv', userId);
 
     expect(result.format).toBe('csv');
     const lines = result.data.split('\n');
@@ -117,9 +121,11 @@ describe('DataExportService', () => {
     const messages = [
       createMockMessage({ channelId, attachments: [attachment] }),
     ];
-    messageRepo.find.mockResolvedValue(messages);
+    mockQueryRunner.manager.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(messages);
 
-    const result = await service.exportChannel(TENANT_A, channelId, 'json', userId);
+    const result = await service.exportChannel(tenantId, channelId, 'json', userId);
     const parsed = JSON.parse(result.data) as Array<Record<string, unknown>>;
 
     expect(parsed[0]).toHaveProperty('attachmentCount', 1);
@@ -129,14 +135,14 @@ describe('DataExportService', () => {
   // Marks legal hold data appropriately
   // -----------------------------------------------------------------------
   it('marks messages with legal hold flag when channel is under hold', async () => {
-    legalHoldService.isUnderLegalHold.mockResolvedValue(true);
-
     const messages = [
       createMockMessage({ channelId, content: 'Held message', attachments: [] }),
     ];
-    messageRepo.find.mockResolvedValue(messages);
+    mockQueryRunner.manager.find
+      .mockResolvedValueOnce([{ tenantId, channelId, isActive: true, expiresAt: null }])
+      .mockResolvedValueOnce(messages);
 
-    const result = await service.exportChannel(TENANT_A, channelId, 'json', userId);
+    const result = await service.exportChannel(tenantId, channelId, 'json', userId);
     const parsed = JSON.parse(result.data) as Array<Record<string, unknown>>;
 
     expect(parsed[0]).toHaveProperty('hasLegalHold', true);
@@ -144,14 +150,14 @@ describe('DataExportService', () => {
   });
 
   it('marks hasLegalHold=false when no hold is active', async () => {
-    legalHoldService.isUnderLegalHold.mockResolvedValue(false);
-
     const messages = [
       createMockMessage({ channelId, content: 'Normal message', attachments: [] }),
     ];
-    messageRepo.find.mockResolvedValue(messages);
+    mockQueryRunner.manager.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(messages);
 
-    const result = await service.exportChannel(TENANT_A, channelId, 'json', userId);
+    const result = await service.exportChannel(tenantId, channelId, 'json', userId);
     const parsed = JSON.parse(result.data) as Array<Record<string, unknown>>;
 
     expect(parsed[0]).toHaveProperty('hasLegalHold', false);
@@ -162,13 +168,15 @@ describe('DataExportService', () => {
   // Logs export to compliance audit
   // -----------------------------------------------------------------------
   it('logs the export operation to the compliance audit', async () => {
-    messageRepo.find.mockResolvedValue([]);
+    mockQueryRunner.manager.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
-    await service.exportChannel(TENANT_A, channelId, 'json', userId);
+    await service.exportChannel(tenantId, channelId, 'json', userId);
 
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: TENANT_A,
+        tenantId,
         userId,
         action: 'message_export',
         resourceType: 'channel',

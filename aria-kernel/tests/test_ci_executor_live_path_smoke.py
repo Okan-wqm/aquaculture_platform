@@ -262,6 +262,42 @@ class LivePathFetchTests(unittest.TestCase):
             "request_envelope_missing_role",
         )
 
+    def test_prompt_hash_mismatch_releases_claim_before_submit(self) -> None:
+        # Snowball evidence showed prompt binding as a critical fail-closed
+        # surface. Main owns the stronger contract: render through the kernel
+        # prompt renderer, compare against the request row's prompt_hash, and
+        # release the claim before any submit attempt when the hashes drift.
+        bad_payload = json.loads(self.claim_response.stdout)
+        bad_payload["prompt_hash"] = "sha256:" + "0" * 64
+        claim_bad_prompt_hash = MagicMock(
+            returncode=0,
+            stdout=json.dumps(bad_payload),
+            stderr="",
+        )
+        fake_run = _make_fake_run_sequence(
+            claim_bad_prompt_hash,
+            self.release_response_ok,
+        )
+        exit_code = self._run_main(fake_run)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(
+            len(fake_run.captured), 2,
+            "prompt hash mismatch must stop after claim + release",
+        )
+        self.assertFalse(
+            self.expected_output.exists(),
+            "executor must not write or submit an output envelope after "
+            "prompt hash binding fails",
+        )
+        release_argv = fake_run.captured[1]
+        self.assertIn("release", release_argv)
+        self.assertIn("--reason", release_argv)
+        reason_idx = release_argv.index("--reason")
+        self.assertEqual(
+            release_argv[reason_idx + 1],
+            "prompt_hash_binding_mismatch",
+        )
+
     def test_invoke_codex_cli_mock_empty_role_raises_no_string_mangle(self) -> None:
         # Plan 025 §B latent-bug-2 closure — invoke_codex_cli mock
         # branch refuses empty role. Pre-fix ``role or subagent_type

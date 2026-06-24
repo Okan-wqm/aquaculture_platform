@@ -115,7 +115,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     startTime: number,
   ): RequestMetrics {
     const gqlContext = GqlExecutionContext.create(context);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+     
     const info = gqlContext.getInfo();
     const gqlCtx = gqlContext.getContext<{ req?: LoggingRequest }>();
     const request = gqlCtx?.req;

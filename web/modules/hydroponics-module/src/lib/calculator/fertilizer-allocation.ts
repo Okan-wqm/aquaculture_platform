@@ -80,7 +80,7 @@ export function allocateFertilizers(
   let remainP = toAdd.H2PO4;
   let remainSO4 = toAdd.SO4;
   let remainCl = toAdd.Cl;
-  let remainSi = toAdd.Si;
+  const remainSi = toAdd.Si;
 
   const fertOpts = generalOptions.fertilizerOptions;
   const purePercents = generalOptions.pureFertilizerPercents;

@@ -10,6 +10,8 @@ import {
   tenantMigrationLedgerTable,
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
+  queryRowsNormalized,
+  queryRowCountNormalized,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
 
@@ -29,6 +31,7 @@ type TenantSchemaJobStatus =
   | 'APPLYING_GRANTS'
   | 'HARDENING_RLS'
   | 'SEEDING_LEDGER'
+  | 'RECONCILING_SCHEMA'
   | 'DELETING_SCHEMA'
   | 'COMMITTED'
   | 'FAILED'
@@ -40,11 +43,15 @@ interface TenantSchemaJob {
   operationId: string;
   tenantId: string;
   schemaName: string;
-  jobType: 'PROVISION' | 'DELETE';
+  jobType: 'PROVISION' | 'DELETE' | 'RECONCILE_EXISTING_SCHEMA';
   status: TenantSchemaJobStatus;
   attempts: number;
   leaseToken: string;
   requestPayload: Record<string, unknown>;
+}
+
+interface TenantSchemaLease {
+  readonly leaseSeconds: number;
 }
 
 export interface TenantSchemaProvisionerOptions {
@@ -96,20 +103,62 @@ async function queryRows<T extends Record<string, unknown>>(
   sql: string,
   params?: unknown[],
 ): Promise<T[]> {
-  const rows: unknown = await queryRunner.query(sql, params);
-  return Array.isArray(rows) ? (rows as T[]) : [];
+  const result: unknown = await queryRunner.query(sql, params);
+  return queryRowsNormalized<T>(result);
+}
+
+async function executeLeaseBoundUpdate(
+  queryRunner: QueryRunner,
+  job: TenantSchemaJob,
+  sql: string,
+  params: unknown[],
+  action: string,
+): Promise<void> {
+  const result: unknown = await queryRunner.query(sql, params);
+  const rowCount = queryRowCountNormalized(result);
+  if (rowCount !== 1) {
+    throw new Error(
+      `[tenant-schema-provisioner] Lease lost while ${action} for job ${job.id}`,
+    );
+  }
+}
+
+async function renewJobLease(
+  queryRunner: QueryRunner,
+  job: TenantSchemaJob,
+  lease: TenantSchemaLease,
+): Promise<void> {
+  await executeLeaseBoundUpdate(
+    queryRunner,
+    job,
+    `UPDATE platform.tenant_schema_jobs
+        SET heartbeat_at = NOW(),
+            lease_expires_at = NOW() + ($2 || ' seconds')::interval,
+            updated_at = NOW()
+      WHERE id = $1
+        AND lease_token = $3`,
+    [job.id, lease.leaseSeconds, job.leaseToken],
+    'renewing lease',
+  );
 }
 
 async function setJobStatus(
   queryRunner: QueryRunner,
   job: TenantSchemaJob,
   status: TenantSchemaJobStatus,
+  lease: TenantSchemaLease,
   extra: Record<string, unknown> = {},
 ): Promise<void> {
-  await queryRunner.query(
+  await executeLeaseBoundUpdate(
+    queryRunner,
+    job,
     `UPDATE platform.tenant_schema_jobs
         SET status = $2,
             heartbeat_at = NOW(),
+            lease_expires_at = CASE
+              WHEN $6::boolean THEN lease_expires_at
+              ELSE NOW() + ($7 || ' seconds')::interval
+            END,
             updated_at = NOW(),
             ${status === 'COMMITTED' || status === 'FAILED' || status === 'ABORTED' || status === 'DELETED'
               ? 'completed_at = NOW(),'
@@ -124,7 +173,10 @@ async function setJobStatus(
       extra['failureResidue'] === undefined ? null : JSON.stringify(extra['failureResidue']),
       typeof extra['errorMessage'] === 'string' ? extra['errorMessage'] : null,
       job.leaseToken,
+      status === 'COMMITTED' || status === 'FAILED' || status === 'ABORTED' || status === 'DELETED',
+      lease.leaseSeconds,
     ],
+    `setting status ${status}`,
   );
   job.status = status;
 }
@@ -139,7 +191,7 @@ async function claimNextJob(
     operation_id: string;
     tenant_id: string;
     schema_name: string;
-    job_type: 'PROVISION' | 'DELETE';
+    job_type: 'PROVISION' | 'DELETE' | 'RECONCILE_EXISTING_SCHEMA';
     status: TenantSchemaJobStatus;
     attempts: number;
     lease_token: string;
@@ -158,11 +210,11 @@ async function claimNextJob(
       WHERE id = (
         SELECT id
           FROM platform.tenant_schema_jobs
-         WHERE job_type IN ('PROVISION', 'DELETE')
+         WHERE job_type IN ('PROVISION', 'DELETE', 'RECONCILE_EXISTING_SCHEMA')
            AND (
              status = 'REQUESTED'
              OR (
-               status IN ('CLAIMED', 'CREATING_SCHEMA', 'COPYING_TABLES', 'APPLYING_GRANTS', 'HARDENING_RLS', 'SEEDING_LEDGER', 'DELETING_SCHEMA')
+               status IN ('CLAIMED', 'CREATING_SCHEMA', 'COPYING_TABLES', 'APPLYING_GRANTS', 'HARDENING_RLS', 'SEEDING_LEDGER', 'RECONCILING_SCHEMA', 'DELETING_SCHEMA')
                AND lease_expires_at < NOW()
              )
            )
@@ -291,6 +343,7 @@ async function commitTenantSchemaRecord(
       tableCount,
       JSON.stringify({
         provisioner: 'aqua-db-migrate',
+        jobType: job.jobType,
         operationId: job.operationId,
         sourceHeads,
         tenantHeads,
@@ -302,6 +355,7 @@ async function commitTenantSchemaRecord(
 async function writeJobEvidence(
   queryRunner: QueryRunner,
   job: TenantSchemaJob,
+  lease: TenantSchemaLease,
   args: {
     status: TenantSchemaJobStatus;
     sourceHeads: Record<string, unknown>;
@@ -311,7 +365,9 @@ async function writeJobEvidence(
     errorMessage?: string;
   },
 ): Promise<void> {
-  await queryRunner.query(
+  await executeLeaseBoundUpdate(
+    queryRunner,
+    job,
     `UPDATE platform.tenant_schema_jobs
         SET status = $2,
             source_heads = $3::jsonb,
@@ -320,6 +376,10 @@ async function writeJobEvidence(
             failure_residue = COALESCE($6::jsonb, failure_residue),
             error_message = $7,
             heartbeat_at = NOW(),
+            lease_expires_at = CASE
+              WHEN $9::boolean THEN lease_expires_at
+              ELSE NOW() + ($10 || ' seconds')::interval
+            END,
             completed_at = CASE WHEN $2 IN ('COMMITTED', 'FAILED', 'ABORTED', 'DELETED') THEN NOW() ELSE completed_at END,
             updated_at = NOW()
       WHERE id = $1
@@ -333,7 +393,10 @@ async function writeJobEvidence(
       args.failureResidue === undefined ? null : JSON.stringify(args.failureResidue),
       args.errorMessage ?? null,
       job.leaseToken,
+      args.status === 'COMMITTED' || args.status === 'FAILED' || args.status === 'ABORTED' || args.status === 'DELETED',
+      lease.leaseSeconds,
     ],
+    `writing ${args.status} evidence`,
   );
 }
 
@@ -364,21 +427,28 @@ async function processDeleteJob(
   const control = createControlDataSource(options.database);
   await control.initialize();
   const queryRunner = control.createQueryRunner();
+  const lease = { leaseSeconds: options.leaseSeconds ?? DEFAULT_LEASE_SECONDS };
   let beforeTableCount = 0;
 
   try {
     await queryRunner.connect();
     assertDeleteProof(job);
-    await setJobStatus(queryRunner, job, 'DELETING_SCHEMA');
+    await setJobStatus(queryRunner, job, 'DELETING_SCHEMA', lease);
+    await queryRunner.startTransaction();
     beforeTableCount = await countTenantTables(queryRunner, job.schemaName);
+    await renewJobLease(queryRunner, job, lease);
     await queryRunner.query(`DROP SCHEMA IF EXISTS ${quoteIdent(job.schemaName)} CASCADE`);
-    await queryRunner.query(
+    await renewJobLease(queryRunner, job, lease);
+    await executeLeaseBoundUpdate(
+      queryRunner,
+      job,
       `UPDATE admin.tenant_schemas
           SET status = 'deleted',
               metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
               "tableCount" = 0,
               "updatedAt" = NOW()
-        WHERE "tenantId" = $1`,
+        WHERE "tenantId" = $1
+          AND "schemaName" = $3`,
       [
         job.tenantId,
         JSON.stringify({
@@ -388,9 +458,11 @@ async function processDeleteJob(
           beforeTableCount,
           deletedAt: new Date().toISOString(),
         }),
+        job.schemaName,
       ],
+      'writing admin.tenant_schemas delete evidence',
     );
-    await writeJobEvidence(queryRunner, job, {
+    await writeJobEvidence(queryRunner, job, lease, {
       status: 'DELETED',
       sourceHeads: {},
       tenantHeads: {},
@@ -402,6 +474,7 @@ async function processDeleteJob(
         capturedAt: new Date().toISOString(),
       },
     });
+    await queryRunner.commitTransaction();
     options.log({
       level: 'info',
       message: 'Tenant schema provisioner deleted tenant schema',
@@ -413,10 +486,13 @@ async function processDeleteJob(
       beforeTableCount,
     });
   } catch (error: unknown) {
+    if (queryRunner.isTransactionActive) {
+      await queryRunner.rollbackTransaction();
+    }
     const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
       residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
     }));
-    await writeJobEvidence(queryRunner, job, {
+    await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads: {},
       tenantHeads: {},
@@ -451,6 +527,7 @@ function assertDeleteProof(job: TenantSchemaJob): void {
   const backup = asRecord(proof?.['backup']);
   const tombstone = asRecord(payload?.['tombstone']);
   const preCounts = asRecord(proof?.['preCounts']);
+  const existingSchemas = preCounts?.['existingSchemas'];
 
   if (!proof) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} is missing cleanupProof`);
@@ -458,26 +535,141 @@ function assertDeleteProof(job: TenantSchemaJob): void {
   if (proof['operationId'] !== job.operationId || proof['tenantId'] !== job.tenantId) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} cleanupProof does not match job`);
   }
-  if (proof['purpose'] !== 'tenant_deprovision') {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires tenant_deprovision proof`);
+  if (proof['purpose'] !== 'tenant_deprovision' && proof['purpose'] !== 'tenant_erasure') {
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires tenant_deprovision or tenant_erasure proof`,
+    );
   }
   if (typeof proof['legalHoldCheckedAt'] !== 'string' || proof['legalHoldCheckedAt'].length === 0) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`);
   }
   if (
+    proof['purpose'] === 'tenant_deprovision'
+    && (
     !backup
     || backup['isEncrypted'] !== true
     || typeof backup['checksum'] !== 'string'
     || backup['checksum'].length === 0
     || Number(backup['sizeBytes']) <= 0
+    )
   ) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`);
   }
-  if (!preCounts || !Array.isArray(preCounts['existingSchemas'])) {
+  if (!preCounts || !Array.isArray(existingSchemas)) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires pre-delete count evidence`);
+  }
+  if (!existingSchemas.includes(job.schemaName)) {
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} pre-delete evidence must include target schema ${job.schemaName}`,
+    );
   }
   if (!tombstone || tombstone['cleanupRunId'] !== proof['operationId']) {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires matching tombstone evidence`);
+  }
+}
+
+async function processReconcileJob(
+  job: TenantSchemaJob,
+  options: TenantSchemaProvisionerOptions,
+): Promise<void> {
+  const control = createControlDataSource(options.database);
+  await control.initialize();
+  const queryRunner = control.createQueryRunner();
+  const lease = { leaseSeconds: options.leaseSeconds ?? DEFAULT_LEASE_SECONDS };
+  const sourceHeads: Record<string, unknown> = {};
+  const tenantHeads: Record<string, unknown> = {};
+  let tableCount = 0;
+
+  try {
+    await queryRunner.connect();
+    await setJobStatus(queryRunner, job, 'RECONCILING_SCHEMA', lease);
+
+    const schemaExistsRows = await queryRows<{ exists: boolean }>(
+      queryRunner,
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.schemata WHERE schema_name = $1
+       ) AS exists`,
+      [job.schemaName],
+    );
+    if (schemaExistsRows[0]?.exists !== true) {
+      throw new Error(
+        `[tenant-schema-provisioner] Reconcile job ${job.id} requires existing schema ${job.schemaName}`,
+      );
+    }
+
+    tableCount = await countTenantTables(queryRunner, job.schemaName);
+    if (tableCount <= 0) {
+      throw new Error(
+        `[tenant-schema-provisioner] Reconcile job ${job.id} found empty schema ${job.schemaName}`,
+      );
+    }
+
+    const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) => TENANT_AWARE_SCHEMAS.has(entry.schema));
+    for (const entry of tenantAwareEntries) {
+      await renewJobLease(queryRunner, job, lease);
+      sourceHeads[entry.schema] = headToJson(
+        await readLedgerHead(queryRunner, entry.schema, MIGRATION_LEDGER_TABLE),
+      );
+      tenantHeads[entry.schema] = headToJson(
+        await readTenantHead(queryRunner, job.schemaName, entry.schema),
+      );
+      await grantTenantMigrationLedgerReadAccess(queryRunner, {
+        tenantSchema: job.schemaName,
+        sourceSchema: entry.schema,
+      });
+    }
+
+    await grantTenantMessagingPartitionAuthority(queryRunner, {
+      tenantSchema: job.schemaName,
+    });
+
+    await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
+    await writeJobEvidence(queryRunner, job, lease, {
+      status: 'COMMITTED',
+      sourceHeads,
+      tenantHeads,
+      tableCount,
+      failureResidue: {
+        schemaName: job.schemaName,
+        reconciled: true,
+        capturedAt: new Date().toISOString(),
+      },
+    });
+
+    options.log({
+      level: 'info',
+      message: 'Tenant schema provisioner reconciled existing tenant schema',
+      context: 'TenantSchemaProvisioner',
+      jobId: job.id,
+      operationId: job.operationId,
+      tenantId: job.tenantId,
+      schemaName: job.schemaName,
+      tableCount,
+    });
+  } catch (error: unknown) {
+    const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
+      residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
+    }));
+    await writeJobEvidence(queryRunner, job, lease, {
+      status: 'FAILED',
+      sourceHeads,
+      tenantHeads,
+      tableCount,
+      failureResidue,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }).catch((writeError: unknown) => {
+      options.log({
+        level: 'error',
+        message: 'Tenant schema provisioner failed to write reconcile failure evidence',
+        context: 'TenantSchemaProvisioner',
+        jobId: job.id,
+        error: writeError instanceof Error ? writeError.message : String(writeError),
+      });
+    });
+    throw error;
+  } finally {
+    await queryRunner.release();
+    await control.destroy();
   }
 }
 
@@ -495,22 +687,27 @@ async function processJob(
     await processDeleteJob(job, options);
     return;
   }
+  if (job.jobType === 'RECONCILE_EXISTING_SCHEMA') {
+    await processReconcileJob(job, options);
+    return;
+  }
 
   const control = createControlDataSource(options.database);
   await control.initialize();
   const queryRunner = control.createQueryRunner();
+  const lease = { leaseSeconds: options.leaseSeconds ?? DEFAULT_LEASE_SECONDS };
   const sourceHeads: Record<string, unknown> = {};
   const tenantHeads: Record<string, unknown> = {};
   let tableCount = 0;
 
   try {
     await queryRunner.connect();
-    await setJobStatus(queryRunner, job, 'CREATING_SCHEMA');
+    await setJobStatus(queryRunner, job, 'CREATING_SCHEMA', lease);
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(job.schemaName)}`);
 
     const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) => TENANT_AWARE_SCHEMAS.has(entry.schema));
     for (const entry of tenantAwareEntries) {
-      await setJobStatus(queryRunner, job, 'COPYING_TABLES');
+      await setJobStatus(queryRunner, job, 'COPYING_TABLES', lease);
       const migrations = entry.migrationsGlob.map((glob) => resolve(options.root, glob));
       const entities = entry.entitiesGlob?.map((glob) => resolve(options.root, glob));
       const result = await runSchemaMigrations({
@@ -521,21 +718,23 @@ async function processJob(
         log: options.log,
         migrationsTableName: tenantMigrationLedgerTable(entry.schema),
       });
+      await renewJobLease(queryRunner, job, lease);
 
       sourceHeads[entry.schema] = headToJson(
         await readLedgerHead(queryRunner, entry.schema, MIGRATION_LEDGER_TABLE),
       );
       tenantHeads[entry.schema] = headToJson(result.head ?? (await readTenantHead(queryRunner, job.schemaName, entry.schema)));
 
-      await setJobStatus(queryRunner, job, 'APPLYING_GRANTS');
+      await setJobStatus(queryRunner, job, 'APPLYING_GRANTS', lease);
       await grantTenantMigrationLedgerReadAccess(queryRunner, {
         tenantSchema: job.schemaName,
         sourceSchema: entry.schema,
       });
 
       if (entry.postMigrationHardening !== undefined) {
-        await setJobStatus(queryRunner, job, 'HARDENING_RLS');
+        await setJobStatus(queryRunner, job, 'HARDENING_RLS', lease);
         await applyProvisionerHardening(queryRunner, job.schemaName, entry.postMigrationHardening, options.log);
+        await renewJobLease(queryRunner, job, lease);
       }
     }
 
@@ -547,12 +746,12 @@ async function processJob(
     // created the clones under the bootstrap connection's role — re-own +
     // grant here so the first monthly partition for this tenant works
     // without any manual ceremony. Stage 010 backfills pre-existing schemas.
-    await setJobStatus(queryRunner, job, 'APPLYING_GRANTS');
+    await setJobStatus(queryRunner, job, 'APPLYING_GRANTS', lease);
     await grantTenantMessagingPartitionAuthority(queryRunner, {
       tenantSchema: job.schemaName,
     });
 
-    await setJobStatus(queryRunner, job, 'SEEDING_LEDGER');
+    await setJobStatus(queryRunner, job, 'SEEDING_LEDGER', lease);
     tableCount = await countTenantTables(queryRunner, job.schemaName);
     if (tableCount <= 0) {
       throw new Error(
@@ -561,7 +760,7 @@ async function processJob(
     }
 
     await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
-    await writeJobEvidence(queryRunner, job, {
+    await writeJobEvidence(queryRunner, job, lease, {
       status: 'COMMITTED',
       sourceHeads,
       tenantHeads,
@@ -581,7 +780,7 @@ async function processJob(
     const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
       residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
     }));
-    await writeJobEvidence(queryRunner, job, {
+    await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads,
       tenantHeads,

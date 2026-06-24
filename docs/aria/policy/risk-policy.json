@@ -1,0 +1,73 @@
+{
+  "$schema": "aria/risk-policy/v1",
+  "schema_version": 1,
+  "policy_id": "aria-enterprise-risk-policy",
+  "base_branch": "main",
+  "merge_method": "squash",
+  "auto_merge_candidate_lanes": ["L1"],
+  "blocked_globs": [
+    "**/.env*",
+    "**/*secret*",
+    "**/*credential*",
+    "**/*private-key*",
+    "**/*pricing*",
+    "**/*billing*",
+    "apps/billing-service/**",
+    "infrastructure/terraform/**"
+  ],
+  "lanes": {
+    "L1": {
+      "reason_code": "docs_tests_low_risk",
+      "globs": [
+        "docs/**",
+        "*.md",
+        "tests/**",
+        "aria-kernel/tests/**",
+        "tools/aria-adapters/**/__tests__/**",
+        "tools/aria-adapters/**/*.test.ts",
+        "tools/aria-adapters/**/*.spec.ts",
+        "tools/aria-adapters/fixtures/**",
+        "tools/aria-adapters/*.tool.json",
+        "**/__tests__/**",
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "**/*.test.tsx",
+        "**/*.spec.tsx",
+        "**/*.test.js",
+        "**/*.spec.js",
+        "**/test_*.py",
+        "**/*_test.py"
+      ]
+    },
+    "L2": {
+      "reason_code": "runtime_behavior_supervised",
+      "globs": [
+        "apps/**/src/**",
+        "web/**/src/**",
+        "libs/**/src/**",
+        "platform/libs/**/src/**",
+        "sens-api-gateway/src/**",
+        "package.json",
+        "package-lock.json",
+        "nx.json",
+        "tsconfig*.json",
+        "**/*.config.*",
+        "**/project.json",
+        "**/Dockerfile"
+      ]
+    },
+    "L3": {
+      "reason_code": "control_plane_or_policy_approval",
+      "globs": [
+        ".github/workflows/**",
+        ".github/actions/**",
+        ".github/manifests/**",
+        ".github/CODEOWNERS",
+        "docs/aria/policy/**",
+        "docs/aria/schemas/**",
+        "aria-kernel/aria_kernel/**",
+        ".claude/agents/**"
+      ]
+    }
+  }
+}

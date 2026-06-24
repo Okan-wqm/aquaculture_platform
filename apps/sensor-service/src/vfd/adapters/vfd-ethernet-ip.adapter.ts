@@ -52,7 +52,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     super('VfdEthernetIpAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -88,7 +88,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -223,7 +223,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -266,7 +266,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -445,7 +445,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   private async readAssemblyData(
     _connection: EthernetIpConnectionHandle,
     assemblyInstance: number

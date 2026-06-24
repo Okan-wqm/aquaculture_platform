@@ -1,12 +1,13 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { UpdatePlanEntryCommand } from '../commands/update-plan-entry.command';
 import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
 import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 import { Shift } from '../../attendance/entities/shift.entity';
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
+import { resolvePlanEntryCustomTimeRange } from '../plan-entry-time';
 
 @CommandHandler(UpdatePlanEntryCommand)
 export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCommand> {
@@ -103,9 +104,10 @@ export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCo
 
           // Calculate planned minutes based on custom times or shift defaults
           if (plannedStartTime && plannedEndTime) {
-            entry.plannedStartTime = new Date(plannedStartTime);
-            entry.plannedEndTime = new Date(plannedEndTime);
-            entry.plannedMinutes = this.calculateMinutes(plannedStartTime, plannedEndTime);
+            Object.assign(
+              entry,
+              resolvePlanEntryCustomTimeRange(entry.date, plannedStartTime, plannedEndTime),
+            );
           } else {
             entry.plannedStartTime = undefined;
             entry.plannedEndTime = undefined;
@@ -114,9 +116,10 @@ export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCo
         }
       } else if (plannedStartTime && plannedEndTime) {
         // Update custom times without changing shift
-        entry.plannedStartTime = new Date(plannedStartTime);
-        entry.plannedEndTime = new Date(plannedEndTime);
-        entry.plannedMinutes = this.calculateMinutes(plannedStartTime, plannedEndTime);
+        Object.assign(
+          entry,
+          resolvePlanEntryCustomTimeRange(entry.date, plannedStartTime, plannedEndTime),
+        );
       }
 
       if (entryType !== undefined) {
@@ -155,22 +158,8 @@ export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCo
     }
   }
 
-  private calculateMinutes(startTime: string, endTime: string): number {
-    const [startHours, startMinutes] = startTime.split(':').map(Number);
-    const [endHours, endMinutes] = endTime.split(':').map(Number);
-
-    let totalMinutes = (endHours! - startHours!) * 60 + (endMinutes! - startMinutes!);
-
-    // Handle cross-midnight
-    if (totalMinutes < 0) {
-      totalMinutes += 24 * 60;
-    }
-
-    return totalMinutes;
-  }
-
   private async recalculatePlanTotalsInTransaction(
-    queryRunner: { manager: { find: Function; findOne: Function; update: Function } },
+    queryRunner: QueryRunner,
     planId: string,
     tenantId: string,
     userId: string,

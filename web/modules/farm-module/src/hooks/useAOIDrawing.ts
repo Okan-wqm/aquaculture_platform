@@ -199,7 +199,6 @@ export function useAOIDrawing(): UseAOIDrawingReturn {
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to load AOIs from storage:', error);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
   /**

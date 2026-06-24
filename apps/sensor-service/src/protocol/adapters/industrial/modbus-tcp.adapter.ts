@@ -85,7 +85,7 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter<ModbusTcpConfiguration
     return handle;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const clientData = this.clients.get(handle.id);
     if (clientData) {

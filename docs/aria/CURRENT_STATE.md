@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-06-06
-Target ref: `aria/context-proof-20260605`
-Last verified ARIA authority hash: `5c12afd45ee57b2ad7e374af26850797f9649a036bce64df439811954aa1b29a`
+Date: 2026-06-21
+Target ref: `origin/main`
+Last verified ARIA authority hash: `07ae7bcf8e0dbd4160bade2af8c2383268daf17c1b44457a9696d745a1d1c7fe`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -30,6 +30,14 @@ When two sources disagree, the lower-priority source must be updated, generated 
 - Agent request/response contract: `aria-kernel/aria_kernel/agent_contract.py`
 - Transactional append/index primitive: `aria-kernel/aria_kernel/ledger.py`
 - Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready`
+- Enterprise risk policy owner: `aria-kernel/aria_kernel/risk_policy.py`
+- Enterprise autonomy unlock owner: `aria-kernel/aria_kernel/autonomy_unlock.py`
+- L3 policy approval owner: `aria-kernel/aria_kernel/policy_approval.py`
+- Rollback bundle owner: `aria-kernel/aria_kernel/rollback_bundle.py`
+- Incident ledger owner: `aria-kernel/aria_kernel/incident_ledger.py`
+- Runner attestation owner: `aria-kernel/aria_kernel/runner_attestation.py`
+- Capability resolution owner: `aria-kernel/aria_kernel/capability_resolver.py`
+- Required PR merge check: `.github/workflows/aria-merge-authority.yml`
 - Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 - Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`
@@ -66,3 +74,14 @@ The ARIA docs set contains historical material. Sections still saying only the P
 For the bilingual architecture explainer with diagrams, see `docs/aria/ARCHITECTURE.md`. That document is explanatory only: it must defer to this file, executable contracts, and machine-checked invariants whenever there is a conflict.
 
 For the enterprise autonomy SSoT and burn-in acceptance matrix, see `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md`.
+
+On 2026-06-20, `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md` records the accepted
+production-autonomy target decisions: full production autonomy, whole-repo
+risk-gating, L3 two-stage human policy approval before ARIA merge execution,
+rollback bundle plus incident ledger, L2 unlock after 30 supervised successes,
+hybrid GitHub Actions plus private-runner runtime, hybrid GitHub App plus
+`GITHUB_TOKEN` token model, kernel plus required-check plus CODEOWNERS merge
+authority, and hybrid ledger/state authority. This record is not live merge
+permission; live authority still requires the machine-readable policy files,
+schemas, executable owners, required GitHub check, CODEOWNERS ownership,
+state-manifest declarations, and invariants listed in that SSoT.

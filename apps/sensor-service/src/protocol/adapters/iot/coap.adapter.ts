@@ -48,7 +48,7 @@ export class CoapAdapter extends BaseProtocolAdapter<CoapConfiguration> {
   readonly displayName = 'CoAP';
   readonly description = 'Constrained Application Protocol - Lightweight IoT protocol for constrained devices';
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async connect(config: CoapConfiguration): Promise<ConnectionHandle> {
     const coapConfig = config;
 
@@ -63,13 +63,13 @@ export class CoapAdapter extends BaseProtocolAdapter<CoapConfiguration> {
     return handle;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async testConnection(config: CoapConfiguration): Promise<ConnectionTestResult> {
     const coapConfig = config;
     const startTime = Date.now();
@@ -100,7 +100,7 @@ export class CoapAdapter extends BaseProtocolAdapter<CoapConfiguration> {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
 

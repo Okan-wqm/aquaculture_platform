@@ -1,6 +1,14 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import { getMigrationRunnerCompletion } from './migration-runner';
+import {
+  queryRowsWithStringColumn,
+  querySingleStringColumn,
+  type StringColumnRow,
+} from './query-result-normalizer';
+
+type TableNameRow = StringColumnRow<'table_name'>;
 
 /**
  * Bootstraps source schema tables on service startup.
@@ -74,8 +82,12 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
 
   private async bootstrapSourceSchema(): Promise<void> {
     // Read the default search_path to determine the source schema
-    const result = await this.dataSource.query('SHOW search_path');
-    const searchPath: string = result[0]?.search_path || '';
+    const searchPathResult: unknown = await this.dataSource.query('SHOW search_path');
+    const searchPath = querySingleStringColumn(
+      searchPathResult,
+      'search_path',
+      'SHOW search_path',
+    );
 
     // Extract the source schema (first non-public, non-user schema in search_path)
     const schemas = searchPath
@@ -84,11 +96,11 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
       .filter((s: string) => s && s !== 'public' && s !== '"$user"' && s !== '$user');
 
     if (schemas.length === 0) {
-      this.logger.warn(
-        'No source schema found in connection search_path — skipping bootstrap. ' +
-        'Ensure the TypeORM connection has options: \'-c search_path=<schema>,public\'',
+      throw new Error(
+        'No source schema found in connection search_path. ' +
+          'SourceSchemaBootstrapService cannot verify migration-owned tables without an explicit source schema. ' +
+          'Ensure the TypeORM connection has options: \'-c search_path=<schema>,public\'.',
       );
-      return;
     }
 
     const sourceSchema = schemas[0] as string;
@@ -115,9 +127,14 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     await this.assertNoOrphanTables(sourceSchema);
 
     // Check the post-migration table set
-    const tables = await this.dataSource.query(
+    const tablesResult: unknown = await this.dataSource.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
       [sourceSchema],
+    );
+    const tables = queryRowsWithStringColumn(
+      tablesResult,
+      'table_name',
+      `source schema "${sourceSchema}" table scan`,
     );
 
     if (tables.length === 0) {
@@ -145,25 +162,18 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
    */
   private async assertNoMissingTables(
     sourceSchema: string,
-    existingTables: Array<{ table_name: string }>,
+    existingTables: TableNameRow[],
   ): Promise<void> {
     // Dynamic import to avoid circular dependency
-    const { MODULE_SCHEMAS } = await import('./schema-manager.service');
-    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
-    if (!mod) {
-      this.logger.debug(
-        `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — ` +
-          `skipping declared-vs-actual table reconciliation.`,
-      );
-      return;
-    }
+    const mod = await this.getModuleSchema(sourceSchema);
 
     const existingSet = new Set(existingTables.map(t => t.table_name));
-    const missing = mod.tables.filter(t => !existingSet.has(t));
+    const expectedTables = this.expectedTablesForModule(mod);
+    const missing = expectedTables.filter(t => !existingSet.has(t));
 
     if (missing.length === 0) {
       this.logger.log(
-        `Source schema "${sourceSchema}" verified — all ${mod.tables.length} declared tables present.`,
+        `Source schema "${sourceSchema}" verified — all ${expectedTables.length} declared tables present.`,
       );
       return;
     }
@@ -171,7 +181,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     // Hard-fail with the actionable list. The legacy code path called
     // dataSource.synchronize() here, which was the source of INFRA-CRITICAL-009.
     throw new Error(
-      `Source schema "${sourceSchema}" is missing ${missing.length}/${mod.tables.length} ` +
+      `Source schema "${sourceSchema}" is missing ${missing.length}/${expectedTables.length} ` +
         `declared tables: ${missing.join(', ')}. Migrations did not create them. ` +
         `Refusing to fall back to runtime synchronize() per INFRA-CRITICAL-009. ` +
         `Add a migration that CREATEs these tables to ` +
@@ -194,7 +204,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
       `  (2) The MigrationRunnerService ran but its migrations directory is empty. ` +
         `The service has no declared DDL — add a migration before deploying.`,
       `  (3) The aqua-db-migrate centralised runner did not include this schema. ` +
-        `Verify the schema is listed in apps/db-migrate/src/schema-slots.ts (or equivalent).`,
+        `Verify the schema is listed in apps/db-migrate/src/schema-registry.ts.`,
     ].join(' ');
   }
 
@@ -249,16 +259,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
    *   gate catches the regression.
    */
   private async assertNoOrphanTables(sourceSchema: string): Promise<void> {
-    // Dynamic import to avoid circular dependency between
-    // source-schema-bootstrap.service and schema-manager.service.
-    const { MODULE_SCHEMAS } = await import('./schema-manager.service');
-    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
-    if (!mod) {
-      this.logger.debug(
-        `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — skipping strict-ownership enforcement.`,
-      );
-      return;
-    }
+    const mod = await this.getModuleSchema(sourceSchema);
     if (mod.strictOwnership !== true) {
       this.logger.debug(
         `Module "${mod.moduleName}" does not opt into strict ownership — skipping orphan verification for "${sourceSchema}".`,
@@ -269,16 +270,12 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     // Build the authoritative "legitimate tables" set from the three
     // declared lists. Anything in the schema that isn't in this set is
     // an orphan by definition.
-    const legitimate = new Set<string>([
-      ...mod.tables,
-      ...(mod.referenceDataTables ?? []),
-      ...(mod.infrastructureTables ?? []),
-    ]);
+    const legitimate = new Set<string>(this.expectedTablesForModule(mod));
 
     // Query actual tables present in the schema. Excludes views,
     // materialized views, and foreign tables — those are managed
     // differently and the orphan verification policy does not apply to them.
-    const rows: Array<{ table_name: string }> = await this.dataSource.query(
+    const rowsResult: unknown = await this.dataSource.query(
       `
       SELECT table_name
       FROM information_schema.tables
@@ -287,6 +284,11 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
       ORDER BY table_name
       `,
       [sourceSchema],
+    );
+    const rows = queryRowsWithStringColumn(
+      rowsResult,
+      'table_name',
+      `source schema "${sourceSchema}" strict ownership table scan`,
     );
 
     const actual = rows.map(r => r.table_name);
@@ -311,5 +313,40 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
         `Runtime services cannot clean this with DDL. Add a db-migrate cleanup migration or declare ` +
         `legitimate tables in MODULE_SCHEMAS[${mod.moduleName}] before deploy.`,
     );
+  }
+
+  private expectedTablesForModule(mod: {
+    tables: readonly string[];
+    referenceDataTables?: readonly string[];
+    infrastructureTables?: readonly string[];
+  }): string[] {
+    return [
+      ...mod.tables,
+      ...(mod.referenceDataTables ?? []),
+      ...(mod.infrastructureTables ?? []),
+    ];
+  }
+
+  private async getModuleSchema(sourceSchema: string): Promise<{
+    moduleName: string;
+    sourceSchema: string;
+    strictOwnership?: boolean;
+    tables: readonly string[];
+    referenceDataTables?: readonly string[];
+    infrastructureTables?: readonly string[];
+  }> {
+    // Dynamic import to avoid circular dependency between
+    // source-schema-bootstrap.service and schema-manager.service.
+    const { MODULE_SCHEMAS } = await import('./schema-manager.service');
+    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
+    if (!mod) {
+      throw new Error(
+        `Source schema "${sourceSchema}" is not declared in MODULE_SCHEMAS. ` +
+          `Runtime services cannot infer schema ownership from search_path. ` +
+          `Declare the schema in libs/backend-common/src/database/schema-manager.service.ts ` +
+          `or fix the TypeORM search_path before deploy.`,
+      );
+    }
+    return mod;
   }
 }

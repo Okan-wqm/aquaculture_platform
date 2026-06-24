@@ -161,7 +161,8 @@ function checkAppModule(svc: CanonicalService): Violation | null {
   const found: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = callRe.exec(source)) !== null) {
-    found.push(m[1]);
+    const serviceName = m[1];
+    if (serviceName) found.push(serviceName);
   }
   if (found.length === 0) {
     return {

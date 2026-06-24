@@ -15,6 +15,7 @@ import {
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
@@ -40,6 +41,7 @@ import {
   ThrottlerGuard,
   ThrottlerModule,
 } from '@aquaculture/backend-common/security';
+import { EventBusModule } from '@platform/event-bus';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 /**
@@ -51,16 +53,11 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics')
 const hydroponicsSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { HydroponicsSetupModule } from './setup/setup.module';
 import { HealthModule } from './health/health.module';
+import { HydroponicsOutboxModule } from './outbox/hydroponics-outbox.module';
+import { HydroponicsOutbox } from './outbox/hydroponics-outbox.entity';
 
 // Entities
 import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
-
-// Migrations — explicit class imports so the TypeORM DataSource emits
-// the migration class array (no glob). Keeping the import list aligned
-// with apps/db-migrate/src/schema-registry.ts ensures both the
-// container-driven runner and the in-process fallback runner observe
-// the same migration set.
-import { Baseline1800000000000 } from './database/migrations/1800000000000-Baseline';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
@@ -92,8 +89,11 @@ type QueryComplexityOperationContext = {
         createServiceTypeOrmConfig(configService, {
           serviceName: 'hydroponics',
           schema: 'hydroponics',
-          entities: [HydroponicsConfig],
-          migrations: [Baseline1800000000000],
+          // HydroponicsOutbox must be in TypeORM metadata: explicit entities
+          // list disables autoLoadEntities, so OutboxNotifyListener.onModuleInit
+          // getMetadata(HydroponicsOutbox) would throw and crash-loop boot.
+          entities: [HydroponicsConfig, HydroponicsOutbox],
+          migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
           //   aqua-db-migrate container runs migrations BEFORE service
@@ -205,6 +205,16 @@ type QueryComplexityOperationContext = {
     // is the structural answer: one source of truth, no per-service block
     // to forget.
     PlatformJwtModule,
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
+    HydroponicsOutboxModule,
+    TenantErasureTargetModule.forService('hydroponics-service'),
     // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.
     // Limits are configurable via THROTTLE_DEFAULT_LIMIT, THROTTLE_DEFAULT_TTL,
     // THROTTLE_ANONYMOUS_LIMIT, and THROTTLE_ENABLED environment variables.

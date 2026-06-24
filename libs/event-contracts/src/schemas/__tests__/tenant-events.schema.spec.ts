@@ -66,12 +66,47 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
   }),
   TenantActivated: withBase('TenantActivated', { activatedBy: USER_ID }),
   TenantArchived: withBase('TenantArchived', { archivedBy: USER_ID }),
-  TenantErased: withBase('TenantErased', {
-    confirmedAt: '2026-06-12T12:00:00.000Z',
+  TenantErasureRequested: withBase('TenantErasureRequested', {
+    operationId: OP_ID,
     requestedBy: USER_ID,
-    totalDeleted: 42,
-    auditRowsAnonymised: 7,
-    tableCount: 9,
+    requestedAt: '2026-06-12T11:55:00.000Z',
+    legalHoldCheckedAt: '2026-06-12T11:55:01.000Z',
+    dryRun: false,
+    targetServiceCount: 10,
+  }),
+  TenantDataErased: withBase('TenantDataErased', {
+    operationId: OP_ID,
+    targetService: 'farm-service',
+    erasedAt: '2026-06-12T12:00:00.000Z',
+    dryRun: false,
+    matchedRecordCount: 42,
+    erasedRecordCount: 42,
+    proofHash: 'sha256:tenant-data-erased-proof',
+  }),
+  TenantDataErasureFailed: withBase('TenantDataErasureFailed', {
+    operationId: OP_ID,
+    targetService: 'billing-service',
+    failedAt: '2026-06-12T12:00:00.000Z',
+    errorCode: 'BILLING_LEDGER_LOCKED',
+    errorMessage: 'billing ledger locked',
+    retryable: true,
+  }),
+  TenantErasureBlocked: withBase('TenantErasureBlocked', {
+    operationId: OP_ID,
+    blockedAt: '2026-06-12T12:00:00.000Z',
+    blockedByService: 'platform-orchestrator',
+    reason: 'active legal hold',
+    legalMatterId: 'matter-2026-001',
+  }),
+  TenantErased: withBase('TenantErased', {
+    operationId: OP_ID,
+    requestedAt: '2026-06-12T11:55:00.000Z',
+    requestedBy: USER_ID,
+    legalHoldCheckedAt: '2026-06-12T11:55:01.000Z',
+    completedAt: '2026-06-12T12:05:00.000Z',
+    targetServiceCount: 10,
+    proofHash: 'sha256:final-tenant-erasure-proof',
+    proofVersion: 1,
   }),
   TenantProvisioningFailed: withBase('TenantProvisioningFailed', {
     error: 'schema creation failed',
@@ -125,7 +160,7 @@ describe('validateTenantEvent (MEDIUM-007)', () => {
   const schemaKeys = Object.keys(TENANT_EVENT_SCHEMAS) as TenantEventType[];
 
   it('has a validator + fixture for every registered tenant event schema', () => {
-    expect(schemaKeys.length).toBe(13);
+    expect(schemaKeys.length).toBe(17);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }

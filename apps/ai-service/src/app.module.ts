@@ -14,6 +14,7 @@ import {
   AuditLogInterceptor,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
+import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -75,6 +76,7 @@ import { AgentConfigModule } from './tenant-config/agent-config.module';
 import { AuditModule } from './audit/audit.module';
 import { CostModule } from './cost/cost.module';
 import { ChatModule } from './chat/chat.module';
+import { AiOutboxModule } from './outbox/ai-outbox.module';
 
 // Entities
 import { AgentConversation } from './conversation/conversation.entity';
@@ -229,6 +231,8 @@ type QueryComplexityOperationContext = {
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+    AiOutboxModule,
+    TenantErasureTargetModule.forService('ai-service'),
     // Redis: Distributed state for rate limiting and token budget counters.
     // WHY: Without Redis, each ai-service instance maintains its own in-memory
     // counters, effectively multiplying rate limits by the instance count.

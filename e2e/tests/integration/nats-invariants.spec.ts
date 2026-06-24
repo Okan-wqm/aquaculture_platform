@@ -36,10 +36,18 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import * as yaml from 'js-yaml';
+
 import Ajv from 'ajv';
+import { parse as yamlParse } from 'yaml';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
+
+// The `yaml` package ships its own type declarations (js-yaml does not, and
+// e2e is not an npm workspace so its @types never hoist). A typed
+// `(input: string) => unknown` binding keeps the parse result `unknown` so
+// every caller must narrow it with an explicit assertion instead of letting
+// `any` flow through the invariant assertions below.
+const parseYaml: (input: string) => unknown = yamlParse;
 
 interface Service {
   name: string;
@@ -55,12 +63,13 @@ interface ServicesYaml {
 
 function loadServicesYaml(): ServicesYaml {
   const path = join(REPO_ROOT, 'infrastructure', 'nats', 'services.yaml');
-  return yaml.load(readFileSync(path, 'utf-8')) as ServicesYaml;
+  return parseYaml(readFileSync(path, 'utf-8')) as ServicesYaml;
 }
 
 function loadServicesSchema(): object {
   const path = join(REPO_ROOT, 'infrastructure', 'nats', 'services.schema.json');
-  return JSON.parse(readFileSync(path, 'utf-8'));
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+  return parsed as object;
 }
 
 function loadNatsConfAuthBlock(): string {
@@ -90,7 +99,7 @@ function loadCertCnList(): string[] {
         'block — the test cannot verify cert CN ↔ services.yaml alignment.',
     );
   }
-  return match[1]!
+  return match[1]
     .replace(/\\/g, '') // remove line-continuation backslashes
     .split(/\s+/)
     .filter((s) => s.length > 0);
@@ -124,9 +133,9 @@ function parseAuthBlockUsers(authBlock: string): NatsUserEntry[] {
         .map((s) => s.trim().replace(/^"|"$/g, ''))
         .filter((s) => s.length > 0);
     users.push({
-      name: name!,
-      publish: parseAllow(publishRaw!),
-      subscribe: parseAllow(subscribeRaw!),
+      name: name,
+      publish: parseAllow(publishRaw),
+      subscribe: parseAllow(subscribeRaw),
     });
   }
   return users;
@@ -143,9 +152,7 @@ describe('NATS SSoT Invariants (2026-04-14 cert-is-identity refactor)', () => {
     const validate = ajv.compile(schema);
     const valid = validate(servicesDoc);
     if (!valid) {
-      throw new Error(
-        `services.yaml schema violations:\n${JSON.stringify(validate.errors, null, 2)}`,
-      );
+      throw new Error(`services.yaml schema violations: ${JSON.stringify(validate.errors)}`);
     }
   });
 
@@ -159,9 +166,7 @@ describe('NATS SSoT Invariants (2026-04-14 cert-is-identity refactor)', () => {
     }
   });
 
-  it.each(
-    (() => loadServicesYaml().services.map((s) => [s.name, s] as [string, Service]))(),
-  )(
+  it.each((() => loadServicesYaml().services.map((s) => [s.name, s] as [string, Service]))())(
     'service %s has a matching nats.conf user entry with identical ACLs',
     (name, svc) => {
       const matched = parsedUsers.find((u) => u.name === name);

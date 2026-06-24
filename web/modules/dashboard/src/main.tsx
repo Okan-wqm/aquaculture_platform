@@ -5,4 +5,6 @@
  * initialisation before React renders. This is the standard MF pattern.
  */
 
-import('./bootstrap');
+// void: fire-and-forget — the dynamic import's side effect (rendering) is what
+// matters; nothing here awaits the resolved module namespace.
+void import('./bootstrap');

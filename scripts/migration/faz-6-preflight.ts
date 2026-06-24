@@ -22,7 +22,6 @@
  * operator triage.
  */
 
-/* eslint-disable no-console */
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -235,7 +234,12 @@ function checkSharedSchemaCanonicalCount(): void {
     fail('faz-4/shared-schema-canonical', 'SHARED_SCHEMA_TABLES not parseable');
     return;
   }
-  const count = m[1]
+  const sharedSchemaTableList = m[1];
+  if (sharedSchemaTableList === undefined) {
+    fail('faz-4/shared-schema-canonical', 'SHARED_SCHEMA_TABLES capture missing');
+    return;
+  }
+  const count = sharedSchemaTableList
     .split(',')
     .map((s) => s.trim().replace(/['"]/g, ''))
     .filter((s) => /^[a-z_]/.test(s)).length;

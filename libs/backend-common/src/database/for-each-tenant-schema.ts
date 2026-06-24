@@ -25,8 +25,8 @@ import { listTenantSchemas } from './tenant-schema.utils';
  *  - ROTATION: the start offset rotates by `rotateBy`, so the tenant served
  *    last changes each run (no perpetual starvation). Order stays deterministic
  *    within a run.
- *  - LIFECYCLE: connect → SET statement_timeout → SET search_path → handler →
- *    release, every time (release runs even on throw/timeout).
+ *  - LIFECYCLE: connect → transaction → SET LOCAL statement_timeout →
+ *    transaction-local search_path → handler → commit/rollback → release.
  *
  * The handler receives the tenant's `schema` and a ready `QueryRunner` whose
  * search_path is already set to `"<schema>", <searchPathSuffix>`.
@@ -66,6 +66,17 @@ function rotate<T>(items: readonly T[], by: number): T[] {
   return offset === 0 ? [...items] : [...items.slice(offset), ...items.slice(0, offset)];
 }
 
+function assertSafeSearchPathSuffix(searchPathSuffix: string): string {
+  const parts = searchPathSuffix.split(',').map((part) => part.trim());
+  if (
+    parts.length === 0 ||
+    parts.some((part) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))
+  ) {
+    throw new Error(`Unsafe search_path suffix: ${searchPathSuffix}`);
+  }
+  return parts.join(', ');
+}
+
 export async function forEachTenantSchema(
   dataSource: DataSource,
   handler: (ctx: { schema: string; queryRunner: QueryRunner }) => Promise<void>,
@@ -73,7 +84,7 @@ export async function forEachTenantSchema(
 ): Promise<TenantSchemaResult[]> {
   const concurrency = Math.max(1, options.concurrency ?? 4);
   const perTenantTimeoutMs = options.perTenantTimeoutMs ?? 60_000;
-  const searchPathSuffix = options.searchPathSuffix ?? 'public';
+  const searchPathSuffix = assertSafeSearchPathSuffix(options.searchPathSuffix ?? 'public');
   const logger = options.logger;
 
   const schemas = rotate(await listTenantSchemas(dataSource), options.rotateBy ?? 0);
@@ -83,12 +94,14 @@ export async function forEachTenantSchema(
     const queryRunner = dataSource.createQueryRunner();
     try {
       await queryRunner.connect();
+      await queryRunner.startTransaction();
       if (perTenantTimeoutMs > 0) {
         // DB-side kill switch on this tenant's dedicated connection.
-        await queryRunner.query(`SET statement_timeout = ${perTenantTimeoutMs}`);
+        await queryRunner.query(`SET LOCAL statement_timeout = ${perTenantTimeoutMs}`);
       }
       await queryRunner.query(
-        `SET search_path TO "${schema}", ${searchPathSuffix}`,
+        `SELECT pg_catalog.set_config('search_path', $1, true)`,
+        [`"${schema}", ${searchPathSuffix}`],
       );
 
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,8 +121,12 @@ export async function forEachTenantSchema(
       } else {
         await work;
       }
+      await queryRunner.commitTransaction();
       results[index] = { schema, outcome: 'ok' };
     } catch (err) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction().catch(() => undefined);
+      }
       const isTimeout = err instanceof TenantSchemaTimeoutError;
       const error = err instanceof Error ? err : new Error(String(err));
       logger?.error(

@@ -9,7 +9,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
@@ -191,13 +191,8 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
-        password: configService.get('REDIS_PASSWORD'),
-        db: parseInt(configService.get('REDIS_DB', '0'), 10),
-        keyPrefix: 'admin:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'admin', 'optional'),
     }),
     StorageModule.forRootAsync({
       imports: [ConfigModule],

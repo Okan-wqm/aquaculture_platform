@@ -1,18 +1,23 @@
-import { EncryptedAtRest, dropOrphanedColumns } from '@aquaculture/backend-common/database';
+import { dropOrphanedColumns, EncryptedAtRest } from '@aquaculture/backend-common/database';
 import {
   Column,
   DataSource,
+  type DataSourceOptions,
   Entity,
   PrimaryColumn,
-  type DataSourceOptions,
 } from 'typeorm';
 
 import {
-  type HarnessContext,
   bootPostgresContainer,
   shutdownHarness,
-  withEphemeralSchema,
+  type HarnessContext,
 } from '../index';
+
+import {
+  expectHarnessContext,
+  queryRows,
+  withHarnessSchema,
+} from './test-helpers';
 
 @Entity({ name: 'widget', schema: 'drop_test' })
 class Widget {
@@ -47,7 +52,7 @@ async function loadMetadata<T extends object>(
     synchronize: false,
     name: `dropcol-test-${Math.random().toString(36).slice(2)}`,
     logging: false,
-  } as DataSourceOptions);
+  });
   await ds.initialize();
   const meta = ds.entityMetadatas.find((m) => m.target === entity);
   if (!meta) throw new Error('EntityMetadata not found for test fixture');
@@ -66,7 +71,8 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
   }, 30_000);
 
   it('drops an allowlisted orphan column', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drop_test`);
       try {
         await qr.query(
@@ -86,12 +92,13 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
             entityMetadata: meta,
           });
           expect(result.dropped).toEqual(['legacy_flag']);
-          const remaining = await qr.query(
+          const remaining = await queryRows<{ column_name: string }>(
+            qr,
             `SELECT column_name FROM information_schema.columns
               WHERE table_schema = 'drop_test' AND table_name = 'widget'
               ORDER BY ordinal_position`,
           );
-          expect(remaining.map((r: { column_name: string }) => r.column_name)).toEqual([
+          expect(remaining.map((r) => r.column_name)).toEqual([
             'id',
             'name',
             'score',
@@ -106,7 +113,8 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
   });
 
   it('REFUSES to drop an entity-declared column (Class D mistake guard)', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drop_test`);
       try {
         await qr.query(
@@ -136,7 +144,8 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
   });
 
   it('REFUSES to drop an @EncryptedAtRest column', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drop_test`);
       try {
         await qr.query(
@@ -176,7 +185,8 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
   });
 
   it('is idempotent — re-running yields alreadyAbsent=[dropped]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drop_test`);
       try {
         await qr.query(
@@ -213,7 +223,8 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
   });
 
   it('returns empty result when allowlist=[]', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drop_test`);
       try {
         await qr.query(
@@ -242,7 +253,8 @@ describe('dropOrphanedColumns — Phase 3 Class E primitive', () => {
   });
 
   it('rejects unsafe identifier in the allowlist', async () => {
-    await withEphemeralSchema(ctx!, async (_e, qr) => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drop_test`);
       try {
         await qr.query(

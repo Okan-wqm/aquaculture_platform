@@ -7,6 +7,9 @@
  * - Reactivation restores access
  */
 
+import { assertDefined } from '../../helpers/assertions';
+import { findTenantById, closePool } from '../../helpers/db.helper';
+import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -20,8 +23,6 @@ import {
   generateTestEmail,
   generateTestPassword,
 } from '../../helpers/tenant.fixture';
-import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
-import { findTenantById, closePool } from '../../helpers/db.helper';
 
 describe('Tenant Suspension', () => {
   let superAdminToken: string;
@@ -49,7 +50,7 @@ describe('Tenant Suspension', () => {
       lastName: 'Test',
       email: tenantUserEmail,
       password: tenantUserPassword,
-      roleId: defaultRole!.id,
+      roleId: defaultRole.id,
       sendInvitation: false,
     });
 
@@ -74,8 +75,8 @@ describe('Tenant Suspension', () => {
     const response = await queryMyTenant(tenantUserToken);
     expect(response.errors).toBeUndefined();
     expect(response.data).toBeDefined();
-    expect(response.data!.myTenant.id).toBe(tenantId);
-    expect(response.data!.myTenant.status).toBe('ACTIVE');
+    expect(assertDefined(response.data).myTenant.id).toBe(tenantId);
+    expect(assertDefined(response.data).myTenant.status).toBe('ACTIVE');
   });
 
   it('should suspend tenant successfully via SUPER_ADMIN', async () => {
@@ -86,7 +87,7 @@ describe('Tenant Suspension', () => {
     // Verify in DB
     const dbTenant = await findTenantById(tenantId);
     expect(dbTenant).not.toBeNull();
-    expect(dbTenant!.status).toBe('SUSPENDED');
+    expect(assertDefined(dbTenant).status).toBe('SUSPENDED');
   });
 
   it('should reject tenant user API calls when tenant is suspended', async () => {
@@ -113,15 +114,13 @@ describe('Tenant Suspension', () => {
 
     if (loginResponse.data) {
       // If login succeeded, try to use the token for a tenant query
-      const newToken = (loginResponse.data as Record<string, Record<string, string>>)?.login?.accessToken;
+      const newToken = (loginResponse.data as Record<string, Record<string, string>>)?.login
+        ?.accessToken;
       if (newToken) {
         const dataResponse = await queryMyTenant(newToken);
         // The query should either return an error or show SUSPENDED status
         if (dataResponse.errors) {
-          const hasError = hasGraphQLError(
-            dataResponse,
-            /suspended|Forbidden|denied|inactive/i,
-          );
+          const hasError = hasGraphQLError(dataResponse, /suspended|Forbidden|denied|inactive/i);
           expect(hasError).toBe(true);
         } else if (dataResponse.data) {
           // If data is returned, status should show SUSPENDED
@@ -130,10 +129,7 @@ describe('Tenant Suspension', () => {
       }
     } else if (loginResponse.errors) {
       // Login itself was blocked for suspended tenant
-      const hasError = hasGraphQLError(
-        loginResponse,
-        /suspended|Forbidden|denied|inactive/i,
-      );
+      const hasError = hasGraphQLError(loginResponse, /suspended|Forbidden|denied|inactive/i);
       expect(hasError).toBe(true);
     }
   });
@@ -146,7 +142,7 @@ describe('Tenant Suspension', () => {
     // Verify in DB
     const dbTenant = await findTenantById(tenantId);
     expect(dbTenant).not.toBeNull();
-    expect(dbTenant!.status).toBe('ACTIVE');
+    expect(assertDefined(dbTenant).status).toBe('ACTIVE');
 
     // Login again and verify access is restored
     const loginResult = await loginAs(tenantUserEmail, tenantUserPassword);
@@ -155,6 +151,6 @@ describe('Tenant Suspension', () => {
     const response = await queryMyTenant(loginResult.accessToken);
     expect(response.errors).toBeUndefined();
     expect(response.data).toBeDefined();
-    expect(response.data!.myTenant.status).toBe('ACTIVE');
+    expect(assertDefined(response.data).myTenant.status).toBe('ACTIVE');
   });
 });

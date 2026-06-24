@@ -216,6 +216,18 @@ export class RedisService implements OnModuleDestroy {
     return this.client.hgetall(this.prefixKey(key));
   }
 
+  async rpush(key: string, ...values: string[]): Promise<number> {
+    return this.client.rpush(this.prefixKey(key), ...values);
+  }
+
+  async ltrim(key: string, start: number, stop: number): Promise<string> {
+    return this.client.ltrim(this.prefixKey(key), start, stop);
+  }
+
+  async lrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.client.lrange(this.prefixKey(key), start, stop);
+  }
+
   /**
    * Hash delete
    */

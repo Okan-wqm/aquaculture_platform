@@ -41,23 +41,33 @@ export function useNetworkStatus(): boolean {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const probeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const scheduleProbe = (delay: number) => {
-    if (probeTimerRef.current) clearTimeout(probeTimerRef.current);
-    probeTimerRef.current = setTimeout(async () => {
-      const reachable = await probeConnectivity();
-      setIsOnline(reachable);
-      // Reschedule — probe more frequently when offline to detect reconnection sooner
-      scheduleProbe(reachable ? PROBE_INTERVAL_MS : 10_000);
-    }, delay);
-  };
-
   useEffect(() => {
-    const handleOnline = () => {
+    // WHY define scheduleProbe inside the effect: it has no external dependency
+    // (it closes only over the stable setIsOnline setter and the ref), so the
+    // effect's dependency array is genuinely empty — the probe loop owns the
+    // network-status lifecycle for the component's whole lifetime. Keeping it
+    // local removes the only reason the old code needed a deps-array suppression.
+    const scheduleProbe = (delay: number): void => {
+      if (probeTimerRef.current) clearTimeout(probeTimerRef.current);
+      // WHY void + inner async: setTimeout expects a void-returning callback, so
+      // the async probe runs as a fire-and-forget task explicitly marked with
+      // `void` rather than returning a floating Promise to setTimeout.
+      probeTimerRef.current = setTimeout(() => {
+        void (async (): Promise<void> => {
+          const reachable = await probeConnectivity();
+          setIsOnline(reachable);
+          // Reschedule — probe more frequently when offline to detect reconnection sooner
+          scheduleProbe(reachable ? PROBE_INTERVAL_MS : 10_000);
+        })();
+      }, delay);
+    };
+
+    const handleOnline = (): void => {
       // navigator.onLine just became true — probe immediately to confirm
       scheduleProbe(500);
     };
 
-    const handleOffline = () => {
+    const handleOffline = (): void => {
       // navigator.onLine went false — we're definitely offline
       setIsOnline(false);
       scheduleProbe(10_000); // keep probing to detect reconnect
@@ -74,7 +84,6 @@ export function useNetworkStatus(): boolean {
       window.removeEventListener('offline', handleOffline);
       if (probeTimerRef.current) clearTimeout(probeTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return isOnline;

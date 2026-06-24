@@ -235,7 +235,7 @@ export class ConnectionTesterService {
   /**
    * Discover available devices/endpoints for protocols that support discovery
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
+   
   async discoverDevices(
     protocolCode: string,
     _config: Record<string, unknown>,
@@ -250,7 +250,7 @@ export class ConnectionTesterService {
       return { discovered: [], error: `Protocol ${protocolCode} does not support discovery` };
     }
 
-    // For now, return empty - actual discovery would be protocol-specific
+    // Returns empty: actual discovery is protocol-specific and not yet implemented.
     // This is a placeholder for future implementation
     return { discovered: [] };
   }

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { handler, inputSchema } from '../tools/math/calculate-growth-metrics.js';
 
 // ============================================================================

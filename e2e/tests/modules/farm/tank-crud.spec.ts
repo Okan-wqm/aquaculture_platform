@@ -16,9 +16,10 @@
  * 6. Cross-tenant isolation
  * 7. deleteTank -> DeleteTankResponse
  */
+import { assertDefined } from '../../../helpers/assertions';
+import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateCrossTenantTokens } from '../../../helpers/jwt.helper';
-import { TestDatabase } from '../../../helpers/db.helper';
 
 // ---------------------------------------------------------------------------
 // GraphQL Fragments
@@ -242,8 +243,8 @@ describe('Tank CRUD + Status Machine E2E', () => {
     // DB VERIFY
     const dbRow = await db.findById('tanks', tank.id, tenantAId);
     expect(dbRow).not.toBeNull();
-    expect(dbRow!['name']).toBe(input.name);
-    expect(dbRow!['departmentId']).toBe(departmentId);
+    expect(assertDefined(dbRow)['name']).toBe(input.name);
+    expect(assertDefined(dbRow)['departmentId']).toBe(departmentId);
 
     // LIST with filter
     const listResult = await client.executeSuccess<{
@@ -257,9 +258,7 @@ describe('Tank CRUD + Status Machine E2E', () => {
       token: tenantAToken,
     });
 
-    const found = listResult.tanks.items.find(
-      (t: { id: string }) => t.id === tank.id,
-    );
+    const found = listResult.tanks.items.find((t: { id: string }) => t.id === tank.id);
     expect(found).toBeDefined();
   });
 
@@ -301,7 +300,7 @@ describe('Tank CRUD + Status Machine E2E', () => {
       (t: { id: string }) => t.id === createResult.createTank.id,
     );
     expect(found).toBeDefined();
-    expect(found!.departmentId).toBe(departmentId);
+    expect(assertDefined(found).departmentId).toBe(departmentId);
   });
 
   // -------------------------------------------------------------------------
@@ -395,7 +394,11 @@ describe('Tank CRUD + Status Machine E2E', () => {
       }>({
         query: UPDATE_TANK_STATUS,
         variables: {
-          input: { id: createResult.createTank.id, status: 'preparing', reason: 'Ready for stocking' },
+          input: {
+            id: createResult.createTank.id,
+            status: 'preparing',
+            reason: 'Ready for stocking',
+          },
         },
         token: tenantAToken,
       });
@@ -528,7 +531,7 @@ describe('Tank CRUD + Status Machine E2E', () => {
 
       // Should get an error
       expect(invalidResult.errors).toBeDefined();
-      expect(invalidResult.errors!.length).toBeGreaterThan(0);
+      expect(assertDefined(invalidResult.errors).length).toBeGreaterThan(0);
     });
 
     it('should allow valid chain: HARVESTING -> CLEANING -> PREPARING', async () => {
@@ -749,7 +752,9 @@ describe('Tank CRUD + Status Machine E2E', () => {
       expect((readResult.data.tank as Record<string, unknown>)['tenantId']).not.toBe(tenantAId);
     } else {
       // Expected: null or error
-      expect(readResult.errors?.length ?? 0 + (readResult.data?.tank === null ? 1 : 0)).toBeGreaterThanOrEqual(0);
+      expect(
+        readResult.errors?.length ?? 0 + (readResult.data?.tank === null ? 1 : 0),
+      ).toBeGreaterThanOrEqual(0);
     }
   });
 

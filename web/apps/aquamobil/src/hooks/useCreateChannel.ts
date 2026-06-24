@@ -26,10 +26,24 @@ import type { Channel, CreateChannelInput } from '@/types/messaging';
 import { toWireChannelType } from '@/utils/channel-type-wire';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
+/** Return shape of {@link useCreateChannel}. */
+export interface UseCreateChannelReturn {
+  /** Get-or-create a direct message channel; resolves to the channel ID. */
+  createDM: (userId: string) => Promise<string>;
+  /** Create a group channel; resolves to the new channel ID. */
+  createGroup: (name: string, memberIds: string[]) => Promise<string>;
+  /** Create an AI channel; resolves to the new channel ID. */
+  createAiChannel: (aiPersona?: string, name?: string) => Promise<string>;
+  /** True while any creation mutation is in flight. */
+  isCreating: boolean;
+  /** Last mutation error, or null. */
+  error: Error | null;
+}
+
 /**
  * Channel creation hook for DM and group channel flows.
  */
-export function useCreateChannel() {
+export function useCreateChannel(): UseCreateChannelReturn {
   const { isAuthenticated, tenantId } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<Error | null>(null);
@@ -46,7 +60,8 @@ export function useCreateChannel() {
       return result.directChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      // WHY void: invalidation is fire-and-forget (React Query owns the refetch).
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       setError(null);
     },
     onError: (err: Error) => {
@@ -71,7 +86,7 @@ export function useCreateChannel() {
       return result.createChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       setError(null);
     },
     onError: (err: Error) => {
@@ -97,7 +112,7 @@ export function useCreateChannel() {
       return result.createChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       setError(null);
     },
     onError: (err: Error) => {

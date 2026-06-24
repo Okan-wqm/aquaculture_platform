@@ -24,6 +24,13 @@ on:
       - 'tools/scripts/emit-subgraph-sdl.ts'
       - 'scripts/apollo-router/build-supergraph.mjs'
       - '.github/workflows/apollo-supergraph-validate.yml'
+      # FE GraphQL operation sources — the contract-validation gate must run when
+      # frontend queries change, not only when the backend schema changes.
+      - 'web/**/*.ts'
+      - 'web/**/*.tsx'
+      - 'mcp/**/*.ts'
+      - 'scripts/ci/validate-graphql-operations.mjs'
+      - 'scripts/ci/graphql-fe-drift.baseline.json'
   pull_request:
     branches: [main, develop]
     paths:
@@ -40,6 +47,13 @@ on:
       - 'tools/scripts/emit-subgraph-sdl.ts'
       - 'scripts/apollo-router/build-supergraph.mjs'
       - '.github/workflows/apollo-supergraph-validate.yml'
+      # FE GraphQL operation sources — the contract-validation gate must run when
+      # frontend queries change, not only when the backend schema changes.
+      - 'web/**/*.ts'
+      - 'web/**/*.tsx'
+      - 'mcp/**/*.ts'
+      - 'scripts/ci/validate-graphql-operations.mjs'
+      - 'scripts/ci/graphql-fe-drift.baseline.json'
 
 permissions:
   contents: read

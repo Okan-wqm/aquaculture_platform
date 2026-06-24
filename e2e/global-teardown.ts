@@ -1,6 +1,6 @@
-import { TestDatabase } from './helpers/db.helper';
 import { teardownTestTenant } from './fixtures/tenant.fixture';
 import { teardownTestUser } from './fixtures/user.fixture';
+import { TestDatabase } from './helpers/db.helper';
 
 /**
  * Global teardown for all E2E test suites.
@@ -44,12 +44,8 @@ export default async function globalTeardown(): Promise<void> {
     }
 
     // Clean up any orphaned e2e test data (belt-and-suspenders)
-    await db.query(
-      `DELETE FROM auth.users WHERE email LIKE 'e2e-%@test.aquaculture.io'`,
-    );
-    await db.query(
-      `DELETE FROM auth.tenants WHERE slug LIKE 'e2e-%'`,
-    );
+    await db.query(`DELETE FROM auth.users WHERE email LIKE 'e2e-%@test.aquaculture.io'`);
+    await db.query(`DELETE FROM auth.tenants WHERE slug LIKE 'e2e-%'`);
 
     console.log('[global-teardown] E2E cleanup completed');
   } catch (error) {

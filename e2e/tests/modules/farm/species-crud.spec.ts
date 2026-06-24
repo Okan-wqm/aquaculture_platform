@@ -14,12 +14,13 @@
  *
  * @module E2E/Farm/Species
  */
+import { assertDefined } from '../../../helpers/assertions';
+
 import {
   gqlExpectSuccess,
   gqlExpectError,
   TENANT_A_ID,
   TENANT_B_ID,
-  USER_A_ID,
   USER_B_ID,
   SPECIES_FIELDS,
   uniqueSpeciesCode,
@@ -145,7 +146,7 @@ describe('Species CRUD E2E', () => {
         (s: Record<string, unknown>) => s.id === createdSpeciesId,
       );
       expect(found).toBeDefined();
-      expect(found!.scientificName).toBe(scientificName);
+      expect(assertDefined(found).scientificName).toBe(scientificName);
     });
   });
 
@@ -184,10 +185,10 @@ describe('Species CRUD E2E', () => {
       const errorMessages = errors.map((e) => e.message.toLowerCase()).join(' ');
       expect(
         errorMessages.includes('duplicate') ||
-        errorMessages.includes('exists') ||
-        errorMessages.includes('unique') ||
-        errorMessages.includes('already') ||
-        errorMessages.includes('conflict'),
+          errorMessages.includes('exists') ||
+          errorMessages.includes('unique') ||
+          errorMessages.includes('already') ||
+          errorMessages.includes('conflict'),
       ).toBe(true);
     });
 
@@ -316,9 +317,7 @@ describe('Species CRUD E2E', () => {
         { filter: { isActive: true } },
       );
 
-      const found = data.speciesList.items.find(
-        (s: Record<string, unknown>) => s.id === speciesId,
-      );
+      const found = data.speciesList.items.find((s: Record<string, unknown>) => s.id === speciesId);
       expect(found).toBeUndefined();
     });
   });
@@ -327,7 +326,16 @@ describe('Species CRUD E2E', () => {
   // Test 4: Species enums — category, waterType, status
   // =========================================================================
   describe('Test 4: Species Enums', () => {
-    const categoryValues = ['FISH', 'SHRIMP', 'PRAWN', 'CRAB', 'LOBSTER', 'MOLLUSK', 'SEAWEED', 'OTHER'];
+    const categoryValues = [
+      'FISH',
+      'SHRIMP',
+      'PRAWN',
+      'CRAB',
+      'LOBSTER',
+      'MOLLUSK',
+      'SEAWEED',
+      'OTHER',
+    ];
     const waterTypeValues = ['FRESHWATER', 'SALTWATER', 'BRACKISH'];
     const statusValues = ['ACTIVE', 'INACTIVE', 'EXPERIMENTAL', 'DISCONTINUED'];
 
@@ -354,10 +362,7 @@ describe('Species CRUD E2E', () => {
     let tenantASpeciesId: string;
 
     beforeAll(async () => {
-      const species = await createTestSpecies(
-        { commonName: 'Tenant A Only Species' },
-        TENANT_A_ID,
-      );
+      const species = await createTestSpecies({ commonName: 'Tenant A Only Species' }, TENANT_A_ID);
       tenantASpeciesId = species.id as string;
     });
 

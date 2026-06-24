@@ -6,8 +6,10 @@
  * Plus cross-tenant isolation and DB verification.
  */
 import { randomUUID } from 'crypto';
-import { GraphQLTestClient, GraphQLTestError } from '../../../helpers/graphql-client';
+
+import { assertDefined } from '../../../helpers/assertions';
 import { TestDatabase } from '../../../helpers/db.helper';
+import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateTestToken } from '../../../helpers/jwt.helper';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
@@ -88,7 +90,8 @@ describe('Employee CRUD Lifecycle', () => {
         contactInfo: { email: string; phone: string };
         address: { city: string; country: string };
       };
-    }>(`
+    }>(
+      `
       mutation CreateEmployee($input: CreateEmployeeInput!) {
         createEmployee(input: $input) {
           id
@@ -106,7 +109,9 @@ describe('Employee CRUD Lifecycle', () => {
           address { city country }
         }
       }
-    `, { input: employeeInput });
+    `,
+      { input: employeeInput },
+    );
 
     const emp = data.createEmployee;
     createdEmployeeId = emp.id;
@@ -128,7 +133,8 @@ describe('Employee CRUD Lifecycle', () => {
     // Read back by ID
     const readData = await clientA.query<{
       employee: { id: string; firstName: string; lastName: string; email: string };
-    }>(`
+    }>(
+      `
       query GetEmployee($id: ID!) {
         employee(id: $id) {
           id
@@ -137,7 +143,9 @@ describe('Employee CRUD Lifecycle', () => {
           email
         }
       }
-    `, { id: createdEmployeeId });
+    `,
+      { id: createdEmployeeId },
+    );
 
     expect(readData.employee.id).toBe(createdEmployeeId);
     expect(readData.employee.firstName).toBe('Ahmet');
@@ -148,7 +156,8 @@ describe('Employee CRUD Lifecycle', () => {
         data: Array<{ id: string; firstName: string }>;
         total: number;
       };
-    }>(`
+    }>(
+      `
       query ListEmployees($filter: EmployeeFilterInput) {
         employees(filter: $filter) {
           data {
@@ -158,7 +167,9 @@ describe('Employee CRUD Lifecycle', () => {
           total
         }
       }
-    `, { filter: { status: 'ACTIVE' } });
+    `,
+      { filter: { status: 'ACTIVE' } },
+    );
 
     expect(listData.employees.total).toBeGreaterThanOrEqual(1);
     const found = listData.employees.data.find((e: { id: string }) => e.id === createdEmployeeId);
@@ -166,7 +177,7 @@ describe('Employee CRUD Lifecycle', () => {
   });
 
   // ── Test 2: Employee number auto-generated ────────────
-  test('Test 2: employeeNumber auto-generated (EMP-YYYY-NNNNN)', async () => {
+  test('Test 2: employeeNumber auto-generated (EMP-YYYY-NNNNN)', () => {
     expect(createdEmployeeNumber).toBeDefined();
     // Employee number should follow pattern EMP-YYYY-NNNNN
     expect(createdEmployeeNumber).toMatch(/^EMP-\d{4}-\d{5}$/);
@@ -181,16 +192,19 @@ describe('Employee CRUD Lifecycle', () => {
       nationalId: 'TC99999999999',
     };
 
-    const response = await clientA.queryRaw(`
+    const response = await clientA.queryRaw(
+      `
       mutation CreateDuplicate($input: CreateEmployeeInput!) {
         createEmployee(input: $input) {
           id
         }
       }
-    `, { input: duplicateInput });
+    `,
+      { input: duplicateInput },
+    );
 
     expect(response.errors).toBeDefined();
-    expect(response.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(response.errors).length).toBeGreaterThan(0);
   });
 
   // ── Test 4: Update employee ───────────────────────────
@@ -201,7 +215,8 @@ describe('Employee CRUD Lifecycle', () => {
         position: string;
         department: string;
       };
-    }>(`
+    }>(
+      `
       mutation UpdateEmployee($input: UpdateEmployeeInput!) {
         updateEmployee(input: $input) {
           id
@@ -209,13 +224,15 @@ describe('Employee CRUD Lifecycle', () => {
           department
         }
       }
-    `, {
-      input: {
-        id: createdEmployeeId,
-        position: 'Senior Aquaculture Technician',
-        department: 'MANAGEMENT',
+    `,
+      {
+        input: {
+          id: createdEmployeeId,
+          position: 'Senior Aquaculture Technician',
+          department: 'MANAGEMENT',
+        },
       },
-    });
+    );
 
     expect(updateData.updateEmployee.position).toBe('Senior Aquaculture Technician');
     expect(updateData.updateEmployee.department).toBe('management');
@@ -238,15 +255,19 @@ describe('Employee CRUD Lifecycle', () => {
 
     const createRes = await clientA.mutate<{
       createEmployee: { id: string };
-    }>(`
+    }>(
+      `
       mutation CreateTermEmp($input: CreateEmployeeInput!) {
         createEmployee(input: $input) { id }
       }
-    `, { input: termInput });
+    `,
+      { input: termInput },
+    );
 
     const termData = await clientA.mutate<{
       terminateEmployee: { id: string; status: string; terminationDate: string };
-    }>(`
+    }>(
+      `
       mutation TerminateEmployee($id: ID!, $terminationDate: String!) {
         terminateEmployee(id: $id, terminationDate: $terminationDate) {
           id
@@ -254,10 +275,12 @@ describe('Employee CRUD Lifecycle', () => {
           terminationDate
         }
       }
-    `, {
-      id: createRes.createEmployee.id,
-      terminationDate: '2026-03-22',
-    });
+    `,
+      {
+        id: createRes.createEmployee.id,
+        terminationDate: '2026-03-22',
+      },
+    );
 
     expect(termData.terminateEmployee.status).toBe('terminated');
     expect(termData.terminateEmployee.terminationDate).toBeDefined();
@@ -286,14 +309,17 @@ describe('Employee CRUD Lifecycle', () => {
   test('Test 7: employeesByDepartment -> correct filtering', async () => {
     const data = await clientA.query<{
       employeesByDepartment: Array<{ id: string; department: string }>;
-    }>(`
+    }>(
+      `
       query ByDepartment($department: HRDepartment!) {
         employeesByDepartment(department: $department) {
           id
           department
         }
       }
-    `, { department: 'MANAGEMENT' });
+    `,
+      { department: 'MANAGEMENT' },
+    );
 
     for (const emp of data.employeesByDepartment) {
       expect(emp.department).toBe('management');
@@ -309,28 +335,34 @@ describe('Employee CRUD Lifecycle', () => {
   test('Test 8: toggleFarmWorker(id, true) -> isFarmWorker=true', async () => {
     const data = await clientA.mutate<{
       toggleFarmWorker: { id: string; isFarmWorker: boolean };
-    }>(`
+    }>(
+      `
       mutation ToggleFarmWorker($id: ID!, $isFarmWorker: Boolean!) {
         toggleFarmWorker(id: $id, isFarmWorker: $isFarmWorker) {
           id
           isFarmWorker
         }
       }
-    `, { id: createdEmployeeId, isFarmWorker: true });
+    `,
+      { id: createdEmployeeId, isFarmWorker: true },
+    );
 
     expect(data.toggleFarmWorker.isFarmWorker).toBe(true);
 
     // Toggle back
     const data2 = await clientA.mutate<{
       toggleFarmWorker: { id: string; isFarmWorker: boolean };
-    }>(`
+    }>(
+      `
       mutation ToggleFarmWorker($id: ID!, $isFarmWorker: Boolean!) {
         toggleFarmWorker(id: $id, isFarmWorker: $isFarmWorker) {
           id
           isFarmWorker
         }
       }
-    `, { id: createdEmployeeId, isFarmWorker: false });
+    `,
+      { id: createdEmployeeId, isFarmWorker: false },
+    );
 
     expect(data2.toggleFarmWorker.isFarmWorker).toBe(false);
   });
@@ -381,14 +413,17 @@ describe('Employee CRUD Lifecycle', () => {
     // Tenant B queries for Tenant A's employee by ID
     const response = await clientB.queryRaw<{
       employee: { id: string } | null;
-    }>(`
+    }>(
+      `
       query GetEmployee($id: ID!) {
         employee(id: $id) {
           id
           firstName
         }
       }
-    `, { id: createdEmployeeId });
+    `,
+      { id: createdEmployeeId },
+    );
 
     // Should either return null/empty or throw an error
     if (response.data?.employee) {
@@ -418,15 +453,15 @@ describe('Employee CRUD Lifecycle', () => {
       );
 
       expect(result.rows.length).toBe(1);
-      expect(result.rows[0]!.firstName).toBe('Ahmet');
-      expect(result.rows[0]!.tenantId).toBe(TENANT_A_ID);
+      expect(result.rows[0].firstName).toBe('Ahmet');
+      expect(result.rows[0].tenantId).toBe(TENANT_A_ID);
 
       // Verify NOT in auth.users (employees are HR records, not auth accounts)
       const authResult = await db.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM auth.users WHERE id = $1`,
         [createdEmployeeId],
       );
-      expect(parseInt(authResult.rows[0]!.count, 10)).toBe(0);
+      expect(parseInt(authResult.rows[0].count, 10)).toBe(0);
     } catch (error) {
       // DB may not be accessible in all environments
       console.warn('DB verification skipped:', (error as Error).message);

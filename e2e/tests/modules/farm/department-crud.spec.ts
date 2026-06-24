@@ -9,9 +9,10 @@
  * 5. Cross-tenant isolation
  * 6. Unique constraint: same tenant+code -> error
  */
+import { assertDefined } from '../../../helpers/assertions';
+import { TestDatabase } from '../../../helpers/db.helper';
 import { GraphQLTestClient } from '../../../helpers/graphql-client';
 import { generateCrossTenantTokens } from '../../../helpers/jwt.helper';
-import { TestDatabase } from '../../../helpers/db.helper';
 
 // ---------------------------------------------------------------------------
 // GraphQL Fragments
@@ -206,8 +207,8 @@ describe('Department CRUD + Relationships E2E', () => {
     // DB VERIFY
     const dbRow = await db.findById('departments', dept.id, tenantAId);
     expect(dbRow).not.toBeNull();
-    expect(dbRow!['name']).toBe(input.name);
-    expect(dbRow!['siteId']).toBe(siteId);
+    expect(assertDefined(dbRow)['name']).toBe(input.name);
+    expect(assertDefined(dbRow)['siteId']).toBe(siteId);
 
     // LIST with filter
     const listResult = await client.executeSuccess<{
@@ -221,9 +222,7 @@ describe('Department CRUD + Relationships E2E', () => {
       token: tenantAToken,
     });
 
-    const found = listResult.departments.items.find(
-      (d: { id: string }) => d.id === dept.id,
-    );
+    const found = listResult.departments.items.find((d: { id: string }) => d.id === dept.id);
     expect(found).toBeDefined();
   });
 
@@ -261,7 +260,7 @@ describe('Department CRUD + Relationships E2E', () => {
       (d: { id: string }) => d.id === createResult.createDepartment.id,
     );
     expect(found).toBeDefined();
-    expect(found!.siteId).toBe(siteId);
+    expect(assertDefined(found).siteId).toBe(siteId);
   });
 
   // -------------------------------------------------------------------------
@@ -304,7 +303,7 @@ describe('Department CRUD + Relationships E2E', () => {
 
     // DB verify
     const dbRow = await db.findById('departments', deptId, tenantAId);
-    expect(dbRow!['name']).toBe(updateInput.name);
+    expect(assertDefined(dbRow)['name']).toBe(updateInput.name);
   });
 
   // -------------------------------------------------------------------------
@@ -342,7 +341,9 @@ describe('Department CRUD + Relationships E2E', () => {
     });
 
     expect(previewResult.departmentDeletePreview.canDelete).toBe(true);
-    expect(previewResult.departmentDeletePreview.affectedItems.totalCount).toBeGreaterThanOrEqual(0);
+    expect(previewResult.departmentDeletePreview.affectedItems.totalCount).toBeGreaterThanOrEqual(
+      0,
+    );
 
     // DELETE
     const deleteResult = await client.executeSuccess<{
@@ -403,9 +404,7 @@ describe('Department CRUD + Relationships E2E', () => {
       token: tenantBToken,
     });
 
-    const found = listResult.departments.items.find(
-      (d: { id: string }) => d.id === deptId,
-    );
+    const found = listResult.departments.items.find((d: { id: string }) => d.id === deptId);
     expect(found).toBeUndefined();
   });
 
@@ -446,6 +445,6 @@ describe('Department CRUD + Relationships E2E', () => {
     });
 
     expect(duplicateResult.errors).toBeDefined();
-    expect(duplicateResult.errors!.length).toBeGreaterThan(0);
+    expect(assertDefined(duplicateResult.errors).length).toBeGreaterThan(0);
   });
 });

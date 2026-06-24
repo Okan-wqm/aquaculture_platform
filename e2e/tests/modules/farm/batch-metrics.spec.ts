@@ -13,10 +13,6 @@
  */
 import {
   gqlExpectSuccess,
-  gqlExpectError,
-  TENANT_A_ID,
-  USER_A_ID,
-  BATCH_FIELDS,
   BATCH_PERFORMANCE_FIELDS,
   BATCH_HISTORY_FIELDS,
   AVAILABLE_TANK_FIELDS,
@@ -59,9 +55,7 @@ describe('Batch Performance & Metrics E2E', () => {
     // Tank al
     const tanks = await gqlExpectSuccess<{
       availableTanks: Array<Record<string, unknown>>;
-    }>(
-      `query { availableTanks { id code name } }`,
-    );
+    }>(`query { availableTanks { id code name } }`);
     if (tanks.availableTanks && tanks.availableTanks.length > 0) {
       const [firstTank] = tanks.availableTanks;
       if (!firstTank) throw new Error('Expected at least one available tank');
@@ -170,9 +164,18 @@ describe('Batch Performance & Metrics E2E', () => {
       expect(typeof perf.performanceIndex).toBe('number');
       expect(perf.performanceStatus).toBeDefined();
       expect(
-        ['EXCELLENT', 'GOOD', 'AVERAGE', 'BELOW_AVERAGE', 'POOR',
-         'excellent', 'good', 'average', 'below_average', 'poor']
-          .includes(perf.performanceStatus as string),
+        [
+          'EXCELLENT',
+          'GOOD',
+          'AVERAGE',
+          'BELOW_AVERAGE',
+          'POOR',
+          'excellent',
+          'good',
+          'average',
+          'below_average',
+          'poor',
+        ].includes(perf.performanceStatus as string),
       ).toBe(true);
     });
 

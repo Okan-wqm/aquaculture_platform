@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
-import { GraphQLTestClient } from '../../helpers/graphql-client';
 import { TestDatabase } from '../../helpers/db.helper';
+import { GraphQLTestClient } from '../../helpers/graphql-client';
 import { generateTenantFixture, TestTenantFixture } from '../../helpers/tenant.fixture';
 
 /**
@@ -51,11 +51,14 @@ describe('Audit Log', () => {
     // Cleanup created user
     if (createdUserId) {
       try {
-        await client.mutate(`
+        await client.mutate(
+          `
           mutation DeleteUser($userId: ID!) {
             deleteTenantUser(userId: $userId)
           }
-        `, { userId: createdUserId });
+        `,
+          { userId: createdUserId },
+        );
       } catch {
         // Cleanup failure is not a test failure
       }

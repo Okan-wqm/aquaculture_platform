@@ -14,9 +14,7 @@
 import {
   gqlExpectSuccess,
   gqlExpectError,
-  TENANT_A_ID,
   TENANT_B_ID,
-  USER_A_ID,
   USER_B_ID,
   BATCH_FIELDS,
   createTestSpecies,
@@ -295,47 +293,37 @@ describe('Tank Operations E2E', () => {
       'OTHER',
     ];
 
-    it.each(mortalityReasons)(
-      'should accept mortality with reason=%s',
-      async (reason) => {
-        if (!tankId) {
-          console.warn('No tank available; skipping');
-          return;
-        }
+    it.each(mortalityReasons)('should accept mortality with reason=%s', async (reason) => {
+      if (!tankId) {
+        console.warn('No tank available; skipping');
+        return;
+      }
 
-        const data = await gqlExpectSuccess<{
-          recordMortality: Record<string, unknown>;
-        }>(
-          `
+      const data = await gqlExpectSuccess<{
+        recordMortality: Record<string, unknown>;
+      }>(
+        `
             mutation RecordMortality($input: RecordMortalityInput!) {
               recordMortality(input: $input) {
                 id currentQuantity totalMortality
               }
             }
           `,
-          {
-            input: {
-              batchId,
-              tankId,
-              quantity: 1,
-              reason,
-              observedAt: new Date().toISOString(),
-            },
+        {
+          input: {
+            batchId,
+            tankId,
+            quantity: 1,
+            reason,
+            observedAt: new Date().toISOString(),
           },
-        );
+        },
+      );
 
-        expect(data.recordMortality.id).toBe(batchId);
-      },
-    );
+      expect(data.recordMortality.id).toBe(batchId);
+    });
 
-    const cullReasons = [
-      'SMALL_SIZE',
-      'DEFORMED',
-      'SICK',
-      'POOR_GROWTH',
-      'GRADING',
-      'OTHER',
-    ];
+    const cullReasons = ['SMALL_SIZE', 'DEFORMED', 'SICK', 'POOR_GROWTH', 'GRADING', 'OTHER'];
 
     it.each(cullReasons)('should accept cull with reason=%s', async (reason) => {
       if (!tankId) {

@@ -72,16 +72,16 @@ const APPS_DIR = path.join(REPO_ROOT, 'apps');
 // ── Parse model ─────────────────────────────────────────────────────────────
 
 interface EntityDecl {
-  service: string;        // e.g. "event-store-service"
-  file: string;           // absolute path
-  tableName: string;      // @Entity('<table>') arg
-  columns: Set<string>;   // DB column names (after @Column({ name }) override)
+  service: string; // e.g. "event-store-service"
+  file: string; // absolute path
+  tableName: string; // @Entity('<table>') arg
+  columns: Set<string>; // DB column names (after @Column({ name }) override)
 }
 
 interface CreateTableBlock {
-  migrationFile: string;  // absolute path
-  tableName: string;      // table in CREATE TABLE "<table>"
-  columns: Set<string>;   // column names in body (skipping CONSTRAINT / FK clauses)
+  migrationFile: string; // absolute path
+  tableName: string; // table in CREATE TABLE "<table>"
+  columns: Set<string>; // column names in body (skipping CONSTRAINT / FK clauses)
 }
 
 // ── Regex library ───────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ const PROPERTY_DECL_RE =
  * handled by matching either form.
  */
 const CREATE_TABLE_RE =
-  /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([a-z_][a-z0-9_]*)"\s*\.\s*)?"([a-z_][a-z0-9_]*)"\s*\(([\s\S]*?)\)\s*(?:WITH\s*\([^)]*\)\s*)?(?:PARTITION\s+BY[^;`]*)?(?:;|\`)/gi;
+  /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([a-z_][a-z0-9_]*)"\s*\.\s*)?"([a-z_][a-z0-9_]*)"\s*\(([\s\S]*?)\)\s*(?:WITH\s*\([^)]*\)\s*)?(?:PARTITION\s+BY[^;`]*)?(?:;|`)/gi;
 
 /**
  * In a CREATE TABLE body, each column line is `"<name>" <type> ...`. We
@@ -162,11 +162,7 @@ function walkTsFiles(dir: string, out: string[] = []): string[] {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       // Skip build output and node_modules
-      if (
-        entry.name === 'node_modules' ||
-        entry.name === 'dist' ||
-        entry.name === '.nx'
-      ) {
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.nx') {
         continue;
       }
       walkTsFiles(full, out);
@@ -291,10 +287,7 @@ const EXCLUDED_TABLES = new Set<string>([
  * persistence (gateway-api proxies requests; observability-service has
  * no migrations yet per SCHEMA_REGISTRY forward declaration).
  */
-const SERVICES_WITHOUT_PERSISTENCE = new Set<string>([
-  'gateway-api',
-  'observability-service',
-]);
+const SERVICES_WITHOUT_PERSISTENCE = new Set<string>(['gateway-api', 'observability-service']);
 
 /**
  * Entity-file patterns to ignore — DTOs, projections, view-only classes
@@ -353,69 +346,55 @@ describe('Entity ↔ Migration Parity', () => {
     it.each(
       entities
         .filter((e) => !EXCLUDED_TABLES.has(e.tableName))
-        .map<[string, string, EntityDecl]>((e) => [
-          e.service,
-          e.tableName,
-          e,
-        ]),
-    )(
-      '[%s] table "%s" has a CREATE TABLE migration',
-      (service, tableName, entity) => {
-        const blocks = migrationsByService.get(service) ?? [];
-        const hasCreateTable = blocks.some((b) => b.tableName === tableName);
-        if (!hasCreateTable) {
-          throw new Error(
-            `Entity-migration parity violation (MA2):\n` +
-              `  Entity file:     ${path.relative(REPO_ROOT, entity.file)}\n` +
-              `  Declares table:  "${tableName}"\n` +
-              `  Expected migration with: CREATE TABLE [IF NOT EXISTS] "${tableName}" (...)\n` +
-              `  Searched in:     apps/${service}/src/migrations/ and apps/${service}/src/database/migrations/\n` +
-              `  Resolution:      write a baseline migration for this entity,\n` +
-              `                   or, if intentional, add "${tableName}" to EXCLUDED_TABLES\n` +
-              `                   in entity-migration-parity.spec.ts with a rationale.`,
-          );
-        }
-      },
-    );
+        .map<[string, string, EntityDecl]>((e) => [e.service, e.tableName, e]),
+    )('[%s] table "%s" has a CREATE TABLE migration', (service, tableName, entity) => {
+      const blocks = migrationsByService.get(service) ?? [];
+      const hasCreateTable = blocks.some((b) => b.tableName === tableName);
+      if (!hasCreateTable) {
+        throw new Error(
+          `Entity-migration parity violation (MA2):\n` +
+            `  Entity file:     ${path.relative(REPO_ROOT, entity.file)}\n` +
+            `  Declares table:  "${tableName}"\n` +
+            `  Expected migration with: CREATE TABLE [IF NOT EXISTS] "${tableName}" (...)\n` +
+            `  Searched in:     apps/${service}/src/migrations/ and apps/${service}/src/database/migrations/\n` +
+            `  Resolution:      write a baseline migration for this entity,\n` +
+            `                   or, if intentional, add "${tableName}" to EXCLUDED_TABLES\n` +
+            `                   in entity-migration-parity.spec.ts with a rationale.`,
+        );
+      }
+    });
   });
 
   describe('MA3 — migration CREATE TABLE columns ⊇ @Entity column names', () => {
     it.each(
       entities
         .filter((e) => !EXCLUDED_TABLES.has(e.tableName))
-        .map<[string, string, EntityDecl]>((e) => [
-          e.service,
-          e.tableName,
-          e,
-        ]),
-    )(
-      '[%s] "%s" migration declares every entity column',
-      (service, tableName, entity) => {
-        const blocks = migrationsByService.get(service) ?? [];
-        const block = blocks.find((b) => b.tableName === tableName);
-        if (!block) {
-          // MA2 will have already reported this; avoid double-failing.
-          return;
-        }
+        .map<[string, string, EntityDecl]>((e) => [e.service, e.tableName, e]),
+    )('[%s] "%s" migration declares every entity column', (service, tableName, entity) => {
+      const blocks = migrationsByService.get(service) ?? [];
+      const block = blocks.find((b) => b.tableName === tableName);
+      if (!block) {
+        // MA2 will have already reported this; avoid double-failing.
+        return;
+      }
 
-        const missing: string[] = [];
-        for (const col of entity.columns) {
-          if (!block.columns.has(col)) missing.push(col);
-        }
-        if (missing.length > 0) {
-          throw new Error(
-            `Entity-migration column-parity violation (MA3):\n` +
-              `  Entity file:     ${path.relative(REPO_ROOT, entity.file)}\n` +
-              `  Table:           "${tableName}"\n` +
-              `  Migration file:  ${path.relative(REPO_ROOT, block.migrationFile)}\n` +
-              `  Missing columns: ${missing.map((c) => '"' + c + '"').join(', ')}\n` +
-              `  Resolution:      add the missing columns to the migration's CREATE TABLE,\n` +
-              `                   or use @Column({ name: '...' }) on the entity to\n` +
-              `                   override the property name if the DB uses a different\n` +
-              `                   identifier (e.g. camelCase ↔ snake_case).`,
-          );
-        }
-      },
-    );
+      const missing: string[] = [];
+      for (const col of entity.columns) {
+        if (!block.columns.has(col)) missing.push(col);
+      }
+      if (missing.length > 0) {
+        throw new Error(
+          `Entity-migration column-parity violation (MA3):\n` +
+            `  Entity file:     ${path.relative(REPO_ROOT, entity.file)}\n` +
+            `  Table:           "${tableName}"\n` +
+            `  Migration file:  ${path.relative(REPO_ROOT, block.migrationFile)}\n` +
+            `  Missing columns: ${missing.map((c) => '"' + c + '"').join(', ')}\n` +
+            `  Resolution:      add the missing columns to the migration's CREATE TABLE,\n` +
+            `                   or use @Column({ name: '...' }) on the entity to\n` +
+            `                   override the property name if the DB uses a different\n` +
+            `                   identifier (e.g. camelCase ↔ snake_case).`,
+        );
+      }
+    });
   });
 });

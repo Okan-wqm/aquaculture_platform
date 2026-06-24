@@ -12,6 +12,8 @@
  * from event handlers processing these events.
  */
 
+import { assertDefined } from '../../helpers/assertions';
+import { findTenantById, tenantSchemaExists, closePool, query } from '../../helpers/db.helper';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -19,12 +21,6 @@ import {
   activateTenant,
   teardownTenant,
 } from '../../helpers/tenant.fixture';
-import {
-  findTenantById,
-  tenantSchemaExists,
-  closePool,
-  query,
-} from '../../helpers/db.helper';
 
 describe('Event Publishing (Side-Effect Verification)', () => {
   let superAdminToken: string;
@@ -54,7 +50,7 @@ describe('Event Publishing (Side-Effect Verification)', () => {
     // Side-effect 1: tenant status should be ACTIVE (schema provisioned successfully)
     const dbTenant = await findTenantById(tenant.id);
     expect(dbTenant).not.toBeNull();
-    expect(dbTenant!.status).toBe('ACTIVE');
+    expect(assertDefined(dbTenant).status).toBe('ACTIVE');
 
     // Side-effect 2: PostgreSQL schema should exist
     const schemaExists = await tenantSchemaExists(tenant.id);
@@ -67,14 +63,14 @@ describe('Event Publishing (Side-Effect Verification)', () => {
 
     // Verify initial state
     const beforeSuspend = await findTenantById(tenant.id);
-    expect(beforeSuspend!.status).toBe('ACTIVE');
+    expect(assertDefined(beforeSuspend).status).toBe('ACTIVE');
 
     // Suspend (triggers TenantUpdatedEvent with SUSPENDED status)
     await suspendTenant(superAdminToken, tenant.id);
 
     // Side-effect: DB status should be SUSPENDED
     const afterSuspend = await findTenantById(tenant.id);
-    expect(afterSuspend!.status).toBe('SUSPENDED');
+    expect(assertDefined(afterSuspend).status).toBe('SUSPENDED');
   });
 
   it('should update DB status as side-effect of tenant activation', async () => {
@@ -84,14 +80,14 @@ describe('Event Publishing (Side-Effect Verification)', () => {
     // Suspend first
     await suspendTenant(superAdminToken, tenant.id);
     const afterSuspend = await findTenantById(tenant.id);
-    expect(afterSuspend!.status).toBe('SUSPENDED');
+    expect(assertDefined(afterSuspend).status).toBe('SUSPENDED');
 
     // Activate (triggers TenantUpdatedEvent with ACTIVE status)
     await activateTenant(superAdminToken, tenant.id);
 
     // Side-effect: DB status should be ACTIVE again
     const afterActivate = await findTenantById(tenant.id);
-    expect(afterActivate!.status).toBe('ACTIVE');
+    expect(assertDefined(afterActivate).status).toBe('ACTIVE');
   });
 
   it('should create audit log entries for tenant lifecycle events', async () => {
@@ -120,8 +116,8 @@ describe('Event Publishing (Side-Effect Verification)', () => {
       if (auditLogs.length > 0) {
         const createdLog = auditLogs.find((log) => log.action === 'TENANT_CREATED');
         expect(createdLog).toBeDefined();
-        expect(createdLog!.entity_type).toBe('Tenant');
-        expect(createdLog!.entity_id).toBe(tenant.id);
+        expect(assertDefined(createdLog).entity_type).toBe('Tenant');
+        expect(assertDefined(createdLog).entity_id).toBe(tenant.id);
       }
     } catch {
       // Audit log table may not exist or have a different schema

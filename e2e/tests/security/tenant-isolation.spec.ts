@@ -10,11 +10,8 @@
 import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
-import { GraphQLTestClient, GraphQLResponse } from '../../helpers/graphql-client';
-import {
-  generateTestToken,
-  generateTenantAdminToken,
-} from '../../helpers/jwt.helper';
+import { GraphQLTestClient } from '../../helpers/graphql-client';
+import { generateTestToken, generateTenantAdminToken } from '../../helpers/jwt.helper';
 
 /** Response types for type safety (zero any policy) */
 interface TenantUsersResponse {
@@ -45,7 +42,7 @@ const TENANT_B_ID = uuidv4();
 test.describe('Tenant Isolation', () => {
   let client: GraphQLTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     client = new GraphQLTestClient(request);
   });
 
@@ -76,12 +73,14 @@ test.describe('Tenant Isolation', () => {
     // 2. Use the JWT's tenantId (TENANT_A) and ignore the spoofed header
     // Either way, Tenant B data must NOT be returned
     const hasErrors = response.body.errors && response.body.errors.length > 0;
-    const isForbidden = response.status === 403 ||
-      response.body.errors?.some(e =>
-        e.message.includes('does not belong') ||
-        e.message.includes('Access denied') ||
-        e.message.includes('Forbidden') ||
-        e.extensions?.code === 'FORBIDDEN',
+    const isForbidden =
+      response.status === 403 ||
+      response.body.errors?.some(
+        (e) =>
+          e.message.includes('does not belong') ||
+          e.message.includes('Access denied') ||
+          e.message.includes('Forbidden') ||
+          e.extensions?.code === 'FORBIDDEN',
       );
 
     // Guard should block or the data should be for tenant A only (not tenant B)
@@ -118,11 +117,12 @@ test.describe('Tenant Isolation', () => {
     const hasErrors = response.body.errors && response.body.errors.length > 0;
 
     if (hasErrors) {
-      const isForbidden = response.body.errors?.some(e =>
-        e.message.includes('Access denied') ||
-        e.message.includes('can only access your own tenant') ||
-        e.message.includes('Forbidden') ||
-        e.extensions?.code === 'FORBIDDEN',
+      const isForbidden = response.body.errors?.some(
+        (e) =>
+          e.message.includes('Access denied') ||
+          e.message.includes('can only access your own tenant') ||
+          e.message.includes('Forbidden') ||
+          e.extensions?.code === 'FORBIDDEN',
       );
       expect(isForbidden).toBe(true);
     } else {
@@ -164,9 +164,7 @@ test.describe('Tenant Isolation', () => {
 
     // If there are errors, they should be about tenant isolation, not data leaks
     if (response.body.errors && response.body.errors.length > 0) {
-      const hasDataLeak = response.body.errors.some(e =>
-        e.message.includes(TENANT_B_ID),
-      );
+      const hasDataLeak = response.body.errors.some((e) => e.message.includes(TENANT_B_ID));
       expect(hasDataLeak).toBe(false);
     }
   });
@@ -190,11 +188,12 @@ test.describe('Tenant Isolation', () => {
     // TenantIsolationGuard validates UUID format and should reject
     const hasErrors = response.body.errors && response.body.errors.length > 0;
     if (hasErrors) {
-      const isFormatError = response.body.errors?.some(e =>
-        e.message.includes('Invalid tenant') ||
-        e.message.includes('valid UUID') ||
-        e.message.includes('Forbidden') ||
-        e.message.includes('Bad Request'),
+      const isFormatError = response.body.errors?.some(
+        (e) =>
+          e.message.includes('Invalid tenant') ||
+          e.message.includes('valid UUID') ||
+          e.message.includes('Forbidden') ||
+          e.message.includes('Bad Request'),
       );
       expect(isFormatError).toBe(true);
     }

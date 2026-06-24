@@ -1,7 +1,7 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, Optional, Inject } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { TenantScopedRepository } from '@aquaculture/backend-common/database';
@@ -20,13 +20,11 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
 
   constructor(
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateInvoiceCommand): Promise<Invoice> {
     const { tenantId, input, userId } = command;
-
-    const invoiceRepo = TenantScopedRepository.create(this.dataSource, Invoice, tenantId);
 
     // Validate subscription belongs to this tenant (IDOR prevention is
     // now by-construction via TenantScopedRepository — the scoped
@@ -99,54 +97,61 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
     // Generate invoice number with collision-resistant approach
     const invoiceNumber = await this.generateInvoiceNumber(tenantId);
 
-    const invoice = invoiceRepo.create({
-      tenantId,
-      invoiceNumber,
-      subscriptionId: input.subscriptionId,
-      status: InvoiceStatus.DRAFT,
-      billingAddress: {
-        companyName: input.billingAddress.companyName,
-        attention: input.billingAddress.attention,
-        street: input.billingAddress.street,
-        city: input.billingAddress.city,
-        state: input.billingAddress.state,
-        postalCode: input.billingAddress.postalCode,
-        country: input.billingAddress.country,
-        taxId: input.billingAddress.taxId,
-      },
-      lineItems,
-      subtotal: subtotalMoney.toDecimal(),
-      tax: input.tax
-        ? {
-            taxRate: input.tax.taxRate,
-            taxAmount: taxMoney.toDecimal().toNumber(),
-            taxId: input.tax.taxId,
-            taxName: input.tax.taxName,
-          }
-        : undefined,
-      discount: discountMoney.isZero() ? undefined : discountMoney.toDecimal(),
-      discountCode: input.discountCode,
-      total: totalMoney.toDecimal(),
-      amountPaid: new Decimal(0),
-      amountDue: totalMoney.toDecimal(),
-      currency,
-      issueDate: new Date(),
-      dueDate: new Date(input.dueDate),
-      periodStart: new Date(input.periodStart),
-      periodEnd: new Date(input.periodEnd),
-      notes: input.notes,
-      createdBy: userId,
-      updatedBy: userId,
-    });
+    // Persist the invoice and enqueue InvoiceGenerated atomically: the save and
+    // the outbox row commit in one transaction so the event can never be lost
+    // (replaces the prior scoped save + fire-and-forget eventBus.publish). The
+    // relay publishes to NATS after commit; an enqueue failure rolls the invoice
+    // back rather than committing it eventless. billing entities live in the
+    // cross-tenant `billing` schema keyed by tenantId (no search_path routing),
+    // so a raw manager.save with the explicit tenantId is equivalent to the
+    // scoped repo (record-payment.handler already uses raw manager.save here).
+    return await this.dataSource.transaction(async (manager) => {
+      const invoice = manager.create(Invoice, {
+        tenantId,
+        invoiceNumber,
+        subscriptionId: input.subscriptionId,
+        status: InvoiceStatus.DRAFT,
+        billingAddress: {
+          companyName: input.billingAddress.companyName,
+          attention: input.billingAddress.attention,
+          street: input.billingAddress.street,
+          city: input.billingAddress.city,
+          state: input.billingAddress.state,
+          postalCode: input.billingAddress.postalCode,
+          country: input.billingAddress.country,
+          taxId: input.billingAddress.taxId,
+        },
+        lineItems,
+        subtotal: subtotalMoney.toDecimal(),
+        tax: input.tax
+          ? {
+              taxRate: input.tax.taxRate,
+              taxAmount: taxMoney.toDecimal().toNumber(),
+              taxId: input.tax.taxId,
+              taxName: input.tax.taxName,
+            }
+          : undefined,
+        discount: discountMoney.isZero() ? undefined : discountMoney.toDecimal(),
+        discountCode: input.discountCode,
+        total: totalMoney.toDecimal(),
+        amountPaid: new Decimal(0),
+        amountDue: totalMoney.toDecimal(),
+        currency,
+        issueDate: new Date(),
+        dueDate: new Date(input.dueDate),
+        periodStart: new Date(input.periodStart),
+        periodEnd: new Date(input.periodEnd),
+        notes: input.notes,
+        createdBy: userId,
+        updatedBy: userId,
+      });
 
-    const savedInvoice = await invoiceRepo.save(invoice);
+      const savedInvoice = await manager.save(Invoice, invoice);
 
-    this.logger.log(
-      `Invoice created: ${savedInvoice.id} (${savedInvoice.invoiceNumber}) for tenant ${tenantId}`,
-    );
+      this.logger.log(
+        `Invoice created: ${savedInvoice.id} (${savedInvoice.invoiceNumber}) for tenant ${tenantId}`,
+      );
 
-    // Publish NATS event so other services (notification, etc.) can react
-    try {
       const event: InvoiceGeneratedEvent = {
         ...createBaseEvent<InvoiceGeneratedEvent>('InvoiceGenerated', tenantId, { userId }),
         invoiceId: savedInvoice.id,
@@ -160,17 +165,10 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
         billingPeriodStart: savedInvoice.periodStart,
         billingPeriodEnd: savedInvoice.periodEnd,
       };
-      await this.eventBus?.publish(event);
-    } catch (eventError) {
-      // Event publish failure must not block the main operation
-      this.logger.warn(
-        `Failed to publish InvoiceGenerated event for ${savedInvoice.id}: ${
-          eventError instanceof Error ? eventError.message : 'Unknown error'
-        }`,
-      );
-    }
+      await this.outboxPublisher.enqueue(event, manager);
 
-    return savedInvoice;
+      return savedInvoice;
+    });
   }
 
   /**

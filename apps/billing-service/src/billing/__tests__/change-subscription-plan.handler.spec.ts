@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { ChangeSubscriptionPlanHandler } from '../handlers/change-subscription-plan.handler';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import { Subscription, SubscriptionStatus, PlanTier, BillingCycle } from '../entities/subscription.entity';
@@ -12,6 +13,7 @@ describe('ChangeSubscriptionPlanHandler', () => {
   let mockSubscriptionRepo: Partial<Repository<Subscription>>;
   let mockPlanRepo: Partial<Repository<Plan>>;
   let mockManager: Partial<EntityManager>;
+  let mockOutbox: { enqueue: jest.Mock };
 
   const tenantId = '550e8400-e29b-41d4-a716-446655440000';
   const userId = 'user-123';
@@ -91,6 +93,9 @@ describe('ChangeSubscriptionPlanHandler', () => {
 
   beforeEach(async () => {
     mockSubscriptionRepo = {
+      // create + save mirror the underlying TypeORM Repository surface that
+      // TenantScopedRepository.save delegates to (create() then save()).
+      create: jest.fn().mockImplementation((entity) => entity),
       findOne: jest.fn(),
       save: jest.fn().mockImplementation((sub) => Promise.resolve({ ...sub, version: (sub.version || 0) + 1 })),
     };
@@ -111,10 +116,13 @@ describe('ChangeSubscriptionPlanHandler', () => {
       transaction: jest.fn().mockImplementation((cb) => cb(mockManager)),
     };
 
+    mockOutbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChangeSubscriptionPlanHandler,
         { provide: DataSource, useValue: mockDataSource },
+        { provide: OutboxPublisher, useValue: mockOutbox },
       ],
     }).compile();
 
@@ -270,5 +278,49 @@ describe('ChangeSubscriptionPlanHandler', () => {
     );
 
     expect(result.planTier).toBe(PlanTier.PROFESSIONAL);
+  });
+
+  describe('Transactional outbox publishing', () => {
+    it('should enqueue SubscriptionUpdated and TenantSubscriptionChanged on the transactional manager', async () => {
+      const subscription = createMockSubscription();
+      const plan = createMockPlan();
+
+      (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+      (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+      await handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+      );
+
+      // Both the primary event and the auth.tenants projection must be enqueued
+      // into the outbox on the SAME transactional manager so they commit
+      // atomically with the subscription write — no fire-and-forget publish.
+      expect(mockOutbox.enqueue).toHaveBeenCalledTimes(2);
+
+      const [updatedEvent, updatedMgr] = mockOutbox.enqueue.mock.calls[0];
+      expect(updatedEvent.eventType).toBe('SubscriptionUpdated');
+      expect(updatedEvent.tier).toBe(PlanTier.PROFESSIONAL);
+      expect(updatedMgr).toBe(mockManager);
+
+      const [projectionEvent, projectionMgr] = mockOutbox.enqueue.mock.calls[1];
+      expect(projectionEvent.eventType).toBe('TenantSubscriptionChanged');
+      expect(projectionEvent.newPlan).toBe(PlanTier.PROFESSIONAL);
+      expect(projectionMgr).toBe(mockManager);
+    });
+
+    it('should propagate enqueue failure so the plan change rolls back', async () => {
+      const subscription = createMockSubscription();
+      const plan = createMockPlan();
+
+      (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+      (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+      mockOutbox.enqueue.mockRejectedValue(new Error('outbox down'));
+
+      await expect(
+        handler.execute(
+          new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+        ),
+      ).rejects.toThrow('outbox down');
+    });
   });
 });

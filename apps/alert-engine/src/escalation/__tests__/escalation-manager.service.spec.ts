@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OutboxPublisher } from '@platform/outbox';
+import type { BaseEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   EscalationManagerService,
@@ -30,6 +32,10 @@ describe('EscalationManagerService', () => {
   let policyService: jest.Mocked<EscalationPolicyService>;
   let eventEmitter: jest.Mocked<EventEmitter2>;
   let redisService: jest.Mocked<RedisService>;
+  // Transaction manager mock (ALERT-CRITICAL-001): escalation-level write +
+  // AlertEscalated enqueue commit atomically on this single manager.
+  let txManager: { save: jest.Mock };
+  let outbox: { enqueue: jest.Mock };
 
   // In-memory store for Redis mock
   const redisStore: Map<string, string> = new Map();
@@ -151,6 +157,20 @@ describe('EscalationManagerService', () => {
       }),
     };
 
+    txManager = {
+      save: jest.fn().mockImplementation((_entity: unknown, row: unknown) => row),
+    };
+    outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
+    // Structural typing of the transaction callback against the mock manager
+    // shape — cast-free. `useValue` is untyped so Nest accepts the literal
+    // without asserting DataSource compatibility.
+    const mockDataSource = {
+      transaction: (
+        cb: (m: typeof txManager) => Promise<unknown>,
+      ): Promise<unknown> => cb(txManager),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EscalationManagerService,
@@ -178,6 +198,8 @@ describe('EscalationManagerService', () => {
           provide: RedisService,
           useValue: mockRedisService,
         },
+        { provide: DataSource, useValue: mockDataSource },
+        { provide: OutboxPublisher, useValue: outbox },
       ],
     }).compile();
 
@@ -298,7 +320,9 @@ describe('EscalationManagerService', () => {
         1,
       );
 
-      expect(incidentRepository.save).toHaveBeenCalled();
+      // The escalation-level write now goes through the transaction manager
+      // (atomic with the AlertEscalated outbox enqueue), not the bare repo.
+      expect(txManager.save).toHaveBeenCalledWith(AlertIncident, mockIncident);
     });
 
     it('should include correct target users', async () => {
@@ -311,6 +335,62 @@ describe('EscalationManagerService', () => {
       );
 
       expect(result.actions[0]?.targetUsers).toContain('user-1');
+    });
+  });
+
+  describe('AlertEscalated — transactional outbox (ALERT-CRITICAL-001)', () => {
+    it('enqueues AlertEscalated on the transaction manager (not an event bus)', async () => {
+      await service.executeEscalationLevel(
+        mockIncident as AlertIncident,
+        mockPolicy as EscalationPolicy,
+        1,
+      );
+
+      expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+      const [, passedManager] = outbox.enqueue.mock.calls[0] as [
+        BaseEvent,
+        EntityManager,
+      ];
+      // Enqueued on the SAME manager the escalation-level write used.
+      expect(passedManager).toBe(txManager);
+      expect(txManager.save).toHaveBeenCalledWith(AlertIncident, mockIncident);
+    });
+
+    it('builds the AlertEscalated event with its contract fields', async () => {
+      await service.executeEscalationLevel(
+        mockIncident as AlertIncident,
+        mockPolicy as EscalationPolicy,
+        1,
+      );
+
+      const [event] = outbox.enqueue.mock.calls[0] as [Record<string, unknown>];
+      expect(event['eventType']).toBe('AlertEscalated');
+      expect(event['alertId']).toBe('incident-1');
+      expect(event['escalationLevel']).toBe(1);
+      expect(event['escalatedTo']).toContain('user-1');
+      expect(typeof event['reason']).toBe('string');
+    });
+
+    it('rolls back the escalation when the outbox enqueue rejects', async () => {
+      outbox.enqueue.mockRejectedValueOnce(new Error('NATS outbox down'));
+      eventEmitter.emit.mockClear();
+
+      const result = await service.executeEscalationLevel(
+        mockIncident as AlertIncident,
+        mockPolicy as EscalationPolicy,
+        1,
+      );
+
+      // The enqueue failure propagates out of dataSource.transaction → caught
+      // by executeEscalationLevel's error collector → reported as a failed
+      // result. The local ESCALATED emit must NOT have fired (it runs only
+      // after the durable commit).
+      expect(result.success).toBe(false);
+      expect(result.errors).toBeDefined();
+      expect(eventEmitter.emit).not.toHaveBeenCalledWith(
+        ESCALATION_EVENTS.ESCALATED,
+        expect.any(Object),
+      );
     });
   });
 

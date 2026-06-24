@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, PaymentReceivedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { Money } from '@aquaculture/backend-common/monetary';
@@ -19,7 +19,7 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
 
   constructor(
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RecordPaymentCommand): Promise<Payment> {
@@ -133,27 +133,21 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         `Payment recorded: ${savedPayment.id} (${savedPayment.transactionId}) for invoice ${input.invoiceId}. Amount: ${input.amount}`,
       );
 
-      // Publish NATS event so other services (notification, etc.) can react
-      try {
-        const event: PaymentReceivedEvent = {
-          ...createBaseEvent<PaymentReceivedEvent>('PaymentReceived', tenantId, { userId }),
-          paymentId: savedPayment.id,
-          invoiceId: input.invoiceId,
-          amount: savedPayment.amount.toNumber(),
-          currency: savedPayment.currency,
-          paymentMethod: savedPayment.paymentMethod,
-          transactionId: savedPayment.transactionId,
-          paidAt: savedPayment.paymentDate,
-        };
-        await this.eventBus?.publish(event);
-      } catch (eventError) {
-        // Event publish failure must not block the main operation
-        this.logger.warn(
-          `Failed to publish PaymentReceived event for ${savedPayment.id}: ${
-            eventError instanceof Error ? eventError.message : 'Unknown error'
-          }`,
-        );
-      }
+      // Enqueue PaymentReceived into the transactional outbox so the event is
+      // atomic with the payment + invoice writes. The outbox relay publishes to
+      // NATS after commit; a crash or broker outage can no longer lose a
+      // financial event (replaces the prior fire-and-forget eventBus.publish).
+      const event: PaymentReceivedEvent = {
+        ...createBaseEvent<PaymentReceivedEvent>('PaymentReceived', tenantId, { userId }),
+        paymentId: savedPayment.id,
+        invoiceId: input.invoiceId,
+        amount: savedPayment.amount.toNumber(),
+        currency: savedPayment.currency,
+        paymentMethod: savedPayment.paymentMethod,
+        transactionId: savedPayment.transactionId,
+        paidAt: savedPayment.paymentDate,
+      };
+      await this.outboxPublisher.enqueue(event, manager);
 
       return savedPayment;
     });

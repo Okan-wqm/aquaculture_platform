@@ -5101,3 +5101,15 @@ Severity: LOW (defense-in-depth reduction, not a leak). `verified-user-assertion
 Owner: platform/tenant-isolation. Deadline: 2026-07-22. Status: OPEN (tracked; acceptable). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-159 - SUPER_ADMIN cannot deterministically view a tenant (token carries no tenant) — the FE half of tenant-context SSoT
+
+Severity: HIGH. Live-trace + DB confirmed root cause of the operator's persistent "tenant panel data sometimes loads, sometimes not": `by-okan` is a SUPER_ADMIN with `tenantId = NULL`, and there is NO tenant-selector — `setTenantId` is only ever called with `user.tenantId` (null), so the FE has no deterministic active tenant. Every tenant hook is gated on `enabled: !!token && !!tenantId` (`useDepartments.ts` et al.), so the queries either never fire (empty) or, when a stale tenant leaks into `localStorage('tenant_id')` across federated remotes, fire inconsistently. The gateway tenant-context SSoT ([[ORPHAN-HIGH-155]]) correctly validates + signs a tenant WHEN one is sent, but a SUPER_ADMIN never reliably sent one — and per-remote active-tenant state would itself race ("bir geliyor bir gelmiyor").
+
+**Fix (Option B — token IS the source of truth):** auth-service `switchTenant` mutation re-mints a tenant-scoped token (`tenantId` = target + `actAsTenantId` claim) after SUPER_ADMIN + tenant-ACTIVE (fail-closed) validation + `SUPER_ADMIN_TENANT_SWITCH` audit. Because the token carries the tenant, EVERY federated remote's `useAuth().tenantId`, the gateway-signed assertion, the RLS GUC and search_path all resolve to one deterministic tenant — no cross-remote state race.
+
+**Backend landed this commit:** `TokenService.generateTokens({ actAsTenantId })` + `AuthenticationService.switchTenant()` + `auth.resolver.switchTenant` mutation (auth-gated, rate-limited, SkipTenantGuard) + 4 unit tests (mint / non-SUPER_ADMIN→403 / suspended→403 / missing→403). **Remaining:** the FE tenant-switcher (SUPER_ADMIN header control that calls the mutation, stores the token, reloads) — the operator-facing half; plus MFA TOTP step-up before the switch.
+
+Owner: platform/tenant-isolation + frontend. Deadline: 2026-07-08. Status: IN-PROGRESS (auth backend + tests landed; FE switcher next). MFA step-up sub-item tracked here. Registry: orphan-findings.md only.
+
+---

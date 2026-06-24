@@ -38,16 +38,16 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import Ajv from 'ajv';
-import { load as yamlLoad } from 'js-yaml';
+import { parse as yamlParse } from 'yaml';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
 
-// `@types/js-yaml` is declared in e2e/package.json but may be absent from the
-// hoisted install, leaving the import as `any`. Pin js-yaml's real `load`
-// signature so the parse result is `unknown` — every caller must narrow it
-// with an explicit assertion instead of letting `any` flow through the
-// invariant assertions below.
-const parseYaml = yamlLoad as (input: string) => unknown;
+// The `yaml` package ships its own type declarations (js-yaml does not, and
+// e2e is not an npm workspace so its @types never hoist). A typed
+// `(input: string) => unknown` binding keeps the parse result `unknown` so
+// every caller must narrow it with an explicit assertion instead of letting
+// `any` flow through the invariant assertions below.
+const parseYaml: (input: string) => unknown = yamlParse;
 
 interface Service {
   name: string;

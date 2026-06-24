@@ -45,27 +45,27 @@ billing-service has a `BillingOutboxModule` (`apps/billing-service/src/outbox/bi
 
 ---
 
-## ALERT-HIGH-001
+## ALERT-CRITICAL-001
 
-**Title:** alert-engine publishes AlertTriggered / AlertResolved directly with no transactional outbox and no documented best-effort rationale.
+**Title:** alert-engine publishes AlertTriggered / AlertResolved / AlertEscalated directly (best-effort try/catch) with no transactional outbox; a dropped AlertTriggered silently fails operator notification of a life-safety condition.
 
-**Owner:** alert-engine-expert · **Severity:** HIGH · **Layer:** 2
+**Owner:** alert-engine-expert · **Severity:** CRITICAL · **Layer:** 2
 
-`apps/alert-engine/src/alert/services/alert-evaluation.service.ts:443` (AlertTriggered) and `:546` (AlertResolved) call `eventBus.publish()` directly; the outbox module exists but is unused, and there is no comment marking the publish as intentionally volatile. For life-safety-adjacent alerts the default must be durable.
+`apps/alert-engine/src/alert/services/alert-evaluation.service.ts:443` (AlertTriggered, emitted after `historyRepository.save` :313 and `incidentRepository.save` :408) and `:547` (AlertResolved, after `incidentRepository.save` :542), plus `apps/alert-engine/src/escalation/escalation-manager.service.ts:383` (AlertEscalated), call `eventBus.publish()` inside a swallowing `try/catch`. `AlertTriggered` is consumed by `apps/notification-service/src/notification/event-handlers/alert-triggered.handler.ts`, which dispatches operator SMS/email/push — so a publish dropped after the incident commits leaves the incident persisted but the operator **never notified** of a dangerous condition (e.g. dissolved-oxygen crash). `AlertOutboxModule` is wired (`app.module.ts:161`) but unused. **Severity raised HIGH→CRITICAL:** this is the operator-notification path for life-safety alerts, equivalent in consequence to SENSOR-CRITICAL-001 (verified consumer, not merely "life-safety-adjacent").
 
-**Fix:** Enqueue via the alert outbox, or — if a class of alert is deliberately volatile — mark it on an explicit, commented volatile-allowlist.
+**Fix:** Enqueue AlertTriggered / AlertResolved / AlertEscalated via the alert outbox on the **same EntityManager** as the history/incident write (atomic save+enqueue); remove the best-effort `try/catch` so a failed enqueue rolls the write back rather than committing an un-notified incident.
 
 ---
 
-## ADMIN-HIGH-003
+## ADMIN-HIGH-003 (RE-SCOPED — not an outbox conversion)
 
-**Title:** admin-api tenant↔module assignment publishes ModuleRemovedFromTenant / TenantModulesAssigned directly; loss desynchronises tenant provisioning.
+**Title:** admin-api tenant↔module assignment publishes ModuleAssignedToTenant / ModuleRemovedFromTenant to the in-process `@nestjs/cqrs` EventBus — no NATS bridge, no subscriber anywhere — so the events are dead, not merely volatile.
 
-**Owner:** admin-expert · **Severity:** HIGH · **Layer:** 2
+**Owner:** admin-expert · **Severity:** HIGH (re-classified — correctness / dead-code, not durability) · **Layer:** 2
 
-`apps/admin-api-service/src/modules/tenant-management/services/module-assignment.service.ts:289,470` publish reference-data lifecycle events directly after non-transactional writes; the outbox module is unused.
+**CORRECTION to the original finding (evidence-based, 2026-06-24):** `apps/admin-api-service/src/modules/tenant-management/services/module-assignment.service.ts:289,470` inject `EventBus` from `@nestjs/cqrs` (the **in-process** bus), NOT `@platform/event-bus` `IEventBus`/`NatsEventBus`. admin-api registers a plain `CqrsModule.forRoot()` with no `IEventPublisher`→NATS bridge, and a repo-wide search finds **zero subscribers** for `ModuleAssignedToTenant` / `ModuleRemovedFromTenant`. Tenant provisioning is already driven synchronously via `authProvisioningClient.removeTenantModule`/add, and the audit row via `createAuditLog` — so these publishes reach no handler and cross no service boundary. Routing them through the outbox would only move dead events onto NATS where nothing consumes them — **not** a root-cause fix, and the original "wrap write + outbox enqueue" fix was based on the incorrect assumption that these were NATS publishes.
 
-**Fix:** Wrap the assignment write + outbox enqueue in one transaction.
+**Fix (architectural decision required — escalated, deliberately NOT done in this PR):** Either (a) delete the vestigial in-process publishes (the synchronous provisioning call + audit-log already cover the side effects), or (b) if a consumer is intended (e.g. billing recompute on module change), define that consumer and cross to NATS via the outbox. Pending owner decision.
 
 ---
 

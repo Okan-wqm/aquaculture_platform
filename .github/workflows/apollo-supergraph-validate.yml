@@ -70,6 +70,15 @@ jobs:
         # cannot federate. Writes dist/graphql/supergraph.graphql on success.
         run: node scripts/apollo-router/build-supergraph.mjs
 
+      - name: Validate every frontend GraphQL operation against the composed supergraph
+        # SSoT enforcement (zero-new-drift ratchet): mirrors the gateway's
+        # runtime graphql.validate() at build time over EVERY FE operation, so a
+        # drifted field/argument/type fails CI instead of producing a runtime
+        # 400. The 135 pre-existing drifts are a visible, monotonic-shrink
+        # baseline (scripts/ci/graphql-fe-drift.baseline.json); any NEW drift
+        # fails the wall. Reads the supergraph just composed above.
+        run: node scripts/ci/validate-graphql-operations.mjs
+
       - name: Upload composed supergraph artifact
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

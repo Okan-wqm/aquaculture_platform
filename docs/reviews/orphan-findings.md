@@ -5025,3 +5025,15 @@ Severity: LOW (CI/tooling SSoT gap). Discovered 2026-06-24 when the login-rebuil
 Status: RESOLVED (2026-06-24; branch `feat/login-suderra-rebuild`). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-152 - systemic FE<->BE GraphQL contract drift (135 operations) reaches runtime as intermittent HTTP-400
+
+Severity: HIGH. Discovered 2026-06-24 by validating every frontend GraphQL operation against the composed supergraph (`graphql.validate(schema, parse(op))`, mirroring the gateway's runtime validation). Full inventory: `docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md`.
+
+**Problem:** 135 frontend operations reference fields/queries/types the supergraph does not serve, so the gateway 400s them (HTTP-200 GraphQL-error body, invisible in HTTP access logs) — a major contributor to "tenant panel data sometimes loads, sometimes not". Root cause: ~240 hand-written GraphQL STRING queries passed to `graphqlClient.request()` are never validated against the schema until runtime; codegen exists but covers only aquamobil. By module: hr-module 60 (≈28 are backend features that DO NOT EXIST — scheduling/leave/cert/rotation/performance), sensor-module 35, mcp/farm-management 13, tenant-admin 11, aquamobil 5, dashboard 5, farm-module 5, admin-panel 1. Categories: 68 MISSING-ROOT-OP, 43 MISSING-FIELD, 10 SELECTION-SHAPE, 6 BAD-ARGUMENT, 4 VAR-TYPE-MISMATCH, 4 MISSING-INPUT-TYPE.
+
+**Fix (this commit — enforcement wall):** `scripts/ci/validate-graphql-operations.mjs` runs in the apollo-supergraph compose workflow against the freshly composed supergraph, validating EVERY FE operation across all modules (nested fields + args + input types). A VISIBLE, monotonic-shrink baseline (`scripts/ci/graphql-fe-drift.baseline.json`, 135 entries by file+op+category) makes the gate enforce ZERO new drift (hard wall, proven via negative test) while the debt can only shrink — a tracked burn-down, not silencing. Tier-1 codegen+ESLint make-impossible (typed documents → compile error) and the per-module remediation of the 135 are tracked follow-on work (plan: `/root/.claude/plans/deep-humming-panda.md`, Workstream A).
+
+Status: IN-PROGRESS (2026-06-24; enforcement gate landed this commit; 135 burn-down + codegen-tier-1 ongoing per the plan). Registry: orphan-findings.md only.
+
+---

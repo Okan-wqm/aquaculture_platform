@@ -126,6 +126,8 @@
     "gates:aquamobil-messaging-cache-keys": "node scripts/ci/check-aquamobil-messaging-cache-keys.mjs",
     "gates:aquamobil-messaging-contracts": "node scripts/ci/check-aquamobil-messaging-contracts.mjs",
     "gates:graphql-contracts": "node scripts/ci/check-graphql-contract-drift.mjs",
+    "gql:validate-ops": "node scripts/ci/validate-graphql-operations.mjs",
+    "gql:validate-ops:update": "node scripts/ci/validate-graphql-operations.mjs --update-baseline",
     "gates:auth-db-ownership": "node scripts/ci/check-auth-db-ownership.mjs",
     "gates:migration-sql": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts",
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",

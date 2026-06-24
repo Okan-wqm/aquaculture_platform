@@ -1,0 +1,818 @@
+{
+  "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
+  "generatedAgainst": "dist/graphql/supergraph.graphql",
+  "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
+  "count": 135,
+  "operations": [
+    {
+      "key": "mcp/farm-management/src/graphql/queries/batches.ts::GetBatch",
+      "file": "mcp/farm-management/src/graphql/queries/batches.ts",
+      "op": "GetBatch",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/batches.ts::ListBatches",
+      "file": "mcp/farm-management/src/graphql/queries/batches.ts",
+      "op": "ListBatches",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/feeding.ts::FeedingRecords",
+      "file": "mcp/farm-management/src/graphql/queries/feeding.ts",
+      "op": "FeedingRecords",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/growth.ts::GrowthMeasurements",
+      "file": "mcp/farm-management/src/graphql/queries/growth.ts",
+      "op": "GrowthMeasurements",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/health.ts::CriticalHealthEvents",
+      "file": "mcp/farm-management/src/graphql/queries/health.ts",
+      "op": "CriticalHealthEvents",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/health.ts::HealthEvents",
+      "file": "mcp/farm-management/src/graphql/queries/health.ts",
+      "op": "HealthEvents",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/health.ts::HealthEventsByBatch",
+      "file": "mcp/farm-management/src/graphql/queries/health.ts",
+      "op": "HealthEventsByBatch",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/maintenance.ts::OverdueWorkOrders",
+      "file": "mcp/farm-management/src/graphql/queries/maintenance.ts",
+      "op": "OverdueWorkOrders",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/maintenance.ts::OverdueWorkOrdersLight",
+      "file": "mcp/farm-management/src/graphql/queries/maintenance.ts",
+      "op": "OverdueWorkOrdersLight",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/maintenance.ts::WorkOrders",
+      "file": "mcp/farm-management/src/graphql/queries/maintenance.ts",
+      "op": "WorkOrders",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/tasks.ts::OverdueTasks",
+      "file": "mcp/farm-management/src/graphql/queries/tasks.ts",
+      "op": "OverdueTasks",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/tasks.ts::TodaysTasks",
+      "file": "mcp/farm-management/src/graphql/queries/tasks.ts",
+      "op": "TodaysTasks",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/water-quality.ts::WaterQualityMeasurements",
+      "file": "mcp/farm-management/src/graphql/queries/water-quality.ts",
+      "op": "WaterQualityMeasurements",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
+      "file": "web/apps/aquamobil/src/hooks/useAiConsent.ts",
+      "op": "GetAiConsentStatus",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::ToggleAiConsent",
+      "file": "web/apps/aquamobil/src/hooks/useAiConsent.ts",
+      "op": "ToggleAiConsent",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx::DeleteMessage",
+      "file": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx",
+      "op": "DeleteMessage",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx::EditMessage",
+      "file": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx",
+      "op": "EditMessage",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/apps/aquamobil/src/pages/storage/StockViewPage.tsx::StockAtLocation",
+      "file": "web/apps/aquamobil/src/pages/storage/StockViewPage.tsx",
+      "op": "StockAtLocation",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/admin-panel/src/graphql/messaging-operations.ts::AdminBulkCreateThreads",
+      "file": "web/modules/admin-panel/src/graphql/messaging-operations.ts",
+      "op": "AdminBulkCreateThreads",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/dashboard/src/hooks/useDashboardData.ts::BatchesList",
+      "file": "web/modules/dashboard/src/hooks/useDashboardData.ts",
+      "op": "BatchesList",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/dashboard/src/hooks/useDashboardData.ts::CriticalWaterQuality",
+      "file": "web/modules/dashboard/src/hooks/useDashboardData.ts",
+      "op": "CriticalWaterQuality",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/dashboard/src/hooks/useDashboardData.ts::SensorsList",
+      "file": "web/modules/dashboard/src/hooks/useDashboardData.ts",
+      "op": "SensorsList",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx::LatestReading",
+      "file": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx",
+      "op": "LatestReading",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx::SensorInfo",
+      "file": "web/modules/dashboard/src/widgets/LiveSensorWidget.tsx",
+      "op": "SensorInfo",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useBatches.ts::CloseBatch",
+      "file": "web/modules/farm-module/src/hooks/useBatches.ts",
+      "op": "CloseBatch",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useBatches.ts::UpdateBatch",
+      "file": "web/modules/farm-module/src/hooks/useBatches.ts",
+      "op": "UpdateBatch",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useBatchFeedAssignments.ts::GetBatchFeedAssignment",
+      "file": "web/modules/farm-module/src/hooks/useBatchFeedAssignments.ts",
+      "op": "GetBatchFeedAssignment",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useSubEquipment.ts::ListSubEquipmentByParent",
+      "file": "web/modules/farm-module/src/hooks/useSubEquipment.ts",
+      "op": "ListSubEquipmentByParent",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useTankFeeders.ts::GetSubEquipmentByParent",
+      "file": "web/modules/farm-module/src/hooks/useTankFeeders.ts",
+      "op": "GetSubEquipmentByParent",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::BulkCreateRotations",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "BulkCreateRotations",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::BulkCreateSafetyTraining",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "BulkCreateSafetyTraining",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::ConfirmSafetyTrainingAttendance",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "ConfirmSafetyTrainingAttendance",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::CreateSafetyTrainingRecord",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "CreateSafetyTrainingRecord",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetAllWorkAreaOccupancies",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetAllWorkAreaOccupancies",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetCurrentRotation",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetCurrentRotation",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetOffshoreHeadcount",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetOffshoreHeadcount",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetRotationCalendar",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetRotationCalendar",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetRotationChangeovers",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetRotationChangeovers",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetSafetyCompliance",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetSafetyCompliance",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetSafetyTrainingRecords",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetSafetyTrainingRecords",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetSeaLandSplit",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetSeaLandSplit",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetUpcomingRotations",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetUpcomingRotations",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetWorkArea",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetWorkArea",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetWorkAreaOccupancy",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetWorkAreaOccupancy",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/aquaculture.operations.ts::GetWorkRotation",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "op": "GetWorkRotation",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::BulkCreateScheduleEntries",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "BulkCreateScheduleEntries",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::CreateSchedule",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "CreateSchedule",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::CreateScheduleEntry",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "CreateScheduleEntry",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::DeleteScheduleEntry",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "DeleteScheduleEntry",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetAttendanceSummary",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "GetAttendanceSummary",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetEmployeeSchedule",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "GetEmployeeSchedule",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetScheduleEntries",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "GetScheduleEntries",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetSchedules",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "GetSchedules",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetShift",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "GetShift",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::UpdateSchedule",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "UpdateSchedule",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::UpdateShift",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "op": "UpdateShift",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::BulkEnrollInTraining",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "BulkEnrollInTraining",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::CreateCertificationType",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "CreateCertificationType",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::CreateTrainingCourse",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "CreateTrainingCourse",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetAllCertifications",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetAllCertifications",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetCertificationComplianceReport",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetCertificationComplianceReport",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetCertificationsForWorkArea",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetCertificationsForWorkArea",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetCertificationType",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetCertificationType",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetEmployeeCertificationStatus",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetEmployeeCertificationStatus",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetMandatoryTrainingStatus",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetMandatoryTrainingStatus",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetMyTrainingEnrollments",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetMyTrainingEnrollments",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetTrainingCalendar",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetTrainingCalendar",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetTrainingCourse",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "GetTrainingCourse",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::RenewCertification",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "RenewCertification",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::StartTraining",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "StartTraining",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::UpdateCertificationType",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "UpdateCertificationType",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::UpdateTrainingCourse",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "UpdateTrainingCourse",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::WithdrawFromTraining",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "op": "WithdrawFromTraining",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/employee.operations.ts::GetDepartment",
+      "file": "web/modules/hr-module/src/graphql/employee.operations.ts",
+      "op": "GetDepartment",
+      "category": "MISSING-INPUT-TYPE"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::AdjustLeaveBalance",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "AdjustLeaveBalance",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CalculateLeaveDays",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "CalculateLeaveDays",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CarryOverLeaveBalances",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "CarryOverLeaveBalances",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CheckLeaveOverlap",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "CheckLeaveOverlap",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CreateLeaveType",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "CreateLeaveType",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::GetMyLeaveRequests",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "GetMyLeaveRequests",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::InitializeLeaveBalances",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "InitializeLeaveBalances",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::UpdateLeaveRequest",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "UpdateLeaveRequest",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::UpdateLeaveType",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "UpdateLeaveType",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::WithdrawLeaveRequest",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "op": "WithdrawLeaveRequest",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/performance.operations.ts::BulkCreateReviews",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "op": "BulkCreateReviews",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/performance.operations.ts::GetDepartmentKPIs",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "op": "GetDepartmentKPIs",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/performance.operations.ts::GetGoalProgressTrend",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "op": "GetGoalProgressTrend",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/performance.operations.ts::GetReviewCycleStatus",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "op": "GetReviewCycleStatus",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/hr-module/src/graphql/performance.operations.ts::GetTeamPerformanceOverview",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "op": "GetTeamPerformanceOverview",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/sensor-module/src/graphql/vfd-programming.operations.ts::CancelVfdChangeSet",
+      "file": "web/modules/sensor-module/src/graphql/vfd-programming.operations.ts",
+      "op": "CancelVfdChangeSet",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useCalibration.ts::AllDataChannels",
+      "file": "web/modules/sensor-module/src/hooks/useCalibration.ts",
+      "op": "AllDataChannels",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useCalibration.ts::UpdateDataChannel",
+      "file": "web/modules/sensor-module/src/hooks/useCalibration.ts",
+      "op": "UpdateDataChannel",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useChannelManagement.ts::CreateSensorDataChannel",
+      "file": "web/modules/sensor-module/src/hooks/useChannelManagement.ts",
+      "op": "CreateSensorDataChannel",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useChannelManagement.ts::DeleteSensorDataChannel",
+      "file": "web/modules/sensor-module/src/hooks/useChannelManagement.ts",
+      "op": "DeleteSensorDataChannel",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useChannelManagement.ts::GetSensorChannels",
+      "file": "web/modules/sensor-module/src/hooks/useChannelManagement.ts",
+      "op": "GetSensorChannels",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useChannelManagement.ts::UpdateSensorDataChannel",
+      "file": "web/modules/sensor-module/src/hooks/useChannelManagement.ts",
+      "op": "UpdateSensorDataChannel",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useProtocols.ts::ApplyProtocolDefaults",
+      "file": "web/modules/sensor-module/src/hooks/useProtocols.ts",
+      "op": "ApplyProtocolDefaults",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useProtocols.ts::ProtocolCategoryStats",
+      "file": "web/modules/sensor-module/src/hooks/useProtocols.ts",
+      "op": "ProtocolCategoryStats",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useProtocols.ts::ValidateProtocolConfig",
+      "file": "web/modules/sensor-module/src/hooks/useProtocols.ts",
+      "op": "ValidateProtocolConfig",
+      "category": "MISSING-INPUT-TYPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::ActivateSensor",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "ActivateSensor",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::GetSensor",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "GetSensor",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::GetSensors",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "GetSensors",
+      "category": "MISSING-INPUT-TYPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::GetSensorStats",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "GetSensorStats",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::ReactivateSensor",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "ReactivateSensor",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::RegisterSensor",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "RegisterSensor",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts::SuspendSensor",
+      "file": "web/modules/sensor-module/src/hooks/useSensorRegistration.ts",
+      "op": "SuspendSensor",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdBrands.ts::GetVfdBrands",
+      "file": "web/modules/sensor-module/src/hooks/useVfdBrands.ts",
+      "op": "GetVfdBrands",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdBrands.ts::GetVfdProtocols",
+      "file": "web/modules/sensor-module/src/hooks/useVfdBrands.ts",
+      "op": "GetVfdProtocols",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdBrands.ts::GetVfdProtocolSchema",
+      "file": "web/modules/sensor-module/src/hooks/useVfdBrands.ts",
+      "op": "GetVfdProtocolSchema",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::EmergencyStopVfd",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "EmergencyStopVfd",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::ResetVfdFault",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "ResetVfdFault",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::SendVfdCommand",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "SendVfdCommand",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::SetVfdFrequency",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "SetVfdFrequency",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::SetVfdSpeed",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "SetVfdSpeed",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::StartVfd",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "StartVfd",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdCommands.ts::StopVfd",
+      "file": "web/modules/sensor-module/src/hooks/useVfdCommands.ts",
+      "op": "StopVfd",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdReadings.ts::GetVfdLatestReading",
+      "file": "web/modules/sensor-module/src/hooks/useVfdReadings.ts",
+      "op": "GetVfdLatestReading",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdReadings.ts::GetVfdReadings",
+      "file": "web/modules/sensor-module/src/hooks/useVfdReadings.ts",
+      "op": "GetVfdReadings",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdReadings.ts::ReadVfdParameters",
+      "file": "web/modules/sensor-module/src/hooks/useVfdReadings.ts",
+      "op": "ReadVfdParameters",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useVfdRegistration.ts::GetVfdDevices",
+      "file": "web/modules/sensor-module/src/hooks/useVfdRegistration.ts",
+      "op": "GetVfdDevices",
+      "category": "MISSING-INPUT-TYPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/pages/DeviceDetailPage.tsx::DeleteSensor",
+      "file": "web/modules/sensor-module/src/pages/DeviceDetailPage.tsx",
+      "op": "DeleteSensor",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/pages/DeviceDetailPage.tsx::GetLatestReadings",
+      "file": "web/modules/sensor-module/src/pages/DeviceDetailPage.tsx",
+      "op": "GetLatestReadings",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/sensor-module/src/pages/DeviceDetailPage.tsx::GetSensor",
+      "file": "web/modules/sensor-module/src/pages/DeviceDetailPage.tsx",
+      "op": "GetSensor",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts::GetSensor",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "op": "GetSensor",
+      "category": "SELECTION-SHAPE"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::CloseThread",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "CloseThread",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::CreateThread",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "CreateThread",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::MessagingStats",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "MessagingStats",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::MyThreads",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "MyThreads",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::ReopenThread",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "ReopenThread",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::SendMessage",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "SendMessage",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::Thread",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "Thread",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::ThreadMessages",
+      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
+      "op": "ThreadMessages",
+      "category": "MISSING-ROOT-OP"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/device-queries.ts::EdgeDevice",
+      "file": "web/modules/tenant-admin/src/graphql/device-queries.ts",
+      "op": "EdgeDevice",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/graphql/module-queries.ts::MyTenantModules",
+      "file": "web/modules/tenant-admin/src/graphql/module-queries.ts",
+      "op": "MyTenantModules",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/tenant-admin/src/hooks/useDevicePolling.ts::EdgeDevice",
+      "file": "web/modules/tenant-admin/src/hooks/useDevicePolling.ts",
+      "op": "EdgeDevice",
+      "category": "MISSING-FIELD"
+    }
+  ]
+}

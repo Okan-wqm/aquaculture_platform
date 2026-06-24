@@ -1,0 +1,428 @@
+# GraphQL FE↔BE Contract Drift — Full Audit
+
+Generated against deployed supergraph (dist/graphql/supergraph.graphql).
+
+**135 drifted operations** across 8 modules. Each will 400 (or partially fail) at the gateway's GraphQL validation phase.
+
+## By module
+
+- **hr-module**: 60
+- **sensor-module**: 35
+- **mcp/farm-management**: 13
+- **tenant-admin**: 11
+- **aquamobil**: 5
+- **dashboard**: 5
+- **farm-module**: 5
+- **admin-panel**: 1
+
+## By category
+
+- **MISSING-ROOT-OP**: 68
+- **MISSING-FIELD**: 43
+- **SELECTION-SHAPE**: 10
+- **BAD-ARGUMENT**: 6
+- **VAR-TYPE-MISMATCH**: 4
+- **MISSING-INPUT-TYPE**: 4
+
+## Full list
+
+### admin-panel
+
+- `AdminBulkCreateThreads` (MISSING-ROOT-OP) — `web/modules/admin-panel/src/graphql/messaging-operations.ts`
+  - Unknown type "BulkCreateThreadsInput". Did you mean "SupportCreateThreadInput", "CreateFeedInput", "CreateTagInput", "CreateTankInput", or "CreateTaskInput"?
+  - Cannot query field "bulkCreateThreads" on type "Mutation".
+
+### aquamobil
+
+- `GetAiConsentStatus` (MISSING-ROOT-OP) — `web/apps/aquamobil/src/hooks/useAiConsent.ts`
+  - Cannot query field "aiConsentStatus" on type "Query". Did you mean "myConsentStatus", "userConsentStatus", "announcementStats", "isConsentOutdated", or "mattilsynetStatus"?
+- `ToggleAiConsent` (MISSING-ROOT-OP) — `web/apps/aquamobil/src/hooks/useAiConsent.ts`
+  - Cannot query field "toggleAiConsent" on type "Mutation". Did you mean "withdrawConsent"?
+- `EditMessage` (VAR-TYPE-MISMATCH) — `web/apps/aquamobil/src/hooks/useOfflineQueue.tsx`
+  - Variable "$id" of type "String!" used in position expecting type "ID!".
+- `DeleteMessage` (VAR-TYPE-MISMATCH) — `web/apps/aquamobil/src/hooks/useOfflineQueue.tsx`
+  - Variable "$id" of type "String!" used in position expecting type "ID!".
+- `StockAtLocation` (MISSING-ROOT-OP) — `web/apps/aquamobil/src/pages/storage/StockViewPage.tsx`
+  - Cannot query field "stockAtLocation" on type "Query". Did you mean "storageLocation" or "storageLocations"?
+
+### dashboard
+
+- `CriticalWaterQuality` (MISSING-FIELD) — `web/modules/dashboard/src/hooks/useDashboardData.ts`
+  - Cannot query field "ph" on type "WaterQualityMeasurement". Did you mean "pH"?
+  - Cannot query field "salinity" on type "WaterQualityMeasurement".
+  - Cannot query field "status" on type "WaterQualityMeasurement".
+- `BatchesList` (MISSING-FIELD) — `web/modules/dashboard/src/hooks/useDashboardData.ts`
+  - Cannot query field "initialAvgWeightG" on type "Batch". Did you mean "currentAvgWeightG"?
+- `SensorsList` (BAD-ARGUMENT) — `web/modules/dashboard/src/hooks/useDashboardData.ts`
+  - Unknown argument "limit" on field "Query.sensors".
+  - Cannot query field "id" on type "SensorListType".
+  - Cannot query field "name" on type "SensorListType". Did you mean "page"?
+  - Cannot query field "type" on type "SensorListType".
+  - Cannot query field "status" on type "SensorListType".
+  - Cannot query field "pondId" on type "SensorListType".
+  - Cannot query field "farmId" on type "SensorListType".
+- `LatestReading` (MISSING-FIELD) — `web/modules/dashboard/src/widgets/LiveSensorWidget.tsx`
+  - Cannot query field "value" on type "SensorReading".
+  - Cannot query field "unit" on type "SensorReading".
+- `SensorInfo` (MISSING-FIELD) — `web/modules/dashboard/src/widgets/LiveSensorWidget.tsx`
+  - Cannot query field "sensorType" on type "Sensor". Did you mean "sensorRole"?
+
+### farm-module
+
+- `GetBatchFeedAssignment` (MISSING-FIELD) — `web/modules/farm-module/src/hooks/useBatchFeedAssignments.ts`
+  - Cannot query field "version" on type "BatchFeedAssignmentResponse".
+- `CloseBatch` (MISSING-FIELD) — `web/modules/farm-module/src/hooks/useBatches.ts`
+  - Cannot query field "closedAt" on type "Batch". Did you mean "createdAt" or "stockedAt"?
+- `UpdateBatch` (SELECTION-SHAPE) — `web/modules/farm-module/src/hooks/useBatches.ts`
+  - Field "fcr" must not have a selection since type "JSON!" has no subfields.
+- `ListSubEquipmentByParent` (MISSING-FIELD) — `web/modules/farm-module/src/hooks/useSubEquipment.ts`
+  - Cannot query field "category" on type "SubEquipmentTypeResponse".
+- `GetSubEquipmentByParent` (BAD-ARGUMENT) — `web/modules/farm-module/src/hooks/useTankFeeders.ts`
+  - Unknown argument "category" on field "Query.subEquipmentByParent".
+  - Cannot query field "category" on type "SubEquipmentTypeResponse".
+
+### hr-module
+
+- `GetWorkArea` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "workArea" on type "Query". Did you mean "workAreas", "workOrder", "workers", or "workOrders"?
+- `GetWorkAreaOccupancy` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "workAreaOccupancy" on type "Query".
+- `GetAllWorkAreaOccupancies` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "allWorkAreaOccupancies" on type "Query".
+- `GetWorkRotation` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "workRotation" on type "Query". Did you mean "workRotations" or "myWorkRotations"?
+- `GetCurrentRotation` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "currentRotation" on type "Query". Did you mean "currentWeather", "activeRotations", or "workRotations"?
+- `GetUpcomingRotations` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "upcomingRotations" on type "Query". Did you mean "activeRotations", "myWorkRotations", or "workRotations"?
+- `GetRotationCalendar` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "rotationCalendar" on type "Query".
+- `GetOffshoreHeadcount` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "offshoreHeadcount" on type "Query".
+- `GetRotationChangeovers` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "rotationChangeovers" on type "Query".
+- `GetSeaLandSplit` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "seaLandSplit" on type "Query".
+- `GetSafetyTrainingRecords` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Unknown type "SafetyTrainingFilterInput". Did you mean "SafetyTrainingStatus", "SafetyTrainingType", "ParameterConfigFilterInput", "SafetyTrainingRecord", or "WaterQualityFilterInput"?
+  - Cannot query field "safetyTrainingRecords" on type "Query". Did you mean "feedingRecords"?
+- `GetSafetyCompliance` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "safetyCompliance" on type "Query".
+- `BulkCreateRotations` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Unknown type "BulkRotationInput". Did you mean "LocationInput", "TankLocationInput", "AerationInput", "GeoLocationInput", or "SiteLocationInput"?
+  - Cannot query field "bulkCreateRotations" on type "Mutation".
+- `CreateSafetyTrainingRecord` (MISSING-FIELD) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "workAreaId" on type "SafetyTrainingRecord".
+  - Cannot query field "conductedBy" on type "SafetyTrainingRecord". Did you mean "createdBy" or "updatedBy"?
+  - Cannot query field "conductedAt" on type "SafetyTrainingRecord". Did you mean "createdAt" or "updatedAt"?
+  - Cannot query field "validUntil" on type "SafetyTrainingRecord".
+  - Cannot query field "topics" on type "SafetyTrainingRecord".
+  - Cannot query field "attendanceConfirmed" on type "SafetyTrainingRecord".
+- `ConfirmSafetyTrainingAttendance` (MISSING-FIELD) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Cannot query field "attendanceConfirmed" on type "SafetyTrainingRecord".
+- `BulkCreateSafetyTraining` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/aquaculture.operations.ts`
+  - Unknown type "BulkSafetyTrainingInput". Did you mean "SafetyTrainingType", "SafetyTrainingStatus", "BulkStockInItemInput", or "SafetyTrainingRecord"?
+  - Cannot query field "bulkCreateSafetyTraining" on type "Mutation". Did you mean "createSafetyTrainingRecord"?
+- `GetShift` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Cannot query field "shift" on type "Query". Did you mean "shifts" or "site"?
+- `GetAttendanceSummary` (MISSING-FIELD) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Cannot query field "totalWorkingDays" on type "AttendanceSummary". Did you mean "totalWorkDays" or "totalWorkedMinutes"?
+- `GetEmployeeSchedule` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Cannot query field "employeeSchedule" on type "Query". Did you mean "mySchedule" or "employees"?
+- `GetSchedules` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Unknown type "ScheduleFilterInput". Did you mean "ChannelFilterInput", "ChemicalFilterInput", "FeedFilterInput", "SensorFilterInput", or "SiteFilterInput"?
+  - Cannot query field "schedules" on type "Query". Did you mean "mySchedule" or "myModules"?
+- `GetScheduleEntries` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Cannot query field "scheduleEntries" on type "Query".
+- `UpdateShift` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Unknown type "UpdateShiftInput". Did you mean "CreateShiftInput", "UpdateSiteInput", "UpdateStepInput", "UpdateVfdInput", or "UpdateActionInput"?
+  - Cannot query field "updateShift" on type "Mutation". Did you mean "createShift", "updateSite", "updateBatch", "updateFeed", or "updateGoal"?
+- `CreateSchedule` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Unknown type "CreateScheduleInput". Did you mean "CreateAutoRuleInput", "CreateChannelInput", "OnCallScheduleInput", "CreateAlertRuleInput", or "CreateChemicalInput"?
+  - Cannot query field "createSchedule" on type "Mutation". Did you mean "createAutoRule", "createChannel", "createAlertRule", "createChemical", or "createFeed"?
+- `UpdateSchedule` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Unknown type "UpdateScheduleInput". Did you mean "OnCallScheduleInput", "UpdateAutoRuleInput", "UpdateChannelInput", "FeedingScheduleInput", or "UpdateAlertRuleInput"?
+  - Cannot query field "updateSchedule" on type "Mutation". Did you mean "updateAutoRule", "updateChannel", "updateFCRTable", "updateAlertRule", or "updateChemical"?
+- `CreateScheduleEntry` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Unknown type "CreateScheduleEntryInput". Did you mean "CreateSubEquipmentInput", "PlcFeedingScheduleEntryInput", "CreateEquipmentInput", "CreateHealthEventInput", or "CreateSupplierInput"?
+  - Cannot query field "createScheduleEntry" on type "Mutation". Did you mean "createSubEquipment"?
+- `BulkCreateScheduleEntries` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Unknown type "BulkScheduleEntryInput". Did you mean "LabResultEntryInput"?
+  - Cannot query field "bulkCreateScheduleEntries" on type "Mutation".
+- `DeleteScheduleEntry` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/attendance.operations.ts`
+  - Cannot query field "deleteScheduleEntry" on type "Mutation". Did you mean "deleteSubEquipment"?
+- `GetCertificationType` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "certificationType" on type "Query". Did you mean "certificationTypes", "myCertifications", or "allCertifications"?
+- `GetCertificationComplianceReport` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "certificationComplianceReport" on type "Query". Did you mean "maintenanceComplianceReport"?
+- `GetEmployeeCertificationStatus` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "employeeCertificationStatus" on type "Query". Did you mean "employeeCertifications", "expiredCertifications", "expiringCertifications", or "myCertifications"?
+- `GetCertificationsForWorkArea` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "certificationsForWorkArea" on type "Query". Did you mean "certificationTypes"?
+- `GetAllCertifications` (VAR-TYPE-MISMATCH) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Variable "$employeeId" of type "String" used in position expecting type "ID".
+  - Variable "$certificationTypeId" of type "String" used in position expecting type "ID".
+- `GetTrainingCourse` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "trainingCourse" on type "Query". Did you mean "trainingCourses"?
+- `GetMyTrainingEnrollments` (BAD-ARGUMENT) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Unknown argument "offset" on field "Query.myTrainingEnrollments".
+- `GetMandatoryTrainingStatus` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "mandatoryTrainingStatus" on type "Query".
+- `GetTrainingCalendar` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "trainingCalendar" on type "Query". Did you mean "teamLeaveCalendar" or "trainingCourses"?
+- `CreateCertificationType` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Unknown type "CreateCertificationTypeInput". Did you mean "CertificationType", "CreateSensorTypeInput", "CreateTransitionInput", "CreateVfdAutomationRuleInput", or "CreateWorkRotationInput"?
+  - Cannot query field "createCertificationType" on type "Mutation". Did you mean "revokeCertification" or "verifyCertification"?
+- `UpdateCertificationType` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Unknown type "UpdateCertificationTypeInput". Did you mean "CertificationType", "UpdateSensorTypeInput", "UpdateTransitionInput", "UpdateVfdAutomationRuleInput", or "UpdateWorkRotationInput"?
+  - Cannot query field "updateCertificationType" on type "Mutation". Did you mean "revokeCertification" or "verifyCertification"?
+- `RenewCertification` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "renewCertification" on type "Mutation". Did you mean "revokeCertification" or "verifyCertification"?
+- `CreateTrainingCourse` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Unknown type "CreateTrainingCourseInput". Did you mean "CreateTenantRoleInput", "CreateTenantUserInput", "CreateTransitionInput", "CreateAutoRuleInput", or "CreateDeviceGroupInput"?
+  - Cannot query field "createTrainingCourse" on type "Mutation". Did you mean "createTenantRole" or "createTenantUser"?
+- `UpdateTrainingCourse` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Unknown type "UpdateTrainingCourseInput". Did you mean "UpdateTankStatusInput", "UpdateTenantRoleInput", "UpdateTenantUserInput", "UpdateTransitionInput", or "UpdateAutoRuleInput"?
+  - Cannot query field "updateTrainingCourse" on type "Mutation". Did you mean "updateTankStatus", "updateTenantRole", or "updateTenantUser"?
+- `StartTraining` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "startTraining" on type "Mutation". Did you mean "startTask"?
+- `WithdrawFromTraining` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "withdrawFromTraining" on type "Mutation".
+- `BulkEnrollInTraining` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/certification.operations.ts`
+  - Cannot query field "bulkEnrollInTraining" on type "Mutation". Did you mean "enrollInTraining"?
+- `GetDepartment` (MISSING-INPUT-TYPE) — `web/modules/hr-module/src/graphql/employee.operations.ts`
+  - Unknown type "Department". Did you mean "DepartmentHR", "HRDepartment", "DepartmentType", or "Payment"?
+- `GetMyLeaveRequests` (BAD-ARGUMENT) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Unknown argument "offset" on field "Query.myLeaveRequests".
+- `CheckLeaveOverlap` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Cannot query field "checkLeaveOverlap" on type "Query".
+- `CalculateLeaveDays` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Cannot query field "calculateLeaveDays" on type "Query".
+- `CreateLeaveType` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Unknown type "CreateLeaveTypeInput". Did you mean "CreateSensorTypeInput", "CreateEmployeeInput", "CreateLeaveRequestInput", "CreateActionInput", or "CreateAlertRuleInput"?
+  - Cannot query field "createLeaveType" on type "Mutation". Did you mean "createSensorType", "createEmployee", "createLeaveRequest", "createAlertRule", or "createBatch"?
+- `UpdateLeaveType` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Unknown type "UpdateLeaveTypeInput". Did you mean "UpdateSensorTypeInput", "UpdateEmployeeInput", "UpdateActionInput", "UpdateAlertRuleInput", or "UpdateBatchInput"?
+  - Cannot query field "updateLeaveType" on type "Mutation". Did you mean "updateSensorType", "updateEmployee", "updateAlertRule", "updateBatch", or "updateFeed"?
+- `InitializeLeaveBalances` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Cannot query field "initializeLeaveBalances" on type "Mutation".
+- `AdjustLeaveBalance` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Cannot query field "adjustLeaveBalance" on type "Mutation".
+- `UpdateLeaveRequest` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Unknown type "UpdateLeaveRequestInput". Did you mean "CreateLeaveRequestInput", "UpdateHealthEventInput", "UpdateAlertRuleInput", "UpdateDepartmentInput", or "UpdateGoalProgressInput"?
+  - Cannot query field "updateLeaveRequest" on type "Mutation". Did you mean "createLeaveRequest", "approveLeaveRequest", "submitLeaveRequest", "cancelLeaveRequest", or "rejectLeaveRequest"?
+- `WithdrawLeaveRequest` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Cannot query field "withdrawLeaveRequest" on type "Mutation". Did you mean "approveLeaveRequest", "cancelLeaveRequest", "createLeaveRequest", "rejectLeaveRequest", or "submitLeaveRequest"?
+- `CarryOverLeaveBalances` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/leave.operations.ts`
+  - Cannot query field "carryOverLeaveBalances" on type "Mutation".
+- `GetTeamPerformanceOverview` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/performance.operations.ts`
+  - Cannot query field "teamPerformanceOverview" on type "Query". Did you mean "performanceReview", "myPerformanceReviews", "performanceReviews", or "teamWeeklyOverview"?
+- `GetReviewCycleStatus` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/performance.operations.ts`
+  - Cannot query field "reviewCycleStatus" on type "Query".
+- `GetGoalProgressTrend` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/performance.operations.ts`
+  - Cannot query field "goalProgressTrend" on type "Query".
+- `GetDepartmentKPIs` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/performance.operations.ts`
+  - Cannot query field "departmentKPIs" on type "Query". Did you mean "departments", "department", "hrDepartments", "departmentsBySite", or "hrDepartment"?
+- `BulkCreateReviews` (MISSING-ROOT-OP) — `web/modules/hr-module/src/graphql/performance.operations.ts`
+  - Unknown type "BulkCreateReviewsInput". Did you mean "CreateSpeciesInput", "CreateFeedInput", or "CreateProcessInput"?
+  - Cannot query field "bulkCreateReviews" on type "Mutation".
+
+### mcp/farm-management
+
+- `ListBatches` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/batches.ts`
+  - Cannot query field "species" on type "Batch". Did you mean "speciesId"?
+  - Cannot query field "initialAvgWeightG" on type "Batch". Did you mean "currentAvgWeightG"?
+  - Cannot query field "targetFCR" on type "Batch".
+  - Cannot query field "tankAllocations" on type "Batch". Did you mean "locations" or "sourceLocation"?
+- `GetBatch` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/batches.ts`
+  - Cannot query field "species" on type "Batch". Did you mean "speciesId"?
+  - Cannot query field "initialAvgWeightG" on type "Batch". Did you mean "currentAvgWeightG"?
+  - Cannot query field "targetFCR" on type "Batch".
+  - Cannot query field "tankAllocations" on type "Batch". Did you mean "locations" or "sourceLocation"?
+- `FeedingRecords` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/feeding.ts`
+  - Cannot query field "hasMore" on type "FeedingRecordConnection".
+- `GrowthMeasurements` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/growth.ts`
+  - Cannot query field "hasMore" on type "GrowthMeasurementConnection".
+- `HealthEvents` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/health.ts`
+  - Cannot query field "startDate" on type "HealthEvent". Did you mean "eventDate"?
+  - Cannot query field "endDate" on type "HealthEvent". Did you mean "eventDate"?
+  - Cannot query field "affectedCount" on type "HealthEvent".
+  - Cannot query field "mortalityCount" on type "HealthEvent".
+  - Cannot query field "hasMore" on type "PaginatedHealthEventsResponse".
+- `HealthEventsByBatch` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/health.ts`
+  - Cannot query field "startDate" on type "HealthEvent". Did you mean "eventDate"?
+  - Cannot query field "endDate" on type "HealthEvent". Did you mean "eventDate"?
+  - Cannot query field "affectedCount" on type "HealthEvent".
+  - Cannot query field "mortalityCount" on type "HealthEvent".
+- `CriticalHealthEvents` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/health.ts`
+  - Cannot query field "startDate" on type "HealthEvent". Did you mean "eventDate"?
+  - Cannot query field "affectedCount" on type "HealthEvent".
+  - Cannot query field "mortalityCount" on type "HealthEvent".
+- `WorkOrders` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/maintenance.ts`
+  - Cannot query field "code" on type "WorkOrder".
+  - Cannot query field "workOrderType" on type "WorkOrder". Did you mean "workOrderCode"?
+  - Cannot query field "siteId" on type "WorkOrder". Did you mean "assetId"?
+  - Cannot query field "departmentId" on type "WorkOrder".
+  - Cannot query field "assigneeId" on type "WorkOrder". Did you mean "assignedTo", "assetId", or "assignedTeamId"?
+  - Cannot query field "scheduledStartDate" on type "WorkOrder". Did you mean "plannedStartDate"?
+  - Cannot query field "startedAt" on type "WorkOrder". Did you mean "createdAt" or "updatedAt"?
+  - Cannot query field "completedDate" on type "WorkOrder". Did you mean "completedAt", "completedBy", or "completionNotes"?
+  - Cannot query field "estimatedDurationHours" on type "WorkOrder". Did you mean "estimatedDurationMinutes"?
+  - Cannot query field "actualDurationHours" on type "WorkOrder". Did you mean "actualDurationMinutes"?
+  - Cannot query field "actualCost" on type "WorkOrder".
+- `OverdueWorkOrders` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/maintenance.ts`
+  - Cannot query field "code" on type "WorkOrder".
+  - Cannot query field "workOrderType" on type "WorkOrder". Did you mean "workOrderCode"?
+  - Cannot query field "siteId" on type "WorkOrder". Did you mean "assetId"?
+  - Cannot query field "departmentId" on type "WorkOrder".
+  - Cannot query field "assigneeId" on type "WorkOrder". Did you mean "assignedTo", "assetId", or "assignedTeamId"?
+- `OverdueWorkOrdersLight` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/maintenance.ts`
+  - Cannot query field "code" on type "WorkOrder".
+- `TodaysTasks` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/tasks.ts`
+  - Cannot query field "code" on type "WorkOrder".
+  - Cannot query field "workOrderType" on type "WorkOrder". Did you mean "workOrderCode"?
+  - Cannot query field "siteId" on type "WorkOrder". Did you mean "assetId"?
+  - Cannot query field "departmentId" on type "WorkOrder".
+  - Cannot query field "assigneeId" on type "WorkOrder". Did you mean "assignedTo", "assetId", or "assignedTeamId"?
+  - Cannot query field "scheduledStartDate" on type "WorkOrder". Did you mean "plannedStartDate"?
+- `OverdueTasks` (MISSING-FIELD) — `mcp/farm-management/src/graphql/queries/tasks.ts`
+  - Cannot query field "code" on type "WorkOrder".
+  - Cannot query field "workOrderType" on type "WorkOrder". Did you mean "workOrderCode"?
+  - Cannot query field "siteId" on type "WorkOrder". Did you mean "assetId"?
+  - Cannot query field "departmentId" on type "WorkOrder".
+  - Cannot query field "assigneeId" on type "WorkOrder". Did you mean "assignedTo", "assetId", or "assignedTeamId"?
+  - Cannot query field "scheduledStartDate" on type "WorkOrder". Did you mean "plannedStartDate"?
+- `WaterQualityMeasurements` (BAD-ARGUMENT) — `mcp/farm-management/src/graphql/queries/water-quality.ts`
+  - Unknown argument "limit" on field "Query.waterQualityMeasurements".
+  - Cannot query field "offset" on type "WaterQualityListResponse".
+  - Cannot query field "hasMore" on type "WaterQualityListResponse".
+
+### sensor-module
+
+- `CancelVfdChangeSet` (MISSING-ROOT-OP) — `web/modules/sensor-module/src/graphql/vfd-programming.operations.ts`
+  - Cannot query field "cancelVfdChangeSet" on type "Mutation". Did you mean "createVfdChangeSet", "rejectVfdChangeSet", "approveVfdChangeSet", or "rollbackVfdChangeSet"?
+- `AllDataChannels` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useCalibration.ts`
+  - Cannot query field "unitSymbol" on type "DataChannelType".
+  - Cannot query field "nextCalibrationDue" on type "DataChannelType". Did you mean "lastCalibratedAt"?
+  - Cannot query field "calibrationPolynomial" on type "DataChannelType". Did you mean "calibrationMultiplier", "calibrationEnabled", or "calibrationOffset"?
+- `UpdateDataChannel` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useCalibration.ts`
+  - Cannot query field "nextCalibrationDue" on type "DataChannelType". Did you mean "lastCalibratedAt"?
+- `GetSensorChannels` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useChannelManagement.ts`
+  - Cannot query field "dataChannels" on type "Sensor".
+- `CreateSensorDataChannel` (MISSING-ROOT-OP) — `web/modules/sensor-module/src/hooks/useChannelManagement.ts`
+  - Unknown type "CreateSensorDataChannelInput". Did you mean "CreateDataChannelInput", "CreateSensorTypeInput", "UpdateDataChannelInput", "CreateChannelInput", or "CreateScadaPackageInput"?
+  - Cannot query field "createSensorDataChannel" on type "Mutation". Did you mean "createDataChannel", "createSensorType", "deleteDataChannel", "reorderDataChannels", or "updateDataChannel"?
+- `UpdateSensorDataChannel` (MISSING-ROOT-OP) — `web/modules/sensor-module/src/hooks/useChannelManagement.ts`
+  - Unknown type "UpdateSensorDataChannelInput". Did you mean "UpdateDataChannelInput", "CreateDataChannelInput", "UpdateSensorProtocolInput", "UpdateSensorTypeInput", or "UpdateChannelInput"?
+  - Cannot query field "updateSensorDataChannel" on type "Mutation". Did you mean "updateDataChannel", "createDataChannel", "deleteDataChannel", "updateSensorProtocol", or "updateSensorType"?
+- `DeleteSensorDataChannel` (MISSING-ROOT-OP) — `web/modules/sensor-module/src/hooks/useChannelManagement.ts`
+  - Cannot query field "deleteSensorDataChannel" on type "Mutation". Did you mean "deleteDataChannel", "detectSensorChannels", "deleteSensorType", "createDataChannel", or "deleteScadaPackage"?
+- `ProtocolCategoryStats` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useProtocols.ts`
+  - Cannot query field "category" on type "CategoryStatsType".
+  - Cannot query field "totalProtocols" on type "CategoryStatsType".
+  - Cannot query field "activeProtocols" on type "CategoryStatsType".
+  - Cannot query field "subcategories" on type "CategoryStatsType".
+- `ValidateProtocolConfig` (MISSING-INPUT-TYPE) — `web/modules/sensor-module/src/hooks/useProtocols.ts`
+  - Unknown type "ValidateProtocolConfigInput". Did you mean "ValidateConfigInput", "UpdateIoConfigInput", or "UpdateParameterConfigInput"?
+  - Cannot query field "code" on type "ValidationErrorType".
+- `ApplyProtocolDefaults` (BAD-ARGUMENT) — `web/modules/sensor-module/src/hooks/useProtocols.ts`
+  - Unknown argument "code" on field "Mutation.applyProtocolDefaults".
+  - Field "applyProtocolDefaults" argument "protocolCode" of type "String!" is required, but it was not provided.
+- `GetSensor` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Cannot query field "protocolCode" on type "Sensor". Did you mean "protocolId" or "protocol"?
+- `GetSensors` (MISSING-INPUT-TYPE) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Unknown type "SensorFilter". Did you mean "SensorRole", "SensorFilterInput", "SensorStats", "SensorStatus", or "SensorType"?
+  - Unknown type "Pagination". Did you mean "Location", "Mutation", or "TagDirection"?
+  - Cannot query field "status" on type "RegisteredSensorType".
+  - Field "connectionStatus" of type "SensorConnectionStatusType" must have a selection of subfields. Did you mean "connectionStatus { ... }"?
+- `GetSensorStats` (SELECTION-SHAPE) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Field "byType" must not have a selection since type "JSON!" has no subfields.
+  - Field "byProtocol" must not have a selection since type "JSON!" has no subfields.
+- `RegisterSensor` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Cannot query field "status" on type "RegisteredSensorType".
+- `ActivateSensor` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Cannot query field "status" on type "RegisteredSensorType".
+- `SuspendSensor` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Cannot query field "status" on type "RegisteredSensorType".
+- `ReactivateSensor` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useSensorRegistration.ts`
+  - Cannot query field "status" on type "RegisteredSensorType".
+- `GetVfdBrands` (SELECTION-SHAPE) — `web/modules/sensor-module/src/hooks/useVfdBrands.ts`
+  - Field "vfdBrands" must not have a selection since type "JSON" has no subfields.
+- `GetVfdProtocols` (SELECTION-SHAPE) — `web/modules/sensor-module/src/hooks/useVfdBrands.ts`
+  - Field "vfdProtocols" must not have a selection since type "JSON" has no subfields.
+- `GetVfdProtocolSchema` (SELECTION-SHAPE) — `web/modules/sensor-module/src/hooks/useVfdBrands.ts`
+  - Field "vfdProtocolSchema" must not have a selection since type "JSON" has no subfields.
+- `SendVfdCommand` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+  - Cannot query field "executionTimeMs" on type "VfdCommandResult".
+- `StartVfd` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+- `StopVfd` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+- `SetVfdFrequency` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+- `SetVfdSpeed` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+- `ResetVfdFault` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+- `EmergencyStopVfd` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdCommands.ts`
+  - Cannot query field "command" on type "VfdCommandResult".
+- `GetVfdReadings` (SELECTION-SHAPE) — `web/modules/sensor-module/src/hooks/useVfdReadings.ts`
+  - Field "parameters" must not have a selection since type "JSON!" has no subfields.
+  - Field "statusBits" must not have a selection since type "JSON" has no subfields.
+  - Cannot query field "quality" on type "VfdReading".
+- `GetVfdLatestReading` (SELECTION-SHAPE) — `web/modules/sensor-module/src/hooks/useVfdReadings.ts`
+  - Field "parameters" must not have a selection since type "JSON!" has no subfields.
+  - Field "statusBits" must not have a selection since type "JSON" has no subfields.
+- `ReadVfdParameters` (MISSING-FIELD) — `web/modules/sensor-module/src/hooks/useVfdReadings.ts`
+  - Cannot query field "id" on type "VfdReadResultDto".
+  - Cannot query field "quality" on type "VfdReadResultDto".
+- `GetVfdDevices` (MISSING-INPUT-TYPE) — `web/modules/sensor-module/src/hooks/useVfdRegistration.ts`
+  - Unknown type "VfdFilterInput". Did you mean "FeedFilterInput", "TagFilterInput", "SiteFilterInput", "TankFilterInput", or "TaskFilterInput"?
+  - Cannot query field "latestReading" on type "VfdDeviceOutput".
+- `GetSensor` (SELECTION-SHAPE) — `web/modules/sensor-module/src/pages/DeviceDetailPage.tsx`
+  - Field "connectionStatus" must not have a selection since type "JSON" has no subfields.
+  - Cannot query field "installationDate" on type "Sensor".
+  - Cannot query field "lastCalibrationDate" on type "Sensor". Did you mean "lastCalibratedAt" or "calibrationData"?
+- `GetLatestReadings` (VAR-TYPE-MISMATCH) — `web/modules/sensor-module/src/pages/DeviceDetailPage.tsx`
+  - Cannot query field "value" on type "SensorReading".
+  - Cannot query field "channelId" on type "SensorReading".
+  - Variable "$startTime" of type "String!" used in position expecting type "DateTime!".
+  - Variable "$endTime" of type "String!" used in position expecting type "DateTime!".
+- `DeleteSensor` (SELECTION-SHAPE) — `web/modules/sensor-module/src/pages/DeviceDetailPage.tsx`
+  - Field "deleteSensor" must not have a selection since type "Boolean!" has no subfields.
+- `GetSensor` (SELECTION-SHAPE) — `web/modules/sensor-module/src/services/sensorRegistrationApi.ts`
+  - Cannot query field "protocolCode" on type "Sensor". Did you mean "protocolId" or "protocol"?
+  - Field "connectionStatus" must not have a selection since type "JSON" has no subfields.
+
+### tenant-admin
+
+- `MyThreads` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Unknown type "ThreadStatus". Did you mean "FeedStatus", "GoalStatus", "PondStatus", "SiteStatus", or "TankStatus"?
+  - Cannot query field "myThreads" on type "Query".
+- `Thread` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Cannot query field "thread" on type "Query".
+- `ThreadMessages` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Cannot query field "threadMessages" on type "Query". Did you mean "pinnedMessages", "messages", "searchMessages", or "similarMessages"?
+- `MessagingStats` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Cannot query field "messagingStats" on type "Query". Did you mean "feedingStats", "tenantStats", or "vfdReadingStats"?
+- `CreateThread` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Unknown type "CreateThreadInput". Did you mean "CreateFeedInput", "CreateTagInput", "CreateFarmInput", "CreateGoalInput", or "CreatePlanInput"?
+  - Cannot query field "createThread" on type "Mutation". Did you mean "createFeed", "createFarm", "createGoal", "createPlan", or "createPond"?
+- `SendMessage` (MISSING-FIELD) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Cannot query field "threadId" on type "Message". Did you mean "parentId"?
+  - Cannot query field "senderType" on type "Message". Did you mean "sender", "senderId", or "contentType"?
+  - Cannot query field "senderName" on type "Message". Did you mean "sender" or "senderId"?
+  - Cannot query field "status" on type "Message".
+  - Cannot query field "isInternal" on type "Message".
+- `CloseThread` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Cannot query field "closeThread" on type "Mutation".
+- `ReopenThread` (MISSING-ROOT-OP) — `web/modules/tenant-admin/src/graphql/communication-queries.ts`
+  - Cannot query field "reopenThread" on type "Mutation".
+- `EdgeDevice` (MISSING-FIELD) — `web/modules/tenant-admin/src/graphql/device-queries.ts`
+  - Cannot query field "unit" on type "DeviceIoConfig".
+- `MyTenantModules` (MISSING-FIELD) — `web/modules/tenant-admin/src/graphql/module-queries.ts`
+  - Cannot query field "module" on type "TenantModule". Did you mean "moduleId"?
+- `EdgeDevice` (MISSING-FIELD) — `web/modules/tenant-admin/src/hooks/useDevicePolling.ts`
+  - Cannot query field "unit" on type "DeviceIoConfig".
+

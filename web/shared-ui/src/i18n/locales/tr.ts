@@ -31,6 +31,14 @@ export const tr: Record<MessageKey, string> = {
   'common.search': 'Ara',
   'common.noResults': 'Sonuç bulunamadı',
   'common.invalidDate': 'Geçersiz tarih',
+  'common.showPassword': 'Şifreyi göster',
+  'common.hidePassword': 'Şifreyi gizle',
+  'common.capsLockOn': 'Caps Lock açık',
+
+  // ── Auth shell (layout chrome) ──
+  'auth.needHelp': 'Yardım mı lazım?',
+  'auth.support': 'Destek',
+  'auth.allRightsReserved': 'Tüm hakları saklıdır.',
 
   // ── Login Page ──
   'login.title': 'Giriş Yap',

@@ -350,7 +350,7 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
   const fishesRef = useRef<FishState[]>([]);
   const domRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dimensionsRef = useRef({ width: 0, height: 0 });
-  const animationRef = useRef<(number) | undefined>(undefined);
+  const animationRef = useRef<number | undefined>(undefined);
   const initializedRef = useRef(false);
 
   // Initialize fish and start animation loop
@@ -391,6 +391,16 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
     });
     observer.observe(container);
 
+    // Shared imperative positioner — one source of truth for fish layout, used
+    // by both the animation loop and the static (reduced-motion) render.
+    const positionFish = (el: HTMLDivElement, fish: FishState): void => {
+      el.style.left = `${fish.x}px`;
+      el.style.top = `${fish.y}px`;
+      el.style.width = `${fish.size}px`;
+      el.style.height = `${fish.size * 0.5}px`;
+      el.style.transform = `scaleX(${fish.facingRight ? 1 : -1})`;
+    };
+
     // Animation loop — updates DOM directly, bypassing React reconciliation
     const animate = () => {
       if (!initializedRef.current) return;
@@ -399,11 +409,7 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
       fishesRef.current.forEach((fish, i) => {
         const el = domRefs.current[i];
         if (el) {
-          el.style.left = `${fish.x}px`;
-          el.style.top = `${fish.y}px`;
-          el.style.width = `${fish.size}px`;
-          el.style.height = `${fish.size * 0.5}px`;
-          el.style.transform = `scaleX(${fish.facingRight ? 1 : -1})`;
+          positionFish(el, fish);
           const tailSpeed = 0.8 + Math.abs(fish.vx) * 3;
           (el.style as CSSStyleDeclaration & Record<string, string>)['--tail-speed'] = `${tailSpeed}s`;
         }
@@ -411,7 +417,30 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
       animationRef.current = requestAnimationFrame(animate);
     };
 
-    animationRef.current = requestAnimationFrame(animate);
+    // A11y (ORPHAN-MEDIUM-136): honor prefers-reduced-motion. When reduced motion
+    // is requested we paint each fish ONCE (a calm static aquarium) and never start
+    // the rAF loop. A change-listener re-evaluates the preference live.
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const paintStatic = (): void => {
+      fishesRef.current.forEach((fish, i) => {
+        const el = domRefs.current[i];
+        if (el) positionFish(el, fish);
+      });
+    };
+    const applyMotionPreference = (): void => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = undefined;
+      }
+      if (motionQuery.matches) {
+        paintStatic();
+      } else {
+        animationRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    applyMotionPreference();
+    motionQuery.addEventListener('change', applyMotionPreference);
 
     return () => {
       initializedRef.current = false;
@@ -419,6 +448,7 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
         cancelAnimationFrame(animationRef.current);
       }
       observer.disconnect();
+      motionQuery.removeEventListener('change', applyMotionPreference);
     };
   }, [fishCount]);
 

@@ -551,7 +551,10 @@ describe('AuthenticationService', () => {
       // delegation; the eviction behaviour itself is asserted in
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
-      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent');
+      // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent', {
+        rememberMe: false,
+      });
     });
 
     it('records audit log entry on successful login', async () => {

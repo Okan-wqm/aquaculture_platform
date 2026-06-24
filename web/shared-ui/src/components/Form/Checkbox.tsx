@@ -20,6 +20,10 @@ export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement
   size?: 'sm' | 'md' | 'lg';
   /** Belirsiz durumu */
   indeterminate?: boolean;
+  /**
+   * Yüzey varyantı. 'glass' = buzlu auth kartı için tasarım-token'larını kullanır.
+   */
+  surface?: 'default' | 'glass';
 }
 
 // ============================================================================
@@ -69,6 +73,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
       size = 'md',
       indeterminate = false,
       disabled = false,
+      surface = 'default',
       className = '',
       id: providedId,
       ...props
@@ -77,6 +82,11 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
   ) => {
     const generatedId = useId();
     const checkboxId = providedId || generatedId;
+    const isGlass = surface === 'glass';
+    // Glass yüzeyde renk token'larını kullan (rakip utility olmaması için değiştir).
+    const checkboxSurfaceStyle = isGlass
+      ? 'text-[var(--surface-btn-bg)] border-[var(--surface-field-border)] focus:ring-[var(--surface-field-focus-ring)]'
+      : 'text-blue-600 border-gray-300 focus:ring-blue-500';
 
     // Indeterminate durumu için ref callback
     const checkboxRef = React.useCallback(
@@ -106,9 +116,9 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
             aria-describedby={description ? `${checkboxId}-description` : undefined}
             className={`
               ${checkboxSizeStyles[size]}
-              text-blue-600
-              border-gray-300 rounded
-              focus:ring-blue-500 focus:ring-2 focus:ring-offset-0
+              ${checkboxSurfaceStyle}
+              rounded
+              focus:ring-2 focus:ring-offset-0
               disabled:opacity-50 disabled:cursor-not-allowed
               ${error ? 'border-red-500' : ''}
             `}
@@ -121,7 +131,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               <label
                 htmlFor={checkboxId}
                 className={`
-                  font-medium text-gray-700
+                  font-medium ${isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700'}
                   ${labelSizeStyles[size]}
                   ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}

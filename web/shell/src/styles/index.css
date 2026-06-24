@@ -439,38 +439,11 @@ html[data-theme='dark'] input:disabled {
   animation: kelpSway 3s ease-in-out infinite;
 }
 
-/* Auth form — frosted-glass input styles */
-.backdrop-blur-md input[type="text"],
-.backdrop-blur-md input[type="email"],
-.backdrop-blur-md input[type="password"] {
-  background: rgba(255, 255, 255, 0.5) !important;
-  border-color: rgba(37, 99, 235, 0.3) !important;
-  color: #1d4ed8 !important;
-}
-
-.backdrop-blur-md input::placeholder {
-  color: rgba(37, 99, 235, 0.5) !important;
-}
-
-.backdrop-blur-md input:focus {
-  background: rgba(255, 255, 255, 0.7) !important;
-  border-color: rgba(37, 99, 235, 0.5) !important;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
-}
-
-.backdrop-blur-md label {
-  color: #1d4ed8 !important;
-}
-
-.backdrop-blur-md button[type="submit"] {
-  background: #2563eb !important;
-  border: 1px solid #1d4ed8 !important;
-  color: white !important;
-}
-
-.backdrop-blur-md button[type="submit"]:hover {
-  background: #1d4ed8 !important;
-}
+/* Auth-card field/label/button colors now come from the design-system glass
+   surface (`.surface-glass` in @aquaculture/shared-ui theme.css) consumed via the
+   `surface="glass"` component variant — the old global `.backdrop-blur-md input{…
+   !important}` hack was removed (ORPHAN-MEDIUM-134): it leaked to every blur
+   container and fought the shared-ui components. */
 
 /* Wave gradient overlay */
 .wave-overlay {
@@ -495,6 +468,25 @@ html[data-theme='dark'] input:disabled {
   66% {
     opacity: 0.9;
     transform: scale(0.98) translateY(2px);
+  }
+}
+
+/* ============================================================================
+   Reduced motion (ORPHAN-MEDIUM-136) — SSoT opt-out for the login ambience.
+   Neutralizes the decorative CSS animations (fish tail, kelp/seaweed sway, wave
+   gradient, fade-in) for users who request reduced motion. The imperative fish
+   swim loop is handled separately by FishBackground's matchMedia guard.
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .swimming-fish .fish-tail,
+  .kelp-strand,
+  .seaweed-strand,
+  .wave-overlay,
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-slide-down,
+  .animate-scale-in {
+    animation: none !important;
   }
 }
 

@@ -38,6 +38,16 @@ export class RefreshToken {
   @Column({ type: 'uuid', nullable: true })
   familyId?: string | null;
 
+  /**
+   * "Remember me" persistence flag. Set at fresh login from the client's choice
+   * and carried forward on every rotation (like familyId) so a remembered
+   * session stays persistent across silent refreshes. The resolver reads it to
+   * branch the refresh-cookie maxAge; token.service extends this row's expiresAt
+   * to the remember-me TTL when true so the persistent cookie never outlives it.
+   */
+  @Column({ type: 'boolean', default: false })
+  rememberMe!: boolean;
+
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user!: User;

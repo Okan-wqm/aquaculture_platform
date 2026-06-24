@@ -509,7 +509,10 @@ export class MfaService {
    *
    * Called from AuthenticationService.login() after successful password validation.
    */
-  generateMfaChallenge(user: User): { mfaRequired: true; mfaToken: string } {
+  generateMfaChallenge(
+    user: User,
+    rememberMe: boolean,
+  ): { mfaRequired: true; mfaToken: string } {
     // Generate a short-lived JWT specifically for MFA verification.
     //
     // SEC-LOW-001(a) — WHY `type: 'mfa_challenge'`: the canonical JwtPayload
@@ -528,6 +531,10 @@ export class MfaService {
       purpose: 'mfa_verification',
       userId: user.id,
       jti: crypto.randomUUID(),
+      // ORPHAN-LOW-135: carry the rememberMe choice in the SIGNED challenge token
+      // so it survives the challenge → verify round-trip and is tamper-proof (the
+      // client only chooses rememberMe once, at the password step).
+      rememberMe,
     };
 
     const mfaToken = this.jwtService.sign(mfaPayload, {
@@ -556,7 +563,14 @@ export class MfaService {
       throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
     }
     // Validate the MFA token
-    let mfaPayload: { sub: string; userId: string; purpose: string; jti: string; type?: string };
+    let mfaPayload: {
+      sub: string;
+      userId: string;
+      purpose: string;
+      jti: string;
+      type?: string;
+      rememberMe?: boolean;
+    };
     try {
       mfaPayload = this.jwtService.verify(mfaToken);
     } catch {
@@ -637,8 +651,12 @@ export class MfaService {
 
     await this.logMfaEvent('MFA_VERIFY_SUCCESS', user, true);
 
-    // IP-2: MFA login verification → set mfaVerified claim in JWT
-    return this.tokenService.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
+    // IP-2: MFA login verification → set mfaVerified claim in JWT.
+    // ORPHAN-LOW-135: restore the rememberMe choice carried in the signed mfaToken.
+    return this.tokenService.generateTokens(user, ipAddress, userAgent, {
+      mfaVerified: true,
+      rememberMe: mfaPayload.rememberMe ?? false,
+    });
   }
 
   // ==========================================================================

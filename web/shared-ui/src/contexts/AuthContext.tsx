@@ -102,6 +102,13 @@ type AuthAction =
 interface LoginPayload {
   email: string;
   password: string;
+  /**
+   * "Remember me" / stay logged in. When true the server issues a persistent
+   * refresh cookie (vs a session cookie). The choice is made ONCE here, at the
+   * password step — the MFA-verify step does NOT re-send it (the server carries
+   * it through the signed mfaToken). Defaults false.
+   */
+  rememberMe?: boolean;
 }
 
 /**
@@ -434,6 +441,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         input: {
           email: payload.email,
           password: payload.password,
+          rememberMe: payload.rememberMe ?? false,
         },
       });
 

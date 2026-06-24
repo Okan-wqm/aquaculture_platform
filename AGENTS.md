@@ -5,6 +5,15 @@ this repository. **Claude Code reads `CLAUDE.md`, not this file — `CLAUDE.md` 
 source of truth for all engineering rules, architecture, and conventions.** This file is the
 tool-agnostic setup/run reference; read `CLAUDE.md` before making any change.
 
+## Mandatory agent bootstrap
+- Before any code, config, test, documentation, or commit change, read the root `CLAUDE.md`.
+- Treat `CLAUDE.md` as the single source of truth for Codex, WARP, and every other
+  AGENTS.md-aware coding agent. If this file conflicts with `CLAUDE.md`, follow `CLAUDE.md`.
+- When editing under a directory that has its own nested `CLAUDE.md`, read that file too. Nested
+  guidance adds to the root rules and does not override them.
+- Apply the same engineering rules from `CLAUDE.md`: root-cause-only fixes, entity `schema:`
+  discipline, NATS cert-only identity, test/lint expectations, commit format, and push policy.
+
 ## Quick context
 - Nx monorepo (Node ≥20.11, npm ≥10): NestJS microservices in `apps/`, React microfrontends in
   `web/`, platform libs in `platform/libs/`, shared libs in `libs/`, a Rust edge gateway in

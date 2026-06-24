@@ -30,6 +30,11 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   fullWidth?: boolean;
   /** Zorunlu alan göstergesi */
   required?: boolean;
+  /**
+   * Yüzey varyantı. 'glass' = buzlu auth kartı için tasarım-token'ları
+   * (var(--surface-*)) kullanır; varsayılan davranış değişmez.
+   */
+  surface?: 'default' | 'glass';
 }
 
 // ============================================================================
@@ -88,6 +93,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       fullWidth = true,
       required = false,
       disabled = false,
+      surface = 'default',
       className = '',
       id: providedId,
       ...props
@@ -99,15 +105,23 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     // Benzersiz ID oluştur (eğer sağlanmadıysa)
     const generatedId = useId();
     const inputId = providedId || generatedId;
+    const isGlass = surface === 'glass';
 
-    // Input durumuna göre stil sınıfları
+    // Input durumuna göre stil sınıfları.
+    // WHY replace (not append) the glass classes: error state always wins; otherwise
+    // the glass tokens REPLACE the default border/ring so there is no competing
+    // `border-gray-300`/`bg-white` utility (which would make the cascade ambiguous).
     const inputStateStyles = error
       ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500';
+      : isGlass
+        ? 'border-[var(--surface-field-border)] focus:ring-[var(--surface-field-focus-ring)] focus:border-[var(--surface-field-focus-border)]'
+        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500';
 
     const disabledStyles = disabled
       ? 'bg-gray-100 cursor-not-allowed text-gray-500'
-      : 'bg-white';
+      : isGlass
+        ? 'bg-[var(--surface-field-bg)] text-[var(--surface-field-fg)] placeholder:text-[var(--surface-field-placeholder)]'
+        : 'bg-white';
 
     // Sol ikon için padding
     const leftPadding = leftIcon ? 'pl-10' : '';
@@ -120,7 +134,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className={`block text-sm font-medium mb-1 ${
+              isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700'
+            }`}
           >
             {label}
             {required && <span className="text-red-500 ml-1">*</span>}

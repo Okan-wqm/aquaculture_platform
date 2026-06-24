@@ -347,7 +347,9 @@ export class AuthenticationService {
         // (it will be set after MFA verification succeeds)
         await this.userRepository.save(user);
 
-        const mfaChallenge = this.mfaService.generateMfaChallenge(user);
+        // Carry the rememberMe choice into the signed mfaToken so it survives the
+        // challenge → verify round-trip (the client does not re-send it).
+        const mfaChallenge = this.mfaService.generateMfaChallenge(user, input.rememberMe ?? false);
 
         await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
           userId: user.id,
@@ -470,13 +472,18 @@ export class AuthenticationService {
           userId: user.id,
         };
         return await requestContextStorage.run(scopedContext, () =>
-          this.tokenService.generateTokens(user, ipAddress, userAgent),
+          this.tokenService.generateTokens(user, ipAddress, userAgent, {
+            rememberMe: input.rememberMe ?? false,
+          }),
         );
       }
       // SUPER_ADMIN: audited bypass for platform-level session creation.
       return await this.bypassRls.withBypass(
         'auth-service:super-admin-login-tokens',
-        () => this.tokenService.generateTokens(user, ipAddress, userAgent),
+        () =>
+          this.tokenService.generateTokens(user, ipAddress, userAgent, {
+            rememberMe: input.rememberMe ?? false,
+          }),
       );
     } catch (error) {
       await this.ensureMinDuration(startTime);
@@ -728,10 +735,13 @@ export class AuthenticationService {
       refreshToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(refreshToken);
 
+      // Preserve the rememberMe choice across rotation so a remembered session
+      // stays persistent (the resolver re-issues a persistent vs session cookie).
       return this.tokenService.generateTokens(
         user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
+        { rememberMe: refreshToken.rememberMe },
       );
     });
   }
@@ -845,7 +855,7 @@ export class AuthenticationService {
         user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
-        { familyId: matchedToken.familyId ?? undefined },
+        { familyId: matchedToken.familyId ?? undefined, rememberMe: matchedToken.rememberMe },
       );
     });
   }

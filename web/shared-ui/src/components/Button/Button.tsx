@@ -28,6 +28,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   rightIcon?: React.ReactNode;
   /** Sadece ikon modu */
   iconOnly?: boolean;
+  /**
+   * Yüzey varyantı. 'glass' = buzlu auth kartı için tasarım-token'larını
+   * (var(--surface-btn-*)) kullanır ve `variant` rengini bu yüzeyde geçersiz kılar.
+   */
+  surface?: 'default' | 'glass';
 }
 
 // ============================================================================
@@ -101,6 +106,18 @@ const sizeStyles: Record<Size, string> = {
   lg: 'px-5 py-2.5 text-base min-h-[48px]',
   xl: 'px-6 py-3 text-lg min-h-[56px]',
 };
+
+/**
+ * Glass yüzey stili — buzlu auth kartında `variant` rengini geçersiz kılar.
+ * Token'lar var(--surface-btn-*) (primary-600/700) → kart üzerinde AA kontrast.
+ */
+const glassSurfaceStyle = `
+  bg-[var(--surface-btn-bg)] text-[var(--surface-btn-fg)]
+  border border-[var(--surface-btn-border)]
+  hover:bg-[var(--surface-btn-bg-hover)]
+  focus:ring-[var(--surface-btn-bg)]
+  disabled:opacity-60
+`;
 
 /**
  * Sadece ikon modu için boyut sınıfları
@@ -186,6 +203,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       leftIcon,
       rightIcon,
       iconOnly = false,
+      surface = 'default',
       disabled,
       className = '',
       children,
@@ -214,9 +232,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     const sizeClass = iconOnly ? iconOnlySizeStyles[size] : sizeStyles[size];
     const widthClass = fullWidth ? 'w-full' : '';
 
+    // Glass yüzeyde variant rengini geçersiz kıl (rakip bg-* utility'si olmaması için
+    // değiştir, ekleme).
+    const variantClass = surface === 'glass' ? glassSurfaceStyle : variantStyles[variant];
+
     const combinedClassName = `
       ${baseStyles}
-      ${variantStyles[variant]}
+      ${variantClass}
       ${sizeClass}
       ${widthClass}
       ${className}

@@ -641,6 +641,43 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect('mfaVerified' in capturedPayload()).toBe(false);
     });
   });
+
+  // ORPHAN-LOW-135: the refresh-token row records the rememberMe choice and
+  // extends its own expiresAt to the remember-me TTL so a persistent cookie
+  // never outlives the row it points at.
+  describe('rememberMe persistence (ORPHAN-LOW-135)', () => {
+    const daysFromNow = (d: Date): number => (d.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+
+    it('persists rememberMe=true, extends expiresAt to the remember-me TTL, and returns it', async () => {
+      service = await createService({
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+        rememberMe: true,
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { rememberMe: boolean; expiresAt: Date };
+      expect(savedRow.rememberMe).toBe(true);
+      expect(daysFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
+      expect(daysFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(30);
+      expect(result.rememberMe).toBe(true);
+    });
+
+    it('defaults rememberMe=false and uses the default TTL when not remembered', async () => {
+      service = await createService({
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      const result = await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { rememberMe: boolean; expiresAt: Date };
+      expect(savedRow.rememberMe).toBe(false);
+      expect(daysFromNow(savedRow.expiresAt)).toBeGreaterThan(6);
+      expect(daysFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(7);
+      expect(result.rememberMe).toBe(false);
+    });
+  });
 });
 
 describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051/052)', () => {

@@ -4739,6 +4739,40 @@ Status: OPEN (2026-06-23; owner: edge/supply-chain Rust). Registry: orphan-findi
 
 ---
 
+## ORPHAN-HIGH-143 - `availableTanks` GraphQL query declared by two resolvers → non-deterministic schema → intermittent `Unknown argument "siteId"` 400
+
+Severity: HIGH. Discovered 2026-06-24 from a live browser error reported by the operator: `[useAvailableTanks] GraphQLClientError: Unknown argument "siteId" on field "Query.availableTanks"` (HTTP 400), with the symptom "data sometimes loads, sometimes doesn't".
+
+**Problem:** Two farm-service resolvers registered the same root field name `availableTanks`:
+- `apps/farm-service/src/batch/resolvers/batch.resolver.ts:192` `listAvailableTanks(siteId, departmentId, excludeFullTanks) → [AvailableTankResponse!]!` — the complete contract the frontend (`web/modules/farm-module/src/hooks/useBatches.ts` `useAvailableTanks` / `AVAILABLE_TANKS_QUERY`) targets, including the capacity/site fields it selects.
+- `apps/farm-service/src/tank/resolvers/tank.resolver.ts:226` `getAvailableTanks(departmentId) → [Tank!]!` — a stale, incomplete duplicate routing to `ListTanksQuery`, with NO `siteId`/`excludeFullTanks`.
+
+NestJS code-first builds the schema by collecting resolver metadata; when a root field name is declared twice, only one definition survives and which one wins depends on module/resolver load order — non-deterministic across rebuilds/restarts. When the stripped-down `tank.resolver` definition won, the runtime schema lost the `siteId` argument, so the gateway rejected the FE document with a 400. The committed `apps/farm-service/schema.graphql` snapshot happened to capture the batch-resolver version, so the FE↔BE parity invariant passed — it folds the backend surface into a `Set<string>`, silently deduping the two declarations and never seeing the conflict.
+
+**Fix:** Removed the duplicate `getAvailableTanks` from `tank.resolver.ts` — `availableTanks` now has exactly one owner (`batch.resolver.listAvailableTanks`), the capacity-rich contract the FE expects (all 15 selected fields match `AvailableTankResponse`; same RBAC roles). Strengthened SSoT enforcement so the wrong state fails CI instead of the user's browser: extracted the resolver-surface scan into a shared SSoT helper (`tests/invariants/helpers/farm-graphql-surface.ts`) consumed by both the parity gate (refactored off its private copy of the extractor) and a new `tests/invariants/farm-graphql-resolver-field-uniqueness.spec.ts` that asserts every root operation (Query/Mutation/Subscription) is declared by exactly one resolver. Verified 0 remaining duplicates across 411 root fields.
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-HIGH-143`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-144 - invariant specs are not strict-type-checked; ts-jest `isolatedModules` hides latent strict-null errors
+
+Severity: MEDIUM. Discovered 2026-06-24 while type-checking `tests/invariants` during the ORPHAN-HIGH-143 fix (`tsc --noEmit -p tests/invariants/tsconfig.spec.json`).
+
+**Problem:** The invariant Jest config (`tests/invariants/jest.config.ts`) runs ts-jest with `isolatedModules` (syntactic transpile only, no full type-check, for the <15s `invariants:fast` SLO). A standalone `tsc --noEmit -p tests/invariants/tsconfig.spec.json` (which IS `strict: true`) is currently RED with strict-null violations in pre-existing specs that the Jest run never surfaces:
+- `no-boot-time-tenant-schema-ddl.spec.ts:122` (TS2532)
+- `pii-events-mandatory-crypto-shred.spec.ts:125,140,154,164` (TS2322)
+- `rls-predicate-canonical.spec.ts:178,182,186,188` (TS18048/TS2345)
+- `shared-schema-canonical.spec.ts:90,103,107` (TS2532/TS2345)
+
+These are latent — the specs still assert correctly at runtime — but the gap means a real type regression in an invariant spec would not be caught by the invariant suite itself. NOT introduced by ORPHAN-HIGH-143 (those files are untouched here); the new helper + specs added by that fix type-check clean.
+
+**Fix direction:** Either (a) wire a `tsc --noEmit -p tests/invariants/tsconfig.spec.json` step into CI alongside the Jest run, then fix the strict-null sites above (narrow with guards, not `!`/`as`), or (b) accept ts-jest's transpile-only mode and explicitly document that platform-wide `npm run type-check` is the type authority for these files — and confirm it actually includes `tests/invariants` (verify scope). Option (a) is the stronger SSoT (the suite that owns the invariants also owns their type safety).
+
+Status: OPEN (2026-06-24; owner: invariants/build). Registry: orphan-findings.md only.
+
+---
+
 ## ORPHAN-HIGH-145 - admin-api throttler treats every authenticated SUPER_ADMIN as anonymous (20/60s, IP-keyed) → operator 429 storm
 
 Severity: HIGH. Discovered 2026-06-24 from a live operator report: the admin panel (RoleManagementPage, UserManagementPage) failed with HTTP 429 "Too many requests" while ONLY ONE operator was connected — `/api/users/roles/*`, `/api/users/stats`, `/api/users`, `/api/admin/tenants` all 429.

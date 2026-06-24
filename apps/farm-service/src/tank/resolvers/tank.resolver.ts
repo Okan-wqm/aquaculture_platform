@@ -21,7 +21,11 @@ import { Repository } from 'typeorm';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  StandardPaginatedResponse,
+  fromCqrsPaginated,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Tank } from '../entities/tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -200,7 +204,9 @@ export class TankResolver {
     filter?: TankFilterInput,
   ): Promise<IStandardPaginatedResult<Tank>> {
     this.logger.debug(`Listing tanks for tenant: ${tenantId}`);
-    const result = await this.queryBus.execute<any, PaginatedQueryResult<Tank>>(new ListTanksQuery(tenantId, filter));
+    const result = await this.queryBus.execute<any, PaginatedQueryResult<Tank>>(
+      new ListTanksQuery(tenantId, filter),
+    );
     return fromCqrsPaginated(result);
   }
 
@@ -219,25 +225,13 @@ export class TankResolver {
     return fromCqrsPaginated(result).items;
   }
 
-  /**
-   * Get tanks with available capacity
-   */
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => [Tank], { name: 'availableTanks' })
-  async getAvailableTanks(
-    @CurrentTenant() tenantId: string,
-    @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
-  ): Promise<Tank[]> {
-    const result: PaginatedQueryResult<Tank> = await this.queryBus.execute(
-      new ListTanksQuery(tenantId, {
-        departmentId,
-        hasAvailableCapacity: true,
-        isActive: true,
-        limit: 100,
-      }),
-    );
-    return fromCqrsPaginated(result).items;
-  }
+  // NOTE: The `availableTanks` query is intentionally NOT defined here.
+  // Its single source of truth is BatchResolver.listAvailableTanks
+  // (apps/farm-service/src/batch/resolvers/batch.resolver.ts), which returns the
+  // capacity-rich AvailableTankResponse and supports siteId/departmentId/excludeFullTanks.
+  // A second `@Query(name: 'availableTanks')` here caused non-deterministic schema
+  // builds (last-registered-wins) → intermittent "Unknown argument siteId" 400s.
+  // Enforced by tests/invariants/farm-graphql-resolver-field-uniqueness.spec.ts.
 
   // -------------------------------------------------------------------------
   // MUTATIONS
@@ -254,9 +248,7 @@ export class TankResolver {
     @CurrentUser('sub') userId: string,
   ): Promise<Tank> {
     this.logger.log(`Creating tank: ${input.name}`);
-    return this.commandBus.execute(
-      new CreateTankCommand(tenantId, userId, input),
-    );
+    return this.commandBus.execute(new CreateTankCommand(tenantId, userId, input));
   }
 
   /**
@@ -270,9 +262,7 @@ export class TankResolver {
     @CurrentUser('sub') userId: string,
   ): Promise<Tank> {
     this.logger.log(`Updating tank: ${input.id}`);
-    return this.commandBus.execute(
-      new UpdateTankCommand(tenantId, userId, input),
-    );
+    return this.commandBus.execute(new UpdateTankCommand(tenantId, userId, input));
   }
 
   /**
@@ -286,9 +276,7 @@ export class TankResolver {
     @CurrentUser('sub') userId: string,
   ): Promise<Tank> {
     this.logger.log(`Updating tank status: ${input.id} to ${input.status}`);
-    return this.commandBus.execute(
-      new UpdateTankStatusCommand(tenantId, userId, input),
-    );
+    return this.commandBus.execute(new UpdateTankStatusCommand(tenantId, userId, input));
   }
 
   /**
@@ -404,9 +392,7 @@ export class TankResolver {
       id: department.id,
       name: department.name,
       siteId: department.siteId,
-      site: department.site
-        ? { id: department.site.id, name: department.site.name }
-        : undefined,
+      site: department.site ? { id: department.site.id, name: department.site.name } : undefined,
     };
   }
 }

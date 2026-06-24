@@ -742,4 +742,22 @@ describe('AuthenticationService', () => {
       await expect(service.switchTenant(SUPER_ADMIN_ID, TARGET)).rejects.toThrow(ForbiddenException);
     });
   });
+
+  describe('me (effective tenant — ORPHAN-HIGH-159)', () => {
+    it('reports the TOKEN effective tenant (act-as), not the SUPER_ADMIN null DB tenant', async () => {
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
+      );
+      const result = await service.me('admin', 'tenant-uuid-123');
+      expect(result.user.tenantId).toBe('tenant-uuid-123');
+    });
+
+    it('leaves the DB tenant for a platform SUPER_ADMIN with no act-as (null token tenant)', async () => {
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
+      );
+      const result = await service.me('admin', null);
+      expect(result.user.tenantId).toBeNull();
+    });
+  });
 });

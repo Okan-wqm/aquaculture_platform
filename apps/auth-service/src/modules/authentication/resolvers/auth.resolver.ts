@@ -284,8 +284,14 @@ export class AuthResolver {
    */
   @SkipTenantGuard()
   @Query(() => MePayload)
-  async me(@CurrentUser('sub') userId: string): Promise<MePayload> {
-    return this.authService.me(userId);
+  async me(
+    @CurrentUser('sub') userId: string,
+    // ORPHAN-HIGH-159: the token's tenant is the EFFECTIVE tenant (the
+    // switchTenant act-as target for a SUPER_ADMIN, else the user's own). `me`
+    // must report it so the frontend scopes to the acted-as tenant.
+    @CurrentUser('tenantId') effectiveTenantId: string | null,
+  ): Promise<MePayload> {
+    return this.authService.me(userId, effectiveTenantId);
   }
 
   /**

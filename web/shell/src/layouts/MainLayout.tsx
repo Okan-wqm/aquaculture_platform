@@ -21,6 +21,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
 import ConsentBanner from '../components/ConsentBanner';
+import { TenantSwitcher } from '../components/TenantSwitcher';
 
 import { NotificationPanel } from '@/components/NotificationPanel';
 
@@ -535,7 +536,15 @@ const MainLayout: React.FC = () => {
           }}
           theme={theme}
           leftContent={leftContent}
-          rightContent={notificationPanelElement}
+          rightContent={
+            <>
+              {/* SUPER_ADMIN tenant switcher (ORPHAN-HIGH-159) — renders only for
+                  SUPER_ADMIN; lets the platform admin act-as a tenant so every
+                  tenant-scoped panel resolves a deterministic tenant. */}
+              {userRole === 'SUPER_ADMIN' && <TenantSwitcher />}
+              {notificationPanelElement}
+            </>
+          }
         />
 
         {/* Page Content */}

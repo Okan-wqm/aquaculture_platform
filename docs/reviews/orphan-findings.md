@@ -4821,8 +4821,10 @@ Severity: MEDIUM. Discovered 2026-06-24 in the same operator console log as ORPH
 
 **Problem:** the compliance reports list endpoint rejects the FE's `?limit=50` request with 400 — likely a DTO/validation mismatch (ValidationPipe `whitelist`+`forbidNonWhitelisted` rejecting `limit`, a type-coercion gap on the numeric query param, or a required param the FE omits). Not yet root-caused. Unrelated to the rate-limit identity bug; it would persist after ORPHAN-HIGH-145 is fixed.
 
-**Fix direction:** reproduce against the security/compliance reports controller, confirm the query DTO declares + transforms `limit` (and any other FE-sent params), align the FE call with the BE contract, and add a controller/e2e test pinning the accepted query shape.
+**Root cause (confirmed):** `QueryReportsDto` (compliance.controller.ts) declared `@IsNumber()` on `page`/`limit` WITHOUT `@Type(() => Number)`. Query params arrive as strings, so under the global ValidationPipe `@IsNumber` ran against `"50"` and 400'd every request that sent `page`/`limit` — the endpoint never worked with `?limit=50`. The sibling `QueryDataRequestsDto` in the same file carried the IDENTICAL defect (so `/data-requests?limit=` 400'd too); the audit-trail / security-monitoring controllers already use `@Type(() => Number)`, so these two DTOs were the outliers.
 
-Status: OPEN (2026-06-24; owner: admin-api / compliance). Registry: orphan-findings.md only.
+**Fix:** added `@Type(() => Number)` to `page` + `limit` on BOTH `QueryReportsDto` and `QueryDataRequestsDto` (class-transformer coercion before validation), matching the sibling-controller pattern. Exported `QueryReportsDto` and added `__tests__/compliance-query-reports.dto.spec.ts` pinning the coercion (`?page=2&limit=50` → numbers, validates clean; non-numeric still rejected; absent stays optional).
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-MEDIUM-148`). Registry: orphan-findings.md only.
 
 ---

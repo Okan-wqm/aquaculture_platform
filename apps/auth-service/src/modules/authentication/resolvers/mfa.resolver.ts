@@ -19,6 +19,10 @@ import {
 } from '../dto/mfa.dto';
 import { User } from '../entities/user.entity';
 import { MfaService } from '../services/mfa.service';
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  buildRefreshTokenCookieOptions,
+} from '../utils/refresh-token-cookie';
 
 interface GqlContext {
   req: Request;
@@ -29,30 +33,33 @@ interface GqlContext {
 export class MfaResolver {
   private readonly logger = new Logger(MfaResolver.name);
   private readonly isProduction: boolean;
-  private readonly refreshTokenExpiryDays: number;
+  private readonly rememberMeRefreshTokenExpiryDays: number;
 
   constructor(
     private readonly mfaService: MfaService,
     private readonly configService: ConfigService,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
-    this.refreshTokenExpiryDays = this.configService.get<number>(
-      'REFRESH_TOKEN_EXPIRY_DAYS',
-      SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
+    this.rememberMeRefreshTokenExpiryDays = this.configService.get<number>(
+      'REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS',
+      SECURITY_CONSTANTS.DEFAULT_REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS,
     );
   }
 
   /**
-   * Set refresh token as httpOnly cookie (same logic as AuthResolver)
+   * Set refresh token as httpOnly cookie via the shared cookie SSoT
+   * (same persistence contract as AuthResolver). See refresh-token-cookie.ts.
    */
-  private setRefreshTokenCookie(res: Response, token: string): void {
-    res.cookie('refresh_token', token, {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
-    });
+  private setRefreshTokenCookie(res: Response, token: string, rememberMe: boolean): void {
+    res.cookie(
+      REFRESH_TOKEN_COOKIE_NAME,
+      token,
+      buildRefreshTokenCookieOptions({
+        isProduction: this.isProduction,
+        rememberMe,
+        rememberMeExpiryDays: this.rememberMeRefreshTokenExpiryDays,
+      }),
+    );
   }
 
   /**
@@ -148,7 +155,9 @@ export class MfaResolver {
       userAgent,
     );
 
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    // Step-up elevates an already-authenticated session; it is not a "remember
+    // me" login → session cookie.
+    this.setRefreshTokenCookie(context.res, result.refreshToken, false);
     return this.stripRefreshToken(result);
   }
 
@@ -190,8 +199,9 @@ export class MfaResolver {
       userAgent,
     );
 
-    // Set refresh token as httpOnly cookie
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    // Set refresh token as httpOnly cookie, honoring the rememberMe choice the
+    // user made at the password step (carried through the signed mfaToken).
+    this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
     return this.stripRefreshToken(result);
   }
 }

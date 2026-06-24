@@ -340,7 +340,7 @@ describe('MfaService', () => {
     it('should return mfaRequired=true and a signed mfaToken', () => {
       const user = createMockUser({ mfaEnabled: true });
 
-      const result = service.generateMfaChallenge(user);
+      const result = service.generateMfaChallenge(user, false);
 
       expect(result.mfaRequired).toBe(true);
       expect(result.mfaToken).toBe('mock-mfa-token');
@@ -349,6 +349,8 @@ describe('MfaService', () => {
           sub: 'mfa:user-uuid-123',
           purpose: 'mfa_verification',
           userId: 'user-uuid-123',
+          // ORPHAN-LOW-135: the rememberMe choice is embedded in the signed challenge.
+          rememberMe: false,
         }),
         { expiresIn: 300 },
       );
@@ -357,7 +359,7 @@ describe('MfaService', () => {
     it('SEC-LOW-001(a): mints the canonical type:mfa_challenge discriminator', () => {
       const user = createMockUser({ mfaEnabled: true });
 
-      service.generateMfaChallenge(user);
+      service.generateMfaChallenge(user, false);
 
       // The `type` claim is the load-bearing discriminator that keeps the MFA
       // token from being replayed as a bearer token (enforceAccessTokenType
@@ -436,9 +438,12 @@ describe('MfaService', () => {
       // feed it back through verify so verifyMfaLogin sees the real shape and
       // proceeds to verification (here a valid TOTP code yields full tokens).
       const mintUser = createMockUser({ mfaEnabled: true });
-      service.generateMfaChallenge(mintUser);
+      // ORPHAN-LOW-135: mint with rememberMe=true so the round-trip proves the
+      // choice survives challenge → verify and reaches generateTokens.
+      service.generateMfaChallenge(mintUser, true);
       const mintedPayload = mockJwtService.sign.mock.calls[0]![0];
       expect(mintedPayload.type).toBe('mfa_challenge');
+      expect(mintedPayload.rememberMe).toBe(true);
 
       mockJwtService.verify.mockReturnValue(mintedPayload);
 
@@ -450,6 +455,13 @@ describe('MfaService', () => {
       const result = await service.verifyMfaLogin('round-trip-token', validCode, '127.0.0.1');
 
       expect(result.accessToken).toBe('full-access-token');
+      // the rememberMe carried in the signed token reaches token issuance
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        expect.anything(),
+        '127.0.0.1',
+        undefined,
+        expect.objectContaining({ mfaVerified: true, rememberMe: true }),
+      );
     });
 
     it('should lock out after max failed attempts', async () => {
@@ -526,7 +538,8 @@ describe('MfaService', () => {
         expect.objectContaining({ id: 'user-uuid-123' }),
         '127.0.0.1',
         undefined,
-        { mfaVerified: true },
+        // ORPHAN-LOW-135: this challenge token carries no rememberMe claim → defaults false.
+        { mfaVerified: true, rememberMe: false },
       );
 
       // Failed attempts should be reset

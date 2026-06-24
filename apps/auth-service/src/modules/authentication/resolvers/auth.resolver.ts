@@ -19,6 +19,11 @@ import { RefreshTokenInput } from '../dto/refresh-token.dto';
 import { ForgotPasswordInput, ResetPasswordInput } from '../dto/reset-password.dto';
 import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  buildRefreshTokenCookieOptions,
+  buildClearRefreshTokenCookieOptions,
+} from '../utils/refresh-token-cookie';
 
 /**
  * GraphQL context with req/res for cookie operations
@@ -32,43 +37,41 @@ interface GqlContext {
 export class AuthResolver {
   private readonly logger = new Logger(AuthResolver.name);
   private readonly isProduction: boolean;
-  private readonly refreshTokenExpiryDays: number;
+  private readonly rememberMeRefreshTokenExpiryDays: number;
 
   constructor(
     private readonly authService: AuthenticationService,
     private readonly configService: ConfigService,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
-    this.refreshTokenExpiryDays = this.configService.get<number>(
-      'REFRESH_TOKEN_EXPIRY_DAYS',
-      SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
+    this.rememberMeRefreshTokenExpiryDays = this.configService.get<number>(
+      'REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS',
+      SECURITY_CONSTANTS.DEFAULT_REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS,
     );
   }
 
   /**
-   * SECURITY: Set refresh token as httpOnly cookie.
-   * - httpOnly: prevents JavaScript access (XSS protection)
-   * - secure: cookie only sent over HTTPS in production
-   * - sameSite=lax: CSRF protection while allowing OAuth redirects
-   * - path=/: sent on all routes so gateway can forward it
+   * SECURITY: Set refresh token as httpOnly cookie. Persistence is the ONLY
+   * variable (rememberMe → persistent maxAge; else session cookie); every other
+   * attribute is fixed by the shared cookie SSoT. See refresh-token-cookie.ts.
    */
-  private setRefreshTokenCookie(res: Response, token: string): void {
-    res.cookie('refresh_token', token, {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
-    });
+  private setRefreshTokenCookie(res: Response, token: string, rememberMe: boolean): void {
+    res.cookie(
+      REFRESH_TOKEN_COOKIE_NAME,
+      token,
+      buildRefreshTokenCookieOptions({
+        isProduction: this.isProduction,
+        rememberMe,
+        rememberMeExpiryDays: this.rememberMeRefreshTokenExpiryDays,
+      }),
+    );
   }
 
   private clearRefreshTokenCookie(res: Response): void {
-    res.clearCookie('refresh_token', {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'lax',
-      path: '/',
-    });
+    res.clearCookie(
+      REFRESH_TOKEN_COOKIE_NAME,
+      buildClearRefreshTokenCookieOptions(this.isProduction),
+    );
   }
 
   /**
@@ -112,7 +115,7 @@ export class AuthResolver {
     const ipAddress = request.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
     const userAgent = request.headers['user-agent'];
     const result = await this.authService.login(input, ipAddress, userAgent);
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
     return this.stripRefreshToken(result);
   }
 
@@ -135,8 +138,8 @@ export class AuthResolver {
       throw new UnauthorizedException('No refresh token provided');
     }
     const result = await this.authService.refreshToken(token);
-    // Rotate the refresh token cookie
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    // Rotate the refresh token cookie, preserving the session's rememberMe choice.
+    this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
     return this.stripRefreshToken(result);
   }
 
@@ -159,7 +162,8 @@ export class AuthResolver {
       input.lastName,
       ipAddress,
     );
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    // Invitation acceptance / password reset is not a "remember me" event → session cookie.
+    this.setRefreshTokenCookie(context.res, result.refreshToken, false);
     return this.stripRefreshToken(result);
   }
 
@@ -222,7 +226,8 @@ export class AuthResolver {
       ipAddress,
       userAgent,
     );
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    // Invitation acceptance / password reset is not a "remember me" event → session cookie.
+    this.setRefreshTokenCookie(context.res, result.refreshToken, false);
     return this.stripRefreshToken(result);
   }
 

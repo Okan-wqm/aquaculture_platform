@@ -55,6 +55,14 @@ export class AuthPayload {
    */
   @Field(() => String, { nullable: true })
   mfaToken?: string;
+
+  /**
+   * INTERNAL transport only — NOT a @Field, so it never enters the GraphQL SDL
+   * or client codegen. Carries the session's "remember me" choice back to the
+   * resolver so it can branch the refresh-cookie maxAge (persistent vs session).
+   * The resolver reads it and never returns it to the client.
+   */
+  rememberMe?: boolean;
 }
 
 @ObjectType()

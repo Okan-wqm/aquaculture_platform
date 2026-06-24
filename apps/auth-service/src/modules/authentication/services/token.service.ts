@@ -133,6 +133,7 @@ export function parseExpiresIn(expiresIn: string): number {
 export class TokenService {
   private readonly logger = new Logger(TokenService.name);
   private readonly refreshTokenExpiryDays: number;
+  private readonly rememberMeRefreshTokenExpiryDays: number;
   private readonly hashRefreshTokens: boolean;
   private readonly maxSessionsPerUser: number;
 
@@ -187,6 +188,10 @@ export class TokenService {
       'REFRESH_TOKEN_EXPIRY_DAYS',
       SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
     );
+    this.rememberMeRefreshTokenExpiryDays = this.configService.get<number>(
+      'REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS',
+      SECURITY_CONSTANTS.DEFAULT_REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS,
+    );
     this.hashRefreshTokens = this.configService.get<boolean>('HASH_REFRESH_TOKENS', true);
     this.maxSessionsPerUser = this.configService.get<number>(
       'MAX_SESSIONS_PER_USER',
@@ -204,7 +209,7 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
-    options?: { mfaVerified?: boolean; familyId?: string },
+    options?: { mfaVerified?: boolean; familyId?: string; rememberMe?: boolean },
   ): Promise<AuthPayload> {
     // Enforce concurrent session limit
     if (this.sessionManager) {
@@ -297,13 +302,23 @@ export class TokenService {
     // is preserved. Reuse-detection later revokes by family, not by user.
     const familyId = options?.familyId ?? crypto.randomUUID();
 
+    // SECURITY (ORPHAN-LOW-135): a remembered session persists longer. Extend the
+    // ROW's expiresAt to the remember-me TTL when remembered, so the persistent
+    // refresh cookie (set by the resolver with a matching maxAge) never outlives
+    // the row it points at. Non-remembered sessions keep the default TTL.
+    const rememberMe = options?.rememberMe ?? false;
+    const expiryDays = rememberMe
+      ? this.rememberMeRefreshTokenExpiryDays
+      : this.refreshTokenExpiryDays;
+
     // Create refresh token
     const refreshToken = this.refreshTokenRepository.create({
       token: tokenToStore,
       userId: user.id,
       tenantId: user.tenantId,
       familyId,
-      expiresAt: new Date(Date.now() + this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000),
+      rememberMe,
+      expiresAt: new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000),
       ipAddress,
       userAgent,
     });
@@ -339,6 +354,9 @@ export class TokenService {
       expiresIn: expiresInSeconds,
       tokenType: 'Bearer',
       redirectUrl,
+      // INTERNAL: surfaced back to the resolver so it can branch the cookie
+      // maxAge. Not a @Field on AuthPayload, so it never reaches the client.
+      rememberMe,
     };
   }
 

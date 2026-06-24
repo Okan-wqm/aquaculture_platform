@@ -1,0 +1,52 @@
+import type { CookieOptions } from 'express';
+
+/**
+ * Refresh-token cookie SSoT.
+ *
+ * WHAT: the single source of truth for the refresh-token cookie's name and
+ * options, shared by AuthResolver and MfaResolver (which previously duplicated
+ * this logic). The only behavioural variable is `rememberMe`:
+ *   - rememberMe true  → PERSISTENT cookie (maxAge present) → survives restarts
+ *   - rememberMe false → SESSION cookie (no maxAge/expires) → dropped on close
+ * Every other attribute (httpOnly / secure / sameSite=lax / path=/) is identical
+ * in both branches, so the security posture never changes — only persistence.
+ */
+export const REFRESH_TOKEN_COOKIE_NAME = 'refresh_token';
+
+export interface RefreshCookieParams {
+  /** secure flag — HTTPS-only cookie in production. */
+  isProduction: boolean;
+  /** the session's "remember me" choice. */
+  rememberMe: boolean;
+  /** days the persistent cookie lives when rememberMe is true. */
+  rememberMeExpiryDays: number;
+}
+
+/**
+ * Build the Set-Cookie options for the refresh token. Returns a SESSION cookie
+ * (no maxAge) unless rememberMe is true, in which case a maxAge is included.
+ */
+export function buildRefreshTokenCookieOptions(params: RefreshCookieParams): CookieOptions {
+  const base: CookieOptions = {
+    httpOnly: true,
+    secure: params.isProduction,
+    sameSite: 'lax',
+    path: '/',
+  };
+
+  if (params.rememberMe) {
+    return { ...base, maxAge: params.rememberMeExpiryDays * 24 * 60 * 60 * 1000 };
+  }
+  // Session cookie: deliberately NO maxAge/expires so the browser clears it on close.
+  return base;
+}
+
+/** Options used to clear the refresh cookie — must match the set attributes. */
+export function buildClearRefreshTokenCookieOptions(isProduction: boolean): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+  };
+}

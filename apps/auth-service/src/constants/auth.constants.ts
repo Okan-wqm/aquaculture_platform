@@ -27,8 +27,16 @@ export const SECURITY_CONSTANTS = {
   /** Default lockout duration in minutes */
   DEFAULT_LOCKOUT_DURATION_MINUTES: 30,
 
-  /** Default refresh token expiry in days */
+  /** Default refresh token expiry in days (non-remembered / session login) */
   DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS: 7,
+
+  /**
+   * Default refresh token expiry in days for a "remember me" session. When the
+   * user opts in, the refresh cookie persists this long (vs a session cookie)
+   * and the refresh-token row's expiresAt extends to match so the cookie never
+   * outlives the row. Override via REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS.
+   */
+  DEFAULT_REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30,
 
   /** Default max concurrent sessions per user */
   DEFAULT_MAX_SESSIONS_PER_USER: 5,

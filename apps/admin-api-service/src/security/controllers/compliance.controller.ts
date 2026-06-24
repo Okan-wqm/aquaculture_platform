@@ -20,6 +20,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
+import { Type } from 'class-transformer';
 import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsIn } from 'class-validator';
 import { getAuthUserId, getAuthUser } from '../../shared/authenticated-request';
 
@@ -121,10 +122,12 @@ class CompleteDataRequestDto {
 
 class QueryDataRequestsDto {
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   page?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   limit?: number;
 
@@ -173,12 +176,19 @@ class GenerateReportDto {
   // Fix: C6 -- generatedBy/generatedByName removed from client input; set from JWT
 }
 
-class QueryReportsDto {
+// WHY @Type on page/limit: query params arrive as strings ("?limit=50"); without
+// class-transformer coercion the global ValidationPipe runs @IsNumber against the
+// string and 400s every paginated request (ORPHAN-MEDIUM-148). QueryDataRequestsDto
+// above carried the identical defect and is fixed the same way. Exported so the DTO
+// coercion is unit-testable (compliance-query-reports.dto.spec.ts).
+export class QueryReportsDto {
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   page?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   limit?: number;
 

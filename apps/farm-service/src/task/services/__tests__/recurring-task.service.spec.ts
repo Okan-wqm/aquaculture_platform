@@ -20,6 +20,7 @@
  */
 import { DateTime } from 'luxon';
 import { DataSource, Repository } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 
 import { RecurringTaskService } from '../recurring-task.service';
 import {
@@ -49,7 +50,8 @@ function makeService(): PrivateAccess {
   const templateRepo = noop as Repository<RecurringTemplate>;
   const taskRepo = noop as Repository<Task>;
   const dataSource = noop as DataSource;
-  const svc = new RecurringTaskService(templateRepo, taskRepo, dataSource);
+  const outbox = noop as OutboxPublisher;
+  const svc = new RecurringTaskService(templateRepo, taskRepo, dataSource, outbox);
   return svc as unknown as PrivateAccess;
 }
 

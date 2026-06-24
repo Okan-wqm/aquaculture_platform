@@ -7,8 +7,6 @@
  */
 import {
   Injectable,
-  Inject,
-  Optional,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -17,8 +15,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { DateTime } from 'luxon';
-import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
 import { TaskService } from './task.service';
@@ -41,8 +39,7 @@ export class RecurringTaskService {
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -229,9 +226,13 @@ export class RecurringTaskService {
             const saved = await queryRunner.manager.save(Task, task);
             generatedTasks.push(saved);
 
-            if (this.eventBus && saved.assignedTo) {
-              try {
-                await this.eventBus.publish({
+            // Atomic: the TaskCreated event is enqueued on the SAME
+            // transaction manager that persisted the generated task and bumped
+            // the template, so a crash between save and commit can no longer
+            // drop the event (at-least-once via the outbox).
+            if (saved.assignedTo) {
+              await this.outboxPublisher.enqueue(
+                {
                   ...createBaseEvent('TaskCreated', template.tenantId),
                   taskId: saved.id,
                   title: saved.title,
@@ -239,14 +240,11 @@ export class RecurringTaskService {
                   assignedToName: saved.assignedToName,
                   category: saved.category,
                   priority: saved.priority,
-                  dueDate: saved.dueDate?.toISOString(),
+                  dueDate: saved.dueDate.toISOString(),
                   createdBy: 'system',
-                });
-              } catch (eventError) {
-                this.logger.warn(
-                  `Failed to publish TaskCreated event for recurring task: ${(eventError as Error).message}`,
-                );
-              }
+                },
+                queryRunner.manager,
+              );
             }
 
             await queryRunner.query(

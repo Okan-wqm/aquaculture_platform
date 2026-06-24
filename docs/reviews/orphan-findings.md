@@ -4738,3 +4738,57 @@ Severity: MEDIUM. Discovered 2026-06-23 while merging dependabot GHA bumps (#581
 Status: OPEN (2026-06-23; owner: edge/supply-chain Rust). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-145 - admin-api throttler treats every authenticated SUPER_ADMIN as anonymous (20/60s, IP-keyed) → operator 429 storm
+
+Severity: HIGH. Discovered 2026-06-24 from a live operator report: the admin panel (RoleManagementPage, UserManagementPage) failed with HTTP 429 "Too many requests" while ONLY ONE operator was connected — `/api/users/roles/*`, `/api/users/stats`, `/api/users`, `/api/admin/tenants` all 429.
+
+**Problem:** a `request.user` shape contract mismatch between the writer and the reader inside admin-api-service.
+- Writer — `apps/admin-api-service/src/guards/platform-admin.guard.ts` set `request.user = { id: payload.sub, ... }` (only `id`, never the canonical `sub`).
+- Reader — the shared `libs/backend-common/src/security/throttler/throttler.guard.ts` (global APP_GUARD in admin-api) reads identity as `request.user?.sub ?? request.user?.userId`:
+  - `getThrottleConfig`: `isAuthenticated = !!user.sub || !!user.userId` → **false** → applies `THROTTLE_ANONYMOUS_LIMIT` (20) instead of `THROTTLE_DEFAULT_LIMIT` (100).
+  - `generateKey`: `userId = user.sub || user.userId` → undefined; SUPER_ADMIN has no `tenantId` either, so the bucket falls back to `throttle:ip:<ip>`.
+
+So every authenticated platform admin was rate-limited at the 20-req/60s ANONYMOUS tier, keyed by IP. The admin panel fans out 6-7 parallel GETs per page across several pages (plus React StrictMode double-invoke + the http-client's retry), so a single operator's normal dashboard load exceeds 20/60s within seconds → sustained 429. "Only I connect but it says too many requests" is exactly this: the bucket is per-user-by-design but the user was never recognized.
+
+**Fix:** PlatformAdminGuard now attaches the canonical `sub` (the JWT subject) alongside admin-api's local `id`. The throttler sees an authenticated user → 100-req/60s default tier, keyed `throttle:user:<sub>`. `id` stays for admin-api controllers that read `req.user.id`. Regression test added to `platform-admin.guard.spec.ts` asserting the guard exposes `sub`.
+
+Status: RESOLVED (2026-06-24; this commit carries `Closes: ...#ORPHAN-HIGH-145`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-146 - admin-api hand-rolls a non-canonical `request.user` ({id}) instead of the platform user-context shape ({sub}) — the systemic cause of ORPHAN-HIGH-145
+
+Severity: MEDIUM. Discovered 2026-06-24 while root-causing ORPHAN-HIGH-145.
+
+**Problem:** gateway-api populates `request.user` via the shared `UserContextMiddleware` (canonical `{ sub, tenantId, roles, ... }`), but admin-api-service has NO such middleware (its `AppModule` does not implement `configure()`); identity is attached ad-hoc by `PlatformAdminGuard` in a bespoke `{ id, ... }` shape. Because no SHARED type binds the writer (service guard) to the readers (shared ThrottlerGuard, `@CurrentUser('sub')`), the two silently drifted — undetectable at compile time. ORPHAN-HIGH-145 is one symptom; any other backend-common consumer keying off `sub` would misbehave the same way in admin-api.
+
+**Fix direction (tier-1 make-it-impossible):** define a single canonical `AuthenticatedRequestUser` type in backend-common that both the throttler (reader) and every service's auth guard (writer) import, so a guard that omits `sub` fails type-check. Migrate admin-api to populate `request.user` through the shared user-context contract (or have PlatformAdminGuard return that exact type). Until the shared type lands, ORPHAN-HIGH-145's targeted fix (expose `sub`) holds the line, guarded by the new guard spec assertion.
+
+Status: OPEN (2026-06-24; owner: platform-kernel / admin-api). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-147 - admin-api contract-validation.spec.ts is RED on main (10 endpoint groups) and does not gate CI
+
+Severity: MEDIUM. Discovered 2026-06-24 while running admin-api tests for ORPHAN-HIGH-145 (failure reproduces with my changes stashed → pre-existing).
+
+**Problem:** `apps/admin-api-service/src/__tests__/contract-validation.spec.ts` fails for System Metrics (`/system/*`), Analytics, Tenants, Users, Billing, Reports, Support, Settings, Impersonation, and Security endpoint groups — i.e. the FE-declared admin contract surface does not match the backend controller routes the spec discovers. It is RED on `main` yet PRs are green, so the admin-api `test` target is effectively non-gating (consistent with the known affected-target quarantine for admin-api unit tests — see ORPHAN-MEDIUM-088). A contract spec that never blocks is audit theater.
+
+**Fix direction:** triage the 10 groups — for each, either the spec's expected route list is stale (update it) or the backend genuinely lacks the route the FE calls (implement it). Then un-quarantine admin-api's `test` target (or add this spec to a gating lane) so the contract drift cannot silently return. Out-of-band from the throttler fix; recorded so the drift is tracked.
+
+Status: OPEN (2026-06-24; owner: admin-api). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-148 - `/api/security/compliance/reports?limit=50` returns 400 (separate from the 429 class)
+
+Severity: MEDIUM. Discovered 2026-06-24 in the same operator console log as ORPHAN-HIGH-145, but a DISTINCT failure (HTTP 400 Bad Request, not 429).
+
+**Problem:** the compliance reports list endpoint rejects the FE's `?limit=50` request with 400 — likely a DTO/validation mismatch (ValidationPipe `whitelist`+`forbidNonWhitelisted` rejecting `limit`, a type-coercion gap on the numeric query param, or a required param the FE omits). Not yet root-caused. Unrelated to the rate-limit identity bug; it would persist after ORPHAN-HIGH-145 is fixed.
+
+**Fix direction:** reproduce against the security/compliance reports controller, confirm the query DTO declares + transforms `limit` (and any other FE-sent params), align the FE call with the BE contract, and add a controller/e2e test pinning the accepted query shape.
+
+Status: OPEN (2026-06-24; owner: admin-api / compliance). Registry: orphan-findings.md only.
+
+---

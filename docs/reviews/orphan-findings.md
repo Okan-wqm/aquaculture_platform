@@ -5067,3 +5067,37 @@ Severity: HIGH. Discovered 2026-06-24 by validating every frontend GraphQL opera
 Status: IN-PROGRESS (2026-06-24; enforcement gate landed this commit; 135 burn-down + codegen-tier-1 ongoing per the plan). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-155 - SUPER_ADMIN act-as tenant never reached subgraphs → non-deterministic empty/wrong-schema reads
+
+Severity: HIGH. Root cause of the operator's "tenant panel data sometimes loads, sometimes not" + "Failed to load X: Tenant ID is required". A SUPER_ADMIN has JWT `tenantId = null` and "acts as" a tenant; the browser sent the selection in `x-tenant-id`, but `StripInternalHeadersMiddleware` deletes it, `/graphql` skipped tenant resolution, and the gateway signed the HMAC user-assertion with `effectiveTenantId = user.tenantId` (null) (`authenticated-data-source.ts`, `service-proxy.service.ts`). With no tenant reaching the subgraph, the per-connection `search_path` + RLS GUC (`app.current_tenant`) were left to whatever the pooled connection last held → ~25-30% of tenant-scoped reads hit the source/empty schema (0 rows, faster) while others succeeded.
+
+**Fix (this commit):** the gateway is now the SINGLE tenant-resolution authority. NEW `apps/gateway-api/src/middleware/effective-tenant.middleware.ts` — `CaptureRequestedTenantMiddleware` (captures the act-as before strip) + `EffectiveTenantMiddleware` (after JWT auth) resolve ONE `req.effectiveTenantId`: regular user → JWT tenantId (a divergent act-as → 403); SUPER_ADMIN → the act-as ONLY after UUID + tenant-ACTIVE (fail-closed in prod) + MFA-step-up validation; else system scope (fail-closed). `authenticated-data-source.ts` + `service-proxy.service.ts` sign `effectiveTenantId` from `req.effectiveTenantId` and forward `x-tenant-id` from it (assertion + wire agree). `request-context.middleware.ts` reads the verified `req.tenantId` (signed-assertion value) BEFORE any header — so the RLS GUC + search_path use the signed effective tenant (MT-CRITICAL-101). Verified by two security audits (no cross-tenant leak; regular users unaffected). Tests: `effective-tenant.middleware.spec.ts` (cross-tenant 403, validated act-as, fail-closed) + invariant `tests/invariants/tenant-context-ssot.spec.ts` (wiring/order/signing).
+
+Status: RESOLVED (2026-06-24; gateway-signed effectiveTenantId SSoT). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-156 - five tenant-scoped subgraphs do not mount VerifiedUserAssertionMiddleware (SSoT/DiD gap)
+
+Severity: HIGH (no live leak — tracked hardening). Found by the [[ORPHAN-HIGH-155]] security audit. `VerifiedUserAssertionMiddleware` is mounted only on `farm-service` + `config-service`; `sensor-service`, `hr-service`, `hydroponics-service`, `alert-engine`, `messaging-service` do NOT mount it. On those, `req.tenantId`/`req.user` are not set from the signed assertion, so the ORPHAN-155 `request-context.middleware.ts` "verified-first" read is a no-op there and tenant isolation rests entirely on the HMAC-bound `x-tenant-id` header (set + verified by `StripInternalHeadersMiddleware` — safe TODAY, not externally forgeable). The gap: SSoT is not uniform, and `req.user` is undefined on those subgraphs (object-level guards have no user). Fix (own follow-up — needs per-service TenantGuard-behavior testing, must NOT be done blind): mount `VerifiedUserAssertionMiddleware` BEFORE `RequestContextMiddleware` in all five `app.module.ts` (mirror `farm-service/src/app.module.ts`), ideally promoted into the shared bootstrap so a new subgraph cannot omit it.
+
+Owner: platform/tenant-isolation. Deadline: 2026-07-08. Status: OPEN (tracked; safe today via HMAC-bound header). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-157 - gateway RequestContextMiddleware seeds ALS tenant from the raw (pre-strip) x-tenant-id header
+
+Severity: MEDIUM (log integrity / latent footgun — no DB leak). At the gateway, `RequestContextMiddleware` runs before `StripInternalHeaders`/`EffectiveTenantMiddleware`, so the ORPHAN-155 "verified-first" read falls through to the raw, attacker-controllable `x-tenant-id` header for the gateway's own AsyncLocalStorage tenant. Harmless today (the gateway has no RLS connection pool / no audited handlers), but it poisons gateway-side log tenant attribution and would silently become a cross-tenant vector if anyone ever adds an RLS pool or audited handler to the gateway. Fix: move `RequestContextMiddleware` after `EffectiveTenantMiddleware` at the gateway, or have `EffectiveTenantMiddleware` update the ALS tenant to the resolved `effectiveTenantId`.
+
+Owner: platform/gateway. Deadline: 2026-07-15. Status: OPEN (tracked; pre-existing log-scope behavior). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-158 - assertion↔signed-service-tenant cross-check is now tautological on the federation path
+
+Severity: LOW (defense-in-depth reduction, not a leak). `verified-user-assertion.middleware.ts` cross-checks `assertion.effectiveTenantId` against the HMAC-signed service tenant; after [[ORPHAN-HIGH-155]] the gateway sources both from the single `req.effectiveTenantId`, so the check always passes and can no longer catch a buggy/compromised gateway emitting inconsistent values. The HMAC still prevents an EXTERNAL party from introducing a mismatch (both are signature-bound), so this is acceptable. Fix (optional): have the subgraph independently recompute/compare, or drop the now-redundant check with a note.
+
+Owner: platform/tenant-isolation. Deadline: 2026-07-22. Status: OPEN (tracked; acceptable). Registry: orphan-findings.md only.
+
+---

@@ -1,7 +1,8 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
+
+import { Injectable, NestMiddleware } from '@nestjs/common';
 import { trace, context } from '@opentelemetry/api';
+import { Request, Response, NextFunction } from 'express';
 
 import { RequestContext, requestContextStorage } from './request-context';
 
@@ -51,7 +52,16 @@ export class RequestContextMiddleware implements NestMiddleware {
     }
 
     // --- Tenant & User ---
-    const tenantId = (req.headers['x-tenant-id'] as string | undefined) || extractTenantFromUser(req);
+    // SSoT (MT-CRITICAL-101): on a subgraph the trust anchor is the signed
+    // user-assertion — VerifiedUserAssertionMiddleware sets `req.tenantId` from
+    // `assertion.effectiveTenantId`, and that value is what the RLS GUC + every
+    // tenant-scoped read MUST use. Read it FIRST. The `x-tenant-id` header is a
+    // pre-assertion fallback only (it is stripped from external requests and
+    // must never outrank the signed effective tenant — a stale/leaked header
+    // value here was the source of the intermittent cross-/empty-tenant reads).
+    const verifiedTenantId = (req as { tenantId?: string }).tenantId;
+    const tenantId =
+      verifiedTenantId || (req.headers['x-tenant-id'] as string | undefined) || extractTenantFromUser(req);
     const userId = extractUserIdFromPayload(req);
 
     const requestContext: RequestContext = {

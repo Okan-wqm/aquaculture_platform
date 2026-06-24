@@ -289,7 +289,12 @@ export class ServiceProxyService {
       // contract so executeProxyRequest's HMAC signs the same tenant the
       // forwarded headers carry — tampering with x-tenant-id mid-flight
       // fails downstream verification.
-      tenantId: resolveTenantIdFromRequest(req),
+      // SSoT: prefer the gateway-resolved effective tenant (validated act-as for
+      // SUPER_ADMIN) so the wire x-tenant-id matches the signed assertion's
+      // effectiveTenantId — otherwise the subgraph cross-check rejects act-as.
+      tenantId:
+        (req as Request & { effectiveTenantId?: string }).effectiveTenantId ??
+        resolveTenantIdFromRequest(req),
       method: req.method,
       headers: this.attachVerifiedAssertion(this.extractHeaders(req), req),
       body: req.body,
@@ -380,7 +385,10 @@ export class ServiceProxyService {
         ...forwardedSseHeaders,
         ...buildSignedInternalHeaders({
           serviceName: 'gateway-api',
-          tenantId: resolveTenantIdFromRequest(req),
+          // SSoT: same effective-tenant precedence as the assertion (see above).
+          tenantId:
+            (req as Request & { effectiveTenantId?: string }).effectiveTenantId ??
+            resolveTenantIdFromRequest(req),
           method: req.method,
           path: req.path,
           query: new URL(targetUrl).search,
@@ -747,6 +755,9 @@ export class ServiceProxyService {
         mobileFeatures?: string[];
       };
     }).user;
+    // SSoT: the gateway-resolved effective tenant (validated act-as for
+    // SUPER_ADMIN; JWT tenantId for regular users), set by EffectiveTenantMiddleware.
+    const effectiveTenantId = (req as Request & { effectiveTenantId?: string }).effectiveTenantId;
 
     if (!user?.sub) {
       return headers;
@@ -757,7 +768,7 @@ export class ServiceProxyService {
       'x-verified-user-assertion': buildGatewayVerifiedUserAssertion({
         subject: user.sub,
         tenantId: user.tenantId,
-        effectiveTenantId: user.tenantId,
+        effectiveTenantId: effectiveTenantId ?? user.tenantId,
         roles: user.roles ?? [],
         email: user.email,
         mfaVerified: user.mfaVerified,

@@ -58,6 +58,10 @@ import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { GatewayMetricsModule } from './metrics/metrics.module';
 import { CsrfMiddleware } from './middleware/csrf.middleware';
+import {
+  CaptureRequestedTenantMiddleware,
+  EffectiveTenantMiddleware,
+} from './middleware/effective-tenant.middleware';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
@@ -581,19 +585,24 @@ export class AppModule implements NestModule {
         // Order matters:
         // 1. Record request metrics (before everything else for accurate duration)
         // 2. Set correlation id for tracing
-        // 3. SECURITY: Strip spoofable internal headers from external requests
-        // 4. SECURITY: CSRF double-submit cookie validation
-        // 5. Decode JWT and set req.user (needed for willSendRequest to forward headers)
-        // 6. Hydrate user from x-user-payload header (for inter-service calls)
-        // 7. Set tenant context
-        // 8. Log request
+        // 3. Capture the requested act-as tenant BEFORE strip deletes the header
+        // 4. SECURITY: Strip spoofable internal headers from external requests
+        // 5. SECURITY: CSRF double-submit cookie validation
+        // 6. Decode JWT and set req.user (needed for willSendRequest to forward headers)
+        // 7. Hydrate user from x-user-payload header (for inter-service calls)
+        // 8. Resolve + authority-validate the SINGLE effective tenant (SSoT) the
+        //    gateway signs — must run after req.user is set, before context capture
+        // 9. Set tenant context
+        // 10. Log request
         MetricsMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
+        CaptureRequestedTenantMiddleware,
         StripInternalHeadersMiddleware,
         CsrfMiddleware,
         JwtMiddleware,
         UserContextMiddleware,
+        EffectiveTenantMiddleware,
         TenantContextMiddleware,
         RequestLoggingMiddleware,
       )

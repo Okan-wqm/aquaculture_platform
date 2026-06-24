@@ -27,6 +27,14 @@ export interface RequestWithUser {
   headers: RequestHeaders;
   user?: JwtPayload;
   cookies?: Record<string, string>;
+  /**
+   * The single resolved, authority-validated effective tenant for this request,
+   * set by EffectiveTenantMiddleware (tenant-context SSoT). For a regular user
+   * this equals the JWT tenantId; for a SUPER_ADMIN it is the validated act-as
+   * target. This — NOT the raw JWT tenantId — is what gets signed into the
+   * verified user-assertion below.
+   */
+  effectiveTenantId?: string;
 }
 
 export interface GatewayContext {
@@ -189,7 +197,10 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
       httpRequest.headers.set('cookie', cookie);
     }
 
-    const resolvedTenantId = req.user?.tenantId;
+    // Forward the gateway-RESOLVED effective tenant (SSoT) — for a SUPER_ADMIN
+    // acting-as a tenant this is the validated act-as target, not the (null) JWT
+    // tenantId. Subgraphs cross-check this against the signed assertion below.
+    const resolvedTenantId = req.effectiveTenantId ?? req.user?.tenantId;
     if (resolvedTenantId && TENANT_UUID_RE.test(resolvedTenantId)) {
       httpRequest.headers.set('x-tenant-id', resolvedTenantId);
     }
@@ -226,7 +237,11 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
         buildGatewayVerifiedUserAssertion({
           subject: user.sub,
           tenantId: user.tenantId,
-          effectiveTenantId: user.tenantId,
+          // SSoT: sign the gateway-RESOLVED effective tenant (validated act-as
+          // for SUPER_ADMIN; JWT tenantId for regular users). Keeping
+          // `tenantId` as the home/source tenant for audit. This is bound into
+          // the HMAC so it cannot be spoofed and survives header-stripping.
+          effectiveTenantId: req.effectiveTenantId ?? user.tenantId,
           roles: user.roles ?? [],
           email: user.email,
           mfaVerified: (user as JwtPayload & { mfaVerified?: boolean }).mfaVerified,

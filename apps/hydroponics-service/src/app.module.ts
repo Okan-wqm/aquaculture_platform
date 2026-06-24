@@ -54,6 +54,7 @@ const hydroponicsSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process
 import { HydroponicsSetupModule } from './setup/setup.module';
 import { HealthModule } from './health/health.module';
 import { HydroponicsOutboxModule } from './outbox/hydroponics-outbox.module';
+import { HydroponicsOutbox } from './outbox/hydroponics-outbox.entity';
 
 // Entities
 import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
@@ -88,7 +89,10 @@ type QueryComplexityOperationContext = {
         createServiceTypeOrmConfig(configService, {
           serviceName: 'hydroponics',
           schema: 'hydroponics',
-          entities: [HydroponicsConfig],
+          // HydroponicsOutbox must be in TypeORM metadata: explicit entities
+          // list disables autoLoadEntities, so OutboxNotifyListener.onModuleInit
+          // getMetadata(HydroponicsOutbox) would throw and crash-loop boot.
+          entities: [HydroponicsConfig, HydroponicsOutbox],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

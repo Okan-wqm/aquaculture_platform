@@ -21,6 +21,7 @@ import {
   UserContextMiddleware,
   TenantContextMiddleware,
   StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
@@ -280,10 +281,22 @@ export class AppModule implements NestModule {
     //    controller is @Public() and previously trusted unvalidated
     //    metadata.tenantId — closing this header path closes the
     //    forge-on-public-route surface SECREV-CRITICAL-001 references.
-    // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    // 1. VerifiedUserAssertionMiddleware (SEC-HIGH-156) - resolve req.user /
+    //    req.tenantId from the gateway-signed verified-user assertion.
+    // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
+    // 3. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+
+    // EXCLUDED from the Stripe webhook (controllers/stripe-webhook.controller.ts,
+    // @Controller('webhooks') → /api/v1/webhooks/stripe): Stripe authenticates
+    // with its own webhook signature and sends NO gateway service identity, so
+    // requiring one there would 500 the webhook. Both prefixed and
+    // prefix-stripped forms are excluded to fail safe.
     consumer
-      .apply(StripInternalHeadersMiddleware, UserContextMiddleware, TenantContextMiddleware)
+      .apply(VerifiedUserAssertionMiddleware)
+      .exclude('webhooks', 'webhooks/{*path}', 'api/v1/webhooks', 'api/v1/webhooks/{*path}')
       .forRoutes('*');
+
+    consumer.apply(UserContextMiddleware, TenantContextMiddleware).forRoutes('*');
   }
 }

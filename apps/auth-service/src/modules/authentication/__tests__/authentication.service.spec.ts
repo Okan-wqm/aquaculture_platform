@@ -39,7 +39,10 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { AuthenticationService } from '../services/authentication.service';
+import {
+  AuthenticationService,
+  decodeRefreshTokenTransport,
+} from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
@@ -758,6 +761,25 @@ describe('AuthenticationService', () => {
       );
       const result = await service.me('admin', null);
       expect(result.user.tenantId).toBeNull();
+    });
+  });
+
+  describe('decodeRefreshTokenTransport (logout-on-refresh root cause)', () => {
+    const USER = '8025339a-e6c7-46df-b65a-dcf4f010b861';
+    const RANDOM = '7acbcb0bf6efac13cbc4adad5bf7598e';
+
+    it('decodes a URL-encoded ":" ("%3A") back to the canonical {userId}:{random}', () => {
+      expect(decodeRefreshTokenTransport(`${USER}%3A${RANDOM}`)).toBe(`${USER}:${RANDOM}`);
+    });
+
+    it('is idempotent for an already-canonical token (no "%")', () => {
+      const canonical = `${USER}:${RANDOM}`;
+      expect(decodeRefreshTokenTransport(canonical)).toBe(canonical);
+    });
+
+    it('falls back to the raw value on a malformed escape (never throws)', () => {
+      const malformed = `${USER}%ZZ${RANDOM}`;
+      expect(decodeRefreshTokenTransport(malformed)).toBe(malformed);
     });
   });
 });

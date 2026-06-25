@@ -842,37 +842,49 @@ export class TenantAdminService {
 
       const columns = columnsResult.map((c) => c.column_name);
 
-      // Check if table has tenant_id column (snake_case — actual DB column name)
-      const hasTenantId = columns.includes('tenant_id');
+      // Resolve the tenant-isolation column. TypeORM entities expose it either as
+      // snake_case `tenant_id` OR camelCase quoted `"tenantId"` — both MUST be
+      // honoured. Treating only `tenant_id` as the filter (the prior bug) meant
+      // any shared-schema table whose column is `tenantId` was read UNFILTERED,
+      // leaking every tenant's rows. The candidate names are hard-coded literals
+      // (not user input), so interpolating the chosen one is injection-safe.
+      const tenantColumn = columns.includes('tenant_id')
+        ? 'tenant_id'
+        : columns.includes('tenantId')
+          ? 'tenantId'
+          : null;
 
-      // Get total count (with tenant filter if applicable)
-      let totalRows = 0;
-      if (hasTenantId) {
-        const countResult: CountRow[] = await this.dataSource.query(
-          `SELECT COUNT(*) as count FROM ${fullTableName} WHERE "tenant_id" = $1`,
-          [tenantId],
-        );
-        totalRows = Number(countResult[0]?.count) || 0;
-      } else {
-        const countResult: CountRow[] = await this.dataSource.query(
-          `SELECT COUNT(*) as count FROM ${fullTableName}`,
-        );
-        totalRows = Number(countResult[0]?.count) || 0;
-      }
-
-      // Get data (with tenant filter if applicable)
-      let rows: DataRow[];
-      if (hasTenantId) {
-        rows = await this.dataSource.query(
-          `SELECT * FROM ${fullTableName} WHERE "tenant_id" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
-          [tenantId, limit, offset],
-        );
-      } else {
-        rows = await this.dataSource.query(
-          `SELECT * FROM ${fullTableName} ORDER BY 1 LIMIT $1 OFFSET $2`,
-          [limit, offset],
+      // The tenant's DEDICATED schema (tenant_<uuid>) is itself the isolation
+      // boundary — every row already belongs to this tenant, so no row filter is
+      // required. Every OTHER (shared module) schema holds cross-tenant rows and
+      // MUST be filtered by the tenant column; when such a table has no tenant
+      // column we FAIL CLOSED rather than return another tenant's data.
+      const isDedicatedTenantSchema = input.schemaName === tenantSchemaName;
+      if (!isDedicatedTenantSchema && !tenantColumn) {
+        throw new ForbiddenException(
+          `Access denied: table '${input.schemaName}.${input.tableName}' has no tenant column and cannot be tenant-isolated`,
         );
       }
+      const applyTenantFilter = !isDedicatedTenantSchema && tenantColumn !== null;
+      const whereClause = applyTenantFilter ? `WHERE "${tenantColumn}" = $1` : '';
+
+      // Get total count (tenant-filtered unless reading the dedicated schema)
+      const countResult: CountRow[] = await this.dataSource.query(
+        `SELECT COUNT(*) as count FROM ${fullTableName} ${whereClause}`,
+        applyTenantFilter ? [tenantId] : [],
+      );
+      const totalRows = Number(countResult[0]?.count) || 0;
+
+      // Get the data page (same isolation rule)
+      const rows: DataRow[] = applyTenantFilter
+        ? await this.dataSource.query(
+            `SELECT * FROM ${fullTableName} ${whereClause} ORDER BY 1 LIMIT $2 OFFSET $3`,
+            [tenantId, limit, offset],
+          )
+        : await this.dataSource.query(
+            `SELECT * FROM ${fullTableName} ORDER BY 1 LIMIT $1 OFFSET $2`,
+            [limit, offset],
+          );
 
       return {
         tableName: `${input.schemaName}.${input.tableName}`,

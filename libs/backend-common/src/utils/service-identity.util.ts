@@ -786,3 +786,35 @@ export function getServiceIdentityHeader(
   const value = key ? headers[key] : undefined;
   return Array.isArray(value) ? value[0] : value;
 }
+
+/**
+ * Produce the byte-stable body representation a v2 service-identity signature is
+ * verified against — the SINGLE source of truth shared by BOTH receiver surfaces
+ * (`ServiceIdentityGuard` and `StripInternalHeadersMiddleware`).
+ *
+ * SECURITY (R1 Path-alpha): the signed `X-Service-Body-Hash` is `sha256(wire-bytes)`
+ * computed by the SENDER over the exact bytes it put on the wire (the Node gateway
+ * signs `requestInit.body`; the Rust router coprocessor signs serde_json's compact
+ * serialization). The receiver MUST hash the SAME raw bytes — which Nest captures as
+ * `req.rawBody` when bootstrapped with `rawBody: true`. Re-running `JSON.stringify`
+ * over the V8-parsed body can diverge from the sender's bytes (numeric-key ordering,
+ * `1.0` vs `1`, …) and intermittently reject valid traffic. Keeping ONE function
+ * makes the two receivers structurally incapable of drifting apart — the drift that
+ * had `StripInternalHeadersMiddleware` hashing `JSON.stringify(req.body)` while the
+ * guard hashed `req.rawBody`, silently stripping the verified-user assertion and
+ * 400-ing subgraph requests.
+ *
+ * Backward-compatible: when `rawBody` is absent the fallback reproduces the prior
+ * behaviour exactly — string/Buffer passthrough, else `JSON.stringify(body)`, else `''`.
+ */
+export function serializeServiceIdentityBodyForHash(source: {
+  rawBody?: Buffer;
+  body?: unknown;
+}): string | Buffer {
+  if (Buffer.isBuffer(source.rawBody)) return source.rawBody;
+  const body = source.body;
+  if (body === undefined || body === null) return '';
+  if (typeof body === 'string') return body;
+  if (Buffer.isBuffer(body)) return body;
+  return JSON.stringify(body);
+}

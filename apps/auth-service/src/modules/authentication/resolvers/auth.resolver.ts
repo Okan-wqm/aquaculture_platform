@@ -144,29 +144,6 @@ export class AuthResolver {
   }
 
   /**
-   * SUPER_ADMIN act-as: switch the authenticated platform admin INTO a tenant by
-   * re-minting a tenant-scoped token (tenant-context SSoT). Requires auth;
-   * SUPER_ADMIN + tenant-ACTIVE authorization + audit live in the service.
-   * @SkipTenantGuard because the caller is a SUPER_ADMIN with no own tenant.
-   */
-  @RateLimit({ name: 'switch-tenant', limit: 10, windowMs: 5 * 60_000 })
-  @SkipTenantGuard()
-  @Mutation(() => AuthPayload)
-  async switchTenant(
-    @Args('tenantId') tenantId: string,
-    @CurrentUser('sub') userId: string,
-    @Context() context: GqlContext,
-  ): Promise<AuthPayload> {
-    const request = context.req;
-    const forwarded = request.headers['x-forwarded-for'];
-    const ipAddress = request.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
-    const userAgent = request.headers['user-agent'];
-    const result = await this.authService.switchTenant(userId, tenantId, ipAddress, userAgent);
-    this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
-    return this.stripRefreshToken(result);
-  }
-
-  /**
    * Accept invitation and set password
    * Password validation: min 8 chars, uppercase, lowercase, number, special char
    */
@@ -286,9 +263,9 @@ export class AuthResolver {
   @Query(() => MePayload)
   async me(
     @CurrentUser('sub') userId: string,
-    // ORPHAN-HIGH-159: the token's tenant is the EFFECTIVE tenant (the
-    // switchTenant act-as target for a SUPER_ADMIN, else the user's own). `me`
-    // must report it so the frontend scopes to the acted-as tenant.
+    // The JWT tenant claim is the authoritative effective tenant for the session;
+    // `me` reports it so the frontend scopes its queries to that tenant. For a
+    // normal user it equals the DB tenant; a platform SUPER_ADMIN has none (null).
     @CurrentUser('tenantId') effectiveTenantId: string | null,
   ): Promise<MePayload> {
     return this.authService.me(userId, effectiveTenantId);

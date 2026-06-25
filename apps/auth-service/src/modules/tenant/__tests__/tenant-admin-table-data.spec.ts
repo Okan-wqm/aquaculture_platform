@@ -22,8 +22,10 @@ const TENANT = '7f6b08ab-90e2-46d3-a260-cb985f1fd897';
 function makeService(opts: { columns: string[]; moduleCodes?: string[] }): {
   service: TenantAdminService;
   queries: string[];
+  dataParams: unknown[][];
 } {
   const queries: string[] = [];
+  const dataParams: unknown[][] = [];
   const userRepo = {
     findOne: jest.fn().mockResolvedValue({ id: ADMIN_ID, tenantId: TENANT }),
   } as never;
@@ -35,11 +37,12 @@ function makeService(opts: { columns: string[]; moduleCodes?: string[] }): {
       ),
   } as never;
   const dataSource = {
-    query: jest.fn().mockImplementation((sql: string) => {
+    query: jest.fn().mockImplementation((sql: string, params?: unknown[]) => {
       queries.push(sql);
       if (sql.includes('information_schema.columns')) {
         return Promise.resolve(opts.columns.map((column_name) => ({ column_name })));
       }
+      dataParams.push(params ?? []);
       if (sql.includes('COUNT(*)')) {
         return Promise.resolve([{ count: '3' }]);
       }
@@ -58,7 +61,7 @@ function makeService(opts: { columns: string[]; moduleCodes?: string[] }): {
     dataSource, // dataSource
     { log: jest.fn().mockResolvedValue(undefined) } as never, // auditLogService
   );
-  return { service, queries };
+  return { service, queries, dataParams };
 }
 
 const dataQueries = (queries: string[]): string[] =>
@@ -120,5 +123,33 @@ describe('TenantAdminService.getTableData — tenant isolation', () => {
     // No tenant column, yet no Forbidden + no WHERE clause: the dedicated schema
     // already scopes every row to this tenant.
     expect(dataQueries(queries).some((q) => q.includes('WHERE'))).toBe(false);
+  });
+
+  it('binds the filter to the CALLER\'s own tenantId (not a client-supplied value)', async () => {
+    const { service, dataParams } = makeService({ columns: ['id', 'tenantId'] });
+
+    await service.getTableData(ADMIN_ID, {
+      schemaName: 'farm',
+      tableName: 'farms',
+      limit: 10,
+      offset: 0,
+    } as never);
+
+    // Every tenant-filtered query (count + page) binds $1 = the admin's own tenant.
+    expect(dataParams.length).toBeGreaterThan(0);
+    expect(dataParams.every((p) => p[0] === TENANT)).toBe(true);
+  });
+
+  it('rejects a schema outside the tenant allowlist (e.g. "auth") with Forbidden', async () => {
+    const { service } = makeService({ columns: ['id', 'password_hash'] });
+
+    await expect(
+      service.getTableData(ADMIN_ID, {
+        schemaName: 'auth',
+        tableName: 'users',
+        limit: 10,
+        offset: 0,
+      } as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { PieChart, LineChart, getTenantId } from '@aquaculture/shared-ui';
+import { PieChart, LineChart, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import type { PieDataItem, LineDataset } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 
@@ -100,19 +100,21 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   chartVisibility,
   analyticsData,
 }) => {
+  // null when no tenant is resolved → collapse state stays in-memory only and never
+  // touches a shared 'default' bucket (cross-tenant bleed).
   const collapseKey = useMemo(
-    () => `tanks-charts-collapsed-${getTenantId() || 'default'}`,
+    () => tenantScopedStorageKey('tanks-charts-collapsed', getTenantId()),
     [],
   );
 
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    const saved = localStorage.getItem(collapseKey);
+    const saved = collapseKey ? localStorage.getItem(collapseKey) : null;
     return saved === 'true';
   });
 
   // Save collapse state to localStorage
   useEffect(() => {
-    localStorage.setItem(collapseKey, String(isCollapsed));
+    if (collapseKey) localStorage.setItem(collapseKey, String(isCollapsed));
   }, [isCollapsed, collapseKey]);
 
   // Filter data by selected tank IDs
@@ -180,7 +182,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
 
   // 5. Species Biomass % (requires batch info with species)
   const speciesBiomassData = useMemo((): PieDataItem[] => {
-    // Group by batch species (using batchNumber as proxy for species for now)
+    // Group by batch species (batchNumber is the current species proxy)
     const speciesMap = new Map<string, number>();
 
     filteredData.forEach(t => {

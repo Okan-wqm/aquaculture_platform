@@ -3,7 +3,7 @@
  * Manages column visibility state with localStorage persistence
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { getTenantId } from '@aquaculture/shared-ui';
+import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import { COLUMN_VISIBILITY_STORAGE_KEY, TankColumn } from './types';
 import { DEFAULT_VISIBLE_COLUMNS, getAllColumnKeys, tankColumns, cleanerFishColumns } from './columns';
 
@@ -28,11 +28,13 @@ export function useColumnVisibility(
   storageKey: string = COLUMN_VISIBILITY_STORAGE_KEY,
   columns: TankColumn[] = tankColumns
 ): UseColumnVisibilityReturn {
-  // Scope the storage key by tenantId to prevent cross-tenant data leakage
-  const scopedStorageKey = useMemo(() => {
-    const tenantId = getTenantId() || 'default';
-    return `${storageKey}-${tenantId}`;
-  }, [storageKey]);
+  // Scope the storage key by tenantId to prevent cross-tenant data leakage.
+  // null when no tenant is resolved → the hook uses the in-memory defaults and
+  // never reads/writes a shared 'default' bucket (cross-tenant bleed).
+  const scopedStorageKey = useMemo(
+    () => tenantScopedStorageKey(storageKey, getTenantId()),
+    [storageKey],
+  );
 
   // Get column keys and defaults for the provided columns.
   // PERF-015: When using the default tankColumns, reuse the pre-computed
@@ -47,7 +49,7 @@ export function useColumnVisibility(
 
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem(scopedStorageKey);
+      const saved = scopedStorageKey ? localStorage.getItem(scopedStorageKey) : null;
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -80,6 +82,7 @@ export function useColumnVisibility(
       isMounted.current = true;
       return;
     }
+    if (!scopedStorageKey) return;
     const serialized = JSON.stringify(Array.from(visibleColumns));
     const timerId = setTimeout(() => {
       try {

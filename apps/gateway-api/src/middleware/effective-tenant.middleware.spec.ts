@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { TenantStatus } from '@platform/event-contracts';
+import { getRequestContext, requestContextStorage } from '@aquaculture/backend-common/logging';
 import type { Response } from 'express';
 
 import { JwtPayload } from '../guards/auth.guard';
@@ -67,6 +68,36 @@ describe('EffectiveTenantMiddleware', () => {
     await mw.use(req, res, next);
     expect(req.effectiveTenantId).toBeUndefined();
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  // A.4: the gateway ALS logging frame (set by RequestContextMiddleware earlier
+  // in the chain from the JWT tenant) must be enriched with the EFFECTIVE tenant
+  // so every subsequent log line — and a SUPER_ADMIN act-as in particular — is
+  // attributed to the tenant the request actually operates on.
+  describe('A.4 — ALS logging-frame enrichment', () => {
+    it('enriches the active request-context tenantId with the effective tenant', async () => {
+      const req = mockReq({ user: { sub: 'u1', tenantId: TENANT_A, roles: ['FARMER'] } });
+      const seen = await requestContextStorage.run({}, async () => {
+        await mw.use(req, res, jest.fn());
+        return getRequestContext().tenantId;
+      });
+      expect(seen).toBe(TENANT_A);
+    });
+
+    it('attributes a SUPER_ADMIN act-as to the TARGET tenant in the log frame', async () => {
+      const req = mockReq({ user: SUPER_ADMIN, requestedActAsTenant: TENANT_B });
+      const seen = await requestContextStorage.run({}, async () => {
+        await mw.use(req, res, jest.fn());
+        return getRequestContext().tenantId;
+      });
+      expect(seen).toBe(TENANT_B);
+    });
+
+    it('does not throw when no ALS frame is active (enrichment is a safe no-op)', async () => {
+      const req = mockReq({ user: { sub: 'u1', tenantId: TENANT_A, roles: ['FARMER'] } });
+      await expect(mw.use(req, res, jest.fn())).resolves.toBeUndefined();
+      expect(req.effectiveTenantId).toBe(TENANT_A);
+    });
   });
 
   describe('regular user', () => {

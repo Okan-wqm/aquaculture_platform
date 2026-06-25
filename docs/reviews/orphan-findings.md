@@ -5113,3 +5113,15 @@ Severity: HIGH. Live-trace + DB confirmed root cause of the operator's persisten
 Owner: platform/tenant-isolation + frontend. Deadline: 2026-07-08. Status: IN-PROGRESS (auth backend + tests landed; FE switcher next). MFA step-up sub-item tracked here. Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-160 - logout on every page refresh + intermittent data — refresh-token cookie ":" URL-encoded, breaking the server-side token split
+
+Severity: HIGH. Operator-reported: a normal browser refresh logs the user out (must re-login), and the tenant panel data "comes and goes". Live-reproduced + root-caused against the TENANT_ADMIN account (`codex-test-…@suderra.test`, tenant 7f6b).
+
+**Root cause:** the refresh-token value is `${userId}:${random}` (`token.service.ts`). Express's default cookie encoder (`encodeURIComponent`) serialises the ':' as '%3A'. Across the browser → nginx → gateway-forward → auth hops the value is NOT decoded symmetrically before it reaches `AuthenticationService.refreshTokenWithHash`, whose `plainToken.indexOf(':')` therefore finds no ':' — it derives the wrong `tokenPart`, and `bcrypt.compare` never matches a (perfectly valid) stored token. PROOF: `decodeURIComponent(cookie).split(':')[1]` bcrypt-matches a live non-revoked stored hash (1 of 6), while the raw '%3A' value matches none. So EVERY silent refresh (`tokenLifecycle.initialize` → `silentRefresh`) fails → the access token (in-memory only) is never restored → logout on refresh; and once the 15-min access token expires mid-session, queries 400 with "Verified user assertion is required" (gateway sends no assertion without `req.user`) until the user re-logs-in — the "bir geliyor bir gelmiyor".
+
+**Fix (this commit):** (1) ROOT — `buildRefreshTokenCookieOptions` sets `encode: (v) => v` (identity), so the ':' (a valid RFC 6265 cookie-octet) is never URL-encoded and the SSoT token survives every transport hop byte-for-byte. (2) Migration/defense — `decodeRefreshTokenTransport()` recovers the canonical token at `refreshToken()` entry (idempotent for a raw token, guarded against malformed escapes), so cookies minted before this fix keep working with no forced re-login. Unit tests for both.
+
+Status: RESOLVED (2026-06-25; cookie-encoding SSoT + canonical-decode). Registry: orphan-findings.md only.
+
+---

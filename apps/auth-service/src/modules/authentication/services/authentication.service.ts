@@ -47,6 +47,24 @@ export type { JwtPayload } from './token.service';
 const INVALID_CREDENTIALS_MSG = 'Invalid email or password';
 const GENERIC_AUTH_ERROR_MSG = 'Authentication failed';
 
+/**
+ * Recover the canonical refresh-token SSoT (`${userId}:${random}`) from its
+ * cookie transport. A refresh cookie minted before the identity-encoder fix
+ * (refresh-token-cookie.ts) — or any hop that re-applies URL-encoding — can
+ * deliver the ':' separator as '%3A'. `decodeURIComponent` is the correct
+ * inverse of that transport; it is idempotent for an already-canonical token
+ * (a UUID:hex value contains no '%') and falls back to the raw input on a
+ * malformed escape rather than throwing.
+ */
+export function decodeRefreshTokenTransport(token: string): string {
+  if (!token.includes('%')) return token;
+  try {
+    return decodeURIComponent(token);
+  } catch {
+    return token;
+  }
+}
+
 @Injectable()
 export class AuthenticationService {
   private readonly logger = new Logger(AuthenticationService.name);
@@ -767,6 +785,15 @@ export class AuthenticationService {
    * - Implements refresh token rotation
    */
   async refreshToken(token: string): Promise<AuthPayload> {
+    // Recover the canonical SSoT token (`${userId}:${random}`) from its cookie
+    // transport. New cookies are set with an identity encoder
+    // (refresh-token-cookie.ts), but a cookie minted before that fix — or any
+    // intermediate hop that re-applies URL-encoding — can deliver the ':' as
+    // '%3A'. Decoding here is idempotent for an already-canonical token (no '%'
+    // in a UUID:hex value) and is the correct inverse of cookie transport, so a
+    // valid session is never rejected over an encoding mismatch.
+    token = decodeRefreshTokenTransport(token);
+
     // If tokens are hashed, we need to find by comparing hashes
     if (this.hashRefreshTokens) {
       return this.refreshTokenWithHash(token);

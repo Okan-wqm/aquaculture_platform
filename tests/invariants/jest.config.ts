@@ -165,6 +165,7 @@ export default {
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
         '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
+        '<rootDir>/verified-user-assertion-mounted.spec.ts',
         '<rootDir>/tenant-context-ssot.spec.ts',
         '<rootDir>/spec-module-mode.spec.ts',
         '<rootDir>/aria-workflow-sha-pin.spec.ts',

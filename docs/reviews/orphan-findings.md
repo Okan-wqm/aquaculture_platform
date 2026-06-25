@@ -5114,10 +5114,92 @@ Owner: platform/tenant-isolation + frontend. Deadline: 2026-07-08. Status: IN-PR
 
 ---
 
-## ORPHAN-MEDIUM-160 — `PLAN_FEATURES` per-plan feature catalog hand-copied (sibling of SSOT-C-13)
+## ORPHAN-HIGH-160 - logout on every page refresh + intermittent data — refresh-token cookie ":" URL-encoded, breaking the server-side token split
+
+Severity: HIGH. Operator-reported: a normal browser refresh logs the user out (must re-login), and the tenant panel data "comes and goes". Live-reproduced + root-caused against the TENANT_ADMIN account (`codex-test-…@suderra.test`, tenant 7f6b).
+
+**Root cause:** the refresh-token value is `${userId}:${random}` (`token.service.ts`). Express's default cookie encoder (`encodeURIComponent`) serialises the ':' as '%3A'. Across the browser → nginx → gateway-forward → auth hops the value is NOT decoded symmetrically before it reaches `AuthenticationService.refreshTokenWithHash`, whose `plainToken.indexOf(':')` therefore finds no ':' — it derives the wrong `tokenPart`, and `bcrypt.compare` never matches a (perfectly valid) stored token. PROOF: `decodeURIComponent(cookie).split(':')[1]` bcrypt-matches a live non-revoked stored hash (1 of 6), while the raw '%3A' value matches none. So EVERY silent refresh (`tokenLifecycle.initialize` → `silentRefresh`) fails → the access token (in-memory only) is never restored → logout on refresh; and once the 15-min access token expires mid-session, queries 400 with "Verified user assertion is required" (gateway sends no assertion without `req.user`) until the user re-logs-in — the "bir geliyor bir gelmiyor".
+
+**Fix (this commit):** (1) ROOT — `buildRefreshTokenCookieOptions` sets `encode: (v) => v` (identity), so the ':' (a valid RFC 6265 cookie-octet) is never URL-encoded and the SSoT token survives every transport hop byte-for-byte. (2) Migration/defense — `decodeRefreshTokenTransport()` recovers the canonical token at `refreshToken()` entry (idempotent for a raw token, guarded against malformed escapes), so cookies minted before this fix keep working with no forced re-login. Unit tests for both.
+
+Status: RESOLVED (2026-06-25; cookie-encoding SSoT + canonical-decode). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-161 - tenant-admin DB table viewer leaks cross-tenant rows for camelCase "tenantId" tables
+
+Severity: HIGH (cross-tenant data exposure). Found while validating the tenant-context stabilization plan against the code.
+
+**Root cause:** `apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:getTableData` treated ONLY the snake_case `tenant_id` column as the tenant filter (`hasTenantId = columns.includes('tenant_id')`). A table reachable via an allowed *module/shared* schema whose tenant column is the camelCase quoted `"tenantId"` (the TypeORM default for many entities) — or that has no tenant column at all — was read with NO `WHERE` clause, returning EVERY tenant's rows to one tenant-admin.
+
+**Fix (this commit):** detect the tenant column under both names (`tenant_id` | `tenantId`, hard-coded literals so interpolation stays injection-safe); the tenant's DEDICATED `tenant_<uuid>` schema is itself the isolation boundary (no row filter needed); every other (shared module) schema MUST be tenant-filtered and **FAILS CLOSED** (`ForbiddenException`) when no tenant column exists, rather than returning another tenant's data. Unit tests cover camelCase-filtered / snake-filtered / fail-closed / dedicated-schema-unfiltered.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-162 - gateway→subgraph HMAC body-hash drift between StripInternalHeadersMiddleware and ServiceIdentityGuard (intermittent "assertion required" 400)
+
+Severity: HIGH (intermittent auth/data outage). Found while validating the tenant-context stabilization plan.
+
+**Root cause:** the gateway signs `X-Service-Body-Hash = sha256(wire-bytes)`. `ServiceIdentityGuard.serializeBodyForHash` correctly hashed `req.rawBody` (the wire bytes), but `StripInternalHeadersMiddleware.serializeBodyForHash` independently hashed `JSON.stringify(req.body)` (the re-serialized V8-parsed object). When the two byte strings diverged (key order of numeric-string keys, `1.0` vs `1`, whitespace) the Strip middleware's HMAC verify failed, it stripped `x-verified-user-assertion`, and the subgraph 400'd "Verified user assertion is required" — intermittently. Two independent copies of the body-hash logic were free to drift (and did).
+
+**Fix (this commit):** extract ONE shared `serializeServiceIdentityBodyForHash()` in `service-identity.util.ts` (rawBody-preferred, JSON.stringify fallback) and route BOTH `ServiceIdentityGuard` and `StripInternalHeadersMiddleware` through it — making the two receivers structurally incapable of diverging again (tier-1). Unit tests prove rawBody is preferred over a divergently-stringified body + the fallback path; the guard's existing Path-alpha suite still passes.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-164 - FE tenant-scoped pages/hooks fire GraphQL before the tenant context is ready
+
+Severity: HIGH (intermittent empty/401 on tenant-scoped pages). Found validating the tenant-context stabilization plan; contributes to the operator's "data comes and goes" on /sites and /sensor/*.
+
+**Root cause:** several tenant-scoped surfaces issue their GraphQL load from a bare mount `useEffect` with NO auth-readiness guard, so they fire BEFORE `token`/`tenantId` resolve — racing the auth lifecycle (401/empty) and querying with a null tenant. The correct pattern (e.g. `web/modules/sensor-module/src/hooks/useEdgeDevices.ts`) gates on `enabled: !!token`. Offenders: `web/modules/farm-module/src/pages/MapViewPage.tsx` (the /sites/map view), and `web/modules/sensor-module/src/hooks/{useSensorList,useScadaPackage(useScadaPackages+useScadaPackageById),useProcess(useActiveProcesses+useProcessById)}.ts`.
+
+**Fix (this commit):** gate each mount `useEffect` on `token && tenantId` (via `useAuth()`) and add `token`/`tenantId` to the dependency array so it (re)runs when the tenant becomes ready or changes; on a null tenant it resets to empty + does not fetch. MapViewPage also guards async setState with a cancelled flag. Minimal change — query strings/filters/pagination/debounce/return shapes unchanged. tsc clean (farm-module + sensor-module).
+
+**Remaining WS-B (tracked, follow-up):** the tenant `|| 'default'` localStorage-key bleed (B2, MEDIUM — only manifests on a null/changing tenant), the tenant-admin custom client → shared lifecycle (B3, MINIMAL for single-tenant TENANT_ADMIN), socket tenant-scoping (B7), and promoting the no-bare-tenant-query-key / no-bare-graphql-query-string ESLint rules warn→error behind a baseline (B4).
+
+Status: RESOLVED for the mount-race surfaces above (2026-06-25); WS-B remainder tracked here. Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-163 - gateway→subgraph verified-user assertion only mounted on 2 of 9 tenant-scoped subgraphs (SEC-HIGH-156)
+
+Severity: HIGH (weaker-than-necessary tenant trust boundary). Found validating the tenant-context stabilization plan.
+
+**Root cause:** only `farm` + `config` mounted `VerifiedUserAssertionMiddleware`; the other seven tenant-scoped subgraphs (`sensor`, `billing`, `hr`, `hydroponics`, `alert-engine`, `messaging`, `ai`) resolved `req.user`/`req.tenantId` from the legacy path (raw JWT via the auth guard + a separately-trusted `x-tenant-id` header) rather than the gateway-signed `x-verified-user-assertion`, which binds the user AND the effective tenant into one HMAC-signed blob. Functionally they worked, but the surface was larger than the SSoT design (SEC-HIGH-156). The shared middleware also carried farm-specific names/messages (`FarmVerifiedIdentity`, "Farm request requires service identity") despite living in `backend-common`.
+
+**Fix (this commit):**
+- Mounted `VerifiedUserAssertionMiddleware` on all seven, after `StripInternalHeadersMiddleware` (which sets `req.verifiedIdentity`) and before `UserContextMiddleware`. `sensor` and `billing` use a 3-way split so the middleware is `.exclude()`d from their non-gateway public routes — sensor `/mqtt/*` (Mosquitto go-auth) and billing `/api/v1/webhooks/*` (Stripe) — which carry no gateway service identity and would otherwise 500 (both prefixed + prefix-stripped forms excluded, fail-safe). The other five take a simple insert.
+- Genericized the shared contract: `FarmVerifiedIdentity` → `VerifiedUserAssertion`; "Farm request…" / "gateway farm requests" → neutral "Subgraph request…" / "gateway subgraph requests".
+- New invariant `tests/invariants/verified-user-assertion-mounted.spec.ts` enforces the mount + order on all nine subgraphs so it cannot regress.
+
+Status: RESOLVED (2026-06-25; closes SEC-HIGH-156). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-165 - a token could be minted for a non-SUPER_ADMIN principal with no tenant (WS-C / C1)
+
+Severity: HIGH (tenant-isolation invariant). Found validating the tenant-context stabilization plan.
+
+**Root cause:** `TokenService.generateTokens` computed `effectiveTenantId = actAsTenantId ?? user.tenantId ?? null` and minted the token regardless. SUPER_ADMIN is legitimately tenantless, but EVERY other role is tenant-scoped — if such an account ever resolved to a null tenant (data corruption, a bad provisioning path, a future bug), the token would carry `tenantId: null` and downstream tenant routing (search_path / RLS / TenantGuard) would silently fall back to an unscoped context — a cross-tenant hazard. There was no guard enforcing the invariant at the single choke point where every token is minted.
+
+**Fix (this commit):** in `generateTokens`, after resolving `effectiveTenantId`, fail closed when `user.role !== Role.SUPER_ADMIN && !effectiveTenantId` (`ForbiddenException`). SUPER_ADMIN (the only tenantless role, confirmed against the live DB) is unaffected; every tenant-scoped login already resolves a tenant so legitimate logins are untouched. Unit tests: non-SUPER_ADMIN/null → throws; TENANT_ADMIN/null → throws; SUPER_ADMIN/null → still issues (existing test).
+
+**point-5 (tenant-admin backend SUPER_ADMIN-closed) — already satisfied:** `TenantAdminService` methods reject a null-tenant caller (`if (!admin || !admin.tenantId) throw`), and `getTableData` is fail-closed (ORPHAN-HIGH-161), so a SUPER_ADMIN (tenantId=null) cannot read tenant data through the tenant-admin surface — it errors "Admin not found".
+
+**Remaining WS-C (tracked, follow-up):** retire the dormant `switchTenant` mutation + `actAsTenantId` claim (the SUPER_ADMIN tenant-switcher was removed in #627; the backend surface is unused but harmless — a careful security-code removal, not a bug fix).
+
+Status: RESOLVED for C1 + point-5 (2026-06-25); switchTenant retirement tracked. Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-166 — `PLAN_FEATURES` per-plan feature catalog hand-copied (sibling of SSOT-C-13)
 
 **Severity:** MEDIUM
 **Discovered:** 2026-06-25, during SSOT-C-13 plan-limit SSoT collapse (ADR-037)
+**Note:** renumbered from a transient 160 (merge-train NNN collision with ORPHAN-HIGH-160).
 **Files:**
 - `apps/gateway-api/src/middleware/tenant-context.middleware.ts` (`PLAN_FEATURES`)
 - `apps/gateway-api/src/services/tenant-lookup.service.ts` (`PLAN_FEATURES`, byte-identical copy)
@@ -5127,23 +5209,19 @@ Owner: platform/tenant-isolation + frontend. Deadline: 2026-07-08. Status: IN-PR
 a sibling drift remains: per-plan *feature* booleans (`TenantFeatures`:
 `advancedAnalytics`, `alertEngine`, `iotIntegration`, `apiAccess`, `customReports`,
 `multiSite`, `whiteLabeling`, `ssoEnabled`) are still hand-copied across the gateway
-middleware and tenant-lookup service. This is the same hand-copied-catalog
-anti-pattern, one layer over (features instead of limits).
+middleware and tenant-lookup service. Same hand-copied-catalog anti-pattern, one layer
+over (features instead of limits).
 
 **Why not fixed in ADR-037:** Different shape and concern. `TenantFeatures` partially
 overlaps the canonical `PlanLimits` capability booleans (`apiAccessEnabled`,
-`ssoEnabled`, `customBrandingEnabled`) but adds a distinct set (`advancedAnalytics`,
-`iotIntegration`, `multiSite`, `customReports`, `whiteLabeling`). Folding it correctly
-means a deliberate features-SSoT design — either extend `PLAN_CATALOG` with a typed
-`features` sub-object or add a sibling `PLAN_FEATURE_CATALOG` in event-contracts — not
-an in-scope side effect of the limit collapse.
+`ssoEnabled`, `customBrandingEnabled`) but adds a distinct set. Folding it correctly
+means a deliberate features-SSoT design — extend `PLAN_CATALOG` with a typed `features`
+sub-object or add a sibling `PLAN_FEATURE_CATALOG` in event-contracts — not an in-scope
+side effect of the limit collapse.
 
 **How to fix:** Add a canonical per-plan feature map in `@platform/event-contracts`
 (reconcile the overlapping booleans with `PlanLimits` so a capability isn't defined
-twice), then project the gateway `TenantFeatures` from it and delete both copies. Add
-the same per-tier-map invariant guard used for limits (extend
-`tests/invariants/plan-limits-ssot.spec.ts` or a sibling) to forbid a future copy.
+twice), project the gateway `TenantFeatures` from it, delete both copies, and add the
+per-tier-map invariant guard to forbid a future copy.
 
 Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.
-
----

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useAuth } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   GET_SCADA_PACKAGE,
@@ -36,6 +37,7 @@ export type { ScadaPackageJSON } from '../store/scadaPackageStore';
 
 // Hook for fetching SCADA packages list
 export function useScadaPackages(filter?: ScadaPackageFilter) {
+  const { token, tenantId } = useAuth();
   const [packages, setPackages] = useState<ScadaPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,10 +69,18 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
 
   // Debounce searchTerm changes (300ms), immediate for other filter changes
   useEffect(() => {
+    // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
+    // is ready, otherwise the mount fetch races the auth lifecycle and queries
+    // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
+    if (!token || !tenantId) {
+      setPackages([]);
+      setLoading(false);
+      return;
+    }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(fetchPackages, filterSearchTerm ? 300 : 0);
     return () => clearTimeout(debounceRef.current);
-  }, [fetchPackages, filterSearchTerm]);
+  }, [fetchPackages, filterSearchTerm, token, tenantId]);
 
   const refetch = useCallback(() => {
     fetchPackages();
@@ -81,6 +91,7 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
 
 // Hook for fetching a single SCADA package by ID
 export function useScadaPackageById(id: string | undefined) {
+  const { token, tenantId } = useAuth();
   const [scadaPackage, setScadaPackage] = useState<ScadaPackage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,8 +121,16 @@ export function useScadaPackageById(id: string | undefined) {
   }, [id]);
 
   useEffect(() => {
+    // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
+    // is ready, otherwise the mount fetch races the auth lifecycle and queries
+    // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
+    if (!token || !tenantId) {
+      setScadaPackage(null);
+      setLoading(false);
+      return;
+    }
     fetchPackage();
-  }, [fetchPackage]);
+  }, [fetchPackage, token, tenantId]);
 
   const refetch = useCallback(() => {
     fetchPackage();

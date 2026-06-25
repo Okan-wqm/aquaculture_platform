@@ -96,6 +96,25 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.headers['x-act-as-tenant']).toBeUndefined();
   });
 
+  it('does NOT strip legacy identity headers when NO assertion is present (dev/E2E path)', () => {
+    // Non-production: requiresServiceIdentity() is false, so the middleware does
+    // not require a gateway identity and the legacy x-user-payload path is the
+    // test harness's identity source. Stripping it unconditionally (the prior
+    // bug) broke every subgraph E2E that authenticates via x-user-payload.
+    process.env['NODE_ENV'] = 'test';
+    const payload = '{"sub":"e2e-user","tenantId":"t-1"}';
+    const req = createRequest({
+      headers: { 'x-user-payload': payload, 'x-tenant-id': 't-1' },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith(); // no error
+    // Legacy header SURVIVES → UserContextMiddleware can still derive identity.
+    expect(req.headers['x-user-payload']).toBe(payload);
+    expect(req.verifiedUserAssertion).toBeUndefined();
+  });
+
   it('fails closed for production gateway requests without a verified assertion', () => {
     const req = createRequest();
 

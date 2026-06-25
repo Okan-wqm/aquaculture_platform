@@ -11,6 +11,7 @@ import {
   SERVICE_IDENTITY_MAX_AGE_MS,
   generateServiceIdentityHeaders,
   generateServiceIdentityHeadersV2,
+  serializeServiceIdentityBodyForHash,
   verifyServiceIdentity,
   verifyServiceIdentityRequest,
   verifyServiceIdentityV2,
@@ -580,5 +581,37 @@ describe('service-identity #388 regression — verifier derives caller policy fr
       keyring: explicitKeyring,
     });
     expect(outcome).toEqual({ valid: false, reason: 'caller-not-allowed' });
+  });
+});
+
+describe('serializeServiceIdentityBodyForHash (shared SSoT for guard + middleware)', () => {
+  it('prefers raw wire bytes (req.rawBody) even when req.body re-stringifies differently', () => {
+    // The sender signed these exact bytes (note the wire whitespace):
+    const wireBytes = '{"a": 1, "b": 2}';
+    // V8 re-serializes the parsed object to DIFFERENT bytes (whitespace dropped):
+    const parsed = JSON.parse(wireBytes) as Record<string, number>;
+    expect(JSON.stringify(parsed)).not.toBe(wireBytes); // proves the divergence exists
+
+    const out = serializeServiceIdentityBodyForHash({
+      rawBody: Buffer.from(wireBytes, 'utf8'),
+      body: parsed,
+    });
+    expect(Buffer.isBuffer(out)).toBe(true);
+    expect((out as Buffer).toString('utf8')).toBe(wireBytes);
+    // sha256(out) therefore matches the sender's sha256(wireBytes)
+    expect(createHash('sha256').update(out).digest('hex')).toBe(
+      createHash('sha256').update(wireBytes).digest('hex'),
+    );
+  });
+
+  it('falls back to JSON.stringify(body) when rawBody is absent (backward-compatible)', () => {
+    const body = { a: 1 };
+    expect(serializeServiceIdentityBodyForHash({ body })).toBe(JSON.stringify(body));
+  });
+
+  it('returns the string body verbatim, and "" for null/undefined', () => {
+    expect(serializeServiceIdentityBodyForHash({ body: 'raw-string' })).toBe('raw-string');
+    expect(serializeServiceIdentityBodyForHash({ body: null })).toBe('');
+    expect(serializeServiceIdentityBodyForHash({})).toBe('');
   });
 });

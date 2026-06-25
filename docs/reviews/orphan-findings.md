@@ -5149,3 +5149,18 @@ Severity: HIGH (intermittent auth/data outage). Found while validating the tenan
 Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-163 - gateway→subgraph verified-user assertion only mounted on 2 of 9 tenant-scoped subgraphs (SEC-HIGH-156)
+
+Severity: HIGH (weaker-than-necessary tenant trust boundary). Found validating the tenant-context stabilization plan.
+
+**Root cause:** only `farm` + `config` mounted `VerifiedUserAssertionMiddleware`; the other seven tenant-scoped subgraphs (`sensor`, `billing`, `hr`, `hydroponics`, `alert-engine`, `messaging`, `ai`) resolved `req.user`/`req.tenantId` from the legacy path (raw JWT via the auth guard + a separately-trusted `x-tenant-id` header) rather than the gateway-signed `x-verified-user-assertion`, which binds the user AND the effective tenant into one HMAC-signed blob. Functionally they worked, but the surface was larger than the SSoT design (SEC-HIGH-156). The shared middleware also carried farm-specific names/messages (`FarmVerifiedIdentity`, "Farm request requires service identity") despite living in `backend-common`.
+
+**Fix (this commit):**
+- Mounted `VerifiedUserAssertionMiddleware` on all seven, after `StripInternalHeadersMiddleware` (which sets `req.verifiedIdentity`) and before `UserContextMiddleware`. `sensor` and `billing` use a 3-way split so the middleware is `.exclude()`d from their non-gateway public routes — sensor `/mqtt/*` (Mosquitto go-auth) and billing `/api/v1/webhooks/*` (Stripe) — which carry no gateway service identity and would otherwise 500 (both prefixed + prefix-stripped forms excluded, fail-safe). The other five take a simple insert.
+- Genericized the shared contract: `FarmVerifiedIdentity` → `VerifiedUserAssertion`; "Farm request…" / "gateway farm requests" → neutral "Subgraph request…" / "gateway subgraph requests".
+- New invariant `tests/invariants/verified-user-assertion-mounted.spec.ts` enforces the mount + order on all nine subgraphs so it cannot regress.
+
+Status: RESOLVED (2026-06-25; closes SEC-HIGH-156). Registry: orphan-findings.md only.
+
+---

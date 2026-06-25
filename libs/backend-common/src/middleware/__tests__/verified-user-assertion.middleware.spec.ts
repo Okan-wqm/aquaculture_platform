@@ -232,6 +232,44 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.user?.mobileFeatures).toBeUndefined();
   });
 
+  // SSOT-C-13: the plan tier ordinal threads through the same build → parse →
+  // req.user path so resource-create handlers can enforce per-plan quotas.
+  it('round-trips planLevel onto req.user', () => {
+    const req = createRequest({
+      headers: { 'x-verified-user-assertion': encodeAssertion({ planLevel: 2 }) },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.user?.planLevel).toBe(2);
+    expect(req.verifiedUserAssertion?.planLevel).toBe(2);
+  });
+
+  it('omits planLevel on req.user when the assertion does not carry it', () => {
+    const req = createRequest({
+      headers: { 'x-verified-user-assertion': encodeAssertion() },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.user?.planLevel).toBeUndefined();
+  });
+
+  it('rejects a malformed planLevel claim (non-number, fail-closed)', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({ planLevel: 'pro' }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    const error = next.mock.calls[0]?.[0];
+    expect(error).toBeInstanceOf(BadRequestException);
+  });
+
   it('rejects a malformed assignedSiteIds claim (non-string member, fail-closed)', () => {
     const req = createRequest({
       headers: {

@@ -74,6 +74,11 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           ...(assertion.mobileFeatures !== undefined
             ? { mobileFeatures: assertion.mobileFeatures }
             : {}),
+          // SSOT-C-13: expose the plan tier ordinal so resource-create handlers
+          // can enforce per-plan quotas on the production gateway path.
+          ...(assertion.planLevel !== undefined
+            ? { planLevel: assertion.planLevel }
+            : {}),
         };
       }
 
@@ -146,6 +151,14 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     if (!this.isOptionalStringArray(candidate.mobileFeatures)) {
       throw new BadRequestException('Verified user assertion has invalid mobileFeatures');
     }
+    // SSOT-C-13: planLevel is optional, but when present must be a finite
+    // number — reject a malformed claim fail-closed (mirrors the checks above).
+    if (
+      candidate.planLevel !== undefined &&
+      (typeof candidate.planLevel !== 'number' || !Number.isFinite(candidate.planLevel))
+    ) {
+      throw new BadRequestException('Verified user assertion has invalid planLevel');
+    }
 
     return {
       issuer: candidate.issuer,
@@ -159,6 +172,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       assertionId: candidate.assertionId,
       assignedSiteIds: candidate.assignedSiteIds,
       mobileFeatures: candidate.mobileFeatures,
+      planLevel: candidate.planLevel,
     };
   }
 

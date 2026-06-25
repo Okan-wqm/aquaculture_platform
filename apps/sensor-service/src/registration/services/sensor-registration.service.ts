@@ -8,6 +8,8 @@ import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/serv
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
 import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { assertWithinQuota } from '@aquaculture/backend-common/quota';
+import { resolvePlanLimits, tenantPlanFromLevel } from '@platform/event-contracts';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -57,7 +59,23 @@ export class SensorRegistrationService {
     input: RegisterSensorInput,
     tenantId: string,
     userId: string,
+    /**
+     * SSOT-C-13: tenant plan tier ordinal (PLAN_LEVEL) for per-plan sensor-count
+     * quota. Undefined for platform SUPER_ADMIN → quota skipped. Enforced here at
+     * the explicit registration path; the high-throughput ingestion auto-create
+     * path is a separate concern and is not gated.
+     */
+    planLevel?: number,
   ): Promise<RegistrationResult> {
+    // SSOT-C-13: fail-closed per-plan sensor-count quota, before any work.
+    if (planLevel !== undefined) {
+      const maxSensors = resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxSensors;
+      if (maxSensors !== -1) {
+        const currentSensors = await this.sensorRepository.count({ where: { tenantId } });
+        assertWithinQuota('sensors', currentSensors, maxSensors);
+      }
+    }
+
     // Validate protocol exists
     if (!this.protocolRegistry.hasProtocol(input.protocolCode)) {
       return {

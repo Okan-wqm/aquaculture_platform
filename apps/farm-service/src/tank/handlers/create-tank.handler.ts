@@ -3,9 +3,15 @@
  * @module Tank/Handlers
  */
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertWithinQuota } from '@aquaculture/backend-common/quota';
 import { Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { TankCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import {
+  TankCreatedEvent,
+  createBaseEvent,
+  resolvePlanLimits,
+  tenantPlanFromLevel,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -34,7 +40,7 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
   ) {}
 
   async execute(command: CreateTankCommand): Promise<Tank> {
-    const { tenantId, userId, input } = command;
+    const { tenantId, userId, input, planLevel } = command;
 
     this.logger.log(`Creating tank: ${input.name} for tenant: ${tenantId}`);
 
@@ -42,6 +48,19 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
       const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
       const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
       const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
+
+      // SSOT-C-13: fail-closed per-plan pond/tank-count quota. Skipped when the
+      // caller carries no plan ordinal (platform SUPER_ADMIN). Counted inside the
+      // tx so concurrent creates cannot both slip past the limit. This is a count
+      // limit on the NUMBER of tanks the plan allows — distinct from per-tank
+      // over-capacity stocking, which is legitimately admin-overridable.
+      if (planLevel !== undefined) {
+        const maxPonds = resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxPonds;
+        if (maxPonds !== -1) {
+          const currentPonds = await tankRepository.count({ where: { tenantId } });
+          assertWithinQuota('ponds', currentPonds, maxPonds);
+        }
+      }
 
       const department = await departmentRepository.findOne({
         where: { id: input.departmentId, tenantId },

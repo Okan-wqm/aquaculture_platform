@@ -11,6 +11,7 @@
 import Decimal from 'decimal.js';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 import { RefundPaymentHandler } from '../handlers/refund-payment.handler';
@@ -117,6 +118,7 @@ describe('RefundPaymentHandler', () => {
   let mockManager: ReturnType<typeof createMockManager>;
   let mockDS: ReturnType<typeof createMockDataSource>;
   let mockOutbox: { enqueue: jest.Mock };
+  let mockStripe: { createRefund: jest.Mock };
   let defaultPayment: Partial<Payment>;
   let defaultInvoice: Partial<Invoice>;
 
@@ -126,12 +128,23 @@ describe('RefundPaymentHandler', () => {
     mockManager = createMockManager(defaultPayment, defaultInvoice);
     mockDS = createMockDataSource(mockManager);
     mockOutbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    mockStripe = {
+      createRefund: jest.fn().mockResolvedValue({
+        id: 're_stripe_real',
+        chargeId: 'ch_x',
+        amount: 0n,
+        currency: 'usd',
+        status: 'succeeded',
+        reason: null,
+      }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         RefundPaymentHandler,
         { provide: DataSource, useValue: mockDS },
         { provide: OutboxPublisher, useValue: mockOutbox },
+        { provide: StripeApiService, useValue: mockStripe },
       ],
     }).compile();
 
@@ -140,6 +153,35 @@ describe('RefundPaymentHandler', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('Stripe refund (SSOT-C-12)', () => {
+    it('issues a real Stripe refund and persists the Stripe refund id when a charge is linked', async () => {
+      defaultPayment.stripeChargeId = 'ch_live_123';
+
+      const result = await handler.execute(buildCommand({ amount: 10 }));
+
+      expect(mockStripe.createRefund).toHaveBeenCalledTimes(1);
+      const args = mockStripe.createRefund.mock.calls[0][0];
+      expect(args.chargeId).toBe('ch_live_123');
+      expect(args.reason).toBe('requested_by_customer');
+      expect(typeof args.amount).toBe('bigint');
+      expect(result.refunds?.[result.refunds.length - 1]?.refundId).toBe('re_stripe_real');
+    });
+
+    it('skips Stripe when the payment has no Stripe charge (legacy/manual)', async () => {
+      // default payment has no stripeChargeId
+      await handler.execute(buildCommand({ amount: 10 }));
+      expect(mockStripe.createRefund).not.toHaveBeenCalled();
+    });
+
+    it('does NOT persist a refund when the Stripe refund fails (fail-closed)', async () => {
+      defaultPayment.stripeChargeId = 'ch_live_123';
+      mockStripe.createRefund.mockRejectedValue(new Error('stripe refund failed'));
+
+      await expect(handler.execute(buildCommand({ amount: 10 }))).rejects.toThrow();
+      expect(mockOutbox.enqueue).not.toHaveBeenCalled();
+    });
   });
 
   describe('Successful refund', () => {

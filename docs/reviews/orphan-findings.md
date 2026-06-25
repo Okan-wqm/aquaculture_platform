@@ -5239,3 +5239,15 @@ PROOF (live): the cookie token bcrypt-matches a current non-revoked row when que
 **Fix (this commit):** wrap both refresh paths in `BypassRlsService.withBypass('auth-service:refresh-token-rotation', …)` — the same audited primitive the SUPER_ADMIN platform-session path already uses. `RlsModule.forPoolService({serviceName:'auth'})` + `RlsConnectionBootstrap` then emit `set_config('app.bypass_rls','on', …)` on the transaction's connection. The refresh-token lookup is legitimately cross-tenant (possession of the exact token + the bcrypt match is the authorization), so the audited bypass is the architecturally-correct mechanism. Unit regression guard asserts `refreshToken` runs under `withBypass` with that label; existing refresh tests still pass; auth `tsc` clean.
 
 Status: RESOLVED (2026-06-25; RLS-bypass for pre-tenant refresh rotation). Closes the logout-on-refresh that ORPHAN-HIGH-160 only partially addressed. Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-168 - TanStack Query cache not cleared on logout (cross-tenant cache defence)
+
+Severity: LOW (defence-in-depth; the tenant-scoped query-key factory already isolates most caches by `['tenant', tenantId, …]` — this closes the residual NON-tenant-keyed-query window).
+
+**Root cause:** the shared `AuthProvider`'s SPA logout path (`web/shared-ui/src/contexts/AuthContext.tsx`) calls `logoutCleanup()` but never passed/cleared the in-memory TanStack `QueryClient`. The SPA logout dispatches `LOGOUT` without a full page reload, so the QueryClient survives; a subsequent login on the same browser could read the previous user's cached tenant data for any query that wasn't tenant-keyed. `logoutCleanup` already clears sessionStorage / Zustand / SW caches / indexedDB / tenant-scoped localStorage and invokes registered callbacks, but the QueryClient was never wired in.
+
+**Fix (this commit):** register `queryClient.clear()` as a logout-cleanup callback in the shell bootstrap (`web/shell/src/bootstrap.tsx`, where the QueryClient is created) via the existing `registerLogoutCleanup` mechanism — NOT via `useQueryClient()` inside the shared `AuthProvider`, which would throw for consumers that mount it without a `QueryClientProvider` (e.g. dashboard standalone, aquamobil uses its own AuthProvider). shell `tsc` clean.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.

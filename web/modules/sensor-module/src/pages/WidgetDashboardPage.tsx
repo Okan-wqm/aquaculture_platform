@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, LayoutGrid, Activity, Settings } from 'lucide-react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import { GridStackDashboard, DashboardLayout } from '../components/dashboard/GridStackDashboard';
 
 // ============================================================================
@@ -21,8 +21,10 @@ import { GridStackDashboard, DashboardLayout } from '../components/dashboard/Gri
 
 const WidgetDashboardPage: React.FC = () => {
   const { tenantId } = useAuth();
+  // null when no tenant is resolved → the dashboard degrades to its in-memory
+  // default and never reads/writes a shared 'default' bucket (cross-tenant bleed).
   const storageKey = useMemo(
-    () => `sensor-dashboard-layout-${tenantId || 'default'}`,
+    () => tenantScopedStorageKey('sensor-dashboard-layout', tenantId),
     [tenantId],
   );
 
@@ -31,6 +33,10 @@ const WidgetDashboardPage: React.FC = () => {
 
   // Load saved layout from localStorage
   useEffect(() => {
+    if (!storageKey) {
+      setLayoutLoaded(true);
+      return;
+    }
     try {
       const savedLayout = localStorage.getItem(storageKey);
       if (savedLayout) {
@@ -45,6 +51,7 @@ const WidgetDashboardPage: React.FC = () => {
 
   // Handle layout changes
   const handleLayoutChange = (layout: DashboardLayout) => {
+    if (!storageKey) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify(layout));
     } catch (error) {

@@ -794,15 +794,30 @@ export class AuthenticationService {
     // valid session is never rejected over an encoding mismatch.
     token = decodeRefreshTokenTransport(token);
 
-    // If tokens are hashed, we need to find by comparing hashes
+    // ROOT CAUSE (logout on every refresh): the refresh token is a PRE-TENANT,
+    // cross-tenant credential — the tenant is unknown until the token row is
+    // found, so neither the lookup nor the rotation that follows can satisfy the
+    // tenant-isolation RLS predicate on auth.refresh_tokens
+    // (`"tenantId" = current_setting('app.current_tenant')::uuid`), because the
+    // unauthenticated refresh request sets no app.current_tenant GUC. Under the
+    // RLS-enforced auth_service DB role this makes the lookup return ZERO rows
+    // for a perfectly valid token → "Authentication failed" → silent-refresh
+    // logs the user out on every refresh. Run the rotation under an AUDIT-LOGGED
+    // RLS bypass (the same primitive the SUPER_ADMIN platform-session path uses):
+    // the bcrypt match on the caller-supplied token is the authorization, and
+    // possession of the exact token is what proves identity here.
+    // If tokens are hashed, we need to find by comparing hashes.
     if (this.hashRefreshTokens) {
-      return this.refreshTokenWithHash(token);
+      return this.bypassRls.withBypass('auth-service:refresh-token-rotation', () =>
+        this.refreshTokenWithHash(token),
+      );
     }
 
     // SECURITY: Use transaction with pessimistic locking to prevent double-spending
     // NOTE: FOR UPDATE cannot be used with LEFT JOIN in PostgreSQL, so we split
     // the token lock and user fetch into separate queries.
-    return this.dataSource.transaction(async (manager) => {
+    return this.bypassRls.withBypass('auth-service:refresh-token-rotation', () =>
+      this.dataSource.transaction(async (manager) => {
       // RefreshToken rotation runs before tenant context is
       // re-established — the bearer's tenant is derived from the token
       // row's userId after the row is resolved. Cross-tenant scan is
@@ -844,7 +859,7 @@ export class AuthenticationService {
         refreshToken.userAgent ?? undefined,
         { rememberMe: refreshToken.rememberMe },
       );
-    });
+    }));
   }
 
   /**

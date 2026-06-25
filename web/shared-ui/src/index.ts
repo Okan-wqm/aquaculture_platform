@@ -130,6 +130,14 @@ export {
   TENANT_SCOPED_STORAGE_NAMESPACE,
 } from './hooks/useTenantScopedStorage';
 export type { TenantScopedStorage } from './hooks/useTenantScopedStorage';
+// Pure tenant-scoped storage-key helpers (no React) — SSoT for cross-tenant
+// localStorage isolation. TENANT_SCOPED_STORAGE_NAMESPACE is already re-exported
+// above via the hook, so it is intentionally omitted here to avoid an ambiguous
+// re-export (TS2308).
+export {
+  tenantScopedStorageKey,
+  sweepTenantScopedStorage,
+} from './utils/tenant-scoped-storage-namespace';
 
 // ============================================================================
 // I18n Infrastructure — FE-HIGH-020

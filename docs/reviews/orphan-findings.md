@@ -5226,28 +5226,35 @@ per-tier-map invariant guard to forbid a future copy.
 
 Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.
 
-## ORPHAN-MEDIUM-167 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+---
 
-**Severity:** MEDIUM
-**Discovered:** 2026-06-25, during W1.1 create-subscription Stripe rewrite (BILLING-CRITICAL-001 / SSOT-C-12)
-**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts` (existing-subscription branch, `subscriptionRepo.delete({ id })`)
+## ORPHAN-HIGH-166 - logout on EVERY refresh — refresh-token lookup blocked by tenant RLS (the real root; completes ORPHAN-HIGH-160)
 
-**Problem:** When a tenant re-subscribes after a CANCELLED subscription, the handler
-HARD-deletes the old row (`subscriptionRepo.delete(...)`) — explicitly to avoid the
-`UNIQUE(tenantId)` index violation. But `create-subscription.handler.spec.ts` has two
-tests asserting SOFT-delete semantics (`mockRepo.delete` NOT called, `cancelledSub.isDeleted=true`,
-`deletedAt instanceof Date`) — i.e. the intended design is to preserve subscription
-HISTORY, not erase it. These 2 tests fail on `main` today (PRE-EXISTING; verified via
-git-stash on HEAD: 2 fail / 32 pass with the original handler) — the test and the
-handler disagree on the cancelled-row strategy.
+Severity: HIGH (every authenticated session logs out on refresh). The operator's #1 reported bug. ORPHAN-HIGH-160 (#629) fixed a real but SECONDARY layer (the cookie `:`→`%3A` encoding); this is the actual root, found by live forensics (HTTPS browser-path reproduction + in-container instrumentation + DB-role simulation).
 
-**Why not fixed here:** out of scope for the Stripe integration (SSOT-C-12). The correct
-fix is a design call: either (a) make the unique index PARTIAL (`WHERE is_deleted = false`)
-so a soft-deleted cancelled row can coexist with the new one, then soft-delete; or (b)
-update the tests to accept hard-delete. (a) preserves history and matches the test intent,
-but needs a migration on the index.
+**Root cause:** `auth.refresh_tokens` has FORCED row-level security (`tenant_isolation_policy`: `current_setting('app.bypass_rls')='on' OR "tenantId" = current_setting('app.current_tenant')::uuid`). The runtime DB role `auth_service` does NOT bypass RLS (`rolbypassrls=f`). A refresh request is **pre-tenant** — the refresh token IS the credential, so the tenant is unknown until the row is found — therefore `app.current_tenant` is unset and no bypass is requested. `AuthenticationService.refreshToken` / `refreshTokenWithHash` ran their lookup transaction with NEITHER GUC, so under RLS the query returned ZERO rows for a perfectly valid token → no bcrypt match → "Authentication failed" → `tokenLifecycle.silentRefresh` could not restore the access token → logout on every refresh.
 
-Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+PROOF (live): the cookie token bcrypt-matches a current non-revoked row when queried as the RLS-bypassing owner (`aquaculture`), but the same query as `auth_service` with no `app.current_tenant` GUC returns 0 rows; in-container instrumentation confirmed `refreshTokenWithHash` received the correct tokenPart yet its query found nothing; `SET ROLE auth_service; SET app.bypass_rls='on'` makes the rows visible again. (`auth.users` RLS was already dropped — `DropRlsFromAuthUsersIdentity` — which is why LOGIN works while REFRESH did not.)
+
+**Fix (this commit):** wrap both refresh paths in `BypassRlsService.withBypass('auth-service:refresh-token-rotation', …)` — the same audited primitive the SUPER_ADMIN platform-session path already uses. `RlsModule.forPoolService({serviceName:'auth'})` + `RlsConnectionBootstrap` then emit `set_config('app.bypass_rls','on', …)` on the transaction's connection. The refresh-token lookup is legitimately cross-tenant (possession of the exact token + the bcrypt match is the authorization), so the audited bypass is the architecturally-correct mechanism. Unit regression guard asserts `refreshToken` runs under `withBypass` with that label; existing refresh tests still pass; auth `tsc` clean.
+
+Status: RESOLVED (2026-06-25; RLS-bypass for pre-tenant refresh rotation). Closes the logout-on-refresh that ORPHAN-HIGH-160 only partially addressed. Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-167 - FE `tenantId || 'default'` localStorage keys bleed UI state across tenants (WS-B B2/B4)
+
+Severity: MEDIUM (cross-tenant UI-state bleed during the null/changing-tenant window). Found validating the tenant-context stabilization plan.
+
+**Root cause:** seven FE surfaces built a localStorage/cache key as `${prefix}_${tenantId || 'default'}` / `getTenantId() || 'default'`. When `tenantId` is briefly null (initial load, tenant switch) every session shares one `default` bucket, so tenant A's persisted UI state (dashboard layout, column visibility, theme, chart-collapse, analytics filters, offline nutrient profiles) bleeds into tenant B. `web/modules/{sensor-module,farm-module,hydroponics-module}` — `SimulationSidebar`, `WidgetDashboardPage`, `ThemeProvider`, `TanksAnalyticsTab` (also a stale empty-dep `useMemo`), `useColumnVisibility`, `TankChartsSection`, `useNutrientProfiles`.
+
+**Fix (this commit):** adopt the existing canonical `tenantScopedStorageKey(baseKey, tenantId)` (web/shared-ui) — it returns `aqua.tss::<tenantId>::<baseKey>` or `null` when tenantId is absent; every call site now skips localStorage on `null` and uses the in-memory default, so no shared `default` bucket can exist. Exported the helper from shared-ui. TanksAnalyticsTab's stale empty-dep tenant memo is made reactive (`useAuth().tenantId`). New invariant `tests/invariants/no-default-tenant-storage-key.spec.ts` (B4) fails the build if any `getTenantId()/tenantId || 'default'` reappears in `web/` (it is at zero now). tsc clean across shared-ui + the 3 modules.
+
+**Tracked WS-B remainder:** B3 (tenant-admin custom client → shared graphqlClient lifecycle/CSRF/401-refresh), B7 (sensor WebSocket pool tenant-scoping + logout cache sweep via `sweepTenantScopedStorage`), and promoting the existing `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error (needs the ~420 + ~50 pre-existing violations migrated first).
+
+Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: orphan-findings.md only.
+
+---
 
 ## ORPHAN-MEDIUM-168 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
 
@@ -5272,3 +5279,28 @@ StripeApiService.updateSubscription (idempotencyKey
 **Why not fixed in PR-3:** distinct code path in a different class
 (BillingSchedulerService cron) with its own tx + idempotency. Owner: billing.
 Status: OPEN. Registry: orphan-findings.md.
+
+## ORPHAN-MEDIUM-169 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during W1.1 create-subscription Stripe rewrite (BILLING-CRITICAL-001 / SSOT-C-12)
+**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts` (existing-subscription branch, `subscriptionRepo.delete({ id })`)
+
+**Problem:** When a tenant re-subscribes after a CANCELLED subscription, the handler
+HARD-deletes the old row (`subscriptionRepo.delete(...)`) — explicitly to avoid the
+`UNIQUE(tenantId)` index violation. But `create-subscription.handler.spec.ts` has two
+tests asserting SOFT-delete semantics (`mockRepo.delete` NOT called, `cancelledSub.isDeleted=true`,
+`deletedAt instanceof Date`) — i.e. the intended design is to preserve subscription
+HISTORY, not erase it. These 2 tests fail on `main` today (PRE-EXISTING; verified via
+git-stash on HEAD: 2 fail / 32 pass with the original handler) — the test and the
+handler disagree on the cancelled-row strategy.
+
+**Why not fixed here:** out of scope for the Stripe integration (SSOT-C-12). The correct
+fix is a design call: either (a) make the unique index PARTIAL (`WHERE is_deleted = false`)
+so a soft-deleted cancelled row can coexist with the new one, then soft-delete; or (b)
+update the tests to accept hard-delete. (a) preserves history and matches the test intent,
+but needs a migration on the index. (Renumbered from 167 → 169 in the 2026-06-25
+merge-train collision with main's ORPHAN-MEDIUM-167; the create-subscription commit
+message references the original 167.)
+
+Owner: billing. Status: OPEN. Registry: orphan-findings.md only.

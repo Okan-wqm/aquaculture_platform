@@ -312,6 +312,7 @@ const mockTokenBlacklist = {
 
 describe('AuthenticationService', () => {
   let service: AuthenticationService;
+  let bypassRlsMock: BypassRlsService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -383,8 +384,9 @@ describe('AuthenticationService', () => {
         {
           provide: BypassRlsService,
           useValue: {
-            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> =>
-              cb(),
+            withBypass: jest.fn(
+              async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> => cb(),
+            ),
             withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
           },
         },
@@ -392,6 +394,7 @@ describe('AuthenticationService', () => {
     }).compile();
 
     service = module.get<AuthenticationService>(AuthenticationService);
+    bypassRlsMock = module.get<BypassRlsService>(BypassRlsService);
   });
 
   // ==========================================================================
@@ -592,6 +595,23 @@ describe('AuthenticationService', () => {
       mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(null);
 
       await expect(service.refreshToken('invalid-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    // ROOT CAUSE regression guard (logout on every refresh): auth.refresh_tokens
+    // is RLS-protected by tenant_isolation_policy, but a refresh request carries
+    // NO tenant context (the token IS the pre-tenant credential). Without an RLS
+    // bypass the lookup returns ZERO rows under the auth_service DB role and the
+    // user is logged out on each refresh. The rotation MUST run under the audited
+    // BypassRlsService.withBypass with this exact label.
+    it('runs the refresh-token rotation under an audited RLS bypass', async () => {
+      mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(null);
+
+      await expect(service.refreshToken('any-token')).rejects.toThrow(UnauthorizedException);
+
+      expect(bypassRlsMock.withBypass).toHaveBeenCalledWith(
+        'auth-service:refresh-token-rotation',
+        expect.any(Function),
+      );
     });
 
     it('throws UnauthorizedException for an expired refresh token', async () => {

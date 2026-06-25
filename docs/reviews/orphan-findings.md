@@ -5225,3 +5225,17 @@ twice), project the gateway `TenantFeatures` from it, delete both copies, and ad
 per-tier-map invariant guard to forbid a future copy.
 
 Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-166 - logout on EVERY refresh — refresh-token lookup blocked by tenant RLS (the real root; completes ORPHAN-HIGH-160)
+
+Severity: HIGH (every authenticated session logs out on refresh). The operator's #1 reported bug. ORPHAN-HIGH-160 (#629) fixed a real but SECONDARY layer (the cookie `:`→`%3A` encoding); this is the actual root, found by live forensics (HTTPS browser-path reproduction + in-container instrumentation + DB-role simulation).
+
+**Root cause:** `auth.refresh_tokens` has FORCED row-level security (`tenant_isolation_policy`: `current_setting('app.bypass_rls')='on' OR "tenantId" = current_setting('app.current_tenant')::uuid`). The runtime DB role `auth_service` does NOT bypass RLS (`rolbypassrls=f`). A refresh request is **pre-tenant** — the refresh token IS the credential, so the tenant is unknown until the row is found — therefore `app.current_tenant` is unset and no bypass is requested. `AuthenticationService.refreshToken` / `refreshTokenWithHash` ran their lookup transaction with NEITHER GUC, so under RLS the query returned ZERO rows for a perfectly valid token → no bcrypt match → "Authentication failed" → `tokenLifecycle.silentRefresh` could not restore the access token → logout on every refresh.
+
+PROOF (live): the cookie token bcrypt-matches a current non-revoked row when queried as the RLS-bypassing owner (`aquaculture`), but the same query as `auth_service` with no `app.current_tenant` GUC returns 0 rows; in-container instrumentation confirmed `refreshTokenWithHash` received the correct tokenPart yet its query found nothing; `SET ROLE auth_service; SET app.bypass_rls='on'` makes the rows visible again. (`auth.users` RLS was already dropped — `DropRlsFromAuthUsersIdentity` — which is why LOGIN works while REFRESH did not.)
+
+**Fix (this commit):** wrap both refresh paths in `BypassRlsService.withBypass('auth-service:refresh-token-rotation', …)` — the same audited primitive the SUPER_ADMIN platform-session path already uses. `RlsModule.forPoolService({serviceName:'auth'})` + `RlsConnectionBootstrap` then emit `set_config('app.bypass_rls','on', …)` on the transaction's connection. The refresh-token lookup is legitimately cross-tenant (possession of the exact token + the bcrypt match is the authorization), so the audited bypass is the architecturally-correct mechanism. Unit regression guard asserts `refreshToken` runs under `withBypass` with that label; existing refresh tests still pass; auth `tsc` clean.
+
+Status: RESOLVED (2026-06-25; RLS-bypass for pre-tenant refresh rotation). Closes the logout-on-refresh that ORPHAN-HIGH-160 only partially addressed. Registry: orphan-findings.md only.

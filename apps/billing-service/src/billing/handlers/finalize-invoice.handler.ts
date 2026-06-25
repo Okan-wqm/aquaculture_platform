@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { FinalizeInvoiceCommand } from '../commands/finalize-invoice.command';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 
@@ -11,7 +12,10 @@ import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 export class FinalizeInvoiceHandler implements ICommandHandler<FinalizeInvoiceCommand, Invoice> {
   private readonly logger = new Logger(FinalizeInvoiceHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly stripeApi: StripeApiService,
+  ) {}
 
   async execute(command: FinalizeInvoiceCommand): Promise<Invoice> {
     const { tenantId, invoiceId, userId } = command;
@@ -30,6 +34,19 @@ export class FinalizeInvoiceHandler implements ICommandHandler<FinalizeInvoiceCo
         throw new BadRequestException(
           `Only DRAFT invoices can be finalized. Current status: ${invoice.status}`,
         );
+      }
+
+      // W1.1 (SSOT-C-12): when this invoice is mirrored to Stripe, finalize it at
+      // Stripe too (issues it to the customer + triggers Stripe's collection) —
+      // BEFORE flipping the local status, so a Stripe failure leaves the invoice
+      // DRAFT (fail-closed, no local/Stripe divergence). Idempotent on the Stripe
+      // invoice id. Local-only invoices (no stripeInvoiceId) finalize locally.
+      if (invoice.stripeInvoiceId) {
+        await this.stripeApi.finalizeInvoice({
+          tenantId,
+          invoiceId: invoice.stripeInvoiceId,
+          idempotencyKey: `invoice-finalize:${invoice.stripeInvoiceId}`,
+        });
       }
 
       invoice.status = InvoiceStatus.SENT;

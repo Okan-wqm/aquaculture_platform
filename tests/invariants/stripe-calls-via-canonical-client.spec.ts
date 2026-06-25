@@ -65,6 +65,7 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
       'retrieveSubscription',
       'createRefund',
       'retrieveRefund',
+      'finalizeInvoice',
       'reportMeterEvent',
     ]) {
       // The reportMeterEvent signature uses `args: StripeMeterEvent & { ... }`,
@@ -94,6 +95,10 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
       {
         file: 'apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts',
         method: 'updateSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/finalize-invoice.handler.ts',
+        method: 'finalizeInvoice',
       },
     ];
     for (const { file, method } of handlers) {

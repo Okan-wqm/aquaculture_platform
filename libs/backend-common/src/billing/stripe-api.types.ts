@@ -60,6 +60,12 @@ export interface StripeCustomer {
   readonly metadata: StripeMetadata;
 }
 
+export interface StripeInvoice {
+  readonly id: string;
+  readonly status: 'draft' | 'open' | 'paid' | 'uncollectible' | 'void' | null;
+  readonly hostedInvoiceUrl: string | null;
+}
+
 export interface StripeMeterEvent {
   readonly identifier: string;
   readonly meterEventName: string;
@@ -114,6 +120,11 @@ export interface IStripeApiClient {
   retrieveRefund(args: {
     refundId: string;
   }): Promise<StripeRefund>;
+
+  finalizeInvoice(args: {
+    invoiceId: string;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeInvoice>;
 
   reportMeterEvent(args: StripeMeterEvent & {
     idempotencyKey: StripeIdempotencyKey;

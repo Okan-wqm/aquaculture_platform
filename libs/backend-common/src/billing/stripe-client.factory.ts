@@ -6,6 +6,7 @@ import {
   IStripeApiClient,
   StripeCustomer,
   StripeIdempotencyKey,
+  StripeInvoice,
   StripeMetadata,
   StripeRefund,
   StripeSubscription,
@@ -82,6 +83,14 @@ function toStripeCustomer(customer: Stripe.Customer): StripeCustomer {
     id: customer.id,
     email: customer.email ?? null,
     metadata: (customer.metadata ?? {}) as StripeMetadata,
+  };
+}
+
+function toStripeInvoice(invoice: Stripe.Invoice): StripeInvoice {
+  return {
+    id: invoice.id,
+    status: invoice.status ?? null,
+    hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
   };
 }
 
@@ -185,6 +194,17 @@ class RealStripeClient implements IStripeApiClient {
     return toStripeRefund(refund);
   }
 
+  async finalizeInvoice(args: {
+    invoiceId: string;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeInvoice> {
+    const invoice = await this.stripe.invoices.finalizeInvoice(
+      args.invoiceId,
+      { idempotencyKey: args.idempotencyKey },
+    );
+    return toStripeInvoice(invoice);
+  }
+
   async reportMeterEvent(
     args: StripeMeterEvent & { idempotencyKey: StripeIdempotencyKey },
   ): Promise<void> {
@@ -231,6 +251,9 @@ class UnconfiguredStripeClient implements IStripeApiClient {
     return this.fail();
   }
   retrieveRefund(): Promise<StripeRefund> {
+    return this.fail();
+  }
+  finalizeInvoice(): Promise<StripeInvoice> {
     return this.fail();
   }
   reportMeterEvent(): Promise<void> {

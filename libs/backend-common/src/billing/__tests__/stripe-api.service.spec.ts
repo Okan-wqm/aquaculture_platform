@@ -57,6 +57,7 @@ function makeClient(): jest.Mocked<IStripeApiClient> {
     retrieveSubscription: jest.fn(),
     createRefund: jest.fn(),
     retrieveRefund: jest.fn(),
+    finalizeInvoice: jest.fn(),
     reportMeterEvent: jest.fn(),
   };
 }

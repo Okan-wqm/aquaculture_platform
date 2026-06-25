@@ -12,6 +12,7 @@ import {
   STRIPE_AUDIT_RECORDER,
   StripeCustomer,
   StripeIdempotencyKey,
+  StripeInvoice,
   StripeMetadata,
   StripeMeterEvent,
   StripeRefund,
@@ -227,6 +228,24 @@ export class StripeApiService {
       fn: () => this.client.retrieveRefund({ refundId: args.refundId }),
       options: STRIPE_BREAKER_OPTIONS_READ,
       fallback: () => null,
+    });
+  }
+
+  async finalizeInvoice(args: {
+    tenantId: string;
+    invoiceId: string;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeInvoice> {
+    return this.executeMutation({
+      tenantId: args.tenantId,
+      action: 'stripe.invoice.finalize',
+      resourceId: args.invoiceId,
+      metadata: { invoiceId: args.invoiceId },
+      fn: () =>
+        this.client.finalizeInvoice({
+          invoiceId: args.invoiceId,
+          idempotencyKey: args.idempotencyKey,
+        }),
     });
   }
 

@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
-import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -233,6 +233,18 @@ export class TokenService {
     // SSoT: the effective tenant this token is scoped to — the act-as target for
     // a SUPER_ADMIN switch, otherwise the user's own tenant.
     const effectiveTenantId = options?.actAsTenantId ?? user.tenantId ?? null;
+
+    // C1 (tenant-isolation invariant): every non-SUPER_ADMIN principal is
+    // tenant-scoped. Minting a token for one WITHOUT a resolved tenant would let
+    // downstream tenant routing (search_path / RLS / TenantGuard) fall back to an
+    // unscoped context — a cross-tenant hazard. SUPER_ADMIN is the only tenantless
+    // role by design. Fail closed rather than issue an unscoped tenant token.
+    if (user.role !== Role.SUPER_ADMIN && !effectiveTenantId) {
+      throw new ForbiddenException(
+        'A non-SUPER_ADMIN account cannot be issued a token without a tenant',
+      );
+    }
+
     // Enforce concurrent session limit
     if (this.sessionManager) {
       await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);

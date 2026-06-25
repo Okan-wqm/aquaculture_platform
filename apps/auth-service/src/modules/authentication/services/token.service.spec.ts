@@ -162,6 +162,19 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
 
     expect(capturedPayload().planLevel).toBe(0);
   });
+
+  // C1 (tenant-isolation invariant): SUPER_ADMIN is the only tenantless role.
+  it('rejects issuing a token to a non-SUPER_ADMIN principal with no tenant', async () => {
+    await expect(
+      service.generateTokens(buildUser({ role: Role.MODULE_USER, tenantId: null })),
+    ).rejects.toThrow(/without a tenant/i);
+  });
+
+  it('rejects a tenant-scoped TENANT_ADMIN whose tenant resolves to null', async () => {
+    await expect(
+      service.generateTokens(buildUser({ role: Role.TENANT_ADMIN, tenantId: null })),
+    ).rejects.toThrow(/without a tenant/i);
+  });
 });
 
 /**

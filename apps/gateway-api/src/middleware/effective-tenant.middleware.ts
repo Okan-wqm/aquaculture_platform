@@ -32,6 +32,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { isLoginAllowed, TenantStatus } from '@platform/event-contracts';
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 import type { Request, Response, NextFunction } from 'express';
 
 import { JwtPayload } from '../guards/auth.guard';
@@ -108,6 +109,24 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
     private readonly tenantLookup?: TenantActiveCheck,
   ) {}
 
+  /**
+   * A.4: set the request's effective tenant AND enrich the AsyncLocalStorage
+   * logging frame so every subsequent gateway log line carries the EFFECTIVE
+   * tenant. RequestContextMiddleware established the frame earlier from the JWT
+   * tenant only; for a SUPER_ADMIN acting-as a tenant the effective tenant
+   * differs, and StructuredLoggerService reads ctx.tenantId live at log time.
+   * No-op (and safe) when no ALS frame is active.
+   */
+  private setEffectiveTenant(
+    r: RequestWithEffectiveTenant,
+    tenantId: string | undefined,
+  ): void {
+    r.effectiveTenantId = tenantId;
+    if (tenantId) {
+      getRequestContext().tenantId = tenantId;
+    }
+  }
+
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const r = req as RequestWithEffectiveTenant;
     const user = r.user;
@@ -129,7 +148,7 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
         );
         throw new ForbiddenException('Cross-tenant access is not permitted for this account');
       }
-      r.effectiveTenantId = user.tenantId ?? undefined;
+      this.setEffectiveTenant(r, user.tenantId ?? undefined);
       return next();
     }
 
@@ -138,7 +157,7 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
       // Platform/system scope — no tenant selected. Tenant-scoped ops fail closed
       // downstream (RLS denies, TenantGuard/resolvers reject) rather than silently
       // returning another tenant's or empty data.
-      r.effectiveTenantId = user.tenantId ?? undefined;
+      this.setEffectiveTenant(r, user.tenantId ?? undefined);
       return next();
     }
 
@@ -170,7 +189,7 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
       throw new ForbiddenException('MFA step-up is required for cross-tenant access');
     }
 
-    r.effectiveTenantId = requested;
+    this.setEffectiveTenant(r, requested);
     if (isCrossTenant) {
       // Cross-tenant access is a security-relevant event — surface it. (The
       // signed assertion carries effectiveTenantId; downstream services audit

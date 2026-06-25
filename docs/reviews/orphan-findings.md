@@ -5256,6 +5256,66 @@ Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: 
 
 ---
 
+## ORPHAN-LOW-168 - TanStack Query cache not cleared on logout (cross-tenant cache defence)
+
+Severity: LOW (defence-in-depth; the tenant-scoped query-key factory already isolates most caches by `['tenant', tenantId, …]` — this closes the residual NON-tenant-keyed-query window).
+
+**Root cause:** the shared `AuthProvider`'s SPA logout path (`web/shared-ui/src/contexts/AuthContext.tsx`) calls `logoutCleanup()` but never passed/cleared the in-memory TanStack `QueryClient`. The SPA logout dispatches `LOGOUT` without a full page reload, so the QueryClient survives; a subsequent login on the same browser could read the previous user's cached tenant data for any query that wasn't tenant-keyed. `logoutCleanup` already clears sessionStorage / Zustand / SW caches / indexedDB / tenant-scoped localStorage and invokes registered callbacks, but the QueryClient was never wired in.
+
+**Fix (this commit):** register `queryClient.clear()` as a logout-cleanup callback in the shell bootstrap (`web/shell/src/bootstrap.tsx`, where the QueryClient is created) via the existing `registerLogoutCleanup` mechanism — NOT via `useQueryClient()` inside the shared `AuthProvider`, which would throw for consumers that mount it without a `QueryClientProvider` (e.g. dashboard standalone, aquamobil uses its own AuthProvider). shell `tsc` clean.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-169 - retire the dormant SUPER_ADMIN `switchTenant` act-as surface (WS-C C2)
+
+Severity: MEDIUM (security hygiene — an auth-gated cross-tenant token-mint that no client can reach is latent attack surface). The FE SUPER_ADMIN tenant-switcher was removed in #627 (product rule: a SUPER_ADMIN manages the platform; a TENANT_ADMIN enters data in its own module-scoped panel), leaving the `switchTenant` mutation + the `actAsTenantId` token claim dormant.
+
+**Evidence it is dormant:** no FE `switchTenant` GraphQL mutation call exists anywhere in `web/` (the `useTenant`/`TenantContext` `switchTenant` is a separate unimplemented stub, never invoked); and the `actAsTenantId` JWT claim is WRITE-ONLY — set in `TokenService.generateTokens` but read by NOTHING across apps/libs/platform (the gateway's act-as is header-based via `effective-tenant.middleware`, a separate mechanism, untouched).
+
+**Fix (this commit):** remove `AuthResolver.switchTenant` (the `@Mutation`), `AuthenticationService.switchTenant`, the `generateTokens({ actAsTenantId })` option, the `actAsTenantId` field on `JwtPayload`, and the act-as branch in the JWT payload — `effectiveTenantId` now simplifies to `user.tenantId ?? null`. The `me` effective-tenant behaviour (#625) is KEPT and re-documented: `me` reports the JWT tenant claim (the session SSoT), which for a normal user equals the DB tenant and for a SUPER_ADMIN is null — correct and now independent of any act-as. switchTenant unit tests removed; the `me` tests retained + reworded; auth `tsc` clean; auth spec 33/33 green. The header-based gateway act-as (`x-act-as-tenant` / `effective-tenant.middleware`, #622) is OUT OF SCOPE and untouched.
+
+Status: RESOLVED (2026-06-25; backend act-as token surface retired). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-170 - tenant-admin GraphQL client bypassed the shared auth lifecycle (WS-B B3)
+
+Severity: MEDIUM (the tenant-admin surface — used by a TENANT_ADMIN to manage its own tenant — could fire GraphQL before the access token was restored, and never auto-recovered from a 401, manifesting as the intermittent empty/failed panel loads).
+
+**Root cause:** `web/modules/tenant-admin/src/services/api-client.ts` `TenantApiClient.graphql<T>` did a RAW `fetch('/graphql', { credentials:'include', headers:{Authorization, X-Tenant-Id} })`. It LACKED the three guarantees the shared `graphqlClient` provides: `tokenLifecycle.waitForReady()` (a barrier so no request fires before the in-memory token is restored on page load — directly relevant to the refresh/restore race), `attachCsrfHeader`, and the `401 → refresh → retry-once` recovery.
+
+**Fix (this commit):** `TenantApiClient.graphql` now delegates to the shared `graphqlClient.request<T>(query, variables)` (same signature), inheriting waitForReady + CSRF + 401-retry; the raw fetch, manual headers, and ad-hoc HTTP/GraphQL error handling are removed. The class, its singleton `apiClient`, the public method shape, and all callers (`lib/api.ts`, `services/index.ts`, `tenant-api.service.ts`, `hooks/useTenantData.ts`) are unchanged. tenant-admin `tsc` clean.
+
+**Tracked WS-B remainder:** B7 (sensor WebSocket pool tenant-scoping), and promoting `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error once the pre-existing violations are migrated.
+
+Status: RESOLVED for B3 (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-171 - gateway ALS logging frame missed the effective tenant for a SUPER_ADMIN act-as (WS-A.4)
+
+Severity: LOW (observability correctness — no data-isolation impact; the gateway does no DB RLS). Raised by the 2nd-agent plan review (point 4).
+
+**Root cause:** in `apps/gateway-api/src/app.module.ts` the middleware order is `RequestContextMiddleware → CaptureRequestedTenant → Strip → … → EffectiveTenantMiddleware`. `RequestContextMiddleware` establishes the AsyncLocalStorage logging frame FIRST, reading the tenant only from the JWT (`x-user-payload`). `EffectiveTenantMiddleware` runs later and computes the EFFECTIVE tenant (which, for a SUPER_ADMIN acting-as a tenant via the still-supported header path, differs from the null JWT tenant) but only wrote `req.effectiveTenantId` — it never updated the ALS frame. So every gateway log line for a SUPER_ADMIN act-as was attributed to the wrong (null/JWT) tenant.
+
+**Fix (this commit):** `EffectiveTenantMiddleware` now enriches the live ALS frame — `getRequestContext().tenantId = effectiveTenantId` — via a `setEffectiveTenant()` helper applied at every effective-tenant assignment. `getRequestContext()` returns the live mutable store and `StructuredLoggerService` reads `ctx.tenantId` at log time, so all subsequent log lines carry the effective tenant. Chosen over REORDERING the critical auth middleware chain (which would establish the correlation frame too late for Capture/Strip/EffectiveTenant). Safe no-op when no ALS frame is active. 3 enrichment unit tests added (regular user, SUPER_ADMIN act-as → target, no-frame no-op); gateway `tsc` clean; spec 15/15.
+
+Status: RESOLVED (2026-06-25; ALS-frame enrichment, no chain reorder). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-172 - sensor Socket.IO pool keyed by URL only → cross-tenant realtime bleed (WS-B B7)
+
+Severity: MEDIUM (realtime cross-tenant bleed). The sensor-module Socket.IO connection pool (`web/modules/sensor-module/src/hooks/socketFactory.ts`) keyed entries by **URL only** (`pool.get(url)`). A connected socket keeps its original `auth` until it disconnects, so after logout → re-login (same browser, different tenant) `getSocket(url)` returned the EXISTING socket still bound to the previous tenant's session — leaking tenant A's realtime stream (sensor readings, alarms, edge I/O, SCADA live data) to tenant B. The pool also never tore down on logout.
+
+**Fix (this commit):** (1) tenant-scope the pool key via a `poolKey(url, tenantId)` SSoT helper (`${url}::${tenantId}`) applied at every get/set/release site, with `getSocket` returning `null` when there is no `tenantId` (mirrors the existing no-token guard — no tenant-scoped realtime socket without a tenant); refcounting stays balanced because the URL+tenant are fixed for a live session. (2) `teardownAllSockets()` (disconnect every pooled socket + clear the Map) registered once via `registerLogoutCleanup`, so logout fully severs all realtime connections before a different user can log in. No `PoolEntry`/signature change; the four callers (`useSensorSocket`, `useEdgeIoSocket`, `useAlarmRuntime`, `useScadaLiveData`) are unchanged. sensor-module `tsc` clean; no new `as any`.
+
+Status: RESOLVED for B7 (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
 ## ORPHAN-LOW-173 - E2E regression coverage for the tenant-context intermittency (WS-D)
 
 Severity: LOW (test coverage — locks in the session's tenant-context fixes against regression). Directly reproduces the operator's reported "data comes and goes" (bir geliyor bir gelmiyor).

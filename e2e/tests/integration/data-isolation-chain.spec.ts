@@ -233,4 +233,63 @@ describe('Data Isolation Chain', () => {
     }
     // If no error, the system may not expose this query to non-admins
   });
+
+  // ==========================================================================
+  // WS-D: tenant-context STABILITY under repeated load — directly reproduces the
+  // operator's "data comes and goes" (bir geliyor bir gelmiyor). The refresh-RLS
+  // fix (#634), the 9-subgraph verified-user-assertion mount + HMAC raw-body SSoT
+  // (#630/#631), and the gateway effectiveTenantId signing (#622) must hold across
+  // many sequential AND concurrent requests — no intermittent empty result, no
+  // intermittent "assertion required" 400, and never another tenant's rows.
+  // ==========================================================================
+  describe('tenant-context stability under repeated load (WS-D)', () => {
+    const ITERATIONS = 30;
+
+    it(`returns Tenant A data on ALL ${ITERATIONS} sequential queries (no intermittent empty/400)`, async () => {
+      const loginA = await loginAs(tenantAUserEmail, tenantAUserPassword);
+      for (let i = 0; i < ITERATIONS; i++) {
+        const response = await queryTenantUsers(loginA.accessToken);
+        expect(hasGraphQLError(response)).toBe(false);
+        const emails = response.data?.tenantUsers.map((u) => u.email) ?? [];
+        expect(emails).toContain(tenantAUserEmail);
+        expect(emails).not.toContain(tenantBUserEmail);
+      }
+    }, 60000);
+
+    it(`returns Tenant A data on ALL ${ITERATIONS} CONCURRENT queries (assertion/schema race)`, async () => {
+      const loginA = await loginAs(tenantAUserEmail, tenantAUserPassword);
+      const responses = await Promise.all(
+        Array.from({ length: ITERATIONS }, () => queryTenantUsers(loginA.accessToken)),
+      );
+      for (const response of responses) {
+        expect(hasGraphQLError(response)).toBe(false);
+        const emails = response.data?.tenantUsers.map((u) => u.email) ?? [];
+        expect(emails).toContain(tenantAUserEmail);
+        expect(emails).not.toContain(tenantBUserEmail);
+      }
+    }, 60000);
+
+    it(`never bleeds the other tenant under ${ITERATIONS} INTERLEAVED A/B queries`, async () => {
+      const [loginA, loginB] = await Promise.all([
+        loginAs(tenantAUserEmail, tenantAUserPassword),
+        loginAs(tenantBUserEmail, tenantBUserPassword),
+      ]);
+      const results = await Promise.all(
+        Array.from({ length: ITERATIONS }, (_, i) => {
+          const isA = i % 2 === 0;
+          return queryTenantUsers((isA ? loginA : loginB).accessToken).then((r) => ({ isA, r }));
+        }),
+      );
+      for (const { isA, r } of results) {
+        // A permission error is acceptable; a cross-tenant bleed is NOT.
+        if (hasGraphQLError(r)) continue;
+        const emails = r.data?.tenantUsers.map((u) => u.email) ?? [];
+        if (isA) {
+          expect(emails).not.toContain(tenantBUserEmail);
+        } else {
+          expect(emails).not.toContain(tenantAUserEmail);
+        }
+      }
+    }, 60000);
+  });
 });

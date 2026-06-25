@@ -5313,3 +5313,15 @@ Severity: MEDIUM (realtime cross-tenant bleed). The sensor-module Socket.IO conn
 **Fix (this commit):** (1) tenant-scope the pool key via a `poolKey(url, tenantId)` SSoT helper (`${url}::${tenantId}`) applied at every get/set/release site, with `getSocket` returning `null` when there is no `tenantId` (mirrors the existing no-token guard — no tenant-scoped realtime socket without a tenant); refcounting stays balanced because the URL+tenant are fixed for a live session. (2) `teardownAllSockets()` (disconnect every pooled socket + clear the Map) registered once via `registerLogoutCleanup`, so logout fully severs all realtime connections before a different user can log in. No `PoolEntry`/signature change; the four callers (`useSensorSocket`, `useEdgeIoSocket`, `useAlarmRuntime`, `useScadaLiveData`) are unchanged. sensor-module `tsc` clean; no new `as any`.
 
 Status: RESOLVED for B7 (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-173 - E2E regression coverage for the tenant-context intermittency (WS-D)
+
+Severity: LOW (test coverage — locks in the session's tenant-context fixes against regression). Directly reproduces the operator's reported "data comes and goes" (bir geliyor bir gelmiyor).
+
+**Gap:** the existing `e2e/tests/integration/data-isolation-chain.spec.ts` proved single-shot tenant A/B isolation but never exercised the INTERMITTENCY — the operator's symptom was a query that returned data on one request and empty/400 on the next, under the refresh/assertion/schema-routing races now fixed by #622 (gateway effectiveTenantId), #630/#631 (HMAC raw-body SSoT + 9-subgraph verified-user-assertion), and #634 (refresh RLS bypass).
+
+**Fix (this commit):** extend that suite with a `tenant-context stability under repeated load (WS-D)` block that fires the real `tenantUsers` query 30× SEQUENTIALLY and 30× CONCURRENTLY as Tenant A — asserting every response returns A's data with no GraphQL error (no intermittent empty/"assertion required" 400) and never B's rows — plus a 30× INTERLEAVED A/B run asserting no cross-tenant bleed. Reuses the existing harness (`loginAs`, `queryTenantUsers`, `hasGraphQLError`) and the A/B tenants seeded in `beforeAll`; runs in the `e2e-tests.yml` workflow against a live stack.
+
+Status: RESOLVED (2026-06-25; intermittency regression coverage added). Registry: orphan-findings.md only.

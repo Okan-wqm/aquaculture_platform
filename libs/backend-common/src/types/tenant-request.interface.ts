@@ -27,6 +27,13 @@ export interface VerifiedUserAssertion {
    * `mobileFeatures` claim so MobileFeatureGuard can enforce entitlements.
    */
   mobileFeatures?: string[];
+  /**
+   * SSOT-C-13: the tenant's plan tier ordinal (canonical PLAN_LEVEL: FREE/TRIAL=0,
+   * STARTER=1, PROFESSIONAL=2, ENTERPRISE=3). Threaded from the JWT `planLevel`
+   * claim so resource-create handlers can enforce per-plan quotas without a
+   * cross-service tenant lookup. Absent for platform SUPER_ADMIN tokens.
+   */
+  planLevel?: number;
 }
 
 export interface VerifiedServiceIdentity {
@@ -64,6 +71,11 @@ export interface JwtUser {
    * MobileFeatureGuard to enforce mobile entitlements server-side.
    */
   mobileFeatures?: string[];
+  /**
+   * SSOT-C-13: tenant plan tier ordinal (PLAN_LEVEL) for per-plan quota
+   * enforcement. Populated from the verified assertion / direct JWT.
+   */
+  planLevel?: number;
 }
 
 /**

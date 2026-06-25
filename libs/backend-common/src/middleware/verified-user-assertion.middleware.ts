@@ -75,11 +75,20 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
             ? { mobileFeatures: assertion.mobileFeatures }
             : {}),
         };
-      }
 
-      for (const header of LEGACY_IDENTITY_HEADERS) {
-        if (req.headers[header]) {
-          Reflect.deleteProperty(req.headers, header);
+        // Once the gateway assertion is the authoritative identity, drop the
+        // legacy identity headers so UserContextMiddleware cannot re-derive a
+        // different (or forged) user from them. Strip ONLY when an assertion is
+        // present: in dev/E2E (no assertion) the legacy x-user-payload path is
+        // the test harness's identity source, and a no-assertion PRODUCTION
+        // gateway request is already rejected above (requiresGatewayAssertion),
+        // while StripInternalHeadersMiddleware removes spoofable headers from
+        // non-signed production requests. Stripping unconditionally here broke
+        // every subgraph E2E that authenticates via x-user-payload.
+        for (const header of LEGACY_IDENTITY_HEADERS) {
+          if (req.headers[header]) {
+            Reflect.deleteProperty(req.headers, header);
+          }
         }
       }
 

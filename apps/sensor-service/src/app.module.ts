@@ -491,7 +491,27 @@ export class AppModule implements NestModule {
     // prefixed form are excluded to fail safe.
     consumer
       .apply(VerifiedUserAssertionMiddleware)
-      .exclude('mqtt', 'mqtt/{*path}', 'api/v1/mqtt', 'api/v1/mqtt/{*path}')
+      // Non-gateway public surfaces that carry NO gateway service identity and
+      // would otherwise 400 in production (requiresServiceIdentity):
+      //  - /mqtt/*           Mosquitto go-auth plugin (edge-device/mqtt-auth.controller)
+      //  - /install/*, /api/devices/*  edge-device provisioning + activation,
+      //    called DIRECTLY by edge agents (nginx proxies these to sensor,
+      //    bypassing the gateway — edge-device/provisioning.controller, @Public()).
+      // Both prefix-stripped and api/v1-prefixed forms are excluded to fail safe.
+      .exclude(
+        'mqtt',
+        'mqtt/{*path}',
+        'api/v1/mqtt',
+        'api/v1/mqtt/{*path}',
+        'install',
+        'install/{*path}',
+        'api/v1/install',
+        'api/v1/install/{*path}',
+        'api/devices',
+        'api/devices/{*path}',
+        'api/v1/api/devices',
+        'api/v1/api/devices/{*path}',
+      )
       .forRoutes('*');
 
     consumer

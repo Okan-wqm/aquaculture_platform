@@ -107,6 +107,35 @@ describe('INVARIANT (SEC-HIGH-156): VerifiedUserAssertionMiddleware mounted in e
     },
   );
 
+  /**
+   * Exclusion-completeness: a subgraph that ALSO serves a non-gateway public
+   * HTTP surface (a route reached directly by an edge agent / external system,
+   * carrying no gateway service identity) MUST `.exclude()` that surface from
+   * VerifiedUserAssertionMiddleware — otherwise it 400s "requires service
+   * identity" in production. These are the surfaces a prior revision missed
+   * (sensor /install + /api/devices, ai /api/v2/ai), so they are pinned here.
+   */
+  const REQUIRED_EXCLUSIONS: ReadonlyArray<[string, ReadonlyArray<string>]> = [
+    ['sensor-service', ['mqtt', 'install', 'api/devices']],
+    ['billing-service', ['webhooks']],
+    ['ai-service', ['api/v2/ai']],
+  ];
+
+  it.each(REQUIRED_EXCLUSIONS)(
+    'subgraph %s excludes its non-gateway public routes from the assertion middleware',
+    (service, patterns) => {
+      const src = readFileSync(
+        resolve(REPO_ROOT, `apps/${service}/src/app.module.ts`),
+        'utf8',
+      );
+      // The exclude must scope the assertion middleware specifically (a 3-way
+      // split), so the file carries a `.exclude(` listing each public prefix.
+      for (const pattern of patterns) {
+        expect(src).toMatch(new RegExp(`\\.exclude\\([^)]*['"]${pattern}['"]`, 's'));
+      }
+    },
+  );
+
   it('the canonical middleware lives at libs/backend-common/src/middleware', () => {
     const lsFiles = execFileSync(
       'git',

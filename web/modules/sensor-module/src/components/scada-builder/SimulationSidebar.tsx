@@ -24,7 +24,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { getTenantId } from '@aquaculture/shared-ui';
+import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import { useScadaStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
 import { useSimulation } from '../../simulation';
@@ -74,14 +74,17 @@ function getMinMax(config: Record<string, any>): { min?: number; max?: number } 
   };
 }
 
-function getScenarioStorageKey(): string {
-  const tenantId = getTenantId() || 'default';
-  return `scada-sim-scenarios-${tenantId}`;
+// Returns null when no tenant is resolved so callers no-op rather than writing
+// to a shared 'default' bucket that would bleed scenarios across tenants.
+function getScenarioStorageKey(): string | null {
+  return tenantScopedStorageKey('scada-sim-scenarios', getTenantId());
 }
 
 function loadCustomScenarios(): Scenario[] {
+  const key = getScenarioStorageKey();
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(getScenarioStorageKey());
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -89,7 +92,9 @@ function loadCustomScenarios(): Scenario[] {
 }
 
 function saveCustomScenarios(scenarios: Scenario[]) {
-  localStorage.setItem(getScenarioStorageKey(), JSON.stringify(scenarios));
+  const key = getScenarioStorageKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(scenarios));
 }
 
 /* ------------------------------------------------------------------ */

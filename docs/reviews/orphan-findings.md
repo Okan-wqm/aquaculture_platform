@@ -5248,3 +5248,27 @@ update the tests to accept hard-delete. (a) preserves history and matches the te
 but needs a migration on the index.
 
 Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-168 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during W1.1 change-subscription-plan Stripe rewrite (SSOT-C-12)
+**File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path)
+
+**Problem:** change-subscription-plan now syncs the Stripe subscription price for
+IMMEDIATE changes (upgrade / explicit-immediate / lateral) via
+StripeApiService.updateSubscription. But a DOWNGRADE is intentionally deferred to
+period end and persisted as a `ScheduledPlanChange` row; the billing scheduler cron
+applies it later by mutating the local subscription. That apply path does NOT call
+StripeApiService.updateSubscription, so after a scheduled downgrade applies, the
+Stripe subscription keeps billing the OLD (higher) price.
+
+**Fix:** in the scheduler's scheduled-change apply path, when the subscription has a
+stripeSubscriptionId and the new plan has a stripePriceIds[cycle], call
+StripeApiService.updateSubscription (idempotencyKey
+`sub-update:<stripeSubscriptionId>:<newPlanId>`) BEFORE committing the local mutation
+(same fail-closed ordering as the immediate path).
+
+**Why not fixed in PR-3:** distinct code path in a different class
+(BillingSchedulerService cron) with its own tx + idempotency. Owner: billing.
+Status: OPEN. Registry: orphan-findings.md.

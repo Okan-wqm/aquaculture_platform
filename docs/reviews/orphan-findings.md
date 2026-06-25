@@ -5225,3 +5225,26 @@ twice), project the gateway `TenantFeatures` from it, delete both copies, and ad
 per-tier-map invariant guard to forbid a future copy.
 
 Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-167 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during W1.1 create-subscription Stripe rewrite (BILLING-CRITICAL-001 / SSOT-C-12)
+**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts` (existing-subscription branch, `subscriptionRepo.delete({ id })`)
+
+**Problem:** When a tenant re-subscribes after a CANCELLED subscription, the handler
+HARD-deletes the old row (`subscriptionRepo.delete(...)`) — explicitly to avoid the
+`UNIQUE(tenantId)` index violation. But `create-subscription.handler.spec.ts` has two
+tests asserting SOFT-delete semantics (`mockRepo.delete` NOT called, `cancelledSub.isDeleted=true`,
+`deletedAt instanceof Date`) — i.e. the intended design is to preserve subscription
+HISTORY, not erase it. These 2 tests fail on `main` today (PRE-EXISTING; verified via
+git-stash on HEAD: 2 fail / 32 pass with the original handler) — the test and the
+handler disagree on the cancelled-row strategy.
+
+**Why not fixed here:** out of scope for the Stripe integration (SSOT-C-12). The correct
+fix is a design call: either (a) make the unique index PARTIAL (`WHERE is_deleted = false`)
+so a soft-deleted cancelled row can coexist with the new one, then soft-delete; or (b)
+update the tests to accept hard-delete. (a) preserves history and matches the test intent,
+but needs a migration on the index.
+
+Owner: billing. Status: OPEN. Registry: orphan-findings.md only.

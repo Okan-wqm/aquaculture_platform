@@ -11,8 +11,14 @@
  */
 
 import { ConflictException, InternalServerErrorException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateSubscriptionHandler } from '../../billing/handlers/create-subscription.handler';
+import { Plan } from '../../billing/entities/plan.entity';
 import { CreateSubscriptionCommand } from '../../billing/commands/create-subscription.command';
 import { CreateSubscriptionInput } from '../../billing/dto/create-subscription.input';
 import {
@@ -102,21 +108,44 @@ describe('CreateSubscriptionHandler', () => {
   let mockRepo: ReturnType<typeof createMockRepository>;
   let mockQR: ReturnType<typeof createMockQueryRunner>;
   let mockDS: ReturnType<typeof createMockDataSource>;
-  let mockEventBus: { publish: jest.Mock };
+  let mockOutbox: { enqueue: jest.Mock };
+  let mockStripe: { createCustomer: jest.Mock; createSubscription: jest.Mock };
+  let mockPlanRepo: { findOne: jest.Mock };
   let mockRedisService: { del: jest.Mock };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockRepo = createMockRepository();
     mockQR = createMockQueryRunner(mockRepo);
     mockDS = createMockDataSource(mockQR);
-    mockEventBus = { publish: jest.fn().mockResolvedValue(undefined) };
+    mockOutbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    mockStripe = {
+      createCustomer: jest.fn().mockResolvedValue({ id: 'cus_test', email: null, metadata: {} }),
+      createSubscription: jest.fn().mockResolvedValue({
+        id: 'sub_test',
+        customer: 'cus_test',
+        status: 'active',
+        currentPeriodStartIso: '2026-01-01T00:00:00.000Z',
+        currentPeriodEndIso: '2026-02-01T00:00:00.000Z',
+        metadata: {},
+      }),
+    };
+    // Default: no Stripe price configured → local-only path (no Stripe calls).
+    mockPlanRepo = { findOne: jest.fn().mockResolvedValue(null) };
     mockRedisService = { del: jest.fn().mockResolvedValue(1) };
 
-    handler = new CreateSubscriptionHandler(
-      mockDS as unknown as DataSource,
-      mockEventBus as any,
-      mockRedisService as any,
-    );
+    // DI-provided mocks (useValue is untyped) avoid hand-written casts on the
+    // handler's DataSource / OutboxPublisher / StripeApiService / Plan-repo deps.
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        CreateSubscriptionHandler,
+        { provide: DataSource, useValue: mockDS },
+        { provide: OutboxPublisher, useValue: mockOutbox },
+        { provide: StripeApiService, useValue: mockStripe },
+        { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
+        { provide: RedisService, useValue: mockRedisService },
+      ],
+    }).compile();
+    handler = moduleRef.get(CreateSubscriptionHandler);
   });
 
   afterEach(() => {
@@ -429,11 +458,17 @@ describe('CreateSubscriptionHandler', () => {
     });
 
     it('should work when RedisService is not injected', async () => {
-      const handlerNoRedis = new CreateSubscriptionHandler(
-        mockDS as unknown as DataSource,
-        mockEventBus as any,
-        undefined, // no Redis
-      );
+      // No RedisService provider → @Optional() injects undefined.
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          CreateSubscriptionHandler,
+          { provide: DataSource, useValue: mockDS },
+          { provide: OutboxPublisher, useValue: mockOutbox },
+          { provide: StripeApiService, useValue: mockStripe },
+          { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
+        ],
+      }).compile();
+      const handlerNoRedis = moduleRef.get(CreateSubscriptionHandler);
       mockRepo.findOne.mockResolvedValue(null);
 
       const result = await handlerNoRedis.execute(buildCommand());
@@ -445,26 +480,62 @@ describe('CreateSubscriptionHandler', () => {
   // NATS EVENT PUBLISHING
   // ==========================================================================
 
-  describe('NATS event publishing', () => {
-    it('should publish SubscriptionCreated event after commit', async () => {
+  describe('transactional outbox (BILLING-CRITICAL-001)', () => {
+    it('enqueues SubscriptionCreated into the outbox inside the tx (before commit)', async () => {
       mockRepo.findOne.mockResolvedValue(null);
 
       await handler.execute(buildCommand());
 
-      expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const publishedEvent = mockEventBus.publish.mock.calls[0][0];
-      expect(publishedEvent.subscriptionId).toBe('sub-uuid-001');
-      expect(publishedEvent.tier).toBe(PlanTier.PROFESSIONAL);
-      expect(publishedEvent.currency).toBe('USD');
+      expect(mockOutbox.enqueue).toHaveBeenCalledTimes(1);
+      const enqueuedEvent = mockOutbox.enqueue.mock.calls[0][0];
+      expect(enqueuedEvent.subscriptionId).toBe('sub-uuid-001');
+      expect(enqueuedEvent.tier).toBe(PlanTier.PROFESSIONAL);
+      expect(enqueuedEvent.currency).toBe('USD');
+      // enqueue happens BEFORE commit — atomic with the subscription write.
+      const enqueueOrder = (mockOutbox.enqueue as jest.Mock).mock.invocationCallOrder[0] ?? 0;
+      const commitOrder = (mockQR.commitTransaction as jest.Mock).mock.invocationCallOrder[0] ?? Infinity;
+      expect(enqueueOrder).toBeLessThan(commitOrder);
     });
 
-    it('should not fail if event publishing fails', async () => {
+    it('rolls back the tx (no commit) when the outbox enqueue fails — atomic, not fire-and-forget', async () => {
       mockRepo.findOne.mockResolvedValue(null);
-      mockEventBus.publish.mockRejectedValue(new Error('NATS connection lost'));
+      mockOutbox.enqueue.mockRejectedValue(new Error('outbox insert failed'));
 
-      // Should still succeed — event failure is non-fatal
-      const result = await handler.execute(buildCommand());
-      expect(result).toBeDefined();
+      await expect(handler.execute(buildCommand())).rejects.toThrow();
+      expect(mockQR.commitTransaction).not.toHaveBeenCalled();
+      expect(mockQR.rollbackTransaction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Stripe-first real billing (SSOT-C-12)', () => {
+    it('creates a Stripe subscription and persists the real ids when the plan has a Stripe price', async () => {
+      mockRepo.findOne.mockResolvedValue(null);
+      mockPlanRepo.findOne.mockResolvedValue({
+        tier: PlanTier.PROFESSIONAL,
+        isActive: true,
+        stripePriceIds: { monthly: 'price_pro_monthly' },
+      });
+
+      await handler.execute(buildCommand());
+
+      expect(mockStripe.createSubscription).toHaveBeenCalledTimes(1);
+      const stripeArgs = mockStripe.createSubscription.mock.calls[0][0];
+      expect(stripeArgs.priceId).toBe('price_pro_monthly');
+      expect(stripeArgs.idempotencyKey).toContain('sub-create:');
+      // The persisted row carries the REAL Stripe ids, not the DTO value.
+      const saved = (mockRepo.save as jest.Mock).mock.calls[0][0];
+      expect(saved.stripeSubscriptionId).toBe('sub_test');
+      expect(saved.stripeCustomerId).toBe('cus_test');
+    });
+
+    it('skips Stripe (local-only) when the plan has no Stripe price', async () => {
+      mockRepo.findOne.mockResolvedValue(null);
+      // default mockPlanRepo.findOne → null (no price)
+
+      await handler.execute(buildCommand());
+
+      expect(mockStripe.createSubscription).not.toHaveBeenCalled();
+      expect(mockStripe.createCustomer).not.toHaveBeenCalled();
     });
   });
 

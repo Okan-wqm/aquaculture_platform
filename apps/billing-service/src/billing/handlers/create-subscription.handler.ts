@@ -1,12 +1,15 @@
-import { Injectable, ConflictException, Logger, InternalServerErrorException, Optional, Inject } from '@nestjs/common';
-import { DataSource, QueryRunner } from 'typeorm';
+import { Injectable, ConflictException, Logger, InternalServerErrorException, Optional } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
+import { Plan } from '../entities/plan.entity';
 import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
 @AuditedOperation({ resource: 'Subscription', action: 'CREATE' })
@@ -19,7 +22,9 @@ export class CreateSubscriptionHandler
 
   constructor(
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly stripeApi: StripeApiService,
+    @InjectRepository(Plan) private readonly planRepository: Repository<Plan>,
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
@@ -61,6 +66,45 @@ export class CreateSubscriptionHandler
 
     if (input.trialDays && input.trialDays > 0 && input.trialDays > 30) {
       throw new ConflictException('Trial period cannot exceed 30 days');
+    }
+
+    // W1.1 (BILLING-CRITICAL-001 / SSOT-C-12): outbound Stripe runs BEFORE the DB
+    // tx — never hold a pool connection across a network call (the pool-exhaustion
+    // antipattern this handler already warns about). When the plan carries a
+    // denormalized Stripe price (billing.plans.stripe_price_ids[cycle], W1.1) we
+    // charge for real and fail-closed; deterministic idempotency keys make a
+    // retry after a later DB failure reuse the same Stripe objects (no double
+    // charge). Plans with no Stripe price yet create local-only (logged) until
+    // an admin configures the price.
+    const plan = await this.planRepository.findOne({
+      where: { tier: input.planTier, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+    const stripePriceId = plan?.stripePriceIds?.[input.billingCycle] ?? null;
+
+    let stripeCustomerId: string | undefined = input.stripeCustomerId ?? undefined;
+    let stripeSubscriptionId: string | undefined;
+    if (stripePriceId) {
+      if (!stripeCustomerId) {
+        const customer = await this.stripeApi.createCustomer({
+          tenantId,
+          idempotencyKey: `cust-create:${tenantId}`,
+        });
+        stripeCustomerId = customer.id;
+      }
+      const stripeSub = await this.stripeApi.createSubscription({
+        tenantId,
+        customerId: stripeCustomerId,
+        priceId: stripePriceId,
+        idempotencyKey: `sub-create:${tenantId}:${input.planTier}:${input.billingCycle}`,
+      });
+      stripeSubscriptionId = stripeSub.id;
+      stripeCustomerId = stripeSub.customer || stripeCustomerId;
+    } else {
+      this.logger.warn(
+        `Plan ${input.planTier}/${input.billingCycle} has no Stripe price configured; ` +
+          `creating a local-only subscription for tenant ${tenantId} (no Stripe charge).`,
+      );
     }
 
     // Create a query runner for transaction management
@@ -129,14 +173,43 @@ export class CreateSubscriptionHandler
         currentPeriodEnd: periodEnd,
         trialEndDate,
         autoRenew: input.autoRenew !== false,
-        stripeCustomerId: input.stripeCustomerId,
+        // W1.1: the REAL Stripe-generated ids (or undefined for local-only plans),
+        // never the raw DTO value.
+        stripeCustomerId,
+        stripeSubscriptionId,
         createdBy: userId,
         updatedBy: userId,
       });
 
       const savedSubscription = await subscriptionRepo.save(subscription);
 
-      // Commit transaction
+      // BILLING-CRITICAL-001: enqueue SubscriptionCreated into the transactional
+      // outbox INSIDE the tx — atomic with the subscription write. Replaces the
+      // prior post-commit fire-and-forget eventBus.publish that could silently
+      // drop the event if the broker was down after commit. The outbox relay
+      // publishes to NATS at-least-once after commit.
+      const event: SubscriptionCreatedEvent = {
+        ...createBaseEvent<SubscriptionCreatedEvent>('SubscriptionCreated', tenantId, {
+          userId,
+          aggregateId: savedSubscription.id,
+        }),
+        subscriptionId: savedSubscription.id,
+        tier: savedSubscription.planTier as SubscriptionCreatedEvent['tier'],
+        monthlyPrice: input.pricing.basePrice,
+        currency: input.pricing.currency || 'USD',
+        startDate: savedSubscription.startDate,
+        features: {
+          maxFarms: savedSubscription.limits?.maxFarms,
+          maxPonds: savedSubscription.limits?.maxPonds,
+          maxSensors: savedSubscription.limits?.maxSensors,
+          maxUsers: savedSubscription.limits?.maxUsers,
+        },
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: savedSubscription.id,
+      });
+
+      // Commit transaction (subscription row + outbox row commit together)
       await queryRunner.commitTransaction();
 
       // Invalidate subscription cache so the new subscription is immediately visible
@@ -145,34 +218,9 @@ export class CreateSubscriptionHandler
       }
 
       this.logger.log(
-        `Subscription created: ${savedSubscription.id} for tenant ${tenantId} with plan ${input.planTier} by user ${userId}`,
+        `Subscription created: ${savedSubscription.id} for tenant ${tenantId} with plan ${input.planTier} by user ${userId}` +
+          (stripeSubscriptionId ? ` (stripe ${stripeSubscriptionId})` : ' (local-only, no Stripe price)'),
       );
-
-      // Publish NATS event so other services can react to the new subscription
-      try {
-        const event: SubscriptionCreatedEvent = {
-          ...createBaseEvent<SubscriptionCreatedEvent>('SubscriptionCreated', tenantId, { userId }),
-          subscriptionId: savedSubscription.id,
-          tier: savedSubscription.planTier as SubscriptionCreatedEvent['tier'],
-          monthlyPrice: input.pricing.basePrice,
-          currency: input.pricing.currency || 'USD',
-          startDate: savedSubscription.startDate,
-          features: {
-            maxFarms: savedSubscription.limits?.maxFarms,
-            maxPonds: savedSubscription.limits?.maxPonds,
-            maxSensors: savedSubscription.limits?.maxSensors,
-            maxUsers: savedSubscription.limits?.maxUsers,
-          },
-        };
-        await this.eventBus?.publish(event);
-      } catch (eventError) {
-        // Event publish failure must not block the main operation
-        this.logger.warn(
-          `Failed to publish SubscriptionCreated event for ${savedSubscription.id}: ${
-            eventError instanceof Error ? eventError.message : 'Unknown error'
-          }`,
-        );
-      }
 
       return savedSubscription;
     } catch (error) {

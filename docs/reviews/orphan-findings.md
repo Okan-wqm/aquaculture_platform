@@ -5253,3 +5253,17 @@ Severity: MEDIUM (cross-tenant UI-state bleed during the null/changing-tenant wi
 **Tracked WS-B remainder:** B3 (tenant-admin custom client → shared graphqlClient lifecycle/CSRF/401-refresh), B7 (sensor WebSocket pool tenant-scoping + logout cache sweep via `sweepTenantScopedStorage`), and promoting the existing `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error (needs the ~420 + ~50 pre-existing violations migrated first).
 
 Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-170 - tenant-admin GraphQL client bypassed the shared auth lifecycle (WS-B B3)
+
+Severity: MEDIUM (the tenant-admin surface — used by a TENANT_ADMIN to manage its own tenant — could fire GraphQL before the access token was restored, and never auto-recovered from a 401, manifesting as the intermittent empty/failed panel loads).
+
+**Root cause:** `web/modules/tenant-admin/src/services/api-client.ts` `TenantApiClient.graphql<T>` did a RAW `fetch('/graphql', { credentials:'include', headers:{Authorization, X-Tenant-Id} })`. It LACKED the three guarantees the shared `graphqlClient` provides: `tokenLifecycle.waitForReady()` (a barrier so no request fires before the in-memory token is restored on page load — directly relevant to the refresh/restore race), `attachCsrfHeader`, and the `401 → refresh → retry-once` recovery.
+
+**Fix (this commit):** `TenantApiClient.graphql` now delegates to the shared `graphqlClient.request<T>(query, variables)` (same signature), inheriting waitForReady + CSRF + 401-retry; the raw fetch, manual headers, and ad-hoc HTTP/GraphQL error handling are removed. The class, its singleton `apiClient`, the public method shape, and all callers (`lib/api.ts`, `services/index.ts`, `tenant-api.service.ts`, `hooks/useTenantData.ts`) are unchanged. tenant-admin `tsc` clean.
+
+**Tracked WS-B remainder:** B7 (sensor WebSocket pool tenant-scoping), and promoting `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error once the pre-existing violations are migrated.
+
+Status: RESOLVED for B3 (2026-06-25). Registry: orphan-findings.md only.

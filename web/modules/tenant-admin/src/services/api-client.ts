@@ -9,7 +9,7 @@
  * and error handling in one place.
  */
 
-import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
+import { getAccessToken, getTenantId, graphqlClient } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -45,31 +45,22 @@ export class TenantApiClient {
   /**
    * Execute a GraphQL query or mutation.
    *
+   * SSoT: delegates to the shared `graphqlClient` from `@aquaculture/shared-ui`
+   * so every tenant-admin GraphQL call inherits the full auth lifecycle —
+   * `tokenLifecycle.waitForReady()` (fires only after the access token is
+   * restored), the `X-CSRF-Token` header, the in-memory `Authorization` +
+   * `X-Tenant-Id` headers, and 401 → silent-refresh → single-retry. The
+   * shared client also throws on GraphQL-level errors and uses
+   * `credentials: 'include'`, so no local fetch/error handling is needed.
+   *
    * @param query  - GraphQL query/mutation string
    * @param variables - Optional variables object
    * @returns The `data` field from the GraphQL response
-   * @throws Error with the first GraphQL error message, or HTTP error
+   * @throws GraphQLClientError with the first GraphQL error message, or a
+   *   transport error (timeout / network / unauthenticated)
    */
   async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    const headers = this.getHeaders();
-    const response = await fetch('/graphql', {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: JSON.stringify({ query, variables }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const json: GraphQLResponse<T> = await response.json();
-
-    if (json.errors?.length) {
-      throw new Error(json.errors[0].message || 'GraphQL error');
-    }
-
-    return json.data;
+    return graphqlClient.request<T>(query, variables);
   }
 
   /**

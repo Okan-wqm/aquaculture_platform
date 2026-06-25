@@ -15,6 +15,8 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly assignedSiteIds?: readonly string[];
   /** SEC-HIGH-052: enabled mobile feature keys the user is entitled to. */
   readonly mobileFeatures?: readonly string[];
+  /** SSOT-C-13: tenant plan tier ordinal for per-plan quota enforcement. */
+  readonly planLevel?: number;
 }
 
 /**
@@ -48,6 +50,12 @@ export function buildGatewayVerifiedUserAssertion(
       : {}),
     ...(input.mobileFeatures && input.mobileFeatures.length > 0
       ? { mobileFeatures: [...input.mobileFeatures] }
+      : {}),
+    // SSOT-C-13: carry the plan tier ordinal into the HMAC-protected blob only
+    // when present (platform SUPER_ADMIN tokens omit it). Integrity-protected by
+    // the assertionHash with no signing change, same as the claims above.
+    ...(typeof input.planLevel === 'number'
+      ? { planLevel: input.planLevel }
       : {}),
   };
 

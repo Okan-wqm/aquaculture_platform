@@ -62,6 +62,12 @@ export interface CurrentUserPayload {
   mobileFeatures?: string[];
 
   /**
+   * SSOT-C-13: tenant plan tier ordinal (PLAN_LEVEL) for per-plan quota
+   * enforcement in resource-create resolvers. Absent for platform SUPER_ADMIN.
+   */
+  planLevel?: number;
+
+  /**
    * First name (optional)
    */
   firstName?: string;

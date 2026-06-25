@@ -29,6 +29,8 @@ interface UserContext {
   email: string;
   tenantId: string;
   roles: string[];
+  /** SSOT-C-13: tenant plan tier ordinal for per-plan sensor-count quota. */
+  planLevel?: number;
 }
 
 // Stats type
@@ -112,7 +114,7 @@ export class RegistrationResolver {
     const userId = user?.sub || 'default-user';
     this.logger.log(`Registering sensor ${input.name} for tenant ${effectiveTenantId}`);
 
-    const result = await this.registrationService.registerSensor(input, effectiveTenantId, userId);
+    const result = await this.registrationService.registerSensor(input, effectiveTenantId, userId, user?.planLevel);
     return {
       success: result.success,
       sensor: result.sensor ? this.mapSensorToType(result.sensor) : undefined,

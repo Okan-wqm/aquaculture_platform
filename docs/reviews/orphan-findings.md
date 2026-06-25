@@ -5125,3 +5125,27 @@ Severity: HIGH. Operator-reported: a normal browser refresh logs the user out (m
 Status: RESOLVED (2026-06-25; cookie-encoding SSoT + canonical-decode). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-161 - tenant-admin DB table viewer leaks cross-tenant rows for camelCase "tenantId" tables
+
+Severity: HIGH (cross-tenant data exposure). Found while validating the tenant-context stabilization plan against the code.
+
+**Root cause:** `apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:getTableData` treated ONLY the snake_case `tenant_id` column as the tenant filter (`hasTenantId = columns.includes('tenant_id')`). A table reachable via an allowed *module/shared* schema whose tenant column is the camelCase quoted `"tenantId"` (the TypeORM default for many entities) — or that has no tenant column at all — was read with NO `WHERE` clause, returning EVERY tenant's rows to one tenant-admin.
+
+**Fix (this commit):** detect the tenant column under both names (`tenant_id` | `tenantId`, hard-coded literals so interpolation stays injection-safe); the tenant's DEDICATED `tenant_<uuid>` schema is itself the isolation boundary (no row filter needed); every other (shared module) schema MUST be tenant-filtered and **FAILS CLOSED** (`ForbiddenException`) when no tenant column exists, rather than returning another tenant's data. Unit tests cover camelCase-filtered / snake-filtered / fail-closed / dedicated-schema-unfiltered.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-162 - gateway→subgraph HMAC body-hash drift between StripInternalHeadersMiddleware and ServiceIdentityGuard (intermittent "assertion required" 400)
+
+Severity: HIGH (intermittent auth/data outage). Found while validating the tenant-context stabilization plan.
+
+**Root cause:** the gateway signs `X-Service-Body-Hash = sha256(wire-bytes)`. `ServiceIdentityGuard.serializeBodyForHash` correctly hashed `req.rawBody` (the wire bytes), but `StripInternalHeadersMiddleware.serializeBodyForHash` independently hashed `JSON.stringify(req.body)` (the re-serialized V8-parsed object). When the two byte strings diverged (key order of numeric-string keys, `1.0` vs `1`, whitespace) the Strip middleware's HMAC verify failed, it stripped `x-verified-user-assertion`, and the subgraph 400'd "Verified user assertion is required" — intermittently. Two independent copies of the body-hash logic were free to drift (and did).
+
+**Fix (this commit):** extract ONE shared `serializeServiceIdentityBodyForHash()` in `service-identity.util.ts` (rawBody-preferred, JSON.stringify fallback) and route BOTH `ServiceIdentityGuard` and `StripInternalHeadersMiddleware` through it — making the two receivers structurally incapable of diverging again (tier-1). Unit tests prove rawBody is preferred over a divergently-stringified body + the fallback path; the guard's existing Path-alpha suite still passes.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
+
+---

@@ -1,4 +1,12 @@
+import { AuditLogService } from '@aquaculture/backend-common/audit';
+import {
+  StripeApiModule,
+  STRIPE_API_CLIENT,
+  STRIPE_AUDIT_RECORDER,
+  stripeClientFactory,
+} from '@aquaculture/backend-common/billing';
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -65,6 +73,18 @@ const EventHandlers: never[] = [];
     TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan, ScheduledPlanChange, StripeWebhookEventEntity]),
     CqrsModule,
     ScheduleModule,
+    // W1.1 (ADR-016 / BILLING-CRITICAL-001): bind the production Stripe client so
+    // money handlers get a REAL outbound StripeApiService. The factory is
+    // fail-closed (throws at boot in prod without STRIPE_SECRET_KEY); audit rows
+    // are written via the @Global AuditLogService (IAuditRecorder-compatible).
+    StripeApiModule.forRoot({
+      clientProvider: {
+        provide: STRIPE_API_CLIENT,
+        useFactory: stripeClientFactory,
+        inject: [ConfigService],
+      },
+      auditProvider: { provide: STRIPE_AUDIT_RECORDER, useExisting: AuditLogService },
+    }),
   ],
   // BillingAdminNatsHandler must be a controller so Nest microservice
   // transport registers its @MessagePattern subscribers.

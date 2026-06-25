@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -7,6 +8,7 @@ import {
   SubscriptionCancelledEvent,
   TenantSubscriptionChangedEvent,
 } from '@platform/event-contracts';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
@@ -23,6 +25,9 @@ export class CancelSubscriptionHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly stripeApi: StripeApiService,
+    @InjectRepository(Subscription)
+    private readonly subscriptionRepository: Repository<Subscription>,
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
@@ -34,6 +39,23 @@ export class CancelSubscriptionHandler
       throw new BadRequestException(
         `Cancellation reason must not exceed ${MAX_CANCELLATION_REASON_LENGTH} characters`,
       );
+    }
+
+    // W1.1 (SSOT-C-12): cancel at Stripe BEFORE opening the DB tx — never hold a
+    // pool connection/lock across the network call. Cancelling is idempotent, so
+    // a retry after a later DB failure is harmless; if the local commit then
+    // fails the webhook (customer.subscription.deleted) reconciles. We cancel at
+    // period end to mirror the local endDate = currentPeriodEnd.
+    const existing = await this.subscriptionRepository.findOne({
+      where: { id: subscriptionId, tenantId },
+    });
+    if (existing?.stripeSubscriptionId) {
+      await this.stripeApi.cancelSubscription({
+        tenantId,
+        subscriptionId: existing.stripeSubscriptionId,
+        immediately: false,
+        idempotencyKey: `sub-cancel:${existing.stripeSubscriptionId}`,
+      });
     }
 
     // Use transaction with pessimistic lock to prevent concurrent cancellations

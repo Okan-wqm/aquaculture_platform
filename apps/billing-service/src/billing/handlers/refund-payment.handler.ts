@@ -4,6 +4,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, PaymentRefundedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import Decimal from 'decimal.js';
@@ -20,6 +21,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly stripeApi: StripeApiService,
   ) {}
 
   async execute(command: RefundPaymentCommand): Promise<Payment> {
@@ -62,6 +64,27 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         );
       }
 
+      // W1.1 (SSOT-C-12): issue the REAL Stripe refund — but ONLY after the
+      // double-refund guard above passes, and under the same pessimistic lock, so
+      // money never moves on an invalid request and concurrent refunds can't
+      // race past the cap. Refunds are rare/admin-initiated (not bursty), so
+      // holding the connection across this one call is acceptable. The
+      // idempotency key folds in the prior refunded total, so a retry of THIS
+      // refund reuses the Stripe refund while a later distinct partial refund
+      // gets a fresh one. Payments with no Stripe charge (legacy/manual) keep the
+      // caller-supplied refundId.
+      let stripeRefundId = input.refundId;
+      if (payment.stripeChargeId) {
+        const stripeRefund = await this.stripeApi.createRefund({
+          tenantId,
+          chargeId: payment.stripeChargeId,
+          amount: refundMoney.toMinorUnitsBigInt(),
+          reason: 'requested_by_customer',
+          idempotencyKey: `refund:${payment.id}:${currentRefundedMoney.toMinorUnitsBigInt()}:${refundMoney.toMinorUnitsBigInt()}`,
+        });
+        stripeRefundId = stripeRefund.id;
+      }
+
       // BILLING-MEDIUM-003 cure: refund reason comes from caller-
       // supplied input (admin operator or API consumer). Without
       // mask + truncation a malicious or careless input can:
@@ -80,7 +103,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         amount: input.amount,
         reason: sanitizedReason ?? '',
         refundedAt: new Date(),
-        refundId: input.refundId,
+        refundId: stripeRefundId,
       };
 
       // Push to refunds array
@@ -167,7 +190,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         totalRefunded: savedPayment.refundedAmount.toNumber(),
         currency: payment.currency,
         reason: sanitizedReason ?? '',
-        refundId: input.refundId,
+        refundId: stripeRefundId,
         isFullRefund,
         refundedAt: refundInfo.refundedAt,
       };

@@ -50,12 +50,14 @@ function fixtureRefund(): StripeRefund {
 
 function makeClient(): jest.Mocked<IStripeApiClient> {
   return {
+    createCustomer: jest.fn(),
     createSubscription: jest.fn(),
     updateSubscription: jest.fn(),
     cancelSubscription: jest.fn(),
     retrieveSubscription: jest.fn(),
     createRefund: jest.fn(),
     retrieveRefund: jest.fn(),
+    finalizeInvoice: jest.fn(),
     reportMeterEvent: jest.fn(),
   };
 }

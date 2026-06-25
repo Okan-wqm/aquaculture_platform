@@ -15,6 +15,7 @@ import {
   TenantSubscriptionChangedEvent,
 } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -53,6 +54,7 @@ export class ChangeSubscriptionPlanHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly stripeApi: StripeApiService,
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
@@ -136,9 +138,13 @@ export class ChangeSubscriptionPlanHandler
         now,
       );
 
-      // 6. Apply the plan change
+      // 6. Apply the plan change. `appliedImmediately` tracks whether the change
+      // takes effect now (upgrade / explicit immediate / lateral) vs is scheduled
+      // for period end (downgrade) — it gates the live Stripe price sync below.
+      let appliedImmediately = false;
       if (isUpgrade || input.immediate) {
         // UPGRADE: Takes effect immediately with pro-rata credit
+        appliedImmediately = true;
         subscription.planTier = newPlan.tier;
         subscription.planName = newPlan.name;
         subscription.limits = { ...newPlan.limits };
@@ -191,6 +197,7 @@ export class ChangeSubscriptionPlanHandler
         );
       } else {
         // Same tier level — lateral move (e.g., from one professional plan to another)
+        appliedImmediately = true;
         subscription.planTier = newPlan.tier;
         subscription.planName = newPlan.name;
         subscription.limits = { ...newPlan.limits };
@@ -200,6 +207,23 @@ export class ChangeSubscriptionPlanHandler
         this.logger.log(
           `Lateral plan change for tenant ${tenantId}: "${subscription.planName}" → "${newPlan.name}"`,
         );
+      }
+
+      // W1.1 (SSOT-C-12): for an immediately-applied change, sync the price at
+      // Stripe BEFORE persisting locally so a Stripe failure rolls the change back
+      // (no local/Stripe divergence). Scheduled downgrades are synced when the
+      // billing scheduler applies them at period end (tracked separately in docs/reviews/orphan-findings.md). Plans
+      // with no Stripe price (legacy) update locally only.
+      if (appliedImmediately && subscription.stripeSubscriptionId) {
+        const newPriceId = newPlan.stripePriceIds?.[subscription.billingCycle];
+        if (newPriceId) {
+          await this.stripeApi.updateSubscription({
+            tenantId,
+            subscriptionId: subscription.stripeSubscriptionId,
+            priceId: newPriceId,
+            idempotencyKey: `sub-update:${subscription.stripeSubscriptionId}:${newPlan.id}`,
+          });
+        }
       }
 
       const savedSubscription = await subscriptionRepo.save(subscription);

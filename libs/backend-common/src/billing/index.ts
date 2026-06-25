@@ -16,6 +16,13 @@ export {
   STRIPE_API_CLIENT,
   STRIPE_AUDIT_RECORDER,
 } from './stripe-api.module';
+// W1.1 (ADR-016): the production Stripe client factory — the one adapter that
+// constructs a real Stripe SDK instance. billing-service binds it to
+// STRIPE_API_CLIENT via StripeApiModule.forRoot.
+export {
+  stripeClientFactory,
+  StripeNotConfiguredError,
+} from './stripe-client.factory';
 export type {
   IStripeApiClient,
   IAuditRecorder,

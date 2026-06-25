@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { OutboxPublisher } from '@platform/outbox';
 import { ChangeSubscriptionPlanHandler } from '../handlers/change-subscription-plan.handler';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import { Subscription, SubscriptionStatus, PlanTier, BillingCycle } from '../entities/subscription.entity';
 import { Plan } from '../entities/plan.entity';
+import { ScheduledPlanChange } from '../entities/scheduled-plan-change.entity';
 import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 
 describe('ChangeSubscriptionPlanHandler', () => {
@@ -14,6 +16,7 @@ describe('ChangeSubscriptionPlanHandler', () => {
   let mockPlanRepo: Partial<Repository<Plan>>;
   let mockManager: Partial<EntityManager>;
   let mockOutbox: { enqueue: jest.Mock };
+  let mockStripe: { updateSubscription: jest.Mock };
 
   const tenantId = '550e8400-e29b-41d4-a716-446655440000';
   const userId = 'user-123';
@@ -104,10 +107,19 @@ describe('ChangeSubscriptionPlanHandler', () => {
       findOne: jest.fn(),
     };
 
+    // ScheduledPlanChange repo — the downgrade path supersedes any pending change
+    // (update) then creates + saves a new one.
+    const mockScheduledChangeRepo = {
+      update: jest.fn().mockResolvedValue({ affected: 0 }),
+      create: jest.fn().mockImplementation((entity) => entity),
+      save: jest.fn().mockImplementation((c) => Promise.resolve({ ...c, id: 'spc-001' })),
+    };
+
     mockManager = {
       getRepository: jest.fn().mockImplementation((entity) => {
         if (entity === Subscription) return mockSubscriptionRepo;
         if (entity === Plan) return mockPlanRepo;
+        if (entity === ScheduledPlanChange) return mockScheduledChangeRepo;
         return {};
       }),
     };
@@ -117,12 +129,16 @@ describe('ChangeSubscriptionPlanHandler', () => {
     };
 
     mockOutbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    mockStripe = {
+      updateSubscription: jest.fn().mockResolvedValue({ id: 'sub_test', status: 'active' }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChangeSubscriptionPlanHandler,
         { provide: DataSource, useValue: mockDataSource },
         { provide: OutboxPublisher, useValue: mockOutbox },
+        { provide: StripeApiService, useValue: mockStripe },
       ],
     }).compile();
 
@@ -155,6 +171,40 @@ describe('ChangeSubscriptionPlanHandler', () => {
     expect(result.limits.maxFarms).toBe(10);
     expect(result.pricing.basePrice).toBe(149);
     expect(result.updatedBy).toBe(userId);
+  });
+
+  it('syncs the Stripe subscription price on an immediate change (SSOT-C-12)', async () => {
+    const subscription = createMockSubscription({
+      stripeSubscriptionId: 'sub_live_1',
+      billingCycle: BillingCycle.MONTHLY,
+    });
+    const plan = createMockPlan({ stripePriceIds: { [BillingCycle.MONTHLY]: 'price_pro_monthly' } });
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    await handler.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+    );
+
+    expect(mockStripe.updateSubscription).toHaveBeenCalledTimes(1);
+    const args = mockStripe.updateSubscription.mock.calls[0][0];
+    expect(args.subscriptionId).toBe('sub_live_1');
+    expect(args.priceId).toBe('price_pro_monthly');
+  });
+
+  it('skips the Stripe price sync when the subscription has no Stripe id', async () => {
+    const subscription = createMockSubscription(); // no stripeSubscriptionId
+    const plan = createMockPlan({ stripePriceIds: { [BillingCycle.MONTHLY]: 'price_x' } });
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    await handler.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+    );
+
+    expect(mockStripe.updateSubscription).not.toHaveBeenCalled();
   });
 
   it('should throw NotFoundException when subscription not found', async () => {
@@ -257,9 +307,12 @@ describe('ChangeSubscriptionPlanHandler', () => {
       }, userId),
     );
 
-    // Downgrade should still apply
-    expect(result.planTier).toBe(PlanTier.PROFESSIONAL);
-    expect(result.planName).toBe('Professional');
+    // A downgrade with no `immediate` flag is SCHEDULED for period end — the
+    // subscription stays on the current (Enterprise) plan until then (immediate
+    // revocation would strip paid-for features mid-period; see the handler's
+    // IP-2 note). A pending ScheduledPlanChange to Professional is created.
+    expect(result.planTier).toBe(PlanTier.ENTERPRISE);
+    expect(result.planName).toBe('Enterprise');
   });
 
   it('should allow trial subscriptions to change plans', async () => {

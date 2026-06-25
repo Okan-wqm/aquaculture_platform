@@ -52,23 +52,61 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
     expect(lsFiles).toContain('libs/backend-common/src/billing/index.ts');
   });
 
-  it('IStripeApiClient declares the 7 required methods', () => {
+  it('IStripeApiClient declares the required methods', () => {
     const src = readFileSync(
       resolve(REPO_ROOT, 'libs/backend-common/src/billing/stripe-api.types.ts'),
       'utf8',
     );
     for (const method of [
+      'createCustomer',
       'createSubscription',
       'updateSubscription',
       'cancelSubscription',
       'retrieveSubscription',
       'createRefund',
       'retrieveRefund',
+      'finalizeInvoice',
       'reportMeterEvent',
     ]) {
       // The reportMeterEvent signature uses `args: StripeMeterEvent & { ... }`,
       // so accept either the inline-object shape OR an intersection.
       expect(src).toMatch(new RegExp(`\\b${method}\\(args:\\s*(?:\\{|StripeMeterEvent)`));
+    }
+  });
+
+  it('the money handlers INJECT and CALL the canonical StripeApiService (not the dead service)', () => {
+    // W1.1: before this PR the StripeApiService had zero consumers — the invariant
+    // passed vacuously while subscriptions were a local-DB no-op. Pin each money
+    // handler to (a) import the canonical service and (b) actually call it on the
+    // hot path, so a regression that drops the Stripe call fails CI.
+    const handlers: { file: string; method: string }[] = [
+      {
+        file: 'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
+        method: 'createSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/cancel-subscription.handler.ts',
+        method: 'cancelSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/refund-payment.handler.ts',
+        method: 'createRefund',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts',
+        method: 'updateSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/finalize-invoice.handler.ts',
+        method: 'finalizeInvoice',
+      },
+    ];
+    for (const { file, method } of handlers) {
+      const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
+      expect(src).toMatch(
+        /import\s*\{[^}]*\bStripeApiService\b[^}]*\}\s*from\s*['"]@aquaculture\/backend-common\/billing['"]/,
+      );
+      expect(src).toMatch(new RegExp(`this\\.stripeApi\\.${method}\\(`));
     }
   });
 

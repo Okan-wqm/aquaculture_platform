@@ -10,7 +10,9 @@ import {
   IStripeApiClient,
   STRIPE_API_CLIENT,
   STRIPE_AUDIT_RECORDER,
+  StripeCustomer,
   StripeIdempotencyKey,
+  StripeInvoice,
   StripeMetadata,
   StripeMeterEvent,
   StripeRefund,
@@ -83,6 +85,31 @@ export class StripeApiService {
     @Inject(STRIPE_AUDIT_RECORDER) private readonly audit: IAuditRecorder,
     private readonly breaker: CircuitBreakerService,
   ) {}
+
+  async createCustomer(args: {
+    tenantId: string;
+    email?: string;
+    name?: string;
+    metadata?: StripeMetadata;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeCustomer> {
+    return this.executeMutation({
+      tenantId: args.tenantId,
+      action: 'stripe.customer.create',
+      resourceId: args.tenantId,
+      metadata: { email: args.email ?? null },
+      fn: () =>
+        this.client.createCustomer({
+          email: args.email,
+          name: args.name,
+          // Bind the internal tenant id so an inbound webhook can be associated
+          // back (re-resolved authoritatively per SECREV-CRITICAL-001, never
+          // trusted blindly).
+          metadata: { ...args.metadata, internalTenantId: args.tenantId },
+          idempotencyKey: args.idempotencyKey,
+        }),
+    });
+  }
 
   async createSubscription(args: {
     tenantId: string;
@@ -201,6 +228,24 @@ export class StripeApiService {
       fn: () => this.client.retrieveRefund({ refundId: args.refundId }),
       options: STRIPE_BREAKER_OPTIONS_READ,
       fallback: () => null,
+    });
+  }
+
+  async finalizeInvoice(args: {
+    tenantId: string;
+    invoiceId: string;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeInvoice> {
+    return this.executeMutation({
+      tenantId: args.tenantId,
+      action: 'stripe.invoice.finalize',
+      resourceId: args.invoiceId,
+      metadata: { invoiceId: args.invoiceId },
+      fn: () =>
+        this.client.finalizeInvoice({
+          invoiceId: args.invoiceId,
+          idempotencyKey: args.idempotencyKey,
+        }),
     });
   }
 

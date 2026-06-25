@@ -128,6 +128,7 @@ export default {
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/plan-limits-ssot.spec.ts',
+        '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
         '<rootDir>/plan-quota-enforcement.spec.ts',
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
         '<rootDir>/repo-hygiene-invariants.spec.ts',

@@ -5325,3 +5325,19 @@ Severity: LOW (test coverage — locks in the session's tenant-context fixes aga
 **Fix (this commit):** extend that suite with a `tenant-context stability under repeated load (WS-D)` block that fires the real `tenantUsers` query 30× SEQUENTIALLY and 30× CONCURRENTLY as Tenant A — asserting every response returns A's data with no GraphQL error (no intermittent empty/"assertion required" 400) and never B's rows — plus a 30× INTERLEAVED A/B run asserting no cross-tenant bleed. Reuses the existing harness (`loginAs`, `queryTenantUsers`, `hasGraphQLError`) and the A/B tenants seeded in `beforeAll`; runs in the `e2e-tests.yml` workflow against a live stack.
 
 Status: RESOLVED (2026-06-25; intermittency regression coverage added). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-174 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-25 (W1.1 change-subscription-plan Stripe rewrite, SSOT-C-12). PR-3 commit messages reference earlier collision numbers (168/171/172).
+**File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path).
+
+change-subscription-plan syncs the Stripe price for IMMEDIATE changes via StripeApiService.updateSubscription, but a DOWNGRADE is deferred to period end as a ScheduledPlanChange; the billing scheduler cron applies it WITHOUT calling updateSubscription, so the Stripe subscription keeps billing the OLD price. Fix: in the scheduler apply path, when the subscription has a stripeSubscriptionId and the new plan has stripePriceIds[cycle], call StripeApiService.updateSubscription (idempotencyKey `sub-update:<stripeSubscriptionId>:<newPlanId>`) before the local commit. Owner: billing. Status: OPEN.
+
+## ORPHAN-MEDIUM-175 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-25 (W1.1 create-subscription Stripe rewrite, BILLING-CRITICAL-001). PRE-EXISTING: 2 tests fail on main today (git-stash verified 2 fail / 32 pass with the original handler).
+**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts`.
+
+On re-subscribe after a CANCELLED subscription the handler HARD-deletes the old row (avoids the UNIQUE(tenantId) index violation), but create-subscription.handler.spec.ts asserts SOFT-delete (history preservation). Out of SSOT-C-12 scope. Fix is a design call: (a) PARTIAL unique index `WHERE is_deleted=false` then soft-delete (needs migration), or (b) update tests to accept hard-delete. Owner: billing. Status: OPEN.

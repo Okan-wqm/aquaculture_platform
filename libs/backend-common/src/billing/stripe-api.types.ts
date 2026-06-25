@@ -54,6 +54,18 @@ export interface StripeRefund {
   readonly reason: string | null;
 }
 
+export interface StripeCustomer {
+  readonly id: string;
+  readonly email: string | null;
+  readonly metadata: StripeMetadata;
+}
+
+export interface StripeInvoice {
+  readonly id: string;
+  readonly status: 'draft' | 'open' | 'paid' | 'uncollectible' | 'void' | null;
+  readonly hostedInvoiceUrl: string | null;
+}
+
 export interface StripeMeterEvent {
   readonly identifier: string;
   readonly meterEventName: string;
@@ -67,6 +79,13 @@ export interface StripeMeterEvent {
  * a real Stripe SDK instance; tests bind a stub literal.
  */
 export interface IStripeApiClient {
+  createCustomer(args: {
+    email?: string;
+    name?: string;
+    metadata: StripeMetadata;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeCustomer>;
+
   createSubscription(args: {
     customerId: string;
     priceId: string;
@@ -101,6 +120,11 @@ export interface IStripeApiClient {
   retrieveRefund(args: {
     refundId: string;
   }): Promise<StripeRefund>;
+
+  finalizeInvoice(args: {
+    invoiceId: string;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeInvoice>;
 
   reportMeterEvent(args: StripeMeterEvent & {
     idempotencyKey: StripeIdempotencyKey;

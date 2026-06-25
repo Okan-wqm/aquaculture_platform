@@ -52,12 +52,13 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
     expect(lsFiles).toContain('libs/backend-common/src/billing/index.ts');
   });
 
-  it('IStripeApiClient declares the 7 required methods', () => {
+  it('IStripeApiClient declares the required methods', () => {
     const src = readFileSync(
       resolve(REPO_ROOT, 'libs/backend-common/src/billing/stripe-api.types.ts'),
       'utf8',
     );
     for (const method of [
+      'createCustomer',
       'createSubscription',
       'updateSubscription',
       'cancelSubscription',

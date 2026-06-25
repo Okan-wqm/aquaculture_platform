@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 
 import {
   IStripeApiClient,
+  StripeCustomer,
   StripeIdempotencyKey,
   StripeMetadata,
   StripeRefund,
@@ -76,9 +77,30 @@ function toStripeRefund(refund: Stripe.Refund): StripeRefund {
   };
 }
 
+function toStripeCustomer(customer: Stripe.Customer): StripeCustomer {
+  return {
+    id: customer.id,
+    email: customer.email ?? null,
+    metadata: (customer.metadata ?? {}) as StripeMetadata,
+  };
+}
+
 /** Real implementation of IStripeApiClient backed by the Stripe SDK. */
 class RealStripeClient implements IStripeApiClient {
   constructor(private readonly stripe: Stripe) {}
+
+  async createCustomer(args: {
+    email?: string;
+    name?: string;
+    metadata: StripeMetadata;
+    idempotencyKey: StripeIdempotencyKey;
+  }): Promise<StripeCustomer> {
+    const customer = await this.stripe.customers.create(
+      { email: args.email, name: args.name, metadata: { ...args.metadata } },
+      { idempotencyKey: args.idempotencyKey },
+    );
+    return toStripeCustomer(customer);
+  }
 
   async createSubscription(args: {
     customerId: string;
@@ -189,6 +211,9 @@ class RealStripeClient implements IStripeApiClient {
 class UnconfiguredStripeClient implements IStripeApiClient {
   private fail(): never {
     throw new StripeNotConfiguredError();
+  }
+  createCustomer(): Promise<StripeCustomer> {
+    return this.fail();
   }
   createSubscription(): Promise<StripeSubscription> {
     return this.fail();

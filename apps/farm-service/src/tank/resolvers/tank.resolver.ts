@@ -246,9 +246,12 @@ export class TankResolver {
     @Args('input') input: CreateTankInput,
     @CurrentTenant() tenantId: string,
     @CurrentUser('sub') userId: string,
+    @CurrentUser('planLevel') planLevel: number | undefined,
   ): Promise<Tank> {
     this.logger.log(`Creating tank: ${input.name}`);
-    return this.commandBus.execute(new CreateTankCommand(tenantId, userId, input));
+    return this.commandBus.execute(
+      new CreateTankCommand(tenantId, userId, input, planLevel),
+    );
   }
 
   /**

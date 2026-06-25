@@ -91,6 +91,32 @@ export function planLevel(plan: TenantPlan): number {
 }
 
 /**
+ * Inverse of PLAN_LEVEL: map a numeric tier ordinal (the JWT `planLevel` claim)
+ * back to a canonical TenantPlan for limit resolution.
+ *
+ * Because PLAN_LEVEL collapses FREE and TRIAL to 0, ordinal 0 maps to FREE —
+ * the conservative floor. That is the correct fail-safe for QUOTA gating: a
+ * trialing tenant (production carries ~zero such rows) is never granted more
+ * than the free allowance by virtue of a lossy ordinal. Any out-of-range
+ * ordinal also maps to FREE. Callers that have NO ordinal at all (platform
+ * SUPER_ADMIN tokens carry none) must skip quota enforcement rather than pass a
+ * default here — being capped at FREE would wrongly block privileged platform
+ * operations.
+ */
+export function tenantPlanFromLevel(level: number): TenantPlan {
+  switch (level) {
+    case 1:
+      return TenantPlan.STARTER;
+    case 2:
+      return TenantPlan.PROFESSIONAL;
+    case 3:
+      return TenantPlan.ENTERPRISE;
+    default:
+      return TenantPlan.FREE;
+  }
+}
+
+/**
  * Parse an arbitrary (possibly externally-sourced) string to a canonical
  * `TenantPlan`, case-insensitively, or `undefined` if it is not a known plan.
  *

@@ -47,10 +47,10 @@ export class SiteResolver {
   async createSite(
     @Args('input') input: CreateSiteInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; planLevel?: number },
   ): Promise<SiteResponse> {
     this.logger.log(`Creating site for tenant ${tenantId} by user ${user.sub}`);
-    const command = new CreateSiteCommand(input, tenantId, user.sub);
+    const command = new CreateSiteCommand(input, tenantId, user.sub, user.planLevel);
     return this.commandBus.execute(command);
   }
 

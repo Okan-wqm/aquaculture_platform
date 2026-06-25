@@ -5164,3 +5164,19 @@ Severity: HIGH (weaker-than-necessary tenant trust boundary). Found validating t
 Status: RESOLVED (2026-06-25; closes SEC-HIGH-156). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-HIGH-165 - a token could be minted for a non-SUPER_ADMIN principal with no tenant (WS-C / C1)
+
+Severity: HIGH (tenant-isolation invariant). Found validating the tenant-context stabilization plan.
+
+**Root cause:** `TokenService.generateTokens` computed `effectiveTenantId = actAsTenantId ?? user.tenantId ?? null` and minted the token regardless. SUPER_ADMIN is legitimately tenantless, but EVERY other role is tenant-scoped — if such an account ever resolved to a null tenant (data corruption, a bad provisioning path, a future bug), the token would carry `tenantId: null` and downstream tenant routing (search_path / RLS / TenantGuard) would silently fall back to an unscoped context — a cross-tenant hazard. There was no guard enforcing the invariant at the single choke point where every token is minted.
+
+**Fix (this commit):** in `generateTokens`, after resolving `effectiveTenantId`, fail closed when `user.role !== Role.SUPER_ADMIN && !effectiveTenantId` (`ForbiddenException`). SUPER_ADMIN (the only tenantless role, confirmed against the live DB) is unaffected; every tenant-scoped login already resolves a tenant so legitimate logins are untouched. Unit tests: non-SUPER_ADMIN/null → throws; TENANT_ADMIN/null → throws; SUPER_ADMIN/null → still issues (existing test).
+
+**point-5 (tenant-admin backend SUPER_ADMIN-closed) — already satisfied:** `TenantAdminService` methods reject a null-tenant caller (`if (!admin || !admin.tenantId) throw`), and `getTableData` is fail-closed (ORPHAN-HIGH-161), so a SUPER_ADMIN (tenantId=null) cannot read tenant data through the tenant-admin surface — it errors "Admin not found".
+
+**Remaining WS-C (tracked, follow-up):** retire the dormant `switchTenant` mutation + `actAsTenantId` claim (the SUPER_ADMIN tenant-switcher was removed in #627; the backend surface is unused but harmless — a careful security-code removal, not a bug fix).
+
+Status: RESOLVED for C1 + point-5 (2026-06-25); switchTenant retirement tracked. Registry: orphan-findings.md only.
+
+---

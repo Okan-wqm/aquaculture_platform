@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import type { FarmVerifiedIdentity } from '../types/tenant-request.interface';
+import type { VerifiedUserAssertion } from '../types/tenant-request.interface';
 
 export interface GatewayVerifiedUserAssertionInput {
   readonly subject: string;
@@ -28,7 +28,7 @@ export function buildGatewayVerifiedUserAssertion(
   input: GatewayVerifiedUserAssertionInput,
 ): string {
   const tenantId = input.tenantId ?? null;
-  const assertion: FarmVerifiedIdentity = {
+  const assertion: VerifiedUserAssertion = {
     issuer: 'gateway-api',
     subject: input.subject,
     tenantId,

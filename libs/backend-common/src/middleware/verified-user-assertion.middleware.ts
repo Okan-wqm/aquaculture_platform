@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
-import type { FarmVerifiedIdentity, TenantRequest } from '../types/tenant-request.interface';
+import type { VerifiedUserAssertion, TenantRequest } from '../types/tenant-request.interface';
 
 const ASSERTION_HEADER = 'x-verified-user-assertion';
 const LEGACY_IDENTITY_HEADERS = [
@@ -27,12 +27,12 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       const assertionHeader = this.getHeader(req, ASSERTION_HEADER);
 
       if (!req.verifiedIdentity && this.requiresServiceIdentity(req)) {
-        throw new BadRequestException('Farm request requires service identity');
+        throw new BadRequestException('Subgraph request requires service identity');
       }
 
       if (!assertionHeader && this.requiresGatewayAssertion(req)) {
         throw new BadRequestException(
-          'Verified user assertion is required for gateway farm requests',
+          'Verified user assertion is required for gateway subgraph requests',
         );
       }
 
@@ -75,11 +75,20 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
             ? { mobileFeatures: assertion.mobileFeatures }
             : {}),
         };
-      }
 
-      for (const header of LEGACY_IDENTITY_HEADERS) {
-        if (req.headers[header]) {
-          Reflect.deleteProperty(req.headers, header);
+        // Once the gateway assertion is the authoritative identity, drop the
+        // legacy identity headers so UserContextMiddleware cannot re-derive a
+        // different (or forged) user from them. Strip ONLY when an assertion is
+        // present: in dev/E2E (no assertion) the legacy x-user-payload path is
+        // the test harness's identity source, and a no-assertion PRODUCTION
+        // gateway request is already rejected above (requiresGatewayAssertion),
+        // while StripInternalHeadersMiddleware removes spoofable headers from
+        // non-signed production requests. Stripping unconditionally here broke
+        // every subgraph E2E that authenticates via x-user-payload.
+        for (const header of LEGACY_IDENTITY_HEADERS) {
+          if (req.headers[header]) {
+            Reflect.deleteProperty(req.headers, header);
+          }
         }
       }
 
@@ -92,7 +101,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     }
   }
 
-  private parseAssertion(value: string): FarmVerifiedIdentity {
+  private parseAssertion(value: string): VerifiedUserAssertion {
     let decoded: string;
     try {
       decoded = Buffer.from(value, 'base64url').toString('utf8');
@@ -111,7 +120,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       throw new BadRequestException('Verified user assertion must be an object');
     }
 
-    const candidate = parsed as Partial<FarmVerifiedIdentity>;
+    const candidate = parsed as Partial<VerifiedUserAssertion>;
     if (candidate.issuer !== 'gateway-api' || typeof candidate.subject !== 'string') {
       throw new BadRequestException('Verified user assertion has invalid issuer or subject');
     }

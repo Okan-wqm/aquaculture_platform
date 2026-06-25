@@ -5253,3 +5253,13 @@ Severity: MEDIUM (cross-tenant UI-state bleed during the null/changing-tenant wi
 **Tracked WS-B remainder:** B3 (tenant-admin custom client → shared graphqlClient lifecycle/CSRF/401-refresh), B7 (sensor WebSocket pool tenant-scoping + logout cache sweep via `sweepTenantScopedStorage`), and promoting the existing `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error (needs the ~420 + ~50 pre-existing violations migrated first).
 
 Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-172 - sensor Socket.IO pool keyed by URL only → cross-tenant realtime bleed (WS-B B7)
+
+Severity: MEDIUM (realtime cross-tenant bleed). The sensor-module Socket.IO connection pool (`web/modules/sensor-module/src/hooks/socketFactory.ts`) keyed entries by **URL only** (`pool.get(url)`). A connected socket keeps its original `auth` until it disconnects, so after logout → re-login (same browser, different tenant) `getSocket(url)` returned the EXISTING socket still bound to the previous tenant's session — leaking tenant A's realtime stream (sensor readings, alarms, edge I/O, SCADA live data) to tenant B. The pool also never tore down on logout.
+
+**Fix (this commit):** (1) tenant-scope the pool key via a `poolKey(url, tenantId)` SSoT helper (`${url}::${tenantId}`) applied at every get/set/release site, with `getSocket` returning `null` when there is no `tenantId` (mirrors the existing no-token guard — no tenant-scoped realtime socket without a tenant); refcounting stays balanced because the URL+tenant are fixed for a live session. (2) `teardownAllSockets()` (disconnect every pooled socket + clear the Map) registered once via `registerLogoutCleanup`, so logout fully severs all realtime connections before a different user can log in. No `PoolEntry`/signature change; the four callers (`useSensorSocket`, `useEdgeIoSocket`, `useAlarmRuntime`, `useScadaLiveData`) are unchanged. sensor-module `tsc` clean; no new `as any`.
+
+Status: RESOLVED for B7 (2026-06-25). Registry: orphan-findings.md only.

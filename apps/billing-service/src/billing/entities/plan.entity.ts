@@ -66,6 +66,19 @@ export class Plan {
   @Column('jsonb')
   pricing!: PlanPricing;
 
+  // W1.1 (ADR-016 / BILLING-CRITICAL-001): denormalized Stripe identifiers so
+  // create-subscription can resolve a real Stripe price WITHOUT a cross-service
+  // hot-path call to admin.plan_definitions (billing is the subscription SSoT,
+  // D14). Not exposed via GraphQL — internal billing config. Nullable: plans
+  // created before Stripe go-live (or non-billable plans) carry none, and the
+  // money handlers fail-closed when a price is required but absent.
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'stripe_product_id' })
+  stripeProductId?: string | null;
+
+  // Map of billing cycle (e.g. 'monthly'/'yearly') → Stripe price id.
+  @Column({ type: 'jsonb', nullable: true, name: 'stripe_price_ids' })
+  stripePriceIds?: Record<string, string> | null;
+
   @Field(() => [String])
   @Column('jsonb', { default: [] })
   features!: string[];

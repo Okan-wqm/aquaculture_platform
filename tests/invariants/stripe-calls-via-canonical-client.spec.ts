@@ -73,6 +73,38 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
     }
   });
 
+  it('the money handlers INJECT and CALL the canonical StripeApiService (not the dead service)', () => {
+    // W1.1: before this PR the StripeApiService had zero consumers — the invariant
+    // passed vacuously while subscriptions were a local-DB no-op. Pin each money
+    // handler to (a) import the canonical service and (b) actually call it on the
+    // hot path, so a regression that drops the Stripe call fails CI.
+    const handlers: { file: string; method: string }[] = [
+      {
+        file: 'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
+        method: 'createSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/cancel-subscription.handler.ts',
+        method: 'cancelSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/refund-payment.handler.ts',
+        method: 'createRefund',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts',
+        method: 'updateSubscription',
+      },
+    ];
+    for (const { file, method } of handlers) {
+      const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
+      expect(src).toMatch(
+        /import\s*\{[^}]*\bStripeApiService\b[^}]*\}\s*from\s*['"]@aquaculture\/backend-common\/billing['"]/,
+      );
+      expect(src).toMatch(new RegExp(`this\\.stripeApi\\.${method}\\(`));
+    }
+  });
+
   it('ADR-016 documents the SDK adoption decision', () => {
     const adr = readFileSync(
       resolve(REPO_ROOT, 'docs/adr/016-stripe-sdk-adoption.md'),

@@ -44,6 +44,19 @@ describe('buildRefreshTokenCookieOptions', () => {
         .secure,
     ).toBe(false);
   });
+
+  // ROOT CAUSE (logout-on-refresh): the refresh token is `${userId}:${random}`.
+  // The default cookie encoder turns ':' into '%3A', which broke the
+  // server-side `indexOf(':')` split. The identity encoder keeps the value
+  // byte-for-byte stable across every transport hop.
+  it('uses an identity encoder so the token value is NOT URL-encoded (":" stays ":")', () => {
+    for (const rememberMe of [true, false]) {
+      const opts = buildRefreshTokenCookieOptions({ isProduction: true, rememberMe, rememberMeExpiryDays: 30 });
+      expect(typeof opts.encode).toBe('function');
+      const sample = '8025339a-e6c7-46df-b65a-dcf4f010b861:7acbcb0bf6efac13';
+      expect(opts.encode!(sample)).toBe(sample); // no '%3A', no mutation
+    }
+  });
 });
 
 describe('buildClearRefreshTokenCookieOptions', () => {

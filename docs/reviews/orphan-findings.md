@@ -5150,6 +5150,20 @@ Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
 
 ---
 
+## ORPHAN-HIGH-164 - FE tenant-scoped pages/hooks fire GraphQL before the tenant context is ready
+
+Severity: HIGH (intermittent empty/401 on tenant-scoped pages). Found validating the tenant-context stabilization plan; contributes to the operator's "data comes and goes" on /sites and /sensor/*.
+
+**Root cause:** several tenant-scoped surfaces issue their GraphQL load from a bare mount `useEffect` with NO auth-readiness guard, so they fire BEFORE `token`/`tenantId` resolve — racing the auth lifecycle (401/empty) and querying with a null tenant. The correct pattern (e.g. `web/modules/sensor-module/src/hooks/useEdgeDevices.ts`) gates on `enabled: !!token`. Offenders: `web/modules/farm-module/src/pages/MapViewPage.tsx` (the /sites/map view), and `web/modules/sensor-module/src/hooks/{useSensorList,useScadaPackage(useScadaPackages+useScadaPackageById),useProcess(useActiveProcesses+useProcessById)}.ts`.
+
+**Fix (this commit):** gate each mount `useEffect` on `token && tenantId` (via `useAuth()`) and add `token`/`tenantId` to the dependency array so it (re)runs when the tenant becomes ready or changes; on a null tenant it resets to empty + does not fetch. MapViewPage also guards async setState with a cancelled flag. Minimal change — query strings/filters/pagination/debounce/return shapes unchanged. tsc clean (farm-module + sensor-module).
+
+**Remaining WS-B (tracked, follow-up):** the tenant `|| 'default'` localStorage-key bleed (B2, MEDIUM — only manifests on a null/changing tenant), the tenant-admin custom client → shared lifecycle (B3, MINIMAL for single-tenant TENANT_ADMIN), socket tenant-scoping (B7), and promoting the no-bare-tenant-query-key / no-bare-graphql-query-string ESLint rules warn→error behind a baseline (B4).
+
+Status: RESOLVED for the mount-race surfaces above (2026-06-25); WS-B remainder tracked here. Registry: orphan-findings.md only.
+
+---
+
 ## ORPHAN-HIGH-163 - gateway→subgraph verified-user assertion only mounted on 2 of 9 tenant-scoped subgraphs (SEC-HIGH-156)
 
 Severity: HIGH (weaker-than-necessary tenant trust boundary). Found validating the tenant-context stabilization plan.

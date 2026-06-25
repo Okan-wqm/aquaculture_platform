@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 
 // Types
@@ -106,6 +107,7 @@ const GET_SENSORS_QUERY = `
 
 // Hook for fetching sensor list
 export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
+  const { token, tenantId } = useAuth();
   const [data, setData] = useState<SensorListResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,8 +136,16 @@ export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
   }, [filter, pagination]);
 
   useEffect(() => {
+    // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
+    // is ready, otherwise the mount fetch races the auth lifecycle and queries
+    // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
+    if (!token || !tenantId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     fetchSensors();
-  }, [fetchSensors]);
+  }, [fetchSensors, token, tenantId]);
 
   const refetch = useCallback(() => {
     fetchSensors();

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 
 // Types
@@ -496,6 +497,7 @@ export function useProcess() {
 // Hook for fetching active processes list (for SCADA page)
 // Now fetches all non-archived processes (draft, active, inactive)
 export function useActiveProcesses(siteId?: string) {
+  const { token, tenantId } = useAuth();
   const [processes, setProcesses] = useState<Process[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -528,8 +530,16 @@ export function useActiveProcesses(siteId?: string) {
   }, [siteId]);
 
   useEffect(() => {
+    // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
+    // is ready, otherwise the mount fetch races the auth lifecycle and queries
+    // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
+    if (!token || !tenantId) {
+      setProcesses([]);
+      setLoading(false);
+      return;
+    }
     fetchProcesses();
-  }, [fetchProcesses]);
+  }, [fetchProcesses, token, tenantId]);
 
   const refetch = useCallback(() => {
     fetchProcesses();
@@ -545,6 +555,7 @@ export function useActiveProcesses(siteId?: string) {
 
 // Hook for fetching a single process by ID
 export function useProcessById(processId: string | undefined) {
+  const { token, tenantId } = useAuth();
   const [process, setProcess] = useState<Process | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -571,8 +582,16 @@ export function useProcessById(processId: string | undefined) {
   }, [processId]);
 
   useEffect(() => {
+    // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
+    // is ready, otherwise the mount fetch races the auth lifecycle and queries
+    // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
+    if (!token || !tenantId) {
+      setProcess(null);
+      setLoading(false);
+      return;
+    }
     fetchProcess();
-  }, [fetchProcess]);
+  }, [fetchProcess, token, tenantId]);
 
   const refetch = useCallback(() => {
     fetchProcess();

@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, Badge, graphqlClient } from '@aquaculture/shared-ui';
+import { Card, Badge, graphqlClient, useAuth } from '@aquaculture/shared-ui';
 import { MapContainer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { subMonths } from 'date-fns';
@@ -238,6 +238,11 @@ const statusLabels: Record<string, string> = {
 // ============================================================================
 
 const MapViewPage: React.FC = () => {
+  // Auth-readiness gate: the sites query must not fire before the tenant context
+  // is resolved (token + tenantId), or it races the auth lifecycle and 401s /
+  // returns another tenant's scope. Re-runs when the tenant becomes ready or
+  // changes (see the fetch effect below).
+  const { token, tenantId } = useAuth();
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
@@ -293,23 +298,33 @@ const MapViewPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Fetch sites on mount
+  // Fetch sites once the tenant context is ready (and refetch on tenant switch).
   useEffect(() => {
+    // Do not fire while auth is still resolving — avoids the 401/empty race and
+    // never queries with a null tenant.
+    if (!token || !tenantId) {
+      setSites([]);
+      return;
+    }
+    let cancelled = false;
     const loadSites = async () => {
       try {
         setLoading(true);
         setError(null);
         const data = await fetchSitesFromAPI();
-        setSites(data);
+        if (!cancelled) setSites(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load sites');
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load sites');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     loadSites();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, tenantId]);
 
   // Check if the active layer is a Sentinel layer
   const isSentinelLayer = SENTINEL_LAYERS.some((l) => l.id === activeLayer);

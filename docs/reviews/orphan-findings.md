@@ -5304,3 +5304,15 @@ merge-train collision with main's ORPHAN-MEDIUM-167; the create-subscription com
 message references the original 167.)
 
 Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-171 - gateway ALS logging frame missed the effective tenant for a SUPER_ADMIN act-as (WS-A.4)
+
+Severity: LOW (observability correctness — no data-isolation impact; the gateway does no DB RLS). Raised by the 2nd-agent plan review (point 4).
+
+**Root cause:** in `apps/gateway-api/src/app.module.ts` the middleware order is `RequestContextMiddleware → CaptureRequestedTenant → Strip → … → EffectiveTenantMiddleware`. `RequestContextMiddleware` establishes the AsyncLocalStorage logging frame FIRST, reading the tenant only from the JWT (`x-user-payload`). `EffectiveTenantMiddleware` runs later and computes the EFFECTIVE tenant (which, for a SUPER_ADMIN acting-as a tenant via the still-supported header path, differs from the null JWT tenant) but only wrote `req.effectiveTenantId` — it never updated the ALS frame. So every gateway log line for a SUPER_ADMIN act-as was attributed to the wrong (null/JWT) tenant.
+
+**Fix (this commit):** `EffectiveTenantMiddleware` now enriches the live ALS frame — `getRequestContext().tenantId = effectiveTenantId` — via a `setEffectiveTenant()` helper applied at every effective-tenant assignment. `getRequestContext()` returns the live mutable store and `StructuredLoggerService` reads `ctx.tenantId` at log time, so all subsequent log lines carry the effective tenant. Chosen over REORDERING the critical auth middleware chain (which would establish the correlation frame too late for Capture/Strip/EffectiveTenant). Safe no-op when no ALS frame is active. 3 enrichment unit tests added (regular user, SUPER_ADMIN act-as → target, no-frame no-op); gateway `tsc` clean; spec 15/15.
+
+Status: RESOLVED (2026-06-25; ALS-frame enrichment, no chain reorder). Registry: orphan-findings.md only.

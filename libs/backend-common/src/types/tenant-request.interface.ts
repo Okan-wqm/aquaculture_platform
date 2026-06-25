@@ -1,10 +1,11 @@
 import { Request } from 'express';
 
 /**
- * Minimal JWT user payload attached to the request by the auth guard.
- * This is the canonical shape used across guards, decorators, middleware, and repositories.
+ * The gateway-signed verified-user assertion claims (ADR-015 / SEC-HIGH-156).
+ * Emitted by gateway-api, verified by every tenant-scoped subgraph, and used
+ * across guards, decorators, middleware, and repositories as the SSoT identity.
  */
-export interface FarmVerifiedIdentity {
+export interface VerifiedUserAssertion {
   issuer: 'gateway-api';
   subject: string;
   tenantId: string | null;
@@ -97,5 +98,5 @@ export interface TenantRequest extends Request {
   /** HMAC-verified service caller identity. */
   verifiedIdentity?: VerifiedServiceIdentity;
   /** Gateway-minted business identity assertion. */
-  verifiedUserAssertion?: FarmVerifiedIdentity;
+  verifiedUserAssertion?: VerifiedUserAssertion;
 }

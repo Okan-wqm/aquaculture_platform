@@ -25,7 +25,7 @@ This revision implements the first farm-service SSOT slice for identity plus bat
 
 ## Target SSOT Ownership
 
-- Identity: `FarmVerifiedIdentity` is the only farm user/tenant authority. Raw `x-user-*`, raw `x-act-as-tenant`, and unverified `x-tenant-id` are not business authority.
+- Identity: `VerifiedUserAssertion` (the gateway-signed verified-user assertion) is the only farm user/tenant authority. Raw `x-user-*`, raw `x-act-as-tenant`, and unverified `x-tenant-id` are not business authority.
 - Service identity: per-caller keyring plus allowed caller/audience/route matrix. Shared-secret production fallback is invalid.
 - Commands: command/query envelopes carry tenant, actor, correlation, mobile command metadata, and payload consistently.
 - Transactions: tenant writes run through `runInTenantTransaction(dataSource, 'farm', tenantId, fn)` and tenant-owned entity access uses `tenantManagerRepo` or a repository port.

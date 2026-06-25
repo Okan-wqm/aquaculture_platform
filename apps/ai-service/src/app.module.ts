@@ -34,6 +34,7 @@ import {
   CorrelationIdMiddleware,
   createTenantSchemaMiddleware,
   StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
@@ -332,17 +333,41 @@ export class AppModule implements NestModule {
     // 2. UserContextMiddleware - Parse x-user-payload header from gateway
     // 3. TenantContextMiddleware - Extract tenant from JWT/headers
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
+    // SEC-CRITICAL-002 sweep — strip forged internal headers (safe on all routes
+    // except the health probe).
+    consumer
+      .apply(StripInternalHeadersMiddleware)
+      .exclude('health', 'health/{*path}')
+      .forRoutes('*');
+
+    // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
+    // verified-user assertion (after Strip sets req.verifiedIdentity, before
+    // UserContext). EXCLUDED from /api/v2/ai/*: the AI chat REST surface arrives
+    // via the gateway's REST proxy (routes/v2/ai.routes.ts), which forwards only
+    // an allowlist of headers and does NOT sign a gateway service identity, so
+    // requiring the assertion there would 400 in production — that path still
+    // authenticates via the JWT guard + x-tenant-id. Both prefix forms excluded
+    // to fail safe.
+    consumer
+      .apply(VerifiedUserAssertionMiddleware)
+      .exclude(
+        'health',
+        'health/{*path}',
+        'api/v2/ai',
+        'api/v2/ai/{*path}',
+        'api/v1/api/v2/ai',
+        'api/v1/api/v2/ai/{*path}',
+      )
+      .forRoutes('*');
+
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strip forged internal headers.
-        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,
       )
-      // Express v5 path-to-regexp v8: named wildcard required instead of regex capture group
       .exclude('health', 'health/{*path}')
       .forRoutes('*');
   }

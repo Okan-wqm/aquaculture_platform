@@ -32,6 +32,17 @@ export function buildRefreshTokenCookieOptions(params: RefreshCookieParams): Coo
     secure: params.isProduction,
     sameSite: 'lax',
     path: '/',
+    // ROOT CAUSE (logout-on-refresh): the refresh-token value is
+    // `${userId}:${random}`. Express's default cookie `encode`
+    // (encodeURIComponent) turns the ':' into '%3A'; across the
+    // browser → nginx → gateway-forward → auth hops that encoding was not
+    // decoded symmetrically, so AuthenticationService.refreshTokenWithHash's
+    // `indexOf(':')` split saw '%3A' (no colon), derived the wrong tokenPart,
+    // and bcrypt.compare never matched a (valid) stored token — every silent
+    // refresh failed and logged the user out. ':' is a valid RFC 6265
+    // cookie-octet, so encoding it is unnecessary; the identity encoder keeps
+    // the SSoT token byte-for-byte stable through every hop.
+    encode: (value: string): string => value,
   };
 
   if (params.rememberMe) {

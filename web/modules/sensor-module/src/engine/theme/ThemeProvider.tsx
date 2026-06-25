@@ -1,5 +1,5 @@
 import React, { createContext, useState, useCallback, useEffect, useMemo } from 'react';
-import { getTenantId } from '@aquaculture/shared-ui';
+import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import type { ThemeMode, ThemeTokens } from './types';
 import { LIGHT_TOKENS, DARK_TOKENS } from './tokens';
 
@@ -19,9 +19,10 @@ export const ThemeContext = createContext<ThemeContextValue | null>(null);
  * Security: tenant-scoped localStorage key prevents cross-tenant data leakage
  * when multiple tenants are accessed from the same browser session
  */
-function getStorageKey(): string {
-  const tenantId = getTenantId() || 'default';
-  return `scada-theme-mode-${tenantId}`;
+// Returns null when no tenant is resolved so the theme degrades to the in-memory
+// default instead of persisting into a shared 'default' bucket (cross-tenant bleed).
+function getStorageKey(): string | null {
+  return tenantScopedStorageKey('scada-theme-mode', getTenantId());
 }
 
 function camelToKebab(str: string): string {
@@ -36,7 +37,9 @@ function getSystemPreference(): 'light' | 'dark' {
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') return 'light';
-    return (localStorage.getItem(getStorageKey()) as ThemeMode) || 'light';
+    const key = getStorageKey();
+    if (!key) return 'light';
+    return (localStorage.getItem(key) as ThemeMode) || 'light';
   });
 
   const resolvedMode = mode === 'system' ? getSystemPreference() : mode;
@@ -64,7 +67,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Persist to tenant-scoped localStorage
   const setMode = useCallback((m: ThemeMode) => {
     setModeState(m);
-    localStorage.setItem(getStorageKey(), m);
+    const key = getStorageKey();
+    if (key) localStorage.setItem(key, m);
   }, []);
 
   const toggle = useCallback(() => {

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import type { NutrientProfile } from '../types/modes.types';
 import {
   CONFIGURATIONS_QUERY,
@@ -14,8 +14,11 @@ import type { HydroponicsConfig } from './useHydroponicsConfig';
 const STORAGE_KEY_PREFIX = 'nutrient_profiles';
 const CONFIG_NAME = 'nutrient-profiles';
 
-function getStorageKey(tenantId: string | null | undefined): string {
-  return `${STORAGE_KEY_PREFIX}_${tenantId || 'default'}`;
+// Returns null when no tenant is resolved so callers skip localStorage entirely
+// rather than reading/writing a shared 'default' bucket that bleeds nutrient
+// profiles (potentially PII-adjacent agronomic config) across tenants.
+function getStorageKey(tenantId: string | null | undefined): string | null {
+  return tenantScopedStorageKey(STORAGE_KEY_PREFIX, tenantId);
 }
 
 // SEC-HYD-001: Runtime schema guard — reject any profile that does not conform to
@@ -48,7 +51,8 @@ function isValidProfile(p: unknown): p is NutrientProfile {
   );
 }
 
-function loadProfilesFromStorage(storageKey: string): NutrientProfile[] {
+function loadProfilesFromStorage(storageKey: string | null): NutrientProfile[] {
+  if (!storageKey) return [];
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
@@ -61,7 +65,8 @@ function loadProfilesFromStorage(storageKey: string): NutrientProfile[] {
   }
 }
 
-function persistProfilesToStorage(storageKey: string, profiles: NutrientProfile[]): void {
+function persistProfilesToStorage(storageKey: string | null, profiles: NutrientProfile[]): void {
+  if (!storageKey) return;
   localStorage.setItem(storageKey, JSON.stringify(profiles));
 }
 

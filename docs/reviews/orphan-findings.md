@@ -5242,6 +5242,20 @@ Status: RESOLVED (2026-06-25; RLS-bypass for pre-tenant refresh rotation). Close
 
 ---
 
+## ORPHAN-MEDIUM-167 - FE `tenantId || 'default'` localStorage keys bleed UI state across tenants (WS-B B2/B4)
+
+Severity: MEDIUM (cross-tenant UI-state bleed during the null/changing-tenant window). Found validating the tenant-context stabilization plan.
+
+**Root cause:** seven FE surfaces built a localStorage/cache key as `${prefix}_${tenantId || 'default'}` / `getTenantId() || 'default'`. When `tenantId` is briefly null (initial load, tenant switch) every session shares one `default` bucket, so tenant A's persisted UI state (dashboard layout, column visibility, theme, chart-collapse, analytics filters, offline nutrient profiles) bleeds into tenant B. `web/modules/{sensor-module,farm-module,hydroponics-module}` — `SimulationSidebar`, `WidgetDashboardPage`, `ThemeProvider`, `TanksAnalyticsTab` (also a stale empty-dep `useMemo`), `useColumnVisibility`, `TankChartsSection`, `useNutrientProfiles`.
+
+**Fix (this commit):** adopt the existing canonical `tenantScopedStorageKey(baseKey, tenantId)` (web/shared-ui) — it returns `aqua.tss::<tenantId>::<baseKey>` or `null` when tenantId is absent; every call site now skips localStorage on `null` and uses the in-memory default, so no shared `default` bucket can exist. Exported the helper from shared-ui. TanksAnalyticsTab's stale empty-dep tenant memo is made reactive (`useAuth().tenantId`). New invariant `tests/invariants/no-default-tenant-storage-key.spec.ts` (B4) fails the build if any `getTenantId()/tenantId || 'default'` reappears in `web/` (it is at zero now). tsc clean across shared-ui + the 3 modules.
+
+**Tracked WS-B remainder:** B3 (tenant-admin custom client → shared graphqlClient lifecycle/CSRF/401-refresh), B7 (sensor WebSocket pool tenant-scoping + logout cache sweep via `sweepTenantScopedStorage`), and promoting the existing `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error (needs the ~420 + ~50 pre-existing violations migrated first).
+
+Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
 ## ORPHAN-LOW-168 - TanStack Query cache not cleared on logout (cross-tenant cache defence)
 
 Severity: LOW (defence-in-depth; the tenant-scoped query-key factory already isolates most caches by `['tenant', tenantId, …]` — this closes the residual NON-tenant-keyed-query window).

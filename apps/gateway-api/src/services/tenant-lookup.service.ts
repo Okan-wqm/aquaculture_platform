@@ -15,6 +15,7 @@ import {
   TenantSettings,
   TenantFeatures,
   TenantLimits,
+  resolveTenantLimits,
 } from '../middleware/tenant-context.middleware';
 
 /**
@@ -104,56 +105,10 @@ const PLAN_FEATURES: Record<string, TenantFeatures> = {
   },
 };
 
-/**
- * Default tenant limits by plan
- */
-const PLAN_LIMITS: Record<string, TenantLimits> = {
-  free: {
-    maxUsers: 3,
-    maxFarms: 1,
-    maxPonds: 5,
-    maxSensors: 10,
-    maxApiRequests: 1000,
-    maxStorageGb: 1,
-    dataRetentionDays: 30,
-  },
-  trial: {
-    maxUsers: 10,
-    maxFarms: 5,
-    maxPonds: 25,
-    maxSensors: 100,
-    maxApiRequests: 50000,
-    maxStorageGb: 10,
-    dataRetentionDays: 90,
-  },
-  starter: {
-    maxUsers: 10,
-    maxFarms: 3,
-    maxPonds: 20,
-    maxSensors: 50,
-    maxApiRequests: 10000,
-    maxStorageGb: 10,
-    dataRetentionDays: 90,
-  },
-  professional: {
-    maxUsers: 50,
-    maxFarms: 10,
-    maxPonds: 100,
-    maxSensors: 500,
-    maxApiRequests: 100000,
-    maxStorageGb: 100,
-    dataRetentionDays: 365,
-  },
-  enterprise: {
-    maxUsers: -1,
-    maxFarms: -1,
-    maxPonds: -1,
-    maxSensors: -1,
-    maxApiRequests: -1,
-    maxStorageGb: -1,
-    dataRetentionDays: -1,
-  },
-};
+// Plan limits are projected from the canonical PLAN_CATALOG SSoT via
+// `resolveTenantLimits` (re-exported from the middleware). The former
+// hand-copied PLAN_LIMITS table lived here AND in the middleware and had
+// already drifted from billing/admin — both copies are now deleted.
 
 @Injectable()
 export class TenantLookupService {
@@ -266,9 +221,9 @@ export class TenantLookupService {
     const plan = data.plan.toLowerCase();
     // Use non-null assertion since 'starter' is always defined in our const objects
     const defaultFeatures = PLAN_FEATURES['starter'] as TenantFeatures;
-    const defaultLimits = PLAN_LIMITS['starter'] as TenantLimits;
     const planFeatures: TenantFeatures = { ...(PLAN_FEATURES[plan] ?? defaultFeatures) };
-    const planLimits: TenantLimits = { ...(PLAN_LIMITS[plan] ?? defaultLimits) };
+    // Canonical limits projected from the PLAN_CATALOG SSoT (unknown plan → STARTER).
+    const planLimits: TenantLimits = resolveTenantLimits(plan);
 
     // Override maxUsers from tenant settings if available
     if (data.maxUsers && data.maxUsers > 0) {

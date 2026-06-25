@@ -22,6 +22,9 @@ import {
   type SuspendTenantLifecycleCommand,
   type TenantStatusChangedEvent,
   type UserInvitedEvent,
+  TenantPlan,
+  toTenantPlan,
+  resolvePlanLimits,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -208,7 +211,13 @@ export class TenantProvisioningCommandService {
           contactPhone: command.contactPhone ?? null,
           plan: command.plan as Tenant['plan'],
           status: TenantStatus.PENDING,
-          maxUsers: command.maxUsers ?? 5,
+          // Fallback to the canonical per-plan user limit (PLAN_CATALOG SSoT)
+          // instead of a hardcoded 5, so an omitted maxUsers matches what the
+          // tenant's plan actually grants.
+          maxUsers:
+            command.maxUsers ??
+            resolvePlanLimits(toTenantPlan(command.plan) ?? TenantPlan.STARTER)
+              .maxUsers,
           maxStorage: command.maxStorage ?? -1,
           // MT-MEDIUM-001: isTrialActive is no longer stored — trial state is
           // derived from trialEndsAt (the SSoT), which is the only trial field

@@ -380,7 +380,11 @@ describe('TenantContextInterceptor', () => {
       });
     });
 
-    it('should create tenant context with default limits', (done) => {
+    it('should default to the conservative FREE plan limits when no subscription tier is present', (done) => {
+      // No JWT → no subscriptionTier → the interceptor resolves the FREE tier
+      // from the canonical PLAN_CATALOG SSoT (ADR-037). Previously this object
+      // was a hardcoded "professional-ish" default (500 sensors) that never
+      // tracked the tenant's actual plan — a latent over-grant.
       const context = createMockExecutionContext({
         headers: { 'x-tenant-id': 'tenant-limits' },
       });
@@ -389,10 +393,32 @@ describe('TenantContextInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         next: () => {
           const request = context.switchToHttp().getRequest();
+          expect(request.tenantContext?.limits?.maxFarms).toBe(1);
+          expect(request.tenantContext?.limits?.maxPonds).toBe(5);
+          expect(request.tenantContext?.limits?.maxSensors).toBe(10);
+          expect(request.tenantContext?.limits?.maxUsers).toBe(3);
+          done();
+        },
+        error: done.fail,
+      });
+    });
+
+    it('should derive limits from the JWT subscription tier (PLAN_CATALOG SSoT)', (done) => {
+      // A professional tenant gets the professional limits from the SSoT —
+      // the limits now follow the plan instead of a fixed default.
+      const context = createMockExecutionContext({
+        headers: { 'x-tenant-id': 'tenant-pro' },
+        user: { sub: 'user-1', subscription_tier: 'professional' },
+      });
+      const handler = createMockCallHandler();
+
+      interceptor.intercept(context, handler).subscribe({
+        next: () => {
+          const request = context.switchToHttp().getRequest();
           expect(request.tenantContext?.limits?.maxFarms).toBe(10);
           expect(request.tenantContext?.limits?.maxPonds).toBe(100);
-          expect(request.tenantContext?.limits?.maxSensors).toBe(500);
-          expect(request.tenantContext?.limits?.maxUsers).toBe(50);
+          expect(request.tenantContext?.limits?.maxSensors).toBe(100);
+          expect(request.tenantContext?.limits?.maxUsers).toBe(25);
           done();
         },
         error: done.fail,

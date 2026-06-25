@@ -4,13 +4,19 @@ import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EventHandler, NatsEventBus } from '@platform/event-bus';
-import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  SubscriptionProvisioningFailedEvent,
+  TenantPlan,
+  toTenantPlan,
+} from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { Plan } from '../entities/plan.entity';
 import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
-import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
+import { SubscriptionStatus, BillingCycle, PlanTier, PlanLimits } from '../entities/subscription.entity';
+import { billingPlanLimitsFor } from '../plan-limits.util';
 // WHY type-only: the runtime Subscription class is loaded via dynamic
 // import() further down to avoid a module-load cycle; the static type
 // reference here has no runtime footprint.
@@ -76,54 +82,10 @@ export class TenantSubscriptionRequestedEvent {
   };
 }
 
-/**
- * Default plan limits by tier
- */
-const DEFAULT_LIMITS: Record<string, {
-  maxFarms: number;
-  maxPonds: number;
-  maxSensors: number;
-  maxUsers: number;
-  dataRetentionDays: number;
-  alertsEnabled: boolean;
-  reportsEnabled: boolean;
-  apiAccessEnabled: boolean;
-  customIntegrationsEnabled: boolean;
-}> = {
-  starter: {
-    maxFarms: 3,
-    maxPonds: 30,
-    maxSensors: 20,
-    maxUsers: 5,
-    dataRetentionDays: 90,
-    alertsEnabled: true,
-    reportsEnabled: false,
-    apiAccessEnabled: false,
-    customIntegrationsEnabled: false,
-  },
-  professional: {
-    maxFarms: 10,
-    maxPonds: 100,
-    maxSensors: 100,
-    maxUsers: 25,
-    dataRetentionDays: 365,
-    alertsEnabled: true,
-    reportsEnabled: true,
-    apiAccessEnabled: true,
-    customIntegrationsEnabled: false,
-  },
-  enterprise: {
-    maxFarms: -1, // unlimited
-    maxPonds: -1,
-    maxSensors: -1,
-    maxUsers: -1,
-    dataRetentionDays: 730,
-    alertsEnabled: true,
-    reportsEnabled: true,
-    apiAccessEnabled: true,
-    customIntegrationsEnabled: true,
-  },
-};
+// Plan limits are no longer hand-copied here. The Plan entity (DB) is read
+// first; when absent, limits fall back to the canonical PLAN_CATALOG SSoT via
+// billingPlanLimitsFor() (see usage below). Pricing remains tier-defaulted
+// locally — it is not a plan *limit* and is out of the PLAN_CATALOG scope.
 
 /**
  * Default pricing by tier (monthly base price)
@@ -255,7 +217,7 @@ export class TenantSubscriptionRequestedHandler
       // Try to fetch plan from the database first; fall back to hardcoded defaults
       // if no Plan entity exists for this tier yet (backward compatibility).
       const tierKey = tier.toLowerCase();
-      let limits: typeof DEFAULT_LIMITS[string];
+      let limits: PlanLimits;
       let pricing: typeof DEFAULT_PRICING[string];
       let resolvedPlanId: string | undefined;
 
@@ -287,17 +249,9 @@ export class TenantSubscriptionRequestedHandler
           `Using Plan entity "${planEntity.name}" (${planEntity.id}) for tier ${tier}`,
         );
       } else {
-        limits = DEFAULT_LIMITS[tierKey] ?? {
-          maxFarms: 3,
-          maxPonds: 30,
-          maxSensors: 20,
-          maxUsers: 5,
-          dataRetentionDays: 90,
-          alertsEnabled: true,
-          reportsEnabled: false,
-          apiAccessEnabled: false,
-          customIntegrationsEnabled: false,
-        };
+        // No Plan row yet — fall back to the canonical PLAN_CATALOG SSoT
+        // (unknown tier → STARTER), never a locally hand-copied table.
+        limits = billingPlanLimitsFor(toTenantPlan(tierKey) ?? TenantPlan.STARTER);
         pricing = DEFAULT_PRICING[tierKey] ?? {
           basePrice: 49,
           perFarmPrice: 10,

@@ -1,8 +1,10 @@
+import { TenantPlan } from '@platform/event-contracts';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import Decimal from 'decimal.js';
 import { Plan } from '../entities/plan.entity';
 import { PlanTier, BillingCycle } from '../entities/subscription.entity';
+import { billingPlanLimitsFor } from '../plan-limits.util';
 
 /**
  * Seeds the default plans into the database on application startup.
@@ -35,17 +37,7 @@ export class PlanSeedService implements OnModuleInit {
         basePrice: new Decimal(49),
         currency: 'USD',
         billingCycle: BillingCycle.MONTHLY,
-        limits: {
-          maxFarms: 3,
-          maxPonds: 30,
-          maxSensors: 20,
-          maxUsers: 5,
-          dataRetentionDays: 90,
-          alertsEnabled: true,
-          reportsEnabled: false,
-          apiAccessEnabled: false,
-          customIntegrationsEnabled: false,
-        },
+        limits: billingPlanLimitsFor(TenantPlan.STARTER),
         pricing: {
           basePrice: 49,
           perFarmPrice: 10,
@@ -70,17 +62,7 @@ export class PlanSeedService implements OnModuleInit {
         basePrice: new Decimal(149),
         currency: 'USD',
         billingCycle: BillingCycle.MONTHLY,
-        limits: {
-          maxFarms: 10,
-          maxPonds: 100,
-          maxSensors: 100,
-          maxUsers: 25,
-          dataRetentionDays: 365,
-          alertsEnabled: true,
-          reportsEnabled: true,
-          apiAccessEnabled: true,
-          customIntegrationsEnabled: false,
-        },
+        limits: billingPlanLimitsFor(TenantPlan.PROFESSIONAL),
         pricing: {
           basePrice: 149,
           perFarmPrice: 15,
@@ -108,17 +90,7 @@ export class PlanSeedService implements OnModuleInit {
         basePrice: new Decimal(499),
         currency: 'USD',
         billingCycle: BillingCycle.MONTHLY,
-        limits: {
-          maxFarms: -1, // unlimited
-          maxPonds: -1,
-          maxSensors: -1,
-          maxUsers: -1,
-          dataRetentionDays: 730,
-          alertsEnabled: true,
-          reportsEnabled: true,
-          apiAccessEnabled: true,
-          customIntegrationsEnabled: true,
-        },
+        limits: billingPlanLimitsFor(TenantPlan.ENTERPRISE),
         pricing: {
           basePrice: 499,
           perFarmPrice: 20,

@@ -5113,3 +5113,37 @@ Severity: HIGH. Live-trace + DB confirmed root cause of the operator's persisten
 Owner: platform/tenant-isolation + frontend. Deadline: 2026-07-08. Status: IN-PROGRESS (auth backend + tests landed; FE switcher next). MFA step-up sub-item tracked here. Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-160 — `PLAN_FEATURES` per-plan feature catalog hand-copied (sibling of SSOT-C-13)
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during SSOT-C-13 plan-limit SSoT collapse (ADR-037)
+**Files:**
+- `apps/gateway-api/src/middleware/tenant-context.middleware.ts` (`PLAN_FEATURES`)
+- `apps/gateway-api/src/services/tenant-lookup.service.ts` (`PLAN_FEATURES`, byte-identical copy)
+
+**Problem:** While collapsing the FIVE per-plan *limit* catalogs into the canonical
+`PLAN_CATALOG` SSoT (ADR-037, `libs/event-contracts/src/billing/plan-catalog.ts`),
+a sibling drift remains: per-plan *feature* booleans (`TenantFeatures`:
+`advancedAnalytics`, `alertEngine`, `iotIntegration`, `apiAccess`, `customReports`,
+`multiSite`, `whiteLabeling`, `ssoEnabled`) are still hand-copied across the gateway
+middleware and tenant-lookup service. This is the same hand-copied-catalog
+anti-pattern, one layer over (features instead of limits).
+
+**Why not fixed in ADR-037:** Different shape and concern. `TenantFeatures` partially
+overlaps the canonical `PlanLimits` capability booleans (`apiAccessEnabled`,
+`ssoEnabled`, `customBrandingEnabled`) but adds a distinct set (`advancedAnalytics`,
+`iotIntegration`, `multiSite`, `customReports`, `whiteLabeling`). Folding it correctly
+means a deliberate features-SSoT design — either extend `PLAN_CATALOG` with a typed
+`features` sub-object or add a sibling `PLAN_FEATURE_CATALOG` in event-contracts — not
+an in-scope side effect of the limit collapse.
+
+**How to fix:** Add a canonical per-plan feature map in `@platform/event-contracts`
+(reconcile the overlapping booleans with `PlanLimits` so a capability isn't defined
+twice), then project the gateway `TenantFeatures` from it and delete both copies. Add
+the same per-tier-map invariant guard used for limits (extend
+`tests/invariants/plan-limits-ssot.spec.ts` or a sibling) to forbid a future copy.
+
+Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.
+
+---

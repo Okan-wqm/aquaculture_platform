@@ -5256,54 +5256,41 @@ Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: 
 
 ---
 
-## ORPHAN-MEDIUM-168 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
+## ORPHAN-LOW-168 - TanStack Query cache not cleared on logout (cross-tenant cache defence)
 
-**Severity:** MEDIUM
-**Discovered:** 2026-06-25, during W1.1 change-subscription-plan Stripe rewrite (SSOT-C-12)
-**File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path)
+Severity: LOW (defence-in-depth; the tenant-scoped query-key factory already isolates most caches by `['tenant', tenantId, …]` — this closes the residual NON-tenant-keyed-query window).
 
-**Problem:** change-subscription-plan now syncs the Stripe subscription price for
-IMMEDIATE changes (upgrade / explicit-immediate / lateral) via
-StripeApiService.updateSubscription. But a DOWNGRADE is intentionally deferred to
-period end and persisted as a `ScheduledPlanChange` row; the billing scheduler cron
-applies it later by mutating the local subscription. That apply path does NOT call
-StripeApiService.updateSubscription, so after a scheduled downgrade applies, the
-Stripe subscription keeps billing the OLD (higher) price.
+**Root cause:** the shared `AuthProvider`'s SPA logout path (`web/shared-ui/src/contexts/AuthContext.tsx`) calls `logoutCleanup()` but never passed/cleared the in-memory TanStack `QueryClient`. The SPA logout dispatches `LOGOUT` without a full page reload, so the QueryClient survives; a subsequent login on the same browser could read the previous user's cached tenant data for any query that wasn't tenant-keyed. `logoutCleanup` already clears sessionStorage / Zustand / SW caches / indexedDB / tenant-scoped localStorage and invokes registered callbacks, but the QueryClient was never wired in.
 
-**Fix:** in the scheduler's scheduled-change apply path, when the subscription has a
-stripeSubscriptionId and the new plan has a stripePriceIds[cycle], call
-StripeApiService.updateSubscription (idempotencyKey
-`sub-update:<stripeSubscriptionId>:<newPlanId>`) BEFORE committing the local mutation
-(same fail-closed ordering as the immediate path).
+**Fix (this commit):** register `queryClient.clear()` as a logout-cleanup callback in the shell bootstrap (`web/shell/src/bootstrap.tsx`, where the QueryClient is created) via the existing `registerLogoutCleanup` mechanism — NOT via `useQueryClient()` inside the shared `AuthProvider`, which would throw for consumers that mount it without a `QueryClientProvider` (e.g. dashboard standalone, aquamobil uses its own AuthProvider). shell `tsc` clean.
 
-**Why not fixed in PR-3:** distinct code path in a different class
-(BillingSchedulerService cron) with its own tx + idempotency. Owner: billing.
-Status: OPEN. Registry: orphan-findings.md.
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
 
-## ORPHAN-MEDIUM-169 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+---
 
-**Severity:** MEDIUM
-**Discovered:** 2026-06-25, during W1.1 create-subscription Stripe rewrite (BILLING-CRITICAL-001 / SSOT-C-12)
-**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts` (existing-subscription branch, `subscriptionRepo.delete({ id })`)
+## ORPHAN-MEDIUM-169 - retire the dormant SUPER_ADMIN `switchTenant` act-as surface (WS-C C2)
 
-**Problem:** When a tenant re-subscribes after a CANCELLED subscription, the handler
-HARD-deletes the old row (`subscriptionRepo.delete(...)`) — explicitly to avoid the
-`UNIQUE(tenantId)` index violation. But `create-subscription.handler.spec.ts` has two
-tests asserting SOFT-delete semantics (`mockRepo.delete` NOT called, `cancelledSub.isDeleted=true`,
-`deletedAt instanceof Date`) — i.e. the intended design is to preserve subscription
-HISTORY, not erase it. These 2 tests fail on `main` today (PRE-EXISTING; verified via
-git-stash on HEAD: 2 fail / 32 pass with the original handler) — the test and the
-handler disagree on the cancelled-row strategy.
+Severity: MEDIUM (security hygiene — an auth-gated cross-tenant token-mint that no client can reach is latent attack surface). The FE SUPER_ADMIN tenant-switcher was removed in #627 (product rule: a SUPER_ADMIN manages the platform; a TENANT_ADMIN enters data in its own module-scoped panel), leaving the `switchTenant` mutation + the `actAsTenantId` token claim dormant.
 
-**Why not fixed here:** out of scope for the Stripe integration (SSOT-C-12). The correct
-fix is a design call: either (a) make the unique index PARTIAL (`WHERE is_deleted = false`)
-so a soft-deleted cancelled row can coexist with the new one, then soft-delete; or (b)
-update the tests to accept hard-delete. (a) preserves history and matches the test intent,
-but needs a migration on the index. (Renumbered from 167 → 169 in the 2026-06-25
-merge-train collision with main's ORPHAN-MEDIUM-167; the create-subscription commit
-message references the original 167.)
+**Evidence it is dormant:** no FE `switchTenant` GraphQL mutation call exists anywhere in `web/` (the `useTenant`/`TenantContext` `switchTenant` is a separate unimplemented stub, never invoked); and the `actAsTenantId` JWT claim is WRITE-ONLY — set in `TokenService.generateTokens` but read by NOTHING across apps/libs/platform (the gateway's act-as is header-based via `effective-tenant.middleware`, a separate mechanism, untouched).
 
-Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+**Fix (this commit):** remove `AuthResolver.switchTenant` (the `@Mutation`), `AuthenticationService.switchTenant`, the `generateTokens({ actAsTenantId })` option, the `actAsTenantId` field on `JwtPayload`, and the act-as branch in the JWT payload — `effectiveTenantId` now simplifies to `user.tenantId ?? null`. The `me` effective-tenant behaviour (#625) is KEPT and re-documented: `me` reports the JWT tenant claim (the session SSoT), which for a normal user equals the DB tenant and for a SUPER_ADMIN is null — correct and now independent of any act-as. switchTenant unit tests removed; the `me` tests retained + reworded; auth `tsc` clean; auth spec 33/33 green. The header-based gateway act-as (`x-act-as-tenant` / `effective-tenant.middleware`, #622) is OUT OF SCOPE and untouched.
+
+Status: RESOLVED (2026-06-25; backend act-as token surface retired). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-170 - tenant-admin GraphQL client bypassed the shared auth lifecycle (WS-B B3)
+
+Severity: MEDIUM (the tenant-admin surface — used by a TENANT_ADMIN to manage its own tenant — could fire GraphQL before the access token was restored, and never auto-recovered from a 401, manifesting as the intermittent empty/failed panel loads).
+
+**Root cause:** `web/modules/tenant-admin/src/services/api-client.ts` `TenantApiClient.graphql<T>` did a RAW `fetch('/graphql', { credentials:'include', headers:{Authorization, X-Tenant-Id} })`. It LACKED the three guarantees the shared `graphqlClient` provides: `tokenLifecycle.waitForReady()` (a barrier so no request fires before the in-memory token is restored on page load — directly relevant to the refresh/restore race), `attachCsrfHeader`, and the `401 → refresh → retry-once` recovery.
+
+**Fix (this commit):** `TenantApiClient.graphql` now delegates to the shared `graphqlClient.request<T>(query, variables)` (same signature), inheriting waitForReady + CSRF + 401-retry; the raw fetch, manual headers, and ad-hoc HTTP/GraphQL error handling are removed. The class, its singleton `apiClient`, the public method shape, and all callers (`lib/api.ts`, `services/index.ts`, `tenant-api.service.ts`, `hooks/useTenantData.ts`) are unchanged. tenant-admin `tsc` clean.
+
+**Tracked WS-B remainder:** B7 (sensor WebSocket pool tenant-scoping), and promoting `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error once the pre-existing violations are migrated.
+
+Status: RESOLVED for B3 (2026-06-25). Registry: orphan-findings.md only.
 
 ---
 
@@ -5316,3 +5303,44 @@ Severity: LOW (observability correctness — no data-isolation impact; the gatew
 **Fix (this commit):** `EffectiveTenantMiddleware` now enriches the live ALS frame — `getRequestContext().tenantId = effectiveTenantId` — via a `setEffectiveTenant()` helper applied at every effective-tenant assignment. `getRequestContext()` returns the live mutable store and `StructuredLoggerService` reads `ctx.tenantId` at log time, so all subsequent log lines carry the effective tenant. Chosen over REORDERING the critical auth middleware chain (which would establish the correlation frame too late for Capture/Strip/EffectiveTenant). Safe no-op when no ALS frame is active. 3 enrichment unit tests added (regular user, SUPER_ADMIN act-as → target, no-frame no-op); gateway `tsc` clean; spec 15/15.
 
 Status: RESOLVED (2026-06-25; ALS-frame enrichment, no chain reorder). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-172 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during W1.1 change-subscription-plan Stripe rewrite (SSOT-C-12). (Renumbered 168→172 in the merge-train collision with main's ORPHAN-LOW-168/169/170; PR-3 commit messages + the change-subscription-plan handler comment reference the original 168.)
+**File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path)
+
+**Problem:** change-subscription-plan now syncs the Stripe subscription price for
+IMMEDIATE changes (upgrade / explicit-immediate / lateral) via
+StripeApiService.updateSubscription. But a DOWNGRADE is deferred to period end and
+persisted as a `ScheduledPlanChange`; the billing scheduler cron applies it later by
+mutating the local subscription WITHOUT calling StripeApiService.updateSubscription,
+so after a scheduled downgrade applies the Stripe subscription keeps billing the OLD
+(higher) price.
+
+**Fix:** in the scheduler's apply path, when the subscription has a stripeSubscriptionId
+and the new plan has a stripePriceIds[cycle], call StripeApiService.updateSubscription
+(idempotencyKey `sub-update:<stripeSubscriptionId>:<newPlanId>`) BEFORE committing the
+local mutation (same fail-closed ordering as the immediate path).
+
+Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-173 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during W1.1 create-subscription Stripe rewrite (BILLING-CRITICAL-001 / SSOT-C-12). (Renumbered 167→169→173 across two merge-train collisions; PR-3 commit messages reference the earlier numbers.)
+**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts` (existing-subscription branch, `subscriptionRepo.delete({ id })`)
+
+**Problem:** When a tenant re-subscribes after a CANCELLED subscription, the handler
+HARD-deletes the old row to avoid the `UNIQUE(tenantId)` index violation. But
+`create-subscription.handler.spec.ts` has two tests asserting SOFT-delete semantics
+(preserve subscription HISTORY). These 2 tests fail on `main` today (PRE-EXISTING;
+verified via git-stash: 2 fail / 32 pass with the original handler).
+
+**Why not fixed here:** out of scope for SSOT-C-12. Correct fix is a design call:
+(a) make the unique index PARTIAL (`WHERE is_deleted = false`) then soft-delete, or
+(b) update the tests to accept hard-delete. (a) preserves history (needs an index migration).
+
+Owner: billing. Status: OPEN. Registry: orphan-findings.md only.

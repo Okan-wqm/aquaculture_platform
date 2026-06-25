@@ -5253,3 +5253,15 @@ Severity: MEDIUM (cross-tenant UI-state bleed during the null/changing-tenant wi
 **Tracked WS-B remainder:** B3 (tenant-admin custom client → shared graphqlClient lifecycle/CSRF/401-refresh), B7 (sensor WebSocket pool tenant-scoping + logout cache sweep via `sweepTenantScopedStorage`), and promoting the existing `no-bare-tenant-query-key` / `no-bare-graphql-query-string` ESLint rules warn→error (needs the ~420 + ~50 pre-existing violations migrated first).
 
 Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-169 - retire the dormant SUPER_ADMIN `switchTenant` act-as surface (WS-C C2)
+
+Severity: MEDIUM (security hygiene — an auth-gated cross-tenant token-mint that no client can reach is latent attack surface). The FE SUPER_ADMIN tenant-switcher was removed in #627 (product rule: a SUPER_ADMIN manages the platform; a TENANT_ADMIN enters data in its own module-scoped panel), leaving the `switchTenant` mutation + the `actAsTenantId` token claim dormant.
+
+**Evidence it is dormant:** no FE `switchTenant` GraphQL mutation call exists anywhere in `web/` (the `useTenant`/`TenantContext` `switchTenant` is a separate unimplemented stub, never invoked); and the `actAsTenantId` JWT claim is WRITE-ONLY — set in `TokenService.generateTokens` but read by NOTHING across apps/libs/platform (the gateway's act-as is header-based via `effective-tenant.middleware`, a separate mechanism, untouched).
+
+**Fix (this commit):** remove `AuthResolver.switchTenant` (the `@Mutation`), `AuthenticationService.switchTenant`, the `generateTokens({ actAsTenantId })` option, the `actAsTenantId` field on `JwtPayload`, and the act-as branch in the JWT payload — `effectiveTenantId` now simplifies to `user.tenantId ?? null`. The `me` effective-tenant behaviour (#625) is KEPT and re-documented: `me` reports the JWT tenant claim (the session SSoT), which for a normal user equals the DB tenant and for a SUPER_ADMIN is null — correct and now independent of any act-as. switchTenant unit tests removed; the `me` tests retained + reworded; auth `tsc` clean; auth spec 33/33 green. The header-based gateway act-as (`x-act-as-tenant` / `effective-tenant.middleware`, #622) is OUT OF SCOPE and untouched.
+
+Status: RESOLVED (2026-06-25; backend act-as token surface retired). Registry: orphan-findings.md only.

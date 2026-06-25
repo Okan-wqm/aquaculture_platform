@@ -10,6 +10,11 @@ export class CreateSiteCommand implements ICommand {
     public readonly input: CreateSiteInputDto,
     public readonly tenantId: string,
     public readonly userId: string,
+    /**
+     * SSOT-C-13: tenant plan tier ordinal (PLAN_LEVEL) for per-plan farm-count
+     * quota enforcement. Undefined for platform SUPER_ADMIN → quota skipped.
+     */
+    public readonly planLevel?: number,
   ) {}
 }
 

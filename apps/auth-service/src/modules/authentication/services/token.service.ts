@@ -43,14 +43,6 @@ export interface JwtPayload {
   roles: Role[];
   tenantId: string | null;
   /**
-   * SUPER_ADMIN act-as: when a SUPER_ADMIN switches into a tenant
-   * (switchTenant mutation), the token is re-minted with `tenantId` = the
-   * target tenant AND this claim set to the same id, so downstream audit can
-   * tell a genuine tenant-scoped login apart from a SUPER_ADMIN acting-as.
-   * Absent on ordinary tokens.
-   */
-  actAsTenantId?: string;
-  /**
    * Numeric tier rank of the tenant's plan (MT-MEDIUM-001) — the canonical
    * `PLAN_LEVEL` ordinal (FREE/TRIAL=0, STARTER=1, PROFESSIONAL=2, ENTERPRISE=3).
    * Lets the gateway and downstream services gate features by tier from the
@@ -221,18 +213,10 @@ export class TokenService {
       mfaVerified?: boolean;
       familyId?: string;
       rememberMe?: boolean;
-      /**
-       * SUPER_ADMIN act-as: mint the token scoped to this target tenant instead
-       * of the user's own tenant. The CALLER must have already verified the user
-       * is a SUPER_ADMIN and the target tenant is ACTIVE (see
-       * AuthService.switchTenant) — this method does not re-authorize.
-       */
-      actAsTenantId?: string;
     },
   ): Promise<AuthPayload> {
-    // SSoT: the effective tenant this token is scoped to — the act-as target for
-    // a SUPER_ADMIN switch, otherwise the user's own tenant.
-    const effectiveTenantId = options?.actAsTenantId ?? user.tenantId ?? null;
+    // SSoT: the effective tenant this token is scoped to — the user's own tenant.
+    const effectiveTenantId = user.tenantId ?? null;
 
     // C1 (tenant-isolation invariant): every non-SUPER_ADMIN principal is
     // tenant-scoped. Minting a token for one WITHOUT a resolved tenant would let
@@ -293,8 +277,6 @@ export class TokenService {
       role: user.role,
       roles: [user.role],
       tenantId: effectiveTenantId,
-      // SUPER_ADMIN act-as audit marker (only when switching into a tenant).
-      ...(options?.actAsTenantId ? { actAsTenantId: options.actAsTenantId } : {}),
       ...(planLevel !== undefined ? { planLevel } : {}),
       // OMIT the keys entirely when empty (spread, not `: undefined`) so the
       // payload object has no `modules`/`resourcePermissions` property at all —

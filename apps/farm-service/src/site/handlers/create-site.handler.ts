@@ -2,9 +2,15 @@
  * Create Site Command Handler
  */
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertWithinQuota } from '@aquaculture/backend-common/quota';
 import { ConflictException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { SiteCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import {
+  SiteCreatedEvent,
+  createBaseEvent,
+  resolvePlanLimits,
+  tenantPlanFromLevel,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -26,12 +32,23 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
   ) {}
 
   async execute(command: CreateSiteCommand): Promise<Site> {
-    const { input, tenantId, userId } = command;
+    const { input, tenantId, userId, planLevel } = command;
 
     this.logger.log(`Creating site "${input.name}" for tenant ${tenantId}`);
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const siteRepository = tenantManagerRepo(queryRunner.manager, Site, tenantId);
+
+      // SSOT-C-13: fail-closed per-plan farm-count quota. Skipped when the caller
+      // carries no plan ordinal (platform SUPER_ADMIN). Counted inside the tx so
+      // two concurrent creates cannot both slip past the limit.
+      if (planLevel !== undefined) {
+        const maxFarms = resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxFarms;
+        if (maxFarms !== -1) {
+          const currentFarms = await siteRepository.count({ where: { tenantId } });
+          assertWithinQuota('farms', currentFarms, maxFarms);
+        }
+      }
 
       const existingByName = await siteRepository.findOne({
         where: { name: input.name, tenantId },

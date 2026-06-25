@@ -24,6 +24,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -476,12 +477,25 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
+    // SEC-CRITICAL-002 sweep — strips forged internal headers when the request
+    // lacks a valid x-service-identity HMAC. Safe on every route (only deletes
+    // spoofable headers), so it + metrics stay on '*'.
+    consumer.apply(StripInternalHeadersMiddleware, MetricsMiddleware).forRoutes('*');
+
+    // SEC-HIGH-156 — resolve req.user/req.tenantId from the gateway-signed
+    // verified-user assertion (runs after Strip sets req.verifiedIdentity,
+    // before UserContext). EXCLUDED from the MQTT auth routes
+    // (edge-device/mqtt-auth.controller.ts): Mosquitto's go-auth plugin calls
+    // /mqtt/{auth,superuser,acl} with NO gateway service identity, so requiring
+    // one there would 500 the broker. Both the prefix-stripped (/mqtt/*) and any
+    // prefixed form are excluded to fail safe.
+    consumer
+      .apply(VerifiedUserAssertionMiddleware)
+      .exclude('mqtt', 'mqtt/{*path}', 'api/v1/mqtt', 'api/v1/mqtt/{*path}')
+      .forRoutes('*');
+
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strips forged internal headers when the
-        // request lacks a valid x-service-identity HMAC signature.
-        StripInternalHeadersMiddleware,
-        MetricsMiddleware, // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

@@ -26,6 +26,7 @@ import {
   CorrelationIdMiddleware,
   createTenantSchemaMiddleware,
   StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
@@ -378,6 +379,10 @@ export class AppModule implements NestModule {
         // SEC-CRITICAL-002 sweep — strip forged internal headers when the
         // request lacks a valid x-service-identity HMAC.
         StripInternalHeadersMiddleware,
+        // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
+        // verified-user assertion (runs after Strip sets req.verifiedIdentity,
+        // before UserContext/TenantContext).
+        VerifiedUserAssertionMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

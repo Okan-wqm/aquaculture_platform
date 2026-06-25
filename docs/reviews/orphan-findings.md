@@ -5303,3 +5303,13 @@ Severity: LOW (observability correctness — no data-isolation impact; the gatew
 **Fix (this commit):** `EffectiveTenantMiddleware` now enriches the live ALS frame — `getRequestContext().tenantId = effectiveTenantId` — via a `setEffectiveTenant()` helper applied at every effective-tenant assignment. `getRequestContext()` returns the live mutable store and `StructuredLoggerService` reads `ctx.tenantId` at log time, so all subsequent log lines carry the effective tenant. Chosen over REORDERING the critical auth middleware chain (which would establish the correlation frame too late for Capture/Strip/EffectiveTenant). Safe no-op when no ALS frame is active. 3 enrichment unit tests added (regular user, SUPER_ADMIN act-as → target, no-frame no-op); gateway `tsc` clean; spec 15/15.
 
 Status: RESOLVED (2026-06-25; ALS-frame enrichment, no chain reorder). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-172 - sensor Socket.IO pool keyed by URL only → cross-tenant realtime bleed (WS-B B7)
+
+Severity: MEDIUM (realtime cross-tenant bleed). The sensor-module Socket.IO connection pool (`web/modules/sensor-module/src/hooks/socketFactory.ts`) keyed entries by **URL only** (`pool.get(url)`). A connected socket keeps its original `auth` until it disconnects, so after logout → re-login (same browser, different tenant) `getSocket(url)` returned the EXISTING socket still bound to the previous tenant's session — leaking tenant A's realtime stream (sensor readings, alarms, edge I/O, SCADA live data) to tenant B. The pool also never tore down on logout.
+
+**Fix (this commit):** (1) tenant-scope the pool key via a `poolKey(url, tenantId)` SSoT helper (`${url}::${tenantId}`) applied at every get/set/release site, with `getSocket` returning `null` when there is no `tenantId` (mirrors the existing no-token guard — no tenant-scoped realtime socket without a tenant); refcounting stays balanced because the URL+tenant are fixed for a live session. (2) `teardownAllSockets()` (disconnect every pooled socket + clear the Map) registered once via `registerLogoutCleanup`, so logout fully severs all realtime connections before a different user can log in. No `PoolEntry`/signature change; the four callers (`useSensorSocket`, `useEdgeIoSocket`, `useAlarmRuntime`, `useScadaLiveData`) are unchanged. sensor-module `tsc` clean; no new `as any`.
+
+Status: RESOLVED for B7 (2026-06-25). Registry: orphan-findings.md only.

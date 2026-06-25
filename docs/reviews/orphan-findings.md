@@ -5306,41 +5306,38 @@ Status: RESOLVED (2026-06-25; ALS-frame enrichment, no chain reorder). Registry:
 
 ---
 
-## ORPHAN-MEDIUM-172 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
+## ORPHAN-MEDIUM-172 - sensor Socket.IO pool keyed by URL only → cross-tenant realtime bleed (WS-B B7)
 
-**Severity:** MEDIUM
-**Discovered:** 2026-06-25, during W1.1 change-subscription-plan Stripe rewrite (SSOT-C-12). (Renumbered 168→172 in the merge-train collision with main's ORPHAN-LOW-168/169/170; PR-3 commit messages + the change-subscription-plan handler comment reference the original 168.)
-**File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path)
+Severity: MEDIUM (realtime cross-tenant bleed). The sensor-module Socket.IO connection pool (`web/modules/sensor-module/src/hooks/socketFactory.ts`) keyed entries by **URL only** (`pool.get(url)`). A connected socket keeps its original `auth` until it disconnects, so after logout → re-login (same browser, different tenant) `getSocket(url)` returned the EXISTING socket still bound to the previous tenant's session — leaking tenant A's realtime stream (sensor readings, alarms, edge I/O, SCADA live data) to tenant B. The pool also never tore down on logout.
 
-**Problem:** change-subscription-plan now syncs the Stripe subscription price for
-IMMEDIATE changes (upgrade / explicit-immediate / lateral) via
-StripeApiService.updateSubscription. But a DOWNGRADE is deferred to period end and
-persisted as a `ScheduledPlanChange`; the billing scheduler cron applies it later by
-mutating the local subscription WITHOUT calling StripeApiService.updateSubscription,
-so after a scheduled downgrade applies the Stripe subscription keeps billing the OLD
-(higher) price.
+**Fix (this commit):** (1) tenant-scope the pool key via a `poolKey(url, tenantId)` SSoT helper (`${url}::${tenantId}`) applied at every get/set/release site, with `getSocket` returning `null` when there is no `tenantId` (mirrors the existing no-token guard — no tenant-scoped realtime socket without a tenant); refcounting stays balanced because the URL+tenant are fixed for a live session. (2) `teardownAllSockets()` (disconnect every pooled socket + clear the Map) registered once via `registerLogoutCleanup`, so logout fully severs all realtime connections before a different user can log in. No `PoolEntry`/signature change; the four callers (`useSensorSocket`, `useEdgeIoSocket`, `useAlarmRuntime`, `useScadaLiveData`) are unchanged. sensor-module `tsc` clean; no new `as any`.
 
-**Fix:** in the scheduler's apply path, when the subscription has a stripeSubscriptionId
-and the new plan has a stripePriceIds[cycle], call StripeApiService.updateSubscription
-(idempotencyKey `sub-update:<stripeSubscriptionId>:<newPlanId>`) BEFORE committing the
-local mutation (same fail-closed ordering as the immediate path).
+Status: RESOLVED for B7 (2026-06-25). Registry: orphan-findings.md only.
 
-Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+---
 
-## ORPHAN-MEDIUM-173 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+## ORPHAN-LOW-173 - E2E regression coverage for the tenant-context intermittency (WS-D)
 
-**Severity:** MEDIUM
-**Discovered:** 2026-06-25, during W1.1 create-subscription Stripe rewrite (BILLING-CRITICAL-001 / SSOT-C-12). (Renumbered 167→169→173 across two merge-train collisions; PR-3 commit messages reference the earlier numbers.)
-**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts` (existing-subscription branch, `subscriptionRepo.delete({ id })`)
+Severity: LOW (test coverage — locks in the session's tenant-context fixes against regression). Directly reproduces the operator's reported "data comes and goes" (bir geliyor bir gelmiyor).
 
-**Problem:** When a tenant re-subscribes after a CANCELLED subscription, the handler
-HARD-deletes the old row to avoid the `UNIQUE(tenantId)` index violation. But
-`create-subscription.handler.spec.ts` has two tests asserting SOFT-delete semantics
-(preserve subscription HISTORY). These 2 tests fail on `main` today (PRE-EXISTING;
-verified via git-stash: 2 fail / 32 pass with the original handler).
+**Gap:** the existing `e2e/tests/integration/data-isolation-chain.spec.ts` proved single-shot tenant A/B isolation but never exercised the INTERMITTENCY — the operator's symptom was a query that returned data on one request and empty/400 on the next, under the refresh/assertion/schema-routing races now fixed by #622 (gateway effectiveTenantId), #630/#631 (HMAC raw-body SSoT + 9-subgraph verified-user-assertion), and #634 (refresh RLS bypass).
 
-**Why not fixed here:** out of scope for SSOT-C-12. Correct fix is a design call:
-(a) make the unique index PARTIAL (`WHERE is_deleted = false`) then soft-delete, or
-(b) update the tests to accept hard-delete. (a) preserves history (needs an index migration).
+**Fix (this commit):** extend that suite with a `tenant-context stability under repeated load (WS-D)` block that fires the real `tenantUsers` query 30× SEQUENTIALLY and 30× CONCURRENTLY as Tenant A — asserting every response returns A's data with no GraphQL error (no intermittent empty/"assertion required" 400) and never B's rows — plus a 30× INTERLEAVED A/B run asserting no cross-tenant bleed. Reuses the existing harness (`loginAs`, `queryTenantUsers`, `hasGraphQLError`) and the A/B tenants seeded in `beforeAll`; runs in the `e2e-tests.yml` workflow against a live stack.
 
-Owner: billing. Status: OPEN. Registry: orphan-findings.md only.
+Status: RESOLVED (2026-06-25; intermittency regression coverage added). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-174 — scheduled plan downgrade does not sync the price at Stripe when the scheduler applies it
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-25 (W1.1 change-subscription-plan Stripe rewrite, SSOT-C-12). PR-3 commit messages reference earlier collision numbers (168/171/172).
+**File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path).
+
+change-subscription-plan syncs the Stripe price for IMMEDIATE changes via StripeApiService.updateSubscription, but a DOWNGRADE is deferred to period end as a ScheduledPlanChange; the billing scheduler cron applies it WITHOUT calling updateSubscription, so the Stripe subscription keeps billing the OLD price. Fix: in the scheduler apply path, when the subscription has a stripeSubscriptionId and the new plan has stripePriceIds[cycle], call StripeApiService.updateSubscription (idempotencyKey `sub-update:<stripeSubscriptionId>:<newPlanId>`) before the local commit. Owner: billing. Status: OPEN.
+
+## ORPHAN-MEDIUM-175 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-25 (W1.1 create-subscription Stripe rewrite, BILLING-CRITICAL-001). PRE-EXISTING: 2 tests fail on main today (git-stash verified 2 fail / 32 pass with the original handler).
+**File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts`.
+
+On re-subscribe after a CANCELLED subscription the handler HARD-deletes the old row (avoids the UNIQUE(tenantId) index violation), but create-subscription.handler.spec.ts asserts SOFT-delete (history preservation). Out of SSOT-C-12 scope. Fix is a design call: (a) PARTIAL unique index `WHERE is_deleted=false` then soft-delete (needs migration), or (b) update tests to accept hard-delete. Owner: billing. Status: OPEN.

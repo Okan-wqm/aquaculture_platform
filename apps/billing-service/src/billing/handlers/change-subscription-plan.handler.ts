@@ -212,7 +212,7 @@ export class ChangeSubscriptionPlanHandler
       // W1.1 (SSOT-C-12): for an immediately-applied change, sync the price at
       // Stripe BEFORE persisting locally so a Stripe failure rolls the change back
       // (no local/Stripe divergence). Scheduled downgrades are synced when the
-      // billing scheduler applies them at period end (ORPHAN-MEDIUM-172). Plans
+      // billing scheduler applies them at period end (tracked separately in docs/reviews/orphan-findings.md). Plans
       // with no Stripe price (legacy) update locally only.
       if (appliedImmediately && subscription.stripeSubscriptionId) {
         const newPriceId = newPlan.stripePriceIds?.[subscription.billingCycle];

@@ -63,7 +63,7 @@ function toStripeSubscription(sub: Stripe.Subscription): StripeSubscription {
     status: sub.status,
     currentPeriodStartIso: epochToIso(sub.current_period_start),
     currentPeriodEndIso: epochToIso(sub.current_period_end),
-    metadata: (sub.metadata ?? {}) as StripeMetadata,
+    metadata: sub.metadata ?? {},
   };
 }
 
@@ -82,7 +82,7 @@ function toStripeCustomer(customer: Stripe.Customer): StripeCustomer {
   return {
     id: customer.id,
     email: customer.email ?? null,
-    metadata: (customer.metadata ?? {}) as StripeMetadata,
+    metadata: customer.metadata ?? {},
   };
 }
 

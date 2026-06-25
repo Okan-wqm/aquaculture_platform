@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, KpiCard, getTenantId } from '@aquaculture/shared-ui';
+import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -125,10 +125,15 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   // TENANT-SCOPED STORAGE KEYS
   // ============================================================================
 
-  const tenantSuffix = useMemo(() => getTenantId() || 'default', []);
-  const timeRangeKey = useMemo(() => `tanks-chart-time-range-${tenantSuffix}`, [tenantSuffix]);
-  const visibilityKey = useMemo(() => `tanks-chart-visibility-${tenantSuffix}`, [tenantSuffix]);
-  const selectedIdsKey = useMemo(() => `tanks-chart-selected-ids-${tenantSuffix}`, [tenantSuffix]);
+  // Prefer the reactive tenantId from auth context so the keys re-derive on a
+  // tenant switch (the previous `useMemo(..., [])` was stale). getTenantId() is the
+  // fallback for render paths without an AuthProvider. A null key (no tenant) makes
+  // every read/write below no-op — no shared 'default' bucket, so no cross-tenant bleed.
+  const { tenantId: authTenantId } = useAuth();
+  const tenantId = authTenantId ?? getTenantId();
+  const timeRangeKey = useMemo(() => tenantScopedStorageKey('tanks-chart-time-range', tenantId), [tenantId]);
+  const visibilityKey = useMemo(() => tenantScopedStorageKey('tanks-chart-visibility', tenantId), [tenantId]);
+  const selectedIdsKey = useMemo(() => tenantScopedStorageKey('tanks-chart-selected-ids', tenantId), [tenantId]);
 
   // ============================================================================
   // CHART SETTINGS STATE
@@ -139,13 +144,14 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   const [chartSelectedTankIds, setChartSelectedTankIds] = useState<string[]>([]);
 
   const [chartTimeRange, setChartTimeRange] = useState<'7d' | '30d' | '90d'>(() => {
+    if (!timeRangeKey) return '30d';
     const saved = localStorage.getItem(timeRangeKey);
     return (saved as '7d' | '30d' | '90d') || '30d';
   });
 
   const [chartVisibility, setChartVisibility] = useState<ChartVisibility>(() => {
     try {
-      const saved = localStorage.getItem(visibilityKey);
+      const saved = visibilityKey ? localStorage.getItem(visibilityKey) : null;
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         // HIGH-04: validate shape before spreading to prevent prototype pollution
@@ -174,7 +180,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
   useEffect(() => {
     if (tankData.length > 0 && chartSelectedTankIds.length === 0) {
-      const saved = localStorage.getItem(selectedIdsKey);
+      const saved = selectedIdsKey ? localStorage.getItem(selectedIdsKey) : null;
       if (saved) {
         let parsedIds: unknown;
         try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
@@ -194,17 +200,17 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   }, [tankData, selectedIdsKey]);
 
   useEffect(() => {
-    if (chartSelectedTankIds.length > 0) {
+    if (selectedIdsKey && chartSelectedTankIds.length > 0) {
       localStorage.setItem(selectedIdsKey, JSON.stringify(chartSelectedTankIds));
     }
   }, [chartSelectedTankIds, selectedIdsKey]);
 
   useEffect(() => {
-    localStorage.setItem(timeRangeKey, chartTimeRange);
+    if (timeRangeKey) localStorage.setItem(timeRangeKey, chartTimeRange);
   }, [chartTimeRange, timeRangeKey]);
 
   useEffect(() => {
-    localStorage.setItem(visibilityKey, JSON.stringify(chartVisibility));
+    if (visibilityKey) localStorage.setItem(visibilityKey, JSON.stringify(chartVisibility));
   }, [chartVisibility, visibilityKey]);
 
   return (

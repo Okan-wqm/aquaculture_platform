@@ -705,69 +705,8 @@ describe('AuthenticationService', () => {
     });
   });
 
-  describe('switchTenant (SUPER_ADMIN act-as)', () => {
-    const SUPER_ADMIN_ID = 'super-admin-uuid';
-    const TARGET = 'tenant-uuid-123';
-
-    beforeEach(() => {
-      mockTokenService.generateTokens.mockClear();
-      mockAuditLogService.log.mockClear();
-    });
-
-    it('mints a tenant-scoped token (actAsTenantId) for a SUPER_ADMIN switching into an ACTIVE tenant + audits success', async () => {
-      mockUserRepository.findOne.mockResolvedValue(
-        createMockUser({ id: SUPER_ADMIN_ID, role: Role.SUPER_ADMIN, tenantId: null }),
-      );
-      mockTenantRepository.findOne.mockResolvedValue(
-        createMockTenant({ id: TARGET, status: TenantStatus.ACTIVE }),
-      );
-
-      await service.switchTenant(SUPER_ADMIN_ID, TARGET, '127.0.0.1', 'agent');
-
-      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
-        expect.objectContaining({ id: SUPER_ADMIN_ID }),
-        '127.0.0.1',
-        'agent',
-        expect.objectContaining({ actAsTenantId: TARGET }),
-      );
-      expect(mockAuditLogService.log).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'SUPER_ADMIN_TENANT_SWITCH',
-          details: expect.objectContaining({ success: true }),
-        }),
-      );
-    });
-
-    it('REJECTS a non-SUPER_ADMIN caller (403) and mints no token', async () => {
-      mockUserRepository.findOne.mockResolvedValue(
-        createMockUser({ id: 'regular', role: Role.TENANT_ADMIN, tenantId: TARGET }),
-      );
-      await expect(service.switchTenant('regular', TARGET)).rejects.toThrow(ForbiddenException);
-      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
-    });
-
-    it('REJECTS switching into a non-ACTIVE (suspended) tenant (403)', async () => {
-      mockUserRepository.findOne.mockResolvedValue(
-        createMockUser({ id: SUPER_ADMIN_ID, role: Role.SUPER_ADMIN, tenantId: null }),
-      );
-      mockTenantRepository.findOne.mockResolvedValue(
-        createMockTenant({ id: TARGET, status: TenantStatus.SUSPENDED }),
-      );
-      await expect(service.switchTenant(SUPER_ADMIN_ID, TARGET)).rejects.toThrow(ForbiddenException);
-      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
-    });
-
-    it('REJECTS when the target tenant does not exist (403)', async () => {
-      mockUserRepository.findOne.mockResolvedValue(
-        createMockUser({ id: SUPER_ADMIN_ID, role: Role.SUPER_ADMIN, tenantId: null }),
-      );
-      mockTenantRepository.findOne.mockResolvedValue(null);
-      await expect(service.switchTenant(SUPER_ADMIN_ID, TARGET)).rejects.toThrow(ForbiddenException);
-    });
-  });
-
-  describe('me (effective tenant — ORPHAN-HIGH-159)', () => {
-    it('reports the TOKEN effective tenant (act-as), not the SUPER_ADMIN null DB tenant', async () => {
+  describe('me (reports the JWT effective tenant)', () => {
+    it('reports the JWT tenant claim over the DB record (the token is the session SSoT)', async () => {
       mockUserRepository.findOne.mockResolvedValue(
         createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
       );
@@ -775,7 +714,7 @@ describe('AuthenticationService', () => {
       expect(result.user.tenantId).toBe('tenant-uuid-123');
     });
 
-    it('leaves the DB tenant for a platform SUPER_ADMIN with no act-as (null token tenant)', async () => {
+    it('leaves the tenant null for a platform SUPER_ADMIN (null token tenant)', async () => {
       mockUserRepository.findOne.mockResolvedValue(
         createMockUser({ id: 'admin', role: Role.SUPER_ADMIN, tenantId: null }),
       );

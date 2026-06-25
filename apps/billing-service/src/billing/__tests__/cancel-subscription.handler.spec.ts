@@ -9,6 +9,8 @@
 
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 import { CancelSubscriptionHandler } from '../handlers/cancel-subscription.handler';
@@ -82,6 +84,8 @@ describe('CancelSubscriptionHandler', () => {
   let mockManager: ReturnType<typeof createMockManager>;
   let mockDS: ReturnType<typeof createMockDataSource>;
   let mockOutbox: { enqueue: jest.Mock };
+  let mockStripe: { cancelSubscription: jest.Mock };
+  let mockSubscriptionRepo: { findOne: jest.Mock };
   let defaultSubscription: Partial<Subscription>;
 
   beforeEach(async () => {
@@ -89,12 +93,20 @@ describe('CancelSubscriptionHandler', () => {
     mockManager = createMockManager(defaultSubscription);
     mockDS = createMockDataSource(mockManager);
     mockOutbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    mockStripe = {
+      cancelSubscription: jest.fn().mockResolvedValue({ id: 'sub_test', status: 'canceled' }),
+    };
+    // Pre-tx read for the Stripe id. Default sub has no stripeSubscriptionId →
+    // no Stripe call (local-only path).
+    mockSubscriptionRepo = { findOne: jest.fn().mockResolvedValue(defaultSubscription) };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         CancelSubscriptionHandler,
         { provide: DataSource, useValue: mockDS },
         { provide: OutboxPublisher, useValue: mockOutbox },
+        { provide: StripeApiService, useValue: mockStripe },
+        { provide: getRepositoryToken(Subscription), useValue: mockSubscriptionRepo },
       ],
     }).compile();
 
@@ -103,6 +115,40 @@ describe('CancelSubscriptionHandler', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('Stripe cancellation (SSOT-C-12)', () => {
+    it('cancels the Stripe subscription (at period end) when one is linked', async () => {
+      mockSubscriptionRepo.findOne.mockResolvedValue(
+        buildSubscription({ stripeSubscriptionId: 'sub_live_123' }),
+      );
+
+      await handler.execute(buildCommand());
+
+      expect(mockStripe.cancelSubscription).toHaveBeenCalledTimes(1);
+      const args = mockStripe.cancelSubscription.mock.calls[0][0];
+      expect(args.subscriptionId).toBe('sub_live_123');
+      expect(args.immediately).toBe(false);
+      expect(args.idempotencyKey).toBe('sub-cancel:sub_live_123');
+    });
+
+    it('skips Stripe when the subscription has no Stripe id (local-only)', async () => {
+      // default sub has no stripeSubscriptionId
+      await handler.execute(buildCommand());
+      expect(mockStripe.cancelSubscription).not.toHaveBeenCalled();
+    });
+
+    it('does NOT mutate local state when the Stripe cancel fails (fail-closed)', async () => {
+      mockSubscriptionRepo.findOne.mockResolvedValue(
+        buildSubscription({ stripeSubscriptionId: 'sub_live_123' }),
+      );
+      mockStripe.cancelSubscription.mockRejectedValue(new Error('stripe down'));
+
+      await expect(handler.execute(buildCommand())).rejects.toThrow('stripe down');
+      // Stripe failed before the DB tx opened → no local save / no event.
+      expect(mockManager.save).not.toHaveBeenCalled();
+      expect(mockOutbox.enqueue).not.toHaveBeenCalled();
+    });
   });
 
   describe('Successful cancellation', () => {

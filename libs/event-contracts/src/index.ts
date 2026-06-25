@@ -4,6 +4,9 @@ export * from './base-event';
 // Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
 // for values that are persisted to the DB and round-tripped via events).
 export * from './enums/tenant-plan.enum';
+// Per-plan resource limits SSoT (SSOT-C-13 cure) — the single catalog every
+// service projects its plan limits from; replaces 5 hand-copied catalogs.
+export * from './billing/plan-catalog';
 export * from './enums/tenant-status.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.

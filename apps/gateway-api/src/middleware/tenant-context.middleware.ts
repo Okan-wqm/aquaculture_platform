@@ -10,7 +10,13 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 import { Injectable, NestMiddleware, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TenantStatus, isLoginAllowed } from '@platform/event-contracts';
+import {
+  TenantStatus,
+  isLoginAllowed,
+  TenantPlan,
+  toTenantPlan,
+  resolvePlanLimits,
+} from '@platform/event-contracts';
 import { Request, Response, NextFunction } from 'express';
 
 import { TenantLookupService } from '../services/tenant-lookup.service';
@@ -181,55 +187,24 @@ const PLAN_FEATURES: Record<string, TenantFeatures> = {
 };
 
 /**
- * Default tenant limits by plan
+ * Project the canonical PLAN_CATALOG (SSoT in @platform/event-contracts) onto
+ * the gateway's `TenantLimits` shape. Replaces the former hand-copied
+ * PLAN_LIMITS table — the limit numbers now live only in `plan-catalog.ts`, so
+ * the gateway can never disagree with billing/admin/auth again. An unknown plan
+ * string falls back to STARTER (the safest default tier).
  */
-const PLAN_LIMITS: Record<string, TenantLimits> = {
-  free: {
-    maxUsers: 3,
-    maxFarms: 1,
-    maxPonds: 5,
-    maxSensors: 10,
-    maxApiRequests: 1000,
-    maxStorageGb: 1,
-    dataRetentionDays: 30,
-  },
-  trial: {
-    maxUsers: 10,
-    maxFarms: 5,
-    maxPonds: 25,
-    maxSensors: 100,
-    maxApiRequests: 50000,
-    maxStorageGb: 10,
-    dataRetentionDays: 90,
-  },
-  starter: {
-    maxUsers: 10,
-    maxFarms: 3,
-    maxPonds: 20,
-    maxSensors: 50,
-    maxApiRequests: 10000,
-    maxStorageGb: 10,
-    dataRetentionDays: 90,
-  },
-  professional: {
-    maxUsers: 50,
-    maxFarms: 10,
-    maxPonds: 100,
-    maxSensors: 500,
-    maxApiRequests: 100000,
-    maxStorageGb: 100,
-    dataRetentionDays: 365,
-  },
-  enterprise: {
-    maxUsers: -1, // Unlimited
-    maxFarms: -1,
-    maxPonds: -1,
-    maxSensors: -1,
-    maxApiRequests: -1,
-    maxStorageGb: -1,
-    dataRetentionDays: -1,
-  },
-};
+export function resolveTenantLimits(plan: string): TenantLimits {
+  const limits = resolvePlanLimits(toTenantPlan(plan) ?? TenantPlan.STARTER);
+  return {
+    maxUsers: limits.maxUsers,
+    maxFarms: limits.maxFarms,
+    maxPonds: limits.maxPonds,
+    maxSensors: limits.maxSensors,
+    maxApiRequests: limits.maxApiRequests,
+    maxStorageGb: limits.maxStorageGb,
+    dataRetentionDays: limits.dataRetentionDays,
+  };
+}
 
 /**
  * Tenant Context Middleware
@@ -494,7 +469,7 @@ export class TenantContextMiddleware implements NestMiddleware {
   private createMockTenant(tenantId: string): TenantMetadata {
     const plan = 'professional'; // Default plan
     const planFeatures = PLAN_FEATURES[plan] as TenantFeatures;
-    const planLimits = PLAN_LIMITS[plan] as TenantLimits;
+    const planLimits = resolveTenantLimits(plan);
 
     return {
       id: tenantId,

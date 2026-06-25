@@ -91,6 +91,26 @@ export function planLevel(plan: TenantPlan): number {
 }
 
 /**
+ * Parse an arbitrary (possibly externally-sourced) string to a canonical
+ * `TenantPlan`, case-insensitively, or `undefined` if it is not a known plan.
+ *
+ * Why this lives here: pre-fix, gateway/tenant-lookup indexed their plan
+ * catalogs with a raw `data.plan.toLowerCase()` string and silently fell back
+ * to a default on a typo. Centralising the parse keeps the "what counts as a
+ * valid plan" decision in the same module that owns the enum, so a new tier is
+ * recognised everywhere the moment it is added here.
+ */
+export function toTenantPlan(
+  value: string | null | undefined,
+): TenantPlan | undefined {
+  if (!value) return undefined;
+  const normalized = value.toLowerCase();
+  return (Object.values(TenantPlan) as string[]).includes(normalized)
+    ? (normalized as TenantPlan)
+    : undefined;
+}
+
+/**
  * True when `plan` is at least `minimum` in the tier hierarchy. Use for feature
  * gating instead of equality chains. TRIAL (a state, not a tier) ranks at FREE,
  * so a trialing tenant never satisfies a paid-tier minimum via its plan string.

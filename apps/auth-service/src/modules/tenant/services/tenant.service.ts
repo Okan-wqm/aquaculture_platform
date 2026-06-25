@@ -13,7 +13,7 @@ import { RefreshToken } from '../../authentication/entities/refresh-token.entity
 import { User } from '../../authentication/entities/user.entity';
 import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
-import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 /**
  * Raw database row for column information query
@@ -136,19 +136,10 @@ export class TenantService {
     });
   }
 
-  /**
-   * Get default max users based on plan
-   */
-  private getDefaultMaxUsers(plan: TenantPlan): number {
-    const defaults: Record<TenantPlan, number> = {
-      [TenantPlan.FREE]: 3,
-      [TenantPlan.TRIAL]: 5,
-      [TenantPlan.STARTER]: 10,
-      [TenantPlan.PROFESSIONAL]: 50,
-      [TenantPlan.ENTERPRISE]: 500,
-    };
-    return defaults[plan] ?? 5;
-  }
+  // NOTE: the former private getDefaultMaxUsers() hand-copied per-plan user
+  // limits here (a 5th drift copy, and dead — it had no callers). Per-plan
+  // limits now live ONLY in the PLAN_CATALOG SSoT (@platform/event-contracts);
+  // tenant provisioning resolves maxUsers from there.
 
   // ============================================================================
   // Tenant Admin Methods

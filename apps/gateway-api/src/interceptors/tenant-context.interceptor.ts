@@ -17,6 +17,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import {
+  TenantPlan,
+  toTenantPlan,
+  resolvePlanLimits,
+} from '@platform/event-contracts';
 import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { tap, finalize } from 'rxjs/operators';
@@ -264,6 +269,16 @@ export class TenantContextInterceptor implements NestInterceptor {
     // User payload is properly typed via UserPayload interface
     const user = (request as Request & { user?: UserPayload }).user;
 
+    // Default limits follow the tenant's PLAN from the JWT (PLAN_CATALOG SSoT),
+    // not a hardcoded table — previously this object fixed every tenant at a
+    // generous "professional-ish" default that never tracked the actual tier.
+    // No tier in the token → the conservative FREE tier (fail-safe, not the old
+    // 500-sensor default).
+    const subscriptionTier = user?.subscriptionTier ?? user?.subscription_tier;
+    const planLimits = resolvePlanLimits(
+      toTenantPlan(subscriptionTier) ?? TenantPlan.FREE,
+    );
+
     const context: TenantContext = {
       tenantId,
       isActive: true,
@@ -277,12 +292,15 @@ export class TenantContextInterceptor implements NestInterceptor {
         iotIntegrationEnabled: true,
       },
       limits: {
-        maxFarms: 10,
-        maxPonds: 100,
-        maxSensors: 500,
-        maxUsers: 50,
-        maxApiRequestsPerHour: 10000,
-        dataRetentionDays: 365,
+        maxFarms: planLimits.maxFarms,
+        maxPonds: planLimits.maxPonds,
+        maxSensors: planLimits.maxSensors,
+        maxUsers: planLimits.maxUsers,
+        // This surface exposes a per-HOUR budget; the canonical apiRateLimit is
+        // per-minute, so scale ×60. Unlimited (-1) stays unlimited.
+        maxApiRequestsPerHour:
+          planLimits.apiRateLimit < 0 ? -1 : planLimits.apiRateLimit * 60,
+        dataRetentionDays: planLimits.dataRetentionDays,
       },
     };
 
@@ -295,7 +313,6 @@ export class TenantContextInterceptor implements NestInterceptor {
       }
 
       // Subscription tier - check both naming conventions
-      const subscriptionTier = user.subscriptionTier ?? user.subscription_tier;
       if (subscriptionTier) {
         context.subscriptionTier = subscriptionTier;
       }

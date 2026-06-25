@@ -5194,3 +5194,34 @@ Severity: HIGH (tenant-isolation invariant). Found validating the tenant-context
 Status: RESOLVED for C1 + point-5 (2026-06-25); switchTenant retirement tracked. Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-166 — `PLAN_FEATURES` per-plan feature catalog hand-copied (sibling of SSOT-C-13)
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-25, during SSOT-C-13 plan-limit SSoT collapse (ADR-037)
+**Note:** renumbered from a transient 160 (merge-train NNN collision with ORPHAN-HIGH-160).
+**Files:**
+- `apps/gateway-api/src/middleware/tenant-context.middleware.ts` (`PLAN_FEATURES`)
+- `apps/gateway-api/src/services/tenant-lookup.service.ts` (`PLAN_FEATURES`, byte-identical copy)
+
+**Problem:** While collapsing the FIVE per-plan *limit* catalogs into the canonical
+`PLAN_CATALOG` SSoT (ADR-037, `libs/event-contracts/src/billing/plan-catalog.ts`),
+a sibling drift remains: per-plan *feature* booleans (`TenantFeatures`:
+`advancedAnalytics`, `alertEngine`, `iotIntegration`, `apiAccess`, `customReports`,
+`multiSite`, `whiteLabeling`, `ssoEnabled`) are still hand-copied across the gateway
+middleware and tenant-lookup service. Same hand-copied-catalog anti-pattern, one layer
+over (features instead of limits).
+
+**Why not fixed in ADR-037:** Different shape and concern. `TenantFeatures` partially
+overlaps the canonical `PlanLimits` capability booleans (`apiAccessEnabled`,
+`ssoEnabled`, `customBrandingEnabled`) but adds a distinct set. Folding it correctly
+means a deliberate features-SSoT design — extend `PLAN_CATALOG` with a typed `features`
+sub-object or add a sibling `PLAN_FEATURE_CATALOG` in event-contracts — not an in-scope
+side effect of the limit collapse.
+
+**How to fix:** Add a canonical per-plan feature map in `@platform/event-contracts`
+(reconcile the overlapping booleans with `PlanLimits` so a capability isn't defined
+twice), project the gateway `TenantFeatures` from it, delete both copies, and add the
+per-tier-map invariant guard to forbid a future copy.
+
+Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.

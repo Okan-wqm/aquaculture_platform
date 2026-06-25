@@ -1,4 +1,9 @@
-import { TenantPlan, TenantStatus } from '@platform/event-contracts';
+import {
+  TenantPlan,
+  TenantStatus,
+  toTenantPlan,
+  resolvePlanLimits,
+} from '@platform/event-contracts';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -166,15 +171,22 @@ export class Tenant {
     apiRateLimit: number;
     storageGb: number;
   } {
+    // Limits follow this tenant's PLAN from the canonical PLAN_CATALOG SSoT
+    // instead of a hardcoded "everything unlimited" stub. maxUsers stays the
+    // per-tenant provisioned value on the entity (the authoritative override);
+    // maxAlertRules has no PLAN_CATALOG field, so it remains -1 (unlimited).
+    const planLimits = resolvePlanLimits(
+      toTenantPlan(this.plan) ?? TenantPlan.STARTER,
+    );
     return {
       maxUsers: this.maxUsers,
-      maxFarms: -1, // unlimited
-      maxPonds: -1,
-      maxSensors: -1,
+      maxFarms: planLimits.maxFarms,
+      maxPonds: planLimits.maxPonds,
+      maxSensors: planLimits.maxSensors,
       maxAlertRules: -1,
-      dataRetentionDays: 365,
-      apiRateLimit: 1000,
-      storageGb: -1,
+      dataRetentionDays: planLimits.dataRetentionDays,
+      apiRateLimit: planLimits.apiRateLimit,
+      storageGb: planLimits.maxStorageGb,
     };
   }
 

@@ -62,6 +62,7 @@ import type { TenantRequest, VerifiedServiceIdentity } from '../types/tenant-req
 import {
   getServiceIdentityHeader,
   parseServiceIdentityKeyring,
+  serializeServiceIdentityBodyForHash,
   verifyServiceIdentityRequest,
 } from '../utils/service-identity.util';
 import type { ServiceIdentityKeyringEntry } from '../utils/service-identity.util';
@@ -143,7 +144,7 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
       observedQuery: this.canonicaliseQuery(req),
       observedContentType: getServiceIdentityHeader(headers, 'content-type') ?? '',
       observedAssertionHash: this.assertionHash(headers),
-      observedBody: this.serializeBodyForHash(req.body),
+      observedBody: serializeServiceIdentityBodyForHash(req),
       secret: this.serviceSecret,
       keyring: this.keyring,
       allowUnscopedDevKey: process.env['NODE_ENV'] !== 'production',
@@ -173,13 +174,6 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
   ): string | undefined {
     const assertion = getServiceIdentityHeader(headers, 'x-verified-user-assertion');
     return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
-  }
-
-  private serializeBodyForHash(body: unknown): string | Buffer {
-    if (body === undefined || body === null) return '';
-    if (typeof body === 'string') return body;
-    if (Buffer.isBuffer(body)) return body;
-    return JSON.stringify(body);
   }
 
   private canonicalisePath(req: { path?: string; originalUrl?: string; url?: string }): string {

@@ -50,12 +50,14 @@ describe('INVARIANT (SSOT-C-13): PLAN_CATALOG is the only per-plan limits catalo
       'utf8',
     );
     // Extract enum member names from `enum TenantPlan { FREE = 'free', ... }`.
-    const body = enumSrc.match(/export enum TenantPlan\s*\{([^}]*)\}/);
-    expect(body).not.toBeNull();
+    const enumBody = enumSrc.match(/export enum TenantPlan\s*\{([^}]*)\}/)?.[1];
+    if (!enumBody) {
+      throw new Error('TenantPlan enum body not found in tenant-plan.enum.ts');
+    }
     const members = Array.from(
-      (body as RegExpMatchArray)[1].matchAll(/\b([A-Z_]+)\s*=/g),
+      enumBody.matchAll(/\b([A-Z_]+)\s*=/g),
       (m) => m[1],
-    );
+    ).filter((name): name is string => Boolean(name));
     expect(members.length).toBeGreaterThanOrEqual(5);
 
     const catalogSrc = readFileSync(resolve(REPO_ROOT, SSOT_REL), 'utf8');

@@ -47,6 +47,7 @@
       "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common/auth": ["libs/backend-common/src/auth/index.ts"],
       "@aquaculture/backend-common/audit": ["libs/backend-common/src/audit/index.ts"],
+      "@aquaculture/backend-common/billing": ["libs/backend-common/src/billing/index.ts"],
       "@aquaculture/backend-common/ai-safety": [
         "libs/backend-common/src/ai-safety/index.ts"
       ],

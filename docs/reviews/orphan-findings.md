@@ -5256,6 +5256,18 @@ Status: RESOLVED for B2 + the B4 default-fallback guard (2026-06-25). Registry: 
 
 ---
 
+## ORPHAN-LOW-168 - TanStack Query cache not cleared on logout (cross-tenant cache defence)
+
+Severity: LOW (defence-in-depth; the tenant-scoped query-key factory already isolates most caches by `['tenant', tenantId, …]` — this closes the residual NON-tenant-keyed-query window).
+
+**Root cause:** the shared `AuthProvider`'s SPA logout path (`web/shared-ui/src/contexts/AuthContext.tsx`) calls `logoutCleanup()` but never passed/cleared the in-memory TanStack `QueryClient`. The SPA logout dispatches `LOGOUT` without a full page reload, so the QueryClient survives; a subsequent login on the same browser could read the previous user's cached tenant data for any query that wasn't tenant-keyed. `logoutCleanup` already clears sessionStorage / Zustand / SW caches / indexedDB / tenant-scoped localStorage and invokes registered callbacks, but the QueryClient was never wired in.
+
+**Fix (this commit):** register `queryClient.clear()` as a logout-cleanup callback in the shell bootstrap (`web/shell/src/bootstrap.tsx`, where the QueryClient is created) via the existing `registerLogoutCleanup` mechanism — NOT via `useQueryClient()` inside the shared `AuthProvider`, which would throw for consumers that mount it without a `QueryClientProvider` (e.g. dashboard standalone, aquamobil uses its own AuthProvider). shell `tsc` clean.
+
+Status: RESOLVED (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
 ## ORPHAN-MEDIUM-169 - retire the dormant SUPER_ADMIN `switchTenant` act-as surface (WS-C C2)
 
 Severity: MEDIUM (security hygiene — an auth-gated cross-tenant token-mint that no client can reach is latent attack surface). The FE SUPER_ADMIN tenant-switcher was removed in #627 (product rule: a SUPER_ADMIN manages the platform; a TENANT_ADMIN enters data in its own module-scoped panel), leaving the `switchTenant` mutation + the `actAsTenantId` token claim dormant.

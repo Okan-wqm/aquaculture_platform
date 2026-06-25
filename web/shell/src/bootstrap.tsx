@@ -6,7 +6,7 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -122,6 +122,16 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// FE tenant isolation: clear the in-memory TanStack Query cache on logout so a
+// subsequent login (same browser, no full reload — the SPA logout path dispatches
+// LOGOUT without navigating away) can never read the previous user's cached
+// tenant data. logoutCleanup() invokes every registered callback; registering
+// here (rather than calling useQueryClient() inside the shared AuthProvider)
+// keeps shared-ui safe for consumers that mount AuthProvider without a
+// QueryClientProvider (e.g. dashboard standalone). Pairs with the tenant-scoped
+// query-key factory (defence in depth).
+registerLogoutCleanup(() => queryClient.clear());
 
 // ============================================================================
 // Render

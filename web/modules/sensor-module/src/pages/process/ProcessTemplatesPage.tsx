@@ -99,7 +99,7 @@ const ProcessTemplatesPage: React.FC = () => {
 
   const handleUseTemplate = (templateId: string) => {
     // Navigate to editor with template query param
-    navigate(`/sensor/processes/new?template=${templateId}`);
+    navigate(`/sensor/process/new?template=${templateId}`);
   };
 
   return (
@@ -190,7 +190,7 @@ const ProcessTemplatesPage: React.FC = () => {
           Start from scratch and build your own custom process diagram
         </p>
         <Link
-          to="/sensor/processes/new"
+          to="/sensor/process/new"
           className="inline-flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
         >
           Create Custom Process

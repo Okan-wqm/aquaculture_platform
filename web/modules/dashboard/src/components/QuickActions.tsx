@@ -71,7 +71,9 @@ const quickActions: QuickAction[] = [
     id: 'new-process',
     label: 'Süreç Başlat',
     description: 'Yeni süreç',
-    path: '/processes/new',
+    // The sensor module is mounted at /sensor and the new-process editor route is
+    // `process/new` (singular) — `/processes/new` resolves to no route (blank).
+    path: '/sensor/process/new',
     color: 'bg-teal-500',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

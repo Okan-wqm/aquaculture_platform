@@ -17,7 +17,6 @@ import {
   ADMIN_GET_MESSAGING_STATS,
   ADMIN_CREATE_THREAD,
   ADMIN_SEND_MESSAGE,
-  ADMIN_BULK_CREATE_THREADS,
   ADMIN_CLOSE_THREAD,
   ADMIN_REOPEN_THREAD,
   ADMIN_ARCHIVE_THREAD,
@@ -106,21 +105,6 @@ interface SupportSendMessageInput {
   threadId: string;
   content: string;
   isInternal?: boolean;
-}
-
-/** Input for bulk thread creation */
-interface BulkCreateThreadsInput {
-  subject: string;
-  content: string;
-  tenantIds?: string[];
-  targetCriteria?: {
-    tenantIds?: string[];
-    excludeTenantIds?: string[];
-    plans?: string[];
-    modules?: string[];
-    regions?: string[];
-  };
-  sendEmail?: boolean;
 }
 
 // ============================================================================
@@ -251,23 +235,6 @@ export function useSendMessage() {
 }
 
 /**
- * Bulk-create threads for multiple tenants (SuperAdmin only).
- */
-export function useBulkCreateThreads() {
-  const { mutate, isLoading, error, data } = useGraphQLMutation<
-    { bulkCreateThreads: MessageThread[] },
-    { input: BulkCreateThreadsInput }
-  >(ADMIN_BULK_CREATE_THREADS);
-
-  return {
-    mutate: (params: { input: BulkCreateThreadsInput }) => mutate(params),
-    isLoading,
-    error: error ? (error.message || 'Failed to create bulk threads') : null,
-    data: data?.bulkCreateThreads ?? null,
-  };
-}
-
-/**
  * Close a thread.
  */
 export function useCloseThread() {
@@ -321,14 +288,13 @@ export function useArchiveThread() {
  * NOTE: The auth-service messaging resolver does not yet expose a dedicated
  * markAsRead mutation. This hook is kept as a placeholder that uses the
  * REST fallback. It will be migrated once the resolver adds the mutation.
- * For now it calls the graphqlClient directly with a noop to maintain
- * the export signature.
+ * Until then it performs a noop to maintain the export signature.
  */
 export function useMarkAsRead() {
   const mutate = useCallback(
     async (_params: { threadId: string }) => {
       // TODO: Replace with GraphQL mutation when auth-service exposes markAsRead
-      // For now this is a placeholder to preserve the exported API
+      // Placeholder noop to preserve the exported API until the resolver exists
     },
     [],
   );

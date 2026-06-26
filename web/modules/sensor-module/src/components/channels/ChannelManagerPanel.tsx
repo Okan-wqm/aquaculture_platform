@@ -31,9 +31,9 @@ function toEditorChannel(ch: SensorDataChannel): DataChannelConfig {
     channelKey: ch.channelKey,
     displayLabel: ch.displayLabel,
     dataType: (ch.dataType as ChannelDataType) || ChannelDataType.NUMBER,
-    unit: ch.unit || ch.unitSymbol,
-    minValue: ch.operationalMin,
-    maxValue: ch.operationalMax,
+    unit: ch.unit,
+    minValue: ch.minValue,
+    maxValue: ch.maxValue,
     calibrationEnabled: ch.calibrationEnabled ?? false,
     calibrationMultiplier: ch.calibrationMultiplier ?? 1,
     calibrationOffset: ch.calibrationOffset ?? 0,
@@ -301,10 +301,10 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
                   <td className="py-3 px-2 font-mono text-xs text-gray-800">{ch.channelKey}</td>
                   <td className="py-3 px-2 text-gray-900">{ch.displayLabel}</td>
                   <td className="py-3 px-2 text-gray-600 capitalize">{ch.dataType}</td>
-                  <td className="py-3 px-2 text-gray-600">{ch.unit || ch.unitSymbol || '-'}</td>
+                  <td className="py-3 px-2 text-gray-600">{ch.unit || '-'}</td>
                   <td className="py-3 px-2 text-gray-600">
-                    {ch.operationalMin != null || ch.operationalMax != null
-                      ? `${ch.operationalMin ?? '...'} - ${ch.operationalMax ?? '...'}`
+                    {ch.minValue != null || ch.maxValue != null
+                      ? `${ch.minValue ?? '...'} - ${ch.maxValue ?? '...'}`
                       : '-'}
                   </td>
                   <td className="py-3 px-2">

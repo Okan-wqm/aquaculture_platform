@@ -4070,7 +4070,7 @@ Severity: MEDIUM (perf). The PERF-HIGH-001 token-mint JOIN `auth.user_role_assig
 
 Fix direction: a new auth-schema migration `CREATE INDEX IF NOT EXISTS "idx_tenant_role_permissions_role_id" ON "auth"."tenant_role_permissions" ("role_id");` (idempotent, source-only).
 
-Status: OPEN (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
+Status: RESOLVED (2026-06-26 — added @Index(idx_tenant_role_permissions_role_id, [roleId]) to the TenantRolePermissions entity (admin-api, auth schema) + migration 1801100000000-AddTenantRolePermissionsRoleIdIndex (CREATE INDEX IF NOT EXISTS, idempotent/blue-green-safe, mirrors idx_tenant_roles_name). Indexes the per-mint token JOIN key. admin-api tsc clean) (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
 
 ---
 

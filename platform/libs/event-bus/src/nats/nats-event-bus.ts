@@ -54,6 +54,7 @@ import {
 } from '../subjects/tenant-event-subject';
 
 
+import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import type { EventBusModuleOptions } from './nats.module';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,13 +142,10 @@ export class NatsEventBus
   ) {
     this.upcasterRegistry = upcasterRegistry;
     this.requireBroker = moduleOptions?.required ?? false;
-    this.natsUrl = this.configService.get<string>(
-      'NATS_URL',
-      'nats://localhost:4222',
-    );
+    this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
     this.streamName = this.configService.get<string>(
       'NATS_STREAM_NAME',
-      'AQUACULTURE_EVENTS',
+      DEFAULT_NATS_STREAM_NAME,
     );
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.

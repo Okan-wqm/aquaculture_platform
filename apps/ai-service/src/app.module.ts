@@ -67,7 +67,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
  */
 const AiMigrationRunnerService = createSchemaVersionGate('ai');
 const aiSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
 import { WaterChemistryToolsModule } from './tools/water-chemistry/water-chemistry-tools.module';
@@ -227,10 +227,7 @@ type QueryComplexityOperationContext = {
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     AiOutboxModule,
     TenantErasureTargetModule.forService('ai-service'),

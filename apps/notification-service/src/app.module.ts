@@ -49,7 +49,7 @@ import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 const NotificationMigrationRunnerService = createSchemaVersionGate('notification');
 const notificationSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { ScheduleModule } from '@nestjs/schedule';
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
 import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
@@ -184,10 +184,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),

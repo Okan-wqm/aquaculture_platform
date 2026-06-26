@@ -38,7 +38,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { Request } from 'express';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
@@ -280,10 +280,7 @@ interface ApolloGraphQLContext {
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. hr-service is a token CONSUMER, not an issuer.

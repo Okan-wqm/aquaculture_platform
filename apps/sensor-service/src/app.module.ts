@@ -28,7 +28,7 @@ import {
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
@@ -329,10 +329,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     SensorOutboxModule,
     TenantErasureTargetModule.forService('sensor-service'),

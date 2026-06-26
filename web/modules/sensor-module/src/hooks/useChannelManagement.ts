@@ -15,27 +15,47 @@ import {
 // GraphQL Queries & Mutations
 // ============================================================================
 
+// Channels are fetched via the sensor-service `dataChannelsBySensor(sensorId)`
+// root query (returns [DataChannelType]), NOT `Sensor.dataChannels` — there is
+// no such field on the Sensor type. Field names match DataChannelType exactly:
+// minValue/maxValue (not operationalMin/Max) and the structured alertThresholds /
+// displaySettings object types (selected with subfields). unitSymbol does not
+// exist on DataChannelType; `unit` is the single canonical unit field.
 const GET_SENSOR_CHANNELS_QUERY = `
   query GetSensorChannels($sensorId: ID!) {
-    sensor(id: $sensorId) {
-      dataChannels {
-        id
-        channelKey
-        displayLabel
-        dataType
-        unit
-        unitSymbol
-        operationalMin
-        operationalMax
-        calibrationEnabled
-        calibrationMultiplier
-        calibrationOffset
-        alertThresholds
-        displaySettings
-        discoverySource
-        isEnabled
-        displayOrder
+    dataChannelsBySensor(sensorId: $sensorId) {
+      id
+      channelKey
+      displayLabel
+      dataType
+      unit
+      minValue
+      maxValue
+      calibrationEnabled
+      calibrationMultiplier
+      calibrationOffset
+      alertThresholds {
+        warning {
+          low
+          high
+        }
+        critical {
+          low
+          high
+        }
+        hysteresis
       }
+      displaySettings {
+        color
+        icon
+        widgetType
+        precision
+        showOnDashboard
+        chartConfig
+      }
+      discoverySource
+      isEnabled
+      displayOrder
     }
   }
 `;
@@ -72,20 +92,42 @@ const DELETE_CHANNEL_MUTATION = `
 // Channel type returned from the API
 // ============================================================================
 
+export interface AlertThresholdValue {
+  low?: number;
+  high?: number;
+}
+
+export interface AlertThresholds {
+  warning?: AlertThresholdValue;
+  critical?: AlertThresholdValue;
+  hysteresis?: number;
+}
+
+export interface ChannelDisplaySettings {
+  color?: string;
+  icon?: string;
+  widgetType?: string;
+  precision?: number;
+  showOnDashboard?: boolean;
+  chartConfig?: Record<string, unknown>;
+}
+
+// Mirrors the sensor-service DataChannelType GraphQL object type. minValue/maxValue
+// are the canonical operational-range fields (no operationalMin/Max), and there is
+// no separate unitSymbol — `unit` is the single unit field.
 export interface SensorDataChannel {
   id: string;
   channelKey: string;
   displayLabel: string;
   dataType: string;
   unit?: string;
-  unitSymbol?: string;
-  operationalMin?: number;
-  operationalMax?: number;
+  minValue?: number;
+  maxValue?: number;
   calibrationEnabled: boolean;
   calibrationMultiplier: number;
   calibrationOffset: number;
-  alertThresholds?: Record<string, unknown>;
-  displaySettings?: Record<string, unknown>;
+  alertThresholds?: AlertThresholds;
+  displaySettings?: ChannelDisplaySettings;
   discoverySource?: 'template' | 'manual' | 'auto';
   isEnabled: boolean;
   displayOrder: number;
@@ -155,10 +197,10 @@ export function useChannelManagement(sensorId: string) {
 
     try {
       const data = await graphqlFetch<{
-        sensor: { dataChannels: SensorDataChannel[] };
+        dataChannelsBySensor: SensorDataChannel[];
       }>(GET_SENSOR_CHANNELS_QUERY, { sensorId });
       if (!mountedRef.current) return;
-      setChannels(data.sensor?.dataChannels || []);
+      setChannels(data.dataChannelsBySensor || []);
     } catch (err) {
       if (!mountedRef.current) return;
       setError(err as Error);

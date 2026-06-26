@@ -21,7 +21,6 @@ import { apiClient } from './api-client';
 export type {
   Tenant,
   TenantStats,
-  Module,
   TenantModule,
   MyModule,
   ModuleUsageStat,

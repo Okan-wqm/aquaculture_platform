@@ -5,7 +5,7 @@
  * tenant-validating consumer base that enforces cross-tenant isolation.
  */
 
-export { buildNatsConnectionOptions } from './nats-connection.factory';
+export { buildNatsConnectionOptions, DEFAULT_NATS_URL } from './nats-connection.factory';
 export type { NatsAuthMode } from './nats-connection.factory';
 
 export { TenantValidatingConsumer } from './tenant-validating-consumer';

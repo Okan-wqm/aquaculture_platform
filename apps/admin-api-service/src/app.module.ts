@@ -22,7 +22,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { StorageModule } from '@platform/storage';
 
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -180,10 +180,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     LoggingModule,
     ThrottlerModule,

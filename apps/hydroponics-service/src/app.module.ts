@@ -43,7 +43,7 @@ import {
   ThrottlerGuard,
   ThrottlerModule,
 } from '@aquaculture/backend-common/security';
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 /**
@@ -210,10 +210,7 @@ type QueryComplexityOperationContext = {
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     HydroponicsOutboxModule,
     TenantErasureTargetModule.forService('hydroponics-service'),

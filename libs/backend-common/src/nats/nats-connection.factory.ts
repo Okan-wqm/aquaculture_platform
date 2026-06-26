@@ -1,6 +1,14 @@
 import { readFileSync } from 'fs';
 
 /**
+ * Canonical NATS server URL default — the SINGLE source for the localhost
+ * fallback across BOTH the connection layer (this factory) and the event-bus
+ * layer (`@platform/event-bus` buildEventBusConfig re-exports this; event-bus
+ * already depends on backend-common, so this avoids a dependency cycle).
+ */
+export const DEFAULT_NATS_URL = 'nats://localhost:4222';
+
+/**
  * SEC-H01 / IP-1 / ADR-015: Centralized NATS connection options factory.
  *
  * All services MUST use this factory to build NATS connection options.
@@ -149,7 +157,7 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   tls?: NatsTlsOptions;
   authMode: NatsAuthMode;
 } {
-  const natsUrl = process.env['NATS_URL'] || 'nats://localhost:4222';
+  const natsUrl = process.env['NATS_URL'] || DEFAULT_NATS_URL;
   const authUser = process.env['NATS_AUTH_USER'];
   const authPass = process.env['NATS_AUTH_PASS'];
   const authToken = process.env['NATS_AUTH_TOKEN'];

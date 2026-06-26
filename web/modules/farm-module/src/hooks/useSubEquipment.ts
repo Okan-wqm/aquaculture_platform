@@ -75,7 +75,6 @@ export interface SubEquipmentTypeOption {
   id: string;
   name: string;
   code: string;
-  category: string;
   description?: string;
 }
 
@@ -85,7 +84,6 @@ const LIST_SUB_EQUIPMENT_TYPES_QUERY = `
       id
       name
       code
-      category
       description
     }
   }

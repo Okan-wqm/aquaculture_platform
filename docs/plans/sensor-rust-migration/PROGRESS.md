@@ -4,6 +4,26 @@
 
 ---
 
+## ⚠️ DEPLOY STATUS (2026-06-26) — Faz-3 orchestrator wiring is NOT on `main`
+
+The pipeline **modules** all exist + unit-test green: MQTT subscriber (stage 5),
+topic parser (6), payload validator (7), cache (8), batch aggregator (9),
+`PostgresSink` (11), `NatsEventPublisher` (12). **But `apps/sensor-ingestion/src/
+main.rs` `drain_mqtt_stream` is still a `tracing::trace!("mqtt msg (stub drain)")`
+no-op** — it does NOT call `PostgresSink::copy` or `run_publisher_loop`. The Faz-3
+orchestrator wiring that connects the modules (drain → `topic::parse` → cache →
+`payload::validate` → batch → `PostgresSink::copy` → `NatsEventPublisher`) **did not
+survive the train merge**. The binary compiles and per-module tests pass, so CI is
+green, while the deployed sidecar would **drop every MQTT message**.
+
+Consequence: `docker-compose.prod.yml` no longer deploys `sensor-ingestion` (it was
+advertised there as a "co-equal producer" — false redundancy). Re-enabling it before
+`main.rs` is wired is blocked by `tests/invariants/sensor-ingestion-honest-deployment.spec.ts`.
+**Next step (Faz-3 owner):** wire the drain, flip rows 9/11/12 from "module done" to
+"end-to-end wired", then restore the prod compose service.
+
+---
+
 ## Faz 0 — Setup + Baseline
 
 ### PR-A: Repo Scaffold (in flight on branch `agentic-rust-faz0`)

@@ -30,7 +30,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `DEPLOY-CRITICAL-008`     | OPEN           | 1.1          | infra-expert             | real-open    |
-| `BILLING-CRITICAL-001`    | IN-PROGRESS    | 6.1          | billing-expert           | already-fixed-needs-close |
 | `SENSOR-CRITICAL-001`     | OPEN           | 6.1          | sensor-expert            | already-fixed-needs-close |
 | `ALERT-CRITICAL-001`      | OPEN           | 6.1          | alert-engine-expert      | already-fixed-needs-close |
 
@@ -69,6 +68,11 @@ No active CRITICAL finding remains in `already-fixed-needs-close` after the
 
 ## Resolved Evidence
 
+- `BILLING-CRITICAL-001`: registry state is `RESOLVED` with closing commit
+  `87555ff6f`. PR #640 (real Stripe integration) converted the last
+  fire-and-forget money handler (create-subscription) to the transactional
+  outbox + wired the real Stripe path, carrying the `Closes:` trailer; closed
+  via the registry close-ceremony tool.
 - `INFRA-CRITICAL-021`: registry state is `RESOLVED` with closing commit
   `4d08ba21985b27aaf91de4a9cdbab131801f5bbb`. PR #560 activated
   `tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts`,

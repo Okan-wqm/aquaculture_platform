@@ -5378,3 +5378,19 @@ Severity: MEDIUM (two operator-facing breakages — "New Process" navigation 404
 **Investigated, NOT confirmed (no change made):** (i) the alleged "uppercase status enum" drift — `ProcessStatus` backend enum VALUES are lowercase (`'active'`) matching the FE hand-written union, and the FE never round-trips ProcessStatus through GraphQL (not in generated types; only `ScadaPackageStatus`/`VfdChangeSetStatus` are GraphQL-status types), so no break exists. (ii) Map page "renders as empty when sites lack coordinates" — `MapViewPage.tsx` already shows a distinct "Konum bilgisi olan site bulunamadı" empty-state with a Setup link (not a no-data state); correctly handled.
 
 Status: RESOLVED for P1a + P1b (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-178 — db-migrate schema-registry hand-copies source-schema RLS excludeTables (parallel to the app.module set)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-26 (PR-6 RLS excludeTables SSoT). Renumbered in the merge-train collision.
+**File:** `apps/db-migrate/src/schema-registry.ts` (auth/billing/notification/config postMigrationHardening excludeTables).
+
+PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTablesForService('<svc>')`. db-migrate keeps a PARALLEL set for SOURCE-schema RLS of cross-tenant services (comment: "Mirrors the RlsModule.forPoolService excludeTables"). billing + notification are cleanly derivable and should be repointed; auth (domain tables users/tenants) + config (not in MODULE_SCHEMAS) stay literal. The auth db-migrate copy still carries the phantom audit_log/audit_logs. Owner: platform/db-migrate. Status: OPEN.
+
+## ORPHAN-LOW-179 — shared-schema canonical table list 4th unguarded copy + stale "4 canonical" docstring (3c)
+
+**Severity:** LOW. **Discovered:** 2026-06-26 (PR-6 cluster 3c, deferred).
+**Files:** `e2e/tests/integration/schema-invariants.spec.ts` (4th hardcoded copy; real count is 5: audit_logs, gdpr_data_requests, user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts` (stale "4 canonical" docstring).
+
+Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: OPEN.

@@ -49,6 +49,7 @@ import {
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   RlsModule,
+  getRlsExcludeTablesForService,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
@@ -463,14 +464,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       // NOT authoritative — production tenants get the same policies from
       // the db-migrate tenant fan-out hardening.
       syncTenantSchemas: !farmSchemaDdlOwnedByDbMigrate,
-      excludeTables: [
-        'farm_outbox',
-        'outbox_events',
-        'inbox_messages',
-        'event_dlq',
-        'audit_logs',
-        'audit_log',
-      ],
+      excludeTables: getRlsExcludeTablesForService('farm'),
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'farm' }),

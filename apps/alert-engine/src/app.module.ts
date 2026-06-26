@@ -13,6 +13,7 @@ import {
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   RlsModule,
+  getRlsExcludeTablesForService,
   createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
@@ -187,7 +188,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       // NOT authoritative — production tenants get the same policies from
       // the db-migrate tenant fan-out hardening.
       syncTenantSchemas: !alertSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['alert_outbox'],
+      excludeTables: getRlsExcludeTablesForService('alert'),
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({

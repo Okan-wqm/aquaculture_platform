@@ -14,6 +14,7 @@ import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
   RlsModule,
+  getRlsExcludeTablesForService,
   SourceSchemaBootstrapService,
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
@@ -386,7 +387,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       // NOT authoritative — production tenants get the same policies from
       // the db-migrate tenant fan-out hardening.
       syncTenantSchemas: !sensorSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['sensor_outbox'],
+      excludeTables: getRlsExcludeTablesForService('sensor'),
     }),
 
     // Prometheus metrics (per-service /metrics endpoint)

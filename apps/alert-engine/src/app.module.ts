@@ -61,7 +61,7 @@ const AlertMigrationRunnerService = createSchemaVersionGate('alert');
  * keeps syncTenantSchemas as the historical bootstrap convenience.
  */
 const alertSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
-import { EventBusModule } from '@platform/event-bus';
+import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { AlertOutboxModule } from './outbox/alert-outbox.module';
 import { HealthModule } from './health/health.module';
@@ -155,10 +155,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
-      }),
+      useFactory: buildEventBusConfig,
     }),
     AlertOutboxModule,
     TenantErasureTargetModule.forService('alert-engine'),

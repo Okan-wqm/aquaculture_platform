@@ -133,7 +133,7 @@ const DEFAULT_SETTINGS: TenantSettings = {
 /**
  * Default tenant features by plan
  */
-const PLAN_FEATURES: Record<string, TenantFeatures> = {
+export const PLAN_FEATURES: Record<string, TenantFeatures> = {
   free: {
     advancedAnalytics: false,
     alertEngine: true,

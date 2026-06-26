@@ -17,21 +17,20 @@ import type { GraphQLClient } from '../client.js';
 
 // ── Tip Tanımları ──────────────────────────────────────────────────
 
-/** Tür bilgisi — büyüme parametreleri ve optimal koşullar dahil */
-export interface SpeciesInfo {
+/**
+ * Batch yerleşim (lokasyon) bilgisi.
+ *
+ * NEDEN: Supergraph şeması `tankAllocations` (nested tank objesi) alanını
+ * `locations: [BatchLocation!]!` ile değiştirdi. BatchLocation iç içe bir
+ * `tank { name }` objesi DÖNDÜRMEZ — yalnızca `tankId` (string) taşır.
+ * Tank adı gerekiyorsa ayrı tank sorgusundan eşleştirilmelidir.
+ */
+export interface BatchLocation {
   id: string;
-  commonName: string;
-  scientificName: string;
-}
-
-/** Tank tahsis bilgisi */
-export interface TankAllocation {
-  tank: {
-    id: string;
-    name: string;
-    code: string;
-    volume: number;
-  };
+  tankId?: string;
+  pondId?: string;
+  locationType: string;
+  isCurrentLocation: boolean;
 }
 
 /**
@@ -44,10 +43,13 @@ export interface BatchInfo {
   name?: string;
   status: string;
   inputType: string;
-  species: SpeciesInfo;
+  /**
+   * Tür kimliği (UUID). Supergraph şeması tür adı yerine yalnızca
+   * `speciesId` döndürür; insan-okunur tür adı için ayrı bir tür sorgusu gerekir.
+   */
+  speciesId: string;
   initialQuantity: number;
   currentQuantity: number;
-  initialAvgWeightG: number;
   currentAvgWeightG: number;
   currentBiomassKg: number;
   mortalityRate: number;
@@ -55,9 +57,8 @@ export interface BatchInfo {
   daysInProduction: number;
   stockedAt: string;
   expectedHarvestDate?: string;
-  targetFCR?: number;
   notes?: string;
-  tankAllocations?: TankAllocation[];
+  locations?: BatchLocation[];
 }
 
 /** Sayfalanmış batch listesi yanıtı */
@@ -162,14 +163,9 @@ export async function fetchBatches(
           name
           status
           inputType
-          species {
-            id
-            commonName
-            scientificName
-          }
+          speciesId
           initialQuantity
           currentQuantity
-          initialAvgWeightG
           currentAvgWeightG
           currentBiomassKg
           mortalityRate
@@ -177,14 +173,12 @@ export async function fetchBatches(
           daysInProduction
           stockedAt
           expectedHarvestDate
-          targetFCR
-          tankAllocations {
-            tank {
-              id
-              name
-              code
-              volume
-            }
+          locations {
+            id
+            tankId
+            pondId
+            locationType
+            isCurrentLocation
           }
         }
         total
@@ -224,14 +218,9 @@ export async function fetchBatch(client: GraphQLClient, id: string): Promise<Bat
         name
         status
         inputType
-        species {
-          id
-          commonName
-          scientificName
-        }
+        speciesId
         initialQuantity
         currentQuantity
-        initialAvgWeightG
         currentAvgWeightG
         currentBiomassKg
         mortalityRate
@@ -239,15 +228,13 @@ export async function fetchBatch(client: GraphQLClient, id: string): Promise<Bat
         daysInProduction
         stockedAt
         expectedHarvestDate
-        targetFCR
         notes
-        tankAllocations {
-          tank {
-            id
-            name
-            code
-            volume
-          }
+        locations {
+          id
+          tankId
+          pondId
+          locationType
+          isCurrentLocation
         }
       }
     }

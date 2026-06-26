@@ -183,7 +183,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
               category={value}
               title={categoryInfo[value].title}
               description={categoryInfo[value].description}
-              count={stats ? (stats.find(s => s.category === value)?.totalProtocols ?? 0) : 0}
+              count={stats ? (stats[value] ?? 0) : 0}
               isSelected={selectedCategory === value}
               onClick={() => setSelectedCategory(selectedCategory === value ? null : value)}
             />

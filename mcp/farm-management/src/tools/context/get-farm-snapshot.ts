@@ -72,7 +72,8 @@ interface TankSummary {
 interface BatchSnapshot {
   id: string;
   batchNumber: string;
-  species: string;
+  /** Tür kimliği (UUID) — şema tür adını DEĞİL yalnızca speciesId döndürür. */
+  speciesId: string;
   status: string;
   currentQuantity: number;
   currentBiomassKg: number;
@@ -308,11 +309,13 @@ export async function handler(
     ).length;
 
     // Bu site'a ait batch sayısını tahmin et
-    // Batch → tankAllocation → tank → department → site zinciri ile
+    // Batch → location.tankId → tank → department → site zinciri ile.
+    // NEDEN: Supergraph şeması `tankAllocations.tank.id` yerine
+    // `locations[].tankId` (string) döndürür — eşleştirme tankId üzerinden yapılır.
     const siteBatchCount = batches.filter(b =>
-      b.tankAllocations?.some(ta =>
+      b.locations?.some(loc =>
         tanks.some(t =>
-          t.id === ta.tank.id &&
+          t.id === loc.tankId &&
           (t.department?.site?.id === site.id || t.department?.siteId === site.id),
         ),
       ),
@@ -334,14 +337,25 @@ export async function handler(
 
   // ── Batch Özetleri ─────────────────────────────────────────────────
   // Her batch için temel metrikler ve tank bilgisi
+  //
+  // NEDEN tankNameById: Supergraph şeması batch yerleşimini
+  // `locations[].tankId` (string) olarak döndürür — iç içe `tank { name }`
+  // objesi YOKTUR. Tank adı, ayrı çekilen tank listesinden tankId ile eşleştirilir.
+  const tankNameById = new Map(tanks.map(t => [t.id, t.name]));
+
   const batchSnapshots: BatchSnapshot[] = batches.map(b => {
-    // Batch'in atandığı ilk tankın adı
-    const tankName = b.tankAllocations?.[0]?.tank?.name ?? 'Bilinmiyor';
+    // Batch'in mevcut (veya ilk) yerleşim lokasyonunun tankId'si
+    const currentLocation =
+      b.locations?.find(loc => loc.isCurrentLocation) ?? b.locations?.[0];
+    const tankId = currentLocation?.tankId;
+    // Tank adı tankId ile eşleştirilir; eşleşme yoksa tankId'nin kendisi gösterilir.
+    const tankName = (tankId ? tankNameById.get(tankId) : undefined) ?? tankId ?? 'Bilinmiyor';
 
     return {
       id: b.id,
       batchNumber: b.batchNumber,
-      species: b.species?.commonName ?? 'Bilinmiyor',
+      // Şema yalnızca tür kimliği (speciesId) döndürür — tür adı uydurulmaz.
+      speciesId: b.speciesId ?? 'Bilinmiyor',
       status: b.status,
       currentQuantity: b.currentQuantity,
       currentBiomassKg: b.currentBiomassKg,

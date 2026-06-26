@@ -24,37 +24,19 @@ import { graphqlFetch } from '../config/api';
 // GraphQL Queries
 const GET_VFD_BRANDS_QUERY = `
   query GetVfdBrands {
-    vfdBrands {
-      code
-      name
-      supportedProtocols
-      modelSeries
-      defaultSerialConfig
-    }
+    vfdBrands
   }
 `;
 
 const GET_VFD_PROTOCOLS_QUERY = `
   query GetVfdProtocols {
-    vfdProtocols {
-      protocol
-      displayName
-      description
-      connectionType
-    }
+    vfdProtocols
   }
 `;
 
 const GET_VFD_PROTOCOL_SCHEMA_QUERY = `
   query GetVfdProtocolSchema($protocol: VfdProtocol!) {
-    vfdProtocolSchema(protocol: $protocol) {
-      protocol
-      displayName
-      description
-      connectionType
-      configurationSchema
-      defaultConfiguration
-    }
+    vfdProtocolSchema(protocol: $protocol)
   }
 `;
 

@@ -12,9 +12,7 @@ const SEND_VFD_COMMAND_MUTATION = `
   mutation SendVfdCommand($vfdDeviceId: ID!, $command: VfdCommandInput!) {
     sendVfdCommand(vfdDeviceId: $vfdDeviceId, command: $command) {
       success
-      command
       acknowledgedAt
-      executionTimeMs
       error
       previousValue
       newValue
@@ -26,7 +24,6 @@ const START_VFD_MUTATION = `
   mutation StartVfd($vfdDeviceId: ID!) {
     startVfd(vfdDeviceId: $vfdDeviceId) {
       success
-      command
       acknowledgedAt
       error
     }
@@ -37,7 +34,6 @@ const STOP_VFD_MUTATION = `
   mutation StopVfd($vfdDeviceId: ID!) {
     stopVfd(vfdDeviceId: $vfdDeviceId) {
       success
-      command
       acknowledgedAt
       error
     }
@@ -48,7 +44,6 @@ const SET_VFD_FREQUENCY_MUTATION = `
   mutation SetVfdFrequency($vfdDeviceId: ID!, $frequencyHz: Float!) {
     setVfdFrequency(vfdDeviceId: $vfdDeviceId, frequencyHz: $frequencyHz) {
       success
-      command
       acknowledgedAt
       error
       previousValue
@@ -61,7 +56,6 @@ const SET_VFD_SPEED_MUTATION = `
   mutation SetVfdSpeed($vfdDeviceId: ID!, $speedPercent: Float!) {
     setVfdSpeed(vfdDeviceId: $vfdDeviceId, speedPercent: $speedPercent) {
       success
-      command
       acknowledgedAt
       error
       previousValue
@@ -74,7 +68,6 @@ const RESET_VFD_FAULT_MUTATION = `
   mutation ResetVfdFault($vfdDeviceId: ID!) {
     resetVfdFault(vfdDeviceId: $vfdDeviceId) {
       success
-      command
       acknowledgedAt
       error
     }
@@ -85,7 +78,6 @@ const EMERGENCY_STOP_VFD_MUTATION = `
   mutation EmergencyStopVfd($vfdDeviceId: ID!) {
     emergencyStopVfd(vfdDeviceId: $vfdDeviceId) {
       success
-      command
       acknowledgedAt
       error
     }
@@ -130,7 +122,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       if (!vfdDeviceId) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: command.command,
           error: 'VFD device ID is required',
         };
         setLastResult(errorResult);
@@ -158,7 +149,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       } catch (err) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: command.command,
           error: (err as Error).message,
         };
         setLastResult(errorResult);
@@ -176,7 +166,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     if (!vfdDeviceId) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.START,
         error: 'VFD device ID is required',
       };
       setLastResult(errorResult);
@@ -198,7 +187,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     } catch (err) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.START,
         error: (err as Error).message,
       };
       setLastResult(errorResult);
@@ -214,7 +202,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     if (!vfdDeviceId) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.STOP,
         error: 'VFD device ID is required',
       };
       setLastResult(errorResult);
@@ -236,7 +223,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     } catch (err) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.STOP,
         error: (err as Error).message,
       };
       setLastResult(errorResult);
@@ -253,7 +239,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       if (!vfdDeviceId) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: VfdCommandType.SET_FREQUENCY,
           error: 'VFD device ID is required',
         };
         setLastResult(errorResult);
@@ -264,7 +249,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       if (frequencyHz < 0 || frequencyHz > 400) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: VfdCommandType.SET_FREQUENCY,
           error: 'Frequency must be between 0 and 400 Hz',
         };
         setLastResult(errorResult);
@@ -286,7 +270,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       } catch (err) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: VfdCommandType.SET_FREQUENCY,
           error: (err as Error).message,
         };
         setLastResult(errorResult);
@@ -305,7 +288,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       if (!vfdDeviceId) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: VfdCommandType.SET_SPEED,
           error: 'VFD device ID is required',
         };
         setLastResult(errorResult);
@@ -316,7 +298,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       if (speedPercent < 0 || speedPercent > 100) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: VfdCommandType.SET_SPEED,
           error: 'Speed must be between 0 and 100%',
         };
         setLastResult(errorResult);
@@ -338,7 +319,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
       } catch (err) {
         const errorResult: VfdCommandResult = {
           success: false,
-          command: VfdCommandType.SET_SPEED,
           error: (err as Error).message,
         };
         setLastResult(errorResult);
@@ -356,7 +336,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     if (!vfdDeviceId) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.FAULT_RESET,
         error: 'VFD device ID is required',
       };
       setLastResult(errorResult);
@@ -378,7 +357,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     } catch (err) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.FAULT_RESET,
         error: (err as Error).message,
       };
       setLastResult(errorResult);
@@ -394,7 +372,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     if (!vfdDeviceId) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.EMERGENCY_STOP,
         error: 'VFD device ID is required',
       };
       setLastResult(errorResult);
@@ -416,7 +393,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     } catch (err) {
       const errorResult: VfdCommandResult = {
         success: false,
-        command: VfdCommandType.EMERGENCY_STOP,
         error: (err as Error).message,
       };
       setLastResult(errorResult);

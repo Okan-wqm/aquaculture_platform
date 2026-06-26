@@ -35,10 +35,11 @@ export interface HealthEvent {
   description?: string;
   diseaseCategory?: string;
   diagnosisConfidence?: string;
-  startDate: string;
-  endDate?: string;
-  affectedCount?: number;
-  mortalityCount?: number;
+  /**
+   * Olay tarihi. Şema başlangıç/bitiş aralığı yerine tek bir `eventDate`
+   * taşır — eski `startDate`/`endDate` çifti şemada yoktur.
+   */
+  eventDate: string;
   isQuarantined: boolean;
   isUnderTreatment: boolean;
   notes?: string;
@@ -50,7 +51,11 @@ export interface HealthEvent {
 export interface PaginatedHealthEvents {
   items: HealthEvent[];
   total: number;
-  hasMore: boolean;
+  /**
+   * Sonraki sayfa var mı? Şemada `hasMore` yoktur; PaginatedHealthEventsResponse
+   * gerçek sayfalama alanı olarak `hasNextPage`'i sunar.
+   */
+  hasNextPage: boolean;
 }
 
 /**
@@ -108,17 +113,14 @@ export async function fetchHealthEvents(
           title
           description
           diseaseCategory
-          startDate
-          endDate
-          affectedCount
-          mortalityCount
+          eventDate
           isQuarantined
           isUnderTreatment
           notes
           createdAt
         }
         total
-        hasMore
+        hasNextPage
       }
     }
   `;
@@ -155,10 +157,7 @@ export async function fetchHealthEventsByBatch(
         title
         description
         diseaseCategory
-        startDate
-        endDate
-        affectedCount
-        mortalityCount
+        eventDate
         isQuarantined
         isUnderTreatment
         notes
@@ -197,9 +196,7 @@ export async function fetchCriticalHealthEvents(
         title
         description
         diseaseCategory
-        startDate
-        affectedCount
-        mortalityCount
+        eventDate
         isQuarantined
         isUnderTreatment
         notes

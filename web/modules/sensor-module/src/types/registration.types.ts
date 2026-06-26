@@ -175,7 +175,11 @@ export interface RegisteredSensor {
   id: string;
   name: string;
   type: SensorType;
-  protocolCode: string;
+  // Mutation results (RegisteredSensorType) expose `protocolCode`; the entity-backed
+  // singular `sensor(id)` query exposes `protocolId`. Both are optional so a consumer
+  // can read whichever the originating query selected.
+  protocolCode?: string;
+  protocolId?: string;
   protocolConfiguration: Record<string, unknown>;
   connectionStatus?: SensorConnectionStatus;
   registrationStatus: SensorRegistrationStatus;
@@ -295,11 +299,13 @@ export interface SensorStats {
   byProtocol: Record<string, number>;
 }
 
+// Backend `protocolCategoryStats` returns a single object keyed by category name,
+// each value being the protocol count for that category (CategoryStatsType).
 export interface CategoryStats {
-  category: ProtocolCategory;
-  totalProtocols: number;
-  activeProtocols: number;
-  subcategories: (ProtocolSubcategory | string)[];
+  industrial: number;
+  iot: number;
+  serial: number;
+  wireless: number;
 }
 
 // Wizard state types

@@ -17,50 +17,8 @@ const GET_VFD_READINGS_QUERY = `
       vfdDeviceId
       tenantId
       timestamp
-      parameters {
-        outputFrequency
-        motorSpeed
-        motorCurrent
-        motorVoltage
-        motorTorque
-        motorPower
-        dcBusVoltage
-        outputPower
-        driveTemperature
-        motorTemperature
-        energyConsumption
-        runningHours
-        statusWord
-        controlWord
-        faultCode
-        warningCode
-      }
-      statusBits {
-        ready
-        running
-        fault
-        warning
-        atSetpoint
-        atReference
-        direction
-        remoteControl
-        localControl
-        autoMode
-        manualMode
-        currentLimit
-        voltageLimit
-        torqueLimit
-        speedLimit
-        enabled
-        quickStopActive
-        switchOnDisabled
-      }
-      quality {
-        overallQuality
-        communicationStatus
-        dataValidity
-        timestamp
-      }
+      parameters
+      statusBits
     }
   }
 `;
@@ -71,34 +29,8 @@ const GET_VFD_LATEST_READING_QUERY = `
       id
       vfdDeviceId
       timestamp
-      parameters {
-        outputFrequency
-        motorSpeed
-        motorCurrent
-        motorVoltage
-        motorTorque
-        motorPower
-        dcBusVoltage
-        outputPower
-        driveTemperature
-        motorTemperature
-        energyConsumption
-        runningHours
-        statusWord
-        controlWord
-        faultCode
-        warningCode
-      }
-      statusBits {
-        ready
-        running
-        fault
-        warning
-        atSetpoint
-        direction
-        remoteControl
-        enabled
-      }
+      parameters
+      statusBits
     }
   }
 `;
@@ -125,15 +57,9 @@ const GET_VFD_READING_STATS_QUERY = `
 const READ_VFD_PARAMETERS_MUTATION = `
   mutation ReadVfdParameters($vfdDeviceId: ID!, $parameters: [String!]) {
     readVfdParameters(vfdDeviceId: $vfdDeviceId, parameters: $parameters) {
-      id
       timestamp
       parameters
       statusBits
-      quality {
-        overallQuality
-        communicationStatus
-        dataValidity
-      }
     }
   }
 `;

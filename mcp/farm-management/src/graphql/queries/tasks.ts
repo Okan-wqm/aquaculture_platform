@@ -29,18 +29,25 @@ import type { GraphQLClient } from '../client.js';
  */
 export interface TaskInfo {
   id: string;
-  code: string;
+  /** İş emri kodu — şemadaki `workOrderCode` (eski adı `code`). */
+  workOrderCode: string;
   title: string;
   description?: string;
   status: string;
   priority: string;
-  workOrderType: string;
+  /**
+   * İş emri tipi — şemadaki `type` (WorkOrderType enum). Eski `workOrderType`
+   * adı şemada yoktur; drift önerisi `workOrderCode` anlamsal olarak hatalıydı.
+   */
+  type: string;
   assetType?: string;
-  siteId?: string;
-  departmentId?: string;
-  assigneeId?: string;
+  /** Varlık kimliği — şemadaki `assetId` (eski `siteId`; saha ile aynı anlamda değildir). */
+  assetId?: string;
+  /** Atanan kişi — şemadaki `assignedTo` (eski `assigneeId`). */
+  assignedTo?: string;
   dueDate?: string;
-  scheduledStartDate?: string;
+  /** Planlanan başlangıç — şemadaki `plannedStartDate` (eski `scheduledStartDate`). */
+  plannedStartDate?: string;
   createdAt: string;
 }
 
@@ -81,18 +88,17 @@ export async function fetchTodaysTasks(
       workOrders(filter: $filter, page: $page, limit: $limit, sortBy: $sortBy, sortOrder: $sortOrder) {
         items {
           id
-          code
+          workOrderCode
           title
           description
           status
           priority
-          workOrderType
+          type
           assetType
-          siteId
-          departmentId
-          assigneeId
+          assetId
+          assignedTo
           dueDate
-          scheduledStartDate
+          plannedStartDate
           createdAt
         }
         total
@@ -135,18 +141,17 @@ export async function fetchOverdueTasks(
     query OverdueTasks {
       overdueWorkOrders {
         id
-        code
+        workOrderCode
         title
         description
         status
         priority
-        workOrderType
+        type
         assetType
-        siteId
-        departmentId
-        assigneeId
+        assetId
+        assignedTo
         dueDate
-        scheduledStartDate
+        plannedStartDate
         createdAt
       }
     }

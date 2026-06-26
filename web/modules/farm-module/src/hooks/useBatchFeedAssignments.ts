@@ -33,7 +33,6 @@ export interface BatchFeedAssignment {
   feedAssignments: FeedAssignmentEntry[];
   notes?: string;
   isActive: boolean;
-  version: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,7 +65,6 @@ const GET_BATCH_FEED_ASSIGNMENT_QUERY = `
       }
       notes
       isActive
-      version
       createdAt
       updatedAt
     }

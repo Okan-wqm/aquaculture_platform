@@ -51,7 +51,7 @@ const GET_VFD_DEVICE_QUERY = `
 `;
 
 const GET_VFD_DEVICES_QUERY = `
-  query GetVfdDevices($filter: VfdFilterInput, $pagination: VfdPaginationInput) {
+  query GetVfdDevices($filter: VfdDeviceFilterInput, $pagination: VfdPaginationInput) {
     vfdDevices(filter: $filter, pagination: $pagination) {
       items {
         id
@@ -69,11 +69,6 @@ const GET_VFD_DEVICES_QUERY = `
         status
         location
         createdAt
-        latestReading {
-          timestamp
-          parameters
-          statusBits
-        }
       }
       total
       page

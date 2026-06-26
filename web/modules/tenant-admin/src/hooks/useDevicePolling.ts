@@ -79,7 +79,6 @@ const EDGE_DEVICE_QUERY = `
         tagName
         ioType
         dataType
-        unit
         isActive
       }
     }

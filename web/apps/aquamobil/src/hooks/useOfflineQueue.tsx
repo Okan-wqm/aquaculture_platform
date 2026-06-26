@@ -223,7 +223,7 @@ const MUTATIONS: Record<Exclude<OperationType, 'uploadAndSendMessage'> | 'submit
     }
   `,
   editMessage: `
-    mutation EditMessage($id: String!, $input: EditMessageInput!) {
+    mutation EditMessage($id: ID!, $input: EditMessageInput!) {
       editMessage(id: $id, input: $input) {
         id
         content
@@ -232,7 +232,7 @@ const MUTATIONS: Record<Exclude<OperationType, 'uploadAndSendMessage'> | 'submit
     }
   `,
   deleteMessage: `
-    mutation DeleteMessage($id: String!) {
+    mutation DeleteMessage($id: ID!) {
       deleteMessage(id: $id)
     }
   `,

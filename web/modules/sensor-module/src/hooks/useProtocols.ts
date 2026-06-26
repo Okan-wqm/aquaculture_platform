@@ -92,30 +92,29 @@ const GET_PROTOCOL_DEFAULTS_QUERY = `
 const GET_CATEGORY_STATS_QUERY = `
   query ProtocolCategoryStats {
     protocolCategoryStats {
-      category
-      totalProtocols
-      activeProtocols
-      subcategories
+      industrial
+      iot
+      serial
+      wireless
     }
   }
 `;
 
 const VALIDATE_PROTOCOL_CONFIG_MUTATION = `
-  mutation ValidateProtocolConfig($input: ValidateProtocolConfigInput!) {
+  mutation ValidateProtocolConfig($input: ValidateConfigInput!) {
     validateProtocolConfig(input: $input) {
       isValid
       errors {
         field
         message
-        code
       }
     }
   }
 `;
 
 const APPLY_PROTOCOL_DEFAULTS_MUTATION = `
-  mutation ApplyProtocolDefaults($code: String!, $config: JSON!) {
-    applyProtocolDefaults(code: $code, config: $config)
+  mutation ApplyProtocolDefaults($protocolCode: String!, $config: JSON!) {
+    applyProtocolDefaults(protocolCode: $protocolCode, config: $config)
   }
 `;
 
@@ -317,9 +316,10 @@ export function useProtocolDefaults(code: string | undefined) {
   };
 }
 
-// Hook to fetch category stats
+// Hook to fetch category stats.
+// Backend returns a single keyed object { industrial, iot, serial, wireless }.
 export function useCategoryStats() {
-  const [stats, setStats] = useState<CategoryStats[] | null>(null);
+  const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -328,14 +328,14 @@ export function useCategoryStats() {
     setError(null);
 
     try {
-      const data = await fetchGraphQL<{ protocolCategoryStats: CategoryStats[] }>(
+      const data = await fetchGraphQL<{ protocolCategoryStats: CategoryStats }>(
         GET_CATEGORY_STATS_QUERY,
         {}
       );
-      setStats(data.protocolCategoryStats || []);
+      setStats(data.protocolCategoryStats ?? null);
     } catch (err) {
       setError(err as Error);
-      setStats([]);
+      setStats(null);
     } finally {
       setLoading(false);
     }
@@ -402,7 +402,7 @@ export function useApplyDefaults() {
     try {
       const data = await fetchGraphQL<{ applyProtocolDefaults: Record<string, unknown> }>(
         APPLY_PROTOCOL_DEFAULTS_MUTATION,
-        { code: protocolCode, config }
+        { protocolCode, config }
       );
       return data.applyProtocolDefaults || config;
     } catch {

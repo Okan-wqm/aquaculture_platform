@@ -5408,3 +5408,41 @@ Severity: MEDIUM (operator-visible stale data). Resolves SSOT-H-18 from `docs/re
 **Fix (this commit):** added `@CacheEvict({ prefixes: ['batch:performance'] })` to `recordMortality` + `recordCull`, and `@CacheEvict({ prefixes: ['growth:analysis'] })` to `recordGrowthSample` + `verifyMeasurement` — the interceptor evicts `farm:cache:<prefix>:t:<tenantId>:*` after the mutation commits, so the next read recomputes. **Tier-3 guard:** new invariant `tests/invariants/farm-cacheable-has-evict.spec.ts` fails the build if any farm `@Cacheable` prefix lacks a `@CacheEvict` naming it (closes the never-invalidated-cache class repo-wide; EXEMPT set is empty + documented). farm-service `tsc` clean; invariant + invariant-reachability green.
 
 Status: RESOLVED (2026-06-26; both farm caches now evicted + guarded). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-181 - GraphQL FE↔supergraph drift burndown: farm-module (3 of 5 fixed; 2 backend-gaps tracked)
+
+Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partially-fails at the gateway). First slice of task #3 (burn down the 130-op `scripts/ci/graphql-fe-drift.baseline.json` per module; audit `docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md`).
+
+**Fixed (FE over-selected fields the schema doesn't have → corrected; baseline 130 → 127):**
+- `GetBatchFeedAssignment` (`useBatchFeedAssignments.ts`): removed `version` (not on `BatchFeedAssignmentResponse`) + the dead interface field. No reader.
+- `CloseBatch` (`useBatches.ts`): removed `closedAt` (not on `Batch`); only reader was mock report data.
+- `UpdateBatch` (`useBatches.ts`, SELECTION-SHAPE): flattened `fcr { target actual }` → `fcr` — `fcr` is a `JSON!` scalar, so sub-selection is invalid; the runtime value is unchanged (the FE's `batch.fcr?.target/.actual` JSON-object access still works). farm-module `tsc` clean.
+
+**Tracked, NOT a simple removal (2 remain in baseline) — backend gap, not FE over-reach:** `ListSubEquipmentByParent` (`useSubEquipment.ts`) + `GetSubEquipmentByParent` (`useTankFeeders.ts`) query `category` on `SubEquipmentTypeResponse` and pass it as a `subEquipmentByParent` arg, but the backend DTO (`apps/farm-service/src/equipment/dto/sub-equipment.response.ts`) has no `category` (only id/name/code/compatibleEquipmentTypeCodes). The FE legitimately needs it — `useTankFeeders.ts:68` filters feeders by `subEquipmentType.category === 'feeder'`. Correct fix is a BACKEND decision: expose `category` (or `isFeeder`) on `SubEquipmentTypeResponse` + the resolver arg, OR derive feeder-ness from `code`. Deferred to a backend slice; left baselined so it stays tracked + shrinking.
+
+**Slice 2 — mcp/farm-management (all 13 fixed; baseline 127 → 114):** the MCP server's hand-written queries selected renamed/removed schema fields. Fixed query + every TS consumer, verified against `apps/farm-service/schema.graphql`, `tsc` clean:
+- `batches.ts` (GetBatch/ListBatches): `species`→`speciesId`, `initialAvgWeightG`→`currentAvgWeightG`, `targetFCR`→removed, `tankAllocations{tank{…}}`→`locations{tankId…}` (BatchLocation has no nested tank — consumer joins tankId→name via the fetched tank list).
+- `health.ts` (HealthEvents/HealthEventsByBatch/CriticalHealthEvents): `startDate`/`endDate`→`eventDate`, `affectedCount`/`mortalityCount`/`hasMore`→removed (consumers degrade gracefully).
+- `maintenance.ts` + `tasks.ts` (WorkOrder): `workOrderType`→`type` (audit's `workOrderCode` was semantically WRONG — type≠code; the MCP's separate `code` field maps to the real `workOrderCode`); `siteId`→`assetId`; `assigneeId`→`assignedTo`; `scheduledStartDate`→`plannedStartDate`; `completedDate`→`completedAt`; `estimatedDurationHours`→`estimatedDurationMinutes` + `actualDurationHours`→`actualDurationMinutes` (UNIT change — metric relabeled minutes, NOT shown as hours); `departmentId`/`startedAt`/`actualCost`→removed.
+- `feeding.ts`/`growth.ts`/`water-quality.ts`: `hasMore`→`hasNextPage` (real field; capability preserved); water-quality `limit` arg moved into `filter`, `offset` removed.
+
+**Follow-up (NOT a gate-drift — runtime input bug, filed for a later slice):** the MCP `HealthEventFilter`/feeding/wq/growth filter interfaces use `startDate`/`endDate` keys but the schema's `*FilterInput` use `fromDate`/`toDate` (`detect-anomalies.ts:344-359`). The static op-validation gate does not catch variable VALUES, so it isn't in the baseline, but the gateway would 400 on the input at runtime. Owner: mcp/farm. Tracked here.
+
+**Slice 3 — sensor-module (33 of 35 fixed; baseline 114 → 81):** verified against the sensor backend DTOs/entities (`apps/sensor-service/src/**`). Key SSoT discovery: the `sensor(id)` query composes to entity `Sensor` (has `protocolId`/`protocol`, `connectionStatus` as JSON, `status`, `lastCalibratedAt`) while `sensors` composes to `RegisteredSensorType` (has `protocolCode`, `connectionStatus` as an ObjectType, NO `status`) — the field-map is consistent with that split.
+- VFD: `VfdCommandResult` drop `command`/`executionTimeMs` (7 ops); `VfdReading`/brands/protocols/readings JSON scalars → bare (delete sub-selections); `VfdReadResultDto` drop `id`/`quality`; `VfdFilterInput`→`VfdDeviceFilterInput`; drop `latestReading`.
+- Sensor registration: drop `status` from `RegisteredSensorType` (5 ops); `protocolCode`→`protocolId`; `SensorFilter`→`SensorFilterInput`, `Pagination`→`SensorPaginationInput`; `byType`/`byProtocol` JSON → bare.
+- Channels (RENAMES, not gaps): `createSensorDataChannel`→`createDataChannel` (+ `CreateDataChannelInput`), update/delete likewise.
+- Calibration: drop `unitSymbol`/`nextCalibrationDue`/`calibrationPolynomial`. Protocols: `ValidateProtocolConfigInput`→`ValidateConfigInput`, `ApplyProtocolDefaults` arg `code`→`protocolCode`, `CategoryStatsType` reshaped to real `{industrial iot serial wireless}`. DeviceDetailPage: `connectionStatus` JSON→bare, `lastCalibrationDate`→`lastCalibratedAt`, `SensorReading` real `readings{}` + `$startTime/$endTime` `String!`→`DateTime!`, `deleteSensor` `Boolean!`→bare. All consumers updated; sensor-module `tsc` 0 errors + eslint clean.
+- FLAGGED (2 left baselined): `CancelVfdChangeSet` (schema has only reject/rollback/approve — semantic, not a safe rename) + `GetSensorChannels` (`Sensor.dataChannels` absent; needs a `dataChannelsBySensor` rework beyond a rename).
+
+**Slice 4 — tenant-admin + aquamobil clean ops (4; baseline 81 → 77):** `EdgeDevice` (×2: device-queries.ts + useDevicePolling.ts) drop `unit` (not on `DeviceIoConfig`); aquamobil `EditMessage`/`DeleteMessage` var `$id: String!` → `ID!` (the mutation arg is `ID!`). tenant-admin + aquamobil `tsc` 0.
+
+**Assessment — the clean FE-fix phase is largely exhausted.** Slices 1-4 burned the easy MISSING-FIELD/SELECTION-SHAPE/clean-rename drifts (53 ops). The remaining 77 are predominantly NOT FE-only fixes:
+- **hr-module (60):** mostly MISSING-ROOT-OP — `workArea`/`workRotation`/`leaveType`/`updateShift`/`startTraining` ops the schema does not expose → a BACKEND feature decision (implement the ops or remove the FE features), not a rename.
+- **tenant-admin (8):** `communication-queries.ts` uses an entire THREAD-based messaging API (`myThreads`/`thread`/`threadMessages`/`createThread`/`closeThread`/`Message.threadId`/`ThreadStatus`/`CreateThreadInput`) that the schema does not have — the schema is message-based (`messages`/`searchMessages`). Needs rework to the real API OR removal if the feature is dead. + `MyTenantModules` `module { … }`→`moduleId` (consumer needs module details the type lacks).
+- **aquamobil (3):** `aiConsentStatus`→`myConsentStatus`?, `toggleAiConsent`→`withdrawConsent`? (toggle≠withdraw), `stockAtLocation`→`storageLocation`? — semantic renames needing per-op verification.
+- Plus the prior flags (farm `category` 2, sensor 2). These need product/backend decisions, tracked here + in the baseline.
+
+Status: RESOLVED for slices 1-4 — farm (3) + mcp (13) + sensor (33) + tenant-admin/aquamobil clean (4) = **53 ops, baseline 130 → 77**. Remaining 77 are backend-feature-gaps / thread-API rework / semantic renames (per the assessment above), NOT clean FE fixes. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.

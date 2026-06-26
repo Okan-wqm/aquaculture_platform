@@ -559,12 +559,14 @@ async function fetchAndTransformHealth(
   const healthData = await fetchHealthEvents(client, filter);
 
   return (healthData.items ?? []).map(h => {
+    // NEDEN boş metrics: Şema HealthEvent üzerinde `affectedCount`/`mortalityCount`
+    // alanlarını sunmaz (etkilenen popülasyon yalnızca `affectedPopulation` JSON
+    // alanında olabilir). Uydurma sayı üretmek yerine metrik raporlanmaz.
     const metrics: Record<string, number> = {};
-    if (h.affectedCount) metrics['affected_count'] = h.affectedCount;
-    if (h.mortalityCount) metrics['mortality_count'] = h.mortalityCount;
 
     return {
-      timestamp: h.startDate,
+      // Şema tek bir `eventDate` taşır (eski startDate/endDate aralığı yoktur).
+      timestamp: h.eventDate,
       domain: 'health',
       eventType: `health_${h.eventType}`,
       summary: `Sağlık olayı: ${h.title}. Şiddet: ${h.severity}, Durum: ${h.status}. ` +
@@ -599,10 +601,13 @@ async function fetchAndTransformMaintenance(
       domain: 'maintenance',
       eventType: isOverdue ? 'work_order_overdue' : 'work_order_created',
       summary: `İş emri: ${wo.title}. Durum: ${wo.status}, Öncelik: ${wo.priority}. ` +
-               `Tip: ${wo.workOrderType}${isOverdue ? ' — GECİKMİŞ!' : ''}`,
+               `Tip: ${wo.type}${isOverdue ? ' — GECİKMİŞ!' : ''}`,
       severity: isOverdue ? 'high' : (wo.priority === 'critical' ? 'critical' : 'normal'),
-      metrics: wo.estimatedDurationHours
-        ? { estimated_hours: wo.estimatedDurationHours }
+      // NEDEN estimated_minutes: Şema süreyi DAKİKA cinsinden döndürür
+      // (eski estimatedDurationHours yoktur). Dakikayı saat etiketiyle göstermek
+      // yanıltıcı olurdu — metrik adı birimle birlikte düzeltildi.
+      metrics: wo.estimatedDurationMinutes
+        ? { estimated_minutes: wo.estimatedDurationMinutes }
         : undefined,
     };
   });

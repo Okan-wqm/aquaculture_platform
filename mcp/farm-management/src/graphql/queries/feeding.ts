@@ -50,7 +50,11 @@ export interface FeedingRecord {
 export interface FeedingRecordConnection {
   items: FeedingRecord[];
   total: number;
-  hasMore: boolean;
+  /**
+   * Sonraki sayfa var mı? Şemada `hasMore` yoktur; bağlantı tipinin
+   * gerçek sayfalama alanı `hasNextPage`'tir (page/limit/totalPages ile birlikte).
+   */
+  hasNextPage: boolean;
 }
 
 /** Yem tipi bazlı özet */
@@ -163,7 +167,7 @@ export async function fetchFeedingRecords(
           isVarianceAcceptable
         }
         total
-        hasMore
+        hasNextPage
       }
     }
   `;

@@ -50,7 +50,7 @@ const GET_SENSOR_QUERY = `
       type
       status
       registrationStatus
-      protocolCode
+      protocolId
       protocolConfiguration
       connectionStatus
       manufacturer
@@ -69,16 +69,20 @@ const GET_SENSOR_QUERY = `
 `;
 
 const GET_SENSORS_QUERY = `
-  query GetSensors($filter: SensorFilter, $pagination: Pagination) {
+  query GetSensors($filter: SensorFilterInput, $pagination: SensorPaginationInput) {
     sensors(filter: $filter, pagination: $pagination) {
       items {
         id
         name
         type
-        status
         registrationStatus
         protocolCode
-        connectionStatus
+        connectionStatus {
+          isConnected
+          lastTestedAt
+          lastError
+          latency
+        }
         location
         createdAt
       }
@@ -98,14 +102,8 @@ const GET_SENSOR_STATS_QUERY = `
       inactive
       testing
       failed
-      byType {
-        type
-        count
-      }
-      byProtocol {
-        protocol
-        count
-      }
+      byType
+      byProtocol
     }
   }
 `;
@@ -119,7 +117,6 @@ const REGISTER_SENSOR_MUTATION = `
         id
         name
         type
-        status
         registrationStatus
         protocolCode
       }
@@ -132,7 +129,6 @@ const ACTIVATE_SENSOR_MUTATION = `
   mutation ActivateSensor($sensorId: ID!) {
     activateSensor(sensorId: $sensorId) {
       id
-      status
       registrationStatus
     }
   }
@@ -142,7 +138,6 @@ const SUSPEND_SENSOR_MUTATION = `
   mutation SuspendSensor($sensorId: ID!, $reason: String) {
     suspendSensor(sensorId: $sensorId, reason: $reason) {
       id
-      status
       registrationStatus
     }
   }
@@ -152,7 +147,6 @@ const REACTIVATE_SENSOR_MUTATION = `
   mutation ReactivateSensor($sensorId: ID!) {
     reactivateSensor(sensorId: $sensorId) {
       id
-      status
       registrationStatus
     }
   }

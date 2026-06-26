@@ -124,6 +124,10 @@ export class ServiceIdentityGuard implements CanActivate {
             outcome.reason === 'missing-headers'
               ? 'Missing service identity headers'
               : `Service identity verification failed: ${outcome.reason}`,
+          // ORPHAN-098: emit the raw, machine-readable cause so operators can
+          // tell a forged-signature attack (bad-hmac) apart from a misconfigured
+          // caller (caller-not-allowed) — the client message stays generic.
+          reasonCode: outcome.reason,
         })
         .catch(() => {
           /* best-effort */

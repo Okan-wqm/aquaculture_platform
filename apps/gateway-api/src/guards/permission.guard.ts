@@ -16,6 +16,7 @@ import {
   OnModuleDestroy,
   Inject,
 } from '@nestjs/common';
+import { ROLE_HIERARCHY as CANONICAL_ROLE_HIERARCHY } from '@aquaculture/backend-common/decorators';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
@@ -84,12 +85,12 @@ export const RequireResourcePermission = (permission: ResourcePermission): Retur
  * Role hierarchy definition
  * Keys match the Role enum values from JWT tokens (uppercase)
  */
-export const ROLE_HIERARCHY: Record<string, string[]> = {
-  SUPER_ADMIN: ['TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'],
-  TENANT_ADMIN: ['MODULE_MANAGER', 'MODULE_USER'],
-  MODULE_MANAGER: ['MODULE_USER'],
-  MODULE_USER: [],
-};
+// ORPHAN-176: re-source from the canonical role hierarchy
+// (libs/backend-common/.../roles.decorator.ts) instead of hand-copying it as a
+// string mirror. Role enum values ARE the uppercase strings the gateway keys on,
+// so Record<Role, Role[]> reads correctly via string indexing here (the call
+// sites already `|| []` on a miss). One hierarchy, no drift.
+export const ROLE_HIERARCHY: Record<string, readonly string[]> = CANONICAL_ROLE_HIERARCHY;
 
 /**
  * Default role permissions

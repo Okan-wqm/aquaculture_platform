@@ -5394,3 +5394,17 @@ PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTa
 **Files:** `e2e/tests/integration/schema-invariants.spec.ts` (4th hardcoded copy; real count is 5: audit_logs, gdpr_data_requests, user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts` (stale "4 canonical" docstring).
 
 Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: OPEN.
+
+---
+
+## ORPHAN-MEDIUM-180 - farm read-through caches never invalidated → stale FCR/survival/growth (SSOT-H-18)
+
+> NUMBERING: renumbered from 178 → 180 at merge time (concurrent merge-train collision with the db-migrate-RLS finding ORPHAN-MEDIUM-178 + ORPHAN-LOW-179 which landed on `main` first). Commits `a1b3eeb35`/`d2198dced` `Closes:` trailers were authored against the original #ORPHAN-MEDIUM-178 number.
+
+Severity: MEDIUM (operator-visible stale data). Resolves SSOT-H-18 from `docs/reviews/2026-06-23-ssot-architecture-audit.md`.
+
+**Root cause (Pattern A — built-but-unwired):** farm-service has exactly two `@Cacheable` read-through caches — `batchPerformance` (`prefix: 'batch:performance'`, 1h TTL — `batch/resolvers/batch.resolver.ts`) and `growthAnalysis` (`prefix: 'growth:analysis'`, 2h TTL — `growth/resolvers/growth.resolver.ts`). The `@CacheEvict` decorator + `CacheEvictInterceptor` are fully built AND registered (`common/cache/cacheable.module.ts` as an `APP_INTERCEPTOR`) but were used by ZERO resolvers. So a stat-mutating write left the cached result stale for the full TTL: `recordMortality`/`recordCull` change survival + biomass that `batchPerformance` (FCR, survival) serves; `recordGrowthSample`/`verifyMeasurement` change the dataset `growthAnalysis` computes from.
+
+**Fix (this commit):** added `@CacheEvict({ prefixes: ['batch:performance'] })` to `recordMortality` + `recordCull`, and `@CacheEvict({ prefixes: ['growth:analysis'] })` to `recordGrowthSample` + `verifyMeasurement` — the interceptor evicts `farm:cache:<prefix>:t:<tenantId>:*` after the mutation commits, so the next read recomputes. **Tier-3 guard:** new invariant `tests/invariants/farm-cacheable-has-evict.spec.ts` fails the build if any farm `@Cacheable` prefix lacks a `@CacheEvict` naming it (closes the never-invalidated-cache class repo-wide; EXEMPT set is empty + documented). farm-service `tsc` clean; invariant + invariant-reachability green.
+
+Status: RESOLVED (2026-06-26; both farm caches now evicted + guarded). Registry: orphan-findings.md only.

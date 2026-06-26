@@ -173,6 +173,7 @@ export default {
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
         '<rootDir>/verified-user-assertion-mounted.spec.ts',
         '<rootDir>/no-default-tenant-storage-key.spec.ts',
+        '<rootDir>/farm-cacheable-has-evict.spec.ts',
         '<rootDir>/tenant-context-ssot.spec.ts',
         '<rootDir>/spec-module-mode.spec.ts',
         '<rootDir>/aria-workflow-sha-pin.spec.ts',

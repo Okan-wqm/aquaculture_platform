@@ -19,6 +19,7 @@ import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
   RlsModule,
+  getRlsExcludeTablesForService,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
@@ -226,7 +227,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     RlsModule.forPoolService({
       serviceName: 'notification',
       autoApply: !notificationSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['notification_outbox'],
+      excludeTables: getRlsExcludeTablesForService('notification'),
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.

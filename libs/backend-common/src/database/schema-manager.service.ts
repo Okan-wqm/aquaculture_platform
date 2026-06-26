@@ -754,6 +754,37 @@ export const REFERENCE_DATA_TABLES: Record<string, string[]> = Object.fromEntrie
 );
 
 /**
+ * Single source of truth for a service's RLS `excludeTables` set.
+ *
+ * The tables RLS must NOT touch are exactly the service's cross-tenant
+ * infrastructure tables (outbox, migrations ledger, source-schema audit
+ * ledgers, tenant-erasure proof ledgers) — i.e. `infrastructureTables` from
+ * `MODULE_SCHEMAS`. CLAUDE.md (ADR-011/012) mandates "do not hardcode a copy"
+ * of that set; service `app.module.ts` callsites pass
+ * `excludeTables: getRlsExcludeTablesForService('<service>')` instead of an
+ * inline literal, so a new infra table (or a renamed audit ledger) flows to the
+ * RLS exclusion automatically and can never drift (the prior farm copy carried
+ * phantom `audit_logs`/`audit_log` and omitted the real `farm_audit_logs`).
+ *
+ * Fail-fast on an unknown module name — a typo'd serviceName must not silently
+ * yield an empty exclusion set (which would apply tenant RLS to the outbox).
+ *
+ * NOTE: cross-tenant platform services whose RLS exclusion legitimately covers
+ * DOMAIN tables (e.g. auth excludes `users`/`tenants`, which are not
+ * "infrastructure") do NOT use this helper — see the rls-exclude-tables
+ * invariant's documented exemptions.
+ */
+export function getRlsExcludeTablesForService(moduleName: string): string[] {
+  const module = MODULE_SCHEMAS.find((m) => m.moduleName === moduleName);
+  if (!module) {
+    throw new Error(
+      `getRlsExcludeTablesForService: unknown module '${moduleName}' — not declared in MODULE_SCHEMAS`,
+    );
+  }
+  return module.infrastructureTables ?? [];
+}
+
+/**
  * Provisioning status to distinguish total failure from partial success
  */
 export enum ProvisioningStatus {

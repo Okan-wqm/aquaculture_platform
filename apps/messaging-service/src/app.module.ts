@@ -29,6 +29,7 @@ import {
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
   RlsModule,
+  getRlsExcludeTablesForService,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
   SourceSchemaWriteGuardService,
@@ -347,7 +348,7 @@ type QueryComplexityOperationContext = {
       // - messaging_outbox: cross-tenant worker reads (BypassRls)
       // - embeddings_metadata: platform-wide reference data (no tenantId)
       // - message_send_idempotency: source-schema idempotency ledger
-      excludeTables: ['messaging_outbox', 'embeddings_metadata', 'message_send_idempotency'],
+      excludeTables: getRlsExcludeTablesForService('messaging'),
       tenantIdColumns: ['tenantId'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

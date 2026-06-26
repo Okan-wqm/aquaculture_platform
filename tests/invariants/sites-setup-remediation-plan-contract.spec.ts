@@ -164,7 +164,11 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
     expect(schemaManager).toContain("'outbox_events'");
     expect(schemaManager).toContain("'inbox_messages'");
     expect(schemaManager).toContain("'event_dlq'");
-    expect(appModule).toContain("'outbox_events'");
+    // farm's RLS excludeTables now DERIVE the infra set (incl. outbox_events) from
+    // MODULE_SCHEMAS via getRlsExcludeTablesForService — the canonical binding is
+    // the schema-manager SSoT (asserted above), not a hand-copied app.module
+    // literal (PR-6 / SSOT-H drift fix).
+    expect(appModule).toContain("getRlsExcludeTablesForService('farm')");
 
     for (const source of [
       createSite,

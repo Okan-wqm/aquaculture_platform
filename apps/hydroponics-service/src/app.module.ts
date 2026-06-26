@@ -21,6 +21,7 @@ import {
   createTenantConnectionBootstrap,
   isSchemaDdlOwnedByDbMigrate,
   RlsModule,
+  getRlsExcludeTablesForService,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
   SourceSchemaWriteGuardService,
@@ -236,7 +237,7 @@ type QueryComplexityOperationContext = {
       // NOT authoritative — production tenants get the same policies from
       // the db-migrate tenant fan-out hardening.
       syncTenantSchemas: !hydroponicsSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['hydroponics_outbox'],
+      excludeTables: getRlsExcludeTablesForService('hydroponics'),
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'hydroponics' }),

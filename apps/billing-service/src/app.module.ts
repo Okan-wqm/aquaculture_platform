@@ -8,6 +8,7 @@ import {
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 import {
   RlsModule,
+  getRlsExcludeTablesForService,
   AuditColumnsModule,
   createSchemaVersionGate,
   SchemaDriftModule,
@@ -198,7 +199,7 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     RlsModule.forPoolService({
       serviceName: 'billing',
       autoApply: !billingSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['billing_outbox'],
+      excludeTables: getRlsExcludeTablesForService('billing'),
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ.

@@ -177,7 +177,9 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
         // DEFAULT_IDENTITY_TABLES; listing them keeps the registry the
         // audit-visible declaration. Outbox + audit tables are
         // cross-tenant infrastructure by design.
-        excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
+        // ORPHAN-178: dropped phantom `audit_log`/`audit_logs` (non-existent
+        // tables); kept in sync with auth app.module's excludeTables.
+        excludeTables: ['auth_outbox', 'users', 'tenants'],
       },
       reason:
         'PR#363 port: auth runtime RLS auto-apply is gated off when ' +

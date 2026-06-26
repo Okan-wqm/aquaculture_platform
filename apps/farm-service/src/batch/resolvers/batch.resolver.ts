@@ -28,6 +28,7 @@ import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { Repository } from 'typeorm';
 
 import { Cacheable } from '../../common/cache/cacheable.decorator';
+import { CacheEvict } from '../../common/cache/cache-evict.decorator';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { AllocateToTankCommand } from '../commands/allocate-to-tank.command';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
@@ -295,6 +296,9 @@ export class BatchResolver {
     );
   }
 
+  // SSOT-H-18: mortality changes survival + biomass that batchPerformance reports;
+  // evict its 1h cache (otherwise never invalidated) so FCR/survival aren't stale.
+  @CacheEvict({ prefixes: ['batch:performance'] })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @RequiresMobileFeature('mortality')
   @Mutation(() => Batch)
@@ -327,6 +331,8 @@ export class BatchResolver {
     );
   }
 
+  // SSOT-H-18: cull changes survival + biomass that batchPerformance reports; evict.
+  @CacheEvict({ prefixes: ['batch:performance'] })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @RequiresMobileFeature('cull')
   @Mutation(() => Batch)

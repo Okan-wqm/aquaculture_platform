@@ -45,6 +45,7 @@ import { readdirSync, statSync, existsSync } from 'fs';
 import { createRequire } from 'module';
 import { join, resolve } from 'path';
 
+import { PROTECTED_TABLES } from '@aquaculture/backend-common/constants';
 import { MODULE_SCHEMAS } from '@aquaculture/backend-common/database';
 import { getMetadataArgsStorage } from 'typeorm';
 
@@ -205,18 +206,17 @@ const ALLOWED_PUBLIC_TABLES = new Set<string>([
   'migrations',
 ]);
 
-const SHARED_SCHEMA_TABLES = new Set<string>([
-  'audit_logs',
-  'gdpr_data_requests',
-  'user_consents',
-  'user_permissions',
-  // AUDITTRAIL-HIGH-004 cure: low-level HTTP access stream.
-  // Distinct from audit_logs (semantic-action level + 7y retention)
-  // — access_logs is request-level + 90d retention. Lives in shared
-  // because access patterns must SURVIVE tenant deletion (same
-  // forensic-survivability rationale as audit_logs).
-  'access_logs',
-]);
+// ORPHAN-179: derive the shared-schema canonical table set from the
+// PROTECTED_TABLES SSoT (libs/backend-common/.../protected-tables.ts) instead of
+// hand-copying it (this was the 4th unguarded copy). PROTECTED_TABLES already
+// carries the `shared.*` entries — audit_logs (7y), gdpr_data_requests,
+// user_consents, user_permissions, access_logs (request-level, 90d; survives
+// tenant deletion for forensics). One list, no drift.
+const SHARED_SCHEMA_TABLES = new Set<string>(
+  PROTECTED_TABLES.filter((t) => t.startsWith('shared.')).map((t) =>
+    t.slice('shared.'.length),
+  ),
+);
 
 /**
  * Tables moved out of `public` during P6-P9 of the teardown. Each entry

@@ -5361,7 +5361,7 @@ silently diverges from the gateway copy.
 mixes a role hierarchy with a separate permission map (`SUPER_ADMIN: ['*']`) and uses
 string keys; re-sourcing needs the canonical `ROLE_HIERARCHY` imported + adapted (enum
 values are already the matching strings) and the invariant extended to cover ROLE_HIERARCHY.
-Owner: gateway/platform. Status: OPEN. Registry: orphan-findings.md only. Relates: SSOT-H-07.
+Owner: gateway/platform. Status: RESOLVED (2026-06-26 — gateway permission.guard now re-sources ROLE_HIERARCHY from the canonical @aquaculture/backend-common/decorators (string mirror deleted); gateway-api tsc clean). Registry: orphan-findings.md only. Relates: SSOT-H-07.
 
 ---
 
@@ -5386,14 +5386,28 @@ Status: RESOLVED for P1a + P1b (2026-06-25). Registry: orphan-findings.md only.
 **Severity:** MEDIUM. **Discovered:** 2026-06-26 (PR-6 RLS excludeTables SSoT). Renumbered in the merge-train collision.
 **File:** `apps/db-migrate/src/schema-registry.ts` (auth/billing/notification/config postMigrationHardening excludeTables).
 
-PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTablesForService('<svc>')`. db-migrate keeps a PARALLEL set for SOURCE-schema RLS of cross-tenant services (comment: "Mirrors the RlsModule.forPoolService excludeTables"). billing + notification are cleanly derivable and should be repointed; auth (domain tables users/tenants) + config (not in MODULE_SCHEMAS) stay literal. The auth db-migrate copy still carries the phantom audit_log/audit_logs. Owner: platform/db-migrate. Status: OPEN.
+PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTablesForService('<svc>')`. db-migrate keeps a PARALLEL set for SOURCE-schema RLS of cross-tenant services (comment: "Mirrors the RlsModule.forPoolService excludeTables"). billing + notification are cleanly derivable and should be repointed; auth (domain tables users/tenants) + config (not in MODULE_SCHEMAS) stay literal. The auth db-migrate copy still carries the phantom audit_log/audit_logs. Owner: platform/db-migrate. Status: RESOLVED (2026-06-26 — dropped phantom audit_log/audit_logs from auth excludeTables in BOTH db-migrate SCHEMA_REGISTRY + auth app.module (synced); billing/notification had no excludeTables copy (only tenantRls). db-migrate+auth tsc clean).
 
 ## ORPHAN-LOW-179 — shared-schema canonical table list 4th unguarded copy + stale "4 canonical" docstring (3c)
 
 **Severity:** LOW. **Discovered:** 2026-06-26 (PR-6 cluster 3c, deferred).
 **Files:** `e2e/tests/integration/schema-invariants.spec.ts` (4th hardcoded copy; real count is 5: audit_logs, gdpr_data_requests, user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts` (stale "4 canonical" docstring).
 
-Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: OPEN.
+Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: RESOLVED (2026-06-26 — e2e schema-invariants SHARED_SCHEMA_TABLES now derives from the PROTECTED_TABLES SSoT (the 4th unguarded copy collapsed), shared-schema-canonical/critical-infra 24/24. The audited-operation.interceptor cosmetic "4 canonical" docstring count is on a pre-existing eslint-disable line which the banned-construct gate forbids re-touching — left as-is; the real list lives in the SSoT).
+
+---
+
+## ORPHAN-MEDIUM-180 - farm read-through caches never invalidated → stale FCR/survival/growth (SSOT-H-18)
+
+> NUMBERING: renumbered from 178 → 180 at merge time (concurrent merge-train collision with the db-migrate-RLS finding ORPHAN-MEDIUM-178 + ORPHAN-LOW-179 which landed on `main` first). Commits `a1b3eeb35`/`d2198dced` `Closes:` trailers were authored against the original #ORPHAN-MEDIUM-178 number.
+
+Severity: MEDIUM (operator-visible stale data). Resolves SSOT-H-18 from `docs/reviews/2026-06-23-ssot-architecture-audit.md`.
+
+**Root cause (Pattern A — built-but-unwired):** farm-service has exactly two `@Cacheable` read-through caches — `batchPerformance` (`prefix: 'batch:performance'`, 1h TTL — `batch/resolvers/batch.resolver.ts`) and `growthAnalysis` (`prefix: 'growth:analysis'`, 2h TTL — `growth/resolvers/growth.resolver.ts`). The `@CacheEvict` decorator + `CacheEvictInterceptor` are fully built AND registered (`common/cache/cacheable.module.ts` as an `APP_INTERCEPTOR`) but were used by ZERO resolvers. So a stat-mutating write left the cached result stale for the full TTL: `recordMortality`/`recordCull` change survival + biomass that `batchPerformance` (FCR, survival) serves; `recordGrowthSample`/`verifyMeasurement` change the dataset `growthAnalysis` computes from.
+
+**Fix (this commit):** added `@CacheEvict({ prefixes: ['batch:performance'] })` to `recordMortality` + `recordCull`, and `@CacheEvict({ prefixes: ['growth:analysis'] })` to `recordGrowthSample` + `verifyMeasurement` — the interceptor evicts `farm:cache:<prefix>:t:<tenantId>:*` after the mutation commits, so the next read recomputes. **Tier-3 guard:** new invariant `tests/invariants/farm-cacheable-has-evict.spec.ts` fails the build if any farm `@Cacheable` prefix lacks a `@CacheEvict` naming it (closes the never-invalidated-cache class repo-wide; EXEMPT set is empty + documented). farm-service `tsc` clean; invariant + invariant-reachability green.
+
+Status: RESOLVED (2026-06-26; both farm caches now evicted + guarded). Registry: orphan-findings.md only.
 
 ---
 

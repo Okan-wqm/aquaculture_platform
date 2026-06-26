@@ -309,9 +309,12 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
      * visible declaration at the AppModule call site.
      *
      * # Other excludeTables
-     *   - `auth_outbox`, `audit_log`, `audit_logs`: cross-tenant infrastructure
-     *     (audit logs span tenants by design; outbox rows are enqueued by
+     *   - `auth_outbox`: cross-tenant infrastructure (outbox rows are enqueued by
      *     owners and consumed by the outbox worker without tenant context).
+     *   - `users`, `tenants`: cross-tenant DOMAIN tables — auth resolves a tenant
+     *     by reading across them pre-auth, so they cannot carry tenant RLS. This
+     *     is why auth is NOT derivable from getRlsExcludeTablesForService (it
+     *     excludes domain tables, not just infrastructure).
      */
     RlsModule.forPoolService({
       serviceName: 'auth',
@@ -319,7 +322,9 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       // Production/staging get the same policies from
       // SCHEMA_REGISTRY['auth'].postMigrationHardening (same excludeTables).
       autoApply: !authSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
+      // ORPHAN-178: dropped phantom `audit_log`/`audit_logs` (non-existent
+      // tables); kept in sync with db-migrate SCHEMA_REGISTRY['auth'].
+      excludeTables: ['auth_outbox', 'users', 'tenants'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'auth' }),

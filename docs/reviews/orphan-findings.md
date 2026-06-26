@@ -3800,7 +3800,7 @@ Root cause: messaging built its scrape endpoint before the canonical `ServiceMet
 
 Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
 
-Status: OPEN (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+Status: RESOLVED (2026-06-26 — messaging MetricsModule now imports ServiceMetricsModule (owns /metrics + default http_/nodejs_ collectors) and contributes its domain registry via contributeTo in onModuleInit (mirrors farm OBS-HIGH-001); bespoke MetricsController deleted. Locked by metrics-service-module-ratchet.spec.ts. Systemic siblings (auth/gateway/sensor) tracked as ORPHAN-185) (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
 
 ## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
 
@@ -4122,7 +4122,7 @@ Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile rea
 
 **Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
 
-Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+Status: RESOLVED (2026-06-26 — all three unread paths now share ONE predicate: extracted unreadMessagePredicateSql (message/unread-message.predicate.ts, excludes member-own + soft-deleted + read), consumed by BOTH get-channels.handler badge subquery AND getUnreadCountFromDb; the channel-list subquery previously omitted the senderId exclusion. Locked by messaging-unread-count-ssot.spec.ts + helper unit test) (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
 
 ---
 
@@ -5483,3 +5483,6 @@ Severity: MEDIUM (60 hr FE ops 400 at the gateway — hr feature areas partly no
 - **IMPLEMENT-BACKEND `updateShift` (baseline 48 → 47):** added `UpdateShiftCommand` + `UpdateShiftHandler` + the `@Mutation updateShift(input: UpdateShiftInput!)` resolver (guards/audit mirror `createShift`), registered the handler, exported `parseTimeString` as the shared HH:mm SSoT. Tenant-scoped via `tenantManagerRepo` + transactional QueryRunner like create; recomputes `totalMinutes` on time change; `NotFoundException` cross-tenant. 6/6 handler tests pass; hr-service `tsc` + eslint clean. FE was already correctly wired.
 
 Status: RESOLVED for slices 6-8 — 5 renames + 16 dead removed + `updateShift` implemented = **hr 69 → 47** (22 ops). Cumulative #3 burndown: **130 → 47 (83 ops)**. Tracked: 38 hr IMPLEMENT-BACKEND features remain (roadmap — leave/cert/training/performance/rotations analytics + detail-by-id; backend feature-debt by product priority). Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
+
+## ORPHAN-MEDIUM-185 — auth/gateway/sensor metrics served from bespoke @Controller('metrics') miss default http_/nodejs_ series (089-siblings)
+Found 2026-06-26 while fixing ORPHAN-089 for messaging. Same defect class: `apps/auth-service/src/metrics/metrics.controller.ts`, `apps/gateway-api/src/metrics/metrics.controller.ts`, and `apps/sensor-service/src/metrics/metrics.controller.ts` each expose `@Controller('metrics')` over a private prom-client Registry and do NOT import the platform `ServiceMetricsModule`, so their `/metrics` scrape omits the default `http_request_duration_seconds` + `nodejs_*` runtime series (verified: these three are absent from the ServiceMetricsModule-importer list). observability-service's `prometheus.controller.ts` is the legitimate aggregator — exempt. Fix (mirror messaging ORPHAN-089 / farm OBS-HIGH-001): add a `contributeTo(serviceMetrics)` to each service's domain metrics service, import `ServiceMetricsModule`, delete the bespoke controller, and plug the domain registry in `onModuleInit`. Ratchet `tests/invariants/metrics-service-module-ratchet.spec.ts` caps bespoke controllers at 4 and drops as each migrates. Owner: observability/platform. Status: OPEN.

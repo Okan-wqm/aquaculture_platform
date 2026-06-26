@@ -129,6 +129,8 @@ export default {
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/plan-limits-ssot.spec.ts',
         '<rootDir>/plan-features-ssot.spec.ts',
+        '<rootDir>/shared-contracts-no-enum-drift.spec.ts',
+        '<rootDir>/config-env-access-ratchet.spec.ts',
         '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
         '<rootDir>/plan-quota-enforcement.spec.ts',
         '<rootDir>/nats-config-ssot.spec.ts',

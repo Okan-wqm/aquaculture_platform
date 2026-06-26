@@ -15,11 +15,12 @@ import {
   ClockInCommand,
   ClockOutCommand,
   CreateShiftCommand,
+  UpdateShiftCommand,
   CreateManualAttendanceCommand,
   ApproveAttendanceCommand,
 } from './commands';
 import { ClockInInput, ClockOutInput, ManualAttendanceInput } from './dto/clock-in-out.input';
-import { CreateShiftInput } from './dto/create-shift.input';
+import { CreateShiftInput, UpdateShiftInput } from './dto/create-shift.input';
 import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from './entities/attendance-record.entity';
 import { Shift, ShiftType } from './entities/shift.entity';
 import {
@@ -330,6 +331,39 @@ export class AttendanceResolver {
         input.graceMinutes,
         input.earlyClockInMinutes,
         input.lateClockOutMinutes,
+        input.colorCode,
+        input.displayOrder,
+      ),
+    );
+  }
+
+  @Mutation(() => Shift)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_SHIFT', resource: 'Shift', description: 'Update an existing work shift' })
+  async updateShift(
+    @Args('input') input: UpdateShiftInput,
+    @Context() context: GraphQLContext,
+  ): Promise<Shift> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<UpdateShiftCommand, Shift>(
+      new UpdateShiftCommand(
+        tenantId,
+        userId,
+        input.id,
+        input.name,
+        input.description,
+        input.shiftType,
+        input.startTime,
+        input.endTime,
+        input.totalMinutes,
+        input.breakMinutes,
+        input.breakPeriods,
+        input.workDays,
+        input.crossesMidnight,
+        input.graceMinutes,
+        input.isActive,
         input.colorCode,
         input.displayOrder,
       ),

@@ -21,7 +21,6 @@ import {
   GET_CURRENTLY_OFFSHORE,
   GET_ROTATION_CHANGEOVERS,
   GET_CREW_ASSIGNMENTS,
-  GET_SAFETY_TRAINING_RECORDS,
   CREATE_WORK_AREA,
   UPDATE_WORK_AREA,
   DEACTIVATE_WORK_AREA,
@@ -31,21 +30,17 @@ import {
   END_ROTATION,
   CANCEL_ROTATION,
   APPROVE_ROTATION,
-  CREATE_SAFETY_TRAINING_RECORD,
-  CONFIRM_SAFETY_TRAINING_ATTENDANCE,
 } from '../graphql';
 import type {
   Employee,
   WorkArea,
   WorkRotation,
-  SafetyTrainingRecord,
   WorkAreaFilterInput,
   WorkRotationFilterInput,
   CreateWorkAreaInput,
   UpdateWorkAreaInput,
   CreateWorkRotationInput,
   UpdateWorkRotationInput,
-  CreateSafetyTrainingRecordInput,
   CrewAssignment,
   RotationCalendarEntry,
   WorkAreaOccupancyReport,
@@ -676,71 +671,6 @@ export function useDeactivateWorkArea() {
         workAreaKeys.detail(data.deactivateWorkArea.id),
         data.deactivateWorkArea
       );
-    },
-  });
-}
-
-// =====================
-// Safety Training Queries & Mutations
-// =====================
-
-export const safetyTrainingKeys = {
-  all: ['safetyTraining'] as const,
-  lists: () => [...safetyTrainingKeys.all, 'list'] as const,
-  list: (filter?: { employeeId?: string; workAreaId?: string }) =>
-    [...safetyTrainingKeys.lists(), { filter }] as const,
-};
-
-export function useSafetyTrainingRecords(
-  employeeId?: string,
-  workAreaId?: string,
-) {
-  const client = useGraphQLClient();
-
-  return useQuery({
-    queryKey: safetyTrainingKeys.list({ employeeId, workAreaId }),
-    queryFn: () =>
-      graphqlRequest<{ safetyTrainingRecords: SafetyTrainingRecord[] }, unknown>(
-        client,
-        GET_SAFETY_TRAINING_RECORDS,
-        { employeeId, workAreaId }
-      ),
-    select: (data) => data.safetyTrainingRecords,
-  });
-}
-
-export function useCreateSafetyTrainingRecord() {
-  const client = useGraphQLClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (input: CreateSafetyTrainingRecordInput) =>
-      graphqlRequest<{ createSafetyTrainingRecord: SafetyTrainingRecord }, unknown>(
-        client,
-        CREATE_SAFETY_TRAINING_RECORD,
-        { input }
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: safetyTrainingKeys.lists() });
-    },
-  });
-}
-
-export function useConfirmSafetyTrainingAttendance() {
-  const client = useGraphQLClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (recordId: string) =>
-      graphqlRequest<{
-        confirmSafetyTrainingAttendance: SafetyTrainingRecord;
-      }, unknown>(
-        client,
-        CONFIRM_SAFETY_TRAINING_ATTENDANCE,
-        { recordId }
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: safetyTrainingKeys.lists() });
     },
   });
 }

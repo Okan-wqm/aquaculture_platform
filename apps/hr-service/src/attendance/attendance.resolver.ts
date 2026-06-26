@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
 
 import {

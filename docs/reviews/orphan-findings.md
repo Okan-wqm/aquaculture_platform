@@ -5341,3 +5341,40 @@ change-subscription-plan syncs the Stripe price for IMMEDIATE changes via Stripe
 **File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts`.
 
 On re-subscribe after a CANCELLED subscription the handler HARD-deletes the old row (avoids the UNIQUE(tenantId) index violation), but create-subscription.handler.spec.ts asserts SOFT-delete (history preservation). Out of SSOT-C-12 scope. Fix is a design call: (a) PARTIAL unique index `WHERE is_deleted=false` then soft-delete (needs migration), or (b) update tests to accept hard-delete. Owner: billing. Status: OPEN.
+
+---
+
+## ORPHAN-MEDIUM-176 — gateway permission.guard hand-copies the canonical ROLE_HIERARCHY (string mirror, drift risk)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-26, during PR-4 RBAC vocabulary unification (SSOT-H-06).
+**File:** `apps/gateway-api/src/guards/permission.guard.ts:87` (`ROLE_HIERARCHY: Record<string, string[]>`).
+
+After PR-4 deleted hr-service's forked Role enum + RolesGuard, the backend has ONE `Role`
+enum and ONE `RolesGuard` (locked by `tests/invariants/rbac-vocabulary-ssot.spec.ts`).
+But the gateway `permission.guard.ts` still defines its OWN `ROLE_HIERARCHY` as a STRING
+mirror (`SUPER_ADMIN: ['TENANT_ADMIN','MODULE_MANAGER','MODULE_USER']`) — a hand-copy of
+the canonical `ROLE_HIERARCHY` in `libs/backend-common/src/decorators/roles.decorator.ts`.
+It is live (used by `permission.helpers.ts`), so a future edit to the canonical hierarchy
+silently diverges from the gateway copy.
+
+**Why not fixed in PR-4:** distinct from SSOT-H-06 (the HR guard fork). The gateway guard
+mixes a role hierarchy with a separate permission map (`SUPER_ADMIN: ['*']`) and uses
+string keys; re-sourcing needs the canonical `ROLE_HIERARCHY` imported + adapted (enum
+values are already the matching strings) and the invariant extended to cover ROLE_HIERARCHY.
+Owner: gateway/platform. Status: OPEN. Registry: orphan-findings.md only. Relates: SSOT-H-07.
+
+---
+
+## ORPHAN-MEDIUM-177 - sensor process-editor route drift + redundant required `UpdateScadaPackageInput.id` (P1)
+
+> NUMBERING: renumbered from 176 → 177 at merge time — a concurrent merge-train collision with the RBAC ROLE_HIERARCHY finding (ORPHAN-MEDIUM-176, above) which landed on `main` first. Commit `510c7f0a7`'s `Closes:` trailer was authored against the original #ORPHAN-MEDIUM-176 number.
+
+Severity: MEDIUM (two operator-facing breakages — "New Process" navigation 404s, and SCADA-package update 400s). Validated from the multi-agent tenant-context plan's P1 list; verified firsthand in code.
+
+**P1a — process-editor route drift.** The sensor module mounts the new-process editor at `process/new` (SINGULAR — `web/modules/sensor-module/src/Module.tsx:106`; `processes` plural is the LIST). Three links pointed at the non-existent `processes/new` → blank page: `ProcessTemplatesPage.tsx` (×2: the `handleUseTemplate` navigate + the empty-state Link) used `/sensor/processes/new`, and dashboard `QuickActions.tsx` ("Süreç Başlat") used the un-prefixed `/processes/new` (the sensor module is at `/sensor`, so no route matched at all). Fixed all three to `/sensor/process/new`.
+
+**P1b — `UpdateScadaPackageInput.id` dual-source.** `updateScadaPackage(@Args('id') id, @Args('input') input)` (`process.resolver.ts`) looks the row up by the top-level `id` arg and the service NEVER reads `input.id`, yet `UpdateScadaPackageInput` also declared `@Field(() => ID) id!: string` (REQUIRED). The FE (`useScadaPackage.ts` `useUpdateScadaPackage`) sends only the top-level `$id`, never `input.id` — so the required input field rejected every SCADA-package update. Removed `id` from `UpdateScadaPackageInput` (SSoT = the resolver arg). No backend reader; `ID` import still used by other fields; sensor-service `tsc` clean. (No `codegen:check` CI gate + no sensor FE↔BE-parity invariant; the FE hook uses an inline input type, so the generated `graphql-types.ts` regenerates on the next full codegen — it does not gate this change. The supergraph recomposes at deploy.)
+
+**Investigated, NOT confirmed (no change made):** (i) the alleged "uppercase status enum" drift — `ProcessStatus` backend enum VALUES are lowercase (`'active'`) matching the FE hand-written union, and the FE never round-trips ProcessStatus through GraphQL (not in generated types; only `ScadaPackageStatus`/`VfdChangeSetStatus` are GraphQL-status types), so no break exists. (ii) Map page "renders as empty when sites lack coordinates" — `MapViewPage.tsx` already shows a distinct "Konum bilgisi olan site bulunamadı" empty-state with a Setup link (not a no-data state); correctly handled.
+
+Status: RESOLVED for P1a + P1b (2026-06-25). Registry: orphan-findings.md only.

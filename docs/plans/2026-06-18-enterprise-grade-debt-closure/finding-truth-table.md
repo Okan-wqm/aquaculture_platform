@@ -65,6 +65,16 @@ No active CRITICAL finding remains in `already-fixed-needs-close` after the
   request, and final `TenantErased` event. The guardrail is
   `tests/invariants/tenant-erasure-ssot.spec.ts` plus the strengthened
   outbox/infrastructure and migration-timing invariants.
+- `SENSOR-CRITICAL-001` + `ALERT-CRITICAL-001`: implementation is COMPLETE on
+  main — PR #610 (`3dc425092`, "transactional-outbox SSoT for domain events")
+  moved sensor-service and alert-engine domain-event publishing onto
+  `OutboxPublisher.enqueue(event, manager)` (atomic with the write), eliminating
+  the fire-and-forget path the findings describe. They remained OPEN only because
+  `3dc425092` carries no `Closes:` trailer and the registry close-ceremony
+  (`tools/gates/finding-registry.ts close`) accepts only a main-reachable commit
+  whose own message carries the matching trailer. THIS commit is that
+  trailer-carrier; the registry CLI records it as the closing commit in the
+  immediate follow-up, after which both rows move to Resolved Evidence.
 
 ## Resolved Evidence
 

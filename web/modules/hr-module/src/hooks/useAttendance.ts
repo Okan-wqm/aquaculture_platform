@@ -13,8 +13,6 @@ import {
   GET_ATTENDANCE_SUMMARY,
   GET_DAILY_ATTENDANCE_OVERVIEW,
   GET_TODAYS_ATTENDANCE,
-  GET_EMPLOYEE_SCHEDULE,
-  GET_SCHEDULES,
   CLOCK_IN,
   CLOCK_OUT,
   CREATE_MANUAL_ATTENDANCE,
@@ -54,10 +52,6 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'dailyOverview', date] as const,
   today: (employeeId?: string) =>
     [...attendanceKeys.all, 'today', employeeId] as const,
-  schedule: (employeeId: string, startDate: string, endDate: string) =>
-    [...attendanceKeys.all, 'schedule', employeeId, startDate, endDate] as const,
-  schedules: (filter?: Record<string, unknown>) =>
-    [...attendanceKeys.all, 'schedules', { filter }] as const,
 };
 
 // =====================
@@ -194,62 +188,6 @@ export function useTodaysAttendance(employeeId?: string) {
     refetchInterval: 60000, // Refresh every minute
     refetchIntervalInBackground: false, // PERF-003: don't poll when tab is hidden
     enabled: true,
-  });
-}
-
-export function useEmployeeSchedule(
-  employeeId: string,
-  startDate: string,
-  endDate: string
-) {
-  const client = useGraphQLClient();
-
-  return useQuery({
-    queryKey: attendanceKeys.schedule(employeeId, startDate, endDate),
-    queryFn: () =>
-      graphqlRequest<{
-        employeeSchedule: {
-          date: string;
-          shiftId: string;
-          shiftName: string;
-          startTime: string;
-          endTime: string;
-          isOffshore: boolean;
-          workAreaId?: string;
-          workAreaName?: string;
-        }[];
-      }, unknown>(client, GET_EMPLOYEE_SCHEDULE, {
-        employeeId,
-        startDate,
-        endDate,
-      }),
-    select: (data) => data.employeeSchedule,
-    enabled: false, // Backend resolver not yet implemented
-  });
-}
-
-export function useSchedules(filter?: { status?: string }) {
-  const client = useGraphQLClient();
-
-  return useQuery({
-    queryKey: attendanceKeys.schedules(filter),
-    queryFn: () =>
-      graphqlRequest<{
-        schedules: {
-          id: string;
-          code: string;
-          name: string;
-          description?: string;
-          defaultShiftId: string;
-          defaultShift?: Shift;
-          status: string;
-          effectiveFrom: string;
-          effectiveTo?: string;
-          isDefault: boolean;
-        }[];
-      }, unknown>(client, GET_SCHEDULES, { filter }),
-    select: (data) => data.schedules,
-    enabled: false, // Backend resolver not yet implemented
   });
 }
 

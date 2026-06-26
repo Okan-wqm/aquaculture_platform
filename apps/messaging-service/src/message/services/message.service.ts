@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
+import { unreadMessagePredicateSql } from '../unread-message.predicate';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
 /**
@@ -143,11 +144,17 @@ export class MessageService {
           { tenantId, userId },
         )
         .where('m."tenantId" = :tenantId', { tenantId })
-        .andWhere('m."isDeleted" = false')
-        .andWhere('m."senderId" != :userId', { userId })
         .andWhere('cm."leftAt" IS NULL')
+        // Canonical unread predicate (ORPHAN-100): isDeleted=false AND not own
+        // AND newer-than-lastReadAt — shared byte-for-byte with the channel-list
+        // badge subquery so the two counts cannot diverge.
         .andWhere(
-          '(cm."lastReadAt" IS NULL OR m."createdAt" > cm."lastReadAt")',
+          unreadMessagePredicateSql({
+            msg: 'm',
+            lastReadAt: 'cm."lastReadAt"',
+            userIdParam: 'userId',
+          }),
+          { userId },
         )
         .getCount(),
     );

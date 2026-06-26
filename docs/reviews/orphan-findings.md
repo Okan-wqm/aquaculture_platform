@@ -3800,7 +3800,7 @@ Root cause: messaging built its scrape endpoint before the canonical `ServiceMet
 
 Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
 
-Status: OPEN (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+Status: RESOLVED (2026-06-26 — messaging MetricsModule now imports ServiceMetricsModule (owns /metrics + default http_/nodejs_ collectors) and contributes its domain registry via contributeTo in onModuleInit (mirrors farm OBS-HIGH-001); bespoke MetricsController deleted. Locked by metrics-service-module-ratchet.spec.ts. Systemic siblings (auth/gateway/sensor) tracked as ORPHAN-185) (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
 
 ## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
 
@@ -4070,7 +4070,7 @@ Severity: MEDIUM (perf). The PERF-HIGH-001 token-mint JOIN `auth.user_role_assig
 
 Fix direction: a new auth-schema migration `CREATE INDEX IF NOT EXISTS "idx_tenant_role_permissions_role_id" ON "auth"."tenant_role_permissions" ("role_id");` (idempotent, source-only).
 
-Status: OPEN (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
+Status: RESOLVED (2026-06-26 — added @Index(idx_tenant_role_permissions_role_id, [roleId]) to the TenantRolePermissions entity (admin-api, auth schema) + migration 1801100000000-AddTenantRolePermissionsRoleIdIndex (CREATE INDEX IF NOT EXISTS, idempotent/blue-green-safe, mirrors idx_tenant_roles_name). Indexes the per-mint token JOIN key. admin-api tsc clean) (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
 
 ---
 
@@ -4122,7 +4122,7 @@ Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile rea
 
 **Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
 
-Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+Status: RESOLVED (2026-06-26 — all three unread paths now share ONE predicate: extracted unreadMessagePredicateSql (message/unread-message.predicate.ts, excludes member-own + soft-deleted + read), consumed by BOTH get-channels.handler badge subquery AND getUnreadCountFromDb; the channel-list subquery previously omitted the senderId exclusion. Locked by messaging-unread-count-ssot.spec.ts + helper unit test) (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
 
 ---
 
@@ -5082,7 +5082,7 @@ Status: RESOLVED (2026-06-24; gateway-signed effectiveTenantId SSoT). Registry: 
 
 Severity: HIGH (no live leak — tracked hardening). Found by the [[ORPHAN-HIGH-155]] security audit. `VerifiedUserAssertionMiddleware` is mounted only on `farm-service` + `config-service`; `sensor-service`, `hr-service`, `hydroponics-service`, `alert-engine`, `messaging-service` do NOT mount it. On those, `req.tenantId`/`req.user` are not set from the signed assertion, so the ORPHAN-155 `request-context.middleware.ts` "verified-first" read is a no-op there and tenant isolation rests entirely on the HMAC-bound `x-tenant-id` header (set + verified by `StripInternalHeadersMiddleware` — safe TODAY, not externally forgeable). The gap: SSoT is not uniform, and `req.user` is undefined on those subgraphs (object-level guards have no user). Fix (own follow-up — needs per-service TenantGuard-behavior testing, must NOT be done blind): mount `VerifiedUserAssertionMiddleware` BEFORE `RequestContextMiddleware` in all five `app.module.ts` (mirror `farm-service/src/app.module.ts`), ideally promoted into the shared bootstrap so a new subgraph cannot omit it.
 
-Owner: platform/tenant-isolation. Deadline: 2026-07-08. Status: OPEN (tracked; safe today via HMAC-bound header). Registry: orphan-findings.md only.
+Owner: platform/tenant-isolation. Deadline: 2026-07-08. Status: RESOLVED (2026-06-26 — VERIFIED ALREADY DONE on main (commit 6a7aaf9b0): all NINE tenant-scoped subgraphs (farm/config/billing/sensor/hr/hydroponics/alert-engine/messaging/ai) mount VerifiedUserAssertionMiddleware, and tests/invariants/verified-user-assertion-mounted.spec.ts enforces both presence AND middleware order (after StripInternalHeadersMiddleware, before UserContextMiddleware). The finding text ("five subgraphs miss it") is stale) (tracked; safe today via HMAC-bound header). Registry: orphan-findings.md only.
 
 ---
 
@@ -5090,7 +5090,7 @@ Owner: platform/tenant-isolation. Deadline: 2026-07-08. Status: OPEN (tracked; s
 
 Severity: MEDIUM (log integrity / latent footgun — no DB leak). At the gateway, `RequestContextMiddleware` runs before `StripInternalHeaders`/`EffectiveTenantMiddleware`, so the ORPHAN-155 "verified-first" read falls through to the raw, attacker-controllable `x-tenant-id` header for the gateway's own AsyncLocalStorage tenant. Harmless today (the gateway has no RLS connection pool / no audited handlers), but it poisons gateway-side log tenant attribution and would silently become a cross-tenant vector if anyone ever adds an RLS pool or audited handler to the gateway. Fix: move `RequestContextMiddleware` after `EffectiveTenantMiddleware` at the gateway, or have `EffectiveTenantMiddleware` update the ALS tenant to the resolved `effectiveTenantId`.
 
-Owner: platform/gateway. Deadline: 2026-07-15. Status: OPEN (tracked; pre-existing log-scope behavior). Registry: orphan-findings.md only.
+Owner: platform/gateway. Deadline: 2026-07-15. Status: RESOLVED (2026-06-26 — VERIFIED mitigated + tested on main: EffectiveTenantMiddleware.setEffectiveTenant patches the ALS getRequestContext().tenantId to the VERIFIED effectiveTenantId (regular user = own tenant; SUPER_ADMIN act-as = TARGET tenant) before any handler runs, superseding the raw pre-strip host seeded by RequestContextMiddleware. Covered by the existing "A.4 — ALS logging-frame enrichment" tests in effective-tenant.middleware.spec.ts (asserts ALS tenantId == effective tenant, not the raw header). Harmless today (gateway has no RLS pool/audited handlers); the patch keeps it correct if those land later) (tracked; pre-existing log-scope behavior). Registry: orphan-findings.md only.
 
 ---
 
@@ -5483,3 +5483,6 @@ Severity: MEDIUM (60 hr FE ops 400 at the gateway — hr feature areas partly no
 - **IMPLEMENT-BACKEND `updateShift` (baseline 48 → 47):** added `UpdateShiftCommand` + `UpdateShiftHandler` + the `@Mutation updateShift(input: UpdateShiftInput!)` resolver (guards/audit mirror `createShift`), registered the handler, exported `parseTimeString` as the shared HH:mm SSoT. Tenant-scoped via `tenantManagerRepo` + transactional QueryRunner like create; recomputes `totalMinutes` on time change; `NotFoundException` cross-tenant. 6/6 handler tests pass; hr-service `tsc` + eslint clean. FE was already correctly wired.
 
 Status: RESOLVED for slices 6-8 — 5 renames + 16 dead removed + `updateShift` implemented = **hr 69 → 47** (22 ops). Cumulative #3 burndown: **130 → 47 (83 ops)**. Tracked: 38 hr IMPLEMENT-BACKEND features remain (roadmap — leave/cert/training/performance/rotations analytics + detail-by-id; backend feature-debt by product priority). Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
+
+## ORPHAN-MEDIUM-185 — auth/gateway/sensor metrics served from bespoke @Controller('metrics') miss default http_/nodejs_ series (089-siblings)
+Found 2026-06-26 while fixing ORPHAN-089 for messaging. Same defect class: `apps/auth-service/src/metrics/metrics.controller.ts`, `apps/gateway-api/src/metrics/metrics.controller.ts`, and `apps/sensor-service/src/metrics/metrics.controller.ts` each expose `@Controller('metrics')` over a private prom-client Registry and do NOT import the platform `ServiceMetricsModule`, so their `/metrics` scrape omits the default `http_request_duration_seconds` + `nodejs_*` runtime series (verified: these three are absent from the ServiceMetricsModule-importer list). observability-service's `prometheus.controller.ts` is the legitimate aggregator — exempt. Fix (mirror messaging ORPHAN-089 / farm OBS-HIGH-001): add a `contributeTo(serviceMetrics)` to each service's domain metrics service, import `ServiceMetricsModule`, delete the bespoke controller, and plug the domain registry in `onModuleInit`. Ratchet `tests/invariants/metrics-service-module-ratchet.spec.ts` caps bespoke controllers at 4 and drops as each migrates. Owner: observability/platform. Status: OPEN.

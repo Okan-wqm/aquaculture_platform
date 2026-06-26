@@ -5362,3 +5362,37 @@ mixes a role hierarchy with a separate permission map (`SUPER_ADMIN: ['*']`) and
 string keys; re-sourcing needs the canonical `ROLE_HIERARCHY` imported + adapted (enum
 values are already the matching strings) and the invariant extended to cover ROLE_HIERARCHY.
 Owner: gateway/platform. Status: OPEN. Registry: orphan-findings.md only. Relates: SSOT-H-07.
+
+---
+
+## ORPHAN-MEDIUM-177 — db-migrate schema-registry hand-copies source-schema RLS excludeTables (parallel to the app.module set)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-26, during PR-6 RLS excludeTables SSoT (3b).
+**File:** `apps/db-migrate/src/schema-registry.ts` (auth ~180, billing ~266, notification ~284, config ~318 `postMigrationHardening.*.excludeTables`).
+
+PR-6 made the service `app.module.ts` RLS `excludeTables` derive from
+`getRlsExcludeTablesForService('<svc>')` (MODULE_SCHEMAS.infrastructureTables). But the
+db-migrate provisioner keeps a PARALLEL set of `excludeTables` for SOURCE-schema RLS of
+cross-tenant services (the comment even says "Mirrors the RlsModule.forPoolService
+excludeTables"). billing + notification's copies are cleanly derivable
+(getRlsExcludeTablesForService) and should be repointed; auth (domain tables users/tenants)
+and config (not in MODULE_SCHEMAS) stay literal like the app.module exemptions. Until then,
+the db-migrate copy can drift from the app.module copy (the auth db-migrate copy still
+carries the phantom audit_log/audit_logs).
+
+**Why not fixed in PR-6:** db-migrate is a different service + the source-schema vs
+tenant-schema RLS scopes need care; tenant services (farm…) use the shared
+TENANT_SCHEMA_POST_MIGRATION_HARDENING (no excludeTables — tenant schemas hold only
+per-tenant tables). Owner: platform/db-migrate. Status: OPEN.
+
+## ORPHAN-LOW-178 — shared-schema canonical table list has a 4th unguarded copy + a stale "4 canonical" docstring (3c)
+
+**Severity:** LOW. **Discovered:** 2026-06-26 (PR-6 cluster 3c, deferred).
+**Files:** `e2e/tests/integration/schema-invariants.spec.ts:~208` (4th hardcoded copy of the
+shared-schema canonical table list — real count is 5: audit_logs, gdpr_data_requests,
+user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts:~294`
+(stale "4 canonical" docstring).
+
+The `SHARED_SCHEMA_TABLES` SSoT lives in schema-invariants + shared-schema-canonical.spec;
+collapse the unguarded 4th copy to import it, and fix the stale count docstring to reference
+the SSoT by name. Owner: data/platform. Status: OPEN.

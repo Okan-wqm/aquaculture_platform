@@ -23,7 +23,15 @@ export const MY_MODULES_QUERY = `
   }
 `;
 
-/** Tenant's assigned modules with relationship details */
+/**
+ * Tenant's assigned modules (pivot rows).
+ *
+ * TenantModule exposes only the scalar pivot columns — there is no nested
+ * `module` object field on the type (the auth-service entity relation carries no
+ * @Field, and no module field-resolver exists). Module catalog details
+ * (code/name/icon/etc.) are fetched separately via MY_MODULES_QUERY (`myModules`
+ * → UserModuleInfo). Note `category` exists on neither type.
+ */
 export const MY_TENANT_MODULES_QUERY = `
   query MyTenantModules {
     myTenantModules {
@@ -34,15 +42,6 @@ export const MY_TENANT_MODULES_QUERY = `
       activatedAt
       expiresAt
       managerId
-      module {
-        id
-        code
-        name
-        description
-        icon
-        category
-        isActive
-      }
     }
   }
 `;

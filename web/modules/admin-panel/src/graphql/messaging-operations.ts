@@ -164,23 +164,6 @@ export const ADMIN_SEND_MESSAGE = `
 `;
 
 /**
- * Bulk-create threads for multiple tenants (SuperAdmin only).
- * Resolver: MessagingResolver.bulkCreateThreads
- * Returns: MessageThread[]
- */
-export const ADMIN_BULK_CREATE_THREADS = `
-  mutation AdminBulkCreateThreads($input: BulkCreateThreadsInput!) {
-    bulkCreateThreads(input: $input) {
-      id
-      tenantId
-      subject
-      status
-      createdAt
-    }
-  }
-`;
-
-/**
  * Close a thread.
  * Resolver: MessagingResolver.closeThread
  * Returns: MessageThread

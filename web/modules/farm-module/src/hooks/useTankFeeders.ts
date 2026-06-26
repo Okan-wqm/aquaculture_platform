@@ -13,11 +13,14 @@ export interface TankFeeder {
   status: string;
 }
 
-// PERF-013: Pass category filter to the server so only feeder-type sub-equipment
-// is returned, reducing over-fetch for tanks with many non-feeder sub-equipment items.
+// subEquipmentByParent accepts only (parentEquipmentId, includeInactive) — there
+// is no `category` argument, and SubEquipmentTypeResponse has no `category` field
+// (neither exists on the entity/DTO/schema). Feeder narrowing is therefore done
+// client-side off the type name / equipment name. See report: a real server-side
+// `category` discriminator is a backend gap (FARM sub-equipment-type lacks one).
 const GET_TANK_FEEDERS_QUERY = `
-  query GetSubEquipmentByParent($parentEquipmentId: ID!, $includeInactive: Boolean, $category: String) {
-    subEquipmentByParent(parentEquipmentId: $parentEquipmentId, includeInactive: $includeInactive, category: $category) {
+  query GetSubEquipmentByParent($parentEquipmentId: ID!, $includeInactive: Boolean) {
+    subEquipmentByParent(parentEquipmentId: $parentEquipmentId, includeInactive: $includeInactive) {
       id
       name
       code
@@ -25,7 +28,6 @@ const GET_TANK_FEEDERS_QUERY = `
       subEquipmentType {
         id
         name
-        category
       }
     }
   }
@@ -39,7 +41,6 @@ interface SubEquipmentResponse {
   subEquipmentType?: {
     id: string;
     name: string;
-    category: string;
   };
 }
 
@@ -56,17 +57,14 @@ export function useTankFeeders(tankEquipmentId: string | undefined) {
       }>(GET_TANK_FEEDERS_QUERY, {
         parentEquipmentId: tankEquipmentId,
         includeInactive: false,
-        category: 'feeder', // server-side category filter (PERF-013)
-    enabled: !!tenantId,
       });
 
       const allSubEquipment = data.subEquipmentByParent || [];
 
-      // Client-side fallback filter in case the server doesn't support the category param yet
+      // Client-side feeder narrowing: the backend exposes no feeder/non-feeder
+      // discriminator, so match on the sub-equipment-type name or the unit name.
       const feeders = allSubEquipment.filter(
         (se) =>
-          !se.subEquipmentType?.category ||
-          se.subEquipmentType.category.toLowerCase() === 'feeder' ||
           se.subEquipmentType?.name?.toLowerCase().includes('feeder') ||
           se.name?.toLowerCase().includes('feeder'),
       );

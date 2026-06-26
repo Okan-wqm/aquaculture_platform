@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 81,
+  "count": 77,
   "operations": [
     {
       "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
@@ -15,18 +15,6 @@
       "file": "web/apps/aquamobil/src/hooks/useAiConsent.ts",
       "op": "ToggleAiConsent",
       "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx::DeleteMessage",
-      "file": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx",
-      "op": "DeleteMessage",
-      "category": "VAR-TYPE-MISMATCH"
-    },
-    {
-      "key": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx::EditMessage",
-      "file": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx",
-      "op": "EditMessage",
-      "category": "VAR-TYPE-MISMATCH"
     },
     {
       "key": "web/apps/aquamobil/src/pages/storage/StockViewPage.tsx::StockAtLocation",
@@ -473,21 +461,9 @@
       "category": "MISSING-ROOT-OP"
     },
     {
-      "key": "web/modules/tenant-admin/src/graphql/device-queries.ts::EdgeDevice",
-      "file": "web/modules/tenant-admin/src/graphql/device-queries.ts",
-      "op": "EdgeDevice",
-      "category": "MISSING-FIELD"
-    },
-    {
       "key": "web/modules/tenant-admin/src/graphql/module-queries.ts::MyTenantModules",
       "file": "web/modules/tenant-admin/src/graphql/module-queries.ts",
       "op": "MyTenantModules",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/hooks/useDevicePolling.ts::EdgeDevice",
-      "file": "web/modules/tenant-admin/src/hooks/useDevicePolling.ts",
-      "op": "EdgeDevice",
       "category": "MISSING-FIELD"
     }
   ]

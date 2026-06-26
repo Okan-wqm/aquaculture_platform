@@ -4154,7 +4154,7 @@ Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the s
 
 **Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
 
-Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
+Status: RESOLVED (2026-06-26 — deleted both dead scripts (check-messaging-source-outbox.mjs + check-messaging-canary-metrics.mjs) + their package.json gate entries + format-scope.json entries — no workflow invoked them. The source-only-outbox contract is enforced at migration DDL (@SourceOnlyMigration) + the live check-messaging-tenant-entity-routing gate; the canary needs a droplet Prometheus (ORPHAN-090) and can be re-added wired to deploy if 090 lands) (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
 
 ## ORPHAN-HIGH-101 — postgres-protocol/tokio-postgres newly-published RustSec advisories red-line all Rust CI
 

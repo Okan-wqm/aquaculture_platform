@@ -5378,3 +5378,15 @@ Severity: MEDIUM (two operator-facing breakages — "New Process" navigation 404
 **Investigated, NOT confirmed (no change made):** (i) the alleged "uppercase status enum" drift — `ProcessStatus` backend enum VALUES are lowercase (`'active'`) matching the FE hand-written union, and the FE never round-trips ProcessStatus through GraphQL (not in generated types; only `ScadaPackageStatus`/`VfdChangeSetStatus` are GraphQL-status types), so no break exists. (ii) Map page "renders as empty when sites lack coordinates" — `MapViewPage.tsx` already shows a distinct "Konum bilgisi olan site bulunamadı" empty-state with a Setup link (not a no-data state); correctly handled.
 
 Status: RESOLVED for P1a + P1b (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-178 - farm read-through caches never invalidated → stale FCR/survival/growth (SSOT-H-18)
+
+Severity: MEDIUM (operator-visible stale data). Resolves SSOT-H-18 from `docs/reviews/2026-06-23-ssot-architecture-audit.md`.
+
+**Root cause (Pattern A — built-but-unwired):** farm-service has exactly two `@Cacheable` read-through caches — `batchPerformance` (`prefix: 'batch:performance'`, 1h TTL — `batch/resolvers/batch.resolver.ts`) and `growthAnalysis` (`prefix: 'growth:analysis'`, 2h TTL — `growth/resolvers/growth.resolver.ts`). The `@CacheEvict` decorator + `CacheEvictInterceptor` are fully built AND registered (`common/cache/cacheable.module.ts` as an `APP_INTERCEPTOR`) but were used by ZERO resolvers. So a stat-mutating write left the cached result stale for the full TTL: `recordMortality`/`recordCull` change survival + biomass that `batchPerformance` (FCR, survival) serves; `recordGrowthSample`/`verifyMeasurement` change the dataset `growthAnalysis` computes from.
+
+**Fix (this commit):** added `@CacheEvict({ prefixes: ['batch:performance'] })` to `recordMortality` + `recordCull`, and `@CacheEvict({ prefixes: ['growth:analysis'] })` to `recordGrowthSample` + `verifyMeasurement` — the interceptor evicts `farm:cache:<prefix>:t:<tenantId>:*` after the mutation commits, so the next read recomputes. **Tier-3 guard:** new invariant `tests/invariants/farm-cacheable-has-evict.spec.ts` fails the build if any farm `@Cacheable` prefix lacks a `@CacheEvict` naming it (closes the never-invalidated-cache class repo-wide; EXEMPT set is empty + documented). farm-service `tsc` clean; invariant + invariant-reachability green.
+
+Status: RESOLVED (2026-06-26; both farm caches now evicted + guarded). Registry: orphan-findings.md only.

@@ -28,6 +28,7 @@ import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-co
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Cacheable } from '../../common/cache/cacheable.decorator';
+import { CacheEvict } from '../../common/cache/cache-evict.decorator';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -512,6 +513,9 @@ export class GrowthResolver {
   /**
    * Record a new growth sample
    */
+  // SSOT-H-18: a new growth sample changes the growthAnalysis result; evict its
+  // 2h cache (otherwise never invalidated) so the analysis isn't stale.
+  @CacheEvict({ prefixes: ['growth:analysis'] })
   @Mutation(() => GrowthMeasurement)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordGrowthSample(
@@ -559,6 +563,8 @@ export class GrowthResolver {
   /**
    * Verify a measurement
    */
+  // SSOT-H-18: verifying a measurement changes which samples feed growthAnalysis; evict.
+  @CacheEvict({ prefixes: ['growth:analysis'] })
   @Mutation(() => GrowthMeasurement)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async verifyMeasurement(

@@ -154,36 +154,6 @@ export interface RequestLogData {
 }
 
 /**
- * OPA policy input
- */
-export interface OpaPolicyInput {
-  user: {
-    id: string;
-    roles: string[];
-    permissions?: string[];
-    tenantId: string;
-  };
-  resource: {
-    type: string;
-    id?: string;
-    action: string;
-  };
-  context: {
-    ip?: string;
-    method: string;
-    path: string;
-  };
-}
-
-/**
- * OPA policy result
- */
-export interface OpaPolicyResult {
-  allow: boolean;
-  reasons?: string[];
-}
-
-/**
  * Health check result
  */
 export interface HealthCheckResult {

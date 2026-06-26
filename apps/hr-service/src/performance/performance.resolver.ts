@@ -3,7 +3,7 @@ import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { PerformanceReview } from './entities/performance-review.entity';
 import { Goal } from './entities/goal.entity';

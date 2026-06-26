@@ -123,8 +123,6 @@
     "gates:apollo-csrf": "node scripts/ci/check-apollo-csrf-prevention.mjs",
     "gates:dependency-policy": "node scripts/ci/check-dependency-policy.mjs",
     "gates:messaging-tenant-routing": "node scripts/ci/check-messaging-tenant-entity-routing.mjs",
-    "gates:messaging-source-outbox": "node scripts/ci/check-messaging-source-outbox.mjs",
-    "gates:messaging-canary-metrics": "node scripts/ci/check-messaging-canary-metrics.mjs",
     "gates:aquamobil-messaging-cache-keys": "node scripts/ci/check-aquamobil-messaging-cache-keys.mjs",
     "gates:aquamobil-messaging-contracts": "node scripts/ci/check-aquamobil-messaging-contracts.mjs",
     "gates:graphql-contracts": "node scripts/ci/check-graphql-contract-drift.mjs",

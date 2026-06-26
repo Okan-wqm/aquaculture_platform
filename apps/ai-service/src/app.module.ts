@@ -22,6 +22,7 @@ import {
   createTenantConnectionBootstrap,
   isSchemaDdlOwnedByDbMigrate,
   RlsModule,
+  getRlsExcludeTablesForService,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
   SourceSchemaWriteGuardService,
@@ -272,7 +273,7 @@ type QueryComplexityOperationContext = {
     RlsModule.forPoolService({
       serviceName: 'ai',
       syncTenantSchemas: !aiSchemaDdlOwnedByDbMigrate,
-      excludeTables: ['ai_outbox'],
+      excludeTables: getRlsExcludeTablesForService('ai'),
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.

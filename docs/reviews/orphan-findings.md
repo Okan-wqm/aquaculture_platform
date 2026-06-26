@@ -5381,7 +5381,25 @@ Status: RESOLVED for P1a + P1b (2026-06-25). Registry: orphan-findings.md only.
 
 ---
 
-## ORPHAN-MEDIUM-178 - farm read-through caches never invalidated → stale FCR/survival/growth (SSOT-H-18)
+## ORPHAN-MEDIUM-178 — db-migrate schema-registry hand-copies source-schema RLS excludeTables (parallel to the app.module set)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-26 (PR-6 RLS excludeTables SSoT). Renumbered in the merge-train collision.
+**File:** `apps/db-migrate/src/schema-registry.ts` (auth/billing/notification/config postMigrationHardening excludeTables).
+
+PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTablesForService('<svc>')`. db-migrate keeps a PARALLEL set for SOURCE-schema RLS of cross-tenant services (comment: "Mirrors the RlsModule.forPoolService excludeTables"). billing + notification are cleanly derivable and should be repointed; auth (domain tables users/tenants) + config (not in MODULE_SCHEMAS) stay literal. The auth db-migrate copy still carries the phantom audit_log/audit_logs. Owner: platform/db-migrate. Status: OPEN.
+
+## ORPHAN-LOW-179 — shared-schema canonical table list 4th unguarded copy + stale "4 canonical" docstring (3c)
+
+**Severity:** LOW. **Discovered:** 2026-06-26 (PR-6 cluster 3c, deferred).
+**Files:** `e2e/tests/integration/schema-invariants.spec.ts` (4th hardcoded copy; real count is 5: audit_logs, gdpr_data_requests, user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts` (stale "4 canonical" docstring).
+
+Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: OPEN.
+
+---
+
+## ORPHAN-MEDIUM-180 - farm read-through caches never invalidated → stale FCR/survival/growth (SSOT-H-18)
+
+> NUMBERING: renumbered from 178 → 180 at merge time (concurrent merge-train collision with the db-migrate-RLS finding ORPHAN-MEDIUM-178 + ORPHAN-LOW-179 which landed on `main` first). Commits `a1b3eeb35`/`d2198dced` `Closes:` trailers were authored against the original #ORPHAN-MEDIUM-178 number.
 
 Severity: MEDIUM (operator-visible stale data). Resolves SSOT-H-18 from `docs/reviews/2026-06-23-ssot-architecture-audit.md`.
 

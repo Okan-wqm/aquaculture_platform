@@ -5344,7 +5344,30 @@ On re-subscribe after a CANCELLED subscription the handler HARD-deletes the old 
 
 ---
 
-## ORPHAN-MEDIUM-176 - sensor process-editor route drift + redundant required `UpdateScadaPackageInput.id` (P1)
+## ORPHAN-MEDIUM-176 — gateway permission.guard hand-copies the canonical ROLE_HIERARCHY (string mirror, drift risk)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-26, during PR-4 RBAC vocabulary unification (SSOT-H-06).
+**File:** `apps/gateway-api/src/guards/permission.guard.ts:87` (`ROLE_HIERARCHY: Record<string, string[]>`).
+
+After PR-4 deleted hr-service's forked Role enum + RolesGuard, the backend has ONE `Role`
+enum and ONE `RolesGuard` (locked by `tests/invariants/rbac-vocabulary-ssot.spec.ts`).
+But the gateway `permission.guard.ts` still defines its OWN `ROLE_HIERARCHY` as a STRING
+mirror (`SUPER_ADMIN: ['TENANT_ADMIN','MODULE_MANAGER','MODULE_USER']`) — a hand-copy of
+the canonical `ROLE_HIERARCHY` in `libs/backend-common/src/decorators/roles.decorator.ts`.
+It is live (used by `permission.helpers.ts`), so a future edit to the canonical hierarchy
+silently diverges from the gateway copy.
+
+**Why not fixed in PR-4:** distinct from SSOT-H-06 (the HR guard fork). The gateway guard
+mixes a role hierarchy with a separate permission map (`SUPER_ADMIN: ['*']`) and uses
+string keys; re-sourcing needs the canonical `ROLE_HIERARCHY` imported + adapted (enum
+values are already the matching strings) and the invariant extended to cover ROLE_HIERARCHY.
+Owner: gateway/platform. Status: OPEN. Registry: orphan-findings.md only. Relates: SSOT-H-07.
+
+---
+
+## ORPHAN-MEDIUM-177 - sensor process-editor route drift + redundant required `UpdateScadaPackageInput.id` (P1)
+
+> NUMBERING: renumbered from 176 → 177 at merge time — a concurrent merge-train collision with the RBAC ROLE_HIERARCHY finding (ORPHAN-MEDIUM-176, above) which landed on `main` first. Commit `510c7f0a7`'s `Closes:` trailer was authored against the original #ORPHAN-MEDIUM-176 number.
 
 Severity: MEDIUM (two operator-facing breakages — "New Process" navigation 404s, and SCADA-package update 400s). Validated from the multi-agent tenant-context plan's P1 list; verified firsthand in code.
 

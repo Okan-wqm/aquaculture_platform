@@ -127,11 +127,21 @@ export class SecurityEventService {
   }
 
   async publishServiceIdentityRejected(
-    opts: SecurityEventOptions & { serviceName?: string; reason: string },
+    opts: SecurityEventOptions & {
+      serviceName?: string;
+      reason: string;
+      // ORPHAN-098: the machine-readable rejection code (missing-headers /
+      // bad-hmac / stale-timestamp / caller-not-allowed / audience-not-allowed /
+      // key-not-found / key-not-active). Distinct from `reason` (a human
+      // sentence) so dashboards + alerts can label/branch on the exact cause
+      // instead of the deliberately-generic client-facing message.
+      reasonCode?: string;
+    },
   ): Promise<void> {
     await this.publish(SecurityEventType.SERVICE_IDENTITY_REJECTED, opts, {
       serviceName: opts.serviceName,
       reason: opts.reason,
+      reasonCode: opts.reasonCode,
     });
   }
 

@@ -5394,3 +5394,18 @@ PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTa
 **Files:** `e2e/tests/integration/schema-invariants.spec.ts` (4th hardcoded copy; real count is 5: audit_logs, gdpr_data_requests, user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts` (stale "4 canonical" docstring).
 
 Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: OPEN.
+
+---
+
+## ORPHAN-LOW-181 - GraphQL FE↔supergraph drift burndown: farm-module (3 of 5 fixed; 2 backend-gaps tracked)
+
+Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partially-fails at the gateway). First slice of task #3 (burn down the 130-op `scripts/ci/graphql-fe-drift.baseline.json` per module; audit `docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md`).
+
+**Fixed (FE over-selected fields the schema doesn't have → corrected; baseline 130 → 127):**
+- `GetBatchFeedAssignment` (`useBatchFeedAssignments.ts`): removed `version` (not on `BatchFeedAssignmentResponse`) + the dead interface field. No reader.
+- `CloseBatch` (`useBatches.ts`): removed `closedAt` (not on `Batch`); only reader was mock report data.
+- `UpdateBatch` (`useBatches.ts`, SELECTION-SHAPE): flattened `fcr { target actual }` → `fcr` — `fcr` is a `JSON!` scalar, so sub-selection is invalid; the runtime value is unchanged (the FE's `batch.fcr?.target/.actual` JSON-object access still works). farm-module `tsc` clean.
+
+**Tracked, NOT a simple removal (2 remain in baseline) — backend gap, not FE over-reach:** `ListSubEquipmentByParent` (`useSubEquipment.ts`) + `GetSubEquipmentByParent` (`useTankFeeders.ts`) query `category` on `SubEquipmentTypeResponse` and pass it as a `subEquipmentByParent` arg, but the backend DTO (`apps/farm-service/src/equipment/dto/sub-equipment.response.ts`) has no `category` (only id/name/code/compatibleEquipmentTypeCodes). The FE legitimately needs it — `useTankFeeders.ts:68` filters feeders by `subEquipmentType.category === 'feeder'`. Correct fix is a BACKEND decision: expose `category` (or `isFeeder`) on `SubEquipmentTypeResponse` + the resolver arg, OR derive feeder-ness from `code`. Deferred to a backend slice; left baselined so it stays tracked + shrinking.
+
+Status: RESOLVED for the 3 FE-over-select drifts (2026-06-26); 2 sub-equipment category drifts tracked for a backend slice. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.

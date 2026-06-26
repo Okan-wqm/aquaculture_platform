@@ -946,7 +946,6 @@ const CLOSE_BATCH_MUTATION = `
       id
       batchNumber
       status
-      closedAt
     }
   }
 `;
@@ -991,10 +990,7 @@ const UPDATE_BATCH_MUTATION = `
       batchNumber
       name
       expectedHarvestDate
-      fcr {
-        target
-        actual
-      }
+      fcr
       notes
       updatedAt
     }

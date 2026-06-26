@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 130,
+  "count": 127,
   "operations": [
     {
       "key": "mcp/farm-management/src/graphql/queries/batches.ts::GetBatch",
@@ -117,24 +117,6 @@
       "file": "web/modules/admin-panel/src/graphql/messaging-operations.ts",
       "op": "AdminBulkCreateThreads",
       "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/farm-module/src/hooks/useBatches.ts::CloseBatch",
-      "file": "web/modules/farm-module/src/hooks/useBatches.ts",
-      "op": "CloseBatch",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/farm-module/src/hooks/useBatches.ts::UpdateBatch",
-      "file": "web/modules/farm-module/src/hooks/useBatches.ts",
-      "op": "UpdateBatch",
-      "category": "SELECTION-SHAPE"
-    },
-    {
-      "key": "web/modules/farm-module/src/hooks/useBatchFeedAssignments.ts::GetBatchFeedAssignment",
-      "file": "web/modules/farm-module/src/hooks/useBatchFeedAssignments.ts",
-      "op": "GetBatchFeedAssignment",
-      "category": "MISSING-FIELD"
     },
     {
       "key": "web/modules/farm-module/src/hooks/useSubEquipment.ts::ListSubEquipmentByParent",

@@ -3953,7 +3953,7 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 
 **Fix (recommended, not done here):** delete `libs/shared-contracts` entirely after confirming each of its enums either already exists in `@platform/event-contracts` or has zero consumers; or, if it must stay, wire it (tsconfig path + project.json + extend the base tsconfig) and make every enum a re-export of the event-contracts canonical. Out of scope for the auth-service audit PR; tracked here so the drift surface is visible. W3.1 removed only its `TenantStatus` duplicate (the immediate type-check blocker).
 
-**Status:** OPEN.
+**Status:** RESOLVED (2026-06-26 — lib is wired+consumed (cross-stack MESSAGING_MEDIA_MIME_ALLOWLIST on messaging+aquamobil) so NOT deleted; instead deleted the 4 dead duplicate enum files (plan-tier/billing/impersonation/data-request — verified zero importers repo-wide) + narrowed index.ts to the media allowlist. Anti-drift lock: tests/invariants/shared-contracts-no-enum-drift.spec.ts forbids any export enum here).
 
 ## ORPHAN-MEDIUM-088 — admin-api-service unit-test suite broken at baseline (quarantined)
 
@@ -4228,7 +4228,7 @@ Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend
 
 **Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
 
-Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+Status: RESOLVED (2026-06-26 — CONVERGED: the real typed-config SSoT is the already-wired per-concern factory pattern (typeorm-config.factory + event-bus-config.factory), both fail-fast; the empty central platform/configs was an unbuilt aspiration whose resurrection would just rebuild the Potemkin-SSoT anti-pattern. Locked drift growth via tests/invariants/config-env-access-ratchet.spec.ts (raw process.env file count ratcheted at baseline 5, allowlisting the TypeORM-CLI data-source.ts + main.ts). 14/20 raw reads were legit CLI; 1 was comment-only. Per-service migration of the 5 grandfathered boundary reads is ratchet-locked to only shrink. Duplicate of the config ORPHAN-MEDIUM-109) (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
 
 ---
 
@@ -4358,7 +4358,7 @@ Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend
 
 **Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
 
-Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+Status: RESOLVED (2026-06-26 — duplicate of ORPHAN-MEDIUM-106 — resolved together (per-concern factory SSoT + config-env-access-ratchet invariant). See 106) (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
 
 ---
 

@@ -8,6 +8,7 @@
  */
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import * as client from 'prom-client';
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 @Injectable()
 export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
@@ -253,5 +254,16 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   /** Get the Content-Type header for Prometheus responses. */
   getContentType(): string {
     return this.registry.contentType;
+  }
+
+  /**
+   * ORPHAN-089: plug this domain registry into the platform ServiceMetrics
+   * registry so the SINGLE /metrics endpoint owned by ServiceMetricsModule serves
+   * the messaging_ counters ALONGSIDE the default http_ and nodejs_ runtime
+   * series. Before this wiring messaging served only its own registry from a
+   * bespoke controller, so the platform HTTP + Node runtime metrics were absent.
+   */
+  contributeTo(serviceMetrics: ServiceMetricsService): void {
+    serviceMetrics.registerContributor('messaging-domain', this.registry);
   }
 }

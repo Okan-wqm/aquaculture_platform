@@ -3800,7 +3800,7 @@ Root cause: messaging built its scrape endpoint before the canonical `ServiceMet
 
 Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
 
-Status: OPEN (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+Status: RESOLVED (2026-06-26 — messaging MetricsModule now imports ServiceMetricsModule (owns /metrics + default http_/nodejs_ collectors) and contributes its domain registry via contributeTo in onModuleInit (mirrors farm OBS-HIGH-001); bespoke MetricsController deleted. Locked by metrics-service-module-ratchet.spec.ts. Systemic siblings (auth/gateway/sensor) tracked as ORPHAN-184) (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
 
 ## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
 
@@ -4122,7 +4122,7 @@ Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile rea
 
 **Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
 
-Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+Status: RESOLVED (2026-06-26 — all three unread paths now share ONE predicate: extracted unreadMessagePredicateSql (message/unread-message.predicate.ts, excludes member-own + soft-deleted + read), consumed by BOTH get-channels.handler badge subquery AND getUnreadCountFromDb; the channel-list subquery previously omitted the senderId exclusion. Locked by messaging-unread-count-ssot.spec.ts + helper unit test) (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
 
 ---
 
@@ -5463,3 +5463,7 @@ Status: RESOLVED (2026-06-26) — 8 ops fixed, baseline 77 → 69. Cumulative #3
 
 ## ORPHAN-MEDIUM-183 — billing-scheduler monthly-invoice totals not rounded to 2dp (33.333 instead of 33.33)
 3 pre-existing RED tests in `apps/billing-service/src/billing/__tests__/billing-scheduler.service.spec.ts` (`should round invoice totals to 2 decimal places`, `should multiply base price by cycle months for non-monthly billing`, `should generate an invoice for ACTIVE subscription with expired period`): `generateMonthlyInvoices` produces `total/subtotal/amountDue` as the unrounded string `"33.333"` where the test expects the rounded number `33.33`. Verified pre-existing on HEAD (fail under `git stash`, independent of ORPHAN-174). Likely a Money/decimal-rounding gap in the monthly-invoice path (decimal column read back as string + no `.toFixed(2)`/`Money.round`). Owner: billing. Status: OPEN. Found 2026-06-26 while fixing ORPHAN-174. Why: invoices billed to a financial schema must be exact to the cent; an unrounded total is a revenue-accuracy + reconciliation defect. How to fix: route the monthly-invoice total through the canonical `Money` rounding (as the immediate path does) and assert numeric (not string) equality.
+
+
+## ORPHAN-MEDIUM-184 — auth/gateway/sensor metrics served from bespoke @Controller('metrics') miss default http_/nodejs_ series (089-siblings)
+Found 2026-06-26 while fixing ORPHAN-089 for messaging. Same defect class: `apps/auth-service/src/metrics/metrics.controller.ts`, `apps/gateway-api/src/metrics/metrics.controller.ts`, and `apps/sensor-service/src/metrics/metrics.controller.ts` each expose `@Controller('metrics')` over a private prom-client Registry and do NOT import the platform `ServiceMetricsModule`, so their `/metrics` scrape omits the default `http_request_duration_seconds` + `nodejs_*` runtime series (verified: these three are absent from the ServiceMetricsModule-importer list). observability-service's `prometheus.controller.ts` is the legitimate aggregator — exempt. Fix (mirror messaging ORPHAN-089 / farm OBS-HIGH-001): add a `contributeTo(serviceMetrics)` to each service's domain metrics service, import `ServiceMetricsModule`, delete the bespoke controller, and plug the domain registry in `onModuleInit`. Ratchet `tests/invariants/metrics-service-module-ratchet.spec.ts` caps bespoke controllers at 4 and drops as each migrates. Owner: observability/platform. Status: OPEN.

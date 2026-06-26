@@ -11,7 +11,7 @@
  */
 
 import { io, type Socket } from 'socket.io-client';
-import { getAccessToken } from '@aquaculture/shared-ui';
+import { getAccessToken, onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import {
   ScadaSocketEvent,
   type TagValuesPayload,
@@ -329,6 +329,30 @@ export class ScadaSocketService {
     }
   }
 }
+
+// ── Tenant-isolation teardown (module-level, registered once) ──────────────────
+
+/**
+ * SECURITY: the /scada socket is a process-wide singleton bound to the tenant
+ * session it connected with (its JWT handshake). On a tenant switch
+ * (SUPER_ADMIN impersonation) the previous tenant's TAG_VALUES stream would
+ * otherwise keep pushing into a now-different tenant's view, and on logout the
+ * still-open socket could be reused by the next user on the same browser.
+ *
+ * Disconnecting on both events stops the previous tenant's live stream
+ * immediately (fail-safe to no-data, never stale-data). Reconnect for the new
+ * tenant is re-established when a data provider next mounts and calls connect();
+ * session-ready connect gating is layered on top in the socket-lifecycle pass.
+ *
+ * onTenantChange fires only on an actual A→B change (never on first login), so
+ * normal single-tenant users are unaffected.
+ */
+onTenantChange(() => {
+  ScadaSocketService.getInstance().disconnect();
+});
+registerLogoutCleanup(() => {
+  ScadaSocketService.getInstance().disconnect();
+});
 
 // ── Convenience export ────────────────────────────────────────────────────────
 

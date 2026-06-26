@@ -51,14 +51,11 @@ const ALL_DATA_CHANNELS_QUERY = `
       channelKey
       displayLabel
       unit
-      unitSymbol
       dataType
       calibrationEnabled
       calibrationMultiplier
       calibrationOffset
       lastCalibratedAt
-      nextCalibrationDue
-      calibrationPolynomial
       isEnabled
     }
   }
@@ -72,7 +69,6 @@ const UPDATE_DATA_CHANNEL_MUTATION = `
       calibrationMultiplier
       calibrationOffset
       lastCalibratedAt
-      nextCalibrationDue
     }
   }
 `;

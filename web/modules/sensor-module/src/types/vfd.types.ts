@@ -410,9 +410,7 @@ export interface VfdCommand {
 
 export interface VfdCommandResult {
   success: boolean;
-  command: VfdCommandType;
   acknowledgedAt?: string;
-  executionTimeMs?: number;
   error?: string;
   previousValue?: number;
   newValue?: number;

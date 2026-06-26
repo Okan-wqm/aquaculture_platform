@@ -62,16 +62,29 @@ interface SensorDevice {
   connectionStatus?: SensorConnectionStatus;
   protocolConfiguration?: Record<string, unknown>;
   firmwareVersion?: string;
-  installationDate?: string;
-  lastCalibrationDate?: string;
+  lastCalibratedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
 
+// Matches the sensor-service SensorReadings JSONB object returned by the
+// `readings` query. Each field is an optional per-parameter measurement.
+interface SensorReadingValues {
+  temperature?: number;
+  ph?: number;
+  dissolvedOxygen?: number;
+  salinity?: number;
+  ammonia?: number;
+  nitrite?: number;
+  nitrate?: number;
+  turbidity?: number;
+  waterLevel?: number;
+}
+
 interface SensorReading {
   timestamp: string;
-  value: number;
-  channelId: string;
+  readings: SensorReadingValues;
+  quality?: number;
 }
 
 // ============================================================================
@@ -91,43 +104,41 @@ const GET_SENSOR_QUERY = `
       description
       siteId
       departmentId
-      connectionStatus {
-        isConnected
-        lastTestedAt
-        lastError
-        latency
-        batteryLevel
-        signalStrength
-        latencyMs
-        lastSeenAt
-      }
+      connectionStatus
       protocolConfiguration
       firmwareVersion
-      installationDate
-      lastCalibrationDate
+      lastCalibratedAt
       createdAt
       updatedAt
     }
   }
 `;
 
-// C2: Use GraphQL variables for startTime/endTime instead of string interpolation
+// C2: Use GraphQL variables for startTime/endTime instead of string interpolation.
+// startTime/endTime are DateTime! on the backend `readings` resolver.
 const GET_LATEST_READINGS_QUERY = `
-  query GetLatestReadings($sensorId: ID!, $startTime: String!, $endTime: String!, $limit: Int) {
+  query GetLatestReadings($sensorId: ID!, $startTime: DateTime!, $endTime: DateTime!, $limit: Int) {
     readings(sensorId: $sensorId, startTime: $startTime, endTime: $endTime, limit: $limit) {
       timestamp
-      value
-      channelId
+      readings {
+        temperature
+        ph
+        dissolvedOxygen
+        salinity
+        ammonia
+        nitrite
+        nitrate
+        turbidity
+        waterLevel
+      }
+      quality
     }
   }
 `;
 
 const DELETE_SENSOR_MUTATION = `
   mutation DeleteSensor($sensorId: ID!) {
-    deleteSensor(sensorId: $sensorId) {
-      success
-      message
-    }
+    deleteSensor(sensorId: $sensorId)
   }
 `;
 
@@ -166,6 +177,25 @@ function getStatusInfo(status: string): { label: string; bgClass: string; textCl
     default:
       return { label: status || 'Bilinmiyor', bgClass: 'bg-gray-100', textClass: 'text-gray-800', icon: <Wifi className="w-3 h-3" /> };
   }
+}
+
+// Extract the measurement matching the sensor type from a multi-parameter
+// SensorReadings object. Falls back to the first present value.
+function getReadingValueForType(values: SensorReadingValues, type: string): number | undefined {
+  const byType: Record<string, number | undefined> = {
+    temperature: values.temperature,
+    ph: values.ph,
+    dissolved_oxygen: values.dissolvedOxygen,
+    salinity: values.salinity,
+    ammonia: values.ammonia,
+    nitrite: values.nitrite,
+    nitrate: values.nitrate,
+    turbidity: values.turbidity,
+    water_level: values.waterLevel,
+  };
+  const direct = byType[type?.toLowerCase()];
+  if (direct !== undefined) return direct;
+  return Object.values(values).find((v) => v !== undefined && v !== null);
 }
 
 function getUnitForType(type: string): string {
@@ -402,14 +432,14 @@ const DeviceDetailPage: React.FC = () => {
 
     setDeleting(true);
     try {
-      const result = await graphqlFetch<{ deleteSensor: { success: boolean; message: string } }>(
+      const result = await graphqlFetch<{ deleteSensor: boolean }>(
         DELETE_SENSOR_MUTATION,
         { sensorId: deviceId }
       );
-      if (result.deleteSensor.success) {
+      if (result.deleteSensor) {
         navigate('/sensor/devices');
       } else {
-        alert(result.deleteSensor.message || 'Silme işlemi başarısız');
+        alert('Silme işlemi başarısız');
       }
     } catch (err) {
       alert((err as Error).message);
@@ -603,18 +633,10 @@ const DeviceDetailPage: React.FC = () => {
                 <p className="font-medium text-gray-900">{device.serialNumber}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Kurulum Tarihi</p>
-                <p className="font-medium text-gray-900">
-                  {device.installationDate
-                    ? new Date(device.installationDate).toLocaleDateString('tr-TR')
-                    : 'Belirtilmemiş'}
-                </p>
-              </div>
-              <div>
                 <p className="text-sm text-gray-500">Son Kalibrasyon</p>
                 <p className="font-medium text-gray-900">
-                  {device.lastCalibrationDate
-                    ? new Date(device.lastCalibrationDate).toLocaleDateString('tr-TR')
+                  {device.lastCalibratedAt
+                    ? new Date(device.lastCalibratedAt).toLocaleDateString('tr-TR')
                     : 'Yapılmadı'}
                 </p>
               </div>
@@ -640,14 +662,14 @@ const DeviceDetailPage: React.FC = () => {
               {readings.length > 0 ? (
                 readings.map((reading) => (
                   <div
-                    key={`${reading.timestamp}-${reading.channelId}`}
+                    key={reading.timestamp}
                     className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg"
                   >
                     <span className="text-sm text-gray-500">
                       {new Date(reading.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     <span className="font-medium text-gray-900">
-                      {(reading.value ?? 0).toFixed(2)} {unit}
+                      {(getReadingValueForType(reading.readings, device.type) ?? 0).toFixed(2)} {unit}
                     </span>
                   </div>
                 ))

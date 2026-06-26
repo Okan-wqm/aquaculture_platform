@@ -41,8 +41,8 @@ const GET_SENSOR_CHANNELS_QUERY = `
 `;
 
 const CREATE_CHANNEL_MUTATION = `
-  mutation CreateSensorDataChannel($sensorId: ID!, $input: CreateSensorDataChannelInput!) {
-    createSensorDataChannel(sensorId: $sensorId, input: $input) {
+  mutation CreateDataChannel($sensorId: ID!, $input: CreateDataChannelInput!) {
+    createDataChannel(sensorId: $sensorId, input: $input) {
       id
       channelKey
       displayLabel
@@ -50,9 +50,11 @@ const CREATE_CHANNEL_MUTATION = `
   }
 `;
 
+// updateDataChannel takes a single input arg; the channel id lives inside the
+// UpdateDataChannelInput (channelId), matching the backend resolver signature.
 const UPDATE_CHANNEL_MUTATION = `
-  mutation UpdateSensorDataChannel($id: ID!, $input: UpdateSensorDataChannelInput!) {
-    updateSensorDataChannel(id: $id, input: $input) {
+  mutation UpdateDataChannel($input: UpdateDataChannelInput!) {
+    updateDataChannel(input: $input) {
       id
       channelKey
       displayLabel
@@ -61,8 +63,8 @@ const UPDATE_CHANNEL_MUTATION = `
 `;
 
 const DELETE_CHANNEL_MUTATION = `
-  mutation DeleteSensorDataChannel($id: ID!) {
-    deleteSensorDataChannel(id: $id)
+  mutation DeleteDataChannel($channelId: ID!) {
+    deleteDataChannel(channelId: $channelId)
   }
 `;
 
@@ -179,13 +181,13 @@ export function useChannelManagement(sensorId: string) {
 
       try {
         const data = await graphqlFetch<{
-          createSensorDataChannel: SensorDataChannel;
+          createDataChannel: SensorDataChannel;
         }>(CREATE_CHANNEL_MUTATION, { sensorId, input });
 
         if (!mountedRef.current) return null;
         // Refetch the full list after creation
         await refetch();
-        return data.createSensorDataChannel;
+        return data.createDataChannel;
       } catch (err) {
         if (!mountedRef.current) return null;
         setMutationError(err as Error);
@@ -206,13 +208,13 @@ export function useChannelManagement(sensorId: string) {
 
       try {
         const data = await graphqlFetch<{
-          updateSensorDataChannel: SensorDataChannel;
-        }>(UPDATE_CHANNEL_MUTATION, { id: channelId, input });
+          updateDataChannel: SensorDataChannel;
+        }>(UPDATE_CHANNEL_MUTATION, { input: { channelId, ...input } });
 
         if (!mountedRef.current) return null;
         // Refetch the full list after update
         await refetch();
-        return data.updateSensorDataChannel;
+        return data.updateDataChannel;
       } catch (err) {
         if (!mountedRef.current) return null;
         setMutationError(err as Error);
@@ -232,9 +234,9 @@ export function useChannelManagement(sensorId: string) {
       setMutationError(null);
 
       try {
-        await graphqlFetch<{ deleteSensorDataChannel: boolean }>(
+        await graphqlFetch<{ deleteDataChannel: boolean }>(
           DELETE_CHANNEL_MUTATION,
-          { id: channelId },
+          { channelId },
         );
 
         if (!mountedRef.current) return false;

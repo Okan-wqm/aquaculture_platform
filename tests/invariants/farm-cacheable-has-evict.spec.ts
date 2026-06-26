@@ -48,13 +48,15 @@ describe("INVARIANT (farm cache SSoT): every @Cacheable prefix has a @CacheEvict
     const cacheablePrefixes = new Set<string>();
     for (const line of grepFarm('@Cacheable({')) {
       const m = line.match(/prefix:\s*'([^']+)'/);
-      if (m) cacheablePrefixes.add(m[1]);
+      if (m?.[1]) cacheablePrefixes.add(m[1]);
     }
 
     const evictedPrefixes = new Set<string>();
     for (const line of grepFarm('@CacheEvict({')) {
       // pull every quoted token out of the `prefixes: [ '...' , '...' ]` array
-      for (const m of line.matchAll(/'([^']+)'/g)) evictedPrefixes.add(m[1]);
+      for (const m of line.matchAll(/'([^']+)'/g)) {
+        if (m[1]) evictedPrefixes.add(m[1]);
+      }
     }
 
     // Sanity: the guard must actually be observing decorators (not a silent zero scan).

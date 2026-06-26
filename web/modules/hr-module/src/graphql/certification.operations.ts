@@ -129,12 +129,15 @@ export const GET_CERTIFICATIONS_FOR_WORK_AREA = gql`
   ${CERTIFICATION_TYPE_FRAGMENT}
 `;
 
+// WHY: Backend allCertifications resolver declares employeeId/certificationTypeId as ID
+// (@Args(..., { type: () => ID })), not String. GraphQL forbids passing a String variable
+// into an ID position, so these variables must be declared as ID to match the schema.
 export const GET_ALL_CERTIFICATIONS = gql`
   query GetAllCertifications(
     $status: CertificationStatus
     $category: CertificationCategory
-    $employeeId: String
-    $certificationTypeId: String
+    $employeeId: ID
+    $certificationTypeId: ID
     $page: Int
     $limit: Int
   ) {
@@ -243,9 +246,10 @@ export const GET_TRAINING_ENROLLMENTS = gql`
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
+// WHY: Backend myTrainingEnrollments resolver accepts (status, limit, page), not offset.
 export const GET_MY_TRAINING_ENROLLMENTS = gql`
-  query GetMyTrainingEnrollments($status: EnrollmentStatus, $limit: Int, $offset: Int) {
-    myTrainingEnrollments(status: $status, limit: $limit, offset: $offset) {
+  query GetMyTrainingEnrollments($status: EnrollmentStatus, $limit: Int, $page: Int) {
+    myTrainingEnrollments(status: $status, limit: $limit, page: $page) {
       ...TrainingEnrollmentFull
     }
   }

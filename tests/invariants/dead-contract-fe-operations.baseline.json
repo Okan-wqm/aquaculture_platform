@@ -1,7 +1,7 @@
 {
   "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate — wire or delete the operation instead.",
-  "generated_against": "origin/main @ #459 (f03cf29d0)",
-  "count": 91,
+  "generated_against": "origin/main @ #655 (hr dead-contract removals)",
+  "count": 80,
   "entries": [
     {
       "id": "ACTIVATE_FEEDING_PROGRAM",
@@ -74,21 +74,6 @@
       "kind": "mutation"
     },
     {
-      "id": "BULK_CREATE_ROTATIONS",
-      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "BULK_CREATE_SAFETY_TRAINING",
-      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "BULK_CREATE_SCHEDULE_ENTRIES",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "BULK_ENROLL_IN_TRAINING",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "kind": "mutation"
@@ -129,23 +114,8 @@
       "kind": "mutation"
     },
     {
-      "id": "CREATE_SCHEDULE",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "CREATE_SCHEDULE_ENTRY",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "CREATE_TRAINING_COURSE",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "DELETE_SCHEDULE_ENTRY",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
       "kind": "mutation"
     },
     {
@@ -204,11 +174,6 @@
       "kind": "query"
     },
     {
-      "id": "GET_OFFSHORE_HEADCOUNT",
-      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
-      "kind": "query"
-    },
-    {
       "id": "GET_PROTOCOL_CAPABILITIES",
       "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
       "kind": "query"
@@ -241,21 +206,6 @@
     {
       "id": "GET_REVIEW_CYCLE_STATUS",
       "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "GET_SAFETY_COMPLIANCE",
-      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "GET_SCHEDULE_ENTRIES",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "GET_SEA_LAND_SPLIT",
-      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
       "kind": "query"
     },
     {
@@ -426,11 +376,6 @@
     {
       "id": "UPDATE_PROGRAM_SETTINGS",
       "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "UPDATE_SCHEDULE",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
       "kind": "mutation"
     },
     {

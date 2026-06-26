@@ -5,6 +5,7 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { GetChannelsQuery } from './get-channels.query';
 import { Channel } from '../entities/channel.entity';
+import { unreadMessagePredicateSql } from '../../message/unread-message.predicate';
 
 /**
  * Result shape for paginated channel list.
@@ -55,9 +56,13 @@ export class GetChannelsHandler
           `(SELECT MAX(m."createdAt") FROM messages m WHERE m."tenantId" = :tenantId AND m."channelId" = channel.id AND m."isDeleted" = false)`,
           'channel_lastMessageAt',
         )
-        // Subquery: unread count (messages after lastReadAt)
+        // Subquery: unread count. Built from the canonical unread predicate
+        // (ORPHAN-100) so it agrees with the Redis counter + getUnreadCountFromDb
+        // — in particular it EXCLUDES the member's own messages.
         .addSelect(
-          `(SELECT COUNT(*)::int FROM messages m WHERE m."tenantId" = :tenantId AND m."channelId" = channel.id AND m."isDeleted" = false AND m."createdAt" > COALESCE(membership."lastReadAt", '1970-01-01'))`,
+          `(SELECT COUNT(*)::int FROM messages m WHERE m."tenantId" = :tenantId AND m."channelId" = channel.id AND ${unreadMessagePredicateSql(
+            { msg: 'm', lastReadAt: 'membership."lastReadAt"', userIdParam: 'userId' },
+          )})`,
           'channel_unreadCount',
         )
         // Subquery: active member count

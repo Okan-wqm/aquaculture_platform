@@ -94,13 +94,14 @@ export const GET_LEAVE_REQUEST = gql`
   ${LEAVE_REQUEST_FRAGMENT}
 `;
 
+// WHY: Backend myLeaveRequests resolver accepts (status, limit, page), not offset.
 export const GET_MY_LEAVE_REQUESTS = gql`
   query GetMyLeaveRequests(
     $status: LeaveRequestStatus
     $limit: Int
-    $offset: Int
+    $page: Int
   ) {
-    myLeaveRequests(status: $status, limit: $limit, offset: $offset) {
+    myLeaveRequests(status: $status, limit: $limit, page: $page) {
       ...LeaveRequestFull
     }
   }

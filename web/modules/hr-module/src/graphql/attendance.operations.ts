@@ -104,7 +104,7 @@ export const GET_ATTENDANCE_SUMMARY = gql`
       employeeId
       month
       year
-      totalWorkingDays
+      totalWorkDays
       presentDays
       absentDays
       lateDays

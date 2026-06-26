@@ -115,8 +115,11 @@ export const GET_DEPARTMENTS = gql`
 
 // NOTE: No separate department entity. Use employeesByDepartment to get employees by department enum.
 // WHY: Backend employeesByDepartment resolver accepts (limit: Int, page: Int), not offset.
+// WHY: The Department TS enum is registered in the GraphQL schema under the SDL name
+// `HRDepartment` (employee.entity.ts: registerEnumType(Department, { name: 'HRDepartment' })),
+// so the operation variable must reference `HRDepartment`, not the (non-existent) `Department`.
 export const GET_DEPARTMENT = gql`
-  query GetDepartment($department: Department!, $limit: Int, $page: Int) {
+  query GetDepartment($department: HRDepartment!, $limit: Int, $page: Int) {
     employeesByDepartment(department: $department, limit: $limit, page: $page) {
       ...EmployeeBasic
       department

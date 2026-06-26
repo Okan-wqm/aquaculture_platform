@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 69,
+  "count": 64,
   "operations": [
     {
       "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
@@ -161,12 +161,6 @@
       "category": "MISSING-ROOT-OP"
     },
     {
-      "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetAttendanceSummary",
-      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
-      "op": "GetAttendanceSummary",
-      "category": "MISSING-FIELD"
-    },
-    {
       "key": "web/modules/hr-module/src/graphql/attendance.operations.ts::GetEmployeeSchedule",
       "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
       "op": "GetEmployeeSchedule",
@@ -221,12 +215,6 @@
       "category": "MISSING-ROOT-OP"
     },
     {
-      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetAllCertifications",
-      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
-      "op": "GetAllCertifications",
-      "category": "VAR-TYPE-MISMATCH"
-    },
-    {
       "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetCertificationComplianceReport",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "op": "GetCertificationComplianceReport",
@@ -255,12 +243,6 @@
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "op": "GetMandatoryTrainingStatus",
       "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetMyTrainingEnrollments",
-      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
-      "op": "GetMyTrainingEnrollments",
-      "category": "BAD-ARGUMENT"
     },
     {
       "key": "web/modules/hr-module/src/graphql/certification.operations.ts::GetTrainingCalendar",
@@ -305,12 +287,6 @@
       "category": "MISSING-ROOT-OP"
     },
     {
-      "key": "web/modules/hr-module/src/graphql/employee.operations.ts::GetDepartment",
-      "file": "web/modules/hr-module/src/graphql/employee.operations.ts",
-      "op": "GetDepartment",
-      "category": "MISSING-INPUT-TYPE"
-    },
-    {
       "key": "web/modules/hr-module/src/graphql/leave.operations.ts::AdjustLeaveBalance",
       "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
       "op": "AdjustLeaveBalance",
@@ -339,12 +315,6 @@
       "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
       "op": "CreateLeaveType",
       "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::GetMyLeaveRequests",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "GetMyLeaveRequests",
-      "category": "BAD-ARGUMENT"
     },
     {
       "key": "web/modules/hr-module/src/graphql/leave.operations.ts::InitializeLeaveBalances",

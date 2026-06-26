@@ -207,6 +207,6 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ receivedDate: undefined }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event['receivedDate']).toBeInstanceOf(Date);
+    expect(typeof event['receivedDate']).toBe('string');
   });
 });

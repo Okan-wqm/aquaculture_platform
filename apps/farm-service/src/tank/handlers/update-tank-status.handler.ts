@@ -5,7 +5,7 @@
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { NotFoundException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { TankStatusChangedEvent, createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, TankStatusChangedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -84,7 +84,7 @@ export class UpdateTankStatusHandler implements ICommandHandler<UpdateTankStatus
         previousStatus: oldStatus,
         newStatus: saved.status,
         reason: input.reason,
-        changedAt,
+        changedAt: toEventIso(changedAt),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager, {
         aggregateId: saved.id,

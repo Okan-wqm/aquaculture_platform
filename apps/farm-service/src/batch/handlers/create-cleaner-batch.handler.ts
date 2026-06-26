@@ -18,7 +18,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type CleanerFishBatchCreatedEvent,
 } from '@platform/event-contracts';
@@ -182,7 +182,7 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
         initialQuantity: savedBatch.initialQuantity,
         initialAvgWeightG: payload.initialAvgWeightG,
         initialBiomassKg: initialBiomass,
-        stockedAt: savedBatch.stockedAt,
+        stockedAt: toEventIso(savedBatch.stockedAt),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

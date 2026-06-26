@@ -66,7 +66,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import {
+import { toEventIso,
   createBaseEvent,
   type BatchHarvestedEvent,
   type BatchProductionCompletedEvent,
@@ -420,7 +420,7 @@ export class HarvestCompletedListener
       harvestedQuantity: event.harvestedQuantity,
       totalWeight: event.totalWeight,
       averageWeight: event.averageWeight,
-      harvestedAt,
+      harvestedAt: toEventIso(harvestedAt),
       harvestedBy: event.userId,
       isFinal,
     };
@@ -445,7 +445,7 @@ export class HarvestCompletedListener
           tankId: tankBatch.tankId,
           tankCode: tankBatch.tankCode,
           previousBatchId: event.batchId,
-          clearedAt: harvestedAt,
+          clearedAt: toEventIso(harvestedAt),
         };
         await this.eventBus.publish(tankCleared);
       }
@@ -469,7 +469,7 @@ export class HarvestCompletedListener
         fcr: report.performance.fcr,
         sgr: report.performance.sgr,
         totalFeedConsumedKg: report.performance.totalFeedConsumed,
-        completedAt: harvestedAt,
+        completedAt: toEventIso(harvestedAt),
       };
       await this.eventBus.publish(completed);
     }

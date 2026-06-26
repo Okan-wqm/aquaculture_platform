@@ -4,7 +4,7 @@
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { SubEquipmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, SubEquipmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, DeepPartial, FindManyOptions, FindOptionsWhere, UpdateResult } from 'typeorm';
 
@@ -89,7 +89,7 @@ export class DeleteSubEquipmentHandler implements ICommandHandler<DeleteSubEquip
         parentEquipmentId: saved.parentEquipmentId,
         name: saved.name,
         code: saved.code,
-        deletedAt: new Date(),
+        deletedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager, { aggregateId: saved.id });
     });

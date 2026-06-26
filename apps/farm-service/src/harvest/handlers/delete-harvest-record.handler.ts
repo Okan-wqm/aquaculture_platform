@@ -9,7 +9,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import {
+import { toEventIso,
   createBaseEvent,
   type HarvestRecordCancelledEvent,
 } from '@platform/event-contracts';
@@ -136,7 +136,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
         tankId: harvestRecord.tankId,
         reversedQuantity: harvestRecord.quantityHarvested,
         reversedBiomassKg: Number(harvestRecord.totalBiomass),
-        cancelledAt: new Date(),
+        cancelledAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

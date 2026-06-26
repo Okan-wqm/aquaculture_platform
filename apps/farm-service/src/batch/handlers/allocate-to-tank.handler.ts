@@ -21,6 +21,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ConflictExc
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { BatchAllocatedToTankEvent } from '@platform/event-contracts';
+import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
@@ -383,7 +384,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         quantity: payload.quantity,
         biomassKg: eventBiomassKg,
         allocationType: toAllocationTypeCode(payload.allocationType),
-        allocationDate,
+        allocationDate: toEventIso(allocationDate),
       };
       await this.outboxPublisher.enqueue(allocationEvent, queryRunner.manager);
       await this.mobileCommandReceipts.complete(queryRunner.manager, {

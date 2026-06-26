@@ -23,6 +23,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { BatchTransferredEvent } from '@platform/event-contracts';
+import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource, EntityManager } from 'typeorm';
@@ -421,7 +422,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         destinationTankId: payload.destinationTankId,
         quantity: payload.quantity,
         biomassKg,
-        transferDate,
+        transferDate: toEventIso(transferDate),
         reason: payload.transferReason,
       };
       await this.outboxPublisher.enqueue(transferEvent, queryRunner.manager);

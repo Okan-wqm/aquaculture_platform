@@ -22,7 +22,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type HarvestRecordUpdatedEvent,
 } from '@platform/event-contracts';
@@ -103,7 +103,7 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
         newQuantityHarvested: saved.quantityHarvested,
         newTotalBiomass: Number(saved.totalBiomass),
         newStatus: saved.status,
-        updatedAt: new Date(),
+        updatedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

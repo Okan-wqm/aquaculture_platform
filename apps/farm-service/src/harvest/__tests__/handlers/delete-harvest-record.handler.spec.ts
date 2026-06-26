@@ -171,7 +171,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     expect(event['tankId']).toBe('tank-1');
     expect(event['reversedQuantity']).toBe(100);
     expect(event['reversedBiomassKg']).toBe(350);
-    expect(event['cancelledAt']).toBeInstanceOf(Date);
+    expect(typeof event['cancelledAt']).toBe('string');
 
     expect(refreshContainers).toHaveBeenCalledWith(
       expect.any(Object),

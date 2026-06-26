@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   MORTALITY_REASONS,
   type CleanerFishMortalityRecordedEvent,
@@ -280,7 +280,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
         biomassKg,
         reason: toMortalityReasonCode(payload.reason),
         detail: payload.detail,
-        observedAt: payload.observedAt,
+        observedAt: toEventIso(payload.observedAt),
         newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
         newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
         newCleanerBatchTotalMortality: cleanerBatch.totalMortality,

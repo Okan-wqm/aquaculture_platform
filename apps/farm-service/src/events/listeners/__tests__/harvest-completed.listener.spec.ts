@@ -121,7 +121,7 @@ function makeEvent(
     userId: 'operator-1',
     batchId: BATCH_ID,
     harvestedQuantity: 200,
-    harvestedAt: new Date('2026-06-10T08:00:00.000Z'),
+    harvestedAt: '2026-06-10T08:00:00.000Z',
     averageWeight: 450,
     totalWeight: 90,
     isFinal: false,
@@ -319,7 +319,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     const wireEvent = toWireEvent(
       makeEvent({
         isFinal: true,
-        harvestedAt: new Date('2026-06-10T08:00:00.000Z'),
+        harvestedAt: '2026-06-10T08:00:00.000Z',
       }),
     );
     await expect(listener.handle(wireEvent)).resolves.toBeUndefined();
@@ -329,13 +329,11 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     const tankCleared = events.find((e) => e.eventType === 'TankCleared');
     const completed = events.find((e) => e.eventType === 'BatchProductionCompleted');
 
-    // Each Date-typed contract field must be a real Date, never the raw string.
-    expect(regulatory?.harvestedAt).toBeInstanceOf(Date);
-    expect(tankCleared?.clearedAt).toBeInstanceOf(Date);
-    expect(completed?.completedAt).toBeInstanceOf(Date);
-    expect((regulatory?.harvestedAt as Date).toISOString()).toBe(
-      '2026-06-10T08:00:00.000Z',
-    );
+    // ORPHAN-111: each contract date field is now an ISO string on the wire.
+    expect(typeof regulatory?.harvestedAt).toBe('string');
+    expect(typeof tankCleared?.clearedAt).toBe('string');
+    expect(typeof completed?.completedAt).toBe('string');
+    expect(regulatory?.harvestedAt).toBe('2026-06-10T08:00:00.000Z');
   });
 
   // ── Blocker 6: inbound idempotency — a redelivery does NOT re-publish ────

@@ -17,7 +17,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { BatchCreatedEvent , createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, BatchCreatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateBatchCommand } from '../commands/create-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
@@ -549,7 +549,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         name: savedBatch.batchNumber,
         species: species.commonName,
         quantity: savedBatch.initialQuantity,
-        stockedAt: savedBatch.stockedAt,
+        stockedAt: toEventIso(savedBatch.stockedAt),
       };
       await this.outboxPublisher.enqueue(batchCreatedEvent, queryRunner.manager);
 

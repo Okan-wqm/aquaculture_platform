@@ -5,7 +5,7 @@
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { DepartmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, DepartmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -155,7 +155,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
         siteId: deletedDepartment.siteId ?? '',
         name: deletedDepartment.name,
         code: deletedDepartment.code,
-        deletedAt: deletedDepartment.deletedAt ?? new Date(),
+        deletedAt: toEventIso(deletedDepartment.deletedAt ?? new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager, {
         aggregateId: deletedDepartment.id,

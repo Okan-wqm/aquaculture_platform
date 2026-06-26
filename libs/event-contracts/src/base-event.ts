@@ -207,3 +207,32 @@ export function createBaseEvent<T extends BaseEvent>(
     ...overrides,
   } as Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent>;
 }
+
+/**
+ * Canonical domain-date → event-wire (ISO 8601 string) normaliser — the SINGLE
+ * conversion point for every date field on an event contract (ORPHAN-111).
+ *
+ * Event contracts carry dates as ISO `string` (the wire shape the JSON schemas
+ * validate, matching `BaseEvent.timestamp`). Producers, however, hold `Date`
+ * objects from TypeORM entities — and TypeORM occasionally hands back a `string`
+ * for a date column, which is exactly why ad-hoc producer code grew defensive
+ * `x instanceof Date ? x : new Date(x)` checks. Routing every producer through
+ * this one helper kills that drift: the conversion is defined once, is idempotent
+ * (a valid string round-trips), and fails fast on an unparseable value rather
+ * than emitting a malformed timestamp onto the wire.
+ *
+ * Overloaded so a required field stays `string` and an optional field stays
+ * `string | undefined` (a nullish input maps to `undefined`, never `"null"`).
+ */
+export function toEventIso(value: Date | string): string;
+export function toEventIso(value: Date | string | null | undefined): string | undefined;
+export function toEventIso(value: Date | string | null | undefined): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new TypeError(`toEventIso: unparseable date value: ${String(value)}`);
+  }
+  return date.toISOString();
+}

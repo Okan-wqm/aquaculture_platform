@@ -41,7 +41,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
@@ -221,7 +221,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         feedId: payload.feedId,
         plannedAmountKg: payload.plannedAmount ?? 0,
         actualAmountKg: payload.actualAmount,
-        feedingDate: new Date(payload.feedingDate),
+        feedingDate: toEventIso(payload.feedingDate),
         feedingTime: payload.feedingTime || '',
         variance: (payload.actualAmount - (payload.plannedAmount ?? 0)),
       };

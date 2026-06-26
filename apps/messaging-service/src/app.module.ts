@@ -34,6 +34,7 @@ import {
   SourceSchemaBootstrapService,
   SourceSchemaWriteGuardService,
   TenantSchemaSyncService,
+  TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
@@ -354,6 +355,9 @@ type QueryComplexityOperationContext = {
     // validated tenant schema in AsyncLocalStorage across Apollo/CQRS async
     // boundaries so per-tenant search_path routing holds at pg checkout.
     TenantExecutionContextModule,
+    // Shared tenant schema-existence cache + TenantProvisioned invalidation
+    // (no stale-negative-cache block for freshly provisioned tenants).
+    TenantSchemaCacheModule,
     SchemaDriftModule.forRoot({ serviceName: 'messaging' }),
   ],
   providers: [

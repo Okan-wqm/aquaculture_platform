@@ -42,6 +42,13 @@ export * from './decimal-transformer';
 // Schema LRU Cache (for tenant-schema middleware)
 export * from './schema-lru-cache';
 
+// Shared tenant schema-existence cache (injectable singleton) + its
+// provisioning-driven invalidation subscriber + SSoT module. Imported once
+// per tenant-scoped service so TenantSchemaMiddleware and the TenantProvisioned
+// subscriber share one cache instance (no stale-negative-cache block for
+// freshly provisioned tenants).
+export * from './tenant-schema-cache';
+
 // Tenant Schema Utilities (pure functions, no DI required)
 export * from './tenant-schema.utils';
 

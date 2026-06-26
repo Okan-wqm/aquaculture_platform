@@ -8,9 +8,9 @@ import {
 } from '@nestjs/common/interfaces';
 import { ConfigService } from '@nestjs/config';
 
+import { SecurityEventService } from '../../security/security-event.service';
 import { generateServiceIdentityHeadersV2 } from '../../utils/service-identity.util';
 import { ServiceIdentityGuard } from '../service-identity.guard';
-import { SecurityEventService } from '../../security/security-event.service';
 
 /**
  * Unit tests for the shared ServiceIdentityGuard — R1 Path-alpha body-hash binding.

@@ -56,9 +56,14 @@ export interface WaterQualityMeasurement {
 export interface WaterQualityListResponse {
   items: WaterQualityMeasurement[];
   total: number;
+  page: number;
   limit: number;
-  offset: number;
-  hasMore: boolean;
+  totalPages: number;
+  /**
+   * Sonraki sayfa var mı? Şemada `offset`/`hasMore` yoktur; gerçek sayfalama
+   * alanları page/limit/totalPages/hasNextPage'tir.
+   */
+  hasNextPage: boolean;
 }
 
 /**
@@ -100,9 +105,12 @@ export async function fetchWaterQuality(
   filter?: WaterQualityFilter,
   limit = 500,
 ): Promise<WaterQualityListResponse> {
+  // NEDEN limit filtreye taşındı: Query.waterQualityMeasurements yalnızca
+  // `filter` argümanı alır; sayfalama limiti WaterQualityFilterInput.limit
+  // alanına aittir (şemada üst düzey `limit` argümanı yoktur).
   const query = `
-    query WaterQualityMeasurements($filter: WaterQualityFilterInput, $limit: Int) {
-      waterQualityMeasurements(filter: $filter, limit: $limit) {
+    query WaterQualityMeasurements($filter: WaterQualityFilterInput) {
+      waterQualityMeasurements(filter: $filter) {
         items {
           id
           tankId
@@ -116,22 +124,21 @@ export async function fetchWaterQuality(
           measuredBy
         }
         total
+        page
         limit
-        offset
-        hasMore
+        totalPages
+        hasNextPage
       }
     }
   `;
 
   const data = await client.query<{ waterQualityMeasurements: WaterQualityListResponse }>(query, {
-    filter: filter
-      ? {
-          tankId: filter.tankId ?? null,
-          fromDate: filter.startDate ?? null,
-          toDate: filter.endDate ?? null,
-        }
-      : null,
-    limit,
+    filter: {
+      tankId: filter?.tankId ?? null,
+      fromDate: filter?.startDate ?? null,
+      toDate: filter?.endDate ?? null,
+      limit,
+    },
   });
   return data.waterQualityMeasurements;
 }

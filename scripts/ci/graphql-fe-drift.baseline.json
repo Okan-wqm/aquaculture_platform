@@ -2,86 +2,8 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 127,
+  "count": 114,
   "operations": [
-    {
-      "key": "mcp/farm-management/src/graphql/queries/batches.ts::GetBatch",
-      "file": "mcp/farm-management/src/graphql/queries/batches.ts",
-      "op": "GetBatch",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/batches.ts::ListBatches",
-      "file": "mcp/farm-management/src/graphql/queries/batches.ts",
-      "op": "ListBatches",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/feeding.ts::FeedingRecords",
-      "file": "mcp/farm-management/src/graphql/queries/feeding.ts",
-      "op": "FeedingRecords",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/growth.ts::GrowthMeasurements",
-      "file": "mcp/farm-management/src/graphql/queries/growth.ts",
-      "op": "GrowthMeasurements",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/health.ts::CriticalHealthEvents",
-      "file": "mcp/farm-management/src/graphql/queries/health.ts",
-      "op": "CriticalHealthEvents",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/health.ts::HealthEvents",
-      "file": "mcp/farm-management/src/graphql/queries/health.ts",
-      "op": "HealthEvents",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/health.ts::HealthEventsByBatch",
-      "file": "mcp/farm-management/src/graphql/queries/health.ts",
-      "op": "HealthEventsByBatch",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/maintenance.ts::OverdueWorkOrders",
-      "file": "mcp/farm-management/src/graphql/queries/maintenance.ts",
-      "op": "OverdueWorkOrders",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/maintenance.ts::OverdueWorkOrdersLight",
-      "file": "mcp/farm-management/src/graphql/queries/maintenance.ts",
-      "op": "OverdueWorkOrdersLight",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/maintenance.ts::WorkOrders",
-      "file": "mcp/farm-management/src/graphql/queries/maintenance.ts",
-      "op": "WorkOrders",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/tasks.ts::OverdueTasks",
-      "file": "mcp/farm-management/src/graphql/queries/tasks.ts",
-      "op": "OverdueTasks",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/tasks.ts::TodaysTasks",
-      "file": "mcp/farm-management/src/graphql/queries/tasks.ts",
-      "op": "TodaysTasks",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "mcp/farm-management/src/graphql/queries/water-quality.ts::WaterQualityMeasurements",
-      "file": "mcp/farm-management/src/graphql/queries/water-quality.ts",
-      "op": "WaterQualityMeasurements",
-      "category": "BAD-ARGUMENT"
-    },
     {
       "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
       "file": "web/apps/aquamobil/src/hooks/useAiConsent.ts",

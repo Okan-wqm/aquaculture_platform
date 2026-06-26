@@ -54,7 +54,11 @@ export interface GrowthMeasurement {
 export interface GrowthMeasurementConnection {
   items: GrowthMeasurement[];
   total: number;
-  hasMore: boolean;
+  /**
+   * Sonraki sayfa var mı? Şemada `hasMore` yoktur; bağlantı tipinin
+   * gerçek sayfalama alanı `hasNextPage`'tir.
+   */
+  hasNextPage: boolean;
 }
 
 /** Büyüme metrikleri — mevcut durum özeti */
@@ -186,7 +190,7 @@ export async function fetchGrowthMeasurements(
           notes
         }
         total
-        hasMore
+        hasNextPage
       }
     }
   `;

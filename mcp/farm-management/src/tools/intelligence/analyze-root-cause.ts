@@ -478,7 +478,8 @@ export async function handler(
     });
 
     for (const h of items) {
-      const hoursBeforeEvent = (eventDate.getTime() - new Date(h.startDate).getTime()) / (1000 * 60 * 60);
+      // Şema tek bir `eventDate` taşır (eski startDate alanı yoktur).
+      const hoursBeforeEvent = (eventDate.getTime() - new Date(h.eventDate).getTime()) / (1000 * 60 * 60);
       const severityScore = h.severity === 'critical' ? 4 : h.severity === 'high' ? 3 : h.severity === 'medium' ? 2 : 1;
 
       possibleCauses.push(buildCause(

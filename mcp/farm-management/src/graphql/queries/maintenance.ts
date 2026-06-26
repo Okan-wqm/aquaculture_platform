@@ -25,25 +25,36 @@ import type { GraphQLClient } from '../client.js';
  */
 export interface WorkOrder {
   id: string;
-  code: string;
+  /** İş emri kodu — şemadaki `workOrderCode` (eski adı `code`). */
+  workOrderCode: string;
   title: string;
   description?: string;
   status: string;
   priority: string;
-  workOrderType: string;
+  /**
+   * İş emri tipi (PREVENTIVE/CORRECTIVE/...). Şemadaki gerçek alan `type`
+   * (WorkOrderType enum). Eski `workOrderType` adı şemada yoktur ve drift
+   * denetiminin "workOrderCode" önerisi anlamsal olarak HATALIYDI: kod ≠ tip.
+   */
+  type: string;
   assetType?: string;
+  /**
+   * Varlık (asset) kimliği. SEMANTİK değişim: eski `siteId` (saha) yerine
+   * şema yalnızca `assetId` (varlık) sunar — saha ile aynı anlamda değildir.
+   */
   assetId?: string;
-  siteId?: string;
-  departmentId?: string;
-  assigneeId?: string;
   dueDate?: string;
-  scheduledStartDate?: string;
-  startedAt?: string;
-  completedDate?: string;
-  estimatedDurationHours?: number;
-  actualDurationHours?: number;
+  /** Planlanan başlangıç — şemadaki `plannedStartDate` (eski `scheduledStartDate`). */
+  plannedStartDate?: string;
+  /** Tamamlanma zamanı — şemadaki `completedAt` (eski `completedDate`). */
+  completedAt?: string;
+  /** Atanan kişi — şemadaki `assignedTo` (eski `assigneeId`). */
+  assignedTo?: string;
+  /** Tahmini süre DAKİKA cinsinden (şema saat değil dakika döndürür). */
+  estimatedDurationMinutes?: number;
+  /** Gerçekleşen süre DAKİKA cinsinden (şema saat değil dakika döndürür). */
+  actualDurationMinutes?: number;
   estimatedCost?: number;
-  actualCost?: number;
   createdAt: string;
 }
 
@@ -87,7 +98,8 @@ export interface WorkOrderStatistics {
  */
 export interface WorkOrderLightInfo {
   id: string;
-  code: string;
+  /** İş emri kodu — şemadaki `workOrderCode` (eski adı `code`). */
+  workOrderCode: string;
   title: string;
   status: string;
   priority: string;
@@ -127,25 +139,21 @@ export async function fetchWorkOrders(
       workOrders(filter: $filter, page: $page, limit: $limit, sortBy: $sortBy, sortOrder: $sortOrder) {
         items {
           id
-          code
+          workOrderCode
           title
           description
           status
           priority
-          workOrderType
+          type
           assetType
           assetId
-          siteId
-          departmentId
-          assigneeId
           dueDate
-          scheduledStartDate
-          startedAt
-          completedDate
-          estimatedDurationHours
-          actualDurationHours
+          plannedStartDate
+          completedAt
+          assignedTo
+          estimatedDurationMinutes
+          actualDurationMinutes
           estimatedCost
-          actualCost
           createdAt
         }
         total
@@ -182,17 +190,15 @@ export async function fetchOverdueWorkOrders(
     query OverdueWorkOrders {
       overdueWorkOrders {
         id
-        code
+        workOrderCode
         title
         description
         status
         priority
-        workOrderType
+        type
         assetType
         assetId
-        siteId
-        departmentId
-        assigneeId
+        assignedTo
         dueDate
         estimatedCost
         createdAt
@@ -261,7 +267,7 @@ export async function fetchOverdueWorkOrdersLight(
     query OverdueWorkOrdersLight {
       overdueWorkOrders {
         id
-        code
+        workOrderCode
         title
         status
         priority

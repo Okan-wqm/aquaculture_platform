@@ -14,6 +14,7 @@ import {
   TenantStatus,
   TenantSettings,
   TenantFeatures,
+  PLAN_FEATURES,
   TenantLimits,
   resolveTenantLimits,
 } from '../middleware/tenant-context.middleware';
@@ -49,61 +50,6 @@ const DEFAULT_SETTINGS: TenantSettings = {
   },
 };
 
-/**
- * Default tenant features by plan
- */
-const PLAN_FEATURES: Record<string, TenantFeatures> = {
-  free: {
-    advancedAnalytics: false,
-    alertEngine: true,
-    iotIntegration: false,
-    apiAccess: false,
-    customReports: false,
-    multiSite: false,
-    whiteLabeling: false,
-    ssoEnabled: false,
-  },
-  trial: {
-    advancedAnalytics: true,
-    alertEngine: true,
-    iotIntegration: true,
-    apiAccess: true,
-    customReports: false,
-    multiSite: false,
-    whiteLabeling: false,
-    ssoEnabled: false,
-  },
-  starter: {
-    advancedAnalytics: false,
-    alertEngine: true,
-    iotIntegration: true,
-    apiAccess: true,
-    customReports: false,
-    multiSite: false,
-    whiteLabeling: false,
-    ssoEnabled: false,
-  },
-  professional: {
-    advancedAnalytics: true,
-    alertEngine: true,
-    iotIntegration: true,
-    apiAccess: true,
-    customReports: true,
-    multiSite: true,
-    whiteLabeling: false,
-    ssoEnabled: false,
-  },
-  enterprise: {
-    advancedAnalytics: true,
-    alertEngine: true,
-    iotIntegration: true,
-    apiAccess: true,
-    customReports: true,
-    multiSite: true,
-    whiteLabeling: true,
-    ssoEnabled: true,
-  },
-};
 
 // Plan limits are projected from the canonical PLAN_CATALOG SSoT via
 // `resolveTenantLimits` (re-exported from the middleware). The former

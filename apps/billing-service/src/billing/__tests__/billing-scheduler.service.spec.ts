@@ -17,6 +17,8 @@ import {
   createMockRepository,
   createMockEventBus,
 } from '@platform/testing';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
+import { Plan } from '../../billing/entities/plan.entity';
 import { BillingSchedulerService } from '../../billing/billing-scheduler.service';
 import {
   Subscription,
@@ -128,7 +130,7 @@ describe('BillingSchedulerService', () => {
   let invRepo: ReturnType<typeof createMockInvoiceRepo>;
   let mockEventBus: { publish: jest.Mock };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     subRepo = createMockSubscriptionRepo();
     invRepo = createMockInvoiceRepo();
     mockEventBus = { publish: jest.fn().mockResolvedValue(undefined) };
@@ -148,13 +150,20 @@ describe('BillingSchedulerService', () => {
       transaction: jest.fn(),
       createQueryRunner: jest.fn(),
       query: jest.fn().mockResolvedValue([{ acquired: true }]),
-    } as unknown as import('typeorm').DataSource;
-    service = new BillingSchedulerService(
-      mockDataSource,
-      subRepo as unknown as Repository<Subscription>,
-      invRepo as unknown as Repository<Invoice>,
-      mockEventBus as any,
-    );
+    };
+    // ORPHAN-174: scheduler now injects StripeApiService. Build via the Nest
+    // testing module + useValue (the repo's cast-free DI idiom).
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        BillingSchedulerService,
+        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: getRepositoryToken(Subscription), useValue: subRepo },
+        { provide: getRepositoryToken(Invoice), useValue: invRepo },
+        { provide: StripeApiService, useValue: { updateSubscription: jest.fn() } },
+        { provide: 'EVENT_BUS', useValue: mockEventBus },
+      ],
+    }).compile();
+    service = moduleRef.get(BillingSchedulerService);
 
     // Fix "now" for deterministic tests
     jest.useFakeTimers();
@@ -818,9 +827,11 @@ describe('BillingSchedulerService', () => {
     async function buildScheduledChangeHarness(
       pendingChanges: ScheduledPlanChange[],
       foundSubscription: Subscription | null,
+      newPlan: Plan | null = null,
     ): Promise<{
       svc: BillingSchedulerService;
       publish: jest.Mock;
+      stripeApi: { updateSubscription: jest.Mock };
       mockQueryRunner: ReturnType<typeof createMockDataSource>['mockQueryRunner'];
     }> {
       const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
@@ -836,9 +847,18 @@ describe('BillingSchedulerService', () => {
       changeRepo.find.mockResolvedValue(pendingChanges);
       mockDataSource.getRepository.mockReturnValue(changeRepo);
 
-      mockManager.findOne.mockResolvedValue(foundSubscription);
+      // First findOne loads the Subscription; the second (ORPHAN-174) loads the
+      // target Plan for its stripePriceIds. Sequence the two when a plan is given.
+      if (newPlan) {
+        mockManager.findOne
+          .mockResolvedValueOnce(foundSubscription)
+          .mockResolvedValueOnce(newPlan);
+      } else {
+        mockManager.findOne.mockResolvedValue(foundSubscription);
+      }
 
       const eventBus = createMockEventBus();
+      const stripeApi = { updateSubscription: jest.fn() };
 
       const moduleRef = await Test.createTestingModule({
         providers: [
@@ -846,12 +866,13 @@ describe('BillingSchedulerService', () => {
           { provide: getDataSourceToken(), useValue: mockDataSource },
           { provide: getRepositoryToken(Subscription), useValue: createMockRepository<Subscription>() },
           { provide: getRepositoryToken(Invoice), useValue: createMockRepository<Invoice>() },
+          { provide: StripeApiService, useValue: stripeApi },
           { provide: 'EVENT_BUS', useValue: eventBus },
         ],
       }).compile();
 
       const svc = moduleRef.get(BillingSchedulerService);
-      return { svc, publish: eventBus.publish, mockQueryRunner };
+      return { svc, publish: eventBus.publish, stripeApi, mockQueryRunner };
     }
 
     it('publishes a SubscriptionUpdated event after committing an applied plan change', async () => {
@@ -881,6 +902,41 @@ describe('BillingSchedulerService', () => {
       expect(event.previousPlanTier).toBe(PlanTier.PROFESSIONAL);
       expect(event.isDowngrade).toBe(true);
       expect(event.isScheduledChange).toBe(true);
+    });
+
+    it('ORPHAN-174: syncs the new plan price at Stripe before applying a scheduled downgrade', async () => {
+      const change = buildScheduledChange({ newPlanId: 'plan-starter' });
+      const subscription = buildSubscription({
+        id: 'sub-001',
+        tenantId: 'tenant-001',
+        status: SubscriptionStatus.ACTIVE,
+        planTier: PlanTier.PROFESSIONAL,
+        billingCycle: BillingCycle.MONTHLY,
+        stripeSubscriptionId: 'sub_stripe_123',
+      });
+      const newPlan = new Plan();
+      newPlan.id = 'plan-starter';
+      newPlan.stripePriceIds = { [BillingCycle.MONTHLY]: 'price_starter_monthly' };
+
+      const { svc, stripeApi, mockQueryRunner } = await buildScheduledChangeHarness(
+        [change],
+        subscription,
+        newPlan,
+      );
+
+      await svc.applyScheduledPlanChanges();
+
+      // The Stripe price MUST be updated with the same deterministic idempotency
+      // key the immediate change-plan path uses, and the local write committed.
+      expect(stripeApi.updateSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-001',
+          subscriptionId: 'sub_stripe_123',
+          priceId: 'price_starter_monthly',
+          idempotencyKey: 'sub-update:sub_stripe_123:plan-starter',
+        }),
+      );
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     });
 
     it('tolerates a NATS publish failure without throwing or rolling back the committed change', async () => {

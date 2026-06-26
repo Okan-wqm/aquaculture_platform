@@ -117,8 +117,10 @@ export class CreateSubscriptionHandler
 
       // Check for existing subscription with pessimistic lock to prevent race conditions.
       // tenantId auto-injected by the scoped wrapper.
+      // Only the live (non-soft-deleted) row holds the active unique slot —
+      // historical soft-deleted cancellations must NOT be re-found as "existing".
       const existingSubscription = await subscriptionRepo.findOne({
-        where: {},
+        where: { isDeleted: false },
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -126,9 +128,13 @@ export class CreateSubscriptionHandler
         if (existingSubscription.status !== SubscriptionStatus.CANCELLED) {
           throw new ConflictException(`Active subscription already exists for tenant ${tenantId}`);
         }
-        // Delete the cancelled subscription so the unique index on tenantId
-        // is not violated when the new row is inserted below.
-        await subscriptionRepo.delete({ id: existingSubscription.id });
+        // ORPHAN-175 / BILLING-MEDIUM-004: SOFT-delete the cancelled subscription
+        // instead of hard-deleting it. The partial unique index
+        // UQ_subscriptions_tenantId_active is `WHERE is_deleted = false`, so a
+        // soft-deleted row frees the active slot for the new INSERT below while
+        // preserving the audit trail (invoices/payments) tied to the old row.
+        existingSubscription.softDelete('system:create-subscription');
+        await subscriptionRepo.save(existingSubscription);
       }
 
       const periodEnd = this.calculatePeriodEnd(startDate, input.billingCycle);

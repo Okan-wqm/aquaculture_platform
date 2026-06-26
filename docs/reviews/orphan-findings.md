@@ -5446,3 +5446,17 @@ Severity: LOW (FE GraphQL contract correctness — each drifted op 400s/partiall
 - Plus the prior flags (farm `category` 2, sensor 2). These need product/backend decisions, tracked here + in the baseline.
 
 Status: RESOLVED for slices 1-4 — farm (3) + mcp (13) + sensor (33) + tenant-admin/aquamobil clean (4) = **53 ops, baseline 130 → 77**. Remaining 77 are backend-feature-gaps / thread-API rework / semantic renames (per the assessment above), NOT clean FE fixes. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
+
+---
+
+## ORPHAN-MEDIUM-182 - tenant-admin support-messaging page was broken (wrong thread API) — reworked to the real `support*` API (slice 5; baseline 77 → 69)
+
+Severity: MEDIUM (operator-facing: the tenant-admin Messages page was non-functional — every op 400'd at the gateway). Slice 5 of the #3 GraphQL drift burndown; resolves the tenant-admin thread-API cluster flagged in ORPHAN-LOW-181.
+
+**Root cause:** `web/modules/tenant-admin/src/graphql/communication-queries.ts` used a generic thread API (`myThreads`/`thread`/`threadMessages`/`messagingStats`/`createThread`/`sendMessage`/`closeThread`/`reopenThread` + types `CreateThreadInput`/`ThreadStatus`/`Message.threadId`/`senderType`/`senderName`) that the supergraph does not expose. The REAL support-thread API lives in **auth-service** (`apps/auth-service/src/modules/messaging/`, registered at `app.module.ts:246`) under `Support`-prefixed GraphQL names — so the page that drove tenant↔platform support conversations was entirely broken (8 drifted ops).
+
+**Fix (this commit):** reworked all 8 ops to the real API — `mySupportThreads`/`supportThread`/`supportThreadMessages`/`supportMessagingStats`/`createSupportThread`/`sendSupportMessage`/`closeSupportThread`/`reopenSupportThread`; input types → `SupportCreateThreadInput` (`{subject, initialMessage, tenantId?}`) + `SupportSendMessageInput` (`{threadId, content, isInternal}`); enums → `SupportThreadStatus`/`SupportSenderType`/`SupportMessageStatus` (real values). FE `content`→`initialMessage`; dropped the input `senderName` (server derives sender from the authed user). Updated `communication-queries.ts` + `lib/api.ts` + `lib/types.ts` + `hooks/useTenantData.ts` + `TenantMessagesPage.tsx`; thread list / open-closed filter / message view / send / create-thread all wired to the real API. tenant-admin `tsc` 0. The page now functions.
+
+Pre-existing (not a regression, out of scope): the page's `MoreVertical` button isn't wired to close/reopen (the API fns are now correct + available); `archiveSupportThread` is SuperAdmin-only, intentionally not exposed to tenant-admin.
+
+Status: RESOLVED (2026-06-26) — 8 ops fixed, baseline 77 → 69. Cumulative #3 burndown: 130 → 69 (61 ops). Registry: orphan-findings.md + graphql-fe-drift.baseline.json.

@@ -31069,18 +31069,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "scripts/ci/check-messaging-canary-metrics.mjs",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "scripts/ci/check-messaging-source-outbox.mjs",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "scripts/ci/check-messaging-tenant-entity-routing.mjs",
       "prettier_managed": true
     },

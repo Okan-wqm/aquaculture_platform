@@ -131,6 +131,7 @@ export default {
         '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
         '<rootDir>/plan-quota-enforcement.spec.ts',
         '<rootDir>/nats-config-ssot.spec.ts',
+        '<rootDir>/sensor-ingestion-honest-deployment.spec.ts',
         '<rootDir>/rbac-vocabulary-ssot.spec.ts',
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
         '<rootDir>/repo-hygiene-invariants.spec.ts',

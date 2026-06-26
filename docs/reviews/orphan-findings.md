@@ -3922,7 +3922,7 @@ Severity: MEDIUM. `service-identity.guard.ts:130-134` maps every non-`missing-he
 
 Fix direction: keep the generic CLIENT message (no leak), but emit a distinct, non-sensitive operator signal (structured log field already present + a metric label by `reason`) so an authorization/config failure is not indistinguishable from a tamper attempt in dashboards.
 
-Status: OPEN (2026-06-13; owner: auth-security-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-098.
+Status: RESOLVED (2026-06-26 — ServiceIdentityGuard now emits the raw machine-readable reasonCode (missing-headers/bad-hmac/stale-timestamp/caller-not-allowed/audience-not-allowed/key-not-found/key-not-active) on the publishServiceIdentityRejected security event — a structured field distinct from the human reason sentence, so dashboards/alerts can branch on the exact cause; the client ForbiddenException stays deliberately generic (no info leak). Guard spec proves the reasonCode flows through (5/5). Turning the event into a Prometheus label is downstream observability work) (2026-06-13; owner: auth-security-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-098.
 
 ---
 

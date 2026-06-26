@@ -5224,7 +5224,7 @@ side effect of the limit collapse.
 twice), project the gateway `TenantFeatures` from it, delete both copies, and add the
 per-tier-map invariant guard to forbid a future copy.
 
-Owner: platform/multi-tenant + gateway. Status: OPEN. Registry: orphan-findings.md only.
+Owner: platform/multi-tenant + gateway. Status: RESOLVED (2026-06-26 — PLAN_FEATURES consolidated — middleware now exports the single per-plan map, tenant-lookup imports it (identical 2nd copy deleted); locked by tests/invariants/plan-features-ssot.spec.ts (exactly-one-declaration). gateway-api tsc + permission.guard 48/48). Registry: orphan-findings.md only.
 
 ---
 
@@ -5333,14 +5333,14 @@ Status: RESOLVED (2026-06-25; intermittency regression coverage added). Registry
 **Severity:** MEDIUM. **Discovered:** 2026-06-25 (W1.1 change-subscription-plan Stripe rewrite, SSOT-C-12). PR-3 commit messages reference earlier collision numbers (168/171/172).
 **File:** `apps/billing-service/src/billing/billing-scheduler.service.ts` (PENDING scheduled-plan-change apply path).
 
-change-subscription-plan syncs the Stripe price for IMMEDIATE changes via StripeApiService.updateSubscription, but a DOWNGRADE is deferred to period end as a ScheduledPlanChange; the billing scheduler cron applies it WITHOUT calling updateSubscription, so the Stripe subscription keeps billing the OLD price. Fix: in the scheduler apply path, when the subscription has a stripeSubscriptionId and the new plan has stripePriceIds[cycle], call StripeApiService.updateSubscription (idempotencyKey `sub-update:<stripeSubscriptionId>:<newPlanId>`) before the local commit. Owner: billing. Status: OPEN.
+change-subscription-plan syncs the Stripe price for IMMEDIATE changes via StripeApiService.updateSubscription, but a DOWNGRADE is deferred to period end as a ScheduledPlanChange; the billing scheduler cron applies it WITHOUT calling updateSubscription, so the Stripe subscription keeps billing the OLD price. Fix: in the scheduler apply path, when the subscription has a stripeSubscriptionId and the new plan has stripePriceIds[cycle], call StripeApiService.updateSubscription (idempotencyKey `sub-update:<stripeSubscriptionId>:<newPlanId>`) before the local commit. Owner: billing. Status: RESOLVED (2026-06-26 — billing-scheduler applyScheduledPlanChanges now injects StripeApiService + calls updateSubscription (same deterministic idempotency key as the immediate path) before the local mutation, fail-closed inside the tx; new test proves the Stripe sync. billing tsc clean).
 
 ## ORPHAN-MEDIUM-175 — create-subscription hard-deletes a CANCELLED subscription (test expects soft-delete / history preservation)
 
 **Severity:** MEDIUM. **Discovered:** 2026-06-25 (W1.1 create-subscription Stripe rewrite, BILLING-CRITICAL-001). PRE-EXISTING: 2 tests fail on main today (git-stash verified 2 fail / 32 pass with the original handler).
 **File:** `apps/billing-service/src/billing/handlers/create-subscription.handler.ts`.
 
-On re-subscribe after a CANCELLED subscription the handler HARD-deletes the old row (avoids the UNIQUE(tenantId) index violation), but create-subscription.handler.spec.ts asserts SOFT-delete (history preservation). Out of SSOT-C-12 scope. Fix is a design call: (a) PARTIAL unique index `WHERE is_deleted=false` then soft-delete (needs migration), or (b) update tests to accept hard-delete. Owner: billing. Status: OPEN.
+On re-subscribe after a CANCELLED subscription the handler HARD-deletes the old row (avoids the UNIQUE(tenantId) index violation), but create-subscription.handler.spec.ts asserts SOFT-delete (history preservation). Out of SSOT-C-12 scope. Fix is a design call: (a) PARTIAL unique index `WHERE is_deleted=false` then soft-delete (needs migration), or (b) update tests to accept hard-delete. Owner: billing. Status: RESOLVED (2026-06-26 — create-subscription now SOFT-deletes the cancelled row (softDelete + save) instead of hard delete, and the existing-subscription lookup filters isDeleted=false; the partial unique index UQ_subscriptions_tenantId_active (WHERE is_deleted=false) frees the active slot. Previously-RED soft-delete test now green (36/36)).
 
 ---
 
@@ -5463,7 +5463,12 @@ Status: RESOLVED (2026-06-26) — 8 ops fixed, baseline 77 → 69. Cumulative #3
 
 ---
 
-## ORPHAN-MEDIUM-183 - hr-module GraphQL drift: backend-op decision (slice 6; 5 fixed → 64; 55 categorized for implement-vs-remove)
+## ORPHAN-MEDIUM-183 — billing-scheduler monthly-invoice totals not rounded to 2dp (33.333 instead of 33.33)
+3 pre-existing RED tests in `apps/billing-service/src/billing/__tests__/billing-scheduler.service.spec.ts` (`should round invoice totals to 2 decimal places`, `should multiply base price by cycle months for non-monthly billing`, `should generate an invoice for ACTIVE subscription with expired period`): `generateMonthlyInvoices` produces `total/subtotal/amountDue` as the unrounded string `"33.333"` where the test expects the rounded number `33.33`. Verified pre-existing on HEAD (fail under `git stash`, independent of ORPHAN-174). Likely a Money/decimal-rounding gap in the monthly-invoice path (decimal column read back as string + no `.toFixed(2)`/`Money.round`). Owner: billing. Status: OPEN. Found 2026-06-26 while fixing ORPHAN-174. Why: invoices billed to a financial schema must be exact to the cent; an unrounded total is a revenue-accuracy + reconciliation defect. How to fix: route the monthly-invoice total through the canonical `Money` rounding (as the immediate path does) and assert numeric (not string) equality.
+
+---
+
+## ORPHAN-MEDIUM-184 - hr-module GraphQL drift: backend-op decision (slice 6; 5 fixed → 64; 55 categorized for implement-vs-remove)
 
 Severity: MEDIUM (60 hr FE ops 400 at the gateway — hr feature areas partly non-functional). Slice 6 of the #3 burndown + the requested BACKEND-OP DECISION for the hr feature-gaps. The hr backend (`apps/hr-service`) is rich but uses a DIFFERENT domain model than several FE clusters (no detail-by-id singulars — only paginated plurals; scheduling is `WeeklyPlan`, not a named recurring `Schedule`).
 

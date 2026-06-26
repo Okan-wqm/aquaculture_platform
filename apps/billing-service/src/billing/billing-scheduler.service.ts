@@ -5,7 +5,9 @@ import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { Money } from '@aquaculture/backend-common/monetary';
+import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
+import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { randomBytes } from 'crypto';
@@ -34,6 +36,10 @@ export class BillingSchedulerService {
     private readonly subscriptionRepo: Repository<Subscription>,
     @InjectRepository(Invoice)
     private readonly invoiceRepo: Repository<Invoice>,
+    // ORPHAN-174: the scheduler applies scheduled plan changes (downgrades) and
+    // MUST mirror the immediate change-subscription-plan path at Stripe, else the
+    // tenant keeps paying the old price after the downgrade lands locally.
+    private readonly stripeApi: StripeApiService,
     @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
   ) {}
 
@@ -559,6 +565,27 @@ export class BillingSchedulerService {
             await queryRunner.manager.save(ScheduledPlanChange, change);
             await queryRunner.commitTransaction();
             continue;
+          }
+
+          // ── ORPHAN-174: sync the new plan's price at Stripe BEFORE the local
+          // mutation. Fail-closed — a Stripe error throws out of the tx (caught
+          // below → rollback), leaving the change PENDING for the next cron pass
+          // rather than silently drifting Stripe and the local DB apart. The
+          // idempotency key is deterministic (same key as the immediate path) so
+          // a retry re-uses it and Stripe dedupes. ──
+          if (subscription.stripeSubscriptionId) {
+            const newPlan = await queryRunner.manager.findOne(Plan, {
+              where: { id: change.newPlanId },
+            });
+            const newPriceId = newPlan?.stripePriceIds?.[subscription.billingCycle];
+            if (newPriceId) {
+              await this.stripeApi.updateSubscription({
+                tenantId: subscription.tenantId,
+                subscriptionId: subscription.stripeSubscriptionId,
+                priceId: newPriceId,
+                idempotencyKey: `sub-update:${subscription.stripeSubscriptionId}:${change.newPlanId}`,
+              });
+            }
           }
 
           // ── Apply the plan change ───────────────────────────────────────

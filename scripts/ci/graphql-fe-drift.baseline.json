@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 77,
+  "count": 69,
   "operations": [
     {
       "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
@@ -411,54 +411,6 @@
       "file": "web/modules/sensor-module/src/hooks/useChannelManagement.ts",
       "op": "GetSensorChannels",
       "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::CloseThread",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "CloseThread",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::CreateThread",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "CreateThread",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::MessagingStats",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "MessagingStats",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::MyThreads",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "MyThreads",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::ReopenThread",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "ReopenThread",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::SendMessage",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "SendMessage",
-      "category": "MISSING-FIELD"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::Thread",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "Thread",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/tenant-admin/src/graphql/communication-queries.ts::ThreadMessages",
-      "file": "web/modules/tenant-admin/src/graphql/communication-queries.ts",
-      "op": "ThreadMessages",
-      "category": "MISSING-ROOT-OP"
     },
     {
       "key": "web/modules/tenant-admin/src/graphql/module-queries.ts::MyTenantModules",

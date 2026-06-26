@@ -375,8 +375,10 @@ export function useThreadMessages(threadId: string | null) {
 export function useSendMessage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ threadId, content, senderName }: { threadId: string; content: string; senderName: string }) =>
-      sendMessage({ threadId, content, senderName }),
+    // senderName is derived server-side from the authenticated user
+    // (SupportSendMessageInput has no senderName field).
+    mutationFn: ({ threadId, content }: { threadId: string; content: string }) =>
+      sendMessage({ threadId, content }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.threadMessages(variables.threadId) });
       queryClient.invalidateQueries({ queryKey: tenantKeys.threads() });
@@ -390,8 +392,10 @@ export function useSendMessage() {
 export function useCreateThread() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ subject, content, senderName }: { subject: string; content: string; senderName: string }) =>
-      createThread({ subject, content, senderName }),
+    // senderName is derived server-side; SupportCreateThreadInput only takes
+    // subject + initialMessage (mapped from `content`).
+    mutationFn: ({ subject, content }: { subject: string; content: string }) =>
+      createThread({ subject, content }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.threads() });
     },

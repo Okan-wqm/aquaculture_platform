@@ -737,11 +737,11 @@ export async function getMyThreads(variables?: {
   status?: string;
   search?: string;
 }): Promise<MessageThread[]> {
-  const data = await apiClient.graphql<{ myThreads: MessageThread[] }>(
+  const data = await apiClient.graphql<{ mySupportThreads: MessageThread[] }>(
     MY_THREADS_QUERY,
     variables,
   );
-  return (data.myThreads || []).map((t) => ({
+  return (data.mySupportThreads || []).map((t) => ({
     ...t,
     isClosed: t.status === 'closed',
   }));
@@ -750,53 +750,59 @@ export async function getMyThreads(variables?: {
 export async function getThreadMessages(
   threadId: string,
 ): Promise<Message[]> {
-  const data = await apiClient.graphql<{ threadMessages: Message[] }>(
+  const data = await apiClient.graphql<{ supportThreadMessages: Message[] }>(
     THREAD_MESSAGES_QUERY,
     { threadId },
   );
-  return data.threadMessages || [];
+  return data.supportThreadMessages || [];
 }
 
+// SupportSendMessageInput fields (auth-service messaging.dto.ts): threadId, content,
+// isInternal. senderName/senderId are derived server-side from the authenticated
+// user, so they are NOT part of the input. Tenant-admin replies are always public
+// (isInternal=false; internal notes are an admin-only capability).
 export async function sendMessage(input: {
   threadId: string;
   content: string;
-  senderName?: string;
 }): Promise<Message> {
-  const data = await apiClient.graphql<{ sendMessage: Message }>(
+  const data = await apiClient.graphql<{ sendSupportMessage: Message }>(
     SEND_MESSAGE_MUTATION,
-    { input },
+    { input: { threadId: input.threadId, content: input.content, isInternal: false } },
   );
-  return data.sendMessage;
+  return data.sendSupportMessage;
 }
 
+// SupportCreateThreadInput fields (auth-service messaging.dto.ts): subject,
+// initialMessage, tenantId? (auto-filled for TenantAdmin from the JWT, so omitted
+// here). The page passes the first message body as `content`; it maps to the real
+// `initialMessage` field.
 export async function createThread(input: {
   subject: string;
   content: string;
-  senderName?: string;
 }): Promise<MessageThread> {
-  const data = await apiClient.graphql<{ createThread: MessageThread }>(
+  const data = await apiClient.graphql<{ createSupportThread: MessageThread }>(
     CREATE_THREAD_MUTATION,
-    { input },
+    { input: { subject: input.subject, initialMessage: input.content } },
   );
-  return data.createThread;
+  return data.createSupportThread;
 }
 
 export async function closeThread(
   threadId: string,
 ): Promise<{ id: string; status: string }> {
   const data = await apiClient.graphql<{
-    closeThread: { id: string; status: string; updatedAt: string };
+    closeSupportThread: { id: string; status: string; updatedAt: string };
   }>(CLOSE_THREAD_MUTATION, { threadId });
-  return data.closeThread;
+  return data.closeSupportThread;
 }
 
 export async function reopenThread(
   threadId: string,
 ): Promise<{ id: string; status: string }> {
   const data = await apiClient.graphql<{
-    reopenThread: { id: string; status: string; updatedAt: string };
+    reopenSupportThread: { id: string; status: string; updatedAt: string };
   }>(REOPEN_THREAD_MUTATION, { threadId });
-  return data.reopenThread;
+  return data.reopenSupportThread;
 }
 
 // ============================================================================

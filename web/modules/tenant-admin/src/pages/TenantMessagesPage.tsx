@@ -21,7 +21,6 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuthContext } from '@aquaculture/shared-ui';
 import {
   useMessageThreads,
   useThreadMessages,
@@ -38,7 +37,6 @@ import { sanitizeErrorMessage } from '../utils/error-handling';
 // ============================================================================
 
 const TenantMessagesPage: React.FC = () => {
-  const { user } = useAuthContext();
   const queryClient = useQueryClient();
   const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,14 +72,10 @@ const TenantMessagesPage: React.FC = () => {
 
     setSendError(null);
     try {
-      const userName = user?.firstName && user?.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user?.email || 'You';
-
+      // senderName/senderId are resolved server-side from the authenticated user.
       await sendMessageMutation.mutateAsync({
         threadId: selectedThread.id,
         content: newMessage,
-        senderName: userName,
       });
       setNewMessage('');
     } catch (err) {
@@ -414,11 +408,8 @@ const TenantMessagesPage: React.FC = () => {
         <NewThreadModal
           onClose={() => setShowNewThreadModal(false)}
           onSubmit={async (subject, content) => {
-            const userName = user?.firstName && user?.lastName
-              ? `${user.firstName} ${user.lastName}`
-              : user?.email || 'User';
-
-            await createThreadMutation.mutateAsync({ subject, content, senderName: userName });
+            // senderName/senderId are resolved server-side from the authenticated user.
+            await createThreadMutation.mutateAsync({ subject, content });
             setShowNewThreadModal(false);
           }}
         />

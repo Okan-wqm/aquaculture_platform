@@ -376,11 +376,28 @@ export interface TenantProvisioningKey {
 /**
  * Thread status enum matching backend ThreadStatus.
  */
-export type ThreadStatus = 'open' | 'closed';
+/**
+ * Support thread status — mirrors auth-service `SupportThreadStatus` enum
+ * (apps/auth-service/src/modules/messaging/entities/message-thread.entity.ts).
+ */
+export type ThreadStatus = 'open' | 'closed' | 'archived';
+
+/**
+ * Who sent a support message — mirrors auth-service `SupportSenderType` enum
+ * (apps/auth-service/src/modules/messaging/entities/message.entity.ts).
+ */
+export type SupportSenderType = 'super_admin' | 'tenant_admin' | 'system';
+
+/**
+ * Support message delivery status — mirrors auth-service `SupportMessageStatus`
+ * enum (apps/auth-service/src/modules/messaging/entities/message.entity.ts).
+ */
+export type SupportMessageStatus = 'sent' | 'delivered' | 'read';
 
 /**
  * A messaging thread between TenantAdmin and SuperAdmin.
- * Fields match the myThreads / thread GraphQL queries.
+ * Fields match the mySupportThreads / supportThread GraphQL queries
+ * (SupportThreadListItem / SupportMessageThread types).
  */
 export interface MessageThread {
   id: string;
@@ -393,6 +410,7 @@ export interface MessageThread {
   unreadCount: number;
   messageCount: number;
   status: ThreadStatus;
+  // Client-derived convenience flag (status === 'closed'); not a server field.
   isClosed?: boolean;
   createdBy?: string;
   createdByAdmin?: boolean;
@@ -402,16 +420,16 @@ export interface MessageThread {
 
 /**
  * A single message within a thread.
- * Fields match the threadMessages GraphQL query.
+ * Fields match the supportThreadMessages GraphQL query (SupportMessageItem type).
  */
 export interface Message {
   id: string;
   threadId: string;
   senderId: string;
-  senderType: 'admin' | 'tenant' | 'tenant_admin';
+  senderType: SupportSenderType;
   senderName: string;
   content: string;
-  status: string;
+  status: SupportMessageStatus;
   isInternal: boolean;
   attachments?: Array<{
     id: string;

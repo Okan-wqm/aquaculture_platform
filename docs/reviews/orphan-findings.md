@@ -5507,3 +5507,25 @@ Final slice of the #3 burndown — the 9 hardest "flagged tail" drifts (mixed re
 **Orphan observed (separate item, not among the 9) — RESOLVED 2026-06-26:** `ListSubEquipmentTypes` (`useSubEquipment.ts`) also selected the non-existent `SubEquipmentTypeResponse.category` (same root cause as the farm items). Verified `category` is absent from the entire sub-equipment domain (neither `SubEquipmentType`/`SubEquipment` entity nor `SubEquipmentTypeResponse` DTO nor the schema has it — types are distinguished by `code`/`name`/`compatibleEquipmentTypes`), so it is a FE fiction, not a missing-but-needed backend field → removed (not added). Dropped `category` from the query selection + the `SubEquipmentTypeOption` type; the sole consumer (`SubEquipmentModal.tsx` type dropdown, which rendered `{name} ({category})` → `({undefined})`) now shows the real `code`. farm-module `tsc` 0. Not in the drift baseline (the gate had not flagged it), so no baseline change — the fix forecloses a future NEW-drift failure.
 
 Status: RESOLVED for slice 9 — 5 resolved (4 fixed + 1 dead-removed), baseline 47 → 42. **Cumulative #3 burndown: 130 → 42 (88 ops, ~68%).** Remaining 42 = 38 hr IMPLEMENT-BACKEND roadmap + 4 flagged gaps (CancelVfdChangeSet implement-backend, 2 aquamobil AI-consent product-decision, StockAtLocation rework). All FE-fixable + dead-code + clean-rename classes are now exhausted. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
+
+---
+
+## ORPHAN-HIGH-187 — tenant-scoped services lose AsyncLocalStorage tenant context across Apollo/CQRS async boundaries → intermittent empty / phantom reads on the tenant panel
+
+**Severity:** HIGH
+**Discovered:** 2026-06-26, user-reported runtime bug ("data loads then vanishes, data that isn't mine appears" on the tenant panel; data verified present in the database)
+**Files:**
+- `apps/hr-service/src/app.module.ts`, `apps/sensor-service/src/app.module.ts`, `apps/hydroponics-service/src/app.module.ts`, `apps/messaging-service/src/app.module.ts`, `apps/ai-service/src/app.module.ts`, `apps/alert-engine/src/app.module.ts`
+- `libs/backend-common/src/middleware/tenant-schema.middleware.ts:92`
+- `libs/backend-common/src/database/tenant-connection-bootstrap.service.ts:116-154`
+- `libs/backend-common/src/context/tenant-execution-context.interceptor.ts`
+
+**Problem:** Tenant-scoped services patch the pg pool for per-tenant `search_path` routing via `createTenantConnectionBootstrap(<src>)`, but relied solely on `TenantSchemaMiddleware`'s `requestContextStorage.run(store, () => next())` to carry the tenant schema. That `run()` scope only reliably covers the Express middleware chain. Apollo GraphQL resolver execution and the CQRS QueryBus insert async boundaries BEFORE TypeORM checks out a connection; on those hops the middleware-seeded context can be gone, so `TenantConnectionBootstrap` reads an empty context at checkout and falls back to `SET search_path TO "<src>", public` (the empty source/template schema). Reads then run against the wrong schema: tenant rows intermittently "disappear" and template/seed rows surface as phantom data, request-to-request nondeterministically.
+
+`TenantExecutionContextInterceptor` already cures this (re-enters `withTenantContext` around the resolver/handler pipeline) but was wired into only `farm-service` and `event-store-service`; the other six tenant-scoped services had no equivalent.
+
+**Risk:** Intermittent, panel-wide data-correctness failures for every tenant-scoped read served via GraphQL/CQRS (farm, sensor, hr, hydroponics, messaging, ai, alert). User-visible as data that loads then vanishes.
+
+**Reproducibility:** Repeatedly fetch a tenant-scoped GraphQL query against an affected subgraph (e.g. hr departments) for the same tenant; a fraction of requests resolve `search_path` to the source schema and return empty/template rows instead of the tenant's data.
+
+**Fix (RESOLVED 2026-06-26):** Introduced the SSoT module `TenantExecutionContextModule` (`@aquaculture/backend-common/context`) that owns the single `APP_INTERCEPTOR` registration of `TenantExecutionContextInterceptor`. All seven tenant-scoped services (the six above plus farm via `FarmMetricsModule`) and `event-store-service` now import it once instead of hand-copying a provider block. New invariant `tests/invariants/tenant-execution-context-registered.spec.ts` asserts every `createTenantConnectionBootstrap()` service imports the module so a future service cannot silently ship without it. Frontend cross-tenant query-key scoping (latent; manifests only on tenant-switch/impersonation) is tracked separately as a follow-up. Status: RESOLVED (backend root cause).

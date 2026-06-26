@@ -6,3 +6,4 @@
 
 export { withTenantContext } from './with-tenant-context';
 export { TenantExecutionContextInterceptor } from './tenant-execution-context.interceptor';
+export { TenantExecutionContextModule } from './tenant-execution-context.module';

@@ -33,10 +33,11 @@ export class CreateScadaPackageInput {
 
 @InputType()
 export class UpdateScadaPackageInput {
-  @Field(() => ID)
-  @IsUUID()
-  id!: string;
-
+  // SSoT: the package id is the `updateScadaPackage(id: ID!, input: …)` resolver
+  // arg (process.resolver.ts) — the service looks the row up by that arg, never
+  // by an input field. A second required `id` here was dual-source and forced
+  // every client to send the id twice; the FE only sends the top-level arg, so
+  // the redundant required field rejected every update. Removed (id is the arg).
   @Field({ nullable: true })
   @IsOptional()
   @IsString()

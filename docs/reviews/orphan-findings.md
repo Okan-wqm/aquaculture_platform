@@ -5365,34 +5365,32 @@ Owner: gateway/platform. Status: OPEN. Registry: orphan-findings.md only. Relate
 
 ---
 
-## ORPHAN-MEDIUM-177 — db-migrate schema-registry hand-copies source-schema RLS excludeTables (parallel to the app.module set)
+## ORPHAN-MEDIUM-177 - sensor process-editor route drift + redundant required `UpdateScadaPackageInput.id` (P1)
 
-**Severity:** MEDIUM. **Discovered:** 2026-06-26, during PR-6 RLS excludeTables SSoT (3b).
-**File:** `apps/db-migrate/src/schema-registry.ts` (auth ~180, billing ~266, notification ~284, config ~318 `postMigrationHardening.*.excludeTables`).
+> NUMBERING: renumbered from 176 → 177 at merge time — a concurrent merge-train collision with the RBAC ROLE_HIERARCHY finding (ORPHAN-MEDIUM-176, above) which landed on `main` first. Commit `510c7f0a7`'s `Closes:` trailer was authored against the original #ORPHAN-MEDIUM-176 number.
 
-PR-6 made the service `app.module.ts` RLS `excludeTables` derive from
-`getRlsExcludeTablesForService('<svc>')` (MODULE_SCHEMAS.infrastructureTables). But the
-db-migrate provisioner keeps a PARALLEL set of `excludeTables` for SOURCE-schema RLS of
-cross-tenant services (the comment even says "Mirrors the RlsModule.forPoolService
-excludeTables"). billing + notification's copies are cleanly derivable
-(getRlsExcludeTablesForService) and should be repointed; auth (domain tables users/tenants)
-and config (not in MODULE_SCHEMAS) stay literal like the app.module exemptions. Until then,
-the db-migrate copy can drift from the app.module copy (the auth db-migrate copy still
-carries the phantom audit_log/audit_logs).
+Severity: MEDIUM (two operator-facing breakages — "New Process" navigation 404s, and SCADA-package update 400s). Validated from the multi-agent tenant-context plan's P1 list; verified firsthand in code.
 
-**Why not fixed in PR-6:** db-migrate is a different service + the source-schema vs
-tenant-schema RLS scopes need care; tenant services (farm…) use the shared
-TENANT_SCHEMA_POST_MIGRATION_HARDENING (no excludeTables — tenant schemas hold only
-per-tenant tables). Owner: platform/db-migrate. Status: OPEN.
+**P1a — process-editor route drift.** The sensor module mounts the new-process editor at `process/new` (SINGULAR — `web/modules/sensor-module/src/Module.tsx:106`; `processes` plural is the LIST). Three links pointed at the non-existent `processes/new` → blank page: `ProcessTemplatesPage.tsx` (×2: the `handleUseTemplate` navigate + the empty-state Link) used `/sensor/processes/new`, and dashboard `QuickActions.tsx` ("Süreç Başlat") used the un-prefixed `/processes/new` (the sensor module is at `/sensor`, so no route matched at all). Fixed all three to `/sensor/process/new`.
 
-## ORPHAN-LOW-178 — shared-schema canonical table list has a 4th unguarded copy + a stale "4 canonical" docstring (3c)
+**P1b — `UpdateScadaPackageInput.id` dual-source.** `updateScadaPackage(@Args('id') id, @Args('input') input)` (`process.resolver.ts`) looks the row up by the top-level `id` arg and the service NEVER reads `input.id`, yet `UpdateScadaPackageInput` also declared `@Field(() => ID) id!: string` (REQUIRED). The FE (`useScadaPackage.ts` `useUpdateScadaPackage`) sends only the top-level `$id`, never `input.id` — so the required input field rejected every SCADA-package update. Removed `id` from `UpdateScadaPackageInput` (SSoT = the resolver arg). No backend reader; `ID` import still used by other fields; sensor-service `tsc` clean. (No `codegen:check` CI gate + no sensor FE↔BE-parity invariant; the FE hook uses an inline input type, so the generated `graphql-types.ts` regenerates on the next full codegen — it does not gate this change. The supergraph recomposes at deploy.)
+
+**Investigated, NOT confirmed (no change made):** (i) the alleged "uppercase status enum" drift — `ProcessStatus` backend enum VALUES are lowercase (`'active'`) matching the FE hand-written union, and the FE never round-trips ProcessStatus through GraphQL (not in generated types; only `ScadaPackageStatus`/`VfdChangeSetStatus` are GraphQL-status types), so no break exists. (ii) Map page "renders as empty when sites lack coordinates" — `MapViewPage.tsx` already shows a distinct "Konum bilgisi olan site bulunamadı" empty-state with a Setup link (not a no-data state); correctly handled.
+
+Status: RESOLVED for P1a + P1b (2026-06-25). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-178 — db-migrate schema-registry hand-copies source-schema RLS excludeTables (parallel to the app.module set)
+
+**Severity:** MEDIUM. **Discovered:** 2026-06-26 (PR-6 RLS excludeTables SSoT). Renumbered in the merge-train collision.
+**File:** `apps/db-migrate/src/schema-registry.ts` (auth/billing/notification/config postMigrationHardening excludeTables).
+
+PR-6 made service `app.module.ts` RLS excludeTables derive from `getRlsExcludeTablesForService('<svc>')`. db-migrate keeps a PARALLEL set for SOURCE-schema RLS of cross-tenant services (comment: "Mirrors the RlsModule.forPoolService excludeTables"). billing + notification are cleanly derivable and should be repointed; auth (domain tables users/tenants) + config (not in MODULE_SCHEMAS) stay literal. The auth db-migrate copy still carries the phantom audit_log/audit_logs. Owner: platform/db-migrate. Status: OPEN.
+
+## ORPHAN-LOW-179 — shared-schema canonical table list 4th unguarded copy + stale "4 canonical" docstring (3c)
 
 **Severity:** LOW. **Discovered:** 2026-06-26 (PR-6 cluster 3c, deferred).
-**Files:** `e2e/tests/integration/schema-invariants.spec.ts:~208` (4th hardcoded copy of the
-shared-schema canonical table list — real count is 5: audit_logs, gdpr_data_requests,
-user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts:~294`
-(stale "4 canonical" docstring).
+**Files:** `e2e/tests/integration/schema-invariants.spec.ts` (4th hardcoded copy; real count is 5: audit_logs, gdpr_data_requests, user_consents, user_permissions, access_logs); `libs/backend-common/.../audited-operation.interceptor.ts` (stale "4 canonical" docstring).
 
-The `SHARED_SCHEMA_TABLES` SSoT lives in schema-invariants + shared-schema-canonical.spec;
-collapse the unguarded 4th copy to import it, and fix the stale count docstring to reference
-the SSoT by name. Owner: data/platform. Status: OPEN.
+Collapse the unguarded 4th copy to import the `SHARED_SCHEMA_TABLES` SSoT; fix the stale count docstring to reference the SSoT by name. Owner: data/platform. Status: OPEN.

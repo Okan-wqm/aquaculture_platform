@@ -131,6 +131,8 @@ export default {
         '<rootDir>/plan-features-ssot.spec.ts',
         '<rootDir>/shared-contracts-no-enum-drift.spec.ts',
         '<rootDir>/config-env-access-ratchet.spec.ts',
+        '<rootDir>/messaging-unread-count-ssot.spec.ts',
+        '<rootDir>/metrics-service-module-ratchet.spec.ts',
         '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
         '<rootDir>/plan-quota-enforcement.spec.ts',
         '<rootDir>/nats-config-ssot.spec.ts',

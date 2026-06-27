@@ -128,7 +128,10 @@ export class ScadaSocketService {
       transports: ['websocket', 'polling'],
       auth: { token },
       reconnection: true,
-      reconnectionAttempts: Infinity,
+      // Bounded, not Infinity: a full gateway/SCADA outage must not be amplified by
+      // an unbounded reconnect storm against a dead upstream. The backoff already
+      // caps the delay; this caps the count so the storm ends.
+      reconnectionAttempts: 20,
       reconnectionDelay: BACKOFF_BASE_MS,
       reconnectionDelayMax: BACKOFF_MAX_MS,
       randomizationFactor: 0.3,

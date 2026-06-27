@@ -3810,7 +3810,7 @@ Root cause: the monitoring stack was designed for the K8s topology; the droplet 
 
 Fix direction: add a Prometheus (or agent-mode) container to the droplet compose with a scrape config GENERATED from the service catalog (`generate-artifacts.ts` gains a scrape-targets artifact derived from `metricsExposure === 'prom-endpoint'` entries + `metricsPort`), including the `x-internal-api-key` header for observability-service's gated endpoint; wire retention/resource limits to droplet capacity constraints. The catalog fields landed in OBS-HIGH-001 are the designed input for exactly this generator.
 
-Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
+Status: IN-PROGRESS (2026-06-27 — in-repo scraper landed: added prometheus + cadvisor + node-exporter + alertmanager services to docker-compose.droplet.yml (additive, internal-network-only), consuming the existing infrastructure/monitoring/droplet configs (prometheus.yml + catalog-generated file_sd + rules + alertmanager.yml). 57/57 deploy/monitoring invariants green. NOT yet deployed — infra-owner decisions flagged in-line: Prometheus retention/disk, alertmanager SMTP/webhook receivers, and the observability-service INTERNAL_API_KEY scrape header (its job intentionally left disabled). The droplet still runs no collector until this is deployed + those decisions made) (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
 
 ---
 
@@ -3902,7 +3902,7 @@ Severity: HIGH (architectural / tracked hardening — NOT fixed here, deliberate
 
 Fix direction: per-service keyrings (distinct kid+secret per signer, narrow `callers`/`audiences`) so possession of one service's secret cannot forge another's identity — meaningful only once identity is unforgeable, i.e. paired with mTLS-bound service identity (cert CN = identity, mirroring ADR-015 for NATS). Large blast radius (TLS termination, cert minting, every signer/verifier) → requires a `proposed` ADR + security review; do NOT mask the gap with a wildcard allowlist.
 
-Status: OPEN (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
+Status: IN-PROGRESS (2026-06-27 — decision framed in docs/adr/039-http-service-identity-mtls.md (Proposed) — phased: Phase 1 = per-service keyring entries (W3 T2.3, removes cross-service forgery, no infra change), Phase 2 = per-service mTLS (cert-CN-is-identity mirroring ADR-015, Node-native on the single-host droplet, dual-mode cutover, retire HMAC). Phase 2 needs infra (HTTP cert minting from the internal CA) + security review) (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
 
 ---
 
@@ -4050,7 +4050,7 @@ Severity: HIGH (defense-in-depth). Surfaced by the ORPHAN-CRITICAL-100 security 
 
 Fix direction: add a denormalized `tenantId` column to `auth.user_role_assignments` (carried at write time / trigger) and install `tenant_isolation_policy` on the three centralized tables via the existing helper; add a CI invariant asserting any SQL touching these tables carries a tenant predicate (Tier-3 detectable) until RLS lands.
 
-Status: OPEN (2026-06-13; owner: auth-security-expert + data-expert).
+Status: IN-PROGRESS (2026-06-27 — decision framed in docs/adr/038-auth-role-table-rls.md (Proposed) — Path A (DB-RLS as defense-in-depth: add tenantId to 2 tables + applyTenantRlsToSchema + per-request GUC on tenant-resolved paths) vs Path B (app-layer-param sufficient + a tenant-scope CI invariant). Recommends Path A iff the pre-tenant login bypass is safely separable. The latent RLS-enabled-no-policy state on auth.tenant_roles must be resolved either way. Implementation pending team ratification + staging validation) (2026-06-13; owner: auth-security-expert + data-expert).
 
 ---
 
@@ -5507,3 +5507,6 @@ Final slice of the #3 burndown — the 9 hardest "flagged tail" drifts (mixed re
 **Orphan observed (separate item, not among the 9) — RESOLVED 2026-06-26:** `ListSubEquipmentTypes` (`useSubEquipment.ts`) also selected the non-existent `SubEquipmentTypeResponse.category` (same root cause as the farm items). Verified `category` is absent from the entire sub-equipment domain (neither `SubEquipmentType`/`SubEquipment` entity nor `SubEquipmentTypeResponse` DTO nor the schema has it — types are distinguished by `code`/`name`/`compatibleEquipmentTypes`), so it is a FE fiction, not a missing-but-needed backend field → removed (not added). Dropped `category` from the query selection + the `SubEquipmentTypeOption` type; the sole consumer (`SubEquipmentModal.tsx` type dropdown, which rendered `{name} ({category})` → `({undefined})`) now shows the real `code`. farm-module `tsc` 0. Not in the drift baseline (the gate had not flagged it), so no baseline change — the fix forecloses a future NEW-drift failure.
 
 Status: RESOLVED for slice 9 — 5 resolved (4 fixed + 1 dead-removed), baseline 47 → 42. **Cumulative #3 burndown: 130 → 42 (88 ops, ~68%).** Remaining 42 = 38 hr IMPLEMENT-BACKEND roadmap + 4 flagged gaps (CancelVfdChangeSet implement-backend, 2 aquamobil AI-consent product-decision, StockAtLocation rework). All FE-fixable + dead-code + clean-rename classes are now exhausted. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
+
+## ORPHAN-MEDIUM-188 — frontend amplifies a gateway 502 into data-blanking + reconnect storms
+Found 2026-06-27 during the app.suderra.com outage (gateway 502 from the billing-boot/STRIPE_SECRET_KEY drift; backend restore tracked separately as ORPHAN-HIGH-187 / PR #672). The frontend turns a transient/total gateway 502 into "data loads, then disappears, then errors": (1) `web/shared-ui/src/utils/api-client.ts` GraphQL request called `response.json()` with NO status check, so a 502 HTML body threw a bare SyntaxError that callers couldn't classify → react-query marked the query failed → cached UI blanked; (2) two sockets used `reconnectionAttempts: Infinity` (`web/apps/aquamobil/.../useMessageSocket.ts`, `web/modules/sensor-module/.../ScadaSocketService.ts`) → an outage was stormed forever against the dead upstream. **Status: RESOLVED (2026-06-27 — api-client now short-circuits a 5xx to a TYPED GraphQLClientError (BACKEND_UNAVAILABLE) before parsing, so callers keep cached data; both sockets bounded Infinity→20. shared-ui/aquamobil/sensor-module tsc clean; api-client spec 59/59 incl. a new 502→typed-error test).** Follow-up (not in this fix): a shared circuit-breaker/health gate to pause refetchOnWindowFocus/refetchOnReconnect during a detected outage.

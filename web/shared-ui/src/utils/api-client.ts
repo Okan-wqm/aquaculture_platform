@@ -600,6 +600,23 @@ class GraphQLClient {
         return this.request(query, variables, options, retryCount + 1);
       }
 
+      // A 5xx (nginx 502/503/504 when the gateway is down, or any server error)
+      // returns an HTML/text body, NOT GraphQL JSON. Calling response.json() on it
+      // throws a bare SyntaxError that callers can't classify, so the UI treats
+      // loaded data as failed and blanks it. Surface a TYPED transport error first
+      // so callers can show "backend unavailable" and keep showing cached data.
+      // 4xx (incl. 401/403) is left to the auth + GraphQL-error handling below.
+      if (response.status >= 500) {
+        const code =
+          response.status >= 502 && response.status <= 504
+            ? 'BACKEND_UNAVAILABLE'
+            : 'NETWORK_ERROR';
+        throw new GraphQLClientError(
+          `Backend unavailable (HTTP ${response.status})`,
+          code,
+        );
+      }
+
       // Response parse
       const result = await response.json();
 

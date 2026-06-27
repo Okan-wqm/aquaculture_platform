@@ -302,7 +302,10 @@ export function useMessageSocket(): UseMessageSocketResult {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 30000,
-        reconnectionAttempts: Infinity,
+        // Bounded, not Infinity: during a full gateway outage (502) an unbounded
+        // retry storms the dead upstream forever. ~20 attempts at up to 30s backoff
+        // covers transient blips without amplifying an outage.
+        reconnectionAttempts: 20,
         forceNew: false,
       });
 

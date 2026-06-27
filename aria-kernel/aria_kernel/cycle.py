@@ -739,6 +739,10 @@ def _run_validation_matrix_phase(
                 base_dir=base_dir,
                 repo_root=workspace_root,
                 candidate_refs=refs,
+                # Plan 031 Gate A — every change committed inside the cycle
+                # window is an ARIA-authored autonomous fix, so it must leave
+                # a regression anchor (test/fixture) in its diff.
+                require_regression_anchor=True,
             )
             per_change.append({
                 "change_id": cid,

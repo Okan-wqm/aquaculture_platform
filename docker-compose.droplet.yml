@@ -1047,6 +1047,15 @@ services:
       # canonical name read by the factory + PLATFORM_SECRET_ENV_VARS (was wrongly
       # injected as STRIPE_API_KEY here, which the factory never reads → the boot
       # crash this fixes). STRIPE_BILLING_ENABLED is a non-secret intent flag.
+      # BILLING_PROVIDER is the explicit provider switch (factory SSoT):
+      #   mock (DEFAULT here) → a functional local MockBillingProvider: no outbound
+      #     Stripe, no key, local subscriptions/receipts. Correct for the
+      #     test/demo tenants on this droplet — billing WORKS instead of throwing.
+      #   stripe → the real adapter; a paying deployment MUST set this explicitly
+      #     AND provide STRIPE_SECRET_KEY (missing key then fails closed at boot).
+      # Defaulting to mock keeps a demo droplet self-healing and NEVER makes a real
+      # charge; flipping to stripe is a deliberate, key-bearing act.
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-mock}
       STRIPE_BILLING_ENABLED: ${STRIPE_BILLING_ENABLED:-false}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}

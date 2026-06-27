@@ -26,7 +26,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedInventoryConsumedEvent,
   type FeedInventoryLowEvent,
@@ -107,7 +107,7 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
         quantityKg: payload.quantityKg,
         newQuantityKg: Number(saved.quantityKg),
         newStatus: saved.status,
-        consumedAt: new Date(),
+        consumedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(consumedEvent, queryRunner.manager);
 

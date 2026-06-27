@@ -90,10 +90,9 @@ export class HarvestRegulatoryRecordedEventHandler
           harvestedQuantity: event.harvestedQuantity,
           totalWeight: event.totalWeight,
           averageWeight: event.averageWeight,
-          harvestedAt:
-            event.harvestedAt instanceof Date
-              ? event.harvestedAt.toISOString()
-              : event.harvestedAt,
+          // ORPHAN-111: event.harvestedAt is now honestly typed as an ISO string
+          // (the wire shape), so the defensive Date-or-string ternary is gone.
+          harvestedAt: event.harvestedAt,
           isFinal: event.isFinal,
           causationId: event.causationId,
         },

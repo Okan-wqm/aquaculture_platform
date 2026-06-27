@@ -11,7 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type CleanerFishRemovedEvent,
 } from '@platform/event-contracts';
@@ -198,7 +198,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
         biomassKg,
         reason: payload.reason,
         detail: payload.notes,
-        removedAt: payload.removedAt,
+        removedAt: toEventIso(payload.removedAt),
         newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
         newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
         newCleanerBatchCurrentQuantity: cleanerBatch.currentQuantity,

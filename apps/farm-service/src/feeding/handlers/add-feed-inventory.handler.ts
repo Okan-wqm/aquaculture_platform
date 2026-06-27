@@ -20,7 +20,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedInventoryReceivedEvent,
 } from '@platform/event-contracts';
@@ -134,9 +134,9 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
         lotNumber: saved.lotNumber,
         quantityKg: payload.quantityKg,
         newTotalQuantityKg: Number(saved.quantityKg),
-        manufacturingDate: saved.manufacturingDate,
-        expiryDate: saved.expiryDate,
-        receivedDate: saved.receivedDate ?? new Date(),
+        manufacturingDate: toEventIso(saved.manufacturingDate),
+        expiryDate: toEventIso(saved.expiryDate),
+        receivedDate: toEventIso(saved.receivedDate ?? new Date()),
         unitPricePerKg: payload.unitPricePerKg,
         currency: saved.currency,
         isNewLotRow,

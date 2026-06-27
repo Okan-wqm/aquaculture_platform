@@ -22,6 +22,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { CullRecordedEvent } from '@platform/event-contracts';
+import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
@@ -289,7 +290,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         quantity: payload.quantity,
         reason: toCullReasonCode(payload.reason),
         detail: payload.detail,
-        culledAt: payload.culledAt,
+        culledAt: toEventIso(payload.culledAt),
         newCullCount: batch.cullCount,
         newCurrentQuantity: batch.currentQuantity,
       };

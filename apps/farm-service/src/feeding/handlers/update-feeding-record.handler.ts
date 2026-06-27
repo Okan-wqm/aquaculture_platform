@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedingRecordUpdatedEvent,
 } from '@platform/event-contracts';
@@ -115,7 +115,7 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
         previousFeedCost: oldFeedCost,
         newFeedCost: newFeedCost,
         costDiff,
-        updatedAt: new Date(),
+        updatedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

@@ -23,6 +23,7 @@ import { Injectable, Logger, NotFoundException, ConflictException, BadRequestExc
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
+import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
@@ -335,7 +336,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         tankId: payload.tankId,
         quantity: payload.quantity,
         reason: toMortalityReasonCode(payload.reason),
-        mortalityDate: payload.observedAt,
+        mortalityDate: toEventIso(payload.observedAt),
         newTotalMortality: batch.totalMortality,
         newMortalityRate: batch.getMortalityRate(),
       };

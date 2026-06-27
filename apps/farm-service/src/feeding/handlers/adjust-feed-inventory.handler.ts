@@ -21,7 +21,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedInventoryAdjustedEvent,
 } from '@platform/event-contracts';
@@ -115,7 +115,7 @@ export class AdjustFeedInventoryHandler implements ICommandHandler<AdjustFeedInv
         newQuantityKg: newQuantity,
         reason: payload.reason,
         notes: payload.notes,
-        adjustedAt,
+        adjustedAt: toEventIso(adjustedAt),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

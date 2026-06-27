@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type CleanerFishTransferredEvent,
 } from '@platform/event-contracts';
@@ -320,7 +320,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
         avgWeightG,
         biomassKg,
         reason: payload.reason,
-        transferredAt: payload.transferredAt,
+        transferredAt: toEventIso(payload.transferredAt),
         newSourceTankCleanerFishQuantity: sourceTankBatch.cleanerFishQuantity ?? 0,
         newSourceTankCleanerFishBiomassKg: Number(sourceTankBatch.cleanerFishBiomassKg ?? 0),
         newDestinationTankCleanerFishQuantity: destTankBatch.cleanerFishQuantity ?? 0,

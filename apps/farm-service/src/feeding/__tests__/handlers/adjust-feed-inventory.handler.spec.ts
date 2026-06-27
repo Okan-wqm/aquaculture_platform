@@ -119,7 +119,7 @@ describe('AdjustFeedInventoryHandler — transactional outbox', () => {
     expect(event['newQuantityKg']).toBe(250);
     expect(event['reason']).toBe('physical count');
     expect(event['notes']).toBe('unit test');
-    expect(event['adjustedAt']).toBeInstanceOf(Date);
+    expect(typeof event['adjustedAt']).toBe('string');
 
     expect(commit).toHaveBeenCalledTimes(1);
   });

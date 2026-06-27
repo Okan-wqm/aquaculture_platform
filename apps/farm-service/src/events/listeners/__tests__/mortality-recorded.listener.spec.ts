@@ -98,7 +98,7 @@ function makeEvent(
     tankId: TANK_ID,
     quantity: 10,
     reason: 'DISEASE',
-    mortalityDate: new Date('2026-06-10T08:00:00.000Z'),
+    mortalityDate: '2026-06-10T08:00:00.000Z',
     newTotalMortality: 50,
     newMortalityRate: 1.0,
     ...overrides,
@@ -289,7 +289,7 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
       makeEvent({
         quantity: 300,
         newMortalityRate: 12,
-        mortalityDate: new Date('2026-06-10T08:00:00.000Z'),
+        mortalityDate: '2026-06-10T08:00:00.000Z',
       }),
     );
     await listener.handle(wireEvent);
@@ -297,10 +297,9 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     const alert = publishedEvents(bus).find(
       (e) => e.eventType === 'MortalityAlertRaised',
     );
-    expect(alert?.recordedAt).toBeInstanceOf(Date);
-    expect((alert?.recordedAt as Date).toISOString()).toBe(
-      '2026-06-10T08:00:00.000Z',
-    );
+    // ORPHAN-111: recordedAt is now an ISO string on the wire.
+    expect(typeof alert?.recordedAt).toBe('string');
+    expect(alert?.recordedAt).toBe('2026-06-10T08:00:00.000Z');
   });
 
   // ── Inbound idempotency (symmetric with HarvestCompletedListener) ─────────

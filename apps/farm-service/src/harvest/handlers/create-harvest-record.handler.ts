@@ -24,7 +24,7 @@ import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
@@ -403,7 +403,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         userId: recordedBy,
         batchId: harvestRecord.batchId,
         harvestedQuantity: harvestRecord.quantityHarvested,
-        harvestedAt: harvestRecord.harvestDate,
+        harvestedAt: toEventIso(harvestRecord.harvestDate),
         averageWeight: harvestRecord.averageWeight,
         totalWeight: harvestRecord.totalBiomass,
         isFinal: isFinalHarvest,

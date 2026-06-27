@@ -239,7 +239,7 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
     expect(enqueuedEvent['averageWeightG']).toBe(250);
     expect(enqueuedEvent['weightCV']).toBe(8);
     expect(enqueuedEvent['performance']).toBe('good');
-    expect(enqueuedEvent['measurementDate']).toBeInstanceOf(Date);
+    expect(typeof enqueuedEvent['measurementDate']).toBe('string');
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(rollback).not.toHaveBeenCalled();

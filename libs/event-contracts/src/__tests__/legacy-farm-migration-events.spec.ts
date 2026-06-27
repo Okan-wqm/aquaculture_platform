@@ -43,8 +43,8 @@ describe('LegacyFarmDataMigratedEvent', () => {
       pondsSkipped: 1,
       syntheticDepartmentsCreated: 3,
       operatorId: 'ops-user-42',
-      migrationStartedAt: new Date('2026-04-24T08:00:00Z'),
-      migrationCompletedAt: new Date('2026-04-24T08:00:03Z'),
+      migrationStartedAt: '2026-04-24T08:00:00.000Z',
+      migrationCompletedAt: '2026-04-24T08:00:03.000Z',
     };
   }
 
@@ -108,7 +108,7 @@ describe('LegacyFarmTableConvertedEvent', () => {
       table,
       phase: 'table-to-view',
       rowCount: 42,
-      convertedAt: new Date('2026-05-01T12:00:00Z'),
+      convertedAt: '2026-05-01T12:00:00.000Z',
     };
   }
 

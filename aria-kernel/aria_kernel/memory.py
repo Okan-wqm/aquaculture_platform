@@ -826,6 +826,16 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
             reason="belief evidence changed, disappeared, or glob no longer matches",
             evidence_refs=missing_refs + empty_globs,
         )
+        # Plan 031 Gate B — a belief reopened because its evidence changed is a
+        # reopen signal for the oscillation guard. Pure counter increment (no
+        # escalation here); the fix dispatcher's guard_fix_dispatch decides.
+        from .oscillation_guard import record_reopen
+        record_reopen(
+            fingerprint=f"belief:{belief.get('belief_id')}",
+            cycle_id=cycle_id,
+            base_dir=root,
+            context={"reason": "belief_evidence_invalidated"},
+        )
         written += 1
     return written
 

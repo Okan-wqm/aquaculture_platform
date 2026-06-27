@@ -3902,7 +3902,7 @@ Severity: HIGH (architectural / tracked hardening — NOT fixed here, deliberate
 
 Fix direction: per-service keyrings (distinct kid+secret per signer, narrow `callers`/`audiences`) so possession of one service's secret cannot forge another's identity — meaningful only once identity is unforgeable, i.e. paired with mTLS-bound service identity (cert CN = identity, mirroring ADR-015 for NATS). Large blast radius (TLS termination, cert minting, every signer/verifier) → requires a `proposed` ADR + security review; do NOT mask the gap with a wildcard allowlist.
 
-Status: OPEN (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
+Status: IN-PROGRESS (2026-06-27 — decision framed in docs/adr/039-http-service-identity-mtls.md (Proposed) — phased: Phase 1 = per-service keyring entries (W3 T2.3, removes cross-service forgery, no infra change), Phase 2 = per-service mTLS (cert-CN-is-identity mirroring ADR-015, Node-native on the single-host droplet, dual-mode cutover, retire HMAC). Phase 2 needs infra (HTTP cert minting from the internal CA) + security review) (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
 
 ---
 
@@ -4050,7 +4050,7 @@ Severity: HIGH (defense-in-depth). Surfaced by the ORPHAN-CRITICAL-100 security 
 
 Fix direction: add a denormalized `tenantId` column to `auth.user_role_assignments` (carried at write time / trigger) and install `tenant_isolation_policy` on the three centralized tables via the existing helper; add a CI invariant asserting any SQL touching these tables carries a tenant predicate (Tier-3 detectable) until RLS lands.
 
-Status: OPEN (2026-06-13; owner: auth-security-expert + data-expert).
+Status: IN-PROGRESS (2026-06-27 — decision framed in docs/adr/038-auth-role-table-rls.md (Proposed) — Path A (DB-RLS as defense-in-depth: add tenantId to 2 tables + applyTenantRlsToSchema + per-request GUC on tenant-resolved paths) vs Path B (app-layer-param sufficient + a tenant-scope CI invariant). Recommends Path A iff the pre-tenant login bypass is safely separable. The latent RLS-enabled-no-policy state on auth.tenant_roles must be resolved either way. Implementation pending team ratification + staging validation) (2026-06-13; owner: auth-security-expert + data-expert).
 
 ---
 

@@ -125,6 +125,10 @@ export type ScadaCommandPayload =
 @WebSocketGateway({
   cors: buildScadaWsCorsConfig(),
   namespace: '/scada',
+  // Dedicated engine.io path so nginx can route SCADA traffic straight to this
+  // service instead of the gateway's default /socket.io/ (which has no /scada).
+  // Must match the client's `path` in web ScadaSocketService.
+  path: '/scada-ws/',
   transports: ['websocket', 'polling'],
 })
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))

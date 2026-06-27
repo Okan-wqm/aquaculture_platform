@@ -8,6 +8,7 @@ from .calibration import recommend_calibration
 from .ci import list_ci_failures, produce_ci_review
 from .cycle import run_cycle
 from .feedback_store import generate_ai_consensus, generate_judgment_sample
+from .judge_fanout import dispatch_judges_for_sample
 from .fixture_runner import refresh_fixture_suite
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
@@ -135,6 +136,11 @@ def _produce_judgment_work(
                 base_dir=base_dir,
             )
             actions.append({"action": "ai_judge_sample", "tool_id": tool_id, "result": sample})
+            # Plan 025 §A — turn the worklist into actual judge dispatch: two
+            # distinct judges per sampled finding so consensus (>=2 unique
+            # judges) can fire by construction once they respond.
+            fanout = dispatch_judges_for_sample(sample=sample, base_dir=base_dir, target_sha=None)
+            actions.append({"action": "ai_judge_fanout", "tool_id": tool_id, "result": fanout})
         except GovernanceError as exc:
             actions.append({"action": "ai_judge_sample", "tool_id": tool_id, "status": "blocked", "reason": str(exc)})
         try:

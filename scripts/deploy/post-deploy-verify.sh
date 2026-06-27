@@ -202,9 +202,14 @@ docker exec "${gateway_container}" curl -sf "http://localhost:3000/health/ready"
 # header so the request takes the exact path real traffic does, and we assert a valid
 # GraphQL JSON body — a 502 returns nginx HTML, which must FAIL the deploy.
 public_host="${PUBLIC_SMOKE_HOST:-app.suderra.com}"
-nginx_origin="${PUBLIC_SMOKE_ORIGIN:-http://localhost}"
+# Real https public path (was http://localhost → nginx 301-redirects http→https,
+# which false-failed the smoke). Pin to the local nginx via --resolve so it tests
+# the exact public TLS path (valid cert/SNI/Host) without external DNS;
+# -L/--post301/--post302 re-POST through a redirect if overridden back to http.
+nginx_origin="${PUBLIC_SMOKE_ORIGIN:-https://${public_host}}"
+nginx_resolve="${PUBLIC_SMOKE_RESOLVE:-${public_host}:443:127.0.0.1}"
 graphql_body='{"query":"{ __typename }"}'
-graphql_out="$(curl -s -m 15 -w $'\n%{http_code}' \
+graphql_out="$(curl -sS -m 15 -L --post301 --post302 --resolve "${nginx_resolve}" -w $'\n%{http_code}' \
   -H "Host: ${public_host}" -H 'Content-Type: application/json' \
   -X POST --data "${graphql_body}" "${nginx_origin}/graphql" || true)"
 graphql_code="$(printf '%s' "${graphql_out}" | tail -n1)"
@@ -216,7 +221,7 @@ if [ "${graphql_code}" != "200" ] || \
 fi
 
 # Socket.IO handshake through nginx (engine.io polling open).
-socketio_code="$(curl -s -m 15 -o /dev/null -w '%{http_code}' \
+socketio_code="$(curl -sS -m 15 -L --resolve "${nginx_resolve}" -o /dev/null -w '%{http_code}' \
   -H "Host: ${public_host}" "${nginx_origin}/socket.io/?EIO=4&transport=polling" || true)"
 if [ "${socketio_code}" != "200" ]; then
   echo "::error::public /socket.io handshake FAILED through nginx (HTTP ${socketio_code})." >&2

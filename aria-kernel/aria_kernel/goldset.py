@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +89,77 @@ def list_goldset_proposals(*, base_dir: str | Path | None = None) -> list[dict[s
         ensure_tools_dir(base_dir) / "goldsets" / "proposals.jsonl",
         expected_surface="goldset_proposals",
     )
+
+
+def _safe_tool_id(tool_id: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(tool_id))
+
+
+def _active_goldset_path(tools_root: Path, tool_id: str) -> Path:
+    return tools_root / "goldsets" / "active" / f"{_safe_tool_id(tool_id)}.json"
+
+
+def promote_goldset_proposal(
+    *,
+    tool_id: str,
+    curator: str,
+    base_dir: str | Path | None = None,
+    proposal: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Plan 025 §B — turn a ``ready`` proposal into the ACTIVE gold corpus.
+
+    Before this, ``goldset.py`` was dead-ended: ``propose_goldset`` wrote a
+    proposal and a misnamed ``goldset_promoted`` marker, but nothing ever
+    promoted or consumed it. Promotion is an explicit operator act (a named
+    ``curator`` accepts a proposal) that writes the approved TP/FP gold items
+    to a stable per-tool active file, which the Plan 025 §C judge-replay reads.
+
+    NOTE: the gold corpus is JUDGE ground truth (findings + verdicts), not an
+    adapter regression fixture — the proposal carries no adapter input/expected,
+    so it is deliberately NOT forced into a semantic_regression case.
+    """
+    if not isinstance(curator, str) or not curator.strip():
+        raise GovernanceError("curator is required")
+    root = ensure_tools_dir(base_dir)
+    if proposal is None:
+        ready = [
+            p for p in list_goldset_proposals(base_dir=root)
+            if p.get("tool_id") == tool_id and p.get("status") == "ready"
+        ]
+        if not ready:
+            raise GovernanceError(f"no ready goldset proposal for tool {tool_id!r}")
+        proposal = ready[-1]
+    if proposal.get("status") != "ready":
+        raise GovernanceError("only a 'ready' goldset proposal can be promoted")
+    record = {
+        "schema_version": 1,
+        "status": "active",
+        "promoted_at": utc_now(),
+        "tool_id": tool_id,
+        "curator": curator.strip(),
+        "source_proposal_recorded_at": proposal.get("recorded_at"),
+        "true_positive_count": proposal.get("true_positive_count"),
+        "known_false_positive_count": proposal.get("known_false_positive_count"),
+        "true_positive_items": proposal.get("true_positive_items", []),
+        "known_false_positive_items": proposal.get("known_false_positive_items", []),
+    }
+    path = _active_goldset_path(root, tool_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return record
+
+
+def load_active_goldset(
+    *, tool_id: str, base_dir: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """The active gold corpus for a tool, or None if none has been promoted."""
+    path = _active_goldset_path(ensure_tools_dir(base_dir), tool_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _gold_item(row: dict[str, Any]) -> dict[str, Any]:

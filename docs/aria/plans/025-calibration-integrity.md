@@ -36,17 +36,27 @@ sampled finding is structurally dispatched to >=2 judges; the resulting
 `single_judge` now means "a judge did not respond", not "only one was ever
 asked". Test: `tests/test_judge_fanout.py`.
 
-## Phase 025b — Gold-set activation (tier-2 "make it automatic")
+## Phase 025b — Gold-set activation (tier-2 "make it automatic") ✅
 
-- New `goldset.promote_goldset_proposal` transforms a `ready` proposal into an
-  active `semantic_regression` fixture case at `<tool["fixture_set"]>/cases/<name>.json`
-  (`lane:"semantic_regression"` + `curation.curator` + `curation.gold_set.{true_positive_count, known_false_positive_count}` + `input`/`expected`
-  with `required_findings`/`forbidden_findings` derived from the proposal's TP/FP
-  item rules). `run_fixture_suite` then re-runs it every cycle
-  (`fixture_runner.py:43`).
-- New CLI `aria-kernel goldset propose|list|promote`, mirroring the `feedback`
-  subcommand registration (`cli.py:415-431` + dispatch `cli.py:1913`) — the
-  surface the curator agent doc references but that was never implemented.
+`goldset.py` was dead-ended (`propose_goldset` + a misnamed `goldset_promoted`
+marker; no promotion, no consumer). Phase B makes it live:
+- New `goldset.promote_goldset_proposal(*, tool_id, curator, ...)` — an explicit
+  operator act (a named `curator` accepts a `ready` proposal) writes the approved
+  TP/FP gold items to a stable per-tool active file
+  (`goldsets/active/<tool_id>.json`); `load_active_goldset` reads it back. This
+  is the corpus the §C replay consumes.
+- **Design correction:** the gold corpus is JUDGE ground truth (findings +
+  verdicts), not an adapter regression fixture. A proposal carries no adapter
+  `input`/`expected`, so it is deliberately NOT forced into a
+  `semantic_regression` case — that would fabricate adapter inputs. Generating
+  adapter fixtures from gold is a separate concern, out of scope here.
+
+**Deferred — ARIA-025-D1 (owner: aria-core, due 2026-08-26):** the operator CLI
+`aria-kernel goldset propose|list|promote` + `judge replay`. The kernel
+functions are complete and consumed programmatically; the CLI is a thin operator
+wrapper held back to avoid destabilising `cli.py`'s heavy invariant surface in
+this change. The curator agent doc references `aria-kernel goldset propose`,
+which this CLI will finally implement.
 
 ## Phase 025c — Gold-set-replay recall (tier-3 measurement)
 

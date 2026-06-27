@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   SubscriptionCancelledEvent,
   TenantSubscriptionChangedEvent,
@@ -109,8 +109,8 @@ export class CancelSubscriptionHandler
       const event: SubscriptionCancelledEvent = {
         ...createBaseEvent<SubscriptionCancelledEvent>('SubscriptionCancelled', tenantId, { userId }),
         subscriptionId: savedSubscription.id,
-        cancellationDate: savedSubscription.cancelledAt!,
-        effectiveEndDate: savedSubscription.endDate!,
+        cancellationDate: toEventIso(savedSubscription.cancelledAt!),
+        effectiveEndDate: toEventIso(savedSubscription.endDate!),
         reason,
       };
       await this.outboxPublisher.enqueue(event, manager);
@@ -127,7 +127,7 @@ export class CancelSubscriptionHandler
         ),
         previousPlan: savedSubscription.planTier,
         newPlan: savedSubscription.planTier,
-        effectiveDate: savedSubscription.cancelledAt ?? new Date(),
+        effectiveDate: toEventIso(savedSubscription.cancelledAt ?? new Date()),
         trialEndsAt: savedSubscription.trialEndDate ?? null,
         subscriptionEndsAt: savedSubscription.endDate ?? null,
         subscriptionStatus: savedSubscription.status,

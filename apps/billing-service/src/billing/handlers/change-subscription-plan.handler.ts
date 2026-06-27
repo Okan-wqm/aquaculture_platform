@@ -9,7 +9,7 @@ import {
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   SubscriptionUpdatedEvent,
   TenantSubscriptionChangedEvent,
@@ -273,7 +273,7 @@ export class ChangeSubscriptionPlanHandler
         ),
         previousPlan: previousPlanTier,
         newPlan: savedSubscription.planTier,
-        effectiveDate: new Date(),
+        effectiveDate: toEventIso(new Date()),
         trialEndsAt: savedSubscription.trialEndDate ?? null,
         subscriptionEndsAt: savedSubscription.endDate ?? null,
         subscriptionStatus: savedSubscription.status,

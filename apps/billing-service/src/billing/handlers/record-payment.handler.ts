@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, PaymentReceivedEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent, PaymentReceivedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { Money } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
@@ -145,7 +145,7 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         currency: savedPayment.currency,
         paymentMethod: savedPayment.paymentMethod,
         transactionId: savedPayment.transactionId,
-        paidAt: savedPayment.paymentDate,
+        paidAt: toEventIso(savedPayment.paymentDate),
       };
       await this.outboxPublisher.enqueue(event, manager);
 

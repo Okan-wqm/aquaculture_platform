@@ -1,4 +1,4 @@
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type {
   LeaveRequestSubmittedEvent,
   LeaveApprovedEvent,
@@ -24,8 +24,8 @@ export function createLeaveRequestSubmittedEvent(
     employeeId: leaveRequest.employeeId,
     leaveTypeId: leaveRequest.leaveTypeId,
     leaveTypeName: leaveRequest.leaveType?.name ?? 'Unknown',
-    startDate: leaveRequest.startDate,
-    endDate: leaveRequest.endDate,
+    startDate: toEventIso(leaveRequest.startDate),
+    endDate: toEventIso(leaveRequest.endDate),
     totalDays: Number(leaveRequest.totalDays),
   };
 }

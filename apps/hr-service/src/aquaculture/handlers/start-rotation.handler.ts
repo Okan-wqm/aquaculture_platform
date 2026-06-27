@@ -7,7 +7,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { EmployeeRotationStartedEvent } from '@platform/event-contracts';
 import { DataSource, QueryRunner } from 'typeorm';
 import { StartRotationCommand } from '../commands/start-rotation.command';
@@ -122,8 +122,8 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
           workAreaId: saved.workAreaId,
           workAreaName: saved.workArea?.name ?? saved.workAreaId,
           rotationType: saved.rotationType ?? 'STANDARD',
-          startDate: saved.startDate,
-          endDate: saved.endDate,
+          startDate: toEventIso(saved.startDate),
+          endDate: toEventIso(saved.endDate),
           daysOn: saved.daysOn,
           daysOff: saved.daysOff,
         };

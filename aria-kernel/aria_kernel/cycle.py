@@ -15,7 +15,7 @@ from .learning import run_learning_pass, run_learning_post_evidence_closure, run
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
-from .memory import update_memory
+from .memory import decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
@@ -423,6 +423,7 @@ def run_enterprise_cycle(
     consensus_escalation: dict[str, Any] = {}
     judge_calibration: dict[str, Any] = {}
     proactive_priorities: dict[str, Any] = {}
+    belief_decay: dict[str, Any] = {}
     post_tool_failure = None
     try:
         memory = update_memory(
@@ -430,6 +431,14 @@ def run_enterprise_cycle(
         )
     except Exception as exc:
         post_tool_failure = {"phase": "memory", "status": "failed", "error": str(exc)}
+    # Plan 028 §D4 — age-based belief decay BEFORE pressure, so a belief about
+    # unchanged code that has aged past its TTL becomes needs_revalidation and
+    # run_pressure surfaces it this same cycle. Skipped under no-write runs.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            belief_decay = decay_stale_beliefs_by_age(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "belief_decay", "status": "failed", "error": str(exc)}
     if post_tool_failure is None:
         try:
             pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
@@ -580,6 +589,7 @@ def run_enterprise_cycle(
         "discovery": discovery,
         "cycle_diff": diff,
         "memory": memory,
+        "belief_decay": belief_decay,
         "pressure": pressure,
         "consensus_escalation": consensus_escalation,
         "judge_calibration": judge_calibration,

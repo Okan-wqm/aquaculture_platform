@@ -204,6 +204,25 @@ describe('api-client', () => {
       expect(fetchInit.headers['Authorization']).toBe('Bearer gql-test-token');
     });
 
+    it('surfaces a typed BACKEND_UNAVAILABLE error on a 502 (never parses HTML as JSON)', async () => {
+      apiClient.setTokens('token');
+      // nginx returns a 502 HTML page when the gateway is down. json() would throw a
+      // bare SyntaxError that callers can't classify, blanking cached data. The client
+      // must short-circuit on !response.ok and throw a TYPED transport error first.
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+        text: () => Promise.resolve('<html>502 Bad Gateway</html>'),
+        headers: new Headers(),
+      } as Response);
+
+      await expect(apiClient.graphqlClient.request('{ ok }')).rejects.toMatchObject({
+        name: 'GraphQLClientError',
+        code: 'BACKEND_UNAVAILABLE',
+      });
+    });
+
     it('should include X-Tenant-Id header when tenant is set', async () => {
       apiClient.setTokens('token');
       apiClient.setTenantId('tenant-42');

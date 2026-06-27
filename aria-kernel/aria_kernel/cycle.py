@@ -21,6 +21,7 @@ from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .reflection import run_reflection
 from .human_required import sweep_consensus_uncertainties_for_human_required
+from .judge_calibration import compute_judge_calibration
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
@@ -419,6 +420,7 @@ def run_enterprise_cycle(
     pressure: dict[str, Any] = {}
     reflection = None if defer_reflection else {}
     consensus_escalation: dict[str, Any] = {}
+    judge_calibration: dict[str, Any] = {}
     post_tool_failure = None
     try:
         memory = update_memory(
@@ -440,9 +442,20 @@ def run_enterprise_cycle(
             consensus_escalation = sweep_consensus_uncertainties_for_human_required(base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "consensus_escalation", "status": "failed", "error": str(exc)}
+    # Plan 024 §A — score each judge against accumulated ground truth so the
+    # cheap-tier judgment is measured, not assumed. Read-only join over the
+    # feedback ledger (no LLM); skipped under shadow/discovery no-write runs.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            judge_calibration = compute_judge_calibration(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "judge_calibration", "status": "failed", "error": str(exc)}
     if post_tool_failure is None and not defer_reflection:
         try:
-            reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+            reflection = run_reflection(
+                cycle_id=cycle_id, base_dir=root, repo_root=workspace_root,
+                calibration_result=judge_calibration or None,
+            )
         except Exception as exc:
             post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
     try:
@@ -558,6 +571,7 @@ def run_enterprise_cycle(
         "memory": memory,
         "pressure": pressure,
         "consensus_escalation": consensus_escalation,
+        "judge_calibration": judge_calibration,
         "reflection": reflection,
         "cycle_metrics": metrics,
         "observability_dashboard": dashboard,

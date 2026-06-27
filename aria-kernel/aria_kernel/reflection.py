@@ -537,6 +537,31 @@ def _render_pedagogy_section(reflection: dict[str, Any]) -> list[str]:
     ]
 
 
+def _render_calibration_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan 024 §A — render the daily report's Judge Calibration section.
+    Gated on a non-null ``calibration`` sub-object (the per-cycle
+    judge_calibration phase emits it)."""
+    calibration = reflection.get("calibration")
+    if not calibration:
+        return []
+    judges = calibration.get("judges") or []
+    degraded = calibration.get("degraded_judges") or []
+    lines = [
+        "## Judge Calibration",
+        "",
+        f"- Judges scored: {calibration.get('judged_judges', 0)}",
+        f"- Degraded (precision < {calibration.get('precision_floor', 0.0)}): "
+        f"{', '.join(degraded) if degraded else 'none'}",
+    ]
+    for j in judges:
+        lines.append(
+            f"  - {j.get('judge_id')}: precision={j.get('precision')} "
+            f"recall={j.get('recall')} n={j.get('samples')} [{j.get('status')}]"
+        )
+    lines.append("")
+    return lines
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -636,6 +661,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         # the sections appear empty / are skipped entirely.
         *_render_convergence_section(reflection),
         *_render_pedagogy_section(reflection),
+        *_render_calibration_section(reflection),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

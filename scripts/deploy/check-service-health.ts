@@ -50,6 +50,11 @@ interface ManifestEntry {
 
 interface Manifest {
   schema_version?: number;
+  // readiness_sla_seconds is DERIVED into this generated manifest from the
+  // platform service catalog (max critical startupBudgetSeconds + margin).
+  // It is the ONLY source of the SLA — there is no silent default; an absent
+  // value is a generation failure that must fail the gate loudly, not fall
+  // back to a magic number that can mask a broken/stale manifest.
   defaults?: { readiness_sla_seconds?: number };
   services?: ManifestEntry[];
 }
@@ -71,8 +76,18 @@ function loadManifest(path: string): { services: ManifestEntry[]; sla: number } 
     process.exit(2);
   }
   const data = yaml.load(readFileSync(path, 'utf8')) as Manifest | null;
-  const defaults = data?.defaults ?? {};
-  const sla = Number.parseInt(String(defaults.readiness_sla_seconds ?? 300), 10);
+  // The manifest is generated from the platform service catalog and ALWAYS
+  // carries a derived defaults.readiness_sla_seconds. There is no fallback
+  // default: a missing/non-numeric value means the manifest is stale or
+  // hand-broken, which must fail the deploy gate, not silently assume a number.
+  const sla = data?.defaults?.readiness_sla_seconds;
+  if (typeof sla !== 'number' || !Number.isFinite(sla) || sla <= 0) {
+    console.error(
+      `::error::manifest ${path} is missing a valid defaults.readiness_sla_seconds ` +
+        '(generated from the platform service catalog) — regenerate service-criticality.yaml',
+    );
+    process.exit(2);
+  }
   const services = Array.isArray(data?.services) ? data!.services! : [];
   return { services, sla };
 }

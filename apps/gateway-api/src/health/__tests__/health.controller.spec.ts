@@ -14,7 +14,7 @@
  *
  * Tests the standardized health check format:
  *   GET /health/live   -> { status: 'ok' }
- *   GET /health/ready  -> { status, checks: { downstream } } via @Res()
+ *   GET /health/ready  -> { status, checks: { composition, auth, subgraphs }, message? } via @Res()
  *   GET /health        -> { status, timestamp, uptime, version }
  *   GET /health/detail -> Full HealthStatus (auth required)
  *   GET /health/ping   -> { message: 'pong', timestamp }
@@ -111,8 +111,11 @@ describe('HealthController', () => {
   });
 
   describe('readiness', () => {
-    it('should return 200 with ok when services are ready', async () => {
-      healthService.getReadiness.mockResolvedValue({ status: 'ok' });
+    it('should return 200 with ok and the full checks breakdown when ready', async () => {
+      healthService.getReadiness.mockResolvedValue({
+        status: 'ok',
+        checks: { composition: 'ok', auth: 'ok', subgraphs: 'ok' },
+      });
       const res = createMockResponse();
 
       await controller.readiness(res);
@@ -120,14 +123,15 @@ describe('HealthController', () => {
       expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
       expect(res.json).toHaveBeenCalledWith({
         status: 'ok',
-        checks: { downstream: 'ok' },
+        checks: { composition: 'ok', auth: 'ok', subgraphs: 'ok' },
       });
     });
 
-    it('should return 503 when not ready', async () => {
+    it('should return 503 with composition pending while the supergraph is still composing', async () => {
       healthService.getReadiness.mockResolvedValue({
         status: 'not_ready',
-        message: 'Auth service is unavailable',
+        message: 'Supergraph composition pending',
+        checks: { composition: 'pending', auth: 'ok', subgraphs: 'ok' },
       });
       const res = createMockResponse();
 
@@ -136,7 +140,26 @@ describe('HealthController', () => {
       expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
       expect(res.json).toHaveBeenCalledWith({
         status: 'not_ready',
-        checks: { downstream: 'error' },
+        checks: { composition: 'pending', auth: 'ok', subgraphs: 'ok' },
+        message: 'Supergraph composition pending',
+      });
+    });
+
+    it('should return 503 with auth error when auth is unreachable', async () => {
+      healthService.getReadiness.mockResolvedValue({
+        status: 'not_ready',
+        message: 'Auth service is unavailable',
+        checks: { composition: 'ok', auth: 'error', subgraphs: 'ok' },
+      });
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'not_ready',
+        checks: { composition: 'ok', auth: 'error', subgraphs: 'ok' },
+        message: 'Auth service is unavailable',
       });
     });
   });

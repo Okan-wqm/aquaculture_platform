@@ -16,6 +16,7 @@ import {
   imageBuildTargets,
   infraImageBuildTargets,
   readinessServices,
+  readinessSlaSeconds,
   requiredRuntimeEnv,
   requiredRuntimeSecrets,
   serviceDbRolePrefixes,
@@ -165,12 +166,18 @@ function criticalityArtifact(): Artifact {
     ].join('\n');
   });
 
+  // DEPLOY-SSOT: readiness SLA is DERIVED from the catalog, not typed.
+  // = max(startupBudgetSeconds over CRITICAL services) + margin. Replaces the
+  // former hardcoded `readiness_sla_seconds: 300` literal that drifted freely
+  // from the per-service compose start_period values it was supposed to bound.
+  const readinessSla = readinessSlaSeconds();
+
   return {
     path: 'infrastructure/deploy/service-criticality.yaml',
     contents: `${header('yaml')}
 schema_version: 1
 defaults:
-  readiness_sla_seconds: 300
+  readiness_sla_seconds: ${readinessSla}
 services:
 ${services.join('\n')}\n`,
   };

@@ -2,6 +2,7 @@ import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { CompositionStateService } from '../config/composition-state.service';
 import { FEDERATED_SUBGRAPHS } from '../config/federated-subgraphs.generated';
 
 /**
@@ -44,6 +45,31 @@ export interface PublicHealthStatus {
 }
 
 /**
+ * Readiness check breakdown (ARCH-GW-006).
+ *
+ * Each sub-check reports the narrowest cause that keeps the gateway out of
+ * rotation, so operators can tell "still composing" from "auth is down" from
+ * "a non-critical subgraph is degraded".
+ */
+export interface ReadinessChecks {
+  /** 'ok' once the live supergraph has composed; 'pending' before that. */
+  composition: 'ok' | 'pending';
+  /** 'ok' if auth is reachable; 'error' if it is not. */
+  auth: 'ok' | 'error';
+  /** 'ok' if every subgraph is healthy; 'degraded' if any is not. */
+  subgraphs: 'ok' | 'degraded';
+}
+
+/**
+ * Readiness status returned by getReadiness() (ARCH-GW-006).
+ */
+export interface ReadinessStatus {
+  status: 'ok' | 'not_ready';
+  message?: string;
+  checks: ReadinessChecks;
+}
+
+/**
  * Health Service
  * Monitors health of all downstream services
  * Provides comprehensive health checks for kubernetes probes
@@ -58,7 +84,11 @@ export class HealthService {
   private cacheExpiry = 0;
   private readonly cacheTtlMs: number;
 
-  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
+  constructor(
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(CompositionStateService)
+    private readonly compositionState: CompositionStateService,
+  ) {
     this.healthCheckTimeout = this.configService.get<number>('HEALTH_CHECK_TIMEOUT_MS', 5000);
     this.cacheTtlMs = this.configService.get<number>('HEALTH_CHECK_CACHE_TTL_MS', 5000);
 
@@ -91,20 +121,62 @@ export class HealthService {
   }
 
   /**
-   * Get readiness status (is the gateway ready to accept traffic)
+   * Get readiness status (is the gateway ready to accept traffic).
+   *
+   * ARCH-GW-006: readiness now layers three checks, each short-circuiting at the
+   * narrowest blocking cause:
+   *
+   *   1. composition — the live supergraph must have composed at least once.
+   *      Until then there is no real schema to serve, so we return not_ready
+   *      WITHOUT fanning out to the subgraphs (no point probing services for a
+   *      schema that does not exist yet, and the deploy gate uses /health/live
+   *      for liveness anyway).
+   *   2. auth — the critical-path subgraph must be reachable.
+   *   3. subgraphs — any other unhealthy/degraded subgraph downgrades readiness.
+   *
+   * /health/live is pure liveness and is unaffected by any of this.
    */
-  async getReadiness(): Promise<{ status: 'ok' | 'not_ready'; message?: string }> {
-    // Check if we can reach at least the auth service
-    const authHealth = await this.checkService('auth');
-
-    if (authHealth.status === 'unhealthy') {
+  async getReadiness(): Promise<ReadinessStatus> {
+    // 1. Composition gate. Short-circuit before any subgraph fan-out.
+    if (!this.compositionState.isComposed()) {
+      const lastError = this.compositionState.getLastError();
       return {
         status: 'not_ready',
-        message: 'Auth service is unavailable',
+        message: lastError
+          ? `Supergraph composition pending (last error: ${lastError})`
+          : 'Supergraph composition pending',
+        checks: { composition: 'pending', auth: 'ok', subgraphs: 'ok' },
       };
     }
 
-    return { status: 'ok' };
+    // 2 + 3. Composition is done — reuse the cached subgraph health sweep.
+    const services = await this.checkAllServices();
+
+    const authHealth = services.find((s) => s.name === 'auth');
+    if (!authHealth || authHealth.status === 'unhealthy') {
+      return {
+        status: 'not_ready',
+        message: 'Auth service is unavailable',
+        checks: { composition: 'ok', auth: 'error', subgraphs: 'ok' },
+      };
+    }
+
+    const unhealthy = services.filter(
+      (s) => s.name !== 'auth' && s.status !== 'healthy',
+    );
+    if (unhealthy.length > 0) {
+      const names = unhealthy.map((s) => s.name).join(', ');
+      return {
+        status: 'not_ready',
+        message: `Degraded subgraphs: ${names}`,
+        checks: { composition: 'ok', auth: 'ok', subgraphs: 'degraded' },
+      };
+    }
+
+    return {
+      status: 'ok',
+      checks: { composition: 'ok', auth: 'ok', subgraphs: 'ok' },
+    };
   }
 
   /**

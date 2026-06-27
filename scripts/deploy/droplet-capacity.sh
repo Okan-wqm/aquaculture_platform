@@ -19,7 +19,10 @@ CAPACITY_DU_TIMEOUT_SECONDS="${CAPACITY_DU_TIMEOUT_SECONDS:-60}"
 
 GIB=$((1024 * 1024 * 1024))
 FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
-FULL_WARN_FREE_GIB="${FULL_WARN_FREE_GIB:-50}"
+# 45 GiB warn (was 50): the healthy droplet baseline sits at ~49.8 GiB free, so a
+# 50 GiB warn fired on EVERY deploy (alert fatigue). 45 stays well above the 35 GiB
+# hard floor while still warning before the box is genuinely tight. Non-blocking (returns 1).
+FULL_WARN_FREE_GIB="${FULL_WARN_FREE_GIB:-45}"
 FULL_HARD_FREE_PERCENT="${FULL_HARD_FREE_PERCENT:-20}"
 SELECTIVE_HARD_FREE_GIB="${SELECTIVE_HARD_FREE_GIB:-15}"
 SELECTIVE_WARN_FREE_GIB="${SELECTIVE_WARN_FREE_GIB:-25}"

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.judge_fanout import dispatch_judges_for_sample
 from aria_kernel.tool_registry import ensure_tools_dir
 
@@ -52,7 +53,23 @@ class JudgeFanoutTests(unittest.TestCase):
         self.assertEqual(first["minted_count"], 2)
         second = dispatch_judges_for_sample(sample=sample, base_dir=self.tools)
         self.assertEqual(second["minted_count"], 0)
-        self.assertEqual(len(second["skipped"]), 1)
+        self.assertEqual(len(second["skipped"]), 2)  # both judges already dispatched
+
+    def test_partial_mint_self_heals_to_two_judges(self) -> None:
+        # Simulate last cycle minting only judge-1 (the 2nd mint raised). The
+        # group must NOT be skipped wholesale — the missing adversarial judge
+        # must be minted, or consensus (needs >=2) starves this finding forever.
+        item = _item(1)
+        group = f"judge:{item['tool_id']}:{item['run_id']}:{item['finding_id']}"
+        create_agent_invocation_request(
+            target_agent="aria-evidence-judge", role="evidence_judgment",
+            suggested_prompt="seed", must_satisfy=[{"id": "v", "criterion": "c"}],
+            allowed_scope=["**"], finding_id=item["finding_id"], tool_id=item["tool_id"],
+            run_id=item["run_id"], judgment_group_id=group, base_dir=self.tools,
+        )
+        result = dispatch_judges_for_sample(sample={"cycle_id": "c1", "items": [item]}, base_dir=self.tools)
+        self.assertEqual(result["minted_count"], 1)
+        self.assertEqual(result["minted"][0]["target_agent"], "aria-adversarial-judge")
 
     def test_empty_sample_is_noop(self) -> None:
         result = dispatch_judges_for_sample(sample={"items": []}, base_dir=self.tools)

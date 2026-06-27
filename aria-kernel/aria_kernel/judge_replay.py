@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
-from .feedback_store import FEEDBACK_SEVERITIES, FEEDBACK_VERDICTS, record_operator_feedback
+from .feedback_store import (
+    FEEDBACK_SEVERITIES,
+    FEEDBACK_VERDICTS,
+    load_feedback,
+    record_operator_feedback,
+)
 from .goldset import load_active_goldset
 from .judge_fanout import JUDGE_FANOUT, _render_prompt
 from .tool_registry import ensure_tools_dir
@@ -41,6 +46,15 @@ def replay_judges_on_goldset(
     if not active:
         return {"schema_version": 1, "status": "no_active_goldset", "replayed_items": 0, "minted": [], "seeded": []}
     items = list(active.get("true_positive_items") or []) + list(active.get("known_false_positive_items") or [])
+    # Replay is idempotent: the gold ground-truth seed is appended only once per
+    # (run, finding, replay-group). record_operator_feedback is an unconditional
+    # append, so without this guard every re-run would duplicate the anchor row
+    # and re-skew calibration. Envelope minting is already idempotent (request_id).
+    existing_seeds = {
+        (str(r.get("run_id")), str(r.get("finding_id")), str(r.get("judgment_group_id")))
+        for r in load_feedback(base_dir=root)
+        if r.get("source_type") == "ai_consensus" and r.get("judge_id") == "goldset-replay"
+    }
     minted: list[dict[str, Any]] = []
     seeded: list[str] = []
     for gi in items:
@@ -55,13 +69,16 @@ def replay_judges_on_goldset(
             severity = "medium"
         # Ground-truth anchor for the replay, under the replay group so
         # compute_judge_calibration joins the judges' replay verdicts to it.
-        record_operator_feedback(
-            tool_id=tool_id, run_id=run_id, finding_id=finding_id, verdict=verdict,
-            severity=severity, note="goldset_replay_ground_truth",
-            source_type="ai_consensus", judge_id="goldset-replay",
-            judgment_group_id=group, base_dir=root,
-        )
-        seeded.append(group)
+        # Seeded once per (run, finding, group) — re-runs do not duplicate it.
+        if (run_id, finding_id, group) not in existing_seeds:
+            record_operator_feedback(
+                tool_id=tool_id, run_id=run_id, finding_id=finding_id, verdict=verdict,
+                severity=severity, note="goldset_replay_ground_truth",
+                source_type="ai_consensus", judge_id="goldset-replay",
+                judgment_group_id=group, base_dir=root,
+            )
+            existing_seeds.add((run_id, finding_id, group))
+            seeded.append(group)
         item = {
             "tool_id": tool_id, "run_id": run_id, "finding_id": finding_id,
             "rule": gi.get("finding_fingerprint") or "goldset", "severity": severity,

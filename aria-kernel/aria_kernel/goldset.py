@@ -117,6 +117,12 @@ def promote_goldset_proposal(
     NOTE: the gold corpus is JUDGE ground truth (findings + verdicts), not an
     adapter regression fixture — the proposal carries no adapter input/expected,
     so it is deliberately NOT forced into a semantic_regression case.
+
+    NOTE: passing ``proposal=`` is a deliberate operator override that bypasses
+    the hash-chained ``proposals.jsonl`` ledger verification (the default path,
+    ``proposal=None``, reads ``ready`` proposals from that verified ledger). The
+    named ``curator`` is the accountable act; callers supplying a hand-built
+    proposal own its provenance.
     """
     if not isinstance(curator, str) or not curator.strip():
         raise GovernanceError("curator is required")

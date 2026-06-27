@@ -59,7 +59,11 @@ def _evidence_refs(item: dict[str, Any]) -> list[str]:
     return refs
 
 
-def _existing_judge_groups(root: Path) -> set[str]:
+def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
+    """Already-minted (judgment_group_id, target_agent) pairs. Keyed per-agent
+    (not per-group) so a group left with only one judge — e.g. the second mint
+    raised mid-loop last cycle — gets its missing judge minted next run instead
+    of being skipped forever and starving consensus."""
     try:
         rows = load_declared_jsonl(
             root / "agent-invocations" / "requests.jsonl",
@@ -67,7 +71,11 @@ def _existing_judge_groups(root: Path) -> set[str]:
         )
     except Exception:
         return set()
-    return {str(r.get("judgment_group_id")) for r in rows if r.get("judgment_group_id")}
+    return {
+        (str(r.get("judgment_group_id")), str(r.get("target_agent")))
+        for r in rows
+        if r.get("judgment_group_id") and r.get("target_agent")
+    }
 
 
 def dispatch_judges_for_sample(
@@ -84,19 +92,19 @@ def dispatch_judges_for_sample(
     """
     root = ensure_tools_dir(base_dir)
     items = sample.get("items") or []
-    existing = _existing_judge_groups(root)
+    existing = _existing_judge_dispatches(root)
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
         group = _group_id(item)
-        if group in existing:
-            skipped.append({"judgment_group_id": group, "reason": "already_dispatched"})
-            continue
         prompt = _render_prompt(item)
         refs = _evidence_refs(item)
         for role, agent in JUDGE_FANOUT:
+            if (group, agent) in existing:
+                skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
+                continue
             req = create_agent_invocation_request(
                 target_agent=agent,
                 role=role,
@@ -118,5 +126,5 @@ def dispatch_judges_for_sample(
                 "target_agent": agent,
                 "judgment_group_id": group,
             })
-        existing.add(group)
+            existing.add((group, agent))
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}

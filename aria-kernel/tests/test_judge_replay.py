@@ -74,6 +74,37 @@ class JudgeReplayTests(unittest.TestCase):
         self.assertEqual(by_id["judge-good"]["recall"], 1.0)   # caught both TPs
         self.assertEqual(by_id["judge-miss"]["recall"], 0.0)   # missed both TPs
 
+    def test_replay_does_not_corrupt_organic_calibration(self) -> None:
+        from aria_kernel.judge_calibration import compute_judge_calibration
+        # judge-x votes correctly ORGANICALLY on one finding (group "judge:..").
+        record_operator_feedback(
+            tool_id="tool-x", run_id="org1", finding_id="of1", verdict="true_positive",
+            severity="medium", note="gt", source_type="human",
+            judgment_group_id="judge:tool-x:org1:of1", base_dir=self.tools,
+        )
+        record_operator_feedback(
+            tool_id="tool-x", run_id="org1", finding_id="of1", verdict="true_positive",
+            severity="medium", note="vote", source_type="ai_judge", judge_id="judge-x",
+            confidence=0.9, judgment_group_id="judge:tool-x:org1:of1", base_dir=self.tools,
+        )
+        # ...and MISSES every gold item in replay.
+        replay_judges_on_goldset(tool_id="tool-x", base_dir=self.tools)
+        for run, finding in (("rtp0", "ftp0"), ("rtp1", "ftp1"), ("rfp0", "ffp0")):
+            self._judge_vote(run, finding, "judge-x", "false_positive")
+        organic = {j["judge_id"]: j for j in
+                   compute_judge_calibration(base_dir=self.tools, min_samples=1)["judges"]}
+        # Organic recall must reflect ONLY the organic verdict (1.0), not the replay misses.
+        self.assertEqual(organic["judge-x"]["recall"], 1.0)
+        self.assertEqual(organic["judge-x"]["samples"], 1)
+
+    def test_replay_seed_is_idempotent_across_reruns(self) -> None:
+        from aria_kernel.feedback_store import load_feedback
+        replay_judges_on_goldset(tool_id="tool-x", base_dir=self.tools)
+        replay_judges_on_goldset(tool_id="tool-x", base_dir=self.tools)
+        seeds = [r for r in load_feedback(base_dir=self.tools)
+                 if r.get("judge_id") == "goldset-replay"]
+        self.assertEqual(len(seeds), 3)  # one per gold item, not doubled
+
     def test_no_active_goldset_is_noop(self) -> None:
         result = replay_judges_on_goldset(tool_id="other-tool", base_dir=self.tools)
         self.assertEqual(result["status"], "no_active_goldset")

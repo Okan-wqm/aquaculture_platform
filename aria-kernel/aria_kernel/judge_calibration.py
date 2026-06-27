@@ -30,6 +30,10 @@ from .tool_registry import ensure_tools_dir, utc_now
 GROUND_TRUTH_SOURCES: tuple[str, ...] = ("human", "ai_consensus")
 DEFAULT_MIN_SAMPLES: int = 10
 DEFAULT_PRECISION_FLOOR: float = 0.7
+# Mirrors judge_replay.REPLAY_GROUP_PREFIX (kept local to avoid an import cycle).
+# Organic calibration must exclude gold-set replay verdicts that live under this
+# group, or a judge's everyday precision/recall is corrupted by its replay run.
+_REPLAY_GROUP_PREFIX: str = "replay:"
 
 
 def calibration_path(base_dir: str | Path | None = None) -> Path:
@@ -56,7 +60,14 @@ def _build_ground_truth(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str]
             continue
         key = _group_key(row)
         existing = truth.get(key)
-        if existing is None or (source == "human" and existing[1] != "human"):
+        # Feedback is append-only; an operator can correct an earlier call with a
+        # later row. Last-write-wins within precedence: a later `human` always
+        # overrides, a later `ai_consensus` overrides only when no `human` exists.
+        if existing is None:
+            truth[key] = (verdict, source)
+        elif source == "human":
+            truth[key] = (verdict, source)
+        elif source == "ai_consensus" and existing[1] != "human":
             truth[key] = (verdict, source)
     return {key: verdict for key, (verdict, _src) in truth.items()}
 
@@ -90,6 +101,15 @@ def compute_judge_calibration(
         rows = [
             r for r in rows
             if str(r.get("judgment_group_id") or "").startswith(judgment_group_prefix)
+        ]
+    else:
+        # Organic calibration excludes gold-set replay verdicts (Plan 025 §C),
+        # which live under the 'replay:' group — folding them into a judge's
+        # everyday buckets corrupts its precision/recall and the degraded signal
+        # that proactive prioritization + the operator report consume.
+        rows = [
+            r for r in rows
+            if not str(r.get("judgment_group_id") or "").startswith(_REPLAY_GROUP_PREFIX)
         ]
     truth = _build_ground_truth(rows)
 

@@ -172,7 +172,7 @@ def run_pressure(
     # for a confirmed finding.
     from .runtime_signal_bridge import load_open_runtime_signals
     for signal in load_open_runtime_signals(base_dir=root):
-        severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high") else "high"
+        severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"
         pressures.append(
             _pressure(
                 cycle_id=cycle_id,

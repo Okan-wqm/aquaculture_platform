@@ -23,6 +23,7 @@ ledger + the active-goldset / calibration artifacts, no LLM.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -44,10 +45,12 @@ DEFAULT_MIN_JUDGED = 10
 
 
 def _impact(tool_id: str) -> float:
-    low = tool_id.lower()
-    if any(tok in low for tok in _HIGH_IMPACT_TOKENS):
+    # Match on tokenized segments, not raw substrings — otherwise short tokens
+    # like "ai"/"hr" spuriously match "claim"/"threshold"/"maintainability".
+    tokens = set(re.split(r"[-_.]+", tool_id.lower()))
+    if tokens & set(_HIGH_IMPACT_TOKENS):
         return 1.0
-    if any(tok in low for tok in _MED_IMPACT_TOKENS):
+    if tokens & set(_MED_IMPACT_TOKENS):
         return 0.7
     return 0.5
 

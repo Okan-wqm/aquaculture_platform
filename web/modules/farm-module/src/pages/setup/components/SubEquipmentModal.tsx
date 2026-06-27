@@ -211,7 +211,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               <option value="">— Choose a type —</option>
               {subEquipmentTypes.data?.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({t.category})
+                  {t.name} ({t.code})
                 </option>
               ))}
             </select>

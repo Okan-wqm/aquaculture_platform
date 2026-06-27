@@ -22,6 +22,10 @@ SOURCE_WEIGHTS = {
     "discovery_incomplete": 70,
     "contradiction": 70,
     "shadow_raw_delta": 50,
+    # Plan 029 §D5 — a prod incident / Sentry error is a high-signal lead worth
+    # investigating promptly, below tool_quarantine (a confirmed in-repo
+    # violation) but above evidence_gone.
+    "runtime_signal": 85,
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -159,6 +163,34 @@ def run_pressure(
                 occurrence_count=len(contradictions),
                 candidate_tools=[],
                 recommended_action="review contradiction ledger",
+            ),
+        )
+    # Plan 029 §D5 — runtime signals (Sentry / incident / telemetry) enter as
+    # UNVERIFIED leads, not evidence. Each open signal becomes pressure pointing
+    # ARIA's repo-evidence machinery at the referenced area; the recommended
+    # action makes the unverified status explicit so a lead is never mistaken
+    # for a confirmed finding.
+    from .runtime_signal_bridge import load_open_runtime_signals
+    for signal in load_open_runtime_signals(base_dir=root):
+        severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high") else "high"
+        pressures.append(
+            _pressure(
+                cycle_id=cycle_id,
+                source="runtime_signal",
+                pressure_type="UNKNOWN",
+                severity=severity,
+                reason=(
+                    f"runtime signal ({signal.get('source')}) for "
+                    f"{signal.get('service')}: {signal.get('summary')}"
+                ),
+                evidence=_array_of_strings(signal.get("code_refs")),
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "investigate the referenced code area with repo evidence; this "
+                    "runtime lead is UNVERIFIED (trust_grade=runtime_unverified) — "
+                    "confirm against the repo before treating it as a finding"
+                ),
             ),
         )
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):

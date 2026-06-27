@@ -109,8 +109,8 @@ export class CancelSubscriptionHandler
       const event: SubscriptionCancelledEvent = {
         ...createBaseEvent<SubscriptionCancelledEvent>('SubscriptionCancelled', tenantId, { userId }),
         subscriptionId: savedSubscription.id,
-        cancellationDate: savedSubscription.cancelledAt!,
-        effectiveEndDate: savedSubscription.endDate!,
+        cancellationDate: toEventIso(savedSubscription.cancelledAt!),
+        effectiveEndDate: toEventIso(savedSubscription.endDate!),
         reason,
       };
       await this.outboxPublisher.enqueue(event, manager);

@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
-import {
+import { toEventIso,
   createBaseEvent,
   PaymentReceivedEvent,
   PaymentFailedEvent,
@@ -174,7 +174,7 @@ export class StripeWebhookService {
           currency,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           transactionId: payment.transactionId,
-          paidAt: payment.paymentDate,
+          paidAt: toEventIso(payment.paymentDate),
         };
         await this.eventBus?.publish(natsEvent);
       } catch (err) {
@@ -433,8 +433,8 @@ export class StripeWebhookService {
         const natsEvent: SubscriptionCancelledEvent = {
           ...createBaseEvent<SubscriptionCancelledEvent>('SubscriptionCancelled', tenantId),
           subscriptionId: subscription.id,
-          cancellationDate: subscription.cancelledAt!,
-          effectiveEndDate: subscription.endDate!,
+          cancellationDate: toEventIso(subscription.cancelledAt!),
+          effectiveEndDate: toEventIso(subscription.endDate!),
           reason: 'Cancelled via Stripe',
         };
         await this.eventBus?.publish(natsEvent);

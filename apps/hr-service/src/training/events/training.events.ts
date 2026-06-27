@@ -1,4 +1,4 @@
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type {
   TrainingCompletedEvent as TrainingCompletedEventContract,
   CertificationAddedEvent as CertificationAddedEventContract,
@@ -32,8 +32,8 @@ export function createCertificationAddedEvent(
     employeeId: certification.employeeId,
     certificationTypeId: certification.certificationTypeId,
     certificationTypeName: certification.certificationType?.name ?? 'Unknown',
-    issueDate: certification.issueDate,
-    expiryDate: certification.expiryDate,
+    issueDate: toEventIso(certification.issueDate),
+    expiryDate: toEventIso(certification.expiryDate),
   };
 }
 
@@ -60,7 +60,7 @@ export function createTrainingCompletedEvent(
     employeeId: enrollment.employeeId,
     trainingCourseId: enrollment.trainingCourseId,
     trainingCourseName: enrollment.trainingCourse?.name ?? 'Unknown',
-    completedAt: enrollment.completedAt ?? new Date(),
+    completedAt: toEventIso(enrollment.completedAt ?? new Date()),
     score: enrollment.finalScore,
     passed,
   };

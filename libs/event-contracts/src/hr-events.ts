@@ -14,7 +14,7 @@ export interface EmployeeCreatedEvent extends BaseEvent {
   employeeId: string;
   position: string;
   farmId?: string;
-  hireDate: Date;
+  hireDate: string;
 }
 
 /**
@@ -38,7 +38,7 @@ export interface EmployeeUpdatedEvent extends BaseEvent {
 export interface EmployeeTerminatedEvent extends BaseEvent {
   eventType: 'EmployeeTerminated';
   employeeId: string;
-  terminationDate: Date;
+  terminationDate: string;
   reason?: string;
 }
 
@@ -55,8 +55,8 @@ export interface PayrollProcessedEvent extends BaseEvent {
   eventType: 'PayrollProcessed';
   payrollId: string;
   employeeId: string;
-  periodStart: Date;
-  periodEnd: Date;
+  periodStart: string;
+  periodEnd: string;
   /** String-encoded decimal. NEVER use JavaScript number for monetary values. */
   grossAmount: string;
   /** String-encoded decimal. NEVER use JavaScript number for monetary values. */
@@ -100,8 +100,8 @@ export interface LeaveRequestSubmittedEvent extends BaseEvent {
   employeeId: string;
   leaveTypeId: string;
   leaveTypeName: string;
-  startDate: Date;
-  endDate: Date;
+  startDate: string;
+  endDate: string;
   totalDays: number;
 }
 
@@ -139,7 +139,7 @@ export interface EmployeeClockedInEvent extends BaseEvent {
   eventType: 'EmployeeClockedIn';
   attendanceRecordId: string;
   employeeId: string;
-  clockInTime: Date;
+  clockInTime: string;
   clockInMethod: string;
   workAreaId?: string;
   isOffshore: boolean;
@@ -156,7 +156,7 @@ export interface EmployeeClockedOutEvent extends BaseEvent {
   eventType: 'EmployeeClockedOut';
   attendanceRecordId: string;
   employeeId: string;
-  clockOutTime: Date;
+  clockOutTime: string;
   workedMinutes: number;
   overtimeMinutes: number;
 }
@@ -174,8 +174,8 @@ export interface CertificationAddedEvent extends BaseEvent {
   employeeId: string;
   certificationTypeId: string;
   certificationTypeName: string;
-  issueDate: Date;
-  expiryDate?: Date;
+  issueDate: string;
+  expiryDate?: string;
 }
 
 /**
@@ -188,7 +188,7 @@ export interface CertificationExpiringSoonEvent extends BaseEvent {
   certificationId: string;
   employeeId: string;
   certificationTypeName: string;
-  expiryDate: Date;
+  expiryDate: string;
   daysUntilExpiry: number;
 }
 
@@ -202,7 +202,7 @@ export interface CertificationExpiredEvent extends BaseEvent {
   certificationId: string;
   employeeId: string;
   certificationTypeName: string;
-  expiryDate: Date;
+  expiryDate: string;
 }
 
 /**
@@ -230,7 +230,7 @@ export interface TrainingCompletedEvent extends BaseEvent {
   employeeId: string;
   trainingCourseId: string;
   trainingCourseName: string;
-  completedAt: Date;
+  completedAt: string;
   score?: number;
   passed: boolean;
 }
@@ -245,7 +245,7 @@ export interface MandatoryTrainingOverdueEvent extends BaseEvent {
   enrollmentId: string;
   employeeId: string;
   trainingCourseName: string;
-  dueDate: Date;
+  dueDate: string;
   daysOverdue: number;
 }
 
@@ -263,8 +263,8 @@ export interface EmployeeRotationStartedEvent extends BaseEvent {
   workAreaId: string;
   workAreaName: string;
   rotationType: string;
-  startDate: Date;
-  endDate: Date;
+  startDate: string;
+  endDate: string;
   daysOn: number;
   daysOff: number;
 }
@@ -277,7 +277,7 @@ export interface EmployeeRotationEndedEvent extends BaseEvent {
   rotationId: string;
   employeeId: string;
   workAreaId: string;
-  actualEndTime: Date;
+  actualEndTime: string;
   wasExtended: boolean;
 }
 
@@ -288,7 +288,7 @@ export interface RotationCheckInEvent extends BaseEvent {
   eventType: 'RotationCheckIn';
   rotationId: string;
   employeeId: string;
-  checkInTime: Date;
+  checkInTime: string;
   location?: {
     latitude: number;
     longitude: number;
@@ -307,10 +307,10 @@ export interface PerformanceReviewFinalizedEvent extends BaseEvent {
   reviewId: string;
   employeeId: string;
   reviewerId: string;
-  reviewPeriodStart: Date;
-  reviewPeriodEnd: Date;
+  reviewPeriodStart: string;
+  reviewPeriodEnd: string;
   overallRating: number;
-  finalizedAt: Date;
+  finalizedAt: string;
 }
 
 /**
@@ -321,7 +321,7 @@ export interface GoalCompletedEvent extends BaseEvent {
   goalId: string;
   employeeId: string;
   goalTitle: string;
-  completedAt: Date;
+  completedAt: string;
   progressPercent: number;
 }
 

@@ -1344,6 +1344,28 @@ if ! verify_release_ledger_sql; then
   exit 1
 fi
 
+# Pre-promotion public-path smoke THROUGH nginx — the gate the app.suderra.com outage
+# slipped past. Every container can be "healthy" (and boot-signals/readiness can pass)
+# while nginx→gateway still returns 502: a subgraph being down means the supergraph never
+# composes and the gateway never serves /graphql. Assert the REAL public path returns
+# valid GraphQL JSON before promoting; a 502/HTML body rolls the deploy back.
+echo "=== Public /graphql smoke through nginx ==="
+SMOKE_HOST="${PUBLIC_SMOKE_HOST:-app.suderra.com}"
+SMOKE_ORIGIN="${PUBLIC_SMOKE_ORIGIN:-http://localhost}"
+smoke_out="$(curl -s -m 15 -w $'\n%{http_code}' \
+  -H "Host: ${SMOKE_HOST}" -H 'Content-Type: application/json' \
+  -X POST --data '{"query":"{ __typename }"}' "${SMOKE_ORIGIN}/graphql" || true)"
+smoke_code="$(printf '%s' "${smoke_out}" | tail -n1)"
+smoke_body="$(printf '%s' "${smoke_out}" | sed '$d')"
+if [ "${smoke_code}" != "200" ] || \
+   ! printf '%s' "${smoke_body}" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("data",{}).get("__typename") else 1)' 2>/dev/null; then
+  echo "::error::Public POST /graphql smoke failed through nginx (HTTP ${smoke_code}; body is not GraphQL JSON). The gateway is not serving public traffic — a subgraph is likely down. Initiating rollback."
+  record_release_ledger "failed" "public_graphql_smoke"
+  rollback_and_record "public_graphql_smoke" || true
+  exit 1
+fi
+echo "  Public /graphql smoke passed (HTTP 200, valid GraphQL JSON)."
+
 record_release_ledger "promoted" ""
 
 echo "=== Cleanup old images ==="

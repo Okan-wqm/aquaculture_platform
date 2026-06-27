@@ -1,4 +1,4 @@
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type {
   EmployeeCreatedEvent,
   EmployeeUpdatedEvent,
@@ -32,7 +32,7 @@ export function createEmployeeCreatedEvent(
     eventType: 'EmployeeCreated' as const,
     employeeId: employee.id,
     position: employee.position,
-    hireDate: employee.hireDate,
+    hireDate: toEventIso(employee.hireDate),
   };
 }
 
@@ -83,7 +83,7 @@ export function createEmployeeTerminatedEvent(
     aggregateType: 'Employee',
     eventType: 'EmployeeTerminated' as const,
     employeeId: employee.id,
-    terminationDate,
+    terminationDate: toEventIso(terminationDate),
     reason,
   };
 }

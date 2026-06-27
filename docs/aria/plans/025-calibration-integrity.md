@@ -2,7 +2,7 @@
 
 # ARIA Plan 025 — Calibration Integrity (>=2-judge fan-out · gold-set activation · replay recall)
 
-> **Status:** Phase A implemented (>=2-judge fan-out). Phases B (gold-set activation) and C (replay recall) follow on this branch.
+> **Status:** All three phases implemented (A >=2-judge fan-out, B gold-set activation, C replay recall). Operator CLI deferred (ARIA-025-D1).
 > **Branch:** `claude/aria-gaps-cost-review-rebmuc`
 > **Closes:** ARIA-024-D1 (gold-set-replay recall + gold-set promotion) — the part Plan 024 deferred.
 
@@ -58,31 +58,36 @@ wrapper held back to avoid destabilising `cli.py`'s heavy invariant surface in
 this change. The curator agent doc references `aria-kernel goldset propose`,
 which this CLI will finally implement.
 
-## Phase 025c — Gold-set-replay recall (tier-3 measurement)
+## Phase 025c — Gold-set-replay recall (tier-3 measurement) ✅
 
 - New `judge_replay.replay_judges_on_goldset` mints judge envelopes (reusing
   025a's path) on the promoted gold items, tagged with a `replay:<...>`
   `judgment_group_id`, and seeds each gold item's known verdict as `ai_consensus`
-  ground truth. True recall then falls out of `compute_judge_calibration`
-  (recall already computed there; gold items are now surfaced + ground-truth-backed).
-- New CLI `aria-kernel judge replay --tool-id ...`.
+  ground truth under that group. True recall then falls out of
+  `compute_judge_calibration(judgment_group_prefix="replay:")` — a thin filter
+  added to the Plan 024 module; `compute_replay_recall` is the convenience
+  wrapper. No new recall math. Test: `tests/test_judge_replay.py`.
+- The `judge replay` operator CLI is deferred with the goldset CLI (ARIA-025-D1).
 
 ## Acceptance
 
 - `tests/test_judge_fanout.py` passes; full kernel suite green.
 - Each sampled finding produces exactly two judge requests with distinct
   judge agents and one shared `judgment_group_id`.
-- (025b) A `ready` proposal promotes to a valid fixture case that
-  `run_fixture_suite` executes.
-- (025c) Replaying judges on gold items yields a recall figure in
-  `compute_judge_calibration` keyed by `judge_id`.
+- (025b) A `ready` proposal promotes to an active gold corpus that
+  `load_active_goldset` reads and the §C replay consumes; a `blocked` proposal
+  cannot be promoted.
+- (025c) Replaying judges on gold items and scoring with
+  `compute_replay_recall` yields per-`judge_id` recall (a judge that re-calls a
+  known TP → recall 1.0; one that misses it → 0.0).
 
 ## Assumptions & risk
 
 - 025a/025c re-invoke real Codex judges (LLM cost) in real mode — tested in
-  mock mode via the direct-envelope pattern (`test_judgment_bridge_e2e`); judges
-  run on Sonnet per Plan 023 tiering, and `cost_budget.py` caps fan-out volume.
+  mock mode via direct verdict injection (the `test_judgment_bridge_e2e`
+  pattern); judges run on Sonnet per Plan 023 tiering, and `cost_budget.py` caps
+  fan-out volume.
 - Fan-out volume is `sample_size` × 2 per tool per cycle.
-- 025b's per-item → `input`/`expected` transform is adapter-specific; it starts
-  scoped to `SEMANTIC_FIXTURE_REQUIRED_TOOLS` (the 3 adapters where the semantic
-  lane is already a hard blocker) and widens as transforms are proven.
+- The gold corpus is JUDGE ground truth, not adapter `input`/`expected`; it is
+  consumed by judge replay, not by `run_fixture_suite`. Generating adapter
+  regression fixtures from gold is a separate, out-of-scope concern.

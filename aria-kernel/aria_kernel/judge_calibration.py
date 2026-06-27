@@ -71,6 +71,7 @@ def compute_judge_calibration(
     base_dir: str | Path | None = None,
     min_samples: int = DEFAULT_MIN_SAMPLES,
     precision_floor: float = DEFAULT_PRECISION_FLOOR,
+    judgment_group_prefix: str | None = None,
 ) -> dict[str, Any]:
     """Score every judge_id against accumulated ground truth and persist a row.
 
@@ -79,8 +80,17 @@ def compute_judge_calibration(
     judge with >= ``min_samples`` ground-truth-backed verdicts whose precision
     drops below ``precision_floor`` is reported ``degraded`` — the operator-
     visible, detectable signal that the cheap-tier judgment is slipping.
+
+    ``judgment_group_prefix`` isolates a subset of verdicts by their
+    ``judgment_group_id`` — Plan 025 §C passes ``"replay:"`` to score the
+    gold-set replay independently from organic surfaced verdicts.
     """
     rows = load_feedback(base_dir=base_dir)
+    if judgment_group_prefix is not None:
+        rows = [
+            r for r in rows
+            if str(r.get("judgment_group_id") or "").startswith(judgment_group_prefix)
+        ]
     truth = _build_ground_truth(rows)
 
     agg: dict[str, dict[str, Any]] = {}

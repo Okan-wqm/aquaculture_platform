@@ -64,6 +64,7 @@ def record_human_required(
     request_id: str,
     severity: str | None = None,
     reason: str,
+    context: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -102,6 +103,10 @@ def record_human_required(
         "sla_deadline": sla_deadline.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "status": "open",
     }
+    # Plan 024 §B — carry structured identifiers (not just reason prose) so the
+    # operator's resolution can fan back into the ground-truth feedback ledger.
+    if context:
+        record["context"] = context
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     append_tools_governance(
@@ -144,10 +149,17 @@ def resolve_human_required(
     *,
     request_id: str,
     resolution_note: str,
+    verdict: str | None = None,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Mark a HUMAN_REQUIRED entry resolved. Operator-only — kernel never auto-resolves."""
+    """Mark a HUMAN_REQUIRED entry resolved. Operator-only — kernel never auto-resolves.
+
+    Plan 024 §B — when ``verdict`` (true_positive | false_positive) is supplied
+    and the record is a consensus escalation, the operator's adjudication is
+    fanned into the ground-truth feedback ledger via ``record_operator_feedback``
+    so judge calibration (Plan 024 §A) can score the judges that disagreed.
+    """
     if not isinstance(resolution_note, str) or not resolution_note.strip():
         raise GovernanceError("resolution_note is required")
     root = ensure_tools_dir(base_dir)
@@ -161,6 +173,28 @@ def resolve_human_required(
     record["status"] = "resolved"
     record["resolved_at"] = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
     record["resolution_note"] = resolution_note
+
+    if verdict is not None:
+        from .feedback_store import FEEDBACK_VERDICTS, record_operator_feedback
+        if verdict not in FEEDBACK_VERDICTS:
+            raise GovernanceError(f"verdict must be one of {FEEDBACK_VERDICTS}")
+        ctx = record.get("context") or {}
+        if ctx.get("kind") == "consensus_escalation" and all(
+            ctx.get(k) for k in ("tool_id", "run_id", "finding_id")
+        ):
+            record_operator_feedback(
+                tool_id=str(ctx["tool_id"]),
+                run_id=str(ctx["run_id"]),
+                finding_id=str(ctx["finding_id"]),
+                verdict=verdict,
+                severity="medium",
+                note=f"operator adjudication of consensus escalation {request_id}",
+                source_type="human",
+                judgment_group_id=str(ctx.get("judgment_group_id") or "") or None,
+                base_dir=root,
+            )
+            record["operator_verdict"] = verdict
+
     path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     append_tools_governance(
         root,
@@ -288,6 +322,14 @@ def sweep_consensus_uncertainties_for_human_required(
                     f"{unc.get('run_id')!r}); independent judges disagreed or were "
                     f"low-confidence. Operator adjudication required."
                 ),
+                context={
+                    "kind": "consensus_escalation",
+                    "uncertainty_reason": reason,
+                    "tool_id": unc.get("tool_id"),
+                    "run_id": unc.get("run_id"),
+                    "finding_id": unc.get("finding_id"),
+                    "judgment_group_id": unc.get("judgment_group_id"),
+                },
                 base_dir=root,
                 now=now,
             )

@@ -6,7 +6,7 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, registerLogoutCleanup } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -113,9 +113,12 @@ const queryClient = new QueryClient({
       // Smart retry with exponential backoff (replaces blind `retry: 3`)
       retry: shouldRetryQuery,
       retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000),
-      // FE-MEDIUM-025: Use TanStack Query built-in refetch instead of manual polling
-      refetchOnReconnect: true,
-      refetchOnWindowFocus: true,
+      // FE-MEDIUM-025: Use TanStack Query built-in refetch instead of manual polling.
+      // Gated by the backend-health breaker: during a detected gateway outage these
+      // re-fire on every focus/reconnect and blank loaded data over a 502 — the
+      // breaker suppresses them until a probe shows the backend is back.
+      refetchOnReconnect: refetchWhenBackendHealthy,
+      refetchOnWindowFocus: refetchWhenBackendHealthy,
     },
     mutations: {
       retry: false,

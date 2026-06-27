@@ -5,6 +5,7 @@
  */
 
 import { print, type DocumentNode } from 'graphql';
+import { backendHealthCircuit } from './backend-health-circuit';
 import { tokenLifecycle } from './token-lifecycle';
 
 // ============================================================================
@@ -607,6 +608,9 @@ class GraphQLClient {
       // so callers can show "backend unavailable" and keep showing cached data.
       // 4xx (incl. 401/403) is left to the auth + GraphQL-error handling below.
       if (response.status >= 500) {
+        // Feed the outage breaker so refetchOnWindowFocus/Reconnect stop storming
+        // a dead gateway (see backend-health-circuit).
+        backendHealthCircuit.recordFailure();
         const code =
           response.status >= 502 && response.status <= 504
             ? 'BACKEND_UNAVAILABLE'
@@ -619,6 +623,9 @@ class GraphQLClient {
 
       // Response parse
       const result = await response.json();
+      // A parsed body means the transport is healthy (even a GraphQL-level error
+      // is a 200) — close the outage breaker so refetches resume.
+      backendHealthCircuit.recordSuccess();
 
       // Check for GraphQL errors
       if (result.errors && result.errors.length > 0) {

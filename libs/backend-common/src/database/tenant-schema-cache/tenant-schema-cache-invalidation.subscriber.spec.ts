@@ -59,9 +59,9 @@ describe('TenantSchemaCacheInvalidationSubscriber (new-tenant negative-cache clo
     let dbChecks = 0;
 
     // T0: request arrives before aqua-db-migrate created the schema → negative cached.
-    const before = await cache.getOrCheck(SCHEMA_NAME, async () => {
+    const before = await cache.getOrCheck(SCHEMA_NAME, () => {
       dbChecks += 1;
-      return false;
+      return Promise.resolve(false);
     });
     expect(before).toBe(false);
     expect(dbChecks).toBe(1);
@@ -69,9 +69,9 @@ describe('TenantSchemaCacheInvalidationSubscriber (new-tenant negative-cache clo
     // T1: schema now exists in the DB, but a second check within the 30s
     // negative TTL would WITHOUT invalidation still serve the stale `false`
     // (checker not invoked) — this is the bug.
-    const stale = await cache.getOrCheck(SCHEMA_NAME, async () => {
+    const stale = await cache.getOrCheck(SCHEMA_NAME, () => {
       dbChecks += 1;
-      return true;
+      return Promise.resolve(true);
     });
     expect(stale).toBe(false);
     expect(dbChecks).toBe(1); // served from negative cache — checker NOT called
@@ -80,9 +80,9 @@ describe('TenantSchemaCacheInvalidationSubscriber (new-tenant negative-cache clo
     await subscriber.handle(provisioned(TENANT_ID));
 
     // T3: the next check re-queries the DB and sees the freshly created schema.
-    const after = await cache.getOrCheck(SCHEMA_NAME, async () => {
+    const after = await cache.getOrCheck(SCHEMA_NAME, () => {
       dbChecks += 1;
-      return true;
+      return Promise.resolve(true);
     });
     expect(after).toBe(true);
     expect(dbChecks).toBe(2); // negative entry was cleared → checker ran again

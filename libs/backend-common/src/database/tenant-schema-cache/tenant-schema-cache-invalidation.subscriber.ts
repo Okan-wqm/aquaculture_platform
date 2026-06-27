@@ -54,13 +54,17 @@ export class TenantSchemaCacheInvalidationSubscriber
     return 'TenantProvisioned';
   }
 
-  async handle(event: TenantProvisionedEvent): Promise<void> {
+  // Non-async (returns a resolved Promise) because the work is synchronous —
+  // backend-common lints @typescript-eslint/require-await as an error, and there
+  // is nothing to await. The IEventHandler contract only requires Promise<void>.
+  handle(event: TenantProvisionedEvent): Promise<void> {
     const tenantId = event.tenantId;
     if (!tenantId || !isValidUUID(tenantId)) {
-      return;
+      return Promise.resolve();
     }
     // schemaName is a tenant_<hash> derived value; do not log it (PII discipline).
     this.schemaCache.invalidate(getTenantSchemaName(tenantId));
     this.logger.log('Invalidated tenant schema-existence cache after TenantProvisioned');
+    return Promise.resolve();
   }
 }

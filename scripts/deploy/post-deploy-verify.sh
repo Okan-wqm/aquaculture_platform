@@ -195,6 +195,34 @@ fi
 docker exec "${gateway_container}" curl -sf "http://localhost:3000/health/live" >/dev/null
 docker exec "${gateway_container}" curl -sf "http://localhost:3000/health/ready" >/dev/null
 
+# Real public-path smoke THROUGH nginx — NOT the internal container. This is the gate
+# that the app.suderra.com outage slipped past: /health/live can pass inside the gateway
+# container while nginx→gateway returns 502 (e.g. a subgraph like billing is down so the
+# supergraph never composes). We curl nginx on the droplet host with the public Host
+# header so the request takes the exact path real traffic does, and we assert a valid
+# GraphQL JSON body — a 502 returns nginx HTML, which must FAIL the deploy.
+public_host="${PUBLIC_SMOKE_HOST:-app.suderra.com}"
+nginx_origin="${PUBLIC_SMOKE_ORIGIN:-http://localhost}"
+graphql_body='{"query":"{ __typename }"}'
+graphql_out="$(curl -s -m 15 -w $'\n%{http_code}' \
+  -H "Host: ${public_host}" -H 'Content-Type: application/json' \
+  -X POST --data "${graphql_body}" "${nginx_origin}/graphql" || true)"
+graphql_code="$(printf '%s' "${graphql_out}" | tail -n1)"
+graphql_payload="$(printf '%s' "${graphql_out}" | sed '$d')"
+if [ "${graphql_code}" != "200" ] || \
+   ! printf '%s' "${graphql_payload}" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("data",{}).get("__typename") else 1)' 2>/dev/null; then
+  echo "::error::public POST /graphql smoke FAILED through nginx (HTTP ${graphql_code}; body is not GraphQL JSON). The gateway is not serving public traffic — a subgraph is likely down. Refusing to mark the deploy healthy." >&2
+  exit 1
+fi
+
+# Socket.IO handshake through nginx (engine.io polling open).
+socketio_code="$(curl -s -m 15 -o /dev/null -w '%{http_code}' \
+  -H "Host: ${public_host}" "${nginx_origin}/socket.io/?EIO=4&transport=polling" || true)"
+if [ "${socketio_code}" != "200" ]; then
+  echo "::error::public /socket.io handshake FAILED through nginx (HTTP ${socketio_code})." >&2
+  exit 1
+fi
+
 ready_json="$(python3 -c "import json,sys; print(json.dumps(sys.argv[1:]))" "${ready_ok[@]}")"
 
 cat <<JSON
@@ -212,7 +240,9 @@ cat <<JSON
   "ready_services": ${ready_json},
   "gateway_smoke": {
     "health_live": "passed",
-    "health_ready": "passed"
+    "health_ready": "passed",
+    "public_graphql": "passed",
+    "public_socketio": "passed"
   },
   "verified_at": $(json_string "$(date -u +%FT%TZ)")
 }

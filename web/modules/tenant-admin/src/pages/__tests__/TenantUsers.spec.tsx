@@ -9,6 +9,7 @@
  * - Search/filter
  */
 
+import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

@@ -835,6 +835,64 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     requiredSignals: [],
     requiredEnv: ['AI_SERVICE_DB_PASS'],
   }),
+  // ── Monitoring scraper stack (ORPHAN-090, PR #670) ─────────────────────────
+  // WHAT: the four observability-infra containers added to
+  // docker-compose.droplet.yml (prometheus + cadvisor + node-exporter +
+  // alertmanager). They consume the catalog-generated scrape config; they do
+  // not expose a Prometheus surface themselves (buildKind 'infra' ⇒
+  // metricsExposure 'none'), so they are not scrape targets.
+  // WHY criticality 'ignored': these are the monitoring plane, not the
+  // application plane. A scraper that is slow or down loses visibility but
+  // MUST NOT roll back an otherwise-healthy application deploy — same
+  // precedent as the mosquitto/minio infra entries. They declare no
+  // compose `profiles:` (always-on), so no profiles list here either
+  // (validate-criticality-manifest profile-parity check).
+  buildEntry({
+    serviceId: 'prometheus',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    // Pinned image cold-start (TSDB open + config load) is fast; budget caps
+    // the readiness wait. ignored services never feed the readiness SLA.
+    startupBudgetSeconds: 30,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'cadvisor',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 30,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'node-exporter',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 15,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'alertmanager',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 15,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
   ...[
     'nginx',
     'shell',

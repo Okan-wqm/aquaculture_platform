@@ -142,6 +142,9 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
     'aria-implementer',
     'aria-drafter',
     'aria-prompt-writer',
+    // Plan 030 — the acceptance lane's fixer holds Edit/Write/Bash and opens PRs;
+    // pin it to opus/xhigh so a write-capable auditor can never be downgraded.
+    'aria-acceptance-gap-fixer',
   ]);
   const isAriaAgent = (file: AgentFile): boolean => file.filenameStem.startsWith('aria-');
 

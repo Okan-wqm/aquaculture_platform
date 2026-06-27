@@ -25,10 +25,9 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const EVENTS_DIR = resolve(REPO_ROOT, 'libs/event-contracts/src');
 
-// Baseline 2026-06-26 AFTER the farm + small-files slices converted
-// (farm/sensor/alert/ai/notification/task/tenant = 0). Remaining: hr 22 +
-// billing 11. Each subsequent slice lowers this; 0 flips it to a hard ban.
-const BASELINE_DATE_FIELDS = 33;
+// All 9 event-contract files are converged (2026-06-26): NO `: Date` field may
+// exist on any event contract. This is the hard ban — the convergence is done.
+const BASELINE_DATE_FIELDS = 0;
 
 describe('INVARIANT (ORPHAN-111): event-contract dates are ISO strings (ratcheted)', () => {
   it('the canonical toEventIso normaliser exists and is exported', () => {

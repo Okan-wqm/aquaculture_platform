@@ -2,7 +2,7 @@ import { Injectable, ConflictException, Logger, InternalServerErrorException, Op
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { StripeApiService } from '@aquaculture/backend-common/billing';
@@ -203,7 +203,7 @@ export class CreateSubscriptionHandler
         tier: savedSubscription.planTier as SubscriptionCreatedEvent['tier'],
         monthlyPrice: input.pricing.basePrice,
         currency: input.pricing.currency || 'USD',
-        startDate: savedSubscription.startDate,
+        startDate: toEventIso(savedSubscription.startDate),
         features: {
           maxFarms: savedSubscription.limits?.maxFarms,
           maxPonds: savedSubscription.limits?.maxPonds,

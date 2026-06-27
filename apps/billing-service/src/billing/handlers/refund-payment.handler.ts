@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, PaymentRefundedEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent, PaymentRefundedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { StripeApiService } from '@aquaculture/backend-common/billing';
 import { Money } from '@aquaculture/backend-common/monetary';
@@ -192,7 +192,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         reason: sanitizedReason ?? '',
         refundId: stripeRefundId,
         isFullRefund,
-        refundedAt: refundInfo.refundedAt,
+        refundedAt: toEventIso(refundInfo.refundedAt),
       };
       await this.outboxPublisher.enqueue(event, manager);
 

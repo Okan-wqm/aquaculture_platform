@@ -35,7 +35,7 @@ export interface AgentApprovalRequestedEvent extends BaseEvent {
   eventType: 'AgentApprovalRequested';
   recommendationEventId: string;
   action: AgentSuggestedAction;
-  expiresAt: Date;             // Approval timeout
+  expiresAt: string;             // Approval timeout
   requestedBy: string;         // Agent persona
   approverRoles: string[];     // Roles that can approve
 }

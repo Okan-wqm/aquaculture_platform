@@ -3810,7 +3810,7 @@ Root cause: the monitoring stack was designed for the K8s topology; the droplet 
 
 Fix direction: add a Prometheus (or agent-mode) container to the droplet compose with a scrape config GENERATED from the service catalog (`generate-artifacts.ts` gains a scrape-targets artifact derived from `metricsExposure === 'prom-endpoint'` entries + `metricsPort`), including the `x-internal-api-key` header for observability-service's gated endpoint; wire retention/resource limits to droplet capacity constraints. The catalog fields landed in OBS-HIGH-001 are the designed input for exactly this generator.
 
-Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
+Status: IN-PROGRESS (2026-06-27 — in-repo scraper landed: added prometheus + cadvisor + node-exporter + alertmanager services to docker-compose.droplet.yml (additive, internal-network-only), consuming the existing infrastructure/monitoring/droplet configs (prometheus.yml + catalog-generated file_sd + rules + alertmanager.yml). 57/57 deploy/monitoring invariants green. NOT yet deployed — infra-owner decisions flagged in-line: Prometheus retention/disk, alertmanager SMTP/webhook receivers, and the observability-service INTERNAL_API_KEY scrape header (its job intentionally left disabled). The droplet still runs no collector until this is deployed + those decisions made) (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
 
 ---
 

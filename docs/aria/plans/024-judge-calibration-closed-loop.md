@@ -2,7 +2,7 @@
 
 # ARIA Plan 024 — Closed-Loop Judge Calibration
 
-> **Status:** Phase A implemented (judge calibration measurement). Phases B (operator-resolution feedback) and C (evidence-gated arbiter) follow on this branch.
+> **Status:** All three phases implemented (A measurement, B operator-resolution feedback, C evidence-gated arbiter).
 > **Branch:** `claude/aria-gaps-cost-review-rebmuc`
 > **Closes:** ARIA-023-D1 (judge calibration loop) from Plan 023.
 
@@ -41,7 +41,7 @@ ground truth **without re-invoking any LLM**:
 - Test: `tests/test_judge_calibration.py` (good judge → ok; over-flagging judge
   → degraded; thin judge → insufficient_data; confidence separation; persist).
 
-## Phase 024b — Operator-resolution feedback loop (tier-2 "make it automatic")
+## Phase 024b — Operator-resolution feedback loop (tier-2 "make it automatic") ✅
 
 Make the Plan 023 escalation close the loop instead of fire-and-forget:
 - `sweep_consensus_uncertainties_for_human_required` persists structured
@@ -53,20 +53,27 @@ Make the Plan 023 escalation close the loop instead of fire-and-forget:
   operator's adjudication flows automatically into the ground-truth pool 024a
   scores against — the loop closes.
 
-## Phase 024c — Evidence-gated arbiter (tier-1 "make it impossible")
+## Phase 024c — Evidence-gated arbiter (tier-1 "make it impossible") ✅
 
 Turn "Opus does not trust Sonnet" from a prompt clause into a gate:
 - Inside `generate_ai_consensus`, after the unanimity + mean-confidence checks
-  pass but before the `ai_consensus` row is written (`feedback_store.py:352-372`),
-  re-verify each judge's `evidence_refs` resolve `repo_verified` at the run's
-  `target_sha` via `evidence_validator.validate_agent_response_evidence` /
-  `classify_evidence_ref` + `EvidencePolicy.require_repo_verified`.
-- Any judge whose evidence is not repo-verified → new uncertainty reason
-  `evidence_not_repo_verified` → existing `_consensus_uncertainty` + Plan 023
-  escalation path; the consensus row is NOT written. Unanimity/confidence math
-  is untouched.
-- One new dependency: thread the run's `target_sha` (from `runs.jsonl`, the
-  source `_feedback_cycle` already reads) into the consensus computation.
+  pass but before the `ai_consensus` row is written, `_has_unverifiable_evidence`
+  resolves each judge's `evidence_refs` via `evidence_trust.classify_evidence_ref`.
+- **Conservative + safe by design:** the gate escalates only when a ref grades
+  `missing` or `invalid` (the cited file/line genuinely does not exist — a
+  fabrication signal). A ref that exists but is unverified at a pinned sha
+  (`worktree_candidate`) is given the benefit of the doubt, so the gate cannot
+  flood escalation on a clean repo. Empty evidence is not blocked.
+- A failing group → new uncertainty reason `evidence_not_repo_verified` (mapped
+  to HIGH in `CONSENSUS_UNCERTAINTY_SEVERITY`) → existing `_consensus_uncertainty`
+  + Plan 023 escalation path; the consensus row is NOT written. Unanimity /
+  confidence math is untouched.
+- **Opt-in:** active only when `workspace_root` is supplied. Threaded through the
+  real cycle path (`heartbeat_tick → _produce_judgment_work → generate_ai_consensus`);
+  legacy/CLI callers without `workspace_root` keep the pure mechanical gate.
+- Stricter `repo_verified`-at-`target_sha` gating (via
+  `validate_agent_response_evidence`, requiring the run's sha threaded into the
+  consensus computation) is a follow-up once sha provenance is wired.
 
 ## Acceptance
 

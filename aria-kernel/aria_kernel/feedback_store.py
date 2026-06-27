@@ -302,11 +302,29 @@ def record_ai_feedback_file(
     return {"schema_version": 1, "recorded_count": len(rows), "feedback": rows}
 
 
+def _has_unverifiable_evidence(rows: list[dict[str, Any]], workspace_root: str | Path) -> bool:
+    """Plan 024 §C — True if any judge in the group cites an evidence ref that
+    positively does not resolve in the repo (``missing`` / ``invalid``). A ref
+    that exists but is unverified at a pinned sha (``worktree_candidate``) is
+    given the benefit of the doubt — this gate catches fabricated evidence, not
+    sha-pinning uncertainty, so it cannot flood escalation on a clean repo."""
+    from .evidence_trust import classify_evidence_ref
+    for row in rows:
+        for ref in _optional_string_list(row.get("evidence_refs")):
+            grade = classify_evidence_ref(
+                ref, workspace_root=workspace_root, context="consensus_evidence_gate"
+            ).trust_grade
+            if grade in ("missing", "invalid"):
+                return True
+    return False
+
+
 def generate_ai_consensus(
     *,
     tool_id: str,
     cycle_id: str | None = None,
     min_confidence: float = CONSENSUS_MIN_CONFIDENCE,
+    workspace_root: str | Path | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if min_confidence < 0 or min_confidence > 1:
@@ -348,6 +366,14 @@ def generate_ai_consensus(
             continue
         if avg_confidence < min_confidence:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "low_confidence"))
+            continue
+        # Plan 024 §C — evidence-gated arbiter. When a workspace is supplied, the
+        # union of judge evidence is only published as consensus if it actually
+        # resolves in the repo; a judge citing fabricated evidence escalates to a
+        # human instead of being rubber-stamped. Opt-in: legacy callers without
+        # workspace_root keep the pure mechanical gate.
+        if workspace_root is not None and _has_unverifiable_evidence(rows, workspace_root):
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_not_repo_verified"))
             continue
         verdict = verdicts.pop()
         severity = _max_severity(str(row.get("severity") or "medium") for row in rows)

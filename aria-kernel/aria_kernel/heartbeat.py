@@ -27,7 +27,7 @@ def heartbeat_tick(
         if run_cycle_step:
             actions.append({"action": "cycle", "result": run_cycle(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)})
         actions.extend(_refresh_fixtures(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root))
-        actions.extend(_produce_judgment_work(cycle_id=cycle_id, base_dir=root))
+        actions.extend(_produce_judgment_work(cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root))
         actions.append({"action": "calibration", "result": recommend_calibration(cycle_id=cycle_id, base_dir=root)})
         actions.extend(_produce_ci_review_tasks(cycle_id=cycle_id, base_dir=root))
         row = {
@@ -118,7 +118,9 @@ def _refresh_fixtures(*, workspace_root: str | Path, cycle_id: str, base_dir: Pa
     return actions
 
 
-def _produce_judgment_work(*, cycle_id: str, base_dir: Path) -> list[dict[str, Any]]:
+def _produce_judgment_work(
+    *, cycle_id: str, base_dir: Path, workspace_root: str | Path | None = None,
+) -> list[dict[str, Any]]:
     actions = []
     for tool in list_tools(base_dir=base_dir):
         tool_id = str(tool.get("tool_id") or "")
@@ -136,7 +138,7 @@ def _produce_judgment_work(*, cycle_id: str, base_dir: Path) -> list[dict[str, A
         except GovernanceError as exc:
             actions.append({"action": "ai_judge_sample", "tool_id": tool_id, "status": "blocked", "reason": str(exc)})
         try:
-            consensus = generate_ai_consensus(tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
+            consensus = generate_ai_consensus(tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir, workspace_root=workspace_root)
             actions.append({"action": "ai_consensus", "tool_id": tool_id, "result": consensus})
         except GovernanceError as exc:
             actions.append({"action": "ai_consensus", "tool_id": tool_id, "status": "blocked", "reason": str(exc)})

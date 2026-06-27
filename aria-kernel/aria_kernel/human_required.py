@@ -263,6 +263,9 @@ def sweep_lease_lifecycle_for_human_required(
 CONSENSUS_UNCERTAINTY_SEVERITY = {
     "judge_disagreement": "HIGH",
     "low_confidence": "MEDIUM",
+    # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
+    # a fabrication signal; the cheap tier must not be rubber-stamped on it.
+    "evidence_not_repo_verified": "HIGH",
 }
 
 

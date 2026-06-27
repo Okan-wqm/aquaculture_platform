@@ -1351,8 +1351,15 @@ fi
 # valid GraphQL JSON before promoting; a 502/HTML body rolls the deploy back.
 echo "=== Public /graphql smoke through nginx ==="
 SMOKE_HOST="${PUBLIC_SMOKE_HOST:-app.suderra.com}"
-SMOKE_ORIGIN="${PUBLIC_SMOKE_ORIGIN:-http://localhost}"
-smoke_out="$(curl -s -m 15 -w $'\n%{http_code}' \
+# Exercise the REAL https public path. Was http://localhost, which nginx
+# 301-redirects http→https, so the smoke saw a 301 (not GraphQL JSON) and
+# false-failed every deploy. Default to https on the public host, pinned to the
+# local nginx via --resolve so it tests the exact public TLS path (valid cert,
+# SNI, Host) without depending on external DNS. -L/--post301/--post302 also
+# re-POST through a redirect if PUBLIC_SMOKE_ORIGIN is overridden back to http.
+SMOKE_ORIGIN="${PUBLIC_SMOKE_ORIGIN:-https://${SMOKE_HOST}}"
+SMOKE_RESOLVE="${PUBLIC_SMOKE_RESOLVE:-${SMOKE_HOST}:443:127.0.0.1}"
+smoke_out="$(curl -sS -m 15 -L --post301 --post302 --resolve "${SMOKE_RESOLVE}" -w $'\n%{http_code}' \
   -H "Host: ${SMOKE_HOST}" -H 'Content-Type: application/json' \
   -X POST --data '{"query":"{ __typename }"}' "${SMOKE_ORIGIN}/graphql" || true)"
 smoke_code="$(printf '%s' "${smoke_out}" | tail -n1)"

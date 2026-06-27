@@ -125,6 +125,11 @@ export class ScadaSocketService {
     }
 
     this.socket = io(SCADA_WS_NAMESPACE, {
+      // Dedicated WS path: /scada is a sensor-service namespace, but nginx routes
+      // ALL default /socket.io/ traffic to the gateway (which serves no /scada), so
+      // SCADA real-time never reached sensor-service. A distinct path lets nginx
+      // route SCADA straight to sensor-service:3000 (must match the gateway's path).
+      path: '/scada-ws/',
       transports: ['websocket', 'polling'],
       auth: { token },
       reconnection: true,

@@ -53,6 +53,53 @@ class AriaPocTests(unittest.TestCase):
         self.assertEqual(unions[0]["name"], "FarmStatus")
         self.assertEqual(unions[0]["values"], ["active", "archived", "inactive"])
 
+    def test_detect_rust_enums_extracts_all_variant_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "sens-api-gateway" / "src" / "protocol.rs"
+            src.parent.mkdir(parents=True)
+            src.write_text(
+                "pub enum ProtocolState {\n"
+                "    Idle,\n"
+                "    Connected(SocketAddr),\n"
+                "    #[serde(rename = \"err\")]\n"
+                "    Failed { code: u8, msg: String },\n"
+                "    Retrying = 3,\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            fates = [aria_poc.FileFate(str(src.relative_to(root)), "read_deeply")]
+
+            enums = aria_poc.detect_rust_enums(root, fates)
+
+        self.assertEqual(len(enums), 1)
+        self.assertEqual(enums[0]["name"], "ProtocolState")
+        self.assertEqual(enums[0]["kind"], "rust_enum")
+        self.assertEqual(enums[0]["values"], ["Connected", "Failed", "Idle", "Retrying"])
+        self.assertEqual(enums[0]["surface"], "edge_source")
+
+    def test_detect_rust_enums_skips_tests_and_handles_generics(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            gen = root / "crates" / "codec" / "src" / "msg.rs"
+            gen.parent.mkdir(parents=True)
+            gen.write_text("enum Wrap<T> { One(Vec<T>), Two }\n", encoding="utf-8")
+            test = root / "crates" / "codec" / "tests" / "it.rs"
+            test.parent.mkdir(parents=True)
+            test.write_text("enum Helper { A, B }\n", encoding="utf-8")
+            fates = [
+                aria_poc.FileFate(str(gen.relative_to(root)), "read_deeply"),
+                aria_poc.FileFate(str(test.relative_to(root)), "read_deeply"),
+            ]
+
+            enums = aria_poc.detect_rust_enums(root, fates)
+
+        names = {e["name"] for e in enums}
+        self.assertIn("Wrap", names)
+        self.assertNotIn("Helper", names)  # /tests/ path is skipped
+        wrap = next(e for e in enums if e["name"] == "Wrap")
+        self.assertEqual(wrap["values"], ["One", "Two"])
+
     def test_detect_ui_option_groups_records_status_select(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

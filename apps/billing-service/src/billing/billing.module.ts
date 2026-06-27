@@ -73,10 +73,14 @@ const EventHandlers: never[] = [];
     TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan, ScheduledPlanChange, StripeWebhookEventEntity]),
     CqrsModule,
     ScheduleModule,
-    // W1.1 (ADR-016 / BILLING-CRITICAL-001): bind the production Stripe client so
-    // money handlers get a REAL outbound StripeApiService. The factory is
-    // fail-closed (throws at boot in prod without STRIPE_SECRET_KEY); audit rows
-    // are written via the @Global AuditLogService (IAuditRecorder-compatible).
+    // W1.1 (ADR-016 / BILLING-CRITICAL-001): bind the canonical Stripe client so
+    // money handlers get a REAL outbound StripeApiService when billing is on.
+    // The factory is gated by the STRIPE_BILLING_ENABLED SSoT flag (default
+    // off) and reconciles graceful-boot with fail-closed: disabled (any env,
+    // incl. production) → boots with a fail-closed-at-request sentinel client;
+    // enabled + STRIPE_SECRET_KEY → the real adapter; enabled + no key → throws
+    // at boot. NODE_ENV no longer gates boot. Audit rows are written via the
+    // @Global AuditLogService (IAuditRecorder-compatible).
     StripeApiModule.forRoot({
       clientProvider: {
         provide: STRIPE_API_CLIENT,

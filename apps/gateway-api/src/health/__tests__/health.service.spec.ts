@@ -19,10 +19,12 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { CompositionStateService } from '../../config/composition-state.service';
 import { HealthService, ServiceHealth, HealthStatus } from '../health.service';
 
 describe('HealthService', () => {
   let service: HealthService;
+  let compositionState: jest.Mocked<CompositionStateService>;
   let originalFetch: typeof global.fetch;
 
   /**
@@ -31,6 +33,19 @@ describe('HealthService', () => {
    * hydroponics, config, notification, messaging.
    */
   const TOTAL_MONITORED_SERVICES = 10;
+
+  /**
+   * ARCH-GW-006: composition readiness mock. Defaults to composed=true so the
+   * existing subgraph-fan-out readiness paths still exercise; individual tests
+   * override isComposed() to drive the composition-pending short-circuit.
+   */
+  const mockCompositionState = {
+    isComposed: jest.fn<boolean, []>(() => true),
+    getLastError: jest.fn<string | null, []>(() => null),
+    getLastComposedAt: jest.fn<Date | null, []>(() => new Date()),
+    markComposed: jest.fn<void, []>(),
+    markCompositionError: jest.fn<void, [string]>(),
+  };
 
   const mockConfigService = {
     get: jest.fn((key: string, defaultValue?: unknown) => {
@@ -71,6 +86,10 @@ describe('HealthService', () => {
     originalFetch = global.fetch;
     global.fetch = jest.fn();
 
+    // Reset composition mock to the composed-by-default baseline each test.
+    mockCompositionState.isComposed.mockReturnValue(true);
+    mockCompositionState.getLastError.mockReturnValue(null);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HealthService,
@@ -78,10 +97,15 @@ describe('HealthService', () => {
           provide: ConfigService,
           useValue: mockConfigService,
         },
+        {
+          provide: CompositionStateService,
+          useValue: mockCompositionState,
+        },
       ],
     }).compile();
 
     service = module.get<HealthService>(HealthService);
+    compositionState = module.get(CompositionStateService);
   });
 
   afterEach(() => {
@@ -107,17 +131,51 @@ describe('HealthService', () => {
   });
 
   describe('getReadiness', () => {
-    it('should return ok when auth service is healthy', async () => {
+    it('should return ok with all checks ok when composed and every subgraph is healthy', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         createMockFetchResponse(true, 200),
       );
 
       const result = await service.getReadiness();
 
-      expect(result).toEqual({ status: 'ok' });
+      expect(result).toEqual({
+        status: 'ok',
+        checks: { composition: 'ok', auth: 'ok', subgraphs: 'ok' },
+      });
     });
 
-    it('should return not_ready when auth service is unhealthy', async () => {
+    it('should short-circuit to not_ready with composition pending before the supergraph composes', async () => {
+      compositionState.isComposed.mockReturnValue(false);
+      (global.fetch as jest.Mock).mockResolvedValue(
+        createMockFetchResponse(true, 200),
+      );
+
+      const result = await service.getReadiness();
+
+      expect(result.status).toBe('not_ready');
+      expect(result.checks).toEqual({
+        composition: 'pending',
+        auth: 'ok',
+        subgraphs: 'ok',
+      });
+      expect(result.message).toBe('Supergraph composition pending');
+      // No subgraph fan-out while composition is pending.
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should surface the last composition error in the pending message', async () => {
+      compositionState.isComposed.mockReturnValue(false);
+      compositionState.getLastError.mockReturnValue('subgraph auth unreachable');
+
+      const result = await service.getReadiness();
+
+      expect(result.status).toBe('not_ready');
+      expect(result.message).toBe(
+        'Supergraph composition pending (last error: subgraph auth unreachable)',
+      );
+    });
+
+    it('should return not_ready with auth error when auth service is unreachable', async () => {
       (global.fetch as jest.Mock).mockRejectedValue(new Error('Connection refused'));
 
       const result = await service.getReadiness();
@@ -125,23 +183,46 @@ describe('HealthService', () => {
       expect(result).toEqual({
         status: 'not_ready',
         message: 'Auth service is unavailable',
+        checks: { composition: 'ok', auth: 'error', subgraphs: 'ok' },
       });
     });
 
-    it('should return not_ready when auth service returns error status', async () => {
+    it('should return not_ready with auth error when auth returns error status', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         createMockFetchResponse(false, 500),
       );
 
       const result = await service.getReadiness();
 
-      expect(result).toEqual({
-        status: 'not_ready',
-        message: 'Auth service is unavailable',
-      });
+      expect(result.status).toBe('not_ready');
+      expect(result.checks.auth).toBe('error');
+      expect(result.message).toBe('Auth service is unavailable');
     });
 
-    it('should check auth service health endpoint', async () => {
+    it('should return not_ready with subgraphs degraded when a non-auth subgraph is unhealthy', async () => {
+      // auth (first call) healthy, the next subgraph fails, rest healthy.
+      let callCount = 0;
+      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+        callCount++;
+        if (url.includes('farm')) {
+          return Promise.reject(new Error('Connection refused'));
+        }
+        return Promise.resolve(createMockFetchResponse(true, 200));
+      });
+
+      const result = await service.getReadiness();
+
+      expect(callCount).toBeGreaterThan(0);
+      expect(result.status).toBe('not_ready');
+      expect(result.checks).toEqual({
+        composition: 'ok',
+        auth: 'ok',
+        subgraphs: 'degraded',
+      });
+      expect(result.message).toContain('farm');
+    });
+
+    it('should check auth service health endpoint once composed', async () => {
       (global.fetch as jest.Mock).mockResolvedValue(
         createMockFetchResponse(true, 200),
       );
@@ -457,6 +538,10 @@ describe('HealthService', () => {
             provide: ConfigService,
             useValue: mockConfigService,
           },
+          {
+            provide: CompositionStateService,
+            useValue: mockCompositionState,
+          },
         ],
       }).compile();
 
@@ -489,6 +574,10 @@ describe('HealthService', () => {
           {
             provide: ConfigService,
             useValue: mockConfigService,
+          },
+          {
+            provide: CompositionStateService,
+            useValue: mockCompositionState,
           },
         ],
       }).compile();

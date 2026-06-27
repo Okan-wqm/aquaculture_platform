@@ -22,25 +22,27 @@ interface RetryableIntrospectOptions {
  *
  * ARCH-GW-002: This class adds retry-with-backoff to supergraph composition.
  * It is the LAST line of defense — the primary protection is Docker Compose
- * depends_on with service_healthy conditions, which ensures all subgraphs
- * are up before the gateway container even starts.
+ * depends_on with service_started conditions, which orders the gateway after
+ * its subgraph containers have launched (NOT after they pass a healthcheck:
+ * compose uses service_started, so the gateway can introspect a subgraph that
+ * is up-but-not-yet-ready and the retry budget below absorbs that window).
  *
- * The retry budget here handles only transient failures that occur AFTER
- * subgraphs have passed their Docker healthchecks (e.g., brief network
- * blips during container IP reassignment, or a subgraph restarting due
- * to an unrelated crash just as the gateway introspects).
+ * The retry budget here handles transient failures while subgraphs come up
+ * (e.g., brief network blips during container IP reassignment, or a subgraph
+ * restarting due to an unrelated crash just as the gateway introspects).
  *
- * IMPORTANT: initialize() BLOCKS NestFactory.create(). Until composition
- * succeeds, no HTTP listener is bound and /health/live will not respond.
- * Therefore the total retry budget (maxRetries x retryDelayMs) must be
- * shorter than the Docker healthcheck start_period for the gateway, or
- * Docker will mark the gateway as unhealthy and restart it mid-retry.
+ * ARCH-GW-006: initialize() NO LONGER blocks NestFactory.create(). This class is
+ * now driven by BackgroundCompositionManager, which runs this retry loop OFF the
+ * critical path: the gateway binds its HTTP listener and answers /health/live in
+ * <1s on a placeholder supergraph, then hot-swaps the real schema in via
+ * options.update() once this loop succeeds. The retry budget therefore no longer
+ * needs to fit inside the Docker start_period — composition can take as long as
+ * it needs without ever delaying liveness. /health/ready stays not_ready
+ * (checks.composition = 'pending') until this loop completes.
  *
  * Budget calculation (defaults):
  *   24 retries x ~3.45s avg (3s base + 15% jitter) = ~83s average,
- *   ~94s with max jitter
- *   Gateway Docker start_period = 120s (ample headroom)
- *   Deploy script health loop = 30 x 10s = 300s
+ *   ~94s with max jitter — now spent entirely in the background.
  */
 export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
   private readonly logger = new Logger(RetryableIntrospectAndCompose.name);
@@ -50,13 +52,13 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
   constructor(options: RetryableIntrospectOptions) {
     super(options);
     /**
-     * ARCH-GW-002: 24 retries x 3s = 72-94s total retry budget.
-     * This is intentionally shorter than the gateway's Docker start_period (120s)
-     * so that if all retries are exhausted, Docker can restart the container
-     * and attempt a fresh composition cycle.
-     *
-     * Previous values (30 x 5s = 150s) exceeded the start_period and raced
-     * with the deploy script's 300s health check window.
+     * ARCH-GW-002 / ARCH-GW-006: 24 retries x 3s = 72-94s total retry budget,
+     * now spent entirely in the BACKGROUND (BackgroundCompositionManager). The
+     * budget no longer has to fit inside the Docker start_period: liveness
+     * (/health/live) is answered on a placeholder supergraph the instant the
+     * listener binds, so exhausting the budget leaves the gateway up-but-not-ready
+     * rather than restarting the container mid-compose. The manager records the
+     * terminal failure to CompositionStateService for /health/ready + the logs.
      */
     this.maxRetries = options.maxRetries ?? 24;
     this.retryDelayMs = options.retryDelayMs ?? 3000;
@@ -67,7 +69,12 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
    *
    * ARCH-GW-002: Retries with jittered delay on transient composition failures.
    * Each failed attempt logs the failing subgraph(s) for operator diagnosis.
-   * On final failure, throws to let NestJS/Docker handle the restart cycle.
+   * On final failure, throws so its caller can record the outcome.
+   *
+   * ARCH-GW-006: the caller is now BackgroundCompositionManager, which catches
+   * this throw on the background path (it does NOT propagate to NestFactory or
+   * Docker). The terminal failure is routed to CompositionStateService and the
+   * gateway stays up-but-not-ready instead of crash-restarting.
    *
    * @param args - Apollo Gateway initialization arguments (supergraphSdl manager config)
    * @returns Composed supergraph SDL and cleanup function

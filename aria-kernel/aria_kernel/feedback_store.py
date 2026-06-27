@@ -806,6 +806,13 @@ def _consensus_uncertainty(
     group_id: str,
     reason: str,
 ) -> dict[str, Any]:
+    # Plan 023 §B — stable escalation_id so the human-escalation consumer
+    # (human_required.sweep_consensus_uncertainties_for_human_required) can
+    # record one idempotent HUMAN_REQUIRED entry per distinct consensus
+    # failure, instead of this row landing in a file nothing ever reads.
+    digest = hashlib.sha256(
+        "|".join((tool_id, run_id, finding_id, group_id, reason)).encode("utf-8")
+    ).hexdigest()[:16]
     return {
         "tool_id": tool_id,
         "run_id": run_id,
@@ -813,6 +820,7 @@ def _consensus_uncertainty(
         "judgment_group_id": group_id,
         "reason": reason,
         "status": "uncertainty",
+        "escalation_id": f"consensus-{digest}",
     }
 
 

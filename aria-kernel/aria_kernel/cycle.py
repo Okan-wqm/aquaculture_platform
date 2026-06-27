@@ -20,6 +20,7 @@ from .observability import generate_observability_dashboard, record_cycle_metric
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .reflection import run_reflection
+from .human_required import sweep_consensus_uncertainties_for_human_required
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
@@ -417,6 +418,7 @@ def run_enterprise_cycle(
     memory: dict[str, Any] = {}
     pressure: dict[str, Any] = {}
     reflection = None if defer_reflection else {}
+    consensus_escalation: dict[str, Any] = {}
     post_tool_failure = None
     try:
         memory = update_memory(
@@ -429,6 +431,15 @@ def run_enterprise_cycle(
             pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
+    # Plan 023 §B — drain consensus disagreements / low-confidence verdicts into
+    # HUMAN_REQUIRED so a split judge vote reaches an operator instead of being
+    # silently held. Skipped under shadow/discovery runs (no-write profiles);
+    # idempotent so re-running a cycle never double-escalates.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            consensus_escalation = sweep_consensus_uncertainties_for_human_required(base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "consensus_escalation", "status": "failed", "error": str(exc)}
     if post_tool_failure is None and not defer_reflection:
         try:
             reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
@@ -546,6 +557,7 @@ def run_enterprise_cycle(
         "cycle_diff": diff,
         "memory": memory,
         "pressure": pressure,
+        "consensus_escalation": consensus_escalation,
         "reflection": reflection,
         "cycle_metrics": metrics,
         "observability_dashboard": dashboard,

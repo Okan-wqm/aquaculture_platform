@@ -40,6 +40,17 @@ EXPECTED_LOCATIONS: tuple[tuple[str, Path], ...] = (
     ("aria-primary-planner.md", AGENTS_DIR / "aria-primary-planner.md"),
     ("aria-challenger-planner.md", AGENTS_DIR / "aria-challenger-planner.md"),
 )
+
+# Plan 023 §A — model/effort tiering. All three stay on the opus model, but the
+# planners are dispatched per cycle and run at `high` effort under the
+# scout-and-verify split, while the maintenance prompt-writer (which authors
+# judge prompts — quality-critical) stays at `xhigh`. SSoT:
+# aria-kernel/aria_kernel/agent_runtime_profile.py.
+EXPECTED_EFFORT: dict[str, str] = {
+    "aria-prompt-writer.md": "xhigh",
+    "aria-primary-planner.md": "high",
+    "aria-challenger-planner.md": "high",
+}
 FRONTMATTER_RE = re.compile(
     r"\A---\n(.*?)\n---\n",
     re.DOTALL,
@@ -73,9 +84,9 @@ class MaintenanceAgentInvariantTests(unittest.TestCase):
             front = _parse_frontmatter(text)
             self.assertEqual(front.get("model"), "opus", f"{name}: model not opus")
             self.assertEqual(
-                front.get("effort"), "xhigh",
-                f"{name}: effort not xhigh (canonical platform policy — "
-                "see prompt-writer.md §Platform policy)",
+                front.get("effort"), EXPECTED_EFFORT[name],
+                f"{name}: effort not {EXPECTED_EFFORT[name]} "
+                "(Plan 023 §A scout-and-verify tiering)",
             )
             tools = front.get("tools", "")
             self.assertEqual(

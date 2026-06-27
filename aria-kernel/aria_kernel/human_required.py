@@ -27,6 +27,7 @@ from typing import Any
 
 from .agent_invocations import _request_event_count, derive_request_state
 from .ledger import load_declared_jsonl
+from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -216,4 +217,79 @@ def sweep_lease_lifecycle_for_human_required(
             now=now,
         )
         created.append(record)
+    return {"created": created, "skipped": skipped}
+
+
+# Plan 023 §B — consensus-failure escalation mapping.
+# ``judge_disagreement`` is a genuine split verdict between independent judges
+# (HIGH). ``low_confidence`` is an aligned-but-weak verdict (MEDIUM).
+# ``single_judge`` is the benign "only one judge sampled this finding" case —
+# it is re-sampled next cycle and is intentionally NOT escalated, to avoid
+# flooding operator triage with sampling-order noise.
+CONSENSUS_UNCERTAINTY_SEVERITY = {
+    "judge_disagreement": "HIGH",
+    "low_confidence": "MEDIUM",
+}
+
+
+def _consensus_uncertainties_path(tools_root: Path) -> Path:
+    return tools_root / "feedback-consensus-uncertainties.jsonl"
+
+
+def sweep_consensus_uncertainties_for_human_required(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Drain ``feedback-consensus-uncertainties.jsonl`` into HUMAN_REQUIRED.
+
+    Before Plan 023 the consensus gate wrote every judge disagreement /
+    low-confidence outcome to that file and NOTHING ever read it — a split
+    verdict was silently held forever and never reached a human. This consumer
+    closes that hole: each genuine consensus failure becomes one idempotent
+    HUMAN_REQUIRED operator-triage record keyed by the uncertainty's stable
+    ``escalation_id``. Idempotent across cycles (re-running the drain on the
+    same file creates nothing new).
+    """
+    root = ensure_tools_dir(base_dir)
+    path = _consensus_uncertainties_path(root)
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    seen_escalations: set[str] = set()
+    # Plan 026R §A.3 — route the JSONL read through the strict reader instead
+    # of a bare silent-skip; a corrupt row emits a ledger-corruption diagnostic
+    # rather than vanishing. Tolerant mode so one bad row cannot block
+    # escalation of the valid ones. Non-existent path → empty iterator.
+    for entry in read_strict_jsonl(path, on_corruption="tolerant", base_dir=root):
+        for unc in entry.get("uncertainties", []) or []:
+            if not isinstance(unc, dict):
+                continue
+            reason = str(unc.get("reason") or "")
+            severity = CONSENSUS_UNCERTAINTY_SEVERITY.get(reason)
+            escalation_id = str(unc.get("escalation_id") or "")
+            if severity is None:
+                skipped.append({"reason": reason or "unknown", "kind": "benign_not_escalated"})
+                continue
+            if not escalation_id:
+                skipped.append({"reason": reason, "kind": "missing_escalation_id"})
+                continue
+            if escalation_id in seen_escalations:
+                continue
+            seen_escalations.add(escalation_id)
+            if _human_required_path(root, escalation_id).exists():
+                skipped.append({"request_id": escalation_id, "reason": "already_recorded"})
+                continue
+            record = record_human_required(
+                request_id=escalation_id,
+                severity=severity,
+                reason=(
+                    f"AI consensus could not be reached ({reason}) for finding "
+                    f"{unc.get('finding_id')!r} (tool {unc.get('tool_id')!r}, run "
+                    f"{unc.get('run_id')!r}); independent judges disagreed or were "
+                    f"low-confidence. Operator adjudication required."
+                ),
+                base_dir=root,
+                now=now,
+            )
+            created.append(record)
     return {"created": created, "skipped": skipped}

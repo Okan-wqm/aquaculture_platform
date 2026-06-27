@@ -22,6 +22,7 @@ from .pressure import run_pressure
 from .reflection import run_reflection
 from .human_required import sweep_consensus_uncertainties_for_human_required
 from .judge_calibration import compute_judge_calibration
+from .proactive_priority import compute_proactive_priorities
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
@@ -421,6 +422,7 @@ def run_enterprise_cycle(
     reflection = None if defer_reflection else {}
     consensus_escalation: dict[str, Any] = {}
     judge_calibration: dict[str, Any] = {}
+    proactive_priorities: dict[str, Any] = {}
     post_tool_failure = None
     try:
         memory = update_memory(
@@ -450,11 +452,20 @@ def run_enterprise_cycle(
             judge_calibration = compute_judge_calibration(cycle_id=cycle_id, base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "judge_calibration", "status": "failed", "error": str(exc)}
+    # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every cycle
+    # regardless of reactive pressure, so ARIA always has a "where to invest next"
+    # list even when nothing is on fire. Read-only; skipped under no-write runs.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            proactive_priorities = compute_proactive_priorities(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "proactive_priority", "status": "failed", "error": str(exc)}
     if post_tool_failure is None and not defer_reflection:
         try:
             reflection = run_reflection(
                 cycle_id=cycle_id, base_dir=root, repo_root=workspace_root,
                 calibration_result=judge_calibration or None,
+                proactive_result=proactive_priorities or None,
             )
         except Exception as exc:
             post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
@@ -572,6 +583,7 @@ def run_enterprise_cycle(
         "pressure": pressure,
         "consensus_escalation": consensus_escalation,
         "judge_calibration": judge_calibration,
+        "proactive_priorities": proactive_priorities,
         "reflection": reflection,
         "cycle_metrics": metrics,
         "observability_dashboard": dashboard,

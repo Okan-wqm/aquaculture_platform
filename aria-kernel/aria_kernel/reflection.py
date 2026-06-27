@@ -22,6 +22,7 @@ def run_reflection(
     pedagogy_lint_result: dict[str, Any] | None = None,
     skill_genesis_result: dict[str, Any] | None = None,
     calibration_result: dict[str, Any] | None = None,
+    proactive_result: dict[str, Any] | None = None,
     cycle_runner_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
@@ -126,6 +127,7 @@ def run_reflection(
         # orchestrator path populates with real producer outputs.
         "skill_genesis": skill_genesis_result if skill_genesis_result else None,
         "calibration": calibration_result if calibration_result else None,
+        "proactive": proactive_result if proactive_result else None,
         "cycle_runner": cycle_runner_result if cycle_runner_result else None,
         "next_cycle_plan": [
             {
@@ -562,6 +564,31 @@ def _render_calibration_section(reflection: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
+    """Plan 027 §D3 — render the daily report's Proactive Priorities section:
+    the impact x opportunity ranking of where to invest next, shown even when
+    no reactive pressure fired."""
+    proactive = reflection.get("proactive")
+    if not proactive:
+        return []
+    top = proactive.get("top") or []
+    if not top:
+        return []
+    lines = [
+        "## Proactive Priorities (impact x opportunity)",
+        "",
+        f"- Calibration degraded: {proactive.get('calibration_degraded', False)}",
+    ]
+    for t in top:
+        reasons = ", ".join(t.get("reasons") or []) or "—"
+        lines.append(
+            f"  - {t.get('tool_id')}: priority={t.get('priority')} "
+            f"(impact={t.get('impact')} x opportunity={t.get('opportunity')}) [{reasons}]"
+        )
+    lines.append("")
+    return lines
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -662,6 +689,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_convergence_section(reflection),
         *_render_pedagogy_section(reflection),
         *_render_calibration_section(reflection),
+        *_render_proactive_section(reflection),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

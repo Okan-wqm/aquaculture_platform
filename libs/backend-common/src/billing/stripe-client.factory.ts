@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 
+import { MockBillingProvider } from './mock-billing.provider';
 import {
   IStripeApiClient,
   StripeCustomer,
@@ -50,6 +51,30 @@ const STRIPE_API_VERSION = '2024-12-18.acacia';
  */
 export const STRIPE_BILLING_ENABLED_ENV = 'STRIPE_BILLING_ENABLED';
 export const STRIPE_SECRET_KEY_ENV = 'STRIPE_SECRET_KEY';
+
+/**
+ * BILLING_PROVIDER is the explicit provider SSoT, reconciled with
+ * STRIPE_BILLING_ENABLED (it does NOT compete with it):
+ *   - 'mock'   → a functional local MockBillingProvider (no Stripe SDK / no
+ *                outbound network, local subscriptions/receipts). For demo/test
+ *                tenants; needs NO STRIPE_SECRET_KEY. This is what the
+ *                app.suderra.com droplet runs, so billing actually works there
+ *                instead of throwing at every call.
+ *   - 'stripe' → the real Stripe adapter; implies enabled even when
+ *                STRIPE_BILLING_ENABLED is unset, so STRIPE_SECRET_KEY is then
+ *                mandatory and missing-key fails closed at boot.
+ *   - unset    → defer to STRIPE_BILLING_ENABLED (boot-decouple back-compat).
+ * Like STRIPE_BILLING_ENABLED it is intent, not a credential (NOT in
+ * PLATFORM_SECRET_ENV_VARS).
+ */
+export const BILLING_PROVIDER_ENV = 'BILLING_PROVIDER';
+
+type BillingProvider = 'mock' | 'stripe' | 'unset';
+
+function resolveBillingProvider(config: ConfigService): BillingProvider {
+  const raw = (config.get<string>(BILLING_PROVIDER_ENV) ?? '').trim().toLowerCase();
+  return raw === 'mock' ? 'mock' : raw === 'stripe' ? 'stripe' : 'unset';
+}
 
 /**
  * Canonical boolean-env idiom (matches DATABASE_SSL in
@@ -318,11 +343,28 @@ class UnconfiguredStripeClient implements IStripeApiClient {
 export function stripeClientFactory(config: ConfigService): IStripeApiClient {
   const logger = new Logger('StripeClientFactory');
 
-  if (!isStripeBillingEnabled(config)) {
+  // BILLING_PROVIDER=mock short-circuits to a functional local provider — no
+  // Stripe SDK/network, no secret. This lets a demo/test droplet (app.suderra.com)
+  // run billing for real without an outbound Stripe credential.
+  const provider = resolveBillingProvider(config);
+  if (provider === 'mock') {
+    logger.warn(
+      `${BILLING_PROVIDER_ENV}=mock — binding the local no-op MockBillingProvider; ` +
+        'no outbound Stripe (SDK/network), local subscriptions/receipts only. ' +
+        `No ${STRIPE_SECRET_KEY_ENV} required.`,
+    );
+    return new MockBillingProvider();
+  }
+
+  // Enabled when STRIPE_BILLING_ENABLED=true OR BILLING_PROVIDER=stripe (an
+  // explicit real provider implies enabled even if the boot-decouple flag is unset).
+  const enabled = isStripeBillingEnabled(config) || provider === 'stripe';
+  if (!enabled) {
     logger.warn(
       `${STRIPE_BILLING_ENABLED_ENV} is off or unset; binding a disabled ` +
         'Stripe client (fail-closed). The service boots, but any outbound ' +
-        'billing call will throw StripeNotConfiguredError.',
+        `billing call will throw StripeNotConfiguredError. Set ${BILLING_PROVIDER_ENV}=mock ` +
+        'for a keyless local provider that actually serves billing.',
     );
     return new UnconfiguredStripeClient();
   }
@@ -330,9 +372,10 @@ export function stripeClientFactory(config: ConfigService): IStripeApiClient {
   const secretKey = config.get<string>(STRIPE_SECRET_KEY_ENV);
   if (!secretKey) {
     throw new Error(
-      `${STRIPE_BILLING_ENABLED_ENV}=true but ${STRIPE_SECRET_KEY_ENV} is ` +
-        'missing — refusing to boot billing with no outbound Stripe credential ' +
-        '(fail-closed).',
+      `billing is enabled (${STRIPE_BILLING_ENABLED_ENV}=true or ${BILLING_PROVIDER_ENV}=stripe) ` +
+        `but ${STRIPE_SECRET_KEY_ENV} is missing — refusing to boot billing with no ` +
+        `outbound Stripe credential (fail-closed). Set ${BILLING_PROVIDER_ENV}=mock for a ` +
+        'keyless local provider.',
     );
   }
 

@@ -22,7 +22,11 @@ export {
 export {
   stripeClientFactory,
   StripeNotConfiguredError,
+  STRIPE_BILLING_ENABLED_ENV,
+  STRIPE_SECRET_KEY_ENV,
+  BILLING_PROVIDER_ENV,
 } from './stripe-client.factory';
+export { MockBillingProvider } from './mock-billing.provider';
 export type {
   IStripeApiClient,
   IAuditRecorder,

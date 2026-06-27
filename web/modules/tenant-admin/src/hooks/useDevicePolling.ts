@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../services/tenant-api.service';
 
 interface EdgeDevice {
@@ -117,7 +118,7 @@ export function useDevicePolling(deviceId: string, intervalMs = 5000) {
   }, [intervalMs]);
 
   const query = useQuery({
-    queryKey: ['edgeDevice', deviceId],
+    queryKey: createTenantQueryKey(getTenantId(), 'edgeDevice', deviceId),
     queryFn: async () => {
       try {
         const result = await fetchDeviceData(deviceId);

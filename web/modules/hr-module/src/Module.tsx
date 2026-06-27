@@ -5,9 +5,8 @@
  * Includes aquaculture-specific features: crew management, offshore rotations, certifications.
  */
 
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // All pages are lazy-loaded to minimize initial chunk size (PERF-010)
 const HRDashboardPage = lazy(() => import('./pages/HRDashboardPage'));
@@ -54,25 +53,14 @@ function PlaceholderPage({ title }: { title: string }) {
 // ============================================================================
 
 const HRModule: React.FC = () => {
-  // QueryClient created inside component so it is tied to the component lifecycle,
-  // not shared across HMR cycles or parallel module instances (PERF-002).
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 5 * 60 * 1000, // 5 minutes
-            gcTime: 10 * 60 * 1000, // 10 minutes — reduced to limit PII heap accumulation
-            retry: 1,
-            refetchOnWindowFocus: false,
-          },
-        },
-      })
-  );
-
+  // No module-local QueryClient: the host (web/shell when federated, main.tsx when
+  // standalone) owns the SINGLE QueryClient, so HR shares its cache AND its
+  // backend-health circuit-breaker gating. A nested client (the old PERF-002 setup)
+  // silently opted HR out of both and split the cache — banned by the QueryClient
+  // singleton SSoT (web/CLAUDE.md / FE-HIGH-004). PII retention is bounded by the
+  // shell's logout-cleanup, not a per-module gcTime.
   return (
-    <QueryClientProvider client={queryClient}>
-      <Suspense fallback={<PageLoader />}>
+    <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Dashboard */}
           <Route index element={<HRDashboardPage />} />
@@ -141,7 +129,6 @@ const HRModule: React.FC = () => {
           <Route path="*" element={<Navigate to="/hr" replace />} />
         </Routes>
       </Suspense>
-    </QueryClientProvider>
   );
 };
 

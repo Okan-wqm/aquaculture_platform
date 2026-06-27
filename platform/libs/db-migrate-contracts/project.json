@@ -1,0 +1,22 @@
+{
+  "name": "db-migrate-contracts",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/db-migrate-contracts/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p platform/libs/db-migrate-contracts/tsconfig.lib.json --noEmit"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["platform/libs/db-migrate-contracts/src/**/*.ts"]
+      }
+    }
+  }
+}

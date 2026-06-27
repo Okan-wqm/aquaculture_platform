@@ -31,6 +31,12 @@ vi.mock('@aquaculture/shared-ui', () => ({
     isLoading: mockIsLoading(),
     user: { id: 'u1', email: 'test@test.com', role: 'TENANT_ADMIN' },
   }),
+  getTenantId: vi.fn(() => 'tenant-1'),
+  createTenantQueryKey: (tenantId: string | null | undefined, ...segments: readonly unknown[]) => [
+    'tenant',
+    tenantId,
+    ...segments,
+  ],
 }));
 
 // Mock all page components to simple stubs to avoid deep dependency chains

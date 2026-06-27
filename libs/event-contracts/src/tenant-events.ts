@@ -249,7 +249,7 @@ export interface TenantSubscriptionChangedEvent extends BaseEvent {
   eventType: 'TenantSubscriptionChanged';
   previousPlan: string;
   newPlan: string;
-  effectiveDate: Date;
+  effectiveDate: string;
   /**
    * DATA-LOW-001: the full subscription-projection state billing emits so
    * auth.tenants can mirror it (billing.subscriptions is the SSoT). Optional +

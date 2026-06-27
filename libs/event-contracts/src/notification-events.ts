@@ -62,7 +62,7 @@ export interface NotificationDeliveredEvent extends BaseEvent {
   eventType: 'NotificationDelivered';
   notificationId: string;
   channel: string;
-  deliveredAt: Date;
+  deliveredAt: string;
   externalId?: string;
 }
 

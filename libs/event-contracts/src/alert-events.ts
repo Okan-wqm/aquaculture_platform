@@ -51,7 +51,7 @@ export interface AlertAcknowledgedEvent extends BaseEvent {
   eventType: 'AlertAcknowledged';
   alertId: string;
   acknowledgedBy: string;
-  acknowledgedAt: Date;
+  acknowledgedAt: string;
   notes?: string;
 }
 
@@ -62,7 +62,7 @@ export interface AlertResolvedEvent extends BaseEvent {
   eventType: 'AlertResolved';
   alertId: string;
   resolvedBy?: string;
-  resolvedAt: Date;
+  resolvedAt: string;
   resolution?: string;
   autoResolved: boolean;
 }

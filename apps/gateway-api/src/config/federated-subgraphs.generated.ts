@@ -1,6 +1,6 @@
 /**
  * Generated from infrastructure/apollo-router/subgraphs.json.
- * Registry SHA256: a1caae6f628936cd38b4dc2be5eab8ab087a4fb6f128f10e88f4fcfe7d4f2dd9
+ * Registry SHA256: dcd5d20a7c027a1cd1a6ab1f1eaae341c5fcc5a6df5748b43b7ac7a51fda707a
  * Generator version: 1
  */
 export interface FederatedSubgraphConfig {

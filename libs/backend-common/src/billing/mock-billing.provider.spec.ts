@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { StripeIdempotencyKey } from './stripe-api.types';
 import { MockBillingProvider } from './mock-billing.provider';
+import { StripeIdempotencyKey } from './stripe-api.types';
 
 const idem = 'idem_test' as StripeIdempotencyKey;
 

@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 
+import { MockBillingProvider } from './mock-billing.provider';
 import {
   IStripeApiClient,
   StripeCustomer,
@@ -12,7 +13,6 @@ import {
   StripeSubscription,
   StripeMeterEvent,
 } from './stripe-api.types';
-import { MockBillingProvider } from './mock-billing.provider';
 
 /**
  * The ONE adapter that constructs a real Stripe SDK instance and maps its

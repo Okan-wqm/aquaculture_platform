@@ -30,6 +30,11 @@ const MOCK_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
  * subscription's stripe_* columns would make a future BILLING_PROVIDER=stripe
  * flip call REAL Stripe with a bogus identifier (4xx / data corruption).
  *
+ * The methods are intentionally NOT `async` — they do purely synchronous local
+ * work and return `Promise.resolve(...)` to satisfy the IStripeApiClient
+ * contract (an `async` body with no `await` would be a require-await lint error
+ * and a false signal that real I/O happens here).
+ *
  * Contrast with UnconfiguredStripeClient (the STRIPE_BILLING_ENABLED-off path in
  * stripe-client.factory.ts), which THROWS on every call: that is the correct
  * "billing disabled" posture, but a provider that throws cannot back a WORKING
@@ -55,108 +60,115 @@ export class MockBillingProvider implements IStripeApiClient {
     };
   }
 
-  async createCustomer(args: {
+  createCustomer(args: {
     email?: string;
     name?: string;
     metadata: StripeMetadata;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeCustomer> {
     this.noop('createCustomer');
-    return { id: '', email: args.email ?? null, metadata: args.metadata };
+    return Promise.resolve({ id: '', email: args.email ?? null, metadata: args.metadata });
   }
 
-  async createSubscription(args: {
+  createSubscription(args: {
     customerId: string;
     priceId: string;
     metadata: StripeMetadata;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     this.noop('createSubscription');
-    return { id: '', customer: '', status: 'active', ...this.period(), metadata: args.metadata };
+    return Promise.resolve({
+      id: '',
+      customer: '',
+      status: 'active',
+      ...this.period(),
+      metadata: args.metadata,
+    });
   }
 
-  async updateSubscription(args: {
+  updateSubscription(args: {
     subscriptionId: string;
     priceId?: string;
     metadata?: StripeMetadata;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     this.noop('updateSubscription');
-    return {
+    return Promise.resolve({
       id: args.subscriptionId,
       customer: '',
       status: 'active',
       ...this.period(),
       metadata: args.metadata ?? {},
-    };
+    });
   }
 
-  async cancelSubscription(args: {
+  cancelSubscription(args: {
     subscriptionId: string;
     immediately: boolean;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     this.noop('cancelSubscription');
-    return {
+    return Promise.resolve({
       id: args.subscriptionId,
       customer: '',
       status: 'canceled',
       ...this.period(),
       metadata: {},
-    };
+    });
   }
 
-  async retrieveSubscription(args: { subscriptionId: string }): Promise<StripeSubscription> {
+  retrieveSubscription(args: { subscriptionId: string }): Promise<StripeSubscription> {
     this.noop('retrieveSubscription');
-    return {
+    return Promise.resolve({
       id: args.subscriptionId,
       customer: '',
       status: 'active',
       ...this.period(),
       metadata: {},
-    };
+    });
   }
 
-  async createRefund(args: {
+  createRefund(args: {
     chargeId: string;
     amount: bigint;
     reason: 'duplicate' | 'fraudulent' | 'requested_by_customer';
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeRefund> {
     this.noop('createRefund');
-    return {
+    return Promise.resolve({
       id: '',
       chargeId: args.chargeId,
       amount: args.amount,
       currency: '',
       status: 'succeeded',
       reason: args.reason,
-    };
+    });
   }
 
-  async retrieveRefund(args: { refundId: string }): Promise<StripeRefund> {
+  retrieveRefund(args: { refundId: string }): Promise<StripeRefund> {
     this.noop('retrieveRefund');
-    return {
+    return Promise.resolve({
       id: args.refundId,
       chargeId: '',
       amount: 0n,
       currency: '',
       status: 'succeeded',
       reason: null,
-    };
+    });
   }
 
-  async finalizeInvoice(_args: {
+  finalizeInvoice(_args: {
     invoiceId: string;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeInvoice> {
     this.noop('finalizeInvoice');
-    return { id: '', status: 'open', hostedInvoiceUrl: null };
+    return Promise.resolve({ id: '', status: 'open', hostedInvoiceUrl: null });
   }
 
-  async reportMeterEvent(
+  reportMeterEvent(
     _args: StripeMeterEvent & { idempotencyKey: StripeIdempotencyKey },
   ): Promise<void> {
     this.noop('reportMeterEvent');
+    return Promise.resolve();
   }
 }

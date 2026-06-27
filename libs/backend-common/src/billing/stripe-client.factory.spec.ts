@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 
+import { MockBillingProvider } from './mock-billing.provider';
 import { IStripeApiClient, StripeIdempotencyKey } from './stripe-api.types';
 import {
   BILLING_PROVIDER_ENV,
@@ -8,7 +9,6 @@ import {
   StripeNotConfiguredError,
   stripeClientFactory,
 } from './stripe-client.factory';
-import { MockBillingProvider } from './mock-billing.provider';
 
 /**
  * Boot + request-time contract for the flag-gated Stripe client factory.

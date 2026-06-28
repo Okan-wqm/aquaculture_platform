@@ -15,6 +15,9 @@ dispatch: ad-hoc
 - @tools/aria-acceptance/harness.py
 - @docs/aria/ARIA-NASIL-CALISIR.md
 - @.claude/knowledge/layer-1-aria.md
+- @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @docs/aria/SPEC.md
+- @docs/aria/CONTRACTS.md
 
 ## What you do
 

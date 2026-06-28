@@ -1,10 +1,12 @@
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, FindOptionsWhere } from 'typeorm';
-import { ListFarmsQuery } from '../queries/list-farms.query';
+import { DataSource, Like, FindOptionsWhere } from 'typeorm';
+
 import { Farm } from '../entities/farm.entity';
+import { ListFarmsQuery } from '../queries/list-farms.query';
 
 /**
  * List Farms Query Handler
@@ -18,8 +20,8 @@ export class ListFarmsQueryHandler
   private readonly logger = new Logger(ListFarmsQueryHandler.name);
 
   constructor(
-    @InjectRepository(Farm)
-    private readonly farmRepository: Repository<Farm>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListFarmsQuery): Promise<PaginatedQueryResult<Farm>> {
@@ -46,16 +48,23 @@ export class ListFarmsQueryHandler
       where.name = Like(`%${escaped}%`);
     }
 
-    // Execute query with count
-    const [items, total] = await this.farmRepository.findAndCount({
-      where,
-      relations: query.includePonds ? ['ponds'] : [],
-      skip,
-      take: limit,
-      order: {
-        createdAt: 'DESC',
-      },
-    });
+    // Execute through the fail-closed tenant boundary so a lost/wrong tenant
+    // context throws instead of returning a silent empty page.
+    const [items, total] = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      query.tenantId,
+      (queryRunner) =>
+        queryRunner.manager.findAndCount(Farm, {
+          where,
+          relations: query.includePonds ? ['ponds'] : [],
+          skip,
+          take: limit,
+          order: {
+            createdAt: 'DESC',
+          },
+        }),
+    );
 
     return createPaginatedQueryResult(items, page, limit, total);
   }

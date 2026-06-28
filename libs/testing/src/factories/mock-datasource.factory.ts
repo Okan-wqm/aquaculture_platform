@@ -23,6 +23,7 @@ export interface MockDataSourceResult {
 export function createMockDataSource(): MockDataSourceResult {
   const mockManager = {
     find: jest.fn().mockResolvedValue([]),
+    findAndCount: jest.fn().mockResolvedValue([[], 0]),
     findOne: jest.fn().mockResolvedValue(null),
     save: jest.fn().mockImplementation((_entityClassOrEntity: unknown, maybeData?: unknown) =>
       Promise.resolve(maybeData ?? _entityClassOrEntity),

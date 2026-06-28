@@ -1,9 +1,11 @@
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { GetPondQuery } from '../queries/get-pond.query';
+import { DataSource } from 'typeorm';
+
 import { Pond } from '../entities/pond.entity';
+import { GetPondQuery } from '../queries/get-pond.query';
 
 /**
  * Get Pond Query Handler
@@ -15,8 +17,8 @@ export class GetPondQueryHandler implements IQueryHandler<GetPondQuery, Pond> {
   private readonly logger = new Logger(GetPondQueryHandler.name);
 
   constructor(
-    @InjectRepository(Pond)
-    private readonly pondRepository: Repository<Pond>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetPondQuery): Promise<Pond> {
@@ -34,13 +36,19 @@ export class GetPondQueryHandler implements IQueryHandler<GetPondQuery, Pond> {
       relations.push('farm');
     }
 
-    const pond = await this.pondRepository.findOne({
-      where: {
-        id: query.pondId,
-        tenantId: query.tenantId,
-      },
-      relations,
-    });
+    // Read through the fail-closed tenant boundary: a lost/wrong tenant context
+    // throws TenantContextError instead of silently resolving zero rows, so the
+    // NotFoundException below is a genuine 404, not a masked context failure.
+    const pond = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      query.tenantId,
+      (queryRunner) =>
+        queryRunner.manager.findOne(Pond, {
+          where: { id: query.pondId, tenantId: query.tenantId },
+          relations,
+        }),
+    );
 
     if (!pond) {
       throw new NotFoundException(`Pond with ID ${query.pondId} not found`);

@@ -1,21 +1,24 @@
 /**
  * List Farms Handler Unit Tests
  *
- * Tests for farm list/read operations via CQRS query handler
+ * Tests for farm list/read operations via CQRS query handler. Reads run through
+ * the fail-closed tenant boundary (runInTenantRead), so the handler is exercised
+ * with the @aquaculture/testing mock-datasource factory and a valid-UUID tenant.
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
-import { ListFarmsQueryHandler } from '../query-handlers/list-farms.handler';
-import { ListFarmsQuery } from '../queries/list-farms.query';
+import { createMockDataSource } from '@aquaculture/testing';
+import { Like } from 'typeorm';
+
 import { Farm } from '../entities/farm.entity';
+import { ListFarmsQuery } from '../queries/list-farms.query';
+import { ListFarmsQueryHandler } from '../query-handlers/list-farms.handler';
 
 describe('ListFarmsQueryHandler', () => {
-  let handler: ListFarmsQueryHandler;
-  let farmRepository: jest.Mocked<Repository<Farm>>;
+  // Must be a valid UUID — the tenant boundary (withTenantContext) rejects others.
+  const mockTenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-  const mockTenantId = 'tenant-123';
+  let handler: ListFarmsQueryHandler;
+  let findAndCount: jest.Mock;
 
   const createMockFarm = (index: number, overrides: Partial<Farm> = {}): Farm =>
     ({
@@ -30,29 +33,16 @@ describe('ListFarmsQueryHandler', () => {
       ...overrides,
     }) as Farm;
 
-  beforeEach(async () => {
-    const mockFarmRepository = {
-      findAndCount: jest.fn(),
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ListFarmsQueryHandler,
-        {
-          provide: getRepositoryToken(Farm),
-          useValue: mockFarmRepository,
-        },
-      ],
-    }).compile();
-
-    handler = module.get<ListFarmsQueryHandler>(ListFarmsQueryHandler);
-    farmRepository = module.get(getRepositoryToken(Farm));
+  beforeEach(() => {
+    const { mockDataSource, mockManager } = createMockDataSource();
+    findAndCount = mockManager.findAndCount as jest.Mock;
+    handler = new ListFarmsQueryHandler(mockDataSource);
   });
 
   describe('execute', () => {
     it('should return paginated farms', async () => {
       const farms = [createMockFarm(1), createMockFarm(2), createMockFarm(3)];
-      farmRepository.findAndCount.mockResolvedValue([farms, 3]);
+      findAndCount.mockResolvedValue([farms, 3]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 1, limit: 10 });
       const result = await handler.execute(query);
@@ -67,11 +57,8 @@ describe('ListFarmsQueryHandler', () => {
     });
 
     it('should correctly calculate pagination metadata', async () => {
-      const farms = [
-        createMockFarm(1),
-        createMockFarm(2),
-      ];
-      farmRepository.findAndCount.mockResolvedValue([farms, 25]);
+      const farms = [createMockFarm(1), createMockFarm(2)];
+      findAndCount.mockResolvedValue([farms, 25]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 2, limit: 2 });
       const result = await handler.execute(query);
@@ -86,22 +73,21 @@ describe('ListFarmsQueryHandler', () => {
     });
 
     it('should filter farms by tenant', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
         expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId: mockTenantId,
-          }),
+          where: expect.objectContaining({ tenantId: mockTenantId }),
         }),
       );
     });
 
     it('should filter by isActive when provided', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(
         mockTenantId,
@@ -110,18 +96,16 @@ describe('ListFarmsQueryHandler', () => {
       );
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
         expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId: mockTenantId,
-            isActive: true,
-          }),
+          where: expect.objectContaining({ tenantId: mockTenantId, isActive: true }),
         }),
       );
     });
 
     it('should filter by search term', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(
         mockTenantId,
@@ -130,17 +114,16 @@ describe('ListFarmsQueryHandler', () => {
       );
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
         expect.objectContaining({
-          where: expect.objectContaining({
-            name: Like('%coastal%'),
-          }),
+          where: expect.objectContaining({ name: Like('%coastal%') }),
         }),
       );
     });
 
     it('should include ponds when requested', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(
         mockTenantId,
@@ -150,28 +133,26 @@ describe('ListFarmsQueryHandler', () => {
       );
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          relations: ['ponds'],
-        }),
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
+        expect.objectContaining({ relations: ['ponds'] }),
       );
     });
 
     it('should not include ponds by default', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          relations: [],
-        }),
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
+        expect.objectContaining({ relations: [] }),
       );
     });
 
     it('should return empty result when no farms found', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       const result = await handler.execute(query);
@@ -185,7 +166,7 @@ describe('ListFarmsQueryHandler', () => {
 
     it('should handle last page correctly', async () => {
       const farms = [createMockFarm(1)];
-      farmRepository.findAndCount.mockResolvedValue([farms, 21]);
+      findAndCount.mockResolvedValue([farms, 21]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 3, limit: 10 });
       const result = await handler.execute(query);
@@ -198,36 +179,33 @@ describe('ListFarmsQueryHandler', () => {
     });
 
     it('should calculate correct skip offset', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 3, limit: 5 });
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          skip: 10, // (3-1) * 5 = 10
-          take: 5,
-        }),
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
+        expect.objectContaining({ skip: 10, take: 5 }),
       );
     });
 
     it('should order by createdAt descending', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          order: { createdAt: 'DESC' },
-        }),
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
+        expect.objectContaining({ order: { createdAt: 'DESC' } }),
       );
     });
   });
 
   describe('pagination edge cases', () => {
     it('should handle first page', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 20]);
+      findAndCount.mockResolvedValue([[], 20]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 1, limit: 10 });
       const result = await handler.execute(query);
@@ -238,7 +216,7 @@ describe('ListFarmsQueryHandler', () => {
 
     it('should handle single page result', async () => {
       const farms = [createMockFarm(1)];
-      farmRepository.findAndCount.mockResolvedValue([farms, 1]);
+      findAndCount.mockResolvedValue([farms, 1]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 1, limit: 10 });
       const result = await handler.execute(query);
@@ -249,16 +227,14 @@ describe('ListFarmsQueryHandler', () => {
     });
 
     it('should default to page 1, limit 10', async () => {
-      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+      findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
-      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          skip: 0,
-          take: 10,
-        }),
+      expect(findAndCount).toHaveBeenCalledWith(
+        Farm,
+        expect.objectContaining({ skip: 0, take: 10 }),
       );
     });
   });

@@ -41,6 +41,22 @@ Fix: both now read through `runInTenantRead` (which asserts schema + RLS GUC), s
 a context failure throws `TenantContextError` and `null` means an honest
 not-found. The masking comments are removed.
 
+## FARM-HIGH-062 — list-farms / get-pond / list-sites read outside the tenant boundary
+
+`ListFarmsQueryHandler`, `GetPondQueryHandler`, and `ListSitesHandler` read via
+raw `@InjectRepository` (find/findAndCount/createQueryBuilder), relying only on
+pool-checkout search_path + RLS — no boundary assertion.
+
+Evidence:
+- `apps/farm-service/src/farm/query-handlers/list-farms.handler.ts`
+- `apps/farm-service/src/farm/query-handlers/get-pond.handler.ts`
+- `apps/farm-service/src/site/handlers/list-sites.handler.ts`
+
+Fix: all three now read through `runInTenantRead` (asserts schema + RLS GUC) via
+`queryRunner.manager`. `get-farm` is deliberately deferred — its federation
+`__resolveReference` path is tenant-less by design and needs the explicit
+source-read API (FARM-* / plan §8.3) rather than the tenant boundary.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

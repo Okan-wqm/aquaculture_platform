@@ -102,6 +102,26 @@ now gates the blocking error view to the initial-load-failure case only; on a
 refetch error with cached data, the table keeps rendering and a non-blocking
 amber banner with Retry is shown. Helper unit-tested.
 
+## FARM-HIGH-065 — invalidateQueries used the full (epoch'd) key builder → silent misses
+
+`createTenantQueryKey` appends `{__sessionEpoch}` LAST. Used as an
+`invalidateQueries` filter, that trailing object lands at the array index a full
+query key holds its filter/args, so a query stored under
+`['tenant',t,'systems','list',filter,{epoch}]` is NOT matched by
+`['tenant',t,'systems','list',{epoch}]` (index 4 mismatch). The list shows stale
+data until `staleTime` elapses — the "data doesn't refresh after a mutation" bug.
+
+Evidence:
+- `web/shared-ui/src/utils/tenant-query-keys.ts`
+- `web/modules/farm-module/src/hooks/useSystems.ts`
+
+Fix: new `createTenantInvalidationKey(tenantId, ...segments)` returns a clean
+epoch-less domain prefix that left-prefix-matches every stored key under those
+segments. Proven with a real `QueryClient` match test (buggy full-key filter
+misses; the prefix matches). `useSystems` invalidations migrated. FOLLOW-UP:
+sweep the remaining farm-module invalidate/remove sites + add an invariant
+banning the full-key builder in invalidation calls.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

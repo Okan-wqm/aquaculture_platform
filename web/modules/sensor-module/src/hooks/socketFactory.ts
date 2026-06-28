@@ -23,6 +23,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   getAccessToken,
   getTenantId,
+  onTenantChange,
   registerLogoutCleanup,
 } from '@aquaculture/shared-ui';
 
@@ -141,10 +142,34 @@ function teardownAllSockets(): void {
   pool.clear();
 }
 
-// Register the logout teardown exactly once at module load. The guard prevents a
-// double-registration if this module is ever re-evaluated (HMR / federation).
-let logoutCleanupRegistered = false;
-if (!logoutCleanupRegistered) {
-  logoutCleanupRegistered = true;
+/**
+ * Disconnect + evict every pooled socket bound to a SPECIFIC tenant.
+ *
+ * SECURITY: Runs on a tenant switch (onTenantChange) so tenant A's realtime sockets
+ * are severed the instant the active tenant changes — they must NOT linger
+ * (refcounted) in the pool until the next logout, where they would keep delivering
+ * tenant-A events (sensor readings, alarms, edge I/O) into the tenant-B session that
+ * reuses the same browser. Mirrors the logout teardown, scoped to one tenant. The
+ * `::${tenantId}` suffix is the tenant half of poolKey(), so endsWith targets exactly
+ * the leaving tenant's entries.
+ */
+function teardownTenantSockets(oldTenantId: string): void {
+  const suffix = `::${oldTenantId}`;
+  for (const [key, entry] of pool) {
+    if (key.endsWith(suffix)) {
+      entry.socket.removeAllListeners();
+      entry.socket.disconnect();
+      pool.delete(key);
+    }
+  }
+}
+
+// Register the logout + tenant-switch teardowns exactly once at module load. The
+// guard prevents a double-registration if this module is ever re-evaluated
+// (HMR / federation).
+let teardownRegistered = false;
+if (!teardownRegistered) {
+  teardownRegistered = true;
   registerLogoutCleanup(teardownAllSockets);
+  onTenantChange(teardownTenantSockets);
 }

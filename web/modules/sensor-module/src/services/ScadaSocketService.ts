@@ -11,7 +11,7 @@
  */
 
 import { io, type Socket } from 'socket.io-client';
-import { getAccessToken, onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
+import { getAccessToken, getTenantId, onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import {
   ScadaSocketEvent,
   type TagValuesPayload,
@@ -112,6 +112,14 @@ export class ScadaSocketService {
     const token = getAccessToken();
     if (!token) {
       console.warn('[ScadaSocketService] No auth token — deferring connection');
+      return;
+    }
+
+    // Tenant gate: never open the tenant-scoped /scada socket without a tenant
+    // context to bind it to (matches socketFactory + the sibling sensor sockets).
+    // Defer silently — a tenant arrives once AuthContext resolves the session;
+    // onTenantChange/login will re-drive connect().
+    if (!getTenantId()) {
       return;
     }
 

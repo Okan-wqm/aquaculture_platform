@@ -372,7 +372,9 @@ export function useEquipmentTypes() {
       return data.equipmentTypes;
     },
     staleTime: 60000, // Types don't change often
-    enabled: !!token, // Types endpoint has @SkipTenantGuard, tenantId optional
+    // Per-tenant catalog: equipmentTypes is now tenant-scoped (no @SkipTenantGuard),
+    // so require a tenant context before firing.
+    enabled: !!token && !!tenantId,
   });
 }
 

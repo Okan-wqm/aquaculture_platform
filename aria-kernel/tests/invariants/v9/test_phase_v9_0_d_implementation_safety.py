@@ -21,11 +21,12 @@ from aria_kernel import implementation_safety as _is
 class TestV9HardFailRegistry(unittest.TestCase):
 
     def test_i_v9_safety_15_hard_fail_checks(self):
-        """HARD_FAIL_CHECKS MUST contain exactly 15 entries (V9.5
-        canonical count). v1 plan had 6; v3 audit grew to 15."""
+        """HARD_FAIL_CHECKS MUST contain exactly 16 entries. v1 plan had
+        6; v3 audit grew to 15; Plan 031 §031e added the 16th
+        (expert_consensus_evidence_verified)."""
         self.assertEqual(
-            len(_is.HARD_FAIL_CHECKS), 15,
-            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 15)",
+            len(_is.HARD_FAIL_CHECKS), 16,
+            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 16)",
         )
 
     def test_i_v9_safety_check_names_unique(self):
@@ -34,7 +35,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)), "duplicate HARD_FAIL_CHECK name")
 
     def test_i_v9_safety_check_canonical_names_present(self):
-        """The 15 canonical names per v3 plan Phase 9.5 table."""
+        """The 15 canonical V9.5 names + the Plan 031 §031e addition."""
         expected = {
             "no_force_push", "no_no_verify", "no_main_branch_write",
             "forbidden_scope_normalized",
@@ -44,6 +45,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
             "branch_tip_lock_and_recheck", "per_file_mutual_exclusion",
             "operator_feedback_signature", "pr_body_templating",
             "cycle_and_turn_budget_cap", "content_hash_recheck",
+            "expert_consensus_evidence_verified",
         }
         actual = {c.name for c in _is.HARD_FAIL_CHECKS}
         self.assertEqual(

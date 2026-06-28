@@ -69,6 +69,7 @@ import { readdirSync, statSync, existsSync } from 'fs';
 import { createRequire } from 'module';
 import { join, resolve } from 'path';
 
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { DataSource, type MigrationInterface } from 'typeorm';
@@ -82,8 +83,7 @@ import { DataSource, type MigrationInterface } from 'typeorm';
 import {
   runPlatformBootstrap,
   resolvePlatformBootstrapSqlDir,
-} from '../../../apps/db-migrate/src/platform-bootstrap.service';
-import { assertDefined } from '../../helpers/assertions';
+} from '../platform-bootstrap.service';
 
 // Constructor type for the @Entity / migration classes this spec loads
 // dynamically. TypeORM's DataSource `entities`/`migrations` options accept
@@ -96,26 +96,43 @@ type EntityClass = new (...args: never[]) => object;
 // Synchronous module loader bound to this spec's location. `import`/`await
 // import()` cannot be used here: loadMigrationClassesFromDir is invoked inside
 // `it.each(...)` arguments that Jest evaluates synchronously at collection
-// time, so the load must be synchronous. `createRequire(__filename)` is the
-// same pattern the sibling schema-invariants.spec.ts uses for cross-rootDir
-// loads — it resolves through ts-jest at runtime and avoids the e2e tsconfig
-// rootDir guard (TS6059) that a top-level static `import` of these out-of-tree
-// files would trigger.
+// time, so the load must be synchronous. `createRequire(__filename)` resolves
+// migration classes and the cross-package schema-drift-validator through
+// ts-jest at runtime, so the static type-check graph never reaches across
+// project rootDirs — the same dynamic-load pattern the db-migrate
+// platform-bootstrap.integration.spec.ts relies on.
 const requireModule = createRequire(__filename);
 
-// Dynamic load to avoid the e2e tsconfig's rootDir guard. Importing
-// schema-drift-validator.service.ts directly via `import { ... }` would
-// pull a file outside the e2e/ rootDir into the type-check graph and
-// trigger TS6059 on every spec compile. ts-jest resolves this lazily
-// at runtime (same pattern the migration loader uses for migration
-// classes). The validator's contract is stable; loading through the file
-// path keeps the spec free of cross-rootDir type drift.
+// Structured logger for the (rare) entity-load skip path — `console.*` is
+// banned platform-wide; the NestJS Logger keeps the diagnostic on the same
+// structured-logging path the runtime services use.
+const logger = new Logger('bootstrap-from-scratch');
+
+// Local narrowing helper. db-migrate has @typescript-eslint/no-non-null-assertion
+// ENABLED (unlike the e2e project, whose assertDefined SSoT this replaces), so a
+// bare `!` is banned here. assertDefined narrows `T | undefined` to `T` and fails
+// loudly at the assertion site instead of surfacing as a cryptic
+// "cannot read properties of undefined" further downstream.
+function assertDefined<T>(value: T | null | undefined, message?: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(message ?? 'assertDefined: expected a value but received null/undefined');
+  }
+  return value;
+}
+
+// Dynamic load of the backend-common schema-drift-validator. Importing
+// schema-drift-validator.service.ts directly via `import { ... }` would pull a
+// file from another Nx project into db-migrate's type-check graph. ts-jest
+// resolves this lazily at runtime (same pattern the migration loader uses for
+// migration classes), so the validator's stable runtime contract is exercised
+// without a static cross-project import. From this spec's location
+// (apps/db-migrate/src/__tests__/) the repo root is four levels up.
 type SchemaDriftValidatorFactory = (
   serviceName: string,
 ) => new (ds: DataSource, cs: ConfigService) => { onApplicationBootstrap(): Promise<void> };
 function loadDriftValidatorFactory(): SchemaDriftValidatorFactory {
   const mod = requireModule(
-    '../../../libs/backend-common/src/database/schema-drift-validator.service',
+    '../../../../libs/backend-common/src/database/schema-drift-validator.service',
   ) as {
     createSchemaDriftValidator: SchemaDriftValidatorFactory;
   };
@@ -152,8 +169,9 @@ const SERVICE_ROLE_PASSWORD_ENVS = [
 ] as const;
 
 // Repo root, derived from this file's location:
-//   e2e/tests/integration/bootstrap-from-scratch.spec.ts -> ../../..
-const REPO_ROOT = resolve(__dirname, '..', '..', '..');
+//   apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts -> ../../../..
+// (mirrors how the sibling platform-bootstrap.integration.spec.ts resolves it).
+const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const INIT_SCRIPTS_DIR = join(REPO_ROOT, 'infrastructure', 'docker', 'init-scripts');
 
 async function runWithDbMigrateDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
@@ -480,6 +498,8 @@ function findEntityFiles(absRoot: string): string[] {
   if (!existsSync(absRoot)) return out;
   const stack: string[] = [absRoot];
   while (stack.length > 0) {
+    // The `while (stack.length > 0)` guard makes `pop()` defined here;
+    // assertDefined narrows it without a banned non-null assertion.
     const current = assertDefined(stack.pop());
     let entries: string[];
     try {
@@ -534,10 +554,7 @@ function loadEntityClasses(absRoot: string): EntityClass[] {
       // effects on a Nest module not loaded in this test). Surface as
       // warning rather than fatal — the file's @Entity decorators ran
       // anyway through getMetadataArgsStorage.
-
-      console.warn(
-        `[bootstrap-from-scratch] could not load entity file ${file}: ${(err as Error).message}`,
-      );
+      logger.warn(`could not load entity file ${file}: ${(err as Error).message}`);
       continue;
     }
     for (const v of Object.values(mod)) {
@@ -1218,27 +1235,18 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
       });
       await driftDs.initialize();
 
-      // ConfigService stub — only the keys the validator reads.
-      // SCHEMA_DRIFT_ENABLED + FATAL drive the gate; AQUA_ENV /
-      // NODE_ENV feed the emergency-override lookup which short-
-      // circuits when no override row exists.
-      const configStub = {
-        get(key: string, defaultValue?: string): string {
-          switch (key) {
-            case 'SCHEMA_DRIFT_ENABLED':
-              return 'true';
-            case 'SCHEMA_DRIFT_FATAL':
-              return 'true';
-            case 'SCHEMA_DRIFT_TENANT_SCAN_ENABLED':
-              return 'false';
-            case 'AQUA_ENV':
-            case 'NODE_ENV':
-              return 'test';
-            default:
-              return defaultValue ?? '';
-          }
-        },
-      } as unknown as ConfigService;
+      // Real ConfigService seeded with only the keys the validator reads —
+      // a genuine instance avoids any cast and exercises the same
+      // get(key, default) resolution the runtime uses. SCHEMA_DRIFT_ENABLED +
+      // FATAL drive the gate; AQUA_ENV / NODE_ENV feed the emergency-override
+      // lookup which short-circuits when no override row exists.
+      const configStub = new ConfigService({
+        SCHEMA_DRIFT_ENABLED: 'true',
+        SCHEMA_DRIFT_FATAL: 'true',
+        SCHEMA_DRIFT_TENANT_SCAN_ENABLED: 'false',
+        AQUA_ENV: 'test',
+        NODE_ENV: 'test',
+      });
 
       const factory = loadDriftValidatorFactory();
       const ValidatorClass = factory(

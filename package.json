@@ -116,7 +116,7 @@
     "aria:docs:ssot": "jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts",
     "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",
     "aria:ci:all": "npm run aria:compile && npm run aria:test:unit && npm run invariants:fast",
-    "test:bootstrap": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns bootstrap-from-scratch",
+    "test:bootstrap": "jest --config apps/db-migrate/jest.config.cts --runInBand --testPathPatterns bootstrap-from-scratch",
     "test:tenant-clone": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-clone-parity",
     "test:schema-invariants": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns schema-invariants",
     "gates:banned-phrase": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts",

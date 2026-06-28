@@ -1,8 +1,8 @@
 ---
 name: aria-evidence-judge
 description: Read-only ARIA judge that validates sampled findings or beliefs against repo evidence and emits structured verdicts for AI consensus.
-model: opus
-effort: xhigh
+model: sonnet
+effort: medium
 tools: Read, Grep, Glob
 pedagogy-tier: 3
 ---

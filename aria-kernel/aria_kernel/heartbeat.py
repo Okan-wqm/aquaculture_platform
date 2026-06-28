@@ -8,6 +8,7 @@ from .calibration import recommend_calibration
 from .ci import list_ci_failures, produce_ci_review
 from .cycle import run_cycle
 from .feedback_store import generate_ai_consensus, generate_judgment_sample
+from .judge_fanout import dispatch_judges_for_sample
 from .fixture_runner import refresh_fixture_suite
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
@@ -27,7 +28,7 @@ def heartbeat_tick(
         if run_cycle_step:
             actions.append({"action": "cycle", "result": run_cycle(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)})
         actions.extend(_refresh_fixtures(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root))
-        actions.extend(_produce_judgment_work(cycle_id=cycle_id, base_dir=root))
+        actions.extend(_produce_judgment_work(cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root))
         actions.append({"action": "calibration", "result": recommend_calibration(cycle_id=cycle_id, base_dir=root)})
         actions.extend(_produce_ci_review_tasks(cycle_id=cycle_id, base_dir=root))
         row = {
@@ -118,7 +119,9 @@ def _refresh_fixtures(*, workspace_root: str | Path, cycle_id: str, base_dir: Pa
     return actions
 
 
-def _produce_judgment_work(*, cycle_id: str, base_dir: Path) -> list[dict[str, Any]]:
+def _produce_judgment_work(
+    *, cycle_id: str, base_dir: Path, workspace_root: str | Path | None = None,
+) -> list[dict[str, Any]]:
     actions = []
     for tool in list_tools(base_dir=base_dir):
         tool_id = str(tool.get("tool_id") or "")
@@ -133,10 +136,15 @@ def _produce_judgment_work(*, cycle_id: str, base_dir: Path) -> list[dict[str, A
                 base_dir=base_dir,
             )
             actions.append({"action": "ai_judge_sample", "tool_id": tool_id, "result": sample})
+            # Plan 025 §A — turn the worklist into actual judge dispatch: two
+            # distinct judges per sampled finding so consensus (>=2 unique
+            # judges) can fire by construction once they respond.
+            fanout = dispatch_judges_for_sample(sample=sample, base_dir=base_dir, target_sha=None)
+            actions.append({"action": "ai_judge_fanout", "tool_id": tool_id, "result": fanout})
         except GovernanceError as exc:
             actions.append({"action": "ai_judge_sample", "tool_id": tool_id, "status": "blocked", "reason": str(exc)})
         try:
-            consensus = generate_ai_consensus(tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
+            consensus = generate_ai_consensus(tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir, workspace_root=workspace_root)
             actions.append({"action": "ai_consensus", "tool_id": tool_id, "result": consensus})
         except GovernanceError as exc:
             actions.append({"action": "ai_consensus", "tool_id": tool_id, "status": "blocked", "reason": str(exc)})

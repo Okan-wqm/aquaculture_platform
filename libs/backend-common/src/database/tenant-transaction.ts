@@ -1,12 +1,105 @@
+import { createHash } from 'node:crypto';
+
+import { Logger } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 
 import { withTenantContext } from '../context/with-tenant-context';
+import { getRequestContext } from '../logging/request-context';
+
 import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './rls/apply-tenant-rls.helper';
 import { validateTenantSchemaName } from './schema-manager.service';
 import { TenantContextError } from './tenant-context-error';
 import { getTenantSchemaName, isValidUUID } from './tenant-schema.utils';
 
 const SOURCE_SCHEMA_RE = /^[a-z][a-z0-9_]*$/;
+
+/**
+ * Tenant boundary observability (Farm Data SSOT plan §3-F / §8.7).
+ *
+ * Every boundary execution emits one structured trace so a read's tenant
+ * routing is observable end to end. `resultState` is the FarmDataReadTrace
+ * taxonomy: a verified `SUCCESS`, or the exact failure mode that previously
+ * produced a silent empty result. SUCCESS traces are debug-level (off in prod
+ * by default); a tenant-context mismatch is warn-level. Emitting the trace must
+ * NEVER break a read — any error inside the tracer is swallowed.
+ */
+export type TenantBoundaryResultState =
+  | 'SUCCESS'
+  | 'SCHEMA_MISMATCH'
+  | 'RLS_MISMATCH'
+  | 'ERROR';
+
+const boundaryLogger = new Logger('TenantBoundary');
+
+/** Hash the tenant id — a tenant label is never logged raw (plan + maskPii rule). */
+function tenantHash(tenantId: string | undefined): string {
+  if (!tenantId) return 'none';
+  return createHash('sha256').update(tenantId).digest('hex').slice(0, 12);
+}
+
+/** Best-effort row count for the common array / paginated-`data` result shapes. */
+function rowCountOf(result: unknown): number | undefined {
+  if (Array.isArray(result)) return result.length;
+  if (
+    result &&
+    typeof result === 'object' &&
+    Array.isArray((result as { data?: unknown }).data)
+  ) {
+    return (result as { data: unknown[] }).data.length;
+  }
+  return undefined;
+}
+
+interface TenantBoundaryTraceInput {
+  readonly operation: 'tenant-read' | 'tenant-transaction' | 'source-read';
+  readonly sourceSchema: string;
+  readonly tenantId?: string;
+  readonly resultState: TenantBoundaryResultState;
+  readonly startedAt: number;
+  readonly result?: unknown;
+  readonly error?: unknown;
+}
+
+function traceTenantBoundary(input: TenantBoundaryTraceInput): void {
+  try {
+    const ctx = getRequestContext();
+    const trace = {
+      event: 'TenantBoundaryTrace',
+      operation: input.operation,
+      resultState: input.resultState,
+      sourceSchema: input.sourceSchema,
+      expectedSchema:
+        input.tenantId !== undefined && isValidUUID(input.tenantId)
+          ? getTenantSchemaName(input.tenantId)
+          : input.sourceSchema,
+      resolvedSchema:
+        input.error instanceof TenantContextError ? input.error.resolvedSchema : undefined,
+      tenantHash: tenantHash(input.tenantId),
+      correlationId: ctx.correlationId,
+      traceId: ctx.traceId,
+      durationMs: Date.now() - input.startedAt,
+      rowCount: rowCountOf(input.result),
+    };
+    if (input.resultState === 'SUCCESS') {
+      boundaryLogger.debug(JSON.stringify(trace));
+    } else {
+      boundaryLogger.warn(JSON.stringify(trace));
+    }
+  } catch {
+    // Observability must never break a read.
+  }
+}
+
+function resultStateForError(error: unknown): TenantBoundaryResultState {
+  if (error instanceof TenantContextError) {
+    return error.state === 'SCHEMA_MISMATCH'
+      ? 'SCHEMA_MISMATCH'
+      : error.state === 'RLS_MISMATCH'
+        ? 'RLS_MISMATCH'
+        : 'ERROR';
+  }
+  return 'ERROR';
+}
 
 /**
  * Pin a QueryRunner transaction to one tenant schema.
@@ -157,6 +250,7 @@ export async function runInTenantTransaction<T>(
   fn: (queryRunner: QueryRunner) => Promise<T>,
 ): Promise<T> {
   return withTenantContext(tenantId, async () => {
+    const startedAt = Date.now();
     const queryRunner = dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -166,9 +260,25 @@ export async function runInTenantTransaction<T>(
       await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
       const result = await fn(queryRunner);
       await queryRunner.commitTransaction();
+      traceTenantBoundary({
+        operation: 'tenant-transaction',
+        sourceSchema,
+        tenantId,
+        resultState: 'SUCCESS',
+        startedAt,
+        result,
+      });
       return result;
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      traceTenantBoundary({
+        operation: 'tenant-transaction',
+        sourceSchema,
+        tenantId,
+        resultState: resultStateForError(error),
+        startedAt,
+        error,
+      });
       throw error;
     } finally {
       await queryRunner.release();
@@ -191,6 +301,7 @@ export async function runInTenantRead<T>(
   fn: (queryRunner: QueryRunner) => Promise<T>,
 ): Promise<T> {
   return withTenantContext(tenantId, async () => {
+    const startedAt = Date.now();
     const queryRunner = dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction('READ COMMITTED');
@@ -201,9 +312,25 @@ export async function runInTenantRead<T>(
       await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
       const result = await fn(queryRunner);
       await queryRunner.commitTransaction();
+      traceTenantBoundary({
+        operation: 'tenant-read',
+        sourceSchema,
+        tenantId,
+        resultState: 'SUCCESS',
+        startedAt,
+        result,
+      });
       return result;
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      traceTenantBoundary({
+        operation: 'tenant-read',
+        sourceSchema,
+        tenantId,
+        resultState: resultStateForError(error),
+        startedAt,
+        error,
+      });
       throw error;
     } finally {
       await queryRunner.release();
@@ -273,6 +400,7 @@ export async function runInSourceRead<T>(
     throw new Error(`runInSourceRead: invalid source schema "${sourceSchema}"`);
   }
 
+  const startedAt = Date.now();
   const queryRunner = dataSource.createQueryRunner();
   await queryRunner.connect();
   await queryRunner.startTransaction('READ COMMITTED');
@@ -289,9 +417,23 @@ export async function runInSourceRead<T>(
     await assertSourceReadContext(queryRunner, sourceSchema);
     const result = await fn(queryRunner);
     await queryRunner.commitTransaction();
+    traceTenantBoundary({
+      operation: 'source-read',
+      sourceSchema,
+      resultState: 'SUCCESS',
+      startedAt,
+      result,
+    });
     return result;
   } catch (error) {
     await queryRunner.rollbackTransaction();
+    traceTenantBoundary({
+      operation: 'source-read',
+      sourceSchema,
+      resultState: resultStateForError(error),
+      startedAt,
+      error,
+    });
     throw error;
   } finally {
     await queryRunner.release();

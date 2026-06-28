@@ -534,6 +534,19 @@ callsites bypass the outbox without a tenantId guard (separate concern).
   200-empty) and the HMAC→tenant binding is enforced. Env-gated like sibling e2e
   specs — skips clean (3 skipped / 5 control pass) without a live stack.
 
+## FARM-MEDIUM-087 — tenant boundary structured trace (Task #15)
+
+The tenant DB boundary (the single read/write chokepoint, §8.7) emitted no
+per-execution trace, so a read's tenant routing + resultState was not observable
+unless it threw. `runInTenantRead` / `runInTenantTransaction` / `runInSourceRead`
+now emit one structured `TenantBoundaryTrace` per execution:
+`{ operation, resultState (SUCCESS|SCHEMA_MISMATCH|RLS_MISMATCH|ERROR),
+sourceSchema, expectedSchema, resolvedSchema, tenantHash (sha256/12 — raw tenant
+id never logged), correlationId, traceId, durationMs, rowCount }`. SUCCESS is
+debug-level (off in prod by default); a context mismatch is warn-level. The emit
+is fully wrapped so observability can never break a read. 11 boundary + 25
+handler tests green.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

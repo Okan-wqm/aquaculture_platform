@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
@@ -157,9 +157,13 @@ export class EquipmentResolver {
   }
 
   /**
-   * Get all equipment types (global, not tenant-specific)
+   * Get all equipment types for the CURRENT TENANT.
+   * Per-tenant catalog (operator decision): equipment_types is cloned into each
+   * tenant schema, so this runs tenant-scoped (search_path → tenant_<uuid>) instead
+   * of @SkipTenantGuard reading the shared source copy through a tenant-blind cache
+   * that served the first tenant's result to every other tenant. A tenant context is
+   * required (the @Roles are all tenant roles).
    */
-  @SkipTenantGuard()
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [EquipmentTypeResponse])
   async equipmentTypes(
@@ -170,10 +174,10 @@ export class EquipmentResolver {
   }
 
   /**
-   * Get equipment type by ID with specification schema
-   * PERF(F3-001): Query directly by ID instead of fetching all types and filtering in JS
+   * Get equipment type by ID with specification schema (current tenant's catalog).
+   * PERF(F3-001): Query directly by ID instead of fetching all types and filtering in JS.
+   * Tenant-scoped (per-tenant catalog) — see equipmentTypes above.
    */
-  @SkipTenantGuard()
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => EquipmentTypeResponse, { nullable: true })
   async equipmentType(

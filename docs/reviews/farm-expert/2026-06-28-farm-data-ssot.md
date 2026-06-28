@@ -57,6 +57,23 @@ Fix: all three now read through `runInTenantRead` (asserts schema + RLS GUC) via
 `__resolveReference` path is tenant-less by design and needs the explicit
 source-read API (FARM-* / plan §8.3) rather than the tenant boundary.
 
+## FARM-CRITICAL-060 — onboarding seeders run without a tenant context (NATS handler)
+
+`TenantOnboardingEventHandler.handle()` invoked five per-tenant seeders directly.
+The seeders write via `@InjectRepository`, which resolves the tenant schema + RLS
+GUC from AsyncLocalStorage — but a NATS event handler has no HTTP request
+context, so the seed writes routed to the source `farm` schema (or were
+RLS-denied) instead of `tenant_<uuid>`. A freshly-provisioned tenant could end up
+with its default data in the wrong schema.
+
+Evidence:
+- `apps/farm-service/src/water-quality/event-handlers/tenant-onboarding.event-handler.ts`
+
+Fix: the five-seeder run is wrapped in `withTenantContext(event.tenantId, ...)`
+(matching `harvest-completed.listener.ts` / `mortality-recorded.listener.ts`); the
+ack/fail publish stays outside the frame (cross-tenant outbox infra). A new test
+asserts `getRequestContext().tenantId` is set during seeding.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

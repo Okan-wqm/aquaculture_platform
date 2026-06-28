@@ -63,6 +63,7 @@ import {
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
   createBaseEvent,
@@ -131,49 +132,57 @@ export class TenantOnboardingEventHandler
 
     const summaries: SeederSummary[] = [];
 
-    // Water-quality parameter configs — closes the phase-6.5
-    // strict-mode gap (first WQ measurement must not 400).
-    summaries.push(
-      await this.runSeeder('water-quality-parameters', () =>
-        this.wqSeeder.seedDefaults(event.tenantId),
-      ),
-    );
+    // Seeders write per-tenant data via @InjectRepository, which resolves the
+    // tenant schema + RLS GUC from AsyncLocalStorage. A NATS event handler has
+    // no HTTP request context, so without withTenantContext the seed writes
+    // would land in the source `farm` schema (or be RLS-denied) instead of
+    // tenant_<uuid>. Establish the tenant frame for the whole seeder run; the
+    // ack/fail publish below stays OUTSIDE it (cross-tenant outbox infra).
+    await withTenantContext(event.tenantId, async () => {
+      // Water-quality parameter configs — closes the phase-6.5
+      // strict-mode gap (first WQ measurement must not 400).
+      summaries.push(
+        await this.runSeeder('water-quality-parameters', () =>
+          this.wqSeeder.seedDefaults(event.tenantId),
+        ),
+      );
 
-    // Species catalogue — Atlantic Salmon + cleaner fish. Batch
-    // creation needs at least one active species to link against.
-    summaries.push(
-      await this.runSeeder('species', () =>
-        this.speciesSeeder.seedDefaults(event.tenantId),
-      ),
-    );
+      // Species catalogue — Atlantic Salmon + cleaner fish. Batch
+      // creation needs at least one active species to link against.
+      summaries.push(
+        await this.runSeeder('species', () =>
+          this.speciesSeeder.seedDefaults(event.tenantId),
+        ),
+      );
 
-    // Feeding protocols — life-stage protocols for Atlantic Salmon
-    // (FRY → STARTER → GROWER → FINISHER). The feeding scheduler
-    // picks the stage-matched protocol automatically on new batches.
-    summaries.push(
-      await this.runSeeder('feeding-protocols', () =>
-        this.feedingProtocolSeeder.seedDefaults(event.tenantId),
-      ),
-    );
+      // Feeding protocols — life-stage protocols for Atlantic Salmon
+      // (FRY → STARTER → GROWER → FINISHER). The feeding scheduler
+      // picks the stage-matched protocol automatically on new batches.
+      summaries.push(
+        await this.runSeeder('feeding-protocols', () =>
+          this.feedingProtocolSeeder.seedDefaults(event.tenantId),
+        ),
+      );
 
-    // Regulatory settings — skeleton row with Maskinporten env=TEST
-    // and empty credentials. Ensures biomass / mortality / Mattilsynet
-    // read-paths don't return null on first query for the new tenant.
-    summaries.push(
-      await this.runSeeder('regulatory-settings', () =>
-        this.regulatorySettingsSeeder.seedDefaults(event.tenantId),
-      ),
-    );
+      // Regulatory settings — skeleton row with Maskinporten env=TEST
+      // and empty credentials. Ensures biomass / mortality / Mattilsynet
+      // read-paths don't return null on first query for the new tenant.
+      summaries.push(
+        await this.runSeeder('regulatory-settings', () =>
+          this.regulatorySettingsSeeder.seedDefaults(event.tenantId),
+        ),
+      );
 
-    // Equipment-type catalogue sanity check — global (not per-tenant)
-    // so the checker never writes rows. Logs a WARN if the global
-    // catalogue is empty so deployment-health issues surface early
-    // instead of at first customer equipment registration.
-    summaries.push(
-      await this.runSeeder('equipment-types-global', () =>
-        this.equipmentTypeChecker.seedDefaults(event.tenantId),
-      ),
-    );
+      // Equipment-type catalogue sanity check — global (not per-tenant)
+      // so the checker never writes rows. Logs a WARN if the global
+      // catalogue is empty so deployment-health issues surface early
+      // instead of at first customer equipment registration.
+      summaries.push(
+        await this.runSeeder('equipment-types-global', () =>
+          this.equipmentTypeChecker.seedDefaults(event.tenantId),
+        ),
+      );
+    });
 
     const ok = summaries.filter((s) => s.ok);
     const failed = summaries.filter((s) => !s.ok);

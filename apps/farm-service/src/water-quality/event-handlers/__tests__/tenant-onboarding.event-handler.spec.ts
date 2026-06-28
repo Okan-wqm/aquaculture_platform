@@ -10,6 +10,8 @@
  *   - EventBus absent (onModuleInit) → fail closed
  *   - getEventType returns 'TenantOnboardingRequested'
  */
+import { getRequestContext } from '@aquaculture/backend-common/logging';
+
 import { TenantOnboardingEventHandler } from '../tenant-onboarding.event-handler';
 import { WaterQualityParameterConfigSeederService } from '../../services/water-quality-parameter-config-seeder.service';
 import { SpeciesSeederService } from '../../../species/services/species-seeder.service';
@@ -151,6 +153,29 @@ describe('TenantOnboardingEventHandler', () => {
         service: 'farm-service',
       }),
     );
+  });
+
+  it('runs the seeders inside a tenant context (withTenantContext frame established)', async () => {
+    const { handler, wq } = makeHandler({});
+    let capturedTenant: string | undefined;
+    wq.seedDefaults.mockImplementation(async () => {
+      // A NATS handler has no HTTP request context; this proves the handler
+      // opened a withTenantContext frame so the seeder's repositories route to
+      // the tenant schema instead of the source `farm` schema.
+      capturedTenant = getRequestContext().tenantId;
+      return { seeded: [], skipped: [] };
+    });
+
+    await handler.handle({
+      eventType: 'TenantOnboardingRequested',
+      tenantId: TENANT,
+      operationId: OPERATION,
+      name: 'Acme',
+      slug: 'acme',
+      moduleIds: MODULES,
+    } as TenantOnboardingRequestedEvent);
+
+    expect(capturedTenant).toBe(TENANT);
   });
 
   it('skips every seeder when tenantId format is invalid', async () => {

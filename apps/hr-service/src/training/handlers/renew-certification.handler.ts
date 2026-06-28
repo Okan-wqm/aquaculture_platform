@@ -1,0 +1,190 @@
+import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { DataSource, EntityManager } from 'typeorm';
+import {
+  NotFoundException,
+  BadRequestException,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { RenewCertificationCommand } from '../commands/renew-certification.command';
+import {
+  EmployeeCertification,
+  CertificationStatus,
+  VerificationStatus,
+  CertificationDocument,
+} from '../entities/employee-certification.entity';
+import {
+  CertificationType,
+  CertificationRequirement,
+} from '../entities/certification-type.entity';
+import { Employee } from '../../hr/entities/employee.entity';
+import { createCertificationAddedEvent } from '../events/training.events';
+
+/**
+ * RenewCertification supersedes an existing certification with a fresh one.
+ *
+ * Renewal is modelled as: mark the existing cert SUPERSEDED (status REVOKED is
+ * reserved for disciplinary revocation, so we use EXPIRED to retire the old row
+ * while preserving its audit trail), then create a NEW EmployeeCertification with
+ * isRenewal=true and previousCertificationId pointing back. The new row carries the
+ * renewed expiry date and (optionally) an operator-supplied certificate number and
+ * attachment. Because a fresh ACTIVE cert is created, the employee's seaWorthy
+ * status is re-evaluated so an offshore-eligible employee is not falsely downgraded.
+ */
+@CommandHandler(RenewCertificationCommand)
+export class RenewCertificationHandler
+  implements ICommandHandler<RenewCertificationCommand>
+{
+  private readonly logger = new Logger(RenewCertificationHandler.name);
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
+  ) {}
+
+  /**
+   * Re-evaluate the employee's seaWorthy flag after a certification change.
+   * If every mandatory offshore certification is now ACTIVE, restore seaWorthy=true;
+   * otherwise force it to false. Mirrors RevokeCertificationHandler's tenant-scoped logic.
+   */
+  private async updateSeaWorthyStatus(
+    manager: EntityManager,
+    employeeId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const mandatoryCerts = await manager.find(CertificationType, {
+      where: {
+        tenantId,
+        isOffshoreRequired: true,
+        requirement: CertificationRequirement.MANDATORY,
+        isActive: true,
+        isDeleted: false,
+      },
+    });
+
+    if (mandatoryCerts.length === 0) {
+      return;
+    }
+
+    const activeCerts = await manager.find(EmployeeCertification, {
+      where: {
+        employeeId,
+        tenantId,
+        status: CertificationStatus.ACTIVE,
+        isDeleted: false,
+      },
+    });
+
+    const allMandatoryMet = mandatoryCerts.every((mc) =>
+      activeCerts.some((ac) => ac.certificationTypeId === mc.id),
+    );
+
+    await manager.update(
+      Employee,
+      { id: employeeId, tenantId },
+      { seaWorthy: allMandatoryMet },
+    );
+  }
+
+  async execute(command: RenewCertificationCommand): Promise<EmployeeCertification> {
+    const { tenantId, userId, certificationId, newExpiryDate, certificateNumber, attachmentUrl } =
+      command;
+
+    const expiryDateParsed = new Date(newExpiryDate);
+    if (Number.isNaN(expiryDateParsed.getTime())) {
+      throw new BadRequestException(`Invalid newExpiryDate: ${newExpiryDate}`);
+    }
+    if (expiryDateParsed <= new Date()) {
+      throw new BadRequestException('Renewal expiry date must be in the future');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const existing = await queryRunner.manager.findOne(EmployeeCertification, {
+        where: { id: certificationId, tenantId, isDeleted: false },
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Certification with ID ${certificationId} not found`);
+      }
+
+      if (existing.status === CertificationStatus.REVOKED) {
+        throw new BadRequestException('A revoked certification cannot be renewed');
+      }
+
+      // Retire the old certification — it is superseded by the renewal.
+      existing.status = CertificationStatus.EXPIRED;
+      existing.updatedBy = userId;
+      await queryRunner.manager.save(EmployeeCertification, existing);
+
+      const documents: CertificationDocument[] | undefined = attachmentUrl
+        ? [
+            {
+              documentId: attachmentUrl,
+              fileName: attachmentUrl.split('/').pop() ?? 'renewal-certificate',
+              uploadedAt: new Date(),
+              documentType: 'renewal',
+            },
+          ]
+        : undefined;
+
+      // Create the fresh certification of the same type for the same employee.
+      const renewed = queryRunner.manager.create(EmployeeCertification, {
+        tenantId,
+        employeeId: existing.employeeId,
+        certificationTypeId: existing.certificationTypeId,
+        // certificationNumber is auto-generated by @BeforeInsert when not supplied;
+        // an operator-supplied number takes precedence.
+        certificationNumber: certificateNumber,
+        issueDate: new Date(),
+        expiryDate: expiryDateParsed,
+        status: CertificationStatus.ACTIVE,
+        verificationStatus: VerificationStatus.PENDING_VERIFICATION,
+        issuingAuthority: existing.issuingAuthority,
+        externalCertificationId: existing.externalCertificationId,
+        documents,
+        previousCertificationId: existing.id,
+        isRenewal: true,
+        createdBy: userId,
+        updatedBy: userId,
+      });
+
+      const saved = await queryRunner.manager.save(EmployeeCertification, renewed);
+
+      // A fresh ACTIVE mandatory offshore cert may restore seaWorthy eligibility.
+      await this.updateSeaWorthyStatus(queryRunner.manager, existing.employeeId, tenantId);
+
+      const result = await queryRunner.manager.findOne(EmployeeCertification, {
+        where: { id: saved.id, tenantId },
+        relations: ['employee', 'certificationType'],
+      });
+
+      await queryRunner.commitTransaction();
+
+      // A renewal IS a new certification — publish CertificationAdded so downstream
+      // consumers (compliance read-models, alerting) see the new active cert.
+      this.eventBus.publish(createCertificationAddedEvent(result!));
+
+      return result!;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to renew certification ${certificationId} for tenant ${tenantId}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException('Failed to renew certification');
+    } finally {
+      await queryRunner.release();
+    }
+  }
+}

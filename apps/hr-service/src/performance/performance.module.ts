@@ -8,6 +8,7 @@ import { PerformanceResolver } from './performance.resolver';
 import { PerformanceCommandHandlers } from './handlers';
 import { PerformanceQueryHandlers } from './query-handlers';
 import { Employee } from '../hr/entities/employee.entity';
+import { DepartmentHR } from '../hr/entities/department.entity';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { Employee } from '../hr/entities/employee.entity';
       Goal,
       EmployeeKPI,
       Employee,
+      DepartmentHR,
     ]),
     CqrsModule,
   ],

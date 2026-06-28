@@ -15,9 +15,10 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 
 import { ClockInHandler } from '../handlers/clock-in.handler';
 import { GetTodaysAttendanceHandler } from '../query-handlers/get-todays-attendance.handler';
@@ -33,7 +34,7 @@ import {
 } from '../entities/attendance-record.entity';
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
 import { Shift, ShiftType, WeekDay } from '../entities/shift.entity';
-import { Employee, EmployeeStatus } from '../../hr/entities/employee.entity';
+import { Employee, EmployeeStatus, PersonnelCategory } from '../../hr/entities/employee.entity';
 import { LeaveRequest } from '../../leave/entities/leave-request.entity';
 import { WorkArea } from '../../aquaculture/entities/work-area.entity';
 import { EmployeeClockedInEvent } from '../events/attendance.events';
@@ -128,16 +129,45 @@ const createMockAttendanceRecord = (overrides: Partial<AttendanceRecord> = {}): 
 // Clock-In Tests
 // ============================================================================
 
+// A loose double exposing only the Repository<T> members the handler calls.
+// `useValue` providers accept loose doubles, so no cast bridges the structural gap.
+interface MockRepo {
+  findOne: jest.Mock;
+  find?: jest.Mock;
+  save?: jest.Mock;
+  create?: jest.Mock;
+  createQueryBuilder?: jest.Mock;
+}
+
+interface MockManager {
+  findOne: jest.Mock;
+  create: jest.Mock;
+  save: jest.Mock;
+}
+
+interface MockQueryRunner {
+  connect: jest.Mock;
+  startTransaction: jest.Mock;
+  commitTransaction: jest.Mock;
+  rollbackTransaction: jest.Mock;
+  release: jest.Mock;
+  manager: MockManager;
+}
+
 describe('Attendance Clock-In Integration Tests', () => {
   let handler: ClockInHandler;
-  let attendanceRepository: jest.Mocked<Repository<AttendanceRecord>>;
-  let scheduleRepository: jest.Mocked<Repository<Schedule>>;
-  let employeeRepository: jest.Mocked<Repository<Employee>>;
-  let leaveRequestRepository: jest.Mocked<Repository<LeaveRequest>>;
-  let workAreaRepository: jest.Mocked<Repository<WorkArea>>;
+  let attendanceRepository: MockRepo;
+  let scheduleRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let leaveRequestRepository: MockRepo;
+  let workAreaRepository: MockRepo;
   let outboxPublisher: { enqueue: jest.Mock };
-  let mockQueryRunner: any;
-  let mockDataSource: any;
+  // begin() returns a non-'replay' receipt so the handler follows the normal
+  // execute path; complete() is a no-op double. The handler gained this
+  // collaborator in the mobile-command idempotency refactor (index [7]).
+  let mobileCommandReceipts: { begin: jest.Mock; complete: jest.Mock };
+  let mockQueryRunner: MockQueryRunner;
+  let mockDataSource: { createQueryRunner: jest.Mock };
 
   beforeEach(async () => {
     attendanceRepository = {
@@ -146,26 +176,32 @@ describe('Attendance Clock-In Integration Tests', () => {
       save: jest.fn(),
       create: jest.fn(),
       createQueryBuilder: jest.fn(),
-    } as unknown as jest.Mocked<Repository<AttendanceRecord>>;
+    };
 
     scheduleRepository = {
       findOne: jest.fn(),
-    } as unknown as jest.Mocked<Repository<Schedule>>;
+    };
 
     employeeRepository = {
       findOne: jest.fn(),
-    } as unknown as jest.Mocked<Repository<Employee>>;
+    };
 
     leaveRequestRepository = {
       findOne: jest.fn().mockResolvedValue(null),
-    } as unknown as jest.Mocked<Repository<LeaveRequest>>;
+    };
 
     workAreaRepository = {
       findOne: jest.fn().mockResolvedValue(null),
-    } as unknown as jest.Mocked<Repository<WorkArea>>;
+    };
 
     outboxPublisher = {
       enqueue: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mobileCommandReceipts = {
+      // 'legacy' is a non-'replay' state → handler proceeds to create the record.
+      begin: jest.fn().mockResolvedValue({ mode: 'legacy' }),
+      complete: jest.fn().mockResolvedValue(undefined),
     };
 
     mockQueryRunner = {
@@ -176,12 +212,12 @@ describe('Attendance Clock-In Integration Tests', () => {
       release: jest.fn(),
       manager: {
         findOne: jest.fn().mockResolvedValue(null), // No existing record by default
-        create: jest.fn((entity: any, data: any) => {
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => {
           const record = new AttendanceRecord();
           Object.assign(record, data);
           return record;
         }),
-        save: jest.fn((entity: any, data: any) => {
+        save: jest.fn((_entity: unknown, data: Record<string, unknown>) => {
           return Promise.resolve({ ...data, id: data.id || 'new-attendance-uuid' });
         }),
       },
@@ -201,6 +237,7 @@ describe('Attendance Clock-In Integration Tests', () => {
         { provide: getRepositoryToken(WorkArea), useValue: workAreaRepository },
         { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: MobileCommandReceiptService, useValue: mobileCommandReceipts },
       ],
     }).compile();
 
@@ -547,7 +584,7 @@ describe('Attendance Clock-In Integration Tests', () => {
 
     it('should set offshore flag based on employee personnelCategory', async () => {
       const offshoreEmployee = createMockEmployee({
-        personnelCategory: 'offshore' as any,
+        personnelCategory: PersonnelCategory.OFFSHORE,
       });
       employeeRepository.findOne.mockResolvedValue(offshoreEmployee);
       scheduleRepository.findOne.mockResolvedValue(null);
@@ -645,7 +682,9 @@ describe('Attendance Clock-In Integration Tests', () => {
 
 describe('Today\'s Attendance Query Tests', () => {
   let handler: GetTodaysAttendanceHandler;
-  let attendanceRepository: any;
+  // `_qb` exposes the shared query-builder double so tests can drive getMany()
+  // and assert andWhere() call counts.
+  let attendanceRepository: { createQueryBuilder: jest.Mock; _qb: { andWhere: jest.Mock; getMany: jest.Mock } };
 
   beforeEach(async () => {
     const mockQueryBuilder = {

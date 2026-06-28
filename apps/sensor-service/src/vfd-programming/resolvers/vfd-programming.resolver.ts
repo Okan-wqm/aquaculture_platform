@@ -221,6 +221,22 @@ export class VfdProgrammingResolver {
   }
 
   /**
+   * Cancel a DRAFT or APPROVED change set before it is applied.
+   * Distinct from reject (the checker's PENDING_APPROVAL verdict): cancel is the
+   * maker/admin aborting their own change set, so MODULE_MANAGER may cancel as
+   * well as TENANT_ADMIN — the same gate as create/submit/rollback.
+   */
+  @Mutation(() => VfdChangeSet, { name: 'cancelVfdChangeSet' })
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
+  async cancelChangeSet(
+    @Args('changeSetId', { type: () => ID }) changeSetId: string,
+    @CurrentUser('sub') userId: string,
+    @Tenant() tenantId: string,
+  ): Promise<VfdChangeSet> {
+    return this.changeSetService.cancelChangeSet(changeSetId, userId, tenantId);
+  }
+
+  /**
    * Rollback an APPLIED or VERIFIED change set.
    * Creates an inverse change set.
    */

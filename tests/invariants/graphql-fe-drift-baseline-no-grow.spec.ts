@@ -26,11 +26,13 @@ const BASELINE_PATH = resolve(
 
 /**
  * High-water mark of allowed baselined FE↔supergraph drifts. RATCHET: this may
- * only ever DECREASE, in lockstep with regenerating the baseline after a fix
- * (#655/#663 are the active burn-down). Raising it = silencing a new drift = CI red.
- * 2026-06-28 starting value: 42.
+ * only ever DECREASE, in lockstep with regenerating the baseline after a fix.
+ * The burn-down is COMPLETE (139→0): #650/#654/#655/#663/#665/#688 + the final
+ * burndown PR implemented every FE-ahead-of-backend op. Locked at 0 — any new
+ * FE↔supergraph drift now fails CI (the strongest ratchet). Raising it = silencing
+ * a new drift = CI red.
  */
-const BASELINE_CEILING = 42;
+const BASELINE_CEILING = 0;
 
 interface DriftBaseline {
   count: number;

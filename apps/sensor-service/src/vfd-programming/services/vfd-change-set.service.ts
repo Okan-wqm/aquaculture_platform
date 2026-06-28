@@ -29,12 +29,20 @@ import { ChangeSetItemInput, CreateChangeSetInput } from '../dto';
  * Implements the 4-eye principle for VFD parameter changes:
  *   DRAFT -> PENDING_APPROVAL -> APPROVED -> APPLYING -> APPLIED -> VERIFIED
  *                              -> REJECTED
+ *   DRAFT -> CANCELLED       (maker abandons a never-submitted draft)
+ *   APPROVED -> CANCELLED    (call off a scheduled / not-yet-applied change)
  *
  * Business rules:
  * - Maker (creator) cannot approve their own change set
  * - Only one active (non-draft) change set per device at a time
  * - Rollback creates an inverse change set with swapped values
  * - Emergency rollback bypasses the normal approval flow
+ * - Cancel (not reject) terminates a change set BEFORE it touches the device:
+ *   only DRAFT or APPROVED are cancellable. Once APPLYING/APPLIED the device
+ *   already holds (some of) the new values, so rollback — not cancel — is the
+ *   correct remediation. The scheduler only applies status=APPROVED rows, so
+ *   moving an APPROVED change set to CANCELLED structurally prevents the
+ *   pending apply with no half-applied state.
  */
 @Injectable()
 export class VfdChangeSetService {
@@ -344,6 +352,65 @@ export class VfdChangeSetService {
     return saved;
   }
 
+  // ─── CANCEL ──────────────────────────────────────────────────────────
+
+  /**
+   * Cancel a change set before it is applied to the device.
+   *
+   * Allowed only from DRAFT or APPROVED — the two pre-apply states. Unlike
+   * reject (the checker's PENDING_APPROVAL verdict), cancel is the maker/admin
+   * aborting their own change set. Moving an APPROVED change set to CANCELLED
+   * removes it from the scheduler's `status = APPROVED` apply query, so a
+   * scheduled-but-not-yet-applied change is structurally prevented from firing
+   * with no half-applied state. Once the change set reaches APPLYING/APPLIED the
+   * status guard rejects cancel, because the device already holds the new values
+   * and rollback is the correct remediation.
+   *
+   * Actor + optional reason are recorded in `metadata` (jsonb, no schema change)
+   * mirroring how rollback records its reason there.
+   */
+  async cancelChangeSet(
+    changeSetId: string,
+    cancelledBy: string,
+    tenantId: string,
+    reason?: string,
+  ): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId, tenantId);
+    this.assertStatusIn(
+      changeSet,
+      [VfdChangeSetStatus.DRAFT, VfdChangeSetStatus.APPROVED],
+      'cancel',
+    );
+
+    changeSet.status = VfdChangeSetStatus.CANCELLED;
+    changeSet.metadata = {
+      ...changeSet.metadata,
+      cancellation: {
+        cancelledBy,
+        cancelledAt: new Date().toISOString(),
+        reason: reason ?? null,
+      },
+    };
+
+    const saved = await this.changeSetRepository.save(changeSet);
+
+    this.eventEmitter.emit('vfd.changeset.cancelled', {
+      changeSetId: saved.id,
+      tenantId: saved.tenantId,
+      vfdDeviceId: saved.vfdDeviceId,
+      cancelledBy,
+      reason: reason ?? null,
+    });
+
+    this.logger.log(
+      `Change set ${changeSetId} cancelled by ${cancelledBy}${
+        reason ? `: ${reason}` : ''
+      }`,
+    );
+
+    return saved;
+  }
+
   // ─── ROLLBACK ────────────────────────────────────────────────────────
 
   /**
@@ -522,6 +589,25 @@ export class VfdChangeSetService {
     if (changeSet.status !== expected) {
       throw new BadRequestException(
         `Cannot ${action}: change set is in '${changeSet.status}' status, expected '${expected}'`,
+      );
+    }
+  }
+
+  /**
+   * Assert a change set is in one of several allowed statuses.
+   * Used by transitions valid from more than one source state (e.g. cancel,
+   * which is reachable from both DRAFT and APPROVED).
+   */
+  private assertStatusIn(
+    changeSet: VfdChangeSet,
+    allowed: VfdChangeSetStatus[],
+    action: string,
+  ): void {
+    if (!allowed.includes(changeSet.status)) {
+      throw new BadRequestException(
+        `Cannot ${action}: change set is in '${changeSet.status}' status, expected one of [${allowed.join(
+          ', ',
+        )}]`,
       );
     }
   }

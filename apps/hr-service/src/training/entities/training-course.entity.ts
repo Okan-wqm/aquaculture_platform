@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
+import { CertificationType } from './certification-type.entity';
 
 export enum TrainingType {
   ONLINE = 'online',
@@ -152,4 +153,28 @@ export class TrainingCourse {
   @Field()
   @Column({ default: false })
   isDeleted!: boolean;
+
+  // ---------------------------------------------------------------------------
+  // Non-persisted projection fields (assembled by query handlers).
+  // These have no @Column — they are populated in-memory by the single-course
+  // read path (GetTrainingCourseHandler) so the FE TrainingCourse detail view can
+  // read the linked certification type and roll-up enrolment stats without a
+  // separate round-trip or a GraphQL field-resolver.
+  // ---------------------------------------------------------------------------
+
+  /** Linked certification type, resolved from certificationTypeId. */
+  @Field(() => CertificationType, { nullable: true })
+  certificationType?: CertificationType;
+
+  /** Prerequisite courses, resolved from the prerequisites (course-id) array. */
+  @Field(() => [TrainingCourse], { nullable: true })
+  prerequisiteCourses?: TrainingCourse[];
+
+  /** Count of non-deleted enrolments for this course. */
+  @Field(() => Int, { nullable: true })
+  enrollmentCount?: number;
+
+  /** Percentage of enrolments that reached COMPLETED/PASSED (0-100). */
+  @Field(() => Float, { nullable: true })
+  completionRate?: number;
 }

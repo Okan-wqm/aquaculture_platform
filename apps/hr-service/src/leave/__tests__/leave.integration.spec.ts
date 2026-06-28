@@ -9,8 +9,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { EventBus } from '@nestjs/cqrs';
-import { Repository } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
+import { Employee } from '../../hr/entities/employee.entity';
 import { SubmitLeaveRequestHandler } from '../handlers/submit-leave-request.handler';
 import { ApproveLeaveRequestHandler } from '../handlers/approve-leave-request.handler';
 import { RejectLeaveRequestHandler } from '../handlers/reject-leave-request.handler';
@@ -21,16 +23,10 @@ import { RejectLeaveRequestCommand } from '../commands/reject-leave-request.comm
 import { CancelLeaveRequestCommand } from '../commands/cancel-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
-// The event TYPES live in @platform/event-contracts; ../events/leave.events
-// only exports the createX FACTORY functions that build them. This spec
-// asserted on the type identities so it has to import from the contract
-// package directly. Surfaced by PR-34 of the PROC-MEDIUM-007 ratchet.
-import type {
-  LeaveRequestSubmittedEvent,
-  LeaveApprovedEvent,
-  LeaveRejectedEvent,
-  LeaveCancelledEvent,
-} from '@platform/event-contracts';
+// Events are flat objects produced by the createX*Event() factories and carried
+// either through the transactional outbox (submit/approve) or EventBus
+// (reject/cancel). The spec discriminates on `eventType` + structural fields, so
+// no event-contract TYPE imports are needed.
 
 // ============================================================================
 // Mock Factories
@@ -85,11 +81,22 @@ const createMockLeaveBalance = (overrides: Partial<LeaveBalance> = {}): LeaveBal
   return balance;
 };
 
-const createMockRepository = <T>() => ({
+// A loose double exposing only the Repository<T> members these handlers use.
+// `useValue` providers accept loose doubles, so no cast is needed.
+interface MockRepo {
+  findOne: jest.Mock;
+  find: jest.Mock;
+  save: jest.Mock;
+  create: jest.Mock;
+  update: jest.Mock;
+  delete: jest.Mock;
+}
+
+const createMockRepository = (): MockRepo => ({
   findOne: jest.fn(),
   find: jest.fn(),
-  save: jest.fn((entity: T) => Promise.resolve(entity)),
-  create: jest.fn((entity: Partial<T>) => entity as T),
+  save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+  create: jest.fn((entity: unknown) => entity),
   update: jest.fn(),
   delete: jest.fn(),
 });
@@ -104,23 +111,74 @@ describe('Leave Management Integration Tests', () => {
   let rejectHandler: RejectLeaveRequestHandler;
   let cancelHandler: CancelLeaveRequestHandler;
 
-  let leaveRequestRepository: jest.Mocked<Repository<LeaveRequest>>;
-  let leaveBalanceRepository: jest.Mocked<Repository<LeaveBalance>>;
-  let eventBus: jest.Mocked<EventBus>;
+  let leaveRequestRepository: MockRepo;
+  let leaveBalanceRepository: MockRepo;
+  let eventBus: { publish: jest.Mock };
+  // Submit + approve now enqueue domain events into the transactional OUTBOX
+  // (CRITICAL-002) instead of EventBus.publish(); reject + cancel still use
+  // EventBus. The two seams are mocked separately and asserted per-handler.
+  let outboxPublisher: { enqueue: jest.Mock };
 
   const tenantId = 'tenant-uuid-456';
   const employeeId = 'employee-uuid-789';
   const managerId = 'manager-uuid-111';
 
   beforeEach(async () => {
-    // The bare mock is a small subset of Repository<T> (5 methods);
-    // strict-tsc requires `as unknown as Mocked<Repository<T>>` to
-    // bridge the structural gap rather than the direct cast it had.
-    leaveRequestRepository = createMockRepository<LeaveRequest>() as unknown as jest.Mocked<Repository<LeaveRequest>>;
-    leaveBalanceRepository = createMockRepository<LeaveBalance>() as unknown as jest.Mocked<Repository<LeaveBalance>>;
+    leaveRequestRepository = createMockRepository();
+    leaveBalanceRepository = createMockRepository();
     eventBus = {
-      publish: jest.fn(),
-    } as unknown as jest.Mocked<EventBus>;
+      publish: jest.fn().mockResolvedValue(undefined),
+    };
+    outboxPublisher = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // The leave handlers were refactored to run inside a QueryRunner transaction
+    // (HR-HIGH-008/010/014): they read/write through queryRunner.manager, NOT the
+    // injected repositories. To keep every existing per-entity mock setup
+    // authoritative, the transactional EntityManager dispatches each call to the
+    // matching repo. The Employee lookup (ownership/self-approval check) resolves
+    // to an employee whose id equals the querying userId, so isCreator/isOwner and
+    // the self-approval guard evaluate exactly as the handlers intend.
+    const repoByEntity = new Map<unknown, MockRepo>([
+      [LeaveRequest, leaveRequestRepository],
+      [LeaveBalance, leaveBalanceRepository],
+    ]);
+
+    const manager = {
+      findOne: jest.fn(
+        async (entity: unknown, options: { where?: { userId?: string } } = {}) => {
+          if (entity === Employee) {
+            const userId = options.where?.userId;
+            // The resolved employee's id === the caller's userId.
+            return userId ? Object.assign(new Employee(), { id: userId }) : null;
+          }
+          const repo = repoByEntity.get(entity);
+          return repo ? repo.findOne(options) : null;
+        },
+      ),
+      save: jest.fn(async (entity: unknown, data: unknown) => {
+        const repo = repoByEntity.get(entity);
+        return repo ? repo.save(data) : data;
+      }),
+      create: jest.fn((entity: unknown, data: unknown) => {
+        const repo = repoByEntity.get(entity);
+        return repo ? repo.create(data) : data;
+      }),
+    };
+
+    const queryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager,
+    };
+
+    const dataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -139,6 +197,14 @@ describe('Leave Management Integration Tests', () => {
         {
           provide: EventBus,
           useValue: eventBus,
+        },
+        {
+          provide: OutboxPublisher,
+          useValue: outboxPublisher,
+        },
+        {
+          provide: DataSource,
+          useValue: dataSource,
         },
       ],
     }).compile();
@@ -160,44 +226,40 @@ describe('Leave Management Integration Tests', () => {
   describe('Submit Leave Request', () => {
     it('should successfully submit a draft leave request', async () => {
       const draftRequest = createMockLeaveRequest({ status: LeaveRequestStatus.DRAFT });
-      const balance = createMockLeaveBalance();
 
       leaveRequestRepository.findOne.mockResolvedValue(draftRequest);
-      leaveBalanceRepository.findOne.mockResolvedValue(balance);
-      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) =>
-        Promise.resolve({ ...entity, status: LeaveRequestStatus.PENDING } as unknown as LeaveRequest)
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: LeaveRequest) =>
+        Promise.resolve({ ...entity, status: LeaveRequestStatus.PENDING })
       );
-      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => Promise.resolve(entity));
 
       const command = new SubmitLeaveRequestCommand(tenantId, employeeId, draftRequest.id);
       const result = await submitHandler.execute(command);
 
       expect(result.status).toBe(LeaveRequestStatus.PENDING);
-      expect(leaveBalanceRepository.save).toHaveBeenCalled();
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveRequestSubmitted' }));
+      // Submit enqueues the domain event into the transactional outbox (CRITICAL-002),
+      // it does NOT call EventBus.publish() directly.
+      expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LeaveRequestSubmitted' }),
+        expect.anything(), // the transaction's EntityManager
+      );
     });
 
-    it('should update pending balance when submitting', async () => {
+    it('does NOT re-increment the pending balance on submit (incremented at draft creation)', async () => {
+      // The pending balance is incremented when the DRAFT is created
+      // (CreateLeaveRequestHandler) to close the balance-check TOCTOU window.
+      // Submit must NOT touch the balance again — doing so would double-count.
       const draftRequest = createMockLeaveRequest({
         status: LeaveRequestStatus.DRAFT,
         totalDays: 3,
       });
-      const balance = createMockLeaveBalance({ pending: 0 });
 
       leaveRequestRepository.findOne.mockResolvedValue(draftRequest);
-      leaveBalanceRepository.findOne.mockResolvedValue(balance);
-
-      let savedBalance: LeaveBalance | null = null;
-      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
-        savedBalance = entity as unknown as LeaveBalance;
-        return Promise.resolve(entity);
-      });
 
       const command = new SubmitLeaveRequestCommand(tenantId, employeeId, draftRequest.id);
       await submitHandler.execute(command);
 
-      expect(savedBalance).not.toBeNull();
-      expect(savedBalance!.pending).toBe(3); // 0 + 3 days
+      expect(leaveBalanceRepository.findOne).not.toHaveBeenCalled();
+      expect(leaveBalanceRepository.save).not.toHaveBeenCalled();
     });
 
     it('should reject submission of non-draft request', async () => {
@@ -207,8 +269,10 @@ describe('Leave Management Integration Tests', () => {
 
       const command = new SubmitLeaveRequestCommand(tenantId, employeeId, pendingRequest.id);
 
+      // HR-HIGH-008: status validation is now enforced by LeaveStateMachine,
+      // which rejects the invalid transition with a standardized message.
       await expect(submitHandler.execute(command)).rejects.toThrow(
-        /Cannot submit leave request with status/
+        /Invalid leave request transition/
       );
     });
 
@@ -239,8 +303,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedRequest: LeaveRequest | null = null;
-      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
-        savedRequest = entity as unknown as LeaveRequest;
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: LeaveRequest) => {
+        savedRequest = entity;
         return Promise.resolve(entity);
       });
 
@@ -280,7 +344,11 @@ describe('Leave Management Integration Tests', () => {
       expect(result.status).toBe(LeaveRequestStatus.APPROVED);
       expect(result.approvedBy).toBe(managerId);
       expect(result.approvedAt).toBeDefined();
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveApproved' }));
+      // Approve enqueues into the transactional outbox (CRITICAL-002), not EventBus.
+      expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LeaveApproved' }),
+        expect.anything(),
+      );
     });
 
     it('should move pending balance to used on approval', async () => {
@@ -294,8 +362,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
-        savedBalance = entity as unknown as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: LeaveBalance) => {
+        savedBalance = entity;
         return Promise.resolve(entity);
       });
 
@@ -329,8 +397,9 @@ describe('Leave Management Integration Tests', () => {
 
       const command = new ApproveLeaveRequestCommand(tenantId, managerId, draftRequest.id);
 
+      // HR-HIGH-008: LeaveStateMachine rejects draft → approved.
       await expect(approveHandler.execute(command)).rejects.toThrow(
-        /Cannot approve leave request with status/
+        /Invalid leave request transition/
       );
     });
 
@@ -345,8 +414,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedRequest: LeaveRequest | null = null;
-      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
-        savedRequest = entity as unknown as LeaveRequest;
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: LeaveRequest) => {
+        savedRequest = entity;
         return Promise.resolve(entity);
       });
 
@@ -406,8 +475,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
-        savedBalance = entity as unknown as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: LeaveBalance) => {
+        savedBalance = entity;
         return Promise.resolve(entity);
       });
 
@@ -511,8 +580,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
-        savedBalance = entity as unknown as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: LeaveBalance) => {
+        savedBalance = entity;
         return Promise.resolve(entity);
       });
 
@@ -531,8 +600,9 @@ describe('Leave Management Integration Tests', () => {
 
       const command = new CancelLeaveRequestCommand(tenantId, employeeId, cancelledRequest.id);
 
+      // HR-HIGH-008: LeaveStateMachine rejects cancelled → cancelled (terminal).
       await expect(cancelHandler.execute(command)).rejects.toThrow(
-        /Cannot cancel leave request with status/
+        /Invalid leave request transition/
       );
     });
 
@@ -588,8 +658,13 @@ describe('Leave Management Integration Tests', () => {
       await submitHandler.execute(submitCommand);
 
       expect(currentRequest.status).toBe(LeaveRequestStatus.PENDING);
-      expect(currentBalance.pending).toBe(5);
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveRequestSubmitted' }));
+      // Submit does NOT touch the balance (incremented at draft creation), so the
+      // pending figure is unchanged here; the outbox carries the submitted event.
+      expect(currentBalance.pending).toBe(0);
+      expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LeaveRequestSubmitted' }),
+        expect.anything(),
+      );
 
       // Step 2: Approve the request
       leaveRequestRepository.findOne.mockResolvedValue(currentRequest);
@@ -606,7 +681,10 @@ describe('Leave Management Integration Tests', () => {
       expect(currentRequest.status).toBe(LeaveRequestStatus.APPROVED);
       expect(currentBalance.pending).toBe(0);
       expect(currentBalance.used).toBe(5);
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveApproved' }));
+      expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LeaveApproved' }),
+        expect.anything(),
+      );
     });
 
     it('should handle rejection path: draft -> submit -> reject', async () => {
@@ -636,7 +714,8 @@ describe('Leave Management Integration Tests', () => {
         new SubmitLeaveRequestCommand(tenantId, employeeId, draftRequest.id)
       );
 
-      expect(currentBalance.pending).toBe(3);
+      // Submit leaves the balance untouched (incremented at draft creation).
+      expect(currentBalance.pending).toBe(0);
 
       // Reject
       leaveRequestRepository.findOne.mockResolvedValue(currentRequest);
@@ -699,18 +778,21 @@ describe('Leave Management Integration Tests', () => {
         new SubmitLeaveRequestCommand(tenantId, employeeId, draftRequest.id)
       );
 
-      expect(eventBus.publish).toHaveBeenCalledTimes(1);
-      const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0];
+      // Submit enqueues into the transactional outbox, not EventBus.
+      expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+      const publishedEvent = outboxPublisher.enqueue.mock.calls[0][0];
 
       // LeaveRequestSubmittedEvent migrated from class to interface;
       // assert by discriminating eventType + structural fields
       // instead of `instanceof`. The interface contract is captured
       // in @platform/event-contracts; the producer side returns
-      // plain objects via createLeaveRequestSubmittedEvent().
+      // plain objects via createLeaveRequestSubmittedEvent(). The correlation
+      // field is `leaveRequestId` (renamed from `requestId` in the BaseEvent
+      // normalization — see hr-events.ts).
       expect(publishedEvent.eventType).toBe('LeaveRequestSubmitted');
       expect(publishedEvent.tenantId).toBe(tenantId);
       expect(publishedEvent.employeeId).toBe(employeeId);
-      expect(publishedEvent.requestId).toBe(draftRequest.id);
+      expect(publishedEvent.leaveRequestId).toBe(draftRequest.id);
     });
 
     it('should include approver info in approve event', async () => {
@@ -724,7 +806,8 @@ describe('Leave Management Integration Tests', () => {
         new ApproveLeaveRequestCommand(tenantId, managerId, pendingRequest.id)
       );
 
-      const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0] as LeaveApprovedEvent;
+      // Approve enqueues into the transactional outbox, not EventBus.
+      const publishedEvent = outboxPublisher.enqueue.mock.calls[0][0];
 
       // LeaveApprovedEvent migrated from class to interface; assert by
       // discriminating eventType + structural fields instead of `instanceof`.
@@ -744,7 +827,8 @@ describe('Leave Management Integration Tests', () => {
         new RejectLeaveRequestCommand(tenantId, managerId, pendingRequest.id, reason)
       );
 
-      const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0] as LeaveRejectedEvent;
+      // Reject still publishes via EventBus (fire-and-forget with .catch).
+      const publishedEvent = eventBus.publish.mock.calls[0][0];
 
       // LeaveRejectedEvent migrated from class to interface; assert by
       // discriminating eventType + structural fields instead of `instanceof`.
@@ -797,10 +881,10 @@ describe('Leave Management Integration Tests', () => {
       draftRequest.status = LeaveRequestStatus.PENDING;
       leaveRequestRepository.findOne.mockResolvedValue(draftRequest);
 
-      // Second submission should fail
+      // Second submission should fail — LeaveStateMachine rejects pending → pending.
       const command2 = new SubmitLeaveRequestCommand(tenantId, employeeId, draftRequest.id);
       await expect(submitHandler.execute(command2)).rejects.toThrow(
-        /Cannot submit leave request with status/
+        /Invalid leave request transition/
       );
     });
   });

@@ -93,6 +93,7 @@ import { CertificationType } from './training/entities/certification-type.entity
 import { EmployeeCertification } from './training/entities/employee-certification.entity';
 import { TrainingCourse } from './training/entities/training-course.entity';
 import { TrainingEnrollment } from './training/entities/training-enrollment.entity';
+import { TrainingSession } from './training/entities/training-session.entity';
 import { TrainingModule } from './training/training.module';
 
 /**
@@ -159,6 +160,7 @@ interface ApolloGraphQLContext {
             EmployeeCertification,
             TrainingCourse,
             TrainingEnrollment,
+            TrainingSession,
             WorkArea,
             WorkRotation,
             SafetyTrainingRecord,

@@ -52,27 +52,28 @@ interface UseAiConsentReturn {
 // ---------------------------------------------------------------------------
 // GraphQL Operations
 //
-// S1-CODEGEN: gql-tagged so the bare-query-string lint stays clean and
-// graphql-tag-pluck can fold them into the codegen contract once these queries
-// are promoted into graphql/*. `aiConsentStatus`/`toggleAiConsent` are not yet
-// in the composed supergraph SDL, so they stay inline `gql` DocumentNodes here
-// (the explicit result type annotation on graphqlRequest carries their shape).
+// These map onto the messaging-service AiResolver dual-consent contract
+// (apps/messaging-service/src/ai/resolvers/ai.resolver.ts):
+//   - query  aiSettings: AiSettingsType { tenantAiEnabled, userAiConsent }
+//   - mutation updateUserAiConsent(consent: Boolean!): Boolean
+// The dual-consent model is the SSoT — `tenantAiEnabled` is the tenant-level
+// master switch (TENANT_ADMIN-owned) and `userAiConsent` is the per-user
+// opt-in this hook toggles. Field names below are the real subgraph fields;
+// the FE's `isAiEnabled`/`hasConsented` vocabulary is mapped at the boundary.
 // ---------------------------------------------------------------------------
 
-const GET_AI_CONSENT_STATUS = gql`
+const GET_AI_SETTINGS = gql`
   query GetAiConsentStatus {
-    aiConsentStatus {
-      isAiEnabled
-      hasConsented
+    aiSettings {
+      tenantAiEnabled
+      userAiConsent
     }
   }
 `;
 
-const TOGGLE_AI_CONSENT = gql`
-  mutation ToggleAiConsent($consented: Boolean!) {
-    toggleAiConsent(consented: $consented) {
-      hasConsented
-    }
+const UPDATE_USER_AI_CONSENT = gql`
+  mutation ToggleAiConsent($consent: Boolean!) {
+    updateUserAiConsent(consent: $consent)
   }
 `;
 
@@ -83,10 +84,13 @@ const TOGGLE_AI_CONSENT = gql`
 /** Fetch AI consent status from the messaging-service GraphQL API. */
 async function fetchAiConsentStatus(): Promise<AiConsentStatus> {
   try {
-    const result = await graphqlRequest<{ aiConsentStatus: AiConsentStatus }>(
-      GET_AI_CONSENT_STATUS,
-    );
-    return result.aiConsentStatus;
+    const result = await graphqlRequest<{
+      aiSettings: { tenantAiEnabled: boolean; userAiConsent: boolean };
+    }>(GET_AI_SETTINGS);
+    return {
+      isAiEnabled: result.aiSettings.tenantAiEnabled,
+      hasConsented: result.aiSettings.userAiConsent,
+    };
   } catch {
     return { isAiEnabled: false, hasConsented: false };
   }
@@ -95,13 +99,16 @@ async function fetchAiConsentStatus(): Promise<AiConsentStatus> {
 /** Toggle AI consent via the messaging-service GraphQL API. */
 async function mutateAiConsent(consented: boolean): Promise<{ hasConsented: boolean }> {
   try {
-    const result = await graphqlRequest<{ toggleAiConsent: { hasConsented: boolean } }>(
-      TOGGLE_AI_CONSENT,
-      { consented },
+    // `updateUserAiConsent` returns Boolean (success flag), not the new
+    // consent value. On success the requested `consented` is the new state;
+    // we surface it so the cache update + optimistic UI stay consistent.
+    await graphqlRequest<{ updateUserAiConsent: boolean }>(
+      UPDATE_USER_AI_CONSENT,
+      { consent: consented },
     );
-    return result.toggleAiConsent;
-  } catch {
     return { hasConsented: consented };
+  } catch {
+    return { hasConsented: !consented };
   }
 }
 

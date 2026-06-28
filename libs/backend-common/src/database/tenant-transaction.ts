@@ -81,7 +81,12 @@ function traceTenantBoundary(input: TenantBoundaryTraceInput): void {
       rowCount: rowCountOf(input.result),
     };
     if (input.resultState === 'SUCCESS') {
-      boundaryLogger.debug(JSON.stringify(trace));
+      // Success is one trace per read (high volume). It is OPT-IN — enable with
+      // FARM_DATA_READ_TRACE=on for deep per-read diagnostics. A tenant-context
+      // mismatch ALWAYS emits (warn) regardless of the flag.
+      if (process.env.FARM_DATA_READ_TRACE === 'on') {
+        boundaryLogger.debug(JSON.stringify(trace));
+      }
     } else {
       boundaryLogger.warn(JSON.stringify(trace));
     }

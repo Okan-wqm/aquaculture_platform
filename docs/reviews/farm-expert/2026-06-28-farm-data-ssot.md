@@ -573,6 +573,29 @@ shipped partially:
 - **FARM-MEDIUM-091 (Task #25)** — `marineDataService` / `useFileUpload` /
   `useChemicals` use raw `fetch()`; migrate to the typed/traced client.
 
+## FARM-HIGH-085 — completion-audit remediation
+
+The completion-audit workflow (adversarial verifiers + a gate-runner) caught
+three real gaps, now fixed:
+
+1. **feeding-program.resolver masking** — `handleError()` (used by 6 query
+   resolvers) and the `tanksByProgram` field resolver swallowed ALL errors to
+   `null`/`[]`. They now re-throw `TenantContextError` (the same de-masking as
+   system/farm resolvers in FARM-HIGH-080), so a lost tenant context surfaces.
+2. **useHarvestPlans invalidation** — `invalidateAllHarvestPlanQueries` used a
+   predicate `queryKey[0] === 'harvestPlans'`, but tenant-scoped keys are
+   `['tenant', tenantId, 'harvestPlans', …]`, so it matched NOTHING (harvest
+   plans went stale across a tenant switch). Switched to
+   `createTenantInvalidationKey(tenantId, HARVEST_PLANS_KEY)`.
+3. **boundary success-trace regression** — the FARM-MEDIUM-087 SUCCESS trace
+   (debug) added a debug call to every read and broke `create-harvest-record`'s
+   debug-count assertion. The success trace is now OPT-IN behind
+   `FARM_DATA_READ_TRACE=on`; the mismatch warn stays always-on.
+
+Full farm handler/resolver/dataloader suite 365 green; farm-service + farm-module
+type-check clean. (The 2 `rls.module.spec` DI failures the gate-runner flagged
+are PRE-EXISTING on `origin/main` — verified — not introduced by this branch.)
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

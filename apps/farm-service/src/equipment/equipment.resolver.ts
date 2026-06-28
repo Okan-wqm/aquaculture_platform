@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
@@ -207,8 +208,12 @@ export class EquipmentResolver {
 
     try {
       const query = new GetDepartmentQuery(equipment.departmentId, equipment.tenantId);
-      return this.queryBus.execute(query);
+      return await this.queryBus.execute(query);
     } catch (error: unknown) {
+      // A lost/wrong tenant context must surface, not be masked as "no department".
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.debug(`Error resolving department: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
@@ -385,6 +390,10 @@ export class EquipmentResolver {
           }
         }
       } catch (error: unknown) {
+        // A lost/wrong tenant context must surface, not be masked as default feed info.
+        if (error instanceof TenantContextError) {
+          throw error;
+        }
         this.logger.warn(`Error getting feed info for tank ${equipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }

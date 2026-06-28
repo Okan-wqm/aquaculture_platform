@@ -596,6 +596,15 @@ Full farm handler/resolver/dataloader suite 365 green; farm-service + farm-modul
 type-check clean. (The 2 `rls.module.spec` DI failures the gate-runner flagged
 are PRE-EXISTING on `origin/main` — verified — not introduced by this branch.)
 
+**Sweep follow-through:** the audit lead (feeding-program masking) prompted a
+repo-wide sweep of farm `*.resolver.ts` for the same pattern, which found two
+more: `department.resolver` (`site` field) and `equipment.resolver`
+(`department` field + tank feed-info enrichment) caught all errors to `null`.
+All now re-throw `TenantContextError` (the `site`/`department` resolvers also
+gained the missing `await` so their catch is no longer dead). A re-sweep
+confirms no remaining farm resolver masks errors to `null`/`[]` without
+surfacing a tenant-context failure.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

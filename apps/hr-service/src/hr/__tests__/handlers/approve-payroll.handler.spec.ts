@@ -51,9 +51,24 @@ const buildMockQueryRunner = (overrides?: {
   findOneResult?: Payroll | null;
   saveResult?: Payroll;
 }) => {
+  // `findOneResult` is intentionally `Payroll | null`; callers pass `null` to
+  // exercise the not-found path. `??` would coalesce that legitimate `null`
+  // into a default payroll, so distinguish "key present" from "key absent".
+  const findOneResult =
+    overrides && 'findOneResult' in overrides ? overrides.findOneResult : buildMockPayroll();
+
+  // tenantManagerRepo() wraps this repo in TenantScopedRepository, whose
+  // save() delegates to `this.repository.create(...)` then
+  // `this.repository.save(...)`. The underlying repo therefore needs a
+  // `create` method that echoes the entity it is handed.
   const mockPayrollRepo: Partial<Repository<Payroll>> = {
-    findOne: jest.fn().mockResolvedValue(overrides?.findOneResult ?? buildMockPayroll()),
-    save: jest.fn().mockResolvedValue(overrides?.saveResult ?? { ...buildMockPayroll(), status: PayrollStatus.APPROVED }),
+    findOne: jest.fn().mockResolvedValue(findOneResult),
+    create: jest.fn().mockImplementation((entity: Partial<Payroll>) =>
+      Object.assign(new Payroll(), entity),
+    ),
+    save: jest.fn().mockImplementation((entity: Payroll) =>
+      Promise.resolve(overrides?.saveResult ?? entity),
+    ),
   };
 
   const mockManager: Partial<EntityManager> = {

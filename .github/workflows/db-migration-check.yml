@@ -91,7 +91,7 @@ on:
       - 'apps/*/src/**/migrations/**'
       - 'apps/*/src/**/*.entity.ts'
       - 'infrastructure/docker/init-scripts/**'
-      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
+      - 'apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts'
       - 'e2e/tests/integration/tenant-clone-parity.spec.ts'
       - 'e2e/tests/integration/schema-invariants.spec.ts'
       - '.github/workflows/db-migration-check.yml'
@@ -100,7 +100,7 @@ on:
     paths:
       - 'apps/*/src/**/migrations/**'
       - 'infrastructure/docker/init-scripts/**'
-      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
+      - 'apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts'
       - 'e2e/tests/integration/tenant-clone-parity.spec.ts'
       - 'e2e/tests/integration/schema-invariants.spec.ts'
       - '.github/workflows/db-migration-check.yml'
@@ -256,7 +256,7 @@ jobs:
   # ===================================================================
   # bootstrap-from-scratch — fresh-volume integration check.
   #
-  # Runs the e2e/tests/integration/bootstrap-from-scratch.spec.ts test,
+  # Runs the apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts test,
   # which spins up an empty Postgres testcontainer with the production
   # init-scripts mounted, runs every service's TypeORM migration chain
   # against it, and asserts the resulting schema state is what the
@@ -303,7 +303,7 @@ jobs:
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
           path: /tmp/docker-image-cache
-          key: db-migration-check-pg16-timescaledb-${{ hashFiles('e2e/tests/integration/bootstrap-from-scratch.spec.ts') }}
+          key: db-migration-check-pg16-timescaledb-${{ hashFiles('apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts') }}
 
       - name: Load cached image (if present)
         if: steps.docker-image-cache.outputs.cache-hit == 'true'

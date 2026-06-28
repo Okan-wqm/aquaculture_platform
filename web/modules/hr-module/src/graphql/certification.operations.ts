@@ -196,11 +196,14 @@ export const GET_TRAINING_COURSES = gql`
   ${TRAINING_COURSE_FRAGMENT}
 `;
 
+// WHY: TrainingCourse.prerequisites is a String[] of course ids on the backend
+// schema. The resolvable course objects (id/code/name) are exposed under
+// prerequisiteCourses, so the detail view selects that to render prerequisites.
 export const GET_TRAINING_COURSE = gql`
   query GetTrainingCourse($id: ID!) {
     trainingCourse(id: $id) {
       ...TrainingCourseFull
-      prerequisites {
+      prerequisiteCourses {
         id
         code
         name
@@ -420,8 +423,7 @@ export const ENROLL_IN_TRAINING = gql`
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
-// NOTE: startTraining does not exist in backend resolver yet.
-// Kept as placeholder for future implementation.
+// startTraining: self-service ENROLLED -> IN_PROGRESS transition (owner-only).
 export const START_TRAINING = gql`
   mutation StartTraining($enrollmentId: ID!) {
     startTraining(enrollmentId: $enrollmentId) {
@@ -450,8 +452,7 @@ export const COMPLETE_TRAINING = gql`
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
-// NOTE: withdrawFromTraining does not exist in backend resolver yet.
-// Kept as placeholder for future implementation.
+// withdrawFromTraining: self-service ENROLLED|IN_PROGRESS -> WITHDRAWN (owner-only).
 export const WITHDRAW_FROM_TRAINING = gql`
   mutation WithdrawFromTraining($enrollmentId: ID!, $reason: String) {
     withdrawFromTraining(enrollmentId: $enrollmentId, reason: $reason) {
@@ -461,8 +462,8 @@ export const WITHDRAW_FROM_TRAINING = gql`
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
-// NOTE: bulkEnrollInTraining does not exist in backend resolver yet.
-// Kept as placeholder for future implementation.
+// bulkEnrollInTraining: admin/manager enrols many employees into one course;
+// returns per-outcome counts.
 export const BULK_ENROLL_IN_TRAINING = gql`
   mutation BulkEnrollInTraining($courseId: ID!, $employeeIds: [ID!]!) {
     bulkEnrollInTraining(courseId: $courseId, employeeIds: $employeeIds) {

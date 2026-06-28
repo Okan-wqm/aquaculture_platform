@@ -17,6 +17,7 @@ export function cn(...inputs: ClassValue[]): string {
 // API İstemcileri
 export {
   graphqlClient,
+  publicGraphqlClient,
   restClient,
   setTokens,
   clearTokens,

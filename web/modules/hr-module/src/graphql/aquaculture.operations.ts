@@ -43,10 +43,40 @@ export const GET_WORK_AREAS = gql`
   ${WORK_AREA_FRAGMENT}
 `;
 
+// WHY: The single-area `workArea(id)` query returns the WorkAreaDetail type, in
+// which `requiredCertifications` is the RESOLVED CertificationType[] object list
+// (not the scalar cert-type-ID array used by the WorkAreaFull fragment). The
+// scalar fragment and the object selection cannot coexist on the same field, so
+// the work-area scalars are inlined here MINUS requiredCertifications, which is
+// selected as an object alongside the computed currentAssignments list.
 export const GET_WORK_AREA = gql`
   query GetWorkArea($id: ID!) {
     workArea(id: $id) {
-      ...WorkAreaFull
+      id
+      tenantId
+      code
+      name
+      description
+      workAreaType
+      riskLevel
+      siteId
+      coordinates {
+        latitude
+        longitude
+      }
+      isOffshore
+      maxCapacity
+      requiredPPE
+      requiresDivingCertification
+      requiresVesselCertification
+      requiresSeaWorthy
+      emergencyContact
+      emergencyProcedure
+      colorCode
+      displayOrder
+      isActive
+      createdAt
+      updatedAt
       requiredCertifications {
         id
         code
@@ -61,7 +91,6 @@ export const GET_WORK_AREA = gql`
       }
     }
   }
-  ${WORK_AREA_FRAGMENT}
 `;
 
 export const GET_OFFSHORE_WORK_AREAS = gql`

@@ -142,15 +142,17 @@ describe('CreateEmployeeHandler', () => {
 
     expect(result.id).toBe('emp-uuid-001');
     expect(mockQR.commitTransaction).toHaveBeenCalled();
-    // Event must be published AFTER commit — if publish is called before commit
-    // the event could fire while the row doesn't yet exist in DB.
+    // CRITICAL-002: the outbox row is enqueued INSIDE the transaction, i.e.
+    // BEFORE commit, so the domain write and the outbox INSERT commit
+    // atomically (transactional outbox). If enqueue happened after commit the
+    // process could die in between and the event would be lost. Therefore the
+    // enqueue invocation must precede the commit invocation.
     // invocationCallOrder[0] is `number | undefined` under
-    // noUncheckedIndexedAccess. Both calls must have happened (the
-    // toHaveBeenCalled() assertion above proved commit; outbox enqueue
-    // is asserted by the .toBeGreaterThan() check that follows).
+    // noUncheckedIndexedAccess; both calls are proven to have happened by the
+    // toHaveBeenCalled() assertion above and the ordering check below.
     const commitOrder = (mockQR.commitTransaction as jest.Mock).mock.invocationCallOrder[0]!;
     const publishOrder = (mockOutboxPublisher.enqueue as jest.Mock).mock.invocationCallOrder[0]!;
-    expect(publishOrder).toBeGreaterThan(commitOrder);
+    expect(publishOrder).toBeLessThan(commitOrder);
   });
 
   it('does NOT publish EmployeeCreatedEvent when transaction rolls back (duplicate email)', async () => {

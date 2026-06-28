@@ -1135,7 +1135,16 @@ jobs:
             # it is sourced from the persistent source repo because the checkout
             # is what it creates. Keeping this inline tiny stays under GitHub
             # Actions' 21,000-char per-expression limit.
-            source /var/aqua-saas/scripts/deploy/deploy-paths.sh
+            # BOOTSTRAP FIX (ORPHAN-211): the deploy no longer `git checkout`s
+            # /var/aqua-saas (isolated-checkout decoupling, #686), so its working
+            # tree can be ANY stale branch — sourcing deploy-paths.sh from the
+            # working tree fails (file absent on an old checkout) → capacity-preflight
+            # + deploy died. Read deploy-paths.sh from the pinned DEPLOY_SHA via
+            # `git show` (working-tree-independent) after fetching the objects.
+            cd /var/aqua-saas && git fetch --force --prune origin
+            install -d /var/lib/aqua/deploy
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
+            source /var/lib/aqua/deploy/deploy-paths.sh
             materialize_deploy_checkout "${DEPLOY_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
             # GitHub Actions is the only deploy-remediation control plane.
@@ -1246,7 +1255,16 @@ jobs:
             # same parse error at PR-time). All deploy logic — cert generation,
             # health checks, rollout, rollback — lives in droplet-up.sh.
             set -e
-            source /var/aqua-saas/scripts/deploy/deploy-paths.sh
+            # BOOTSTRAP FIX (ORPHAN-211): the deploy no longer `git checkout`s
+            # /var/aqua-saas (isolated-checkout decoupling, #686), so its working
+            # tree can be ANY stale branch — sourcing deploy-paths.sh from the
+            # working tree fails (file absent on an old checkout) → capacity-preflight
+            # + deploy died. Read deploy-paths.sh from the pinned DEPLOY_SHA via
+            # `git show` (working-tree-independent) after fetching the objects.
+            cd /var/aqua-saas && git fetch --force --prune origin
+            install -d /var/lib/aqua/deploy
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
+            source /var/lib/aqua/deploy/deploy-paths.sh
             materialize_deploy_checkout "${DEPLOY_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
             bash scripts/deploy/droplet-up.sh

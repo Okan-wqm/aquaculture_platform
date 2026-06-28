@@ -161,4 +161,13 @@ export class CertificationType {
   @Field({ nullable: true })
   @Column({ nullable: true })
   deletedBy?: string;
+
+  // ---------------------------------------------------------------------------
+  // Non-persisted projection field (assembled by query handlers).
+  // No @Column — populated in-memory by GetCertificationTypeHandler so the FE
+  // detail view can render prerequisite certification types (id/code/name)
+  // resolved from the prerequisiteCertifications (id) array.
+  // ---------------------------------------------------------------------------
+  @Field(() => [CertificationType], { nullable: true })
+  prerequisites?: CertificationType[];
 }

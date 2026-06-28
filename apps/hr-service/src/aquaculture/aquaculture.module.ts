@@ -7,6 +7,7 @@ import { WorkRotation } from './entities/work-rotation.entity';
 import { SafetyTrainingRecord } from './entities/safety-training-record.entity';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
 import { EmployeeCertification } from '../training/entities/employee-certification.entity';
+import { CertificationType } from '../training/entities/certification-type.entity';
 import { AquacultureResolver } from './aquaculture.resolver';
 import { AquacultureQueryHandlers } from './query-handlers';
 import { AquacultureCommandHandlers } from './handlers';
@@ -22,6 +23,7 @@ import { HRModule } from '../hr/hr.module';
       AttendanceRecord,
       Employee,
       EmployeeCertification,
+      CertificationType,
     ]),
     HRModule,
     CqrsModule,

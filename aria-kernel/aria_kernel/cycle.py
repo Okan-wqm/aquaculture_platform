@@ -15,11 +15,14 @@ from .learning import run_learning_pass, run_learning_post_evidence_closure, run
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
-from .memory import update_memory
+from .memory import decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .reflection import run_reflection
+from .human_required import sweep_consensus_uncertainties_for_human_required
+from .judge_calibration import compute_judge_calibration
+from .proactive_priority import compute_proactive_priorities
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
@@ -417,6 +420,10 @@ def run_enterprise_cycle(
     memory: dict[str, Any] = {}
     pressure: dict[str, Any] = {}
     reflection = None if defer_reflection else {}
+    consensus_escalation: dict[str, Any] = {}
+    judge_calibration: dict[str, Any] = {}
+    proactive_priorities: dict[str, Any] = {}
+    belief_decay: dict[str, Any] = {}
     post_tool_failure = None
     try:
         memory = update_memory(
@@ -424,14 +431,51 @@ def run_enterprise_cycle(
         )
     except Exception as exc:
         post_tool_failure = {"phase": "memory", "status": "failed", "error": str(exc)}
+    # Plan 028 §D4 — age-based belief decay BEFORE pressure, so a belief about
+    # unchanged code that has aged past its TTL becomes needs_revalidation and
+    # run_pressure surfaces it this same cycle. Skipped under no-write runs.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            belief_decay = decay_stale_beliefs_by_age(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "belief_decay", "status": "failed", "error": str(exc)}
     if post_tool_failure is None:
         try:
             pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
+    # Plan 023 §B — drain consensus disagreements / low-confidence verdicts into
+    # HUMAN_REQUIRED so a split judge vote reaches an operator instead of being
+    # silently held. Skipped under shadow/discovery runs (no-write profiles);
+    # idempotent so re-running a cycle never double-escalates.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            consensus_escalation = sweep_consensus_uncertainties_for_human_required(base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "consensus_escalation", "status": "failed", "error": str(exc)}
+    # Plan 024 §A — score each judge against accumulated ground truth so the
+    # cheap-tier judgment is measured, not assumed. Read-only join over the
+    # feedback ledger (no LLM); skipped under shadow/discovery no-write runs.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            judge_calibration = compute_judge_calibration(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "judge_calibration", "status": "failed", "error": str(exc)}
+    # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every cycle
+    # regardless of reactive pressure, so ARIA always has a "where to invest next"
+    # list even when nothing is on fire. Read-only; skipped under no-write runs.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            proactive_priorities = compute_proactive_priorities(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "proactive_priority", "status": "failed", "error": str(exc)}
     if post_tool_failure is None and not defer_reflection:
         try:
-            reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+            reflection = run_reflection(
+                cycle_id=cycle_id, base_dir=root, repo_root=workspace_root,
+                calibration_result=judge_calibration or None,
+                proactive_result=proactive_priorities or None,
+            )
         except Exception as exc:
             post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
     try:
@@ -545,7 +589,11 @@ def run_enterprise_cycle(
         "discovery": discovery,
         "cycle_diff": diff,
         "memory": memory,
+        "belief_decay": belief_decay,
         "pressure": pressure,
+        "consensus_escalation": consensus_escalation,
+        "judge_calibration": judge_calibration,
+        "proactive_priorities": proactive_priorities,
         "reflection": reflection,
         "cycle_metrics": metrics,
         "observability_dashboard": dashboard,
@@ -691,6 +739,10 @@ def _run_validation_matrix_phase(
                 base_dir=base_dir,
                 repo_root=workspace_root,
                 candidate_refs=refs,
+                # Plan 031 Gate A — every change committed inside the cycle
+                # window is an ARIA-authored autonomous fix, so it must leave
+                # a regression anchor (test/fixture) in its diff.
+                require_regression_anchor=True,
             )
             per_change.append({
                 "change_id": cid,

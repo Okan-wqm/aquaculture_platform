@@ -373,10 +373,16 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'gateway',
-    // Gateway is now FAST to ready: supergraph composition moved to a
-    // background manager, so /health passes without waiting on subgraph
-    // introspection. Budget headroom over the compose start_period (30s).
-    startupBudgetSeconds: 40,
+    // Composition is background (BackgroundCompositionManager), so /health/live
+    // binds in ~2s — BUT the deploy-gate measures Docker `healthy`, and during the
+    // simultaneous cold-boot of ~14 services on the 4-CPU droplet the gateway is
+    // CPU-starved: a /health/live probe timed out (10s) at ~+70s and the container
+    // only flipped healthy at ~+100s (observed on the #686/#688 deploys). The 40s
+    // budget assumed an unloaded box and under-counted that; 120s reflects the real
+    // under-thundering-herd time. Paired with the compose healthcheck timeout 30s +
+    // start_period 60s. (Deeper fix to shrink the herd — staggered bring-up — is
+    // tracked separately; this makes the gate tolerate the real time.)
+    startupBudgetSeconds: 120,
     requiredSignals: [],
     requiredEnv: [
       'GATEWAY_SERVICE_DB_PASS',

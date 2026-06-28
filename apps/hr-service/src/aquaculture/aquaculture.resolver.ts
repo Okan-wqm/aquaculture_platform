@@ -16,8 +16,21 @@ import {
   GetWorkRotationsQuery,
   GetCurrentlyOffshoreQuery,
   GetCrewAssignmentsQuery,
+  GetWorkAreaQuery,
+  GetWorkRotationQuery,
+  GetWorkAreaOccupancyQuery,
+  GetAllWorkAreaOccupanciesQuery,
+  GetCurrentRotationQuery,
+  GetUpcomingRotationsQuery,
+  GetRotationCalendarQuery,
+  GetRotationChangeoversQuery,
 } from './queries';
 import { CrewAssignment } from './dto/crew-assignment.dto';
+import { WorkAreaDetail } from './dto/work-area-detail.dto';
+import { WorkAreaOccupancyReport } from './dto/work-area-occupancy.dto';
+import { RotationDetail } from './dto/rotation-detail.dto';
+import { RotationCalendarEntry } from './dto/rotation-calendar.dto';
+import { RotationChangeoverDay } from './dto/rotation-changeover.dto';
 
 // DTOs
 import { CreateWorkAreaInput } from './dto/create-work-area.input';
@@ -119,6 +132,40 @@ export class AquacultureResolver {
     return result.data;
   }
 
+  @Query(() => WorkAreaDetail, { name: 'workArea' })
+  async getWorkArea(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkAreaDetail> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetWorkAreaQuery(tenantId, id));
+  }
+
+  @Query(() => WorkAreaOccupancyReport, { name: 'workAreaOccupancy' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getWorkAreaOccupancy(
+    @Args('workAreaId', { type: () => ID }) workAreaId: string,
+    @Args('date') date: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkAreaOccupancyReport> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(
+      new GetWorkAreaOccupancyQuery(tenantId, workAreaId, date),
+    );
+  }
+
+  @Query(() => [WorkAreaOccupancyReport], { name: 'allWorkAreaOccupancies' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getAllWorkAreaOccupancies(
+    @Args('date') date: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkAreaOccupancyReport[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetAllWorkAreaOccupanciesQuery(tenantId, date));
+  }
+
   // =====================
   // Work Rotation Queries
   // =====================
@@ -203,6 +250,65 @@ export class AquacultureResolver {
       ),
     );
     return result.data;
+  }
+
+  @Query(() => WorkRotation, { name: 'workRotation' })
+  async getWorkRotation(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetWorkRotationQuery(tenantId, id));
+  }
+
+  @Query(() => RotationDetail, { name: 'currentRotation', nullable: true })
+  async getCurrentRotation(
+    @Args('employeeId', { type: () => ID }) employeeId: string,
+    @Context() context: GraphQLContext,
+  ): Promise<RotationDetail | null> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetCurrentRotationQuery(tenantId, employeeId));
+  }
+
+  @Query(() => [WorkRotation], { name: 'upcomingRotations' })
+  async getUpcomingRotations(
+    @Args('employeeId', { type: () => ID }) employeeId: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 5 }) limit: number,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(
+      new GetUpcomingRotationsQuery(tenantId, employeeId, limit),
+    );
+  }
+
+  @Query(() => [RotationCalendarEntry], { name: 'rotationCalendar' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getRotationCalendar(
+    @Args('startDate') startDate: string,
+    @Args('endDate') endDate: string,
+    @Context() context: GraphQLContext,
+    @Args('workAreaId', { type: () => ID, nullable: true }) workAreaId?: string,
+  ): Promise<RotationCalendarEntry[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(
+      new GetRotationCalendarQuery(tenantId, startDate, endDate, workAreaId),
+    );
+  }
+
+  @Query(() => [RotationChangeoverDay], { name: 'rotationChangeovers' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getRotationChangeovers(
+    @Args('startDate') startDate: string,
+    @Args('endDate') endDate: string,
+    @Context() context: GraphQLContext,
+  ): Promise<RotationChangeoverDay[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(
+      new GetRotationChangeoversQuery(tenantId, startDate, endDate),
+    );
   }
 
   // =====================

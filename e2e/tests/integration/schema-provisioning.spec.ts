@@ -9,10 +9,10 @@
 
 import {
   MIGRATION_LEDGER_TABLE,
+  MODULE_SCHEMAS,
   tenantMigrationLedgerTable,
 } from '@aquaculture/backend-common/database';
 
-import { MODULE_SCHEMAS } from '../../../libs/backend-common/src/database/schema-manager.service';
 import { assertDefined } from '../../helpers/assertions';
 import {
   findTenantById,

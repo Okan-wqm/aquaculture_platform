@@ -7,7 +7,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { EventBus } from '@nestjs/cqrs';
 import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 
@@ -31,11 +31,10 @@ import { AddEmployeeCertificationCommand } from '../commands/add-employee-certif
 import { RevokeCertificationCommand } from '../commands/revoke-certification.command';
 
 // Events
-import {
-  CertificationAddedEvent,
-  CertificationRevokedEvent,
-  TrainingCompletedEvent,
-} from '../events/training.events';
+// The handlers now publish flat BaseEvent-conforming objects produced by the
+// createX*Event() factories (HR-MEDIUM-007) — NOT the deprecated event CLASSES.
+// So this spec discriminates on `eventType` + structural fields rather than
+// `instanceof` / `expect.any(Class)`, mirroring the leave integration spec.
 
 describe('Training Module Integration Tests', () => {
   // Test constants
@@ -45,13 +44,25 @@ describe('Training Module Integration Tests', () => {
   const COURSE_ID = 'course-001';
   const CERT_TYPE_ID = 'cert-type-001';
 
+  // A loose repository double — the handlers only ever call this small subset
+  // of Repository<T>, so a structural double (not a full Repository<T>) is the
+  // correct test seam. `useValue` providers accept loose doubles with no cast.
+  interface MockRepo {
+    findOne: jest.Mock;
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+  }
+
   // Mock repositories
-  let enrollmentRepository: jest.Mocked<Repository<TrainingEnrollment>>;
-  let courseRepository: jest.Mocked<Repository<TrainingCourse>>;
-  let certificationRepository: jest.Mocked<Repository<EmployeeCertification>>;
-  let certificationTypeRepository: jest.Mocked<Repository<CertificationType>>;
-  let employeeRepository: jest.Mocked<Repository<Employee>>;
-  let eventBus: jest.Mocked<EventBus>;
+  let enrollmentRepository: MockRepo;
+  let courseRepository: MockRepo;
+  let certificationRepository: MockRepo;
+  let certificationTypeRepository: MockRepo;
+  let employeeRepository: MockRepo;
+  let eventBus: { publish: jest.Mock };
 
   // Handlers
   let enrollHandler: EnrollInTrainingHandler;
@@ -125,25 +136,97 @@ describe('Training Module Integration Tests', () => {
   });
 
   beforeEach(async () => {
-    // Create mock repositories
-    const createMockRepo = () => ({
+    // Create mock repositories. `find` defaults to [] so the seaWorthy
+    // re-evaluation in RevokeCertificationHandler (manager.find → .length)
+    // never dereferences undefined.
+    const createMockRepo = (): MockRepo => ({
       findOne: jest.fn(),
-      find: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       save: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     });
 
-    enrollmentRepository = createMockRepo() as any;
-    courseRepository = createMockRepo() as any;
-    certificationRepository = createMockRepo() as any;
-    certificationTypeRepository = createMockRepo() as any;
-    employeeRepository = createMockRepo() as any;
+    enrollmentRepository = createMockRepo();
+    courseRepository = createMockRepo();
+    certificationRepository = createMockRepo();
+    certificationTypeRepository = createMockRepo();
+    employeeRepository = createMockRepo();
 
+    // complete-training awaits eventBus.publish(...).catch(...), so publish
+    // MUST return a promise.
     eventBus = {
-      publish: jest.fn(),
-    } as any;
+      publish: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // The enroll/add-cert/revoke-cert handlers were refactored to run inside a
+    // QueryRunner transaction (HR-HIGH-013/014): they call queryRunner.manager.*
+    // instead of the injected repositories. To keep every existing per-entity
+    // mock setup (employeeRepository.findOne.mockResolvedValue(...), etc.)
+    // authoritative, the transactional EntityManager dispatches each call to the
+    // repo registered for that entity class.
+    const repoByEntity = new Map<unknown, MockRepo>([
+      [TrainingEnrollment, enrollmentRepository],
+      [TrainingCourse, courseRepository],
+      [EmployeeCertification, certificationRepository],
+      [CertificationType, certificationTypeRepository],
+      [Employee, employeeRepository],
+    ]);
+    const repoFor = (entity: unknown): MockRepo => {
+      const repo = repoByEntity.get(entity);
+      if (!repo) {
+        throw new Error(`No mock repository registered for entity ${String(entity)}`);
+      }
+      return repo;
+    };
+
+    // Tracks the most recently saved entity per type so a post-save re-fetch
+    // (findOne with `relations`, used by add-cert / revoke-cert) resolves to the
+    // freshly persisted row rather than the pre-save lookup mock (which is often
+    // null to assert "no existing record").
+    const lastSaved = new Map<unknown, unknown>();
+
+    const manager = {
+      findOne: jest.fn(
+        async (entity: unknown, options: { relations?: unknown } = {}) => {
+          if (options.relations && lastSaved.has(entity)) {
+            return lastSaved.get(entity);
+          }
+          return repoFor(entity).findOne(options);
+        },
+      ),
+      find: jest.fn(async (entity: unknown, options?: unknown) => repoFor(entity).find(options)),
+      create: jest.fn((entity: unknown, data: unknown) => repoFor(entity).create(data)),
+      save: jest.fn(async (entityOrData: unknown, maybeData?: unknown) => {
+        // save(EntityClass, data) — dispatch by entity class.
+        if (maybeData !== undefined && repoByEntity.has(entityOrData)) {
+          const saved = await repoFor(entityOrData).save(maybeData);
+          lastSaved.set(entityOrData, saved);
+          return saved;
+        }
+        // save(entity) — single-arg form used by enroll; the created enrollment
+        // already carries its final state, so echo it back.
+        const saved = await enrollmentRepository.save(entityOrData);
+        return saved ?? entityOrData;
+      }),
+      update: jest.fn(async (entity: unknown, criteria: unknown, partial: unknown) =>
+        repoFor(entity).update(criteria, partial),
+      ),
+    };
+
+    const queryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager,
+    };
+
+    const dataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -157,6 +240,7 @@ describe('Training Module Integration Tests', () => {
         { provide: getRepositoryToken(CertificationType), useValue: certificationTypeRepository },
         { provide: getRepositoryToken(Employee), useValue: employeeRepository },
         { provide: EventBus, useValue: eventBus },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -288,13 +372,15 @@ describe('Training Module Integration Tests', () => {
         employeeRepository.findOne.mockResolvedValue(employee as Employee);
         courseRepository.findOne.mockResolvedValue(course as TrainingCourse);
 
-        // First call for ENROLLED status returns null
-        // Second call for IN_PROGRESS status returns existing enrollment
-        enrollmentRepository.findOne
-          .mockResolvedValueOnce(null)
-          .mockResolvedValueOnce(createMockEnrollment({
+        // The handler now performs a SINGLE existing-enrollment lookup whose
+        // `where` is an OR over { ENROLLED } | { IN_PROGRESS }. An IN_PROGRESS
+        // row matches that combined query and must trigger the conflict.
+        // (execute() is invoked twice below, so use a persistent mock.)
+        enrollmentRepository.findOne.mockResolvedValue(
+          createMockEnrollment({
             status: EnrollmentStatus.IN_PROGRESS,
-          }) as TrainingEnrollment);
+          }) as TrainingEnrollment,
+        );
 
         const command = new EnrollInTrainingCommand(
           TENANT_ID,
@@ -341,9 +427,9 @@ describe('Training Module Integration Tests', () => {
         expect(result.feedback).toBe('Great training!');
         expect(result.feedbackRating).toBe(5);
 
-        // Event should be published
+        // Event should be published (flat factory event, discriminated by eventType)
         expect(eventBus.publish).toHaveBeenCalledWith(
-          expect.any(TrainingCompletedEvent),
+          expect.objectContaining({ eventType: 'TrainingCompleted' }),
         );
       });
 
@@ -513,7 +599,7 @@ describe('Training Module Integration Tests', () => {
         expect(result).toBeDefined();
         expect(certificationRepository.create).toHaveBeenCalled();
         expect(eventBus.publish).toHaveBeenCalledWith(
-          expect.any(CertificationAddedEvent),
+          expect.objectContaining({ eventType: 'CertificationAdded' }),
         );
       });
 
@@ -657,7 +743,7 @@ describe('Training Module Integration Tests', () => {
         expect(result.revokedAt).toBeDefined();
         expect(result.revocationReason).toBe('Failed to maintain required standards');
         expect(eventBus.publish).toHaveBeenCalledWith(
-          expect.any(CertificationRevokedEvent),
+          expect.objectContaining({ eventType: 'CertificationRevoked' }),
         );
       });
 
@@ -774,7 +860,7 @@ describe('Training Module Integration Tests', () => {
       expect(passResult.status).toBe(EnrollmentStatus.PASSED);
       expect(passResult.finalScore).toBe(85);
       expect(passResult.feedback).toBe('Excellent course content!');
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(TrainingCompletedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'TrainingCompleted' }));
     });
 
     it('should handle full certification lifecycle: add -> verify -> revoke', async () => {
@@ -806,7 +892,7 @@ describe('Training Module Integration Tests', () => {
 
       const addResult = await addCertHandler.execute(addCommand);
       expect(addResult.status).toBe(CertificationStatus.ACTIVE);
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(CertificationAddedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'CertificationAdded' }));
 
       jest.clearAllMocks();
 
@@ -829,7 +915,7 @@ describe('Training Module Integration Tests', () => {
       const revokeResult = await revokeCertHandler.execute(revokeCommand);
       expect(revokeResult.status).toBe(CertificationStatus.REVOKED);
       expect(revokeResult.revocationReason).toBe('Fraudulent documentation discovered');
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(CertificationRevokedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'CertificationRevoked' }));
     });
   });
 
@@ -891,8 +977,8 @@ describe('Training Module Integration Tests', () => {
       await completeHandler.execute(command);
 
       expect(eventBus.publish).toHaveBeenCalledTimes(1);
-      const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0];
-      expect(publishedEvent).toBeInstanceOf(TrainingCompletedEvent);
+      const publishedEvent = eventBus.publish.mock.calls[0][0];
+      expect(publishedEvent.eventType).toBe('TrainingCompleted');
       expect(publishedEvent.enrollmentId).toBe('event-test-001');
       expect(publishedEvent.tenantId).toBe(TENANT_ID);
     });
@@ -919,8 +1005,8 @@ describe('Training Module Integration Tests', () => {
       await addCertHandler.execute(command);
 
       expect(eventBus.publish).toHaveBeenCalledTimes(1);
-      const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0];
-      expect(publishedEvent).toBeInstanceOf(CertificationAddedEvent);
+      const publishedEvent = eventBus.publish.mock.calls[0][0];
+      expect(publishedEvent.eventType).toBe('CertificationAdded');
       expect(publishedEvent.certificationId).toBe('cert-event-001');
       expect(publishedEvent.employeeId).toBe(EMPLOYEE_ID);
     });
@@ -944,8 +1030,8 @@ describe('Training Module Integration Tests', () => {
       await revokeCertHandler.execute(command);
 
       expect(eventBus.publish).toHaveBeenCalledTimes(1);
-      const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0];
-      expect(publishedEvent).toBeInstanceOf(CertificationRevokedEvent);
+      const publishedEvent = eventBus.publish.mock.calls[0][0];
+      expect(publishedEvent.eventType).toBe('CertificationRevoked');
       expect(publishedEvent.certificationId).toBe('cert-revoke-event');
     });
   });

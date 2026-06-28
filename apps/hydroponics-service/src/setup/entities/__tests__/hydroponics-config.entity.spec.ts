@@ -15,13 +15,9 @@ describe('HydroponicsConfig entity', () => {
   // TypeORM stores column metadata in the global metadata storage
   const storage = getMetadataArgsStorage();
 
-  const entityColumns = storage.columns.filter(
-    (col) => col.target === HydroponicsConfig,
-  );
+  const entityColumns = storage.columns.filter((col) => col.target === HydroponicsConfig);
 
-  const entityTables = storage.tables.filter(
-    (t) => t.target === HydroponicsConfig,
-  );
+  const entityTables = storage.tables.filter((t) => t.target === HydroponicsConfig);
 
   describe('table metadata', () => {
     it('is registered as an entity named hydroponics_config', () => {
@@ -101,6 +97,38 @@ describe('HydroponicsConfig entity', () => {
       const settings: Record<string, unknown> = { key: 'value' };
       config.settings = settings;
       expect(config.settings).toEqual({ key: 'value' });
+    });
+  });
+
+  // Merged from e2e Test 17: the unique constraint, the tenantId index, and the
+  // configName default are entity-metadata concerns and belong here next to the
+  // column-mapping assertions (the column assertions in that e2e test were
+  // already covered above and were dropped as duplicates).
+  describe('constraints and indices', () => {
+    it('configName defaults to "Default"', () => {
+      const col = entityColumns.find((c) => c.propertyName === 'configName');
+      expect(col).toBeDefined();
+      expect((col!.options as { default?: string }).default).toBe('Default');
+    });
+
+    it('declares a UNIQUE constraint on (tenantId, configName)', () => {
+      const uniques = storage.uniques.filter((u) => u.target === HydroponicsConfig);
+      expect(uniques.length).toBeGreaterThanOrEqual(1);
+      const uniqueColumns = uniques[0]?.columns;
+      expect(uniqueColumns).toContain('tenantId');
+      expect(uniqueColumns).toContain('configName');
+    });
+
+    it('declares an index that covers tenantId', () => {
+      const indices = storage.indices.filter((i) => i.target === HydroponicsConfig);
+      const tenantIndex = indices.find((i) => {
+        const cols =
+          typeof i.columns === 'function'
+            ? (i.columns as (object?: Record<string, unknown>) => string[])(undefined)
+            : i.columns;
+        return cols?.includes('tenantId');
+      });
+      expect(tenantIndex).toBeDefined();
     });
   });
 });

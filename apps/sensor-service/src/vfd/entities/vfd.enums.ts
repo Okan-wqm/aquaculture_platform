@@ -61,6 +61,13 @@ export enum VfdChangeSetStatus {
   REJECTED = 'rejected',
   FAILED = 'failed',
   ROLLED_BACK = 'rolled_back',
+  // CANCELLED — maker (or admin) aborts a change set before it is applied to the
+  // device. Reachable from DRAFT (abandon a never-submitted draft) and from
+  // APPROVED (call off a scheduled/not-yet-applied change). Distinct from
+  // REJECTED, which is the checker's verdict during PENDING_APPROVAL. The
+  // backing column is varchar(30) (see Baseline migration vfd_change_sets), so
+  // this new value needs no DB migration — Postgres accepts the string as-is.
+  CANCELLED = 'cancelled',
 }
 
 export enum RiskLevel {

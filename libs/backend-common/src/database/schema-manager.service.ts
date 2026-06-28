@@ -502,6 +502,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Training
       'training_courses',
       'training_enrollments',
+      'training_sessions',
 
       // Certifications (Aquaculture-specific)
       'certification_types',

@@ -5632,3 +5632,26 @@ Found 2026-06-28 (tenant-panel PR-E). Two regression-proofing invariants added t
 
 ## ORPHAN-MEDIUM-205 — A7 step 1: pre-auth forms migrated off raw fetch to publicGraphqlClient (ratchet 4→1)
 Found 2026-06-28 (tenant-panel A7 — burndown of ORPHAN-204's raw-fetch debt). The 3 shell pre-auth forms (ForgotPassword / ResetPassword / AcceptInvitation) POSTed to `/graphql` via raw `fetch` because no sanctioned pre-auth GraphQL client existed. **Status: RESOLVED (2026-06-28 — added `publicGraphqlClient` (`web/shared-ui/src/utils/api-client.ts`): a barrier-skipping pre-auth client that sends NO `Authorization`/`X-Tenant-Id` header (the ops are unauthenticated + tenant-agnostic) and keeps the typed 5xx transport-error handling — a 502 during forgot-password now surfaces `BACKEND_UNAVAILABLE` instead of a JSON-parse crash. Migrated all 4 pre-auth fetch calls across the 3 forms; removed them from the `web-no-raw-graphql-rest-fetch` ratchet's `KNOWN_OFFENDERS` (4→1). 3/3 vitest + ratchet green + tsc clean.)** A7 step 2 (the last offender — farm `useChemicals` 2× `/api` upload) needs `restClient` multipart support (JSON-only today); tracked, the ratchet still enforces it.
+
+---
+
+## ORPHAN-MEDIUM-206 - GraphQL FE↔supergraph drift burndown COMPLETE (139 → 0; ratchet locked at 0)
+
+The #3 burndown is finished. The audit started at ~139 FE GraphQL ops the FE issued but the composed supergraph could not resolve (every one a 400 in production); the SSoT count is `scripts/ci/graphql-fe-drift.baseline.json`. Burned via #623 (dashboard) → #650/#654/#655/#663/#665 (farm/mcp/sensor/tenant-admin/aquamobil clean-rename + consumer-rework + dead-code + orphan) → #688 (hr leave-admin, 9) → and this final PR which implemented EVERY remaining "FE built ahead of backend" op against its (already rich) backend domain:
+- **hr certification/training (15):** create/update/get CertificationType + TrainingCourse, RenewCertification, Start/WithdrawFromTraining, BulkEnrollInTraining, employee/compliance/work-area/mandatory status reports, and **GetTrainingCalendar** — which required a NEW per-tenant `TrainingSession` sub-domain (entity + blue-green migration + MODULE_SCHEMAS clone-list registration + tenant RLS).
+- **hr rotation/work-area (8):** GetWorkArea/GetWorkRotation by-id, work-area occupancy (single + all), current/upcoming rotations, rotation calendar + changeovers — computed from existing entities + the rotation-state-machine.
+- **hr performance + attendance (6):** GetShift by-id; team-performance overview, department KPIs, review-cycle status, goal-progress trend, BulkCreateReviews.
+- **aquamobil (3):** GetAiConsentStatus/ToggleAiConsent + StockAtLocation were FE-invented shapes — reshaped to the REAL backends (`aiSettings`/`updateUserAiConsent` in messaging-service; `storageInventory` in farm-service). No speculative backend.
+- **sensor (1):** CancelVfdChangeSet (CANCELLED state) — folded in from PR #691.
+
+Every backend op mirrors its domain's established CQRS + tenant-scoping (search_path / explicit tenantId predicate; no raw getRepository), no unsafe casts / ts-suppressions / defensive optional-chaining-to-hide, explicit return types, guards + @AuditLog on mutations, London-school handler specs (happy + guard/validation + tenant-scoping). Verification: hr-service `tsc` 0 (all clusters together), sensor-service `tsc` 0, drift invariants 72/72 (incl. the no-grow ratchet). Baseline 33 → **0**; `BASELINE_CEILING` lowered 42 → **0** in `graphql-fe-drift-baseline-no-grow.spec.ts` so any NEW FE↔supergraph drift now fails CI (Tier-3, strongest ratchet).
+
+Status: RESOLVED (2026-06-28) — drift count 0, ratchet locked at 0. Registry: orphan-findings.md + graphql-fe-drift.baseline.json. Supersedes/closes the per-cluster work + PR #691 (sensor folded in).
+
+---
+
+## ORPHAN-MEDIUM-207 - pre-existing hr-service integration specs fail under the transactional-handler refactor (stale specs, not a regression)
+
+While implementing ORPHAN-206, four hr-service `*.integration.spec.ts` suites were observed RED on the untouched baseline (confirmed via `git stash` — they fail identically without any of this PR's changes): `training.integration.spec.ts` (28/28), `attendance.integration.spec.ts`, `performance` integration, and `scheduling/conflict-detection.service.spec.ts`. Root cause: handlers were earlier refactored (HR-HIGH-013/014) to transactional `DataSource`/`queryRunner.manager`, and these older specs build a `TestingModule` that mocks repositories but provides no `DataSource` / certain providers (`OutboxPublisher`, `MobileCommandReceiptService`, `HolidayRepository`) → `Nest can't resolve dependencies`. NOT caused by ORPHAN-206 (its new ops ship with their own green London-school specs). Scoped out as self-contained spec rewrites.
+
+Status: OPEN (owner: hr domain; deadline: next hr-service test-health pass). Each spec needs its TestingModule updated to the transactional-handler contract (provide a mock DataSource/queryRunner + the missing providers) or conversion to the London-school mock idiom the new specs use. Registry: orphan-findings.md.

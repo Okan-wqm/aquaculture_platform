@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Float } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
@@ -18,9 +18,11 @@ import {
   UpdateGoalProgressInput,
   KeyResultInput,
   MilestoneInput,
+  BulkCreateReviewsInput,
 } from './dto';
 import {
   CreatePerformanceReviewCommand,
+  BulkCreateReviewsCommand,
   SubmitSelfAssessmentCommand,
   SubmitManagerAssessmentCommand,
   FinalizeReviewCommand,
@@ -49,8 +51,18 @@ import {
   GetTeamGoalsQuery,
   GetOverdueGoalsQuery,
   GetPerformanceSummaryQuery,
+  GetTeamPerformanceOverviewQuery,
+  GetDepartmentKPIsQuery,
+  GetReviewCycleStatusQuery,
+  GetGoalProgressTrendQuery,
 } from './queries';
 import { PerformanceSummary } from './query-handlers/get-performance-summary.handler';
+import { TeamPerformanceOverview } from './query-handlers/get-team-performance-overview.handler';
+import { DepartmentKPICategory } from './query-handlers/get-department-kpis.handler';
+import { ReviewCycleStatus } from './query-handlers/get-review-cycle-status.handler';
+import { GoalProgressTrendPoint } from './query-handlers/get-goal-progress-trend.handler';
+import { BulkCreateReviewsResult } from './handlers/bulk-create-reviews.handler';
+import { ReviewPeriodType } from './entities/performance-review.entity';
 
 // SECURITY: Context only exposes JWT-verified user fields.
 interface GraphQLContext {
@@ -155,6 +167,52 @@ export class PerformanceResolver {
   }
 
   // =====================
+  // Performance Analytics Queries (admin/manager)
+  // =====================
+
+  @Query(() => TeamPerformanceOverview, { name: 'teamPerformanceOverview' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getTeamPerformanceOverview(
+    @Args('departmentId', { type: () => ID }) departmentId: string,
+    @Context() context: GraphQLContext,
+  ): Promise<TeamPerformanceOverview> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<GetTeamPerformanceOverviewQuery, TeamPerformanceOverview>(
+      new GetTeamPerformanceOverviewQuery(tenantId, departmentId),
+    );
+  }
+
+  @Query(() => [DepartmentKPICategory], { name: 'departmentKPIs' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getDepartmentKPIs(
+    @Args('departmentId', { type: () => ID }) departmentId: string,
+    @Args('periodStart') periodStart: string,
+    @Args('periodEnd') periodEnd: string,
+    @Context() context: GraphQLContext,
+  ): Promise<DepartmentKPICategory[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<GetDepartmentKPIsQuery, DepartmentKPICategory[]>(
+      new GetDepartmentKPIsQuery(tenantId, departmentId, periodStart, periodEnd),
+    );
+  }
+
+  @Query(() => ReviewCycleStatus, { name: 'reviewCycleStatus' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getReviewCycleStatus(
+    @Args('periodType', { type: () => ReviewPeriodType }) periodType: ReviewPeriodType,
+    @Args('year', { type: () => Int }) year: number,
+    @Context() context: GraphQLContext,
+  ): Promise<ReviewCycleStatus> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<GetReviewCycleStatusQuery, ReviewCycleStatus>(
+      new GetReviewCycleStatusQuery(tenantId, periodType, year),
+    );
+  }
+
+  // =====================
   // Goal Queries
   // =====================
 
@@ -217,6 +275,21 @@ export class PerformanceResolver {
     return this.queryBus.execute(new GetOverdueGoalsQuery(tenantId, departmentId));
   }
 
+  @Query(() => [GoalProgressTrendPoint], { name: 'goalProgressTrend' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getGoalProgressTrend(
+    @Args('employeeId', { type: () => ID }) employeeId: string,
+    @Args('startDate') startDate: string,
+    @Args('endDate') endDate: string,
+    @Context() context: GraphQLContext,
+  ): Promise<GoalProgressTrendPoint[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<GetGoalProgressTrendQuery, GoalProgressTrendPoint[]>(
+      new GetGoalProgressTrendQuery(tenantId, employeeId, startDate, endDate),
+    );
+  }
+
   // =====================
   // KPI Queries
   // =====================
@@ -256,6 +329,35 @@ export class PerformanceResolver {
         input.periodType,
         input.periodStart,
         input.periodEnd,
+      ),
+    );
+  }
+
+  @Mutation(() => BulkCreateReviewsResult)
+  @UseGuards(RolesGuard)
+  @Roles(Role.MODULE_MANAGER)
+  @AuditLog({
+    action: 'BULK_CREATE_REVIEWS',
+    resource: 'PerformanceReview',
+    description: 'Bulk-create performance reviews for a review cycle',
+  })
+  async bulkCreateReviews(
+    @Args('input') input: BulkCreateReviewsInput,
+    @Context() context: GraphQLContext,
+  ): Promise<BulkCreateReviewsResult> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<BulkCreateReviewsCommand, BulkCreateReviewsResult>(
+      new BulkCreateReviewsCommand(
+        tenantId,
+        userId,
+        input.reviews.map((r) => ({
+          employeeId: r.employeeId,
+          reviewerId: r.reviewerId,
+          periodType: r.periodType,
+          periodStart: r.periodStart,
+          periodEnd: r.periodEnd,
+        })),
       ),
     );
   }

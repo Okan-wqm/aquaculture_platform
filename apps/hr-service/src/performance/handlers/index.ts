@@ -1,4 +1,5 @@
 export * from './create-performance-review.handler';
+export * from './bulk-create-reviews.handler';
 export * from './submit-self-assessment.handler';
 export * from './submit-manager-assessment.handler';
 export * from './finalize-review.handler';
@@ -16,6 +17,7 @@ export * from './add-milestone.handler';
 export * from './complete-milestone.handler';
 
 import { CreatePerformanceReviewHandler } from './create-performance-review.handler';
+import { BulkCreateReviewsHandler } from './bulk-create-reviews.handler';
 import { SubmitSelfAssessmentHandler } from './submit-self-assessment.handler';
 import { SubmitManagerAssessmentHandler } from './submit-manager-assessment.handler';
 import { FinalizeReviewHandler } from './finalize-review.handler';
@@ -34,6 +36,7 @@ import { CompleteMilestoneHandler } from './complete-milestone.handler';
 
 export const PerformanceCommandHandlers = [
   CreatePerformanceReviewHandler,
+  BulkCreateReviewsHandler,
   SubmitSelfAssessmentHandler,
   SubmitManagerAssessmentHandler,
   FinalizeReviewHandler,

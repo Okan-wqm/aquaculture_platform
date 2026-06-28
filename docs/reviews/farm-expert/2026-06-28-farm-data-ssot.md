@@ -178,6 +178,19 @@ AsyncLocalStorage frame propagates through the loader's batch tick) and adds it 
 the WHERE — defense-in-depth on top of search_path. (`batch-species` /
 `tank-batch` loaders already filtered explicitly.)
 
+## FARM-HIGH-068 — batch read handlers (get-batch, list-batches) read outside the boundary
+
+`GetBatchHandler` and `ListBatchesHandler` read via raw `@InjectRepository`
+query builders (no boundary). `ListBatchesHandler` also injected an unused
+`TankBatch` repository (the tank/site/department filters use raw SQL subqueries).
+
+Evidence:
+- `apps/farm-service/src/batch/query-handlers/get-batch.handler.ts`
+- `apps/farm-service/src/batch/query-handlers/list-batches.handler.ts`
+
+Fix: both migrated to `runInTenantRead` via `queryRunner.manager.createQueryBuilder`;
+dropped the dead `TankBatch` injection. Specs added.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

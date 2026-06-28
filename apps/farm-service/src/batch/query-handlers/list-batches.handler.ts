@@ -5,30 +5,35 @@
  *
  * @module Batch/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { ListBatchesQuery } from '../queries/list-batches.query';
 import { Batch } from '../entities/batch.entity';
-import { TankBatch } from '../entities/tank-batch.entity';
 
 @Injectable()
 @QueryHandler(ListBatchesQuery)
 export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, PaginatedQueryResult<Batch>> {
   constructor(
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(TankBatch)
-    private readonly tankBatchRepository: Repository<TankBatch>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListBatchesQuery): Promise<PaginatedQueryResult<Batch>> {
     const { tenantId, filter, page, limit, sortBy, sortOrder } = query;
 
-    const queryBuilder = this.batchRepository
-      .createQueryBuilder('batch')
+    // Read through the fail-closed tenant boundary so the query builder runs on a
+    // connection whose search_path + RLS GUC are verified for this tenant.
+    const [batches, total] = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+    const queryBuilder = queryRunner.manager
+      .createQueryBuilder(Batch, 'batch')
       .leftJoinAndSelect('batch.species', 'species')
       .where('batch.tenantId = :tenantId', { tenantId });
 
@@ -129,13 +134,17 @@ export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, Pagin
     queryBuilder.orderBy(`batch.${sortField}`, safeSortOrder);
 
     // Count total
-    const total = await queryBuilder.getCount();
+    const count = await queryBuilder.getCount();
 
     // Pagination
     const offset = (page - 1) * limit;
     queryBuilder.skip(offset).take(limit);
 
-    const batches = await queryBuilder.getMany();
+    const rows = await queryBuilder.getMany();
+
+        return [rows, count] as [Batch[], number];
+      },
+    );
 
     return createPaginatedQueryResult(batches, page, limit, total);
   }

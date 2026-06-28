@@ -5,34 +5,40 @@
  *
  * @module Batch/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { GetBatchQuery } from '../queries/get-batch.query';
+import { DataSource } from 'typeorm';
+
 import { Batch } from '../entities/batch.entity';
+import { GetBatchQuery } from '../queries/get-batch.query';
 
 @Injectable()
 @QueryHandler(GetBatchQuery)
 export class GetBatchHandler implements IQueryHandler<GetBatchQuery, Batch> {
   constructor(
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetBatchQuery): Promise<Batch> {
     const { tenantId, batchId, includeRelations } = query;
 
-    const queryBuilder = this.batchRepository
-      .createQueryBuilder('batch')
-      .where('batch.id = :batchId', { batchId })
-      .andWhere('batch.tenantId = :tenantId', { tenantId });
+    // Read through the fail-closed tenant boundary so a lost/wrong tenant
+    // context raises instead of resolving the source schema.
+    const batch = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) => {
+      const queryBuilder = queryRunner.manager
+        .createQueryBuilder(Batch, 'batch')
+        .where('batch.id = :batchId', { batchId })
+        .andWhere('batch.tenantId = :tenantId', { tenantId });
 
-    if (includeRelations) {
-      queryBuilder.leftJoinAndSelect('batch.species', 'species');
-    }
+      if (includeRelations) {
+        queryBuilder.leftJoinAndSelect('batch.species', 'species');
+      }
 
-    const batch = await queryBuilder.getOne();
+      return queryBuilder.getOne();
+    });
 
     if (!batch) {
       throw new NotFoundException(`Batch ${batchId} bulunamadı`);

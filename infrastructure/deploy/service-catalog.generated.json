@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 2,
-    "catalogHash": "fbec6868cc7ece95468ea70f6ce79892807ac9c904085aed7a127e32e82b9bef",
+    "catalogHash": "7366ffef06010e87886550008fcad2ffcfcfdfd648575944e6aad41cce1d298c",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [

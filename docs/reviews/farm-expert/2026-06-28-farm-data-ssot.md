@@ -87,6 +87,21 @@ Fix: replaced with `runInTenantRead` — the raw SELECTs now run on a boundary
 connection whose search_path + RLS GUC are pinned and asserted; the hand-rolled
 SET/RESET and the duplicated schema-name derivation are removed.
 
+## FARM-HIGH-064 — TanksPage blanks the whole page on a background-refetch error
+
+`TanksPage` returned an error-only view on `if (error)` with no `&& !data` guard,
+so a failed background refetch blanked the entire table even though TanStack
+Query still held the previously-loaded tanks in cache — the "data appears then
+disappears" UX bug.
+
+Evidence:
+- `web/modules/farm-module/src/pages/tanks/TanksPage.tsx`
+
+Fix: a shared `isBlockingError(error, hasData)` helper (`utils/list-view-state.ts`)
+now gates the blocking error view to the initial-load-failure case only; on a
+refetch error with cached data, the table keeps rendering and a non-blocking
+amber banner with Retry is shown. Helper unit-tested.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

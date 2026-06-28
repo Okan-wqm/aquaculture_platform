@@ -262,6 +262,21 @@ reference data from the `farm` source schema, which needs the explicit
 would make the schema assertion fail). Remaining domains (harvest, site,
 species, storage, supplier, system, tank, worker) follow as the second batch.
 
+## FARM-HIGH-074 — growth / harvest / site read handlers outside the boundary
+
+Second batch of the domain-by-domain read-handler migration (plan Task #9). 6
+read handlers across three domains read via raw `@InjectRepository`.
+
+Evidence:
+- `apps/farm-service/src/growth/query-handlers/get-growth-analysis.handler.ts`
+- `apps/farm-service/src/harvest/handlers/get-harvest-statistics.handler.ts`, `get-harvest.handler.ts`, `list-harvests.handler.ts`
+- `apps/farm-service/src/site/handlers/get-site-delete-preview.handler.ts`, `list-site-contacts.handler.ts`
+
+Fix: all 6 now read through `runInTenantRead` via `queryRunner.manager`
+(asserts schema + RLS GUC); `NotFoundException` paths preserved. Specs added
+(17 tests). Remaining domains (species, storage, supplier, system, tank,
+worker) follow as the third batch.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

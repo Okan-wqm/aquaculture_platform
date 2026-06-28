@@ -16,7 +16,7 @@ Cheap by construction: precision / recall / calibration come from verdicts and
 confidences ALREADY recorded. NOTE on recall: this is recall over *surfaced*
 findings only (the judge voted, and a ground truth exists). True
 gold-set-replay recall — re-invoking judges on known findings they never saw —
-needs LLM re-invocation and is deferred to Plan 025 (ARIA-024-D1).
+needs LLM re-invocation and is tracked for Plan 025 (ARIA-024-D1).
 """
 from __future__ import annotations
 

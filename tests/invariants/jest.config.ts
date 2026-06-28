@@ -124,6 +124,7 @@ export default {
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
         '<rootDir>/script-graphql-client-ssot.spec.ts',
+        '<rootDir>/graphql-fe-drift-baseline-no-grow.spec.ts',
         '<rootDir>/production-ops-proof-contract.spec.ts',
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',

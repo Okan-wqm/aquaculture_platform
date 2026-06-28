@@ -25,7 +25,7 @@ describe('CreateBatchHandler', () => {
   } as unknown as jest.Mocked<CodeGeneratorService>;
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
-  const tenantId = 'tenant-123';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const createdBy = 'user-001';
   const payload: CreateBatchPayload = {
     name: 'Test Batch 2024',

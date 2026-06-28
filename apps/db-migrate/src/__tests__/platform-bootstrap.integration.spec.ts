@@ -765,7 +765,7 @@ describe('platform-bootstrap atom — pre-existing initdb artifacts (ADR-031 pro
       await qr.query(`
         DROP POLICY IF EXISTS tenant_isolation_policy ON shared.audit_logs;
         CREATE POLICY tenant_isolation_policy ON shared.audit_logs
-          USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+          USING (tenant_id::text = current_setting('app.current_tenant', true));
       `);
       await qr.query(`
         CREATE OR REPLACE FUNCTION public.audit_immutability_guard()

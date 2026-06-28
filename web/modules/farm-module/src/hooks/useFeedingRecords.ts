@@ -5,7 +5,7 @@
  * management via GraphQL API.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   FEEDING_RECORD_QUERY,
   FEEDING_RECORDS_QUERY,
@@ -420,9 +420,9 @@ export function useCreateFeedingRecord() {
       return data.createFeedingRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingRecords') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
     },
   });
 }
@@ -449,8 +449,8 @@ export function useUpdateFeedingRecord() {
       return data.updateFeedingRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingRecords') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
     },
   });
 }
@@ -523,8 +523,8 @@ export function useAddFeedInventory() {
       return data.addFeedInventory;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
     },
   });
 }
@@ -551,8 +551,8 @@ export function useConsumeFeedInventory() {
       return data.consumeFeedInventory;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
     },
   });
 }
@@ -579,8 +579,8 @@ export function useAdjustFeedInventory() {
       return data.adjustFeedInventory;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
     },
   });
 }

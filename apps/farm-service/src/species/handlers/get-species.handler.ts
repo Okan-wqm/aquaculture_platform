@@ -2,9 +2,10 @@
  * Get Species Query Handler
  * @module Species/Handlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { GetSpeciesQuery } from '../queries/get-species.query';
 import { Species } from '../entities/species.entity';
@@ -14,21 +15,24 @@ export class GetSpeciesHandler
   implements IQueryHandler<GetSpeciesQuery, Species>
 {
   constructor(
-    @InjectRepository(Species)
-    private readonly speciesRepository: Repository<Species>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetSpeciesQuery): Promise<Species> {
     const { tenantId, id } = query;
 
-    const species = await this.speciesRepository.findOne({
-      where: { id, tenantId },
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const species = await queryRunner.manager.findOne(Species, {
+        where: { id, tenantId },
+      });
+
+      if (!species) {
+        throw new NotFoundException(`Species with id "${id}" not found`);
+      }
+
+      return species;
     });
-
-    if (!species) {
-      throw new NotFoundException(`Species with id "${id}" not found`);
-    }
-
-    return species;
   }
 }

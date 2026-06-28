@@ -8,7 +8,7 @@
  * - React Query for caching and invalidation
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   HARVEST_PLANS_QUERY,
   HARVEST_PLAN_QUERY,
@@ -538,12 +538,15 @@ function invalidateAllHarvestPlanQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   tenantId: string | null,
 ) {
+  // Harvest-plan queries are tenant-scoped: ['tenant', tenantId, 'harvestPlans', …].
+  // A predicate on queryKey[0] === HARVEST_PLANS_KEY never matches (index 0 is
+  // 'tenant'), silently leaving every harvest-plan query stale. Use the
+  // epoch-less tenant invalidation prefix so it left-prefix-matches them all.
   queryClient.invalidateQueries({
-    predicate: (query) =>
-      Array.isArray(query.queryKey) && query.queryKey[0] === HARVEST_PLANS_KEY,
+    queryKey: createTenantInvalidationKey(tenantId, HARVEST_PLANS_KEY),
   });
   // Also invalidate batches since harvest operations can affect batch state
-  queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+  queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
 }
 
 // ============================================================================

@@ -34,7 +34,7 @@ import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
 import { RolesGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { TenantContextError, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Feed } from '../../feed/entities/feed.entity';
 import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
 
@@ -342,6 +342,10 @@ export class FeedingProgramResolver {
         order: { addedAt: 'ASC' },
       });
     } catch (error) {
+      // A lost/wrong tenant context must NOT be masked as "no tanks".
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.error(`Error resolving tanks for program ${program.id}`, error);
       return [];
     }
@@ -2199,6 +2203,12 @@ export class FeedingProgramResolver {
       throw error;
     }
     if (error instanceof GraphQLError) {
+      throw error;
+    }
+    // A lost/wrong tenant context (TenantContextError) is the platform's "data
+    // disappears" failure mode — it must surface, never be masked as an empty
+    // result. Re-throw it instead of swallowing it to null/[].
+    if (error instanceof TenantContextError) {
       throw error;
     }
 

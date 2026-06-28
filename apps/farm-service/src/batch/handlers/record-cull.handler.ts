@@ -16,6 +16,7 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
@@ -76,14 +77,10 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     // calls on the same batch previously both read currentQuantity BEFORE either
     // write, allowing both to pass the quantity check even if the sum exceeds
     // the real available count. The lock serialises them at the database level.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // Declared inside the callback so the saved batch is accessible for return
+      let batch: Batch;
 
-    // Declared outside try so the saved batch is accessible for return
-    let batch: Batch;
-
-    try {
       const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         tenantId,
@@ -100,7 +97,6 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         if (!replayed) {
           throw new ConflictException('Mobile command receipt response is no longer available');
         }
-        await queryRunner.commitTransaction();
         return replayed;
       }
 
@@ -329,17 +325,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         responsePayload: { id: batch.id },
       });
 
-      // Commit transaction (domain writes + outbox row are atomic)
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      // Rollback transaction on any error
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      // Release query runner
-      await queryRunner.release();
-    }
-
-    return batch;
+      // Domain writes + outbox row are atomic — runInTenantTransaction commits.
+      return batch;
+    });
   }
 }

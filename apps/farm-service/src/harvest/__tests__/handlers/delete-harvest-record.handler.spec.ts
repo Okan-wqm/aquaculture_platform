@@ -3,7 +3,9 @@
  *
  * Handler does cascade reversal (batch quantity + retention rate,
  * tank-batch totals, tank biomass/count) then flips harvest record
- * status to CANCELLED. This spec pins the new
+ * status to CANCELLED, all inside the fail-closed `runInTenantTransaction`
+ * boundary (modelled by createMockDataSource). The pre-flight read +
+ * status validation run BEFORE the boundary opens. This spec pins the
  * `HarvestRecordCancelledEvent` enqueued inside the same tx.
  *
  * Tests:
@@ -17,7 +19,8 @@
  *      `tankId=undefined`.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { EntityManager, Repository } from 'typeorm';
 
 import { DeleteHarvestRecordHandler } from '../../handlers/delete-harvest-record.handler';
 import { DeleteHarvestRecordCommand } from '../../commands/delete-harvest-record.command';
@@ -102,32 +105,17 @@ function makeHarness(opts: HarnessOpts = {}) {
   const tankBatchRepository = {} as unknown as Repository<TankBatch>;
   const tankRepository = {} as unknown as Repository<Tank>;
 
-  const managerFindOne = jest.fn(async (Entity: unknown) => {
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  (mockManager.findOne as jest.Mock).mockImplementation(async (Entity: unknown) => {
     const name = (Entity as { name?: string }).name;
     if (name === 'Batch') return batch;
     if (name === 'TankBatch') return tankBatch;
     if (name === 'Tank') return tank;
     return null;
   });
-  const managerSave = jest.fn(async (_: unknown, entity: unknown) => entity);
-
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: {
-      findOne: managerFindOne,
-      save: managerSave,
-    } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
+  (mockManager.save as jest.Mock).mockImplementation(
+    async (_: unknown, entity: unknown) => entity,
+  );
 
   const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
     if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
@@ -144,12 +132,18 @@ function makeHarness(opts: HarnessOpts = {}) {
     batchRepository,
     tankBatchRepository,
     tankRepository,
-    dataSource as DataSource,
+    mockDataSource,
     outboxPublisher,
     farmStockProjection,
   );
 
-  return { handler, enqueue, commit, rollback, refreshContainers };
+  return {
+    handler,
+    enqueue,
+    commit: mockQueryRunner.commitTransaction as jest.Mock,
+    rollback: mockQueryRunner.rollbackTransaction as jest.Mock,
+    refreshContainers,
+  };
 }
 
 function makeCommand() {

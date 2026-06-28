@@ -4,8 +4,10 @@
  * Creates per-request DataLoader instances for equipment batch metrics.
  * Eliminates N+1 queries: ~200 queries → 4 queries per request.
  *
- * DataLoaders are created lazily per tenant to avoid unnecessary work
- * for requests that don't touch equipment.
+ * DataLoaders are created per request. Each loader resolves the active
+ * tenant fail-closed from the request context at batch-tick time (via
+ * createTenantScopedDataLoader), so tenant id and schema are never passed
+ * eagerly and a tenant-blind batch is structurally impossible.
  */
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,11 +25,11 @@ export class GraphQLContextFactory {
     private readonly tankBatchRepository: Repository<TankBatch>,
   ) {}
 
-  createLoaders(tenantId: string, schema: string): EquipmentDataLoaders {
+  createLoaders(): EquipmentDataLoaders {
     return {
-      tankBatchLoader: createTankBatchLoader(this.tankBatchRepository, tenantId, schema),
-      batchSpeciesLoader: createBatchSpeciesLoader(this.tankBatchRepository, tenantId, schema),
-      feedSelectionLoader: createFeedSelectionLoader(this.tankBatchRepository, tenantId, schema),
+      tankBatchLoader: createTankBatchLoader(this.tankBatchRepository),
+      batchSpeciesLoader: createBatchSpeciesLoader(this.tankBatchRepository),
+      feedSelectionLoader: createFeedSelectionLoader(this.tankBatchRepository),
     };
   }
 }

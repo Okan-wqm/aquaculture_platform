@@ -10,6 +10,7 @@
  *
  * @module Batch/DataLoaders
  */
+import { createTenantScopedDataLoader } from '@aquaculture/backend-common/dataloader';
 import DataLoader from 'dataloader';
 import { Injectable, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,11 +26,16 @@ export class BatchFeedAssignmentDataLoader {
     @InjectRepository(BatchFeedAssignment)
     private readonly feedAssignmentRepository: Repository<BatchFeedAssignment>,
   ) {
-    this.loader = new DataLoader<string, BatchFeedAssignment[]>(
-      async (batchIds: readonly string[]) => {
+    this.loader = createTenantScopedDataLoader<string, BatchFeedAssignment[]>(
+      // tenantId is supplied (and guaranteed non-empty) by the factory, which
+      // resolves it from the request context fail-closed. Defense-in-depth on
+      // top of the request-scoped search_path: a misrouted pooled connection
+      // still cannot batch-leak another tenant's rows.
+      async (tenantId: string, batchIds: readonly string[]) => {
         const assignments = await this.feedAssignmentRepository.find({
           where: {
             batchId: In([...batchIds]),
+            tenantId,
             isActive: true,
             isDeleted: false,
           },
@@ -49,10 +55,13 @@ export class BatchFeedAssignmentDataLoader {
         return batchIds.map((id) => grouped.get(id) ?? []);
       },
       {
-        // Cache is per-request (Scope.REQUEST) -- no cross-request leakage
-        cache: true,
-        // Batch all loads within the same tick
-        batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
+        batchFnName: 'BatchFeedAssignmentDataLoader',
+        dataLoaderOptions: {
+          // Cache is per-request (Scope.REQUEST) -- no cross-request leakage
+          cache: true,
+          // Batch all loads within the same tick
+          batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
+        },
       },
     );
   }

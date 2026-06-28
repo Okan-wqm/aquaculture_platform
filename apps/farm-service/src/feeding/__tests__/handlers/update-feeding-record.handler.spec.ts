@@ -17,13 +17,16 @@
  *   6. NotFoundException on missing feeding record → no tx, no event
  */
 import { NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { UpdateFeedingRecordHandler } from '../../handlers/update-feeding-record.handler';
 import { UpdateFeedingRecordCommand } from '../../commands/update-feeding-record.command';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+
+const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   feedingRecord?: Partial<FeedingRecord> | null;
@@ -37,7 +40,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'fr-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           batchId: 'batch-1',
           actualAmount: 10,
           feedCost: 100,
@@ -50,7 +53,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? (null as unknown as Partial<Batch>)
       : {
           id: 'batch-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           totalFeedConsumed: 500,
           totalFeedCost: 5000,
           ...(opts.batch ?? {}),
@@ -61,32 +64,22 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
   const batchRepository = {};
 
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+
   const savedEntities: unknown[] = [];
-  const managerSave = jest.fn(async (entityOrType: unknown, entity?: unknown) => {
+  const managerSave = mockManager.save as jest.Mock;
+  managerSave.mockImplementation(async (entityOrType: unknown, entity?: unknown) => {
     // repository-style .save(entity) — single arg
     const target = entity ?? entityOrType;
     savedEntities.push(target);
     return target;
   });
-  const managerFindOne = jest.fn().mockResolvedValue(batch);
+  const managerFindOne = mockManager.findOne as jest.Mock;
+  managerFindOne.mockResolvedValue(batch);
 
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: {
-      findOne: managerFindOne,
-      save: managerSave,
-    } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
+  const dataSource = mockDataSource;
 
   const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
     if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
@@ -116,7 +109,7 @@ function makeHarness(opts: HarnessOpts = {}) {
 function makeCommand(
   payload: ConstructorParameters<typeof UpdateFeedingRecordCommand>[2],
 ) {
-  return new UpdateFeedingRecordCommand('tenant-1', 'fr-1', payload, 'user-1');
+  return new UpdateFeedingRecordCommand(TENANT_ID, 'fr-1', payload, 'user-1');
 }
 
 describe('UpdateFeedingRecordHandler — transactional outbox', () => {
@@ -128,7 +121,7 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['eventType']).toBe('FeedingRecordUpdated');
-    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['tenantId']).toBe(TENANT_ID);
     expect(event['feedingRecordId']).toBe('fr-1');
     expect(event['batchId']).toBe('batch-1');
     expect(event['previousActualAmountKg']).toBe(10);
@@ -139,7 +132,7 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
 
     // Batch read + write happens when amount changed
     expect(managerFindOne).toHaveBeenCalledWith(Batch, {
-      where: { id: 'batch-1', tenantId: 'tenant-1' },
+      where: { id: 'batch-1', tenantId: TENANT_ID },
     });
     expect(commit).toHaveBeenCalledTimes(1);
   });

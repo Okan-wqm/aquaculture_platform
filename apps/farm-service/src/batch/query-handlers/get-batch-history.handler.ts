@@ -5,9 +5,10 @@
  *
  * @module Batch/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, FindOperator } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, Between, LessThanOrEqual, MoreThanOrEqual, FindOperator } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import {
   GetBatchHistoryQuery,
@@ -17,7 +18,6 @@ import {
 import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
-import { MortalityRecord } from '../entities/mortality-record.entity';
 
 /**
  * Query filter interface for TankOperation
@@ -43,21 +43,18 @@ interface TankAllocationQueryFilter {
 @QueryHandler(GetBatchHistoryQuery)
 export class GetBatchHistoryHandler implements IQueryHandler<GetBatchHistoryQuery, BatchHistoryEntry[]> {
   constructor(
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(TankOperation)
-    private readonly operationRepository: Repository<TankOperation>,
-    @InjectRepository(TankAllocation)
-    private readonly allocationRepository: Repository<TankAllocation>,
-    @InjectRepository(MortalityRecord)
-    private readonly mortalityRepository: Repository<MortalityRecord>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetBatchHistoryQuery): Promise<BatchHistoryEntry[]> {
     const { tenantId, batchId, eventTypes, fromDate, toDate, limit } = query;
 
+    // Read every history source through the fail-closed tenant boundary so a
+    // lost/wrong tenant context raises instead of resolving the source schema.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
     // Batch'i kontrol et
-    const batch = await this.batchRepository.findOne({
+    const batch = await queryRunner.manager.findOne(Batch, {
       where: { id: batchId, tenantId },
     });
 
@@ -103,7 +100,7 @@ export class GetBatchHistoryHandler implements IQueryHandler<GetBatchHistoryQuer
       operationQuery.operationDate = LessThanOrEqual(toDate);
     }
 
-    const operations = await this.operationRepository.find({
+    const operations = await queryRunner.manager.find(TankOperation, {
       where: operationQuery,
       order: { operationDate: 'DESC' },
       take: limit,
@@ -154,7 +151,7 @@ export class GetBatchHistoryHandler implements IQueryHandler<GetBatchHistoryQuer
         allocationQuery.allocationDate = LessThanOrEqual(toDate);
       }
 
-      const allocations = await this.allocationRepository.find({
+      const allocations = await queryRunner.manager.find(TankAllocation, {
         where: allocationQuery,
         order: { allocationDate: 'DESC' },
         take: limit,
@@ -192,6 +189,7 @@ export class GetBatchHistoryHandler implements IQueryHandler<GetBatchHistoryQuer
 
     // Apply limit
     return history.slice(0, limit);
+    });
   }
 
   private isDateInRange(date: Date, fromDate?: Date, toDate?: Date): boolean {

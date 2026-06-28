@@ -9,15 +9,15 @@
  *
  * @module Growth/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetGrowthAnalysisQuery, GrowthAnalysisResult } from '../queries/get-growth-analysis.query';
-import { GrowthMeasurement, GrowthPerformance } from '../entities/growth-measurement.entity';
+import { GrowthMeasurement } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@aquaculture/backend-common/redis';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
 
 @Injectable()
@@ -26,20 +26,18 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
   private readonly logger = new Logger(GetGrowthAnalysisHandler.name);
 
   constructor(
-    @InjectRepository(GrowthMeasurement)
-    private readonly measurementRepository: Repository<GrowthMeasurement>,
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(Species)
-    private readonly speciesRepository: Repository<Species>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly fcrCalculation: FCRCalculationService,
   ) {}
 
   async execute(query: GetGrowthAnalysisQuery): Promise<GrowthAnalysisResult> {
     const { tenantId, batchId } = query;
 
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
     // Batch'i bul
-    const batch = await this.batchRepository.findOne({
+    const batch = await queryRunner.manager.findOne(Batch, {
       where: { id: batchId, tenantId },
       relations: ['species'],
     });
@@ -49,12 +47,12 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
     }
 
     // Species bilgilerini al
-    const species = batch.species || await this.speciesRepository.findOne({
+    const species = batch.species || await queryRunner.manager.findOne(Species, {
       where: { id: batch.speciesId, tenantId },
     });
 
     // Tüm ölçümleri al
-    const measurements = await this.measurementRepository.find({
+    const measurements = await queryRunner.manager.find(GrowthMeasurement, {
       where: { tenantId, batchId },
       order: { measurementDate: 'ASC' },
     });
@@ -206,6 +204,7 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
     };
 
     return result;
+    });
   }
 
   private getDaysBetween(start: Date, end: Date): number {

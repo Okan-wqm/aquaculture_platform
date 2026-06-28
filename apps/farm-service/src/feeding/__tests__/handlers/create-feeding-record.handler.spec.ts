@@ -139,6 +139,10 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     commitTransaction: commit,
     rollbackTransaction: rollback,
     release,
+    // runInTenantTransaction pins search_path + asserts the RLS GUC via
+    // queryRunner.query. Returning [] makes the boundary readback assertion
+    // skip (no live DB), so the tx boundary is exercised without a real conn.
+    query: jest.fn().mockResolvedValue([]),
     manager,
   });
 

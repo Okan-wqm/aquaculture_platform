@@ -17,6 +17,7 @@ import {
 } from '../../../hooks/useSystems';
 import { useSiteList } from '../../../hooks/useSites';
 import { useDepartmentsBySite } from '../../../hooks/useDepartments';
+import { isBlockingError } from '../../../utils/list-view-state';
 
 // System types matching backend enum (UPPERCASE)
 const systemTypes = [
@@ -98,7 +99,7 @@ export const SystemsTab: React.FC = () => {
   const [systemToDelete, setSystemToDelete] = useState<System | null>(null);
 
   // API hooks
-  const { data: systemsData, isLoading, error } = useSystemList({
+  const { data: systemsData, isLoading, error, refetch } = useSystemList({
     siteId: filterSiteId || undefined,
     search: searchTerm || undefined
   });
@@ -273,7 +274,10 @@ export const SystemsTab: React.FC = () => {
     });
   };
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // data. A failed background refetch with cached systems keeps rendering the
+  // list and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (systemsData?.items?.length ?? 0) > 0)) {
     return (
       <div className="text-center py-12 text-red-600">
         Error loading systems: {error instanceof Error ? error.message : 'Unknown error'}
@@ -283,6 +287,24 @@ export const SystemsTab: React.FC = () => {
 
   return (
     <div>
+      {/* Non-blocking refresh error — keeps the last-loaded systems visible. */}
+      {error && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh systems — showing the last loaded data.{' '}
+            <span className="text-amber-700">
+              {error instanceof Error ? error.message : 'Unknown error'}
+            </span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div className="flex flex-1 gap-4 max-w-2xl">

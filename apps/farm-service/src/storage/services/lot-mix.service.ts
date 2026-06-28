@@ -23,7 +23,7 @@
  * Girdi 15-B16.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager } from 'typeorm';
 
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -178,14 +178,18 @@ export class LotMixService {
    * traceLot query helper — resolves every mix event that a given lot
    * number participated in, whether as the incoming lot or as a
    * resident lot named in someone else's mix.
+   *
+   * Takes the caller's `EntityManager` so the lookup runs on the same
+   * fail-closed tenant boundary connection as the trace query itself
+   * (search_path + RLS GUC pinned + asserted by `runInTenantRead`).
    */
   async findMixesForLot(
-    repo: Repository<StorageLotMix>,
+    manager: EntityManager,
     tenantId: string,
     lotNumber: string,
   ): Promise<StorageLotMix[]> {
-    return repo
-      .createQueryBuilder('mix')
+    return manager
+      .createQueryBuilder(StorageLotMix, 'mix')
       .where('mix.tenantId = :tenantId', { tenantId })
       .andWhere(
         // JSONB containment — does the contributing lot array include

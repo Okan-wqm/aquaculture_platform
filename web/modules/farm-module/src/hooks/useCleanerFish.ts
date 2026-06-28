@@ -6,7 +6,7 @@
  * with individual tracking per batch/species.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -378,7 +378,7 @@ export function useCreateCleanerBatch() {
       return data.createCleanerFishBatch;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish', 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'cleanerFish', 'batches') });
     },
   });
 }
@@ -405,9 +405,9 @@ export function useDeployCleanerFish() {
       return data.deployCleanerFish;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -434,9 +434,9 @@ export function useTransferCleanerFish() {
       return data.transferCleanerFish;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -463,9 +463,9 @@ export function useRecordCleanerMortality() {
       return data.recordCleanerMortality;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -493,9 +493,9 @@ export function useRemoveCleanerFish() {
       return data.removeCleanerFish;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }

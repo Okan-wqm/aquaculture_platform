@@ -1,3 +1,4 @@
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -31,11 +32,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
     }
 
     // Generate employee number with transaction + lock
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    const saved = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Get current year
       const year = new Date().getFullYear();
       const prefix = `EMP-${year}-`;
@@ -58,7 +55,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
       const employeeNumber = `${prefix}${String(nextNumber).padStart(5, '0')}`;
       const now = new Date();
 
-      const worker = this.workerRepository.create({
+      const worker = queryRunner.manager.create(Worker, {
         tenantId,
         employeeNumber,
         firstName: input.firstName.trim(),
@@ -88,16 +85,10 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
         createdBy: userId,
       });
 
-      const saved = await queryRunner.manager.save(worker);
-      await queryRunner.commitTransaction();
+      return queryRunner.manager.save(worker);
+    });
 
-      this.logger.log(`Worker created: id=${saved.id} number=${saved.employeeNumber} (tenant ${tenantId})`);
-      return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    this.logger.log(`Worker created: id=${saved.id} number=${saved.employeeNumber} (tenant ${tenantId})`);
+    return saved;
   }
 }

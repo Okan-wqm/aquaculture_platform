@@ -3,7 +3,7 @@
  * Handles CRUD + bulk operations for mapping water quality parameters to equipment via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -208,7 +208,7 @@ export function useCreateParamEquipmentMapping() {
       return response.createParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }
@@ -228,7 +228,7 @@ export function useUpdateParamEquipmentMapping() {
       return response.updateParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }
@@ -248,7 +248,7 @@ export function useDeleteParamEquipmentMapping() {
       return response.deleteParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }
@@ -268,7 +268,7 @@ export function useBulkMapParamsToEquipment() {
       return response.bulkMapParamsToEquipment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }

@@ -6,9 +6,10 @@
  *
  * @module WaterQuality/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, FindOptionsWhere } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { ListParamEquipmentQuery } from '../queries/list-param-equipment.query';
 import { WaterQualityParamEquipment } from '../entities/water-quality-param-equipment.entity';
@@ -21,8 +22,8 @@ export class ListParamEquipmentHandler
   private readonly logger = new Logger(ListParamEquipmentHandler.name);
 
   constructor(
-    @InjectRepository(WaterQualityParamEquipment)
-    private readonly repository: Repository<WaterQualityParamEquipment>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListParamEquipmentQuery): Promise<WaterQualityParamEquipment[]> {
@@ -44,10 +45,13 @@ export class ListParamEquipmentHandler
       }
     }
 
-    return this.repository.find({
-      where,
-      relations: ['parameterConfig', 'equipment'],
-      order: { createdAt: 'ASC' },
-    });
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      queryRunner.manager.find(WaterQualityParamEquipment, {
+        where,
+        relations: ['parameterConfig', 'equipment'],
+        order: { createdAt: 'ASC' },
+      }),
+    );
   }
 }

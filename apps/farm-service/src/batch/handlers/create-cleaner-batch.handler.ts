@@ -13,6 +13,7 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -160,10 +161,7 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
     });
 
     // Atomic: save batch + enqueue event. Commit together or neither.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const savedBatch = await queryRunner.manager.save(Batch, batch);
 
       const event: CleanerFishBatchCreatedEvent = {
@@ -186,13 +184,7 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return savedBatch;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

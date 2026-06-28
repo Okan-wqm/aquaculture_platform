@@ -7,7 +7,7 @@ import {
   ID,
   ResolveReference,
 } from '@nestjs/graphql';
-import { BadRequestException, UseGuards, Logger } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
@@ -68,8 +68,13 @@ export class FarmResolver {
         new GetFarmQuery(reference.id, reference.tenantId, true, false),
       );
     } catch (error: unknown) {
-      this.logger.debug(`Error in resolveReference: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
+      // A reference to a farm that does not exist is a legitimate null for
+      // federation entity resolution. A lost/wrong tenant context
+      // (TenantContextError) must NOT be masked as "not found" — surface it.
+      if (error instanceof NotFoundException) {
+        return null;
+      }
+      throw error;
     }
   }
 

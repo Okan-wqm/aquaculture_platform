@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useAuth,
   graphqlClient,
-  createTenantQueryKey,
+  createTenantQueryKey, createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 
 export type EquipmentStatus =
@@ -215,7 +215,7 @@ export function useCreateSubEquipment() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(
+        queryKey: createTenantInvalidationKey(
           tenantId,
           'subEquipment',
           'byParent',
@@ -223,7 +223,7 @@ export function useCreateSubEquipment() {
         ),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'equipment'),
+        queryKey: createTenantInvalidationKey(tenantId, 'equipment'),
       });
     },
   });
@@ -248,10 +248,10 @@ export function useUpdateSubEquipment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'subEquipment'),
+        queryKey: createTenantInvalidationKey(tenantId, 'subEquipment'),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'equipment'),
+        queryKey: createTenantInvalidationKey(tenantId, 'equipment'),
       });
     },
   });
@@ -277,10 +277,10 @@ export function useDeleteSubEquipment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'subEquipment'),
+        queryKey: createTenantInvalidationKey(tenantId, 'subEquipment'),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'equipment'),
+        queryKey: createTenantInvalidationKey(tenantId, 'equipment'),
       });
     },
   });

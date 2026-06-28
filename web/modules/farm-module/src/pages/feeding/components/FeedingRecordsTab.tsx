@@ -15,6 +15,7 @@ import {
   FeedingMethod,
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList } from '../../../hooks/useFeeds';
+import { isBlockingError } from '../../../utils/list-view-state';
 import { useAuth } from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
 
@@ -68,7 +69,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   }), [batchId, startDate, endDate]);
 
   // Data
-  const { data, isLoading, error } = useFeedingRecordsList(filter, { page, limit: 20 });
+  const { data, isLoading, error, refetch } = useFeedingRecordsList(filter, { page, limit: 20 });
   const { data: feeds } = useFeedList();
   const createMutation = useCreateFeedingRecord();
   const updateMutation = useUpdateFeedingRecord();
@@ -155,8 +156,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
     );
   }
 
-  // Error state
-  if (error) {
+  // Blocking error state — ONLY when the initial load failed and there is no
+  // cached data. A failed background refetch with cached records keeps rendering
+  // the table and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-800">Failed to load feeding records: {(error as Error).message}</p>
@@ -166,6 +169,22 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Non-blocking refresh error — keeps the last-loaded records visible. */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh feeding records — showing the last loaded data.{' '}
+            <span className="text-amber-700">{(error as Error).message}</span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">

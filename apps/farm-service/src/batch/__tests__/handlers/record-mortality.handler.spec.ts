@@ -61,6 +61,10 @@ function createMockQueryRunner(manager: MockManager) {
     commitTransaction: jest.fn().mockResolvedValue(undefined),
     rollbackTransaction: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
+    // runInTenantTransaction pins search_path + asserts the RLS GUC via
+    // queryRunner.query (distinct from the receipt service's manager.query).
+    // Returning [] makes the boundary readback assertion skip (no live DB).
+    query: jest.fn().mockResolvedValue([]),
     manager: manager as unknown as EntityManager,
   };
 }
@@ -80,7 +84,7 @@ function createMockOutboxPublisher(): OutboxPublisher {
 // ============================================================================
 
 describe('RecordMortalityHandler', () => {
-  const tenantId = 'tenant-123';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const batchId = 'batch-456';
   const tankId = 'tank-789';
 

@@ -14,7 +14,7 @@
 import {
   useAuth,
   graphqlClient,
-  createTenantQueryKey,
+  createTenantQueryKey, createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -151,14 +151,14 @@ export function useAssignFeedsToBatch() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(
+        queryKey: createTenantInvalidationKey(
           tenantId,
           'batchFeedAssignments',
           variables.batchId,
         ),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'batches'),
+        queryKey: createTenantInvalidationKey(tenantId, 'batches'),
       });
     },
   });
@@ -183,7 +183,7 @@ export function useUpdateBatchFeedAssignment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'batchFeedAssignments'),
+        queryKey: createTenantInvalidationKey(tenantId, 'batchFeedAssignments'),
       });
     },
   });
@@ -208,7 +208,7 @@ export function useDeleteBatchFeedAssignment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'batchFeedAssignments'),
+        queryKey: createTenantInvalidationKey(tenantId, 'batchFeedAssignments'),
       });
     },
   });

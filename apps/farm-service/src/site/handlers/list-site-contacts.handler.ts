@@ -1,6 +1,7 @@
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ListSiteContactsQuery } from '../queries/list-site-contacts.query';
 import { SiteContact } from '../entities/site-contact.entity';
 
@@ -9,18 +10,22 @@ export class ListSiteContactsHandler
   implements IQueryHandler<ListSiteContactsQuery, SiteContact[]>
 {
   constructor(
-    @InjectRepository(SiteContact)
-    private readonly siteContactRepository: Repository<SiteContact>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListSiteContactsQuery): Promise<SiteContact[]> {
     const { siteId, tenantId } = query;
-    return this.siteContactRepository.find({
-      where: { tenantId, siteId },
-      order: {
-        isPrimary: 'DESC',
-        createdAt: 'ASC',
-      },
+
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      return queryRunner.manager.find(SiteContact, {
+        where: { tenantId, siteId },
+        order: {
+          isPrimary: 'DESC',
+          createdAt: 'ASC',
+        },
+      });
     });
   }
 }

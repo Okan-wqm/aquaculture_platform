@@ -27,6 +27,7 @@ import {
   SparePartFilter,
   CreateSparePartInput,
 } from '../../hooks/useMaintenance';
+import { isBlockingError } from '../../utils/list-view-state';
 
 // Status colors
 const statusColors: Record<SparePartStatus, string> = {
@@ -277,7 +278,10 @@ export const SparePartsPage: React.FC = () => {
     return sharedFormatCurrency(value, currency);
   };
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // data. A failed background refetch with cached data keeps rendering the list
+  // and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="p-6">
         <Alert type="error">Yedek parçalar yüklenirken bir hata oluştu.</Alert>
@@ -287,6 +291,16 @@ export const SparePartsPage: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
+      {error && (
+        <Alert
+          type="warning"
+          action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
+        >
+          Yedek parçalar yenilenemedi — son yüklenen veriler gösteriliyor.
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

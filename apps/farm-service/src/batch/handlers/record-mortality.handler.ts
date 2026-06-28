@@ -17,6 +17,7 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
@@ -100,14 +101,10 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     });
 
     // All reads and writes inside a single transaction with pessimistic locks
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // Declared inside the callback so it's accessible for event publishing and return
+      let batch: Batch;
 
-    // Declare batch outside try block so it's accessible for event publishing and return
-    let batch: Batch;
-
-    try {
       const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         tenantId,
@@ -124,7 +121,6 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         if (!replayed) {
           throw new ConflictException('Mobile command receipt response is no longer available');
         }
-        await queryRunner.commitTransaction();
         return replayed;
       }
 
@@ -376,19 +372,10 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         responsePayload: { id: batch.id },
       });
 
-      // Commit transaction (domain writes + outbox row are atomic)
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      // Rollback transaction on any error
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      // Release query runner
-      await queryRunner.release();
-    }
-
-    // Return the updated batch (GraphQL expects Batch, not MortalityRecord)
-    return batch;
+      // Domain writes + outbox row are atomic — runInTenantTransaction commits.
+      // Return the updated batch (GraphQL expects Batch, not MortalityRecord)
+      return batch;
+    });
   }
 
   /**

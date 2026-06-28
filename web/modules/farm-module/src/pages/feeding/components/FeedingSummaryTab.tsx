@@ -9,6 +9,7 @@ import {
   useFeedingSummary,
   FeedTypeSummary,
 } from '../../../hooks/useFeedingRecords';
+import { isBlockingError } from '../../../utils/list-view-state';
 import type { Batch } from '../../../hooks/useBatches';
 
 // ============================================================================
@@ -38,7 +39,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
   // Use batchId from props or local state
   const effectiveBatchId = batchId || selectedBatchId;
 
-  const { data, isLoading, error } = useFeedingSummary(
+  const { data, isLoading, error, refetch } = useFeedingSummary(
     'batch',
     effectiveBatchId,
     startDate,
@@ -85,7 +86,10 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
     );
   }
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // summary. A failed background refetch with cached data keeps rendering it and
+  // surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, Boolean(data))) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-800">Failed to load feeding summary: {(error as Error).message}</p>
@@ -98,6 +102,22 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Non-blocking refresh error — keeps the last-loaded summary visible. */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh feeding summary — showing the last loaded data.{' '}
+            <span className="text-amber-700">{(error as Error).message}</span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="bg-white rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

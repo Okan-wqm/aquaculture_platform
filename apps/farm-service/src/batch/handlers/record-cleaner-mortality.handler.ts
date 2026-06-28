@@ -5,6 +5,7 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -254,10 +255,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     // alerting (species-specific mortality-rate thresholds) + Mattilsynet
     // compliance tooling consume this event; skipping it on a successful
     // write would leave ops blind to rate-of-loss trends.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       await queryRunner.manager.save(TankBatch, tankBatch);
       await queryRunner.manager.save(Batch, cleanerBatch);
       await queryRunner.manager.save(MortalityRecord, mortalityRecord);
@@ -288,14 +286,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-
-    return cleanerBatch;
+      return cleanerBatch;
+    });
   }
 }

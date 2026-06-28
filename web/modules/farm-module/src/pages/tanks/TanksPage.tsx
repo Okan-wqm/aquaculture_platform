@@ -5,6 +5,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTanksList, tankStatusColors, tankTypeLabels, waterTypeLabels } from '../../hooks/useTanks';
+import { isBlockingError } from '../../utils/list-view-state';
 import { TankWithBatch, TankFilterState, initialFilterState, tankToTankWithBatch } from './types';
 import { tankColumns, cleanerFishColumns } from './columns';
 import { useColumnVisibility } from './useColumnVisibility';
@@ -854,8 +855,11 @@ export const TanksPage: React.FC = () => {
     );
   }
 
-  // Error state
-  if (error) {
+  // Blocking error state — ONLY when the initial load failed and there is no
+  // cached data to show. If a background refetch fails but we already have data,
+  // we keep rendering it (stale-on-error) and surface a non-blocking banner in
+  // the main view below instead of blanking the page.
+  if (isBlockingError(error, data != null)) {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -874,6 +878,23 @@ export const TanksPage: React.FC = () => {
 
   return (
     <div className="p-6">
+      {/* Non-blocking refresh error — shown while keeping the last-loaded data
+          visible, so a failed background refetch never blanks the table. */}
+      {error && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh tanks — showing the last loaded data.{' '}
+            <span className="text-amber-700">{(error as Error).message}</span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Page Header with Quick Actions */}
       <div className="flex items-start justify-between mb-6">
         <div>

@@ -15,6 +15,7 @@
  *
  * @module Feeding/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -64,10 +65,7 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
       throw new NotFoundException(`Site ${payload.siteId} bulunamadı`);
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Mevcut inventory var mı kontrol et (aynı lot numarası ile)
       let inventory: FeedInventory | null = null;
       if (payload.lotNumber) {
@@ -143,13 +141,7 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

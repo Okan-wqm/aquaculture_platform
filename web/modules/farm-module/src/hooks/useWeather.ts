@@ -3,7 +3,7 @@
  * Open-Meteo hava durumu ve deniz verisi için React Query hook'ları
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -283,9 +283,9 @@ export function useSyncWeather() {
       return data.syncWeatherData;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'weather') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'marine') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'weatherSettings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'weather') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'marine') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'weatherSettings') });
     },
   });
 }
@@ -310,7 +310,7 @@ export function useUpdateWeatherSettings() {
       return data.updateWeatherSettings;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'weatherSettings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'weatherSettings') });
     },
   });
 }

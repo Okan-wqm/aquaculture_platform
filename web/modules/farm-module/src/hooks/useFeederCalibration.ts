@@ -3,7 +3,7 @@
  * Handles CRUD for feeder calibrations via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 export interface FeederCalibration {
   id: string;
@@ -97,7 +97,7 @@ export function useSaveFeederCalibrations() {
       return data.saveFeederCalibrations;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feederCalibrations', tenantId, variables.equipmentId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feederCalibrations', tenantId, variables.equipmentId) });
     },
   });
 }

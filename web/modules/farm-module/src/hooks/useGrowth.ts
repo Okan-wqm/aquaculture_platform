@@ -7,7 +7,7 @@
  * @module FarmModule/Hooks
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   GROWTH_MEASUREMENT_QUERY,
   GROWTH_MEASUREMENTS_QUERY,
@@ -424,9 +424,9 @@ export function useRecordGrowthSample() {
     },
     onSuccess: (_data, variables) => {
       // Invalidate all growth-related queries
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'growth') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'growth') });
       // Also invalidate batch queries since growth affects batch weight
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
     },
   });
 }
@@ -453,8 +453,8 @@ export function useUpdateBatchWeightFromSample() {
       return data.updateBatchWeightFromSample;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'growth') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'growth') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
     },
   });
 }
@@ -481,7 +481,7 @@ export function useVerifyMeasurement() {
       return data.verifyMeasurement;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'growth') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'growth') });
     },
   });
 }

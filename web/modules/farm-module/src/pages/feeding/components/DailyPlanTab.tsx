@@ -9,6 +9,7 @@ import {
   useDailyFeedingPlan,
   PlannedFeeding,
 } from '../../../hooks/useFeedingRecords';
+import { isBlockingError } from '../../../utils/list-view-state';
 
 // ============================================================================
 // TYPES
@@ -26,7 +27,7 @@ export const DailyPlanTab: React.FC<DailyPlanTabProps> = ({ siteId }) => {
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
 
-  const { data, isLoading, error } = useDailyFeedingPlan(
+  const { data, isLoading, error, refetch } = useDailyFeedingPlan(
     siteId || '',
     selectedDate,
     { enabled: !!siteId },
@@ -52,7 +53,10 @@ export const DailyPlanTab: React.FC<DailyPlanTabProps> = ({ siteId }) => {
     );
   }
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // plan. A failed background refetch with cached data keeps rendering it and
+  // surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, Boolean(data))) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-800">Failed to load daily plan: {(error as Error).message}</p>
@@ -62,6 +66,22 @@ export const DailyPlanTab: React.FC<DailyPlanTabProps> = ({ siteId }) => {
 
   return (
     <div className="space-y-6">
+      {/* Non-blocking refresh error — keeps the last-loaded plan visible. */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh daily plan — showing the last loaded data.{' '}
+            <span className="text-amber-700">{(error as Error).message}</span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Date Selector */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">

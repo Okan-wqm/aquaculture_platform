@@ -3,7 +3,7 @@
  * Handles CRUD operations for species via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SpeciesCategory {
@@ -389,8 +389,8 @@ export function useCreateSpecies() {
       return data.createSpecies;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'active') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'active') });
     },
   });
 }
@@ -417,9 +417,9 @@ export function useUpdateSpecies() {
       return data.updateSpecies;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'active') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'active') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'detail', variables.id) });
     },
   });
 }
@@ -446,8 +446,8 @@ export function useDeleteSpecies() {
       return data.deleteSpecies;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'species', 'active') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'active') });
     },
   });
 }

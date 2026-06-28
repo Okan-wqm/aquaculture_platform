@@ -5,9 +5,10 @@
  *
  * @module Feeding/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetFeedingRecordsQuery } from '../queries/get-feeding-records.query';
@@ -17,15 +18,17 @@ import { FeedingRecord } from '../entities/feeding-record.entity';
 @QueryHandler(GetFeedingRecordsQuery)
 export class GetFeedingRecordsHandler implements IQueryHandler<GetFeedingRecordsQuery, PaginatedQueryResult<FeedingRecord>> {
   constructor(
-    @InjectRepository(FeedingRecord)
-    private readonly feedingRecordRepository: Repository<FeedingRecord>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetFeedingRecordsQuery): Promise<PaginatedQueryResult<FeedingRecord>> {
     const { tenantId, filter, page, limit, sortBy, sortOrder } = query;
 
-    const queryBuilder = this.feedingRecordRepository
-      .createQueryBuilder('fr')
+    // Read through the fail-closed tenant boundary.
+    const [records, total] = await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    const queryBuilder = queryRunner.manager
+      .createQueryBuilder(FeedingRecord, 'fr')
       .leftJoinAndSelect('fr.batch', 'batch')
       .leftJoinAndSelect('fr.feed', 'feed')
       .leftJoinAndSelect('fr.tank', 'tank')
@@ -91,13 +94,16 @@ export class GetFeedingRecordsHandler implements IQueryHandler<GetFeedingRecords
     queryBuilder.orderBy(`fr.${sortField}`, safeSortOrder);
 
     // Sayım
-    const total = await queryBuilder.getCount();
+    const count = await queryBuilder.getCount();
 
     // Pagination
     const offset = (page - 1) * limit;
     queryBuilder.skip(offset).take(limit);
 
-    const records = await queryBuilder.getMany();
+    const rows = await queryBuilder.getMany();
+
+      return [rows, count] as [FeedingRecord[], number];
+    });
 
     return createPaginatedQueryResult(records, page, limit, total);
   }

@@ -3,7 +3,7 @@
  * Handles CRUD operations for chemicals via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum ChemicalType {
@@ -439,7 +439,7 @@ export function useCreateChemical() {
       return data.createChemical;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
     },
   });
 }
@@ -466,8 +466,8 @@ export function useUpdateChemical() {
       return data.updateChemical;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'detail', variables.id) });
     },
   });
 }
@@ -494,7 +494,7 @@ export function useDeleteChemical() {
       return data.deleteChemical;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
     },
   });
 }
@@ -611,8 +611,8 @@ export function useUploadChemicalDocument() {
       };
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
     },
   });
 }
@@ -648,8 +648,8 @@ export function useAddChemicalDocument() {
       return data.addChemicalDocument;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
     },
   });
 }
@@ -705,8 +705,8 @@ export function useRemoveChemicalDocument() {
       return data.removeChemicalDocument;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
     },
   });
 }

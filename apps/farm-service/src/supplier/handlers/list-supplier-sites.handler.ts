@@ -1,6 +1,7 @@
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ListSupplierSitesQuery } from '../queries/list-supplier-sites.query';
 import { SupplierSite } from '../entities/supplier-site.entity';
 
@@ -15,18 +16,22 @@ export class ListSupplierSitesHandler
   implements IQueryHandler<ListSupplierSitesQuery, SupplierSite[]>
 {
   constructor(
-    @InjectRepository(SupplierSite)
-    private readonly supplierSiteRepository: Repository<SupplierSite>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListSupplierSitesQuery): Promise<SupplierSite[]> {
     const { supplierId, tenantId } = query;
-    return this.supplierSiteRepository.find({
-      where: { tenantId, supplierId },
-      order: {
-        isPreferred: 'DESC',
-        createdAt: 'ASC',
-      },
+
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      return queryRunner.manager.find(SupplierSite, {
+        where: { tenantId, supplierId },
+        order: {
+          isPreferred: 'DESC',
+          createdAt: 'ASC',
+        },
+      });
     });
   }
 }

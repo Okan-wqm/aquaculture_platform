@@ -9,6 +9,7 @@ import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { DepartmentResponse, PaginatedDepartmentsResponse } from './dto/department.response';
 import { DepartmentDeletePreviewResponse } from './dto/department-delete-preview.response';
 import { CreateDepartmentInput } from './dto/create-department.input';
@@ -187,8 +188,12 @@ export class DepartmentResolver {
 
     try {
       const query = new GetSiteQuery(department.siteId, department.tenantId);
-      return this.queryBus.execute(query);
+      return await this.queryBus.execute(query);
     } catch (error: unknown) {
+      // A lost/wrong tenant context must surface, not be masked as "no site".
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.debug(`Error resolving site: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }

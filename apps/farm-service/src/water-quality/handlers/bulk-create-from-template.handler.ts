@@ -6,6 +6,7 @@
  *
  * @module WaterQuality/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -73,32 +74,28 @@ export class BulkCreateFromTemplateHandler
       entitiesToCreate.push(entity);
     }
 
-    // Wrap delete (if overwrite) + bulk insert in a transaction
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    // Wrap delete (if overwrite) + bulk insert in a tenant-scoped transaction
+    const created = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        if (overwrite) {
+          const deleted = await queryRunner.manager.delete(WaterQualityParameterConfig, {
+            tenantId,
+          });
+          this.logger.log(
+            `Overwrite mode: removed ${deleted.affected ?? 0} existing configs for tenant ${tenantId}`,
+          );
+        }
 
-    let created: WaterQualityParameterConfig[] = [];
+        if (entitiesToCreate.length > 0) {
+          return queryRunner.manager.save(entitiesToCreate);
+        }
 
-    try {
-      if (overwrite) {
-        const deleted = await queryRunner.manager.delete(WaterQualityParameterConfig, { tenantId });
-        this.logger.log(
-          `Overwrite mode: removed ${deleted.affected ?? 0} existing configs for tenant ${tenantId}`,
-        );
-      }
-
-      if (entitiesToCreate.length > 0) {
-        created = await queryRunner.manager.save(entitiesToCreate);
-      }
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+        return [];
+      },
+    );
 
     this.configCache.invalidate(tenantId);
 

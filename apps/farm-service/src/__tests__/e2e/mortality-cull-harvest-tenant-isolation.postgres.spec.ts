@@ -313,7 +313,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // reaches the tenant-isolation assertions.
       farmStockProjection as never,
     );
-    listHarvests = new ListHarvestsHandler(harvestRepository);
+    listHarvests = new ListHarvestsHandler(dataSource);
   });
 
   afterAll(async () => {

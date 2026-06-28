@@ -114,7 +114,7 @@ describe('Batch allocation tenant isolation on real Postgres', () => {
       dataSource,
       new MortalityCullPolicyService(),
     );
-    listBatches = new ListBatchesHandler(batchRepository, tankBatchRepository);
+    listBatches = new ListBatchesHandler(dataSource);
   });
 
   afterAll(async () => {

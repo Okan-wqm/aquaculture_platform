@@ -152,7 +152,9 @@ export type {
 } from './validation';
 
 // Tenant-Scoped Query Keys (SECURITY: prevents cross-tenant cache leak)
-export { createTenantQueryKey } from './tenant-query-keys';
+// createTenantQueryKey -> full useQuery key (epoch'd); createTenantInvalidationKey
+// -> epoch-less prefix for invalidateQueries/removeQueries (see the factory docs).
+export { createTenantQueryKey, createTenantInvalidationKey } from './tenant-query-keys';
 
 // Logout Cleanup (SECURITY: FE-HIGH-005 — clears all browser storage layers)
 export { logoutCleanup, registerLogoutCleanup } from './logout-cleanup';

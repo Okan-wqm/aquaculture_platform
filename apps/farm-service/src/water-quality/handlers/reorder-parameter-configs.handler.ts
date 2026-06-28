@@ -7,6 +7,7 @@
  *
  * @module WaterQuality/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
@@ -38,11 +39,7 @@ export class ReorderParameterConfigsHandler
       `Reordering ${orderedIds.length} parameter configs for tenant ${tenantId}`,
     );
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       for (let i = 0; i < orderedIds.length; i++) {
         await queryRunner.manager.update(
           WaterQualityParameterConfig,
@@ -50,14 +47,7 @@ export class ReorderParameterConfigsHandler
           { displayOrder: i + 1 },
         );
       }
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
 
     this.configCache.invalidate(tenantId);
 

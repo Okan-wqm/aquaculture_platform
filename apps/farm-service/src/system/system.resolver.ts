@@ -2,7 +2,7 @@
  * System GraphQL Resolver
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
+import { UseGuards, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
@@ -279,8 +279,13 @@ export class SystemResolver {
       const query = new GetSystemQuery(system.parentSystemId, system.tenantId);
       return await this.queryBus.execute(query);
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving parentSystem for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
+      // A genuinely missing parent (data-integrity edge) is a legitimate null
+      // for this nullable field. A lost/wrong tenant context (TenantContextError)
+      // must NOT be masked as "no parent" — let it surface.
+      if (error instanceof NotFoundException) {
+        return null;
+      }
+      throw error;
     }
   }
 
@@ -293,13 +298,11 @@ export class SystemResolver {
 
     if (!system.id || !system.tenantId) return [];
 
-    try {
-      const query = new ListSystemsQuery(system.tenantId, { parentSystemId: system.id, isActive: true }, { limit: 1000 });
-      const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
-      return fromCqrsPaginated(result).items;
-    } catch (error: unknown) {
-      this.logger.debug(`Error resolving childSystemsField for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    }
+    // ListSystemsQuery returns an empty list when there are no children, so a
+    // genuine "no children" needs no catch. A query error (e.g. a lost tenant
+    // context) must surface rather than be masked as an empty child list.
+    const query = new ListSystemsQuery(system.tenantId, { parentSystemId: system.id, isActive: true }, { limit: 1000 });
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    return fromCqrsPaginated(result).items;
   }
 }

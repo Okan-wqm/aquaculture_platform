@@ -16,11 +16,14 @@
  *    to reduce memory pressure on the backend.
  *
  * Security: tenantId comes from JWT via @CurrentTenant() decorator,
- * never from client-supplied GraphQL variables.
+ * never from client-supplied GraphQL variables. Reads run through the
+ * fail-closed tenant boundary, which pins and asserts the tenant schema
+ * before any domain query executes.
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThanOrEqual } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
 import { GetWarehouseSummaryQuery } from '../queries/get-warehouse-summary.query';
 import { StockMovement } from '../entities/stock-movement.entity';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -40,14 +43,8 @@ export class GetWarehouseSummaryHandler
   implements IQueryHandler<GetWarehouseSummaryQuery>
 {
   constructor(
-    @InjectRepository(StockMovement)
-    private readonly movementRepo: Repository<StockMovement>,
-    @InjectRepository(Feed)
-    private readonly feedRepo: Repository<Feed>,
-    @InjectRepository(Chemical)
-    private readonly chemicalRepo: Repository<Chemical>,
-    @InjectRepository(Consumable)
-    private readonly consumableRepo: Repository<Consumable>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(
@@ -55,54 +52,79 @@ export class GetWarehouseSummaryHandler
   ): Promise<WarehouseSummaryResponse> {
     const { tenantId } = query;
 
-    /**
-     * Run all aggregation queries in parallel to minimize total latency.
-     * Each sub-query is tenant-scoped and uses indexed columns.
-     */
-    const [
-      feedCount,
-      chemicalCount,
-      consumableCount,
-      lowStockFeeds,
-      lowStockChemicals,
-      lowStockConsumables,
-      todaysMovementCount,
-      recentMovements,
-    ] = await Promise.all([
-      this.countActiveItems(this.feedRepo, tenantId),
-      this.countActiveItems(this.chemicalRepo, tenantId),
-      this.countActiveItems(this.consumableRepo, tenantId),
-      this.getLowStockFeeds(tenantId),
-      this.getLowStockChemicals(tenantId),
-      this.getLowStockConsumables(tenantId),
-      this.getTodaysMovementCount(tenantId),
-      this.getRecentMovements(tenantId),
-    ]);
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
 
-    const allLowStockItems: WarehouseLowStockItem[] = [
-      ...lowStockFeeds,
-      ...lowStockChemicals,
-      ...lowStockConsumables,
-    ];
+      /**
+       * Run all aggregation queries in parallel to minimize total latency.
+       * Each sub-query is tenant-scoped and uses indexed columns.
+       */
+      const [
+        feedCount,
+        chemicalCount,
+        consumableCount,
+        lowStockFeeds,
+        lowStockChemicals,
+        lowStockConsumables,
+        todaysMovementCount,
+        recentMovements,
+      ] = await Promise.all([
+        this.countActiveFeeds(manager, tenantId),
+        this.countActiveChemicals(manager, tenantId),
+        this.countActiveConsumables(manager, tenantId),
+        this.getLowStockFeeds(manager, tenantId),
+        this.getLowStockChemicals(manager, tenantId),
+        this.getLowStockConsumables(manager, tenantId),
+        this.getTodaysMovementCount(manager, tenantId),
+        this.getRecentMovements(manager, tenantId),
+      ]);
 
-    return {
-      totalItems: feedCount + chemicalCount + consumableCount,
-      lowStockAlertCount: allLowStockItems.length,
-      todaysMovementCount,
-      lowStockItems: allLowStockItems.slice(0, MOBILE_LIST_CAP),
-      recentMovements,
-    };
+      const allLowStockItems: WarehouseLowStockItem[] = [
+        ...lowStockFeeds,
+        ...lowStockChemicals,
+        ...lowStockConsumables,
+      ];
+
+      return {
+        totalItems: feedCount + chemicalCount + consumableCount,
+        lowStockAlertCount: allLowStockItems.length,
+        todaysMovementCount,
+        lowStockItems: allLowStockItems.slice(0, MOBILE_LIST_CAP),
+        recentMovements,
+      };
+    });
   }
 
   /**
-   * Count active, non-deleted items for a given entity type.
-   * Uses COUNT(*) to avoid loading entity data into memory.
+   * Count active, non-deleted feeds. Uses COUNT(*) to avoid loading
+   * entity data into memory.
    */
-  private async countActiveItems(
-    repo: Repository<Feed> | Repository<Chemical> | Repository<Consumable>,
+  private async countActiveFeeds(
+    manager: EntityManager,
     tenantId: string,
   ): Promise<number> {
-    return (repo as Repository<{ tenantId: string; isDeleted: boolean; isActive: boolean }>).count({
+    return manager.count(Feed, {
+      where: { tenantId, isDeleted: false, isActive: true },
+    });
+  }
+
+  /** Count active, non-deleted chemicals. */
+  private async countActiveChemicals(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<number> {
+    return manager.count(Chemical, {
+      where: { tenantId, isDeleted: false, isActive: true },
+    });
+  }
+
+  /** Count active, non-deleted consumables. */
+  private async countActiveConsumables(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<number> {
+    return manager.count(Consumable, {
       where: { tenantId, isDeleted: false, isActive: true },
     });
   }
@@ -112,10 +134,11 @@ export class GetWarehouseSummaryHandler
    * Returns at most MOBILE_LIST_CAP items sorted by urgency (lowest ratio first).
    */
   private async getLowStockFeeds(
+    manager: EntityManager,
     tenantId: string,
   ): Promise<WarehouseLowStockItem[]> {
-    const feeds = await this.feedRepo
-      .createQueryBuilder('f')
+    const feeds = await manager
+      .createQueryBuilder(Feed, 'f')
       .select(['f.id', 'f.name', 'f.quantity', 'f.minStock', 'f.unit'])
       .where('f.tenantId = :tenantId', { tenantId })
       .andWhere('f.isDeleted = false')
@@ -140,10 +163,11 @@ export class GetWarehouseSummaryHandler
    * Find chemicals where current quantity is at or below minimum stock.
    */
   private async getLowStockChemicals(
+    manager: EntityManager,
     tenantId: string,
   ): Promise<WarehouseLowStockItem[]> {
-    const chemicals = await this.chemicalRepo
-      .createQueryBuilder('c')
+    const chemicals = await manager
+      .createQueryBuilder(Chemical, 'c')
       .select(['c.id', 'c.name', 'c.quantity', 'c.minStock', 'c.unit'])
       .where('c.tenantId = :tenantId', { tenantId })
       .andWhere('c.isDeleted = false')
@@ -168,10 +192,11 @@ export class GetWarehouseSummaryHandler
    * Find consumables where current quantity is at or below minimum stock.
    */
   private async getLowStockConsumables(
+    manager: EntityManager,
     tenantId: string,
   ): Promise<WarehouseLowStockItem[]> {
-    const consumables = await this.consumableRepo
-      .createQueryBuilder('c')
+    const consumables = await manager
+      .createQueryBuilder(Consumable, 'c')
       .select(['c.id', 'c.name', 'c.quantity', 'c.minStock', 'c.unit'])
       .where('c.tenantId = :tenantId', { tenantId })
       .andWhere('c.isDeleted = false')
@@ -197,11 +222,14 @@ export class GetWarehouseSummaryHandler
    * Uses performedAt rather than createdAt because a movement can
    * be back-dated when recording yesterday's activity.
    */
-  private async getTodaysMovementCount(tenantId: string): Promise<number> {
+  private async getTodaysMovementCount(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<number> {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
 
-    return this.movementRepo.count({
+    return manager.count(StockMovement, {
       where: {
         tenantId,
         performedAt: MoreThanOrEqual(todayStart),
@@ -214,10 +242,11 @@ export class GetWarehouseSummaryHandler
    * Only loads the fields needed by the mobile UI to minimize payload.
    */
   private async getRecentMovements(
+    manager: EntityManager,
     tenantId: string,
   ): Promise<WarehouseRecentMovement[]> {
-    const movements = await this.movementRepo
-      .createQueryBuilder('m')
+    const movements = await manager
+      .createQueryBuilder(StockMovement, 'm')
       .select([
         'm.id',
         'm.movementType',

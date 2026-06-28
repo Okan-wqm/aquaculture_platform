@@ -130,10 +130,20 @@ describe('INVARIANT: farm batch lifecycle and transaction SSOT', () => {
     expect(missingTenantScope).toEqual([]);
   });
 
-  it('keeps mortality/cull raw transaction paths visibly tenant-scoped until migration', () => {
+  it('routes mortality/cull writes through the canonical fail-closed tenant transaction boundary', () => {
     for (const source of [recordMortalitySource, recordCullSource]) {
-      expect(source).toMatch(/this\.dataSource\.createQueryRunner\(/);
+      // FARM-HIGH-060: mortality/cull are now migrated off the raw
+      // `this.dataSource.createQueryRunner()` path onto the asserting boundary.
+      // runInTenantTransaction sets AND verifies search_path + the RLS GUC
+      // against the expected tenant schema before any write, so a stale pooled
+      // session or missing AsyncLocalStorage frame cannot write source-schema data.
+      expect(source).toMatch(/runInTenantTransaction\(this\.dataSource, 'farm', tenantId/);
+      expect(source).not.toMatch(/this\.dataSource\.createQueryRunner\(/);
+      // Defense-in-depth: every Batch read still carries tenantId in its where
+      // clause (ORM-level isolation beneath the schema route).
       expect(source).toMatch(/where:\s*\{[\s\S]*tenantId/);
+      // Outbox row is enqueued through the transactional manager so it commits
+      // or rolls back atomically with the domain writes.
       expect(source).toMatch(/outboxPublisher\.enqueue\([\s\S]*queryRunner\.manager/);
     }
   });

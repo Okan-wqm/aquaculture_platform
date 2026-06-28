@@ -9,6 +9,7 @@
  *
  * @module Batch/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
@@ -95,28 +96,25 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
   async execute(query: ListAvailableTanksQuery): Promise<AvailableTank[]> {
     const { tenantId, siteId, departmentId, excludeFullTanks } = query;
 
-    // SECURITY: Validate tenantId is a well-formed UUID before using it in schema name
+    // SECURITY: Validate tenantId is a well-formed UUID before using it.
     if (!UUID_REGEX.test(tenantId)) {
       throw new BadRequestException('Invalid tenant ID format');
     }
 
-    // Compute tenant schema name from tenantId (must match TenantSchemaMiddleware logic)
-    const schemaName = `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
-
-
-    // Use a dedicated queryRunner so SET search_path and SELECT run on the SAME connection
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      await queryRunner.query(`SET search_path TO "${schemaName}", farm, public`);
-
+    // Read through the fail-closed tenant boundary: it pins search_path + the
+    // RLS GUC transaction-locally and asserts current_schema() before the raw
+    // SELECTs run, so a lost/wrong tenant context raises TenantContextError
+    // instead of silently resolving rows from the source `farm` schema. This
+    // also replaces the hand-rolled createQueryRunner + SET/RESET search_path.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const [equipmentRows, tankRows] = await Promise.all([
         this.queryEquipmentRaw(queryRunner, tenantId, siteId, departmentId),
         this.queryTanksRaw(queryRunner, tenantId, siteId, departmentId),
       ]);
 
-      this.logger.debug(`Results: equipment=${equipmentRows.length}, tanks=${tankRows.length}`);
+      this.logger.debug(
+        `Results: equipment=${equipmentRows.length}, tanks=${tankRows.length}`,
+      );
 
       // Merge and deduplicate (equipment takes precedence)
       const seenIds = new Set(equipmentRows.map((r) => r.id));
@@ -127,15 +125,10 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
 
       merged.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-      if (excludeFullTanks) {
-        return merged.filter(t => t.availableCapacity > 0);
-      }
-
-      return merged;
-    } finally {
-      await queryRunner.query('RESET search_path').catch(() => {});
-      await queryRunner.release();
-    }
+      return excludeFullTanks
+        ? merged.filter((t) => t.availableCapacity > 0)
+        : merged;
+    });
   }
 
   private async queryEquipmentRaw(

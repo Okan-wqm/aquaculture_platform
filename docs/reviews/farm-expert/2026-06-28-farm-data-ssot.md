@@ -74,6 +74,19 @@ Fix: the five-seeder run is wrapped in `withTenantContext(event.tenantId, ...)`
 ack/fail publish stays outside the frame (cross-tenant outbox infra). A new test
 asserts `getRequestContext().tenantId` is set during seeding.
 
+## FARM-HIGH-063 — list-available-tanks hand-rolled QueryRunner + SET search_path
+
+`ListAvailableTanksHandler` opened its own `createQueryRunner()` and issued
+`SET search_path TO "tenant_…", farm, public` (session-level, no RLS GUC, no
+assertion, manual RESET) to run two raw SELECTs.
+
+Evidence:
+- `apps/farm-service/src/batch/query-handlers/list-available-tanks.handler.ts`
+
+Fix: replaced with `runInTenantRead` — the raw SELECTs now run on a boundary
+connection whose search_path + RLS GUC are pinned and asserted; the hand-rolled
+SET/RESET and the duplicated schema-name derivation are removed.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

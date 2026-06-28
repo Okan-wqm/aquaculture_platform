@@ -238,6 +238,30 @@ boundary asserts context, so `null` / not-found is honest). Dropped the unused
 (`get-daily-feeding-plan`, `get-growth-analysis`, water-quality configs) tracked
 under plan Task #9.
 
+## FARM-HIGH-073 — chemical / consumable / department / equipment / feed / feeding read handlers outside the boundary
+
+First batch of the domain-by-domain read-handler migration (plan Task #9). 14
+read handlers across six domains read via raw `@InjectRepository`
+(findOne / find / query builder), relying only on pool-checkout search_path +
+RLS — no boundary assertion.
+
+Evidence:
+- `apps/farm-service/src/chemical/handlers/get-chemical.handler.ts`, `list-chemicals.handler.ts`
+- `apps/farm-service/src/consumable/handlers/get-consumable.handler.ts`, `list-consumables.handler.ts`
+- `apps/farm-service/src/department/handlers/get-department-delete-preview.handler.ts`, `list-departments.handler.ts`
+- `apps/farm-service/src/equipment/handlers/get-sub-equipment.handler.ts`, `list-feeder-calibrations.handler.ts`, `list-sub-equipment.handler.ts`
+- `apps/farm-service/src/feed/handlers/get-feed.handler.ts`, `get-feeding-protocol.handler.ts`, `list-feeding-protocols.handler.ts`, `list-feeds.handler.ts`
+- `apps/farm-service/src/feeding/query-handlers/get-daily-feeding-plan.handler.ts`
+
+Fix: all 14 now read through `runInTenantRead` via `queryRunner.manager`
+(asserts schema + RLS GUC); `NotFoundException` paths preserved inside the
+callback. Specs added (33 tests). `equipment/get-equipment-types` and
+`get-sub-equipment-types` were deliberately **deferred** — they read seeded
+reference data from the `farm` source schema, which needs the explicit
+`runInSourceRead` API (Task #23) rather than the tenant boundary (wrapping them
+would make the schema assertion fail). Remaining domains (harvest, site,
+species, storage, supplier, system, tank, worker) follow as the second batch.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

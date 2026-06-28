@@ -10,9 +10,10 @@
  *
  * @module Feeding/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 
 import {
@@ -36,14 +37,8 @@ export class GetDailyFeedingPlanHandler
   implements IQueryHandler<GetDailyFeedingPlanQuery, DailyFeedingPlanResult>
 {
   constructor(
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-    @InjectRepository(FeedingProgram)
-    private readonly programRepository: Repository<FeedingProgram>,
-    @InjectRepository(FeedingProgramTank)
-    private readonly programTankRepository: Repository<FeedingProgramTank>,
-    @InjectRepository(DailyFeedingExecution)
-    private readonly executionRepository: Repository<DailyFeedingExecution>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -59,106 +54,109 @@ export class GetDailyFeedingPlanHandler
   async execute(query: GetDailyFeedingPlanQuery): Promise<DailyFeedingPlanResult> {
     const { tenantId, siteId, date } = query;
 
-    // Validate site exists
-    const site = await this.siteRepository.findOne({
-      where: { id: siteId, tenantId },
-    });
-    if (!site) {
-      throw new NotFoundException(`Site ${siteId} not found`);
-    }
-
-    // Get active feeding programs for this site
-    const programs = await this.programRepository.find({
-      where: { tenantId, siteId, isDeleted: false },
-    });
-    const activePrograms = programs.filter((p) => p.status === ('active' as never));
-
-    // Get program tank assignments
-    const programIds = activePrograms.map((p) => p.id);
-    let programTanks: FeedingProgramTank[] = [];
-    if (programIds.length > 0) {
-      programTanks = await this.programTankRepository
-        .createQueryBuilder('pt')
-        .where('pt.tenantId = :tenantId', { tenantId })
-        .andWhere('pt.feedingProgramId IN (:...programIds)', { programIds })
-        .andWhere('pt.isActive = true')
-        .getMany();
-    }
-
-    // Get today's executions (using executionDate column, type: date)
-    const executionDate = new Date(date);
-    executionDate.setHours(0, 0, 0, 0);
-    const dateStr = executionDate.toISOString().split('T')[0];
-
-    let executions: DailyFeedingExecution[] = [];
-    if (programIds.length > 0) {
-      executions = await this.executionRepository
-        .createQueryBuilder('ex')
-        .where('ex.tenantId = :tenantId', { tenantId })
-        .andWhere('ex.feedingProgramId IN (:...programIds)', { programIds })
-        .andWhere('ex.executionDate = :dateStr', { dateStr })
-        .getMany();
-    }
-
-    // Build planned feedings matching GraphQL PlannedFeeding shape
-    const plannedFeedings: DailyFeedingPlanResult['plannedFeedings'] = [];
-    let totalPlannedKg = 0;
-    let totalActualKg = 0;
-
-    for (const pt of programTanks) {
-      const program = activePrograms.find((p) => p.id === pt.feedingProgramId);
-      if (!program) continue;
-
-      // Find executions for this equipment
-      const equipmentExecs = executions.filter(
-        (e) => e.equipmentId === pt.equipmentId && e.feedingProgramId === pt.feedingProgramId,
-      );
-
-      // Sum planned and actual from execution JSONB fields
-      const plannedKg = equipmentExecs.reduce(
-        (sum, e) => sum + (e.calculations?.plannedFeedKg ?? 0),
-        0,
-      );
-      const actualKg = equipmentExecs.reduce(
-        (sum, e) => sum + (e.actualResults?.actualFeedGivenKg ?? 0),
-        0,
-      );
-      const completedMeals = equipmentExecs.filter((e) => e.isCompleted()).length;
-      const mealsPlanned = equipmentExecs.length;
-
-      // Get current feed info from program tank or first feed assignment
-      const firstAssignment = program.feedAssignments?.[0];
-      const feedId = pt.currentFeedId ?? firstAssignment?.feedId ?? '';
-      const feedName = pt.currentFeedCode ?? firstAssignment?.feedName ?? '';
-
-      plannedFeedings.push({
-        batchId: '',
-        batchCode: '',
-        tankId: pt.equipmentId,
-        tankCode: pt.equipmentCode,
-        feedId,
-        feedName,
-        plannedAmountKg: plannedKg,
-        actualAmountKg: actualKg,
-        mealsPlanned,
-        mealsCompleted: completedMeals,
-        isComplete: mealsPlanned > 0 && completedMeals >= mealsPlanned,
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // Validate site exists
+      const site = await queryRunner.manager.findOne(Site, {
+        where: { id: siteId, tenantId },
       });
+      if (!site) {
+        throw new NotFoundException(`Site ${siteId} not found`);
+      }
 
-      totalPlannedKg += plannedKg;
-      totalActualKg += actualKg;
-    }
+      // Get active feeding programs for this site
+      const programs = await queryRunner.manager.find(FeedingProgram, {
+        where: { tenantId, siteId, isDeleted: false },
+      });
+      const activePrograms = programs.filter((p) => p.status === ('active' as never));
 
-    const completionPercent =
-      totalPlannedKg > 0 ? Math.round((totalActualKg / totalPlannedKg) * 100) : 0;
+      // Get program tank assignments
+      const programIds = activePrograms.map((p) => p.id);
+      let programTanks: FeedingProgramTank[] = [];
+      if (programIds.length > 0) {
+        programTanks = await queryRunner.manager
+          .createQueryBuilder(FeedingProgramTank, 'pt')
+          .where('pt.tenantId = :tenantId', { tenantId })
+          .andWhere('pt.feedingProgramId IN (:...programIds)', { programIds })
+          .andWhere('pt.isActive = true')
+          .getMany();
+      }
 
-    return {
-      date,
-      siteId,
-      plannedFeedings,
-      totalPlannedKg,
-      totalActualKg,
-      completionPercent,
-    };
+      // Get today's executions (using executionDate column, type: date)
+      const executionDate = new Date(date);
+      executionDate.setHours(0, 0, 0, 0);
+      const dateStr = executionDate.toISOString().split('T')[0];
+
+      let executions: DailyFeedingExecution[] = [];
+      if (programIds.length > 0) {
+        executions = await queryRunner.manager
+          .createQueryBuilder(DailyFeedingExecution, 'ex')
+          .where('ex.tenantId = :tenantId', { tenantId })
+          .andWhere('ex.feedingProgramId IN (:...programIds)', { programIds })
+          .andWhere('ex.executionDate = :dateStr', { dateStr })
+          .getMany();
+      }
+
+      // Build planned feedings matching GraphQL PlannedFeeding shape
+      const plannedFeedings: DailyFeedingPlanResult['plannedFeedings'] = [];
+      let totalPlannedKg = 0;
+      let totalActualKg = 0;
+
+      for (const pt of programTanks) {
+        const program = activePrograms.find((p) => p.id === pt.feedingProgramId);
+        if (!program) continue;
+
+        // Find executions for this equipment
+        const equipmentExecs = executions.filter(
+          (e) => e.equipmentId === pt.equipmentId && e.feedingProgramId === pt.feedingProgramId,
+        );
+
+        // Sum planned and actual from execution JSONB fields
+        const plannedKg = equipmentExecs.reduce(
+          (sum, e) => sum + (e.calculations?.plannedFeedKg ?? 0),
+          0,
+        );
+        const actualKg = equipmentExecs.reduce(
+          (sum, e) => sum + (e.actualResults?.actualFeedGivenKg ?? 0),
+          0,
+        );
+        const completedMeals = equipmentExecs.filter((e) => e.isCompleted()).length;
+        const mealsPlanned = equipmentExecs.length;
+
+        // Get current feed info from program tank or first feed assignment
+        const firstAssignment = program.feedAssignments?.[0];
+        const feedId = pt.currentFeedId ?? firstAssignment?.feedId ?? '';
+        const feedName = pt.currentFeedCode ?? firstAssignment?.feedName ?? '';
+
+        plannedFeedings.push({
+          batchId: '',
+          batchCode: '',
+          tankId: pt.equipmentId,
+          tankCode: pt.equipmentCode,
+          feedId,
+          feedName,
+          plannedAmountKg: plannedKg,
+          actualAmountKg: actualKg,
+          mealsPlanned,
+          mealsCompleted: completedMeals,
+          isComplete: mealsPlanned > 0 && completedMeals >= mealsPlanned,
+        });
+
+        totalPlannedKg += plannedKg;
+        totalActualKg += actualKg;
+      }
+
+      const completionPercent =
+        totalPlannedKg > 0 ? Math.round((totalActualKg / totalPlannedKg) * 100) : 0;
+
+      return {
+        date,
+        siteId,
+        plannedFeedings,
+        totalPlannedKg,
+        totalActualKg,
+        completionPercent,
+      };
+    });
   }
 }

@@ -11,6 +11,7 @@ import {
   required,
   minLength,
   validateField,
+  publicGraphqlClient,
 } from '@aquaculture/shared-ui';
 
 import { AuthFormShell } from './AuthFormShell';
@@ -53,22 +54,15 @@ const ResetPasswordForm: React.FC = () => {
 
       setIsSubmitting(true);
       try {
-        const response = await fetch('/graphql', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: `mutation ResetPassword($input: ResetPasswordInput!) {
+        // Pre-auth: sanctioned barrier-skipping client (no auth/tenant header).
+        await publicGraphqlClient.request(
+          `mutation ResetPassword($input: ResetPasswordInput!) {
               resetPassword(input: $input) {
                 accessToken
               }
             }`,
-            variables: { input: { token, newPassword: formData.password } },
-          }),
-        });
-        const result = await response.json();
-        if (result.errors) {
-          throw new Error(result.errors[0]?.message || t('common.error'));
-        }
+          { input: { token, newPassword: formData.password } },
+        );
         setSuccess(true);
       } catch (err) {
         setErrors({ password: err instanceof Error ? err.message : t('common.error') });

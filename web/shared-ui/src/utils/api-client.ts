@@ -953,4 +953,87 @@ export class RestClientError extends Error {
 export const graphqlClient = new GraphQLClient();
 export const restClient = new RestClient();
 
+/**
+ * Pre-auth GraphQL client — the SANCTIONED transport for operations that run BEFORE
+ * a session exists (forgot-password, reset-password, validate/accept-invitation).
+ *
+ * It is the replacement for raw `fetch('/graphql')` in pre-auth forms (plan A7 /
+ * the `web-no-raw-graphql-rest-fetch` gate). Unlike `graphqlClient` it deliberately:
+ *   - does NOT await the token-lifecycle barrier (there is no token yet — awaiting it
+ *     would deadlock the very flow that mints the first token), and
+ *   - sends NO `Authorization` / `X-Tenant-Id` header (the op is unauthenticated and
+ *     tenant-agnostic; the resolver must treat it as public).
+ * It KEEPS the typed 5xx transport-error handling so a gateway 502 during a pre-auth
+ * op surfaces a classified `GraphQLClientError` instead of a bare JSON-parse crash,
+ * and feeds the same backend-health circuit as the authed client.
+ */
+class PublicGraphQLClient {
+  private readonly graphqlUrl = defaultConfig.graphqlUrl;
+  private readonly timeoutMs = defaultConfig.timeout;
+
+  private requestId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  async request<TData = unknown, TVariables = Record<string, unknown>>(
+    query: string | DocumentNode,
+    variables?: TVariables,
+    options?: GraphQLRequestOptions,
+  ): Promise<TData> {
+    const { headers: customHeaders, timeout, signal } = options || {};
+    const queryString = typeof query === 'string' ? query : print(query);
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Request-Id': this.requestId(),
+      ...customHeaders,
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout || this.timeoutMs);
+
+    try {
+      const response = await fetch(this.graphqlUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ query: queryString, variables }),
+        signal: signal || controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      // 5xx (nginx 502/503/504 / server error) returns HTML, not GraphQL JSON.
+      // Surface a TYPED transport error before response.json() throws an
+      // unclassifiable SyntaxError. (Mirror of the authed GraphQLClient.)
+      if (response.status >= 500) {
+        backendHealthCircuit.recordFailure();
+        const code =
+          response.status >= 502 && response.status <= 504
+            ? 'BACKEND_UNAVAILABLE'
+            : 'NETWORK_ERROR';
+        throw new GraphQLClientError(`Backend unavailable (HTTP ${response.status})`, code);
+      }
+
+      const result = await response.json();
+      backendHealthCircuit.recordSuccess();
+
+      if (result.errors?.length) {
+        throw new GraphQLClientError(
+          result.errors[0]?.message || 'GraphQL error',
+          'GRAPHQL_ERROR',
+          result.errors,
+        );
+      }
+      return result.data as TData;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
+    }
+  }
+}
+
+export const publicGraphqlClient = new PublicGraphQLClient();
+
 export default graphqlClient;

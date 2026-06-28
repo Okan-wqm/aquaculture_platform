@@ -24,12 +24,13 @@ const SCAN_ROOTS = ['web/modules', 'web/shell/src'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', 'test', '__mocks__']);
 const RAW_TRANSPORT = /fetch\(\s*[`'"](?:\/graphql|\/api)/;
 
-/** A7 burn-down — files that STILL use raw fetch. This set may ONLY shrink. */
+/**
+ * A7 burn-down — files that STILL use raw fetch. This set may ONLY shrink.
+ * The 3 pre-auth forms were migrated to `publicGraphqlClient` (A7 step 1) and removed.
+ * Remaining: farm uploads, which need `restClient` multipart support (A7 step 2).
+ */
 const KNOWN_OFFENDERS = new Set<string>([
   'web/modules/farm-module/src/hooks/useChemicals.ts', // 2x /api upload — needs restClient multipart
-  'web/shell/src/pages/auth/ForgotPasswordForm.tsx', // /graphql pre-auth — needs publicGraphqlClient
-  'web/shell/src/pages/auth/ResetPasswordForm.tsx', // /graphql pre-auth
-  'web/shell/src/pages/auth/AcceptInvitationForm.tsx', // 2x /graphql pre-auth
 ]);
 
 function walk(dir: string): string[] {

@@ -507,29 +507,29 @@ callsites bypass the outbox without a tenantId guard (separate concern).
 
 ## FARM-MEDIUM-081..086 — invariants, observability & E2E tail (Tasks #11, #16, #18, #20, #21, #17)
 
-- **081 (#11)** event-handler tenant-context invariant: new always-on
+- **FARM-MEDIUM-081 (#11)** event-handler tenant-context invariant: new always-on
   `tests/invariants/farm-event-handler-tenant-context-ssot.spec.ts` requires
   every farm NATS event handler that touches the DB to establish a tenant
   context (`withTenantContext` / `runInTenant*` / explicit search_path pin). 5
   handlers found, all compliant; allowlist empty + honesty test; wired into the
   layer-3 shard.
-- **082 (#16)** semantic deploy canary: `post-deploy-verify.sh` now issues a
+- **FARM-MEDIUM-082 (#16)** semantic deploy canary: `post-deploy-verify.sh` now issues a
   named farm GraphQL read through the public edge and asserts the supergraph
   composed the `farms` field AND an anonymous caller gets no data + an
   `UNAUTHENTICATED`/`FORBIDDEN` error (data-without-auth → fail). `bash -n` clean.
-- **083 (#18)** correlation-id: `nginx.conf` / `nginx.prod.conf` preserve/generate
+- **FARM-MEDIUM-083 (#18)** correlation-id: `nginx.conf` / `nginx.prod.conf` preserve/generate
   `x-correlation-id` (the exact header gateway-api reads), propagate it upstream,
   and log it in the json access log. TRACKED: the droplet edge `droplet.conf`
   still needs the same block.
-- **084 (#20)** Grafana: a "Farm Data SSOT / Tenant Boundary" dashboard
+- **FARM-MEDIUM-084 (#20)** Grafana: a "Farm Data SSOT / Tenant Boundary" dashboard
   (`farm_mutation_*` + outbox depth/age) + Prometheus alerts (mutation error
   rate, outbox backlog) with `runbook_url`. JSON/YAML validated.
-- **085 (#21)** RLS GUC test-drift: corrected `app.current_tenant_id` →
+- **FARM-MEDIUM-085 (#21)** RLS GUC test-drift: corrected `app.current_tenant_id` →
   `app.current_tenant` in `tenant-clone-parity.spec` + `platform-bootstrap.integration.spec`
   so they assert the canonical runtime GUC (runtime was already canonical).
   TRACKED: an archived observability migration still uses `app.platform_role`
   (dead code, outside the active chain).
-- **086 (#17)** tenant-swap E2E: `e2e/tests/tenant-swap-attack.e2e.spec.ts`
+- **FARM-MEDIUM-086 (#17)** tenant-swap E2E: `e2e/tests/tenant-swap-attack.e2e.spec.ts`
   proves forged-`x-tenant-id` / swapped-reference reads yield isolation (not a
   200-empty) and the HMAC→tenant binding is enforced. Env-gated like sibling e2e
   specs — skips clean (3 skipped / 5 control pass) without a live stack.

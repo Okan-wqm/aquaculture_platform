@@ -10,13 +10,13 @@
  * is derived from that same verified tenantId.
  */
 import DataLoader from 'dataloader';
-import { Repository } from 'typeorm';
+import { ObjectLiteral, Repository } from 'typeorm';
 import { createTenantScopedDataLoader } from '@aquaculture/backend-common/dataloader';
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { BatchSpeciesRow } from '../../common/types/graphql-context.types';
 
 export function createBatchSpeciesLoader(
-  repo: Repository<unknown>,
+  repo: Repository<ObjectLiteral>,
 ): DataLoader<string, BatchSpeciesRow | null> {
   return createTenantScopedDataLoader<string, BatchSpeciesRow | null>(
     async (tenantId: string, batchIds: readonly string[]): Promise<(BatchSpeciesRow | null)[]> => {

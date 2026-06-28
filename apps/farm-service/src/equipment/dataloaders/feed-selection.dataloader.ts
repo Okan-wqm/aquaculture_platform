@@ -10,7 +10,7 @@
  * derived from that same verified tenantId.
  */
 import DataLoader from 'dataloader';
-import { Repository } from 'typeorm';
+import { ObjectLiteral, Repository } from 'typeorm';
 import { createTenantScopedDataLoader } from '@aquaculture/backend-common/dataloader';
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { FeedSelectionRow, FeedSelectionDataLoader } from '../../common/types/graphql-context.types';
@@ -53,7 +53,7 @@ function parseEntries(value: FeedAssignmentEntry[] | string): FeedAssignmentEntr
   return Array.isArray(parsed) ? parsed : [];
 }
 
-export function createFeedSelectionLoader(repo: Repository<unknown>): FeedSelectionDataLoader {
+export function createFeedSelectionLoader(repo: Repository<ObjectLiteral>): FeedSelectionDataLoader {
   // Store batch context for weight/biomass lookup
   const contextMap = new Map<string, BatchFeedContext>();
 

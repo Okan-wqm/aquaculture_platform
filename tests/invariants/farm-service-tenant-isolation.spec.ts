@@ -79,9 +79,10 @@ const GLOBAL_CATALOGUE_ENTITIES = new Set([
  */
 const FEDERATION_LOOKUP_SITES = new Set<string>([
   // get-farm.handler.ts — federation __resolveReference path documented
-  // in the handler body; tenantId optional to serve cross-tenant
-  // federation refs.
-  'apps/farm-service/src/farm/query-handlers/get-farm.handler.ts:48',
+  // in the handler body (the `runInSourceRead` branch, taken only when
+  // tenantId is absent); tenantId optional to serve cross-tenant
+  // federation refs. Security is enforced at the gateway.
+  'apps/farm-service/src/farm/query-handlers/get-farm.handler.ts:47',
 ]);
 
 interface Finding {
@@ -163,11 +164,21 @@ function scanFarmHandlers(): Finding[] {
       if (whereBlock !== null && /tenantId|tenant_id/.test(whereBlock)) continue;
 
       // where: varName — resolve the variable definition backward and
-      // check if THAT has tenantId. Pattern: `where: someVar,` or
-      // `where: someVar }`.
+      // check if THAT has tenantId. Two surface forms map to a local
+      // variable:
+      //   1. explicit alias  `where: someVar,` / `where: someVar }`
+      //   2. ES6 object-property shorthand `{ where, ... }` (≡ `where: where`)
+      // Shorthand is the idiomatic form (ESLint `object-shorthand` enforces
+      // it), so the scanner must resolve it to the local `where` declaration
+      // exactly as it resolves the explicit alias — otherwise correct,
+      // fully tenant-scoped handlers that build `const where = { tenantId }`
+      // and pass `{ where }` false-positive. The backward varDef check below
+      // still requires proof that the resolved variable carries tenantId, so
+      // a `const where = { id }` (no tenant) is NOT silently allowed.
       const whereVarMatch = /where\s*:\s*(\w+)\s*[,}]/.exec(callWindow);
-      if (whereVarMatch) {
-        const varName = whereVarMatch[1]!;
+      const whereShorthand = /[{,]\s*where\s*[,}]/.test(callWindow);
+      const varName = whereVarMatch ? whereVarMatch[1]! : whereShorthand ? 'where' : null;
+      if (varName) {
         // Look backward for the variable declaration in this method.
         const backward = lines.slice(Math.max(0, i - 60), i).join('\n');
         const varDef = new RegExp(

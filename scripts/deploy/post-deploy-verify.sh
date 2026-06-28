@@ -10,6 +10,15 @@ POSTGRES_DB="${POSTGRES_DB:-aquaculture}"
 POSTGRES_USER="${POSTGRES_USER:-aquaculture}"
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
 
+# Deploy filesystem SSoT. This verifier is piped to the droplet over SSH via
+# `bash -s`, so its initial cwd is the login home — it sources deploy-paths.sh
+# from the persistent source repo (always present) to learn the deploy-owned,
+# SHA-pinned DEPLOY_CHECKOUT_DIR it must verify from. The verifier reads the
+# deploy's worktree, NOT the interactive /var/aqua-saas tree, so the HEAD check
+# below can no longer false-fail when a parallel session drifts that tree.
+# shellcheck source=scripts/deploy/deploy-paths.sh
+source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+
 case "${TARGET_SHA}" in
   *[!0-9a-f]*)
     echo "::error::TARGET_SHA must be lowercase hex." >&2
@@ -53,13 +62,18 @@ require_command git
 require_command node
 require_command python3
 
-cd /var/aqua-saas
+# Verify from the dedicated, deploy-owned SHA-pinned checkout — not the shared
+# interactive working tree. The HEAD check is now a true invariant: the deploy
+# pins this worktree to the deploy SHA and nothing else writes to it, so a
+# session checking out a feature branch in /var/aqua-saas cannot make this
+# false-fail (the historical expected=<sha> actual=<feature-branch-sha> bug).
+cd "${DEPLOY_CHECKOUT_DIR}"
 
-log "=== Post-deploy verification for ${TARGET_SHA} ==="
+log "=== Post-deploy verification for ${TARGET_SHA} (checkout ${DEPLOY_CHECKOUT_DIR}) ==="
 
 deployed_head="$(git rev-parse HEAD)"
 if [ "${deployed_head}" != "${TARGET_SHA}" ]; then
-  echo "::error::droplet checkout mismatch: expected=${TARGET_SHA} actual=${deployed_head}" >&2
+  echo "::error::deploy checkout mismatch in ${DEPLOY_CHECKOUT_DIR}: expected=${TARGET_SHA} actual=${deployed_head}" >&2
   exit 1
 fi
 

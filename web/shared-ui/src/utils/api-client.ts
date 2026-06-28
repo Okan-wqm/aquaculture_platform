@@ -6,6 +6,7 @@
 
 import { print, type DocumentNode } from 'graphql';
 import { backendHealthCircuit } from './backend-health-circuit';
+import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
 
 // ============================================================================
@@ -268,6 +269,10 @@ export function clearSession(): void {
     // Ignore
   }
 
+  // Advance the cache generation on logout so a subsequent login (same browser,
+  // no full reload) cannot read the prior session's tenant cache — see session-epoch.ts.
+  bumpSessionEpoch();
+
   // Re-install auth global in case it wasn't set yet
   installAuthGlobal();
 
@@ -455,6 +460,9 @@ export function setTenantId(id: string | null): void {
 
   // SECURITY: Notify listeners when the active tenant actually changed
   if (previousTenantId && previousTenantId !== id) {
+    // Advance the cache generation so React Query keys for the new (or
+    // re-entered) tenant are fresh — see session-epoch.ts.
+    bumpSessionEpoch();
     for (const cb of tenantChangeCallbacks) {
       try {
         cb(previousTenantId);

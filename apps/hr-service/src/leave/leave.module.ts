@@ -8,6 +8,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../hr/entities/employee.entity';
 import { HrOutboxModule } from '../hr-outbox.module';
 import { HrMobileCommandReceipt } from '../mobile-command/entities/hr-mobile-command-receipt.entity';
+// Holiday is owned by the scheduling domain but read (no writes) by the
+// calculateLeaveDays query to exclude tenant holidays from working-day counts.
+import { Holiday } from '../scheduling/entities/holiday.entity';
 
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
@@ -25,6 +28,7 @@ import { LeaveQueryHandlers } from './query-handlers';
       LeaveBalance,
       LeaveRequest,
       Employee,
+      Holiday,
       HrMobileCommandReceipt,
     ]),
     CqrsModule,

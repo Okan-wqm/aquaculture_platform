@@ -204,6 +204,59 @@ _REQUIRED_TESTS_BY_RISK: dict[str, tuple[dict[str, Any], ...]] = {
 }
 
 
+# Plan 031 Gate A — regression-anchor patterns.
+# An autonomous fix MUST leave at least one durable test/fixture in its diff,
+# regardless of risk type. This is the load-bearing "every autonomous fix
+# leaves a regression test" guarantee: the deterministic floor under autonomy
+# when the operator cannot be the code-correctness reviewer. The patterns cover
+# both the TS/JS suite layout (__tests__, *.spec.*, *.test.*) and the Python
+# kernel suite (test_*.py, *_test.py, tests/ dirs) plus fixture corpora
+# (fixture_set/cases/*.json). Containment/regex matches — same heuristic style
+# as the risk-path detector above.
+_REGRESSION_ANCHOR_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(^|/)__tests__/"),
+    re.compile(r"\.spec\.[cm]?[jt]sx?$"),
+    re.compile(r"\.test\.[cm]?[jt]sx?$"),
+    re.compile(r"(^|/)test_[^/]+\.py$"),
+    re.compile(r"(^|/)[^/]+_test\.py$"),
+    re.compile(r"(^|/)tests?/"),
+    re.compile(r"fixture", re.I),
+)
+
+
+def has_regression_anchor(files: list[str]) -> bool:
+    """Plan 031 Gate A — True iff ≥1 affected file is a test/fixture path.
+
+    The single source of truth for "this diff leaves a regression anchor".
+    Used by ``enforce_validation_matrix`` under ``require_regression_anchor``
+    and reusable by any caller that needs the same determination.
+    """
+    return any(
+        any(pattern.search(f) for pattern in _REGRESSION_ANCHOR_PATTERNS)
+        for f in files
+    )
+
+
+def _resolve_affected_files(
+    *,
+    change_id: str,
+    base_dir: str | Path | None,
+    affected_files_override: list[str] | None,
+) -> list[str]:
+    """Resolve a change's affected files (override wins; else committed row).
+
+    Mirrors the resolution inside ``detect_risk_types_for_change`` so the
+    regression-anchor gate and the risk detector read the SAME file list from
+    one lookup instead of fetching the change chain twice.
+    """
+    if affected_files_override is not None:
+        return list(affected_files_override)
+    from .change_ledger import get_change_chain
+    chain = get_change_chain(change_id=change_id, base_dir=base_dir)
+    committed = chain.get("committed") or {}
+    return list(committed.get("actual_affected_files") or [])
+
+
 def list_required_tests(risk_types: list[str]) -> list[dict[str, Any]]:
     """Return the union of required-test specs for the given risk types.
 
@@ -409,6 +462,7 @@ def enforce_validation_matrix(
     candidate_refs: list[Any],
     affected_files_override: list[str] | None = None,
     validation_mode: str = DEFAULT_VALIDATION_MODE,
+    require_regression_anchor: bool = False,
 ) -> dict[str, Any]:
     """3-layer matrix gate. Returns {passed, blocked, ...detail}.
 
@@ -420,6 +474,12 @@ def enforce_validation_matrix(
     historical_attestation mode: bypasses the matrix gate entirely; returns
     passed=True with a notice that the row will be audit-only (Phase 9
     metric counter excludes historical chains from the numerator).
+
+    Plan 031 Gate A: when ``require_regression_anchor`` is True (the cycle's
+    autonomous-fix path sets it), the diff MUST include at least one
+    test/fixture file or the gate blocks before any risk-type branch — the
+    deterministic "every autonomous fix leaves a regression test" floor.
+    Bypassed under ``historical_attestation`` (audit-only replay).
     """
     if validation_mode not in VALIDATION_MODES:
         raise GovernanceError(
@@ -429,9 +489,41 @@ def enforce_validation_matrix(
     enforce_profile_for_write("validation_matrix", base_dir=base_dir)
 
     repo = Path(repo_root or Path.cwd()).resolve()
-    risk_types = detect_risk_types_for_change(
+    affected_files = _resolve_affected_files(
         change_id=change_id, base_dir=base_dir,
         affected_files_override=affected_files_override,
+    )
+
+    # Plan 031 Gate A — regression-anchor precondition (enforced mode only).
+    # Tier-1 "make it impossible": an autonomous fix cannot reach
+    # change_validated without leaving a durable test/fixture in its diff.
+    if (
+        require_regression_anchor
+        and validation_mode == "enforced"
+        and not has_regression_anchor(affected_files)
+    ):
+        blocked = {
+            "change_id": change_id,
+            "validation_mode": validation_mode,
+            "passed": False,
+            "blocked": True,
+            "reason": "regression_anchor_required",
+            "affected_files": affected_files,
+        }
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "validation_matrix_check",
+            {**blocked, "trigger": "regression_anchor_missing"},
+        )
+        raise GovernanceError(
+            f"regression_anchor_required: change_id={change_id!r} affected "
+            f"{len(affected_files)} file(s) but none is a test/fixture path; "
+            f"every autonomous fix must leave a durable regression test"
+        )
+
+    risk_types = detect_risk_types_for_change(
+        change_id=change_id, base_dir=base_dir,
+        affected_files_override=affected_files,
     )
 
     if validation_mode == "historical_attestation":
@@ -604,4 +696,5 @@ __all__ = [
     "list_required_tests",
     "detect_risk_types_for_change",
     "enforce_validation_matrix",
+    "has_regression_anchor",
 ]

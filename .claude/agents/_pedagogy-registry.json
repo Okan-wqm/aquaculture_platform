@@ -61,6 +61,26 @@
       "pedagogy_tier": 3,
       "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
     },
+    "aria-acceptance-lead": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 acceptance-lane project lead; hybrid imperative+narrative; consequence-chain teaches why the deterministic harness verdict, not an agent opinion, is the gate."
+    },
+    "aria-acceptance-output-validator": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 read-only output validator; hybrid imperative+narrative; consequence-chain teaches why a borderline drift verdict is a lead, not the gate."
+    },
+    "aria-acceptance-gap-hunter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 read-only gap hunter; hybrid imperative+narrative; consequence-chain teaches why every gap claim must cite file:line evidence."
+    },
+    "aria-acceptance-gap-fixer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 write-tier gap fixer; hybrid imperative+narrative; consequence-chain teaches why a fix is root-cause + tested and opens a draft PR, never auto-merges."
+    },
     "aria-adversarial-judge": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,

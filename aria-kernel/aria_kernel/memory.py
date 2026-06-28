@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import fnmatch
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -666,6 +667,84 @@ def _normalize_belief(row: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+BELIEF_AGE_TTL_DAYS = 90
+
+
+def decay_stale_beliefs_by_age(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+    ttl_days: int = BELIEF_AGE_TTL_DAYS,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Plan 028 §D4 — time-based belief decay for UNCHANGED code.
+
+    Pre-Plan-028 belief decay was purely evidence/change-coupled
+    (``_apply_diff_to_existing_beliefs`` fires only when a diff touches a
+    belief's evidence). A belief about code that simply never changes could
+    stay ``supported`` forever, even if it was last verified a year ago — the
+    world may have moved (a dependency CVE, an upstream contract shift) without
+    a local diff. This adds the missing AGE trigger: a ``supported`` belief
+    whose ``verified_at`` is older than ``ttl_days`` is moved to
+    ``needs_revalidation`` (or ``stale`` once the revalidation-cycle ceiling is
+    crossed), which ``run_pressure`` already surfaces as operator pressure.
+
+    Only ``supported`` beliefs are decayed — once a belief is already
+    ``needs_revalidation``/``stale``/``contradicted``/``withdrawn`` the existing
+    machinery owns it, so age-decay bumps each belief at most once.
+    """
+    root = ensure_tools_dir(base_dir)
+    now_dt = now or datetime.now(timezone.utc)
+    cutoff = now_dt - timedelta(days=ttl_days)
+    repo_state = _repo_state(root, cycle_id)
+    decayed: list[dict[str, Any]] = []
+    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+        if belief.get("status") != "supported":
+            continue
+        verified_at = belief.get("verified_at")
+        if not verified_at:
+            continue
+        try:
+            verified_dt = datetime.fromisoformat(str(verified_at).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if verified_dt.tzinfo is None:
+            verified_dt = verified_dt.replace(tzinfo=timezone.utc)
+        if verified_dt >= cutoff:
+            continue
+        revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
+        status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
+        row = dict(belief)
+        row.update(
+            {
+                "status": status,
+                "needs_revalidation_cycles": revalidation_cycles,
+                "stale_reason": f"belief not re-verified within {ttl_days}d (age decay, code unchanged)",
+                "verification_status": "needs_revalidation",
+            },
+        )
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=verified_at,
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        decayed.append({
+            "belief_id": belief.get("belief_id"),
+            "verified_at": verified_at,
+            "status": status,
+        })
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "ttl_days": ttl_days,
+        "decayed_count": len(decayed),
+        "decayed": decayed,
+    }
+
+
 def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, Any], fates: dict[str, Any]) -> int:
     affected_paths = set(_array_of_strings(diff.get("removed_paths"))) | set(_array_of_strings(diff.get("changed_paths")))
     current_paths = _fate_paths(fates)
@@ -746,6 +825,16 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
             belief_id=str(belief.get("belief_id")),
             reason="belief evidence changed, disappeared, or glob no longer matches",
             evidence_refs=missing_refs + empty_globs,
+        )
+        # Plan 031 Gate B — a belief reopened because its evidence changed is a
+        # reopen signal for the oscillation guard. Pure counter increment (no
+        # escalation here); the fix dispatcher's guard_fix_dispatch decides.
+        from .oscillation_guard import record_reopen
+        record_reopen(
+            fingerprint=f"belief:{belief.get('belief_id')}",
+            cycle_id=cycle_id,
+            base_dir=root,
+            context={"reason": "belief_evidence_invalidated"},
         )
         written += 1
     return written

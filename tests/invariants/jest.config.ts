@@ -167,6 +167,7 @@ export default {
         '<rootDir>/skills-catalog.spec.ts',
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
         '<rootDir>/farm-service-tenant-isolation.spec.ts',
+        '<rootDir>/farm-read-boundary-ssot.spec.ts',
         '<rootDir>/farm-identity-ssot.spec.ts',
         '<rootDir>/farm-rest-cqrs-ssot.spec.ts',
         '<rootDir>/farm-graphql-fe-be-parity.spec.ts',

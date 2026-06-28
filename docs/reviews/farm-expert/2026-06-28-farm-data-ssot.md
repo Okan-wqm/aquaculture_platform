@@ -331,6 +331,24 @@ Fix: all 6 handlers migrated to `runInTenantRead` via `queryRunner.manager`;
 `tsconfig.spec` type-check is green. With this batch, every tenant-owned GraphQL
 read query-handler in farm-service that can use the boundary today does.
 
+## FARM-MEDIUM-077 — build-time gate locking in the fail-closed read boundary
+
+The read-handler migration (FARM-HIGH-061..076) removed every avoidable raw
+`@InjectRepository` read, but nothing stopped a new handler from reintroducing
+one — a silent regression of the fail-closed boundary (tier-3 "make it
+detectable" was missing).
+
+Evidence:
+- `tests/invariants/farm-read-boundary-ssot.spec.ts` (new), registered in
+  `tests/invariants/jest.config.ts` (layer-3 shard, always-on every PR).
+
+Fix: a new invariant fails the build if any farm-service `*.handler.ts`
+implementing `IQueryHandler` uses `@InjectRepository`, outside a tracked 6-entry
+allowlist (reference-data / federation / service-delegating reads under Task #23
++ the storage cursor primitive under Task #9 tail). A second test keeps the
+allowlist honest — it fails if an allowlisted file is migrated but left in the
+list, forcing the allowlist to shrink as Task #23 lands.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

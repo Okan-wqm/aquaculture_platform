@@ -23,6 +23,7 @@ import {
   SiteAuthorizationService,
   type SiteScopeCaller,
 } from '@aquaculture/backend-common/security';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In } from 'typeorm';
@@ -1198,6 +1199,9 @@ export class DailyFeedingExecutionService {
       );
       return { value: DEFAULT_TEMP, isDefault: true };
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.warn(
         `[WARNING] Error reading temperature for tank ${tankId}: ${error instanceof Error ? error.message : 'Unknown'}. ` +
         `Using default temperature ${DEFAULT_TEMP}C. Feeding calculations may be inaccurate.`,

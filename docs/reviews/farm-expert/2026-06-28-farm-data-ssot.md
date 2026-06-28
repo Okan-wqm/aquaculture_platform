@@ -605,6 +605,30 @@ gained the missing `await` so their catch is no longer dead). A re-sweep
 confirms no remaining farm resolver masks errors to `null`/`[]` without
 surfacing a tenant-context failure.
 
+## FARM-HIGH-086 — backend service-layer masking sweep
+
+Continuation of the resolver de-masking (FARM-HIGH-080/085) into farm-service
+services. 11 catch blocks across 7 files (growth-simulator, fcr-calculation,
+feed-consumption-forecast, daily-feeding-execution, regulatory-settings,
+sentinel-hub, feeding-scheduler) caught a tenant DB read and returned
+null/[]/a default, re-masking a `TenantContextError`. Each now re-throws
+`TenantContextError` at the top of the catch (rest of behavior preserved). 37
+other catches were inspected and deliberately skipped (Redis cache, external
+HTTP, writes, rollback+rethrow, void event handlers, fail-closed readiness —
+none read tenant DB rows returning data). farm-service tsc 0; full farm
+handler/resolver/service/dataloader suite **818 green**.
+
+## FARM-HIGH-087 — frontend stale-on-error sweep (completes FARM-HIGH-064)
+
+13 farm-module pages/components rendered an error-only view that blanked the
+surface on a background-refetch error even though TanStack Query still held
+cached data — the "data appears then disappears" UX bug. Each now gates the
+blocking error view behind `isBlockingError(error, hasData)` (the existing
+`utils/list-view-state.ts` helper) so it fires only on initial-load failure;
+with cached data + a refetch error they keep rendering and show a non-blocking
+amber retry banner (mirroring TanksPage). 6 already-correct components skipped.
+farm-module tsc 0.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

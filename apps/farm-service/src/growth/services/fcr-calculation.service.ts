@@ -18,6 +18,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { FeedingProgram, FeedingProgramStatus } from '../../feeding/entities/feeding-program.entity';
 import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.entity';
@@ -642,6 +643,9 @@ export class FCRCalculationService {
       // 5. Varsayılan
       return 1.5;
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.warn(
         `Target FCR alınırken hata oluştu (batchId: ${batchId}), varsayılan 1.5 kullanılıyor: ${error instanceof Error ? error.message : error}`,
       );
@@ -710,6 +714,9 @@ export class FCRCalculationService {
       // (Sıcaklık bilinmiyorsa tüm sıcaklıkların ortalamasını kullan)
       return this.interpolateFCRFromTable(fcrTable, avgWeightG);
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.debug(
         `Yemleme programından FCR alınamadı (batchId: ${batch.id}): ${error instanceof Error ? error.message : error}`,
       );

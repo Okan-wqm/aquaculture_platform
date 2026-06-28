@@ -14,6 +14,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import {
   SentinelHubSettings,
   SentinelHubStatus,
@@ -112,6 +113,9 @@ export class SentinelHubService implements OnModuleInit {
         isConfigured: settings.isConfigured,
       };
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.error(
         `Failed to get credentials for tenant ${tenantId}:`,
         error,
@@ -145,6 +149,9 @@ export class SentinelHubService implements OnModuleInit {
         clientSecret: settings.clientSecret,
       };
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.error(
         `Failed to get internal credentials for tenant ${tenantId}:`,
         error,
@@ -187,6 +194,9 @@ export class SentinelHubService implements OnModuleInit {
         usageCount: settings.usageCount,
       };
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.error(
         `Failed to get status for tenant ${tenantId}:`,
         error,
@@ -326,6 +336,9 @@ export class SentinelHubService implements OnModuleInit {
         expiresIn: tokenResult.expiresIn,
       };
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.error(`Failed to get WMTS config for tenant ${tenantId}:`, error);
       return null;
     }

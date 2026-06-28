@@ -10,6 +10,7 @@ import {
   required,
   email as emailValidator,
   validateField,
+  publicGraphqlClient,
 } from '@aquaculture/shared-ui';
 
 import { AuthFormShell } from './AuthFormShell';
@@ -35,20 +36,15 @@ const ForgotPasswordForm: React.FC = () => {
       setIsSubmitting(true);
       setError('');
       try {
-        const response = await fetch('/graphql', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: `mutation ForgotPassword($input: ForgotPasswordInput!) {
+        // Pre-auth: sanctioned barrier-skipping client (no auth/tenant header),
+        // not raw fetch. publicGraphqlClient throws GraphQLClientError on
+        // GraphQL/transport errors → caught below.
+        await publicGraphqlClient.request(
+          `mutation ForgotPassword($input: ForgotPasswordInput!) {
               forgotPassword(input: $input)
             }`,
-            variables: { input: { email } },
-          }),
-        });
-        const data = await response.json();
-        if (data.errors) {
-          throw new Error(data.errors[0]?.message || t('common.error'));
-        }
+          { input: { email } },
+        );
         setSuccess(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('common.error'));

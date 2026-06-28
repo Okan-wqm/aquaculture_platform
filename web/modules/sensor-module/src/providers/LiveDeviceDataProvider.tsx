@@ -23,6 +23,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
+import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import { ScadaSocketService } from '../services/ScadaSocketService';
 import {
   createTagSubscriptionManager,
@@ -245,6 +246,25 @@ export function LiveDeviceDataProviderInner({
     };
    
   }, []); // Run once on mount; refs are stable.
+
+  // ── Effect: tenant-isolation cache purge ──────────────────────────────────
+  // SECURITY: the tag cache is keyed by bare tagId and the /scada socket is a
+  // singleton bound to the tenant session it connected with. On a tenant switch
+  // (SUPER_ADMIN impersonation) or logout, ScadaSocketService disconnects the
+  // singleton so the previous tenant's TAG_VALUES stream stops; here we clear the
+  // cached values so getTagValue / getTagSnapshot can never return the previous
+  // tenant's data into the new tenant's view.
+  useEffect(() => {
+    const clearCache = (): void => {
+      tagCacheRef.current.clear();
+    };
+    const unregisterTenantChange = onTenantChange(clearCache);
+    const unregisterLogout = registerLogoutCleanup(clearCache);
+    return () => {
+      unregisterTenantChange();
+      unregisterLogout();
+    };
+  }, []);
 
   // ── IDataProvider implementation ──────────────────────────────────────────
 

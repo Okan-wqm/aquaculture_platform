@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 42,
+  "count": 33,
   "operations": [
     {
       "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
@@ -164,60 +164,6 @@
       "key": "web/modules/hr-module/src/graphql/certification.operations.ts::WithdrawFromTraining",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "op": "WithdrawFromTraining",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::AdjustLeaveBalance",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "AdjustLeaveBalance",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CalculateLeaveDays",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "CalculateLeaveDays",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CarryOverLeaveBalances",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "CarryOverLeaveBalances",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CheckLeaveOverlap",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "CheckLeaveOverlap",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::CreateLeaveType",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "CreateLeaveType",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::InitializeLeaveBalances",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "InitializeLeaveBalances",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::UpdateLeaveRequest",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "UpdateLeaveRequest",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::UpdateLeaveType",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "UpdateLeaveType",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/hr-module/src/graphql/leave.operations.ts::WithdrawLeaveRequest",
-      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "op": "WithdrawLeaveRequest",
       "category": "MISSING-ROOT-OP"
     },
     {

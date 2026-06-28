@@ -122,6 +122,30 @@ misses; the prefix matches). `useSystems` invalidations migrated. FOLLOW-UP:
 sweep the remaining farm-module invalidate/remove sites + add an invariant
 banning the full-key builder in invalidation calls.
 
+## FARM-HIGH-066 — realtime invalidation used the full (epoch'd) key builder
+
+`useFarmRealtimeStream.ts:238` wrapped each INVALIDATION_MAP prefix with
+`createTenantQueryKey` (epoch trailing), so socket-driven invalidations missed
+any args-bearing list query across session-epoch generations — realtime updates
+silently failed to refresh args-keyed lists.
+
+Evidence:
+- `web/modules/farm-module/src/hooks/useFarmRealtimeStream.ts:238`
+
+Fix: switched to `createTenantInvalidationKey` (epoch-less prefix).
+
+## FARM-HIGH-067 — tenant erasure event handler ran without a tenant context
+
+`TenantErasureRequestedHandler.handle()` called `TenantErasureService` directly.
+As a NATS handler it has no request context, so the destructive erasure could run
+against the source schema / a missing tenant context.
+
+Evidence:
+- `apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts`
+
+Fix: wrapped the delegate in `withTenantContext(event.tenantId, ...)` (matches
+the harvest/onboarding listeners); fails closed on an invalid tenantId.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

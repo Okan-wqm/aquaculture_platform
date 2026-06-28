@@ -44,7 +44,7 @@
 import React, { useEffect } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ─── Configuration ──────────────────────────────────────────────────
 
@@ -235,7 +235,11 @@ export function useFarmRealtimeStream(): void {
         for (const prefix of prefixes) {
           // SECURITY: Prepend tenant prefix to ensure invalidation is
           // scoped to the active tenant's cache entries only.
-          const tenantScopedKey = createTenantQueryKey(tenantId!, ...prefix);
+          // Use the epoch-LESS invalidation builder: createTenantQueryKey
+          // appends {__sessionEpoch} last, which (as a left-prefix filter)
+          // lands where stored keys hold their args and makes the realtime
+          // invalidation miss any args-bearing list query across generations.
+          const tenantScopedKey = createTenantInvalidationKey(tenantId!, ...prefix);
           void queryClient.invalidateQueries({ queryKey: tenantScopedKey });
         }
       },

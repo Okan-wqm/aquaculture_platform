@@ -248,8 +248,10 @@ export function useEdgeIoSocket(deviceCode?: string | null) {
       }
       subscribedRef.current = null;
 
-      // Release our reference so the pool can clean up when no consumers remain
-      releaseSocket(WS_URL);
+      // Release our reference so the pool can clean up when no consumers remain.
+      // Release by the socket INSTANCE we acquired (ORPHAN-MEDIUM-213) — never by
+      // WS_URL+ambient tenant, which would mis-target after a tenant switch.
+      releaseSocket(socket);
       edgeListenersAttached = false;
     };
   }, [deviceCode, currentTenantId, updateTags, addAlarms, setConnected]);

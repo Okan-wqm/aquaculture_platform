@@ -243,8 +243,10 @@ export function useScadaLiveData(options: ScadaLiveDataOptions): ScadaLiveDataRe
       }
       subscribedCodesRef.current = new Set();
 
-      // Release our reference so the pool can clean up when no consumers remain
-      releaseSocket(WS_URL);
+      // Release our reference so the pool can clean up when no consumers remain.
+      // Release by the socket INSTANCE we acquired (ORPHAN-MEDIUM-213) — never by
+      // WS_URL+ambient tenant, which would mis-target after a tenant switch.
+      releaseSocket(socket);
     };
     // SECURITY: currentTenantId is a dependency so a tenant switch tears down the
     // previous tenant's subscription/listeners and re-binds against the new

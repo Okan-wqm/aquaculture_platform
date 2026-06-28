@@ -107,23 +107,37 @@ export function getSocket(
 }
 
 /**
- * Decrement the reference count for the given URL in the current tenant scope.
- * When the count reaches 0 the socket is disconnected and removed from the pool.
+ * Release a socket the caller obtained from {@link getSocket}, identified by the
+ * Socket INSTANCE — never by the ambient tenant. Decrements its reference count;
+ * when the count reaches 0 the socket is disconnected and evicted from the pool.
+ *
+ * SECURITY (ORPHAN-MEDIUM-213): WHY release by identity, not `url` + getTenantId():
+ * the pool key used to be re-derived AT RELEASE TIME from the current tenant. After
+ * a tenant switch A→B, an A-bound hook's cleanup runs while the ambient tenant is
+ * already B, so it computed B's key and decremented — and could prematurely tear
+ * down — tenant B's live socket. Binding the release to the exact instance the
+ * caller acquired removes the ambient-tenant read entirely, making that mis-target
+ * structurally impossible (the leaving tenant's own entry is already evicted by
+ * teardownTenantSockets on the switch).
+ *
+ * WHAT: a null/undefined socket (the caller never acquired one — no token/tenant at
+ * mount) is a no-op; there is nothing to release. This also closes the latent
+ * over-decrement where releasing a never-acquired URL wrongly decremented whatever
+ * entry the ambient tenant happened to map to.
  */
-export function releaseSocket(url: string): void {
-  const tenantId = getTenantId();
-  if (!tenantId) return;
+export function releaseSocket(socket: Socket | null | undefined): void {
+  if (!socket) return;
 
-  const key = poolKey(url, tenantId);
-  const entry = pool.get(key);
-  if (!entry) return;
+  for (const [key, entry] of pool) {
+    if (entry.socket !== socket) continue;
 
-  entry.refCount--;
-
-  if (entry.refCount <= 0) {
-    entry.socket.removeAllListeners();
-    entry.socket.disconnect();
-    pool.delete(key);
+    entry.refCount--;
+    if (entry.refCount <= 0) {
+      entry.socket.removeAllListeners();
+      entry.socket.disconnect();
+      pool.delete(key);
+    }
+    return;
   }
 }
 

@@ -224,7 +224,11 @@ export function useSensorSocket(sensorIds: string[] = []) {
 
   // Initialize socket on first use
   useEffect(() => {
-    getSensorSocket();
+    // Capture the exact pooled Socket we acquire so the cleanup releases THIS
+    // instance (ORPHAN-MEDIUM-213) — not WS_URL+ambient tenant, which would
+    // mis-target tenant B's socket if a switch happened before unmount. Null when
+    // there is no token/tenant at mount, in which case releaseSocket is a no-op.
+    const socket = getSensorSocket();
 
     return () => {
       // Cleanup: unsubscribe from sensors when component unmounts
@@ -232,7 +236,7 @@ export function useSensorSocket(sensorIds: string[] = []) {
         unsubscribeFromSensors(Array.from(subscribedRef.current));
       }
       // Release our reference so the pool can clean up when no consumers remain
-      releaseSocket(WS_URL);
+      releaseSocket(socket);
       listenersAttached = false;
     };
   }, []);

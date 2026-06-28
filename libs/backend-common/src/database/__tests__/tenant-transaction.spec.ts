@@ -2,6 +2,7 @@ import { DataSource } from 'typeorm';
 
 import { TenantContextError } from '../tenant-context-error';
 import {
+  assertSourceReadContext,
   assertTenantTransactionContext,
   pinTenantTransactionSearchPath,
   runInTenantTransaction,
@@ -135,5 +136,37 @@ describe('tenant transaction helpers', () => {
         assertTenantTransactionContext(runner, 'farm', tenantId),
       ).resolves.toBeUndefined();
     });
+  });
+});
+
+describe('assertSourceReadContext', () => {
+  it('passes when current_schema resolves to the source schema', async () => {
+    const executor: TenantContextQueryExecutor = {
+      query: jest.fn().mockResolvedValue([{ schema: 'farm' }]),
+    };
+    await expect(assertSourceReadContext(executor, 'farm')).resolves.toBeUndefined();
+  });
+
+  it('throws SCHEMA_MISMATCH when current_schema resolves to a tenant schema', async () => {
+    const executor: TenantContextQueryExecutor = {
+      query: jest.fn().mockResolvedValue([{ schema: 'tenant_abc' }]),
+    };
+    await expect(assertSourceReadContext(executor, 'farm')).rejects.toBeInstanceOf(
+      TenantContextError,
+    );
+  });
+
+  it('skips the assertion when the connection returns no row (unit-test mock)', async () => {
+    const executor: TenantContextQueryExecutor = {
+      query: jest.fn().mockResolvedValue([]),
+    };
+    await expect(assertSourceReadContext(executor, 'farm')).resolves.toBeUndefined();
+  });
+
+  it('rejects an invalid source schema name before querying', async () => {
+    const query = jest.fn();
+    const executor: TenantContextQueryExecutor = { query };
+    await expect(assertSourceReadContext(executor, 'Farm; DROP')).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
   });
 });

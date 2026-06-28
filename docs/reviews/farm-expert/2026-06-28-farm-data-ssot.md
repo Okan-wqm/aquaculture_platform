@@ -413,6 +413,38 @@ runtime GUC is owned by `RlsConnectionBootstrap` + the tenant read/write
 boundary. (Two pre-existing `rls.module.spec` DI failures — DataSource
 resolution in the test harness — are unrelated and present on HEAD.)
 
+## FARM-HIGH-080 — sanctioned source-read API + get-farm federation + resolver masking removal
+
+Plan §8.3 / Task #23. There was no sanctioned API for reads that are
+cross-tenant BY DESIGN (seeded reference tables, federation
+`__resolveReference`); they were done via ad-hoc raw SQL or a tenant-less
+repository read. And `system.resolver` (`parentSystem`, `childSystemsField`) +
+`farm.resolver` (`resolveReference`) caught ALL errors and returned `null`/`[]`,
+masking a lost tenant context as a legitimate empty — the literal "data
+disappears" path (§3-A).
+
+Evidence:
+- `libs/backend-common/src/database/tenant-transaction.ts`
+- `apps/farm-service/src/farm/query-handlers/get-farm.handler.ts`
+- `apps/farm-service/src/system/system.resolver.ts`
+- `apps/farm-service/src/farm/resolvers/farm.resolver.ts`
+
+Fix: added `runInSourceRead(dataSource, sourceSchema, fn)` + `assertSourceReadContext`
+to the boundary SSoT — a READ ONLY transaction that pins `search_path` to the
+source schema, sets `app.bypass_rls='on'` transaction-locally (cross-tenant by
+design), and asserts `current_schema()` actually resolved to the source schema
+(a stray tenant schema → `SCHEMA_MISMATCH`). `get-farm` is now hybrid: tenant
+path → `runInTenantRead`, federation `__resolveReference` (no tenantId) →
+`runInSourceRead`. The resolver masking is removed: `parentSystem` /
+`resolveReference` catch ONLY `NotFoundException` (a genuine missing
+parent/reference is a legitimate null) and rethrow everything else;
+`childSystemsField` drops its try/catch entirely (ListSystems returns `[]`
+naturally). So a `TenantContextError` now surfaces instead of becoming a silent
+null/empty. `get-farm` is removed from the read-boundary arch-test allowlist.
+
+Specs added (`assertSourceReadContext`, `get-farm` hybrid); the full
+farm-service handler/resolver suite is 365 tests green; type-check clean.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

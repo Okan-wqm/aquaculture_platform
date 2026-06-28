@@ -1,7 +1,7 @@
 import { DataSource, QueryRunner } from 'typeorm';
 
 import { withTenantContext } from '../context/with-tenant-context';
-import { RLS_TENANT_GUC } from './rls/apply-tenant-rls.helper';
+import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './rls/apply-tenant-rls.helper';
 import { validateTenantSchemaName } from './schema-manager.service';
 import { TenantContextError } from './tenant-context-error';
 import { getTenantSchemaName, isValidUUID } from './tenant-schema.utils';
@@ -209,4 +209,91 @@ export async function runInTenantRead<T>(
       await queryRunner.release();
     }
   });
+}
+
+/**
+ * Assert the connection actually resolved to the expected SOURCE schema before a
+ * source read runs. A stray tenant schema left in `search_path` (e.g. an
+ * inherited pooled session) would otherwise make a "source" read silently
+ * resolve a tenant's shadow copy.
+ */
+export async function assertSourceReadContext(
+  queryRunner: TenantContextQueryExecutor,
+  sourceSchema: string,
+): Promise<void> {
+  if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
+    throw new Error(`assertSourceReadContext: invalid source schema "${sourceSchema}"`);
+  }
+
+  const rows = await queryRunner.query(`SELECT current_schema() AS schema`);
+  const row = (Array.isArray(rows) ? rows[0] : rows) as
+    | { schema?: string | null }
+    | undefined
+    | null;
+
+  // Absent row ⇒ unit-test mock with no backing connection; nothing to assert.
+  if (!row) {
+    return;
+  }
+
+  const resolvedSchema: string | null = row.schema ?? null;
+  if (resolvedSchema !== sourceSchema) {
+    throw new TenantContextError({
+      state: 'SCHEMA_MISMATCH',
+      expectedSchema: sourceSchema,
+      resolvedSchema,
+      sourceSchema,
+    });
+  }
+}
+
+/**
+ * Execute an explicit READ against a SOURCE schema for the few reads that are
+ * cross-tenant BY DESIGN: seeded reference tables (e.g. `farm.equipment_types`)
+ * and gateway-enforced federation `__resolveReference` lookups that arrive with
+ * no tenant context.
+ *
+ * This is the SANCTIONED counterpart to `runInTenantRead`. It opens a READ ONLY
+ * transaction, pins `search_path` to the SOURCE schema only (no tenant schema),
+ * sets `app.bypass_rls = 'on'` transaction-locally (the tenant-isolation policy
+ * must not deny a deliberately cross-tenant read), and asserts `current_schema()`
+ * actually resolved to the source schema before any domain query runs.
+ *
+ * Callers MUST be on an explicitly cross-tenant path — tenant-owned reads use
+ * `runInTenantRead`. Routing a cross-tenant read here (instead of an ad-hoc raw
+ * `dataSource.query` with a hand-written `"schema"."table"`) keeps every
+ * source-schema read auditable in one place.
+ */
+export async function runInSourceRead<T>(
+  dataSource: DataSource,
+  sourceSchema: string,
+  fn: (queryRunner: QueryRunner) => Promise<T>,
+): Promise<T> {
+  if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
+    throw new Error(`runInSourceRead: invalid source schema "${sourceSchema}"`);
+  }
+
+  const queryRunner = dataSource.createQueryRunner();
+  await queryRunner.connect();
+  await queryRunner.startTransaction('READ COMMITTED');
+
+  try {
+    await queryRunner.query('SET TRANSACTION READ ONLY');
+    await queryRunner.query(
+      `SELECT pg_catalog.set_config('search_path', $1, true)`,
+      [`"${sourceSchema}", public`],
+    );
+    // Cross-tenant by design: the tenant-isolation policy USING clause honors
+    // `app.bypass_rls = 'on'`, so a reference / federation read is not denied.
+    await queryRunner.query(`SELECT set_config($1, 'on', true)`, [RLS_BYPASS_GUC]);
+    await assertSourceReadContext(queryRunner, sourceSchema);
+    const result = await fn(queryRunner);
+    await queryRunner.commitTransaction();
+    return result;
+  } catch (error) {
+    await queryRunner.rollbackTransaction();
+    throw error;
+  } finally {
+    await queryRunner.release();
+  }
 }

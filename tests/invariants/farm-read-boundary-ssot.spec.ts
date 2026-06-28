@@ -32,16 +32,15 @@ const FARM_SRC = resolve(REPO_ROOT, 'apps/farm-service/src');
  * Paths are POSIX-relative to apps/farm-service/src.
  */
 const READ_BOUNDARY_ALLOWLIST = new Set<string>([
-  // Reference-data / federation / service-delegating reads — need the explicit
-  // runInSourceRead API (plan Task #23), not the tenant boundary. Wrapping them
-  // in runInTenantRead would make the schema assertion fail (they deliberately
-  // read the `farm` source schema, or run with no tenantId via federation
-  // __resolveReference).
+  // Reference-data reads (per-tenant catalogs read via a request-context
+  // tenantId rather than a query field) + a service-delegating read. These do
+  // not yet route through a boundary; tracked under plan Task #23 / #9-tail.
+  // (get-farm migrated in FARM-* Task #23: tenant path → runInTenantRead,
+  // federation __resolveReference → runInSourceRead.)
   'batch/query-handlers/get-batch-performance.handler.ts',
   'equipment/handlers/get-equipment-types.handler.ts',
   'equipment/handlers/get-sub-equipment-types.handler.ts',
   'equipment/handlers/list-equipment.handler.ts',
-  'farm/query-handlers/get-farm.handler.ts',
   // Delegates to the shared paginateCursor(repository, …) primitive; routing it
   // through the boundary needs paginateCursor to accept a boundary-scoped
   // manager first (plan Task #9 tail).

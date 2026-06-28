@@ -34,6 +34,8 @@ const ten = vi.hoisted(() => {
 
 vi.mock('@aquaculture/shared-ui', () => ({
   getAccessToken: () => 'test-token',
+  // connect() gates on a tenant context (B3), so this teardown test needs one too.
+  getTenantId: () => 'tenant-A',
   onTenantChange: (fn: (oldTenantId: string) => void) => {
     ten.tenantChangeCbs.add(fn);
     return () => ten.tenantChangeCbs.delete(fn);

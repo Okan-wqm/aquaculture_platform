@@ -218,6 +218,26 @@ Fix: both migrated to `runInTenantRead` via `queryRunner.manager.createQueryBuil
 (dropped the unused `LessThanOrEqual` import in get-feed-inventory). Specs added.
 Remaining feeding reads (`get-daily-feeding-plan`, `get-feeding-summary`) tracked.
 
+## FARM-HIGH-071 — growth + feeding-summary read handlers outside the boundary
+
+`GetGrowthMeasurementsHandler`, `GetLatestMeasurementHandler`, and
+`GetFeedingSummaryHandler` read via raw `@InjectRepository` (query builder + two
+`findOne`s + a multi-entity aggregation), relying only on pool-checkout
+search_path + RLS — no boundary assertion.
+
+Evidence:
+- `apps/farm-service/src/growth/query-handlers/get-growth-measurements.handler.ts`
+- `apps/farm-service/src/growth/query-handlers/get-latest-measurement.handler.ts`
+- `apps/farm-service/src/feeding/query-handlers/get-feeding-summary.handler.ts`
+
+Fix: all three now read through `runInTenantRead` via `queryRunner.manager`
+(query builder / `findOne` / `find`); the `NotFoundException` paths are kept (the
+boundary asserts context, so `null` / not-found is honest). Dropped the unused
+`Between` / `MoreThanOrEqual` / `LessThanOrEqual` imports in `get-feeding-summary`
+(the date filters use raw SQL). Specs added for all three. Remaining reads
+(`get-daily-feeding-plan`, `get-growth-analysis`, water-quality configs) tracked
+under plan Task #9.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

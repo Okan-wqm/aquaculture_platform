@@ -9,6 +9,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
+import { getTenantId } from '@aquaculture/shared-ui';
 import {
   createTenantAdminQueryWrapper,
   createTenantAdminTestQueryClient,
@@ -174,7 +175,8 @@ describe('useTenantRoles hooks', () => {
     });
 
     it('should use correct query key', () => {
-      expect(roleKeys.lists()).toEqual(['tenant-roles', 'list']);
+      // Tenant-scoped: ['tenant', tenantId, 'tenant-roles', 'list'] (FE-CRITICAL-014).
+      expect(roleKeys.lists()).toEqual(['tenant', getTenantId(), 'tenant-roles', 'list']);
     });
   });
 

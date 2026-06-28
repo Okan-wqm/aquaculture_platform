@@ -4,3 +4,5 @@ export * from './get-leave-requests.query';
 export * from './get-leave-request-by-id.query';
 export * from './get-pending-approvals.query';
 export * from './get-team-leave-calendar.query';
+export * from './check-leave-overlap.query';
+export * from './calculate-leave-days.query';

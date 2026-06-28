@@ -6,6 +6,7 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -177,10 +178,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     // never fires without the domain write landing, and the domain
     // write never commits without its event enqueued. OutboxWorker
     // publishes to NATS asynchronously with retry + dead-letter.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       await queryRunner.manager.save(TankBatch, tankBatch);
       await queryRunner.manager.save(Batch, cleanerBatch);
       await queryRunner.manager.save(TankOperation, operation);
@@ -205,14 +203,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-
-    return cleanerBatch;
+      return cleanerBatch;
+    });
   }
 }

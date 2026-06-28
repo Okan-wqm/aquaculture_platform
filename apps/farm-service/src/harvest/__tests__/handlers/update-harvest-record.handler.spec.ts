@@ -1,9 +1,10 @@
 /**
  * UpdateHarvestRecordHandler — Transactional Outbox Unit Tests
  *
- * Pins the `HarvestRecordUpdated` outbox contract. The handler
- * already runs a pessimistic_write transaction; this spec covers
- * the new enqueue:
+ * Pins the `HarvestRecordUpdated` outbox contract. The handler runs the
+ * write inside the fail-closed `runInTenantTransaction` boundary (which
+ * createMockDataSource models: connect/startTransaction/query/commit/
+ * rollback/release + a manager). This spec covers the enqueue:
  *
  *   1. Status + quantity change → `changedFields` lists both, event
  *      carries new `quantityHarvested` / `totalBiomass` / `status`.
@@ -16,7 +17,8 @@
  *   6. NotFoundException on missing record — no event.
  */
 import { NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { EntityManager, Repository } from 'typeorm';
 
 import { UpdateHarvestRecordHandler } from '../../handlers/update-harvest-record.handler';
 import {
@@ -29,6 +31,8 @@ import {
 } from '../../entities/harvest-record.entity';
 import type { OutboxPublisher } from '@platform/outbox';
 
+const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
 interface HarnessOpts {
   record?: Partial<HarvestRecord> | null;
   enqueueImpl?: (event: unknown, em: EntityManager) => Promise<void>;
@@ -40,7 +44,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'hr-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           batchId: 'batch-1',
           status: HarvestRecordStatus.IN_PROGRESS,
           quantityHarvested: 500,
@@ -48,25 +52,11 @@ function makeHarness(opts: HarnessOpts = {}) {
           ...(opts.record ?? {}),
         } as unknown as HarvestRecord);
 
-  const managerFindOne = jest.fn().mockResolvedValue(record);
-  const managerSave = jest.fn(async (_: unknown, entity: unknown) => entity);
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: {
-      findOne: managerFindOne,
-      save: managerSave,
-    } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  (mockManager.findOne as jest.Mock).mockResolvedValue(record);
+  (mockManager.save as jest.Mock).mockImplementation(
+    async (_: unknown, entity: unknown) => entity,
+  );
 
   const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
     if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
@@ -77,16 +67,23 @@ function makeHarness(opts: HarnessOpts = {}) {
   const harvestRepository = {} as unknown as Repository<HarvestRecord>;
 
   const handler = new UpdateHarvestRecordHandler(
-    dataSource as DataSource,
+    mockDataSource,
     harvestRepository,
     outboxPublisher,
   );
 
-  return { handler, enqueue, commit, rollback, managerFindOne, managerSave };
+  return {
+    handler,
+    enqueue,
+    commit: mockQueryRunner.commitTransaction as jest.Mock,
+    rollback: mockQueryRunner.rollbackTransaction as jest.Mock,
+    managerFindOne: mockManager.findOne as jest.Mock,
+    managerSave: mockManager.save as jest.Mock,
+  };
 }
 
 function makeCommand(data: UpdateHarvestRecordData) {
-  return new UpdateHarvestRecordCommand('tenant-1', 'hr-1', data, 'user-1');
+  return new UpdateHarvestRecordCommand(TENANT_ID, 'hr-1', data, 'user-1');
 }
 
 describe('UpdateHarvestRecordHandler — transactional outbox', () => {
@@ -157,7 +154,7 @@ describe('UpdateHarvestRecordHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ notes: 'x' }));
 
     expect(managerFindOne).toHaveBeenCalledWith(HarvestRecord, {
-      where: { id: 'hr-1', tenantId: 'tenant-1' },
+      where: { id: 'hr-1', tenantId: TENANT_ID },
       lock: { mode: 'pessimistic_write' },
     });
   });

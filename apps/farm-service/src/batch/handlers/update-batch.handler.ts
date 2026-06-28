@@ -15,6 +15,7 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -40,11 +41,7 @@ export class UpdateBatchHandler implements ICommandHandler<UpdateBatchCommand, B
   async execute(command: UpdateBatchCommand): Promise<Batch> {
     const { tenantId, batchId, payload, updatedBy } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
       });
@@ -105,13 +102,7 @@ export class UpdateBatchHandler implements ICommandHandler<UpdateBatchCommand, B
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

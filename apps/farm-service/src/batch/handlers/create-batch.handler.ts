@@ -10,8 +10,7 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
@@ -89,12 +88,8 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     }
 
     // Start transaction for all database write operations
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let savedBatch: Batch;
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      let savedBatch: Batch;
       // ── FARM-MEDIUM-001: Generate batch number INSIDE the transaction ──
       // Previously code generation happened outside this transaction. Although
       // CodeGeneratorService uses its own pessimistic_write lock on the
@@ -553,17 +548,8 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       };
       await this.outboxPublisher.enqueue(batchCreatedEvent, queryRunner.manager);
 
-      // Commit transaction (domain writes + outbox row are atomic)
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      // Rollback transaction on any error
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      // Release query runner
-      await queryRunner.release();
-    }
-
-    return savedBatch;
+      // Domain writes + outbox row are atomic — runInTenantTransaction commits.
+      return savedBatch;
+    });
   }
 }

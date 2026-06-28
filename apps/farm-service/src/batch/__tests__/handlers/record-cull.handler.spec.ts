@@ -62,7 +62,7 @@ describe('RecordCullHandler', () => {
     );
   });
 
-  const TENANT = 'tenant-1';
+  const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const USER = 'user-1';
   const CULLED_AT = new Date('2026-04-29T10:00:00.000Z');
 

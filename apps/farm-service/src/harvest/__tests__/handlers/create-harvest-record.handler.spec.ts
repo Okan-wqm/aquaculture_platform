@@ -16,10 +16,9 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
-import type { QueryRunner } from 'typeorm';
 
 import { CloseBatchCommand, BatchCloseReason } from '../../../batch/commands/close-batch.command';
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
@@ -32,6 +31,8 @@ import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input'
 import { HarvestRecord, QualityGrade } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
 
+const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
 interface HarnessOpts {
   /** Fish currently in the batch (default 1000). */
   currentQuantity?: number;
@@ -42,7 +43,7 @@ interface HarnessOpts {
 function makeHarness(opts: HarnessOpts = {}) {
   const batch = {
     id: 'batch-1',
-    tenantId: 'tenant-1',
+    tenantId: TENANT_ID,
     currentQuantity: opts.currentQuantity ?? 1000,
     harvestedQuantity: 0,
     status: BatchStatus.HARVESTING,
@@ -52,7 +53,7 @@ function makeHarness(opts: HarnessOpts = {}) {
 
   const tank = {
     id: 'tank-1',
-    tenantId: 'tenant-1',
+    tenantId: TENANT_ID,
     isActive: true,
     currentBiomass: 500,
     currentCount: batch.currentQuantity,
@@ -79,26 +80,21 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
   const managerSave = jest.fn((_entity: unknown, value: unknown) => Promise.resolve(value));
 
-  const manager = {
-    findOne: managerFindOne,
-    create: managerCreate,
-    save: managerSave,
-    createQueryBuilder: jest.fn().mockReturnValue(codeQueryBuilder),
-  } as never;
-
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release: jest.fn().mockResolvedValue(undefined),
-    manager,
-  };
-  const dataSource = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  } as never;
+  // createMockDataSource models the fail-closed runInTenantTransaction
+  // boundary: queryRunner.query returns [] so the search_path/GUC readback
+  // assertion is skipped under the mock (no live connection). The factory's
+  // manager is reconfigured below with the entity-identity-aware findOne /
+  // create / save plus the createQueryBuilder generateCode() relies on.
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  (mockManager.findOne as jest.Mock).mockImplementation(managerFindOne);
+  (mockManager.create as jest.Mock).mockImplementation(managerCreate);
+  (mockManager.save as jest.Mock).mockImplementation(managerSave);
+  mockManager.createQueryBuilder = jest
+    .fn()
+    .mockReturnValue(codeQueryBuilder) as typeof mockManager.createQueryBuilder;
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
+  const dataSource = mockDataSource;
 
   const enqueuedEvents: BatchHarvestedEvent[] = [];
   const outboxPublisher = {
@@ -165,7 +161,7 @@ function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
   };
   // MODULE_MANAGER so SEC-HIGH-051 site authz bypasses (createHarvestRecord's
   // @Roles floor is MODULE_MANAGER+ anyway — see SEC-MEDIUM-050).
-  return new CreateHarvestRecordCommand('tenant-1', input, 'user-1', [Role.MODULE_MANAGER], []);
+  return new CreateHarvestRecordCommand(TENANT_ID, input, 'user-1', [Role.MODULE_MANAGER], []);
 }
 
 describe('CreateHarvestRecordHandler — final-harvest chain', () => {
@@ -201,7 +197,7 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     expect(executeCommand).toHaveBeenCalledTimes(1);
     const dispatched = executeCommand.mock.calls[0]?.[0];
     expect(dispatched).toBeInstanceOf(CloseBatchCommand);
-    expect(dispatched?.tenantId).toBe('tenant-1');
+    expect(dispatched?.tenantId).toBe(TENANT_ID);
     expect(dispatched?.batchId).toBe('batch-1');
     expect(dispatched?.reason).toBe(BatchCloseReason.HARVEST_COMPLETED);
     expect(dispatched?.closedBy).toBe('user-1');
@@ -325,7 +321,7 @@ describe('CreateHarvestRecordHandler — server-derived harvest identity (FARM-H
     };
 
     await handler.execute(
-      new CreateHarvestRecordCommand('tenant-1', input, principal, [Role.MODULE_MANAGER], []),
+      new CreateHarvestRecordCommand(TENANT_ID, input, principal, [Role.MODULE_MANAGER], []),
     );
 
     expect(createdHarvestRecords).toHaveLength(1);

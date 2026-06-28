@@ -6,6 +6,7 @@
  *
  * @module Harvest/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -63,10 +64,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
     }
 
     // All reversal operations in a single transaction for data consistency
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Reverse the batch quantity changes
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: harvestRecord.batchId, tenantId },
@@ -139,14 +137,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
         cancelledAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
 
     return true;
   }

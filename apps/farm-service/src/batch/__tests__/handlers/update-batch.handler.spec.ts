@@ -60,6 +60,10 @@ function makeHarness(opts: HarnessOpts = {}) {
     commitTransaction: commit,
     rollbackTransaction: rollback,
     release,
+    // runInTenantTransaction pins search_path + asserts the RLS GUC via
+    // queryRunner.query. Returning [] makes the boundary's readback assertion
+    // skip (no live DB), so the unit test exercises pure handler logic.
+    query: jest.fn().mockResolvedValue([]),
     manager: {
       findOne: managerFindOne,
       save: managerSave,
@@ -86,7 +90,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   return { handler, enqueue, commit, rollback, managerSave };
 }
 
-const TENANT = 'tenant-1';
+const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER = 'user-1';
 
 function makeCommand(

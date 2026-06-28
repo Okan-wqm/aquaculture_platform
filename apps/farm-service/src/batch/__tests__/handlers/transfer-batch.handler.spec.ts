@@ -70,7 +70,7 @@ describe('TransferBatchHandler', () => {
     );
   });
 
-  const TENANT = 'tenant-1';
+  const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const USER = 'user-1';
 
   it('should throw NotFoundException when batch not found', async () => {
@@ -162,7 +162,6 @@ describe('TransferBatchHandler', () => {
       return Promise.resolve(null);
     });
     mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
-    mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
     await handler.execute(
       new TransferBatchCommand(

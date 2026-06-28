@@ -349,6 +349,46 @@ allowlist (reference-data / federation / service-delegating reads under Task #23
 allowlist honest — it fails if an allowlisted file is migrated but left in the
 list, forcing the allowlist to shrink as Task #23 lands.
 
+## FARM-HIGH-078 — farm write handlers ran transactions outside the tenant boundary
+
+Write side of plan Task #9. 21 write/command handlers across batch, feeding,
+harvest, water-quality and worker ran their transactions via bare
+`this.dataSource.createQueryRunner()` + manual `connect/startTransaction/commit/
+rollback/release` — pinning no search_path and asserting no RLS GUC, relying
+purely on pool-checkout state. A lost or wrong tenant context could write to the
+source `farm` schema or be RLS-denied.
+
+Evidence: see the registry entry for the full 21-file list.
+
+Fix: all 21 migrated to `runInTenantTransaction(this.dataSource, 'farm',
+command.tenantId, async (queryRunner) => { … })`, mirroring the already-migrated
+`close-batch`/`delete-batch` handlers. Constructors unchanged. Critically,
+transactional-outbox `enqueue(event, queryRunner.manager)` calls and
+`auditLog.logWithManager(...)` stay INSIDE the callback (atomic with the
+writes); the one post-commit `logger.log` in `transfer-batch` moved to after the
+wrapper resolves; mobile-command replay early-returns converted (the wrapper
+commits the read-only tx). Specs converted to `createMockDataSource` (removing
+hand-rolled `as unknown as` casts). farm-service `tsconfig.spec` type-check
+clean; full handler/resolver suite 362 tests green.
+
+## FARM-HIGH-079 — allocate-to-tank SERIALIZABLE path not yet on the boundary
+
+`allocate-to-tank` was deliberately **not** migrated in FARM-HIGH-078: it uses
+`startTransaction('SERIALIZABLE')` (its "SECURITY FIX" header) to prevent races
+when multiple requests allocate to the same tank. `runInTenantTransaction` always
+uses the connection default (READ COMMITTED), so migrating as-is would silently
+downgrade isolation — a forbidden behavior change on a critical write path.
+
+Evidence:
+- `apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts`
+- `libs/backend-common/src/database/tenant-transaction.ts`
+
+Remediation (tracked): extend `runInTenantTransaction` with an optional
+isolation-level parameter (or add a `runInTenantSerializableTransaction`
+variant) that pins search_path + asserts the RLS GUC AND honors SERIALIZABLE,
+then migrate this handler. Until then the path retains its bare boundary and is
+not search_path-pinned / GUC-asserted.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

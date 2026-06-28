@@ -1,12 +1,16 @@
 /**
  * DeployCleanerFishHandler — Transactional Outbox Unit Tests
  *
- * Mirror of the `RemoveCleanerFishHandler` spec. The handler's three
- * domain writes (TankBatch upsert with new cleaner-fish detail, Batch
- * currentQuantity decrement, TankOperation audit row) now sit inside
- * a single DataSource transaction alongside the `CleanerFishDeployed`
- * outbox enqueue. These tests pin the contract:
+ * The handler's three domain writes (TankBatch upsert with new cleaner-fish
+ * detail, Batch currentQuantity decrement, TankOperation audit row) now sit
+ * inside runInTenantTransaction (fail-closed tenant boundary) alongside the
+ * `CleanerFishDeployed` outbox enqueue. We exercise the real boundary against
+ * a mocked DataSource/QueryRunner from createMockDataSource — its
+ * queryRunner.query returns [] so the search_path/GUC readback is skipped.
+ * tenantId MUST be a valid UUID because the boundary pins the tenant
+ * search_path and rejects non-UUIDs.
  *
+ * Tests pin:
  *   1. Happy path — event carries the post-op tank snapshot + the
  *      cleaner-batch decrement + the welfare `isOverCapacity` flag.
  *   2. Outbox enqueue failure rolls back every domain write.
@@ -17,7 +21,9 @@
  * is tested there; this spec stubs the service.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { OutboxPublisher } from '@platform/outbox';
+import type { Repository } from 'typeorm';
 
 import { DeployCleanerFishHandler } from '../../handlers/deploy-cleaner-fish.handler';
 import { DeployCleanerFishCommand } from '../../commands/deploy-cleaner-fish.command';
@@ -27,7 +33,8 @@ import { TankOperation } from '../../entities/tank-operation.entity';
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import type { TankCapacityService } from '../../../tank/services/tank-capacity.service';
-import type { OutboxPublisher } from '@platform/outbox';
+
+const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   cleanerBatch?: Partial<Batch> | null;
@@ -36,16 +43,21 @@ interface HarnessOpts {
   species?: Partial<Species> | null;
   capacityResult?: { isOverCapacity: boolean };
   capacityThrows?: Error;
-  enqueueImpl?: (event: unknown, em: EntityManager) => Promise<void>;
+  enqueueImpl?: () => Promise<void>;
 }
 
-function makeHarness(opts: HarnessOpts = {}) {
-  const cleanerBatch: Partial<Batch> =
+function makeHarness(opts: HarnessOpts = {}): {
+  handler: DeployCleanerFishHandler;
+  enqueue: jest.Mock;
+  commit: jest.Mock;
+  rollback: jest.Mock;
+} {
+  const cleanerBatch: Partial<Batch> | null =
     opts.cleanerBatch === null
-      ? (null as unknown as Partial<Batch>)
+      ? null
       : {
           id: 'cleaner-batch-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT,
           batchNumber: 'CB-001',
           batchType: BatchType.CLEANER_FISH,
           speciesId: 'species-lumpfish',
@@ -54,14 +66,14 @@ function makeHarness(opts: HarnessOpts = {}) {
           isActive: true,
           getCurrentAvgWeight: () => 50,
           ...(opts.cleanerBatch ?? {}),
-        } as unknown as Partial<Batch>;
+        };
 
-  const tank: Partial<Equipment> =
+  const tank: Partial<Equipment> | null =
     opts.tank === null
-      ? (null as unknown as Partial<Equipment>)
+      ? null
       : {
           id: 'tank-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT,
           name: 'Tank A',
           code: 'T-A',
           isActive: true,
@@ -75,66 +87,53 @@ function makeHarness(opts: HarnessOpts = {}) {
   const species: Partial<Species> | null =
     opts.species === null ? null : opts.species ?? {
       id: 'species-lumpfish',
-      tenantId: 'tenant-1',
+      tenantId: TENANT,
       commonName: 'Lumpfish',
     };
 
-  const batchRepository = {
+  const batchRepository: Partial<Repository<Batch>> = {
     findOne: jest.fn().mockResolvedValue(cleanerBatch),
   };
-  const tankBatchRepository = {
+  const tankBatchRepository: Partial<Repository<TankBatch>> = {
     findOne: jest.fn().mockResolvedValue(tankBatch),
-    create: jest.fn((p: Partial<TankBatch>) => ({ ...p }) as TankBatch),
+    create: jest.fn().mockImplementation((p: Partial<TankBatch>) => ({ ...p })),
   };
-  const operationRepository = {
-    create: jest.fn((p: unknown) => p as TankOperation),
-    findOne: jest.fn(),
+  const operationRepository: Partial<Repository<TankOperation>> = {
+    create: jest.fn().mockImplementation((p: Partial<TankOperation>) => p),
   };
-  const equipmentRepository = {
+  const equipmentRepository: Partial<Repository<Equipment>> = {
     findOne: jest.fn().mockResolvedValue(tank),
   };
-  const speciesRepository = {
+  const speciesRepository: Partial<Repository<Species>> = {
     findOne: jest.fn().mockResolvedValue(species),
   };
 
   const capacityResult = opts.capacityResult ?? { isOverCapacity: false };
-  const enforce = jest.fn(() => {
+  const enforce = jest.fn().mockImplementation(() => {
     if (opts.capacityThrows) throw opts.capacityThrows;
     return capacityResult;
   });
-  const tankCapacityService = { enforce } as unknown as TankCapacityService;
+  const tankCapacityService: Partial<TankCapacityService> = { enforce };
 
-  const managerSave = jest.fn(async (_: unknown, entity: unknown) => entity);
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: { save: managerSave } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
+  const { mockDataSource, mockQueryRunner } = createMockDataSource();
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
 
-  const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
-    if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
+  const enqueue = jest.fn(async () => {
+    if (opts.enqueueImpl) return opts.enqueueImpl();
     return undefined;
   });
-  const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
+  const outboxPublisher: Pick<OutboxPublisher, 'enqueue'> = { enqueue };
 
   const handler = new DeployCleanerFishHandler(
-    batchRepository as unknown as Repository<Batch>,
-    tankBatchRepository as unknown as Repository<TankBatch>,
-    operationRepository as unknown as Repository<TankOperation>,
-    equipmentRepository as unknown as Repository<Equipment>,
-    speciesRepository as unknown as Repository<Species>,
-    tankCapacityService,
-    dataSource as DataSource,
-    outboxPublisher,
+    batchRepository as Repository<Batch>,
+    tankBatchRepository as Repository<TankBatch>,
+    operationRepository as Repository<TankOperation>,
+    equipmentRepository as Repository<Equipment>,
+    speciesRepository as Repository<Species>,
+    tankCapacityService as TankCapacityService,
+    mockDataSource,
+    outboxPublisher as OutboxPublisher,
   );
 
   return { handler, enqueue, commit, rollback };
@@ -143,9 +142,9 @@ function makeHarness(opts: HarnessOpts = {}) {
 function makeCommand(overrides: Partial<{
   quantity: number;
   avgWeightG: number;
-}> = {}) {
+}> = {}): DeployCleanerFishCommand {
   return new DeployCleanerFishCommand(
-    'tenant-1',
+    TENANT,
     {
       cleanerBatchId: 'cleaner-batch-1',
       targetTankId: 'tank-1',
@@ -168,7 +167,7 @@ describe('DeployCleanerFishHandler — transactional outbox', () => {
     expect(event['eventType']).toBe('CleanerFishDeployed');
     expect(event['cleanerBatchId']).toBe('cleaner-batch-1');
     expect(event['targetTankId']).toBe('tank-1');
-    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['tenantId']).toBe(TENANT);
     expect(event['speciesName']).toBe('Lumpfish');
     expect(event['quantity']).toBe(30);
     // 30 × 50 g / 1000 = 1.5 kg
@@ -207,7 +206,7 @@ describe('DeployCleanerFishHandler — transactional outbox', () => {
 
   it('BadRequestException when batch is not CLEANER_FISH — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({
-      cleanerBatch: { batchType: BatchType.PRODUCTION } as Batch,
+      cleanerBatch: { batchType: BatchType.PRODUCTION },
     });
 
     await expect(handler.execute(makeCommand())).rejects.toThrow(

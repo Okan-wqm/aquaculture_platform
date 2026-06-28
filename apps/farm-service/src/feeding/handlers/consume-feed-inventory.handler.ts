@@ -21,6 +21,7 @@
  *
  * @module Feeding/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -50,11 +51,7 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
   async execute(command: ConsumeFeedInventoryCommand): Promise<FeedInventory> {
     const { tenantId, payload, userId } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Pessimistic lock on inventory to prevent concurrent double-spend.
       const inventory = await queryRunner.manager.findOne(FeedInventory, {
         where: { id: payload.inventoryId, tenantId },
@@ -131,13 +128,7 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
         await this.outboxPublisher.enqueue(lowEvent, queryRunner.manager);
       }
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

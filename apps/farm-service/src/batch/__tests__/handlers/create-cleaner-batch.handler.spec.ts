@@ -4,6 +4,13 @@
  * Completes the cleaner-fish lifecycle event coverage (5/5) — this
  * is the lifecycle-start event that the other four build on.
  *
+ * The handler now writes inside runInTenantTransaction (fail-closed
+ * tenant boundary). We exercise the real boundary against a mocked
+ * DataSource/QueryRunner from createMockDataSource — its queryRunner.query
+ * returns [] so the search_path/GUC readback assertion is skipped under
+ * mocks. tenantId MUST be a valid UUID because the boundary pins the
+ * tenant search_path and rejects non-UUIDs.
+ *
  * Tests pin:
  *   1. Happy path: batch save + `CleanerFishBatchCreated` enqueue +
  *      commit (once), event shape includes sourceType discriminator.
@@ -14,28 +21,37 @@
  *   5. Code-generator fallback path still publishes the event.
  */
 import { BadRequestException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { OutboxPublisher } from '@platform/outbox';
+import type { Repository } from 'typeorm';
 
 import { CreateCleanerBatchHandler } from '../../handlers/create-cleaner-batch.handler';
 import { CreateCleanerBatchCommand } from '../../commands/create-cleaner-batch.command';
 import { Batch } from '../../entities/batch.entity';
 import { Species } from '../../../species/entities/species.entity';
 import type { CodeGeneratorService } from '../../../database/services/code-generator.service';
-import type { OutboxPublisher } from '@platform/outbox';
+
+const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   species?: Partial<Species> | null;
   generatedCode?: { code: string } | null;
-  enqueueImpl?: (event: unknown, em: EntityManager) => Promise<void>;
+  enqueueImpl?: () => Promise<void>;
 }
 
-function makeHarness(opts: HarnessOpts = {}) {
+function makeHarness(opts: HarnessOpts = {}): {
+  handler: CreateCleanerBatchHandler;
+  enqueue: jest.Mock;
+  commit: jest.Mock;
+  rollback: jest.Mock;
+  managerSave: jest.Mock;
+} {
   const species: Partial<Species> | null =
     opts.species === null
       ? null
       : {
           id: 'species-lumpfish',
-          tenantId: 'tenant-1',
+          tenantId: TENANT,
           commonName: 'Lumpfish',
           isCleanerFish: true,
           isActive: true,
@@ -43,48 +59,39 @@ function makeHarness(opts: HarnessOpts = {}) {
           ...(opts.species ?? {}),
         };
 
-  const batchRepository = {
-    create: jest.fn((p: Partial<Batch>) => ({ ...p }) as Batch),
+  const batchRepository: Partial<Repository<Batch>> = {
+    create: jest.fn().mockImplementation((p: Partial<Batch>) => ({ ...p })),
   };
-  const speciesRepository = {
+  const speciesRepository: Partial<Repository<Species>> = {
     findOne: jest.fn().mockResolvedValue(species),
   };
-  const codeGenerator = {
+  const codeGenerator: Pick<CodeGeneratorService, 'generateCode'> = {
     generateCode: jest.fn().mockResolvedValue(
       opts.generatedCode === null ? null : opts.generatedCode ?? { code: 'CFB-2026-001' },
     ),
-  } as unknown as CodeGeneratorService;
-
-  const managerSave = jest.fn(async (_: unknown, entity: Batch) => {
-    return { ...entity, id: 'generated-batch-id' } as Batch;
-  });
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: { save: managerSave } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   };
 
-  const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
-    if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  const managerSave = mockManager.save as jest.Mock;
+  managerSave.mockImplementation(async (_entity: unknown, entity: Batch) => ({
+    ...entity,
+    id: 'generated-batch-id',
+  }));
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
+
+  const enqueue = jest.fn(async () => {
+    if (opts.enqueueImpl) return opts.enqueueImpl();
     return undefined;
   });
-  const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
+  const outboxPublisher: Pick<OutboxPublisher, 'enqueue'> = { enqueue };
 
   const handler = new CreateCleanerBatchHandler(
-    batchRepository as unknown as Repository<Batch>,
-    speciesRepository as unknown as Repository<Species>,
-    codeGenerator,
-    dataSource as DataSource,
-    outboxPublisher,
+    batchRepository as Repository<Batch>,
+    speciesRepository as Repository<Species>,
+    codeGenerator as CodeGeneratorService,
+    mockDataSource,
+    outboxPublisher as OutboxPublisher,
   );
 
   return { handler, enqueue, commit, rollback, managerSave };
@@ -94,9 +101,9 @@ function makeCommand(overrides: Partial<{
   sourceType: 'farmed' | 'wild_caught';
   initialQuantity: number;
   initialAvgWeightG: number;
-}> = {}) {
+}> = {}): CreateCleanerBatchCommand {
   return new CreateCleanerBatchCommand(
-    'tenant-1',
+    TENANT,
     {
       speciesId: 'species-lumpfish',
       initialQuantity: overrides.initialQuantity ?? 1000,
@@ -122,7 +129,7 @@ describe('CreateCleanerBatchHandler — transactional outbox', () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['eventType']).toBe('CleanerFishBatchCreated');
-    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['tenantId']).toBe(TENANT);
     expect(event['cleanerBatchId']).toBe('generated-batch-id');
     expect(event['batchNumber']).toBe('CFB-2026-001');
     expect(event['speciesId']).toBe('species-lumpfish');
@@ -171,7 +178,7 @@ describe('CreateCleanerBatchHandler — transactional outbox', () => {
 
   it('throws BadRequestException when species is not a cleaner fish — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({
-      species: { isCleanerFish: false } as Species,
+      species: { isCleanerFish: false },
     });
 
     await expect(handler.execute(makeCommand())).rejects.toThrow(

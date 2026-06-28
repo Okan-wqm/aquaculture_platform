@@ -4,7 +4,7 @@ import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobi
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -18,8 +18,25 @@ import {
   ApproveLeaveRequestCommand,
   RejectLeaveRequestCommand,
   CancelLeaveRequestCommand,
+  UpdateLeaveRequestCommand,
+  WithdrawLeaveRequestCommand,
+  CreateLeaveTypeCommand,
+  UpdateLeaveTypeCommand,
+  AdjustLeaveBalanceCommand,
+  CarryOverLeaveBalancesCommand,
+  InitializeLeaveBalancesCommand,
 } from './commands';
-import { CreateLeaveRequestInput } from './dto/create-leave-request.input';
+import {
+  CreateLeaveRequestInput,
+  UpdateLeaveRequestInput,
+} from './dto/create-leave-request.input';
+import { CreateLeaveTypeInput } from './dto/create-leave-type.input';
+import {
+  CarryOverLeaveBalancesResult,
+  LeaveDaysResult,
+  LeaveOverlapResult,
+} from './dto/leave-admin.types';
+import { UpdateLeaveTypeInput } from './dto/update-leave-type.input';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveRequest, LeaveRequestStatus } from './entities/leave-request.entity';
 import { LeaveType, LeaveCategory } from './entities/leave-type.entity';
@@ -30,6 +47,8 @@ import {
   GetLeaveRequestByIdQuery,
   GetPendingApprovalsQuery,
   GetTeamLeaveCalendarQuery,
+  CheckLeaveOverlapQuery,
+  CalculateLeaveDaysQuery,
 } from './queries';
 import { LeaveCalendarEntry } from './query-handlers/get-team-leave-calendar.handler';
 
@@ -271,6 +290,136 @@ export class LeaveResolver {
   }
 
   // =====================
+  // Leave Validation Queries
+  // =====================
+  @Query(() => LeaveOverlapResult, { name: 'checkLeaveOverlap' })
+  async checkLeaveOverlap(
+    @Args('employeeId', { type: () => ID }) employeeId: string,
+    @Args('startDate') startDate: string,
+    @Args('endDate') endDate: string,
+    @Context() context: GraphQLContext,
+    @Args('excludeRequestId', { type: () => ID, nullable: true }) excludeRequestId?: string,
+  ): Promise<LeaveOverlapResult> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<CheckLeaveOverlapQuery, LeaveOverlapResult>(
+      new CheckLeaveOverlapQuery(tenantId, employeeId, startDate, endDate, excludeRequestId),
+    );
+  }
+
+  @Query(() => LeaveDaysResult, { name: 'calculateLeaveDays' })
+  async calculateLeaveDays(
+    @Args('leaveTypeId', { type: () => ID }) leaveTypeId: string,
+    @Args('startDate') startDate: string,
+    @Args('endDate') endDate: string,
+    @Context() context: GraphQLContext,
+    @Args('isHalfDayStart', { nullable: true }) isHalfDayStart?: boolean,
+    @Args('isHalfDayEnd', { nullable: true }) isHalfDayEnd?: boolean,
+  ): Promise<LeaveDaysResult> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<CalculateLeaveDaysQuery, LeaveDaysResult>(
+      new CalculateLeaveDaysQuery(
+        tenantId,
+        leaveTypeId,
+        startDate,
+        endDate,
+        isHalfDayStart ?? false,
+        isHalfDayEnd ?? false,
+      ),
+    );
+  }
+
+  // =====================
+  // Leave Type Mutations (admin)
+  // =====================
+  @Mutation(() => LeaveType)
+  @UseGuards(RolesGuard)
+  // Defining leave types is a tenant-configuration action: TENANT_ADMIN or the
+  // module manager only — never a regular module user.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_LEAVE_TYPE', resource: 'LeaveType', description: 'Create a leave type' })
+  async createLeaveType(
+    @Args('input') input: CreateLeaveTypeInput,
+    @Context() context: GraphQLContext,
+  ): Promise<LeaveType> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<CreateLeaveTypeCommand, LeaveType>(
+      new CreateLeaveTypeCommand(tenantId, userId, input),
+    );
+  }
+
+  @Mutation(() => LeaveType)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_LEAVE_TYPE', resource: 'LeaveType', description: 'Update a leave type' })
+  async updateLeaveType(
+    @Args('input') input: UpdateLeaveTypeInput,
+    @Context() context: GraphQLContext,
+  ): Promise<LeaveType> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<UpdateLeaveTypeCommand, LeaveType>(
+      new UpdateLeaveTypeCommand(tenantId, userId, input),
+    );
+  }
+
+  // =====================
+  // Leave Balance Mutations (admin)
+  // =====================
+  @Mutation(() => LeaveBalance)
+  @UseGuards(RolesGuard)
+  // Manual balance adjustment is a privileged correction: admin / manager only.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'ADJUST_LEAVE_BALANCE', resource: 'LeaveBalance', description: 'Manually adjust a leave balance' })
+  async adjustLeaveBalance(
+    @Args('employeeId', { type: () => ID }) employeeId: string,
+    @Args('leaveTypeId', { type: () => ID }) leaveTypeId: string,
+    @Args('year', { type: () => Int }) year: number,
+    @Args('adjustment', { type: () => Float }) adjustment: number,
+    @Args('reason') reason: string,
+    @Context() context: GraphQLContext,
+  ): Promise<LeaveBalance> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<AdjustLeaveBalanceCommand, LeaveBalance>(
+      new AdjustLeaveBalanceCommand(tenantId, userId, employeeId, leaveTypeId, year, adjustment, reason),
+    );
+  }
+
+  @Mutation(() => [LeaveBalance])
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'INITIALIZE_LEAVE_BALANCES', resource: 'LeaveBalance', description: 'Seed leave balances for an employee/year' })
+  async initializeLeaveBalances(
+    @Args('employeeId', { type: () => ID }) employeeId: string,
+    @Args('year', { type: () => Int }) year: number,
+    @Context() context: GraphQLContext,
+  ): Promise<LeaveBalance[]> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<InitializeLeaveBalancesCommand, LeaveBalance[]>(
+      new InitializeLeaveBalancesCommand(tenantId, userId, employeeId, year),
+    );
+  }
+
+  @Mutation(() => CarryOverLeaveBalancesResult)
+  @UseGuards(RolesGuard)
+  // Year-end carry-over rewrites every employee's balances: admin / manager only.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CARRY_OVER_LEAVE_BALANCES', resource: 'LeaveBalance', description: 'Carry over leave balances between years' })
+  async carryOverLeaveBalances(
+    @Args('fromYear', { type: () => Int }) fromYear: number,
+    @Args('toYear', { type: () => Int }) toYear: number,
+    @Context() context: GraphQLContext,
+  ): Promise<CarryOverLeaveBalancesResult> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<CarryOverLeaveBalancesCommand, CarryOverLeaveBalancesResult>(
+      new CarryOverLeaveBalancesCommand(tenantId, userId, fromYear, toYear),
+    );
+  }
+
+  // =====================
   // Leave Request Mutations
   // =====================
   @Mutation(() => LeaveRequest)
@@ -387,6 +536,46 @@ export class LeaveResolver {
     const userId = this.getUserId(context);
     return this.commandBus.execute<CancelLeaveRequestCommand, LeaveRequest>(
       new CancelLeaveRequestCommand(tenantId, userId, id, reason),
+    );
+  }
+
+  // Editing a not-yet-decided request is a self-service action; ownership
+  // (creator OR owner) is enforced transactionally in UpdateLeaveRequestHandler.
+  // The @ModuleUserOrHigher floor is the coarse defense-in-depth layer beneath it
+  // (matches submit/cancel).
+  @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard, MobileFeatureGuard)
+  @ModuleUserOrHigher()
+  @RequiresMobileFeature('leave')
+  @AuditLog({ action: 'UPDATE_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Edit a pending leave request' })
+  async updateLeaveRequest(
+    @Args('input') input: UpdateLeaveRequestInput,
+    @Context() context: GraphQLContext,
+  ): Promise<LeaveRequest> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<UpdateLeaveRequestCommand, LeaveRequest>(
+      new UpdateLeaveRequestCommand(tenantId, userId, input),
+    );
+  }
+
+  // Withdraw is the employee retracting their OWN not-yet-decided request
+  // (DRAFT/PENDING → WITHDRAWN). Distinct from admin cancel/reject: ownership
+  // (creator OR owner) is enforced transactionally in WithdrawLeaveRequestHandler,
+  // with @ModuleUserOrHigher as the coarse floor.
+  @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard, MobileFeatureGuard)
+  @ModuleUserOrHigher()
+  @RequiresMobileFeature('leave')
+  @AuditLog({ action: 'WITHDRAW_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Withdraw a leave request' })
+  async withdrawLeaveRequest(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<LeaveRequest> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute<WithdrawLeaveRequestCommand, LeaveRequest>(
+      new WithdrawLeaveRequestCommand(tenantId, userId, id),
     );
   }
 }

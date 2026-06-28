@@ -338,7 +338,6 @@ export const DepartmentsTab: React.FC = () => {
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredDepartments.map((dept) => {
               const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
-              const site = sites.find(s => s.id === dept.siteId);
               return (
                 <tr key={dept.id} className={!dept.siteId ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -353,8 +352,13 @@ export const DepartmentsTab: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {site?.name ? (
-                      <span className="text-gray-500">{site.name}</span>
+                    {/* WHY: render the site name from the department's OWN fetched
+                        `site { id name }` (useDepartments query), NOT a second
+                        useSiteList() join. The join falsely showed "Not associated
+                        with any site" whenever that list was loading / empty / past
+                        its limit — even though dept.siteId + dept.site were set. */}
+                    {dept.site?.name ? (
+                      <span className="text-gray-500">{dept.site.name}</span>
                     ) : (
                       <span className="text-red-600 italic font-medium">
                         Not associated with any site

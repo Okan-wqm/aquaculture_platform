@@ -169,6 +169,17 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
   // so the next user on a shared device cannot use or see prior user's biometric data.
   clearBiometricData();
 
+  // SEC: Clear the two UNSCOPED localStorage keys that otherwise persist across
+  // users on a shared field device — the water-quality MRU equipment list and the
+  // last-sync timestamp. Neither is tenant/user-namespaced, so without this the
+  // next user sees the prior user's MRU + sync time. Mirrors the biometric wipe.
+  try {
+    localStorage.removeItem('aquamobil-wq-mru');
+    localStorage.removeItem('aquamobil_last_sync_at');
+  } catch {
+    // localStorage unavailable (private mode / SSR) — non-fatal.
+  }
+
   await Promise.all([
     clearAllOperations(),
     clearCache(), // No tenantId = clear ALL tenants' cache entries

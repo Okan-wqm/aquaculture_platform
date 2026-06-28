@@ -146,6 +146,21 @@ Evidence:
 Fix: wrapped the delegate in `withTenantContext(event.tenantId, ...)` (matches
 the harvest/onboarding listeners); fails closed on an invalid tenantId.
 
+## FARM-MEDIUM-075 — AquaMobil leaves unscoped localStorage keys across logout
+
+`clearAllUserData()` wiped biometric PII + IndexedDB caches but left two UNSCOPED
+localStorage keys behind: `aquamobil-wq-mru` (water-quality MRU equipment list)
+and `aquamobil_last_sync_at` (last-sync timestamp). On a shared field device the
+next user saw the prior user's MRU + sync time.
+
+Evidence:
+- `web/apps/aquamobil/src/hooks/useAuth.tsx:167`
+- `web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx:81`
+- `web/apps/aquamobil/src/pages/account/AccountPage.tsx:34`
+
+Fix: `clearAllUserData()` now `localStorage.removeItem`s both keys (try/catch for
+private-mode safety), mirroring the biometric wipe.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

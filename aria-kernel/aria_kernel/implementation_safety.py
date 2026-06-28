@@ -556,12 +556,13 @@ class HardFailCheck:
     closes_findings: tuple[str, ...]
 
 
-# Plan ARIA-V9.0-D — 15 hard-fail checks. The check IMPLEMENTATIONS
-# live as separate functions above (or are wired by V9.6 auto_merge
-# runner / V9.4 plan_synthesizer / V9.3 envelope minter). This
-# registry pins the NAMES + descriptions + finding closure mapping
-# so the orchestrator's pre-PR-open loop has a single iterable
-# checklist + invariant test pins the count.
+# Plan ARIA-V9.0-D — hard-fail checks (15 at V9.5; Plan 031 §031e added the
+# 16th, expert_consensus_evidence_verified). The check IMPLEMENTATIONS live as
+# separate functions above (or are wired by V9.6 auto_merge runner / V9.4
+# plan_synthesizer / V9.3 envelope minter / 031e expert_review_gate). This
+# registry pins the NAMES + descriptions + finding closure mapping so the
+# orchestrator's pre-PR-open loop has a single iterable checklist + invariant
+# test pins the count.
 HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
     HardFailCheck(
         name="no_force_push",
@@ -637,6 +638,20 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="content_hash_recheck",
         description="implementer recomputes SHA256 of CONVERGED plan vs envelope.content_hash",
         closes_findings=("ai-MED-019",),
+    ),
+    # Plan 031 Faz 031e — the autonomous fix's reviewer is ≥2 independent
+    # topic-experts, not the operator; the gate (expert_review_gate.
+    # enforce_expert_consensus_gate) requires unanimous evidence-verified
+    # consensus and re-checks every reviewer's evidence_refs against the git
+    # blob at base SHA, so a hallucinated approval cannot open the PR.
+    HardFailCheck(
+        name="expert_consensus_evidence_verified",
+        description=(
+            "enforce_expert_consensus_gate: >=2 independent topic-experts, "
+            "unanimous satisfied, mean confidence >=0.80, every evidence_ref "
+            "repo-verified at base SHA (hallucinated approval blocks + escalates)"
+        ),
+        closes_findings=("aria-031e-expert-consensus",),
     ),
 )
 

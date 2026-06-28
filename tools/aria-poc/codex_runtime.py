@@ -25,6 +25,11 @@ from typing import Any
 CODEX_BINARY_ENV_VAR = "CODEX_CLI_BINARY"
 CODEX_MOCK_ENV_VAR = "CODEX_CLI_MOCK"
 CODEX_REASONING_EFFORT = "xhigh"
+# Plan 023 §A — per-agent effort tiering. The default stays ``xhigh`` so any
+# caller that does not resolve a per-agent effort fails safe to the most
+# expensive (most capable) tier. Lower tiers are opt-in per agent via
+# frontmatter (see aria_kernel.agent_runtime_profile).
+VALID_REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CODEX_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CODEX_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CODEX_AUTH_PREFLIGHT_SKIP"
@@ -165,13 +170,22 @@ def preflight_codex_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
     raise CodexAuthUnavailable(last_error or "codex_auth_probe_failed")
 
 
-def build_codex_exec_argv(*, output_schema: Path | None = None) -> list[str]:
+def build_codex_exec_argv(
+    *,
+    output_schema: Path | None = None,
+    reasoning_effort: str | None = None,
+) -> list[str]:
+    effort = reasoning_effort or CODEX_REASONING_EFFORT
+    if effort not in VALID_REASONING_EFFORTS:
+        raise CodexPolicyViolation(
+            f"invalid reasoning_effort {effort!r}; allowed: {VALID_REASONING_EFFORTS}"
+        )
     argv = [
         codex_binary(),
         "exec",
         "--json",
         "-c",
-        f'model_reasoning_effort="{CODEX_REASONING_EFFORT}"',
+        f'model_reasoning_effort="{effort}"',
     ]
     if output_schema is not None:
         argv.extend(["--output-schema", str(output_schema)])
@@ -185,9 +199,10 @@ def run_codex_exec(
     output_schema: Path | None = None,
     require_usage: bool | None = None,
     cwd: str | Path | None = None,
+    reasoning_effort: str | None = None,
 ) -> CodexRunResult:
     preflight_codex_auth()
-    argv = build_codex_exec_argv(output_schema=output_schema)
+    argv = build_codex_exec_argv(output_schema=output_schema, reasoning_effort=reasoning_effort)
     proc = subprocess.run(
         argv,
         input=prompt_text,

@@ -26,6 +26,21 @@ query runs, throwing a typed `TenantContextError` (`SCHEMA_MISMATCH` / `RLS_MISM
 instead of returning a silent empty result. See `tenant-transaction.ts` +
 `tenant-context-error.ts`.
 
+## FARM-HIGH-061 — get-site / get-department mask lost tenant context as not-found
+
+`GetSiteHandler` and `GetDepartmentHandler` read via raw `@InjectRepository` and
+returned `null` with the comment *"This handles connection pool race conditions
+where search_path might be reset"* — conflating a lost tenant context with a
+legitimate not-found, the literal "data disappears" path.
+
+Evidence:
+- `apps/farm-service/src/site/handlers/get-site.handler.ts`
+- `apps/farm-service/src/department/handlers/get-department.handler.ts`
+
+Fix: both now read through `runInTenantRead` (which asserts schema + RLS GUC), so
+a context failure throws `TenantContextError` and `null` means an honest
+not-found. The masking comments are removed.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

@@ -2,9 +2,10 @@
  * Get Tank Query Handler
  * @module Tank/Handlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { GetTankQuery } from '../queries/get-tank.query';
 import { Tank } from '../entities/tank.entity';
@@ -12,22 +13,25 @@ import { Tank } from '../entities/tank.entity';
 @QueryHandler(GetTankQuery)
 export class GetTankHandler implements IQueryHandler<GetTankQuery, Tank> {
   constructor(
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetTankQuery): Promise<Tank> {
     const { tenantId, id } = query;
 
-    const tank = await this.tankRepository.findOne({
-      where: { id, tenantId },
-      relations: ['department'],
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const tank = await queryRunner.manager.findOne(Tank, {
+        where: { id, tenantId },
+        relations: ['department'],
+      });
+
+      if (!tank) {
+        throw new NotFoundException(`Tank with id "${id}" not found`);
+      }
+
+      return tank;
     });
-
-    if (!tank) {
-      throw new NotFoundException(`Tank with id "${id}" not found`);
-    }
-
-    return tank;
   }
 }

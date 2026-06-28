@@ -277,6 +277,33 @@ Fix: all 6 now read through `runInTenantRead` via `queryRunner.manager`
 (17 tests). Remaining domains (species, storage, supplier, system, tank,
 worker) follow as the third batch.
 
+## FARM-HIGH-075 — species / storage / supplier / system / tank / worker read handlers outside the boundary
+
+Third and final batch of the GraphQL read-handler migration (plan Task #9). 26
+read handlers across six domains read via raw `@InjectRepository`.
+
+Evidence (domains, handler counts): species (3), storage (11), supplier (3),
+system (3), tank (5), worker (1) — full file list in the registry entry.
+
+Fix: all 26 now read through `runInTenantRead` via `queryRunner.manager`
+(asserts schema + RLS GUC); `NotFoundException` paths preserved. Specs added
+(64 tests; the full farm-service handler/resolver suite is 344 tests green —
+no regression).
+
+Deferred (tracked):
+- `storage/list-storage-inventory-by-cursor` — delegates to the shared
+  `paginateCursor(repository, …)` primitive; routing it through the boundary
+  needs `paginateCursor` to accept a boundary-scoped manager first (Task #9
+  tail).
+- Reference-data reads (`equipment/get-equipment-types`,
+  `get-sub-equipment-types`, `list-equipment`), federation `farm/get-farm`, and
+  service-delegating `batch/get-batch-performance` remain under Task #23
+  (explicit `runInSourceRead` API).
+
+With this batch, every tenant-owned GraphQL read query-handler in farm-service
+that can use the tenant boundary today now does; the residue is the explicit
+source-read set (Task #23) and the cursor primitive.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

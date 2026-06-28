@@ -5709,3 +5709,45 @@ Found 2026-06-28 (tenant-panel PR-B2 vs main). (1) socketFactory pooled Socket.I
 
 ## ORPHAN-MEDIUM-213 — socketFactory releaseSocket re-derives the CURRENT tenant (refcount mis-target after a switch)
 Found 2026-06-28 (tenant-panel PR-B2). `releaseSocket(url)` computes its pool key from `getTenantId()` AT RELEASE TIME, not from the tenant the caller acquired under. After a tenant switch, an A-bound hook's cleanup `releaseSocket(url)` targets `::B` (the current tenant) and can decrement — and prematurely tear down — tenant B's socket. ORPHAN-206's `onTenantChange` teardown already severs the LEAK (A's sockets), so this is a narrower refcount-accuracy race, not a residency leak. **Status: OPEN — architectural fix: bind the release to the ACQUIRE, not the ambient tenant. Cleanest is socket-identity release — `getSocket` returns the Socket; add `releaseSocket(url, socket?)` that finds the entry by `entry.socket === socket` (immune to tenant switches) and update the ~6 callsites in useEdgeIoSocket / useAlarmRuntime / useSensorSocket to pass the socket they already hold. Kept out of PR-B2 to keep that change contained; it touches many callers and warrants its own careful pass.**
+
+---
+
+## ORPHAN-HIGH-214 — admin-api writes/locks `auth.tenants` directly (lifecycle handlers + create duplicate-check), blocking the SEC-015/D14 least-privilege REVOKE; the REVOKE never landed in prod due to in-place migration edit drift
+
+Severity: HIGH (cross-service privilege-boundary breach — `admin_service` currently holds INSERT/UPDATE/DELETE on the authoritative tenant SSoT table). Discovered 2026-06-28 while root-causing the `POST /api/v1/tenants` 500 ("Database operation failed") on app.suderra.com.
+
+**Problem:** Per D14/SEC-015, `auth.tenants` is owned by auth-service and admin-api may only READ it (`admin_service` = SELECT). But admin-api locks/over-reaches `auth.tenants` directly via the `Tenant` entity (`@Entity('tenants', { schema: 'auth' })`):
+- `apps/admin-api-service/src/tenant/handlers/suspend-tenant.handler.ts` — the four lifecycle handlers (suspend/activate/deactivate/archive) take `lock: { mode: 'pessimistic_write' }` (`FOR UPDATE`) on `auth.tenants` (lines 61/175/283/369). They mutate the entity **in memory only** (`tenant.status = …`) — there is no `manager.save(Tenant)` on any of the four; the actual status write is delegated to auth-service (`authProvisioningClient.*`) and admin-local lifecycle metadata already persists to `admin.tenant_activities`. So the boundary breach is the **`FOR UPDATE` lock** (which needs the UPDATE privilege), not an actual UPDATE statement.
+- `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts` `assertNoDuplicateTenant` took `lock: { mode: 'pessimistic_read' }` (`FOR SHARE`) on `auth.tenants` (FIXED in the create-500 PR — lock removed; uniqueness is enforced by auth-service `reserveTenant` + the `auth.tenants` unique constraints).
+
+PostgreSQL requires the UPDATE privilege to take ANY row lock (`FOR SHARE`/`FOR UPDATE`). So the intended `REVOKE INSERT, UPDATE, DELETE ON auth.tenants FROM admin_service` (SEC-015 least-privilege) cannot be applied while these `FOR UPDATE` locks exist — it would turn every suspend/activate/deactivate/archive into a `permission denied for table tenants` 500.
+
+**Additional latent auth.* over-privilege from the SAME in-place edit (e147c9dfb→42695736f):** the deployed (pre-edit) `1800400000000` ALSO `GRANT`ed `admin_service` full DML on `auth.tenants` and ran `GRANT CREATE ON DATABASE … TO admin_service`; the edit removed both (privilege-tightening) but, like the REVOKE, it never landed. So on the droplet `admin_service` currently holds INSERT/UPDATE/DELETE on `auth.tenants` AND `CREATE ON DATABASE` (verified read-only: `has_table_privilege('admin_service','auth.tenants','UPDATE')` = `t`) — both must be revoked as part of the capstone.
+
+**Dead auth.* writers (re-introduction landmines):** `apps/admin-api-service/src/users/services/tenant-role.service.ts` (raw writes to `auth.tenant_roles` + `auth.tenant_role_permissions`) and `apps/admin-api-service/src/users/services/user-role-assignment.service.ts` (writes to `auth.user_role_assignments`) write auth.* directly. Both are currently dead/unwired (registered in no `*.module.ts`, reached by no controller), so not an active breach — but `auth.tenant_roles` is in the intended REVOKE set, so a future wiring would silently re-breach. Delete these dead services (tier-1 make-it-impossible) as part of the capstone.
+
+**How to fix (capstone of "admin-api read-only on auth.tenants"):**
+1. Refactor the four lifecycle handlers: drop the `FOR UPDATE` lock + the dead in-memory `tenant.status` mutation; the auth-service command is already the SSoT write — re-read the snapshot for the return value. No new admin metadata table is needed (`admin.tenant_activities` already holds it).
+2. Delete the dead auth.* writer services above; audit for any other admin-api writers/locks of `auth.*`.
+3. Ship a NEW forward migration re-applying the full SEC-015 read-only posture on `auth.*` (GRANT SELECT; REVOKE INSERT/UPDATE/DELETE) AND revoking `CREATE ON DATABASE` from `admin_service` — only AFTER (1)+(2) deploy (expand/contract: code first, REVOKE second, so no in-flight old container hits a denied lock).
+4. Add a boot-time/CI assertion that `admin_service` has no write privilege on `auth.*` and no `CREATE` on the database.
+5. (Optional, cosmetic) Map PG `23505` on the `auth.tenants` slug/customDomain unique constraints to `ConflictException` inside auth-service `reserveTenant` so a true concurrent-insert race surfaces a clean conflict on the status URL rather than a raw `QueryFailedError`.
+
+Status: OPEN (owner: auth-security-expert / multi-tenant-saas-expert / admin-expert). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-215 — tenant creation 500 ("Database operation failed") on app.suderra.com: in-place edit of an already-shipped migration left the deployed schema frozen pre-edit
+
+Severity: HIGH (production: every `POST /api/v1/tenants` failed). Discovered + fixed 2026-06-28.
+
+**Problem:** Migration `apps/admin-api-service/src/migrations/1800400000000-TenantProvisioningWorkflow.ts` was hand-edited IN PLACE (commit `42695736f` edited the file created by `e147c9dfb`) AFTER it had already been recorded in the deployed `admin.migrations` ledger. TypeORM's `MigrationExecutor` keys the ledger by migration NAME, so an already-recorded migration is never re-run — the edit's DDL silently never landed on the droplet. The deployed `admin.tenant_provisioning_runs` was frozen in its pre-edit shape (missing `leaseToken`/`leasedBy`/`heartbeatAt`/`leaseExpiresAt`, missing `stepOrder` on steps, missing `tenant_onboarding_acks`, missing the `RESERVING` state value, and still carrying `fk_tenant_provisioning_runs_tenant` which breaks the run-before-tenant INSERT). Runtime code (built from the edited source) referenced `leaseToken`, so `createTenantOperation`'s first statement raised `QueryFailedError: column "leaseToken" does not exist` → the admin-api global filter's generic QueryFailedError branch → a redacted 500 "Database operation failed". Confirmed firsthand via live droplet logs (`docker logs aqua-admin-api`) + DB inspection, which disambiguated this (H1, SQLSTATE 42703) from the privilege hypothesis (H2).
+
+**Resolution (this PR):**
+1. New forward migration `1801200000000-TenantProvisioningWorkflowLeaseAndOnboardingAcks.ts` idempotently completes the workflow surface (lease columns, RESERVING check, indexes, stepOrder, onboarding-ack ledger, DROP of the run→tenant FK, admin.* grants). Applied to the live droplet DB and verified (replays idempotently; full create path unblocked).
+2. Removed the useless cross-boundary `FOR SHARE` lock in `assertNoDuplicateTenant` (uniqueness SSoT = auth-service `reserveTenant` + auth.tenants unique constraints).
+3. NEW systemic guard `tools/gates/migration-immutability-witness.ts` + `tests/invariants/migration-immutability.spec.ts` + CI job: an in-place edit of an already-shipped migration now fails CI, closing the bug class.
+
+The remaining least-privilege drift (admin_service over-privileged on auth.tenants) is tracked separately as [[ORPHAN-HIGH-214]].
+
+Status: RESOLVED (2026-06-28; fix branch `fix/tenant-provisioning-schema-drift`). Registry: orphan-findings.md only.

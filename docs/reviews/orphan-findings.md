@@ -1124,6 +1124,9 @@ Registry anchor note: `ORPHAN-HIGH-031` is the Phase 0.2 cipher-allowlist verifi
 **Linked plan:** Plan §5 Faz 2 D-3 (UH-017 parent finding); PR-195 D-3 closure arc (consumer-migration installment).
 
 
+## ORPHAN-MEDIUM-210 — ARIA lacked model/effort cost-tiering, multi-judge consensus, belief decay, and autonomous-fix safety gates (Plans 023-031)
+Found 2026-06-28 during the ARIA gaps + cost-review sweep. The ARIA meta-system had capability gaps vs its design-of-record: no per-role model/effort tiering with consensus->human escalation (cost-runaway risk); single-judge finding verification (no >=2-judge fan-out / gold-set replay); no time-based belief decay; no proactive Impact x Opportunity prioritization; no runtime-signal bridge; and the autonomous-fix loop lacked a regression anchor, an oscillation guard, a burn-in->ladder bridge, and an expert-reviewer consensus gate. Status: RESOLVED (2026-06-28) — implemented across Plans 023-031 (model/effort tiering + consensus->human escalation; judge calibration; operator-resolution feedback; evidence-gated arbiter; >=2-judge fan-out + gold-set activation/replay; Rust/edge drift enums; belief decay; Impact x Opportunity prioritization; runtime-signal bridge; deterministic acceptance harness + agent lane; Gate A regression anchor + Gate B oscillation guard; burn-in->ladder bridge; expert-reviewer consensus gate). See docs/plans ARIA-023..031. (Inserted mid-file, not at the contended tail, to stay merge-train collision-immune; ID 210 reserved with margin.)
+
 ## ORPHAN-MEDIUM-032 — `git rev-parse --short HEAD` after a husky-rejected commit captures STALE HEAD; registry-close shell pipelines record the wrong closing SHA (2026-04-28)
 
 **Discovered by:** Batch #341 (this session) commit cycle. The shell pipeline:

@@ -547,6 +547,32 @@ debug-level (off in prod by default); a context mismatch is warn-level. The emit
 is fully wrapped so observability can never break a read. 11 boundary + 25
 handler tests green.
 
+## FARM-MEDIUM-088 — no-grow gate for production mock-data imports (Task #7, tier-3)
+
+`tests/invariants/farm-no-mock-data-growth-ssot.spec.ts` freezes the set of
+non-test farm-module files that import a mock module (10, all under
+`pages/reports/`) as a shrink-only baseline: a NEW mock import fails the build,
+and removing one requires deleting its baseline entry. This is the tier-3 half
+of §5-5; the tier-1 removal is FARM-HIGH-084.
+
+## Remaining tracked work (large / blocked — NOT completed this cycle)
+
+These plan items are documented as OPEN findings with scope + owner rather than
+shipped partially:
+
+- **FARM-HIGH-084 (Task #7 removal)** — 10 report files render `pages/reports/mock/*`
+  synchronously with no backend call (the §3-C producer). Removal needs real
+  backend report aggregations for 8 report types (not all exist server-side).
+  Mitigated by the FARM-MEDIUM-088 no-grow gate; burn its baseline to empty as
+  each tab is wired.
+- **FARM-MEDIUM-089 (Task #5)** — farm-module typed codegen is BLOCKED by
+  hr-module fragment drift (`codegen.ts:38-43`); unblock hr-module first, then
+  add farm-module to the codegen chain + extend the parity invariant.
+- **FARM-MEDIUM-090 (Task #24)** — `BatchController` (643 lines) duplicates the
+  GraphQL mutation surface; consolidation is a deliberate API change.
+- **FARM-MEDIUM-091 (Task #25)** — `marineDataService` / `useFileUpload` /
+  `useChemicals` use raw `fetch()`; migrate to the typed/traced client.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

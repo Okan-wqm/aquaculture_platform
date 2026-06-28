@@ -5,9 +5,10 @@
  *
  * @module Feeding/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetFeedInventoryQuery } from '../queries/get-feed-inventory.query';
@@ -17,15 +18,17 @@ import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entit
 @QueryHandler(GetFeedInventoryQuery)
 export class GetFeedInventoryHandler implements IQueryHandler<GetFeedInventoryQuery, PaginatedQueryResult<FeedInventory>> {
   constructor(
-    @InjectRepository(FeedInventory)
-    private readonly inventoryRepository: Repository<FeedInventory>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetFeedInventoryQuery): Promise<PaginatedQueryResult<FeedInventory>> {
     const { tenantId, filter, page, limit, sortBy, sortOrder } = query;
 
-    const queryBuilder = this.inventoryRepository
-      .createQueryBuilder('inv')
+    // Read through the fail-closed tenant boundary.
+    const [inventory, total] = await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    const queryBuilder = queryRunner.manager
+      .createQueryBuilder(FeedInventory, 'inv')
       .leftJoinAndSelect('inv.feed', 'feed')
       .leftJoinAndSelect('inv.site', 'site')
       .leftJoinAndSelect('inv.department', 'department')
@@ -73,13 +76,16 @@ export class GetFeedInventoryHandler implements IQueryHandler<GetFeedInventoryQu
     queryBuilder.orderBy(`inv.${sortField}`, sortOrder);
 
     // Sayım
-    const total = await queryBuilder.getCount();
+    const count = await queryBuilder.getCount();
 
     // Pagination
     const offset = (page - 1) * limit;
     queryBuilder.skip(offset).take(limit);
 
-    const inventory = await queryBuilder.getMany();
+    const rows = await queryBuilder.getMany();
+
+      return [rows, count] as [FeedInventory[], number];
+    });
 
     return createPaginatedQueryResult(inventory, page, limit, total);
   }

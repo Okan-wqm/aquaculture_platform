@@ -206,6 +206,18 @@ dead `MortalityRecord` injection. Specs added. (`get-batch-performance` is
 deferred — it delegates to cost/FCR services that do their own DB access and need
 boundary-awareness first.)
 
+## FARM-HIGH-070 — feeding read handlers (get-feeding-records, get-feed-inventory) outside the boundary
+
+Both read via raw `@InjectRepository` query builders (no boundary).
+
+Evidence:
+- `apps/farm-service/src/feeding/query-handlers/get-feeding-records.handler.ts`
+- `apps/farm-service/src/feeding/query-handlers/get-feed-inventory.handler.ts`
+
+Fix: both migrated to `runInTenantRead` via `queryRunner.manager.createQueryBuilder`
+(dropped the unused `LessThanOrEqual` import in get-feed-inventory). Specs added.
+Remaining feeding reads (`get-daily-feeding-plan`, `get-feeding-summary`) tracked.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

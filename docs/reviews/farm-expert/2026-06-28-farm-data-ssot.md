@@ -191,6 +191,21 @@ Evidence:
 Fix: both migrated to `runInTenantRead` via `queryRunner.manager.createQueryBuilder`;
 dropped the dead `TankBatch` injection. Specs added.
 
+## FARM-HIGH-069 — remaining batch read handlers read outside the boundary
+
+`GenerateBatchNumberHandler` and `GetBatchHistoryHandler` read via raw
+`@InjectRepository`. `GetBatchHistoryHandler` also injected an unused
+`MortalityRecord` repository.
+
+Evidence:
+- `apps/farm-service/src/batch/query-handlers/generate-batch-number.handler.ts`
+- `apps/farm-service/src/batch/query-handlers/get-batch-history.handler.ts`
+
+Fix: both migrated to `runInTenantRead` via `queryRunner.manager`; dropped the
+dead `MortalityRecord` injection. Specs added. (`get-batch-performance` is
+deferred — it delegates to cost/FCR services that do their own DB access and need
+boundary-awareness first.)
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

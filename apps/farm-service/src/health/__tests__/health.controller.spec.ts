@@ -10,6 +10,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { HealthController } from '../health.controller';
+import { TenantSchemaReadinessService } from '../tenant-schema-readiness.service';
 
 // Mock response object for @Res() endpoints
 const createMockResponse = () => {
@@ -24,6 +25,11 @@ describe('HealthController (Farm Service)', () => {
   let controller: HealthController;
   let queryMock: jest.Mock;
   let isInitialized: boolean;
+  // The tenant-schema readiness slice is its own service with its own unit
+  // spec (tenant-schema-readiness.service.spec.ts). Here we mock it so these
+  // tests stay focused on the controller's standard probe behaviour; default
+  // it to 'ok' so existing readiness assertions are unaffected.
+  let tenantSchemaCheck: jest.Mock;
 
   const createMockDataSource = () => ({
     get isInitialized() {
@@ -35,6 +41,7 @@ describe('HealthController (Farm Service)', () => {
   beforeEach(async () => {
     isInitialized = true;
     queryMock = jest.fn().mockResolvedValue([{ '?column?': 1 }]);
+    tenantSchemaCheck = jest.fn().mockResolvedValue('ok');
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
@@ -42,6 +49,10 @@ describe('HealthController (Farm Service)', () => {
         {
           provide: DataSource,
           useFactory: createMockDataSource,
+        },
+        {
+          provide: TenantSchemaReadinessService,
+          useValue: { checkTenantSchemaRouting: tenantSchemaCheck },
         },
       ],
     }).compile();
@@ -73,12 +84,14 @@ describe('HealthController (Farm Service)', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         status: 'ok',
-        checks: { database: 'ok' },
+        checks: { database: 'ok', tenant_schema: 'ok' },
       });
     });
 
     it('should return 503 when database is not connected', async () => {
       isInitialized = false;
+      // When the DB is unreachable the tenant-schema slice also fails closed.
+      tenantSchemaCheck.mockResolvedValue('error');
       const res = createMockResponse();
 
       await controller.readiness(res);
@@ -86,7 +99,23 @@ describe('HealthController (Farm Service)', () => {
       expect(res.status).toHaveBeenCalledWith(503);
       expect(res.json).toHaveBeenCalledWith({
         status: 'not_ready',
-        checks: { database: 'error' },
+        checks: { database: 'error', tenant_schema: 'error' },
+      });
+    });
+
+    it('should report degraded (200) when tenant-schema routing is broken but DB is ok', async () => {
+      isInitialized = true;
+      tenantSchemaCheck.mockResolvedValue('error');
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      // database ok + tenant_schema error => degraded, still 200 per the
+      // StandardHealthController aggregation rules.
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'degraded',
+        checks: { database: 'ok', tenant_schema: 'error' },
       });
     });
   });

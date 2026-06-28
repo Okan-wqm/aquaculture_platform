@@ -67,7 +67,10 @@ import {
   LegalHoldActiveError,
   LegalHoldService,
 } from '@aquaculture/backend-common/compliance';
-import { queryRowsNormalized } from '@aquaculture/backend-common/database';
+import {
+  queryRowsNormalized,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 
 import { TenantErasureAuditEntity } from '../entities/tenant-erasure-audit.entity';
 
@@ -104,8 +107,10 @@ export interface ErasureResult {
 
 /** 5-minute window between initiate() and confirm(). */
 const TICKET_TTL_MS = 5 * 60 * 1000;
+const FARM_SOURCE_SCHEMA = 'farm';
 const FARM_ERASURE_PROOF_LEDGER_SCHEMA = 'farm';
 const FARM_ERASURE_PROOF_LEDGER_TABLE = 'tenant_erasure_target_proofs';
+const FARM_ERASURE_AUDIT_TABLE = 'tenant_erasure_audit';
 const FARM_OUTBOX_TABLE = 'outbox_events';
 
 interface TenantErasureStoredProofRow {
@@ -121,6 +126,14 @@ interface TenantErasureStoredProofRow {
 
 interface CountRow {
   readonly count: string;
+}
+
+interface TenantErasureAuditRow {
+  readonly tenantId: string;
+  readonly confirmedAt: Date | string;
+  readonly deletedRowsByTable: Record<string, number> | null;
+  readonly totalDeleted: number | string;
+  readonly auditRowsAnonymised: number | string;
 }
 
 @Injectable()
@@ -321,7 +334,19 @@ export class TenantErasureService {
    * FK targets delete first).
    *
    * The entire sequence (all DELETEs + audit anonymise + outbox
-   * enqueue) runs inside a single `dataSource.transaction()`.
+   * enqueue) runs inside a single `runInTenantTransaction()` for the
+   * `farm` source schema. That helper pins the transaction-local
+   * `search_path` to `tenant_<uuid>` and ASSERTS `current_schema()`
+   * + the RLS GUC resolve to this tenant BEFORE any DELETE runs — so
+   * a destructive cascade can never execute against the source `farm`
+   * schema or another tenant on a stale pooled connection (fail-closed
+   * `TenantContextError`). The per-tenant DELETE/COUNT statements run
+   * UNqualified so search_path routes them into the tenant schema; the
+   * cross-tenant infrastructure rows (farm_audit_logs anonymise, the
+   * tenant_erasure_audit row, the proof ledger, the outbox) stay
+   * schema-qualified to `farm` and are therefore unaffected by the
+   * pinned search_path.
+   *
    * If ANY step fails, the whole cascade rolls back AND the
    * `TenantDataErased` proof is never emitted — the orchestrator
    * withholds the final `TenantErased` proof until every target has
@@ -336,132 +361,138 @@ export class TenantErasureService {
     const entities = this.resolveTenantScopedEntities();
     const sorted = this.topologicallySort(entities);
 
-    return this.dataSource.transaction(async (mgr) => {
-      await this.lockOperation(mgr, operationId);
-      const existingProof = await this.readStoredProofByIds(
-        mgr,
-        operationId,
-        tenantId,
-      );
-      if (existingProof) {
-        return {
-          tenantId,
-          confirmedAt: this.isoFromRow(existingProof.erasedAt),
-          deletedRowsByTable: {},
-          totalDeleted: this.numberFromRow(
-            existingProof.erasedRecordCount,
-            'erasedRecordCount',
-          ),
-          matchedRecordCount: this.numberFromRow(
-            existingProof.matchedRecordCount,
-            'matchedRecordCount',
-          ),
-          auditRowsAnonymised: 0,
-          state: 'ALREADY_PURGED' as const,
-        };
-      }
-
-      const deleted: Record<string, number> = {};
-      let matchedRecordCount = 0;
-      let totalDeleted = 0;
-
-      for (const meta of sorted) {
-        if (meta.tableName === 'farm_audit_logs') {
-          // Audit logs are NOT deleted — they are anonymised below
-          // so the compliance trail survives an erasure without
-          // identifying the data subject.
-          continue;
-        }
-        try {
-          const matched = await this.countTenantRows(mgr, meta, tenantId);
-          matchedRecordCount += matched;
-          const erased = dryRun
-            ? 0
-            : await this.deleteTenantRows(mgr, meta, tenantId);
-          if (matched > 0 || erased > 0) {
-            deleted[meta.tableName] = erased;
-            totalDeleted += erased;
-          }
-        } catch (err) {
-          this.logger.error(
-            `Erasure DELETE failed for ${meta.tableName}: ${(err as Error).message}`,
-          );
-          throw err;
-        }
-      }
-
-      const matchedAuditRows = await this.countAuditLogs(tenantId, mgr);
-      matchedRecordCount += matchedAuditRows;
-      const auditRowsAnonymised = dryRun
-        ? 0
-        : await this.anonymiseAuditLogs(tenantId, mgr);
-      const confirmedAt = new Date().toISOString();
-      const tableCount = Object.keys(deleted).length;
-
-      // COMPLIANCE-MEDIUM-004: persist the erasure audit row
-      // INSIDE the cascade transaction. If the cascade rolls back,
-      // the audit row rolls back too — there is no path to a
-      // committed audit row without a committed erasure. The
-      // INSERT will fail on the PK constraint if a row already
-      // exists (which would indicate a logic bug — the
-      // lookupExistingErasure() check at the top of confirm()
-      // should have short-circuited the call).
-      if (!dryRun) {
-        await mgr.insert(TenantErasureAuditEntity, {
-          tenantId,
-          confirmedAt: new Date(confirmedAt),
-          requestedBy,
-          totalDeleted,
-          auditRowsAnonymised,
-          tableCount,
-          deletedRowsByTable: deleted,
-        });
-      }
-
-      // Emit service-scoped proof to the transactional outbox INSIDE
-      // the same transaction. Farm is one target in the platform
-      // erasure roster; only the orchestrator may emit the final
-      // TenantErased proof after every target succeeds.
-      const erasedEvent: TenantDataErasedEvent = {
-        ...createBaseEvent<TenantDataErasedEvent>('TenantDataErased', tenantId, {
-          aggregateId: tenantId,
-          aggregateType: 'Tenant',
-        }),
-        timestamp: confirmedAt,
-        userId: requestedBy,
-        operationId,
-        targetService: 'farm-service',
-        erasedAt: confirmedAt,
-        dryRun,
-        matchedRecordCount,
-        erasedRecordCount: totalDeleted,
-        proofHash: this.createServiceProofHash({
-          tenantId,
+    return runInTenantTransaction(
+      this.dataSource,
+      FARM_SOURCE_SCHEMA,
+      tenantId,
+      async (queryRunner) => {
+        const mgr = queryRunner.manager;
+        await this.lockOperation(mgr, operationId);
+        const existingProof = await this.readStoredProofByIds(
+          mgr,
           operationId,
-          confirmedAt,
+          tenantId,
+        );
+        if (existingProof) {
+          return {
+            tenantId,
+            confirmedAt: this.isoFromRow(existingProof.erasedAt),
+            deletedRowsByTable: {},
+            totalDeleted: this.numberFromRow(
+              existingProof.erasedRecordCount,
+              'erasedRecordCount',
+            ),
+            matchedRecordCount: this.numberFromRow(
+              existingProof.matchedRecordCount,
+              'matchedRecordCount',
+            ),
+            auditRowsAnonymised: 0,
+            state: 'ALREADY_PURGED' as const,
+          };
+        }
+
+        const deleted: Record<string, number> = {};
+        let matchedRecordCount = 0;
+        let totalDeleted = 0;
+
+        for (const meta of sorted) {
+          if (meta.tableName === 'farm_audit_logs') {
+            // Audit logs are NOT deleted — they are anonymised below
+            // so the compliance trail survives an erasure without
+            // identifying the data subject.
+            continue;
+          }
+          try {
+            const matched = await this.countTenantRows(mgr, meta, tenantId);
+            matchedRecordCount += matched;
+            const erased = dryRun
+              ? 0
+              : await this.deleteTenantRows(mgr, meta, tenantId);
+            if (matched > 0 || erased > 0) {
+              deleted[meta.tableName] = erased;
+              totalDeleted += erased;
+            }
+          } catch (err) {
+            this.logger.error(
+              `Erasure DELETE failed for ${meta.tableName}: ${(err as Error).message}`,
+            );
+            throw err;
+          }
+        }
+
+        const matchedAuditRows = await this.countAuditLogs(tenantId, mgr);
+        matchedRecordCount += matchedAuditRows;
+        const auditRowsAnonymised = dryRun
+          ? 0
+          : await this.anonymiseAuditLogs(tenantId, mgr);
+        const confirmedAt = new Date().toISOString();
+        const tableCount = Object.keys(deleted).length;
+
+        // COMPLIANCE-MEDIUM-004: persist the erasure audit row
+        // INSIDE the cascade transaction. If the cascade rolls back,
+        // the audit row rolls back too — there is no path to a
+        // committed audit row without a committed erasure. The
+        // INSERT will fail on the PK constraint if a row already
+        // exists (which would indicate a logic bug — the
+        // lookupExistingErasure() check at the top of confirm()
+        // should have short-circuited the call).
+        if (!dryRun) {
+          await mgr.insert(TenantErasureAuditEntity, {
+            tenantId,
+            confirmedAt: new Date(confirmedAt),
+            requestedBy,
+            totalDeleted,
+            auditRowsAnonymised,
+            tableCount,
+            deletedRowsByTable: deleted,
+          });
+        }
+
+        // Emit service-scoped proof to the transactional outbox INSIDE
+        // the same transaction. Farm is one target in the platform
+        // erasure roster; only the orchestrator may emit the final
+        // TenantErased proof after every target succeeds.
+        const erasedEvent: TenantDataErasedEvent = {
+          ...createBaseEvent<TenantDataErasedEvent>('TenantDataErased', tenantId, {
+            aggregateId: tenantId,
+            aggregateType: 'Tenant',
+          }),
+          timestamp: confirmedAt,
+          userId: requestedBy,
+          operationId,
+          targetService: 'farm-service',
+          erasedAt: confirmedAt,
           dryRun,
           matchedRecordCount,
-          totalDeleted,
-          auditRowsAnonymised,
-          tableCount,
-        }),
-      };
-      await this.recordProofLedger(mgr, erasedEvent);
-      await this.outboxPublisher.enqueue(erasedEvent, mgr, {
-        aggregateId: tenantId,
-        idempotencyKey: `tenant-erasure:${operationId}:farm-service`,
-      });
+          erasedRecordCount: totalDeleted,
+          proofHash: this.createServiceProofHash({
+            tenantId,
+            operationId,
+            confirmedAt,
+            dryRun,
+            matchedRecordCount,
+            totalDeleted,
+            auditRowsAnonymised,
+            tableCount,
+          }),
+        };
+        await this.recordProofLedger(mgr, erasedEvent);
+        await this.outboxPublisher.enqueue(erasedEvent, mgr, {
+          aggregateId: tenantId,
+          idempotencyKey: `tenant-erasure:${operationId}:farm-service`,
+        });
 
-      return {
-        tenantId,
-        confirmedAt,
-        deletedRowsByTable: deleted,
-        totalDeleted,
-        matchedRecordCount,
-        auditRowsAnonymised,
-        state: 'PURGED' as const,
-      };
-    });
+        return {
+          tenantId,
+          confirmedAt,
+          deletedRowsByTable: deleted,
+          totalDeleted,
+          matchedRecordCount,
+          auditRowsAnonymised,
+          state: 'PURGED' as const,
+        };
+      },
+    );
   }
 
   private async emitReplayProof(
@@ -755,6 +786,21 @@ export class TenantErasureService {
    * reconstructed ErasureResult tagged `state: 'ALREADY_PURGED'`
    * on hit, or null on miss.
    *
+   * # Why a schema-qualified raw read (NOT a tenant-pinned read)
+   *
+   * `farm.tenant_erasure_audit` is CROSS-TENANT infrastructure —
+   * it is in farm's `MODULE_SCHEMAS[].infrastructureTables` and the
+   * entity declares `schema: 'farm'`. The row records that a whole
+   * TENANT was erased, so routing the lookup through the tenant
+   * boundary would be circular (the tenant schema is exactly what
+   * the row attests was emptied). The read is explicitly
+   * `"farm"."tenant_erasure_audit"` qualified and filtered BY
+   * `tenantId`, so it resolves against the cross-tenant table
+   * regardless of the connection's search_path and never touches a
+   * per-tenant schema. A bare repository handle would route through
+   * the same connection but offers no isolation benefit here and is
+   * banned platform-wide, so we issue the qualified query directly.
+   *
    * Reads outside the cascade transaction — a separate read-only
    * query is fine because the audit row is immutable (the
    * trigger forbids UPDATE/DELETE), so we can never see a
@@ -763,19 +809,38 @@ export class TenantErasureService {
   private async lookupExistingErasure(
     tenantId: string,
   ): Promise<ErasureResult | null> {
-    // eslint-disable-next-line no-restricted-syntax -- TenantErasureAuditEntity lives in the `farm` schema (tenant-scoped) but the lookup is BY tenantId itself (the row is the audit record of a TENANT-WIDE erasure). Wrapping in tenantManagerRepo would be circular: the row exists precisely because the tenant context is what's been erased. The findOne uses the explicit `where: { tenantId }` filter so RLS-equivalent isolation is preserved at the query layer.
-    const repo = this.dataSource.getRepository(TenantErasureAuditEntity);
-    const row = await repo.findOne({ where: { tenantId } });
+    const rows = queryRowsNormalized<TenantErasureAuditRow>(
+      await this.dataSource.query(
+        `
+          SELECT
+            "tenantId",
+            "confirmedAt",
+            "deletedRowsByTable",
+            "totalDeleted",
+            "auditRowsAnonymised"
+          FROM "${FARM_ERASURE_PROOF_LEDGER_SCHEMA}"."${FARM_ERASURE_AUDIT_TABLE}"
+          WHERE "tenantId" = $1
+          LIMIT 1
+        `,
+        [tenantId],
+      ),
+    );
+    const row = rows[0];
     if (!row) {
       return null;
     }
+    const totalDeleted = this.numberFromRow(row.totalDeleted, 'totalDeleted');
+    const auditRowsAnonymised = this.numberFromRow(
+      row.auditRowsAnonymised,
+      'auditRowsAnonymised',
+    );
     return {
       tenantId: row.tenantId,
-      confirmedAt: row.confirmedAt.toISOString(),
-      deletedRowsByTable: row.deletedRowsByTable,
-      totalDeleted: row.totalDeleted,
-      matchedRecordCount: row.totalDeleted + row.auditRowsAnonymised,
-      auditRowsAnonymised: row.auditRowsAnonymised,
+      confirmedAt: this.isoFromRow(row.confirmedAt),
+      deletedRowsByTable: row.deletedRowsByTable ?? {},
+      totalDeleted,
+      matchedRecordCount: totalDeleted + auditRowsAnonymised,
+      auditRowsAnonymised,
       state: 'ALREADY_PURGED' as const,
     };
   }

@@ -445,6 +445,66 @@ null/empty. `get-farm` is removed from the read-boundary arch-test allowlist.
 Specs added (`assertSourceReadContext`, `get-farm` hybrid); the full
 farm-service handler/resolver suite is 365 tests green; type-check clean.
 
+## FARM-MEDIUM-079 — readiness tenant-schema completeness (Task #19)
+
+`/health/ready` ran only `SELECT 1`; a broken/un-provisioned tenant schema gave
+no production signal. Added `TenantSchemaReadinessService` + a
+`getAdditionalChecks()` override: O(1)-in-tenants (one aggregate
+`information_schema.tables` check of the `farm` source schema's core tables —
+expected set intersected with `MODULE_SCHEMAS`, not hardcoded — plus a single
+sampled `tenant_<uuid>` schema). Fails closed to `error` (never an opaque 500);
+routing-broken + DB-ok → degraded(200), both down → 503. 17 tests.
+
+## FARM-MEDIUM-080 — DataLoader tenant factory (Task #12)
+
+Nothing prevented a new DataLoader from omitting the tenant filter. Added
+`createTenantScopedDataLoader` (`@aquaculture/backend-common/dataloader`): it
+resolves `getRequestContext().tenantId`, fails closed if absent, and hands the
+batch fn a guaranteed tenantId — the type signature makes a tenant-unfiltered
+loader unconstructible (tier-1). Migrated the 6 farm DataLoaders; the GraphQL
+context no longer eagerly passes tenant/schema (loaders resolve fail-closed at
+batch tick). 8 factory tests + farm regression green.
+
+## FARM-HIGH-081 — erasure cascade off the tenant boundary (Task #14)
+
+`TenantErasureService` ran its destructive per-tenant cascade via a bare
+`dataSource.transaction()` — no search_path pin, no RLS assertion — so a stale
+pooled connection could delete against the source `farm` schema or another
+tenant. Routed it through `runInTenantTransaction(dataSource,'farm',tenantId)`:
+per-tenant DELETE/COUNT run unqualified (search_path → `tenant_<uuid>`, asserted
+before any DELETE), while cross-tenant infra rows (`farm_audit_logs`,
+`tenant_erasure_audit`, proof ledger, outbox) stay schema-qualified to `farm`. A
+lost context now fails closed, rolls back the cascade, and withholds the
+`TenantDataErased` proof. 27 compliance tests green.
+
+## FARM-HIGH-082 — invalidation-key sweep (Task #10)
+
+Swept ~40 farm-module hooks (+3 pages): every
+`invalidateQueries`/`removeQueries`/`cancelQueries`/`getQueriesData`/`setQueriesData`
+FILTER that used the epoch'd `createTenantQueryKey` now uses the epoch-less
+`createTenantInvalidationKey` (left-prefix-matches args-bearing list keys);
+`useQuery`/`useInfiniteQuery` queryKeys keep `createTenantQueryKey` (epoch is
+correct there). Completes the FARM-HIGH-065/066 fix module-wide — a grep
+confirms zero invalidate/remove filters remain on the epoch'd builder;
+farm-module type-check clean.
+
+## FARM-HIGH-083 — outbox WORKER DISPATCH fail-open on tenantId (Task #13, TRACKED)
+
+The outbox **enqueue** path is already fail-closed (`OutboxPublisher.enqueue`
+rejects missing/blank/non-UUID tenantId; every farm handler uses it — so a
+tenant-less event cannot ENTER the outbox). The **dispatch** path, however, is
+fail-open and lives in the shared `@platform/outbox` worker:
+`OutboxWorkerService.publishLeasedBatch` publishes `row.payload` and
+`NatsEventBus.deriveSubject` routes a tenant-less payload to
+`events.system.{eventType}` rather than dead-lettering it. A blanket reject
+would break legitimate tenant-less SYSTEM events, so the correct fix needs a
+tenant-scoped-vs-system distinction in `@platform/outbox` (a platform-team
+change) — NOT a farm-layer workaround. Recommended: assert tenant-scoped events
+carry a UUID tenantId before `eventBus.publish` and route failures through the
+existing `markFailed`/dead-letter path. Left as a tracked finding (no code
+change this cycle). Scope-adjacent: several farm direct `eventBus.publish()`
+callsites bypass the outbox without a tenantId guard (separate concern).
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

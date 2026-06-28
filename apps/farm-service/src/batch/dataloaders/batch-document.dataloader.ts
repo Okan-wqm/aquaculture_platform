@@ -18,7 +18,7 @@
  *
  * @module Batch/DataLoaders
  */
-import { getRequestContext } from '@aquaculture/backend-common/logging';
+import { createTenantScopedDataLoader } from '@aquaculture/backend-common/dataloader';
 import DataLoader from 'dataloader';
 import { Injectable, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -34,11 +34,11 @@ export class BatchDocumentDataLoader {
     @InjectRepository(BatchDocument)
     private readonly documentRepository: Repository<BatchDocument>,
   ) {
-    this.allDocsLoader = new DataLoader<string, BatchDocument[]>(
-      async (batchIds: readonly string[]) => {
-        // Defense-in-depth: explicit tenant filter on top of the request-scoped
-        // search_path (AsyncLocalStorage frame propagates through the batch tick).
-        const tenantId = getRequestContext().tenantId;
+    this.allDocsLoader = createTenantScopedDataLoader<string, BatchDocument[]>(
+      // tenantId is supplied (and guaranteed non-empty) by the factory, which
+      // resolves it from the request context fail-closed. Defense-in-depth on
+      // top of the request-scoped search_path.
+      async (tenantId: string, batchIds: readonly string[]) => {
         const documents = await this.documentRepository.find({
           where: {
             batchId: In([...batchIds]),
@@ -61,10 +61,13 @@ export class BatchDocumentDataLoader {
         return batchIds.map((id) => grouped.get(id) ?? []);
       },
       {
-        // Cache is per-request (Scope.REQUEST) — no cross-request leakage
-        cache: true,
-        // Batch all loads within the same tick
-        batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
+        batchFnName: 'BatchDocumentDataLoader',
+        dataLoaderOptions: {
+          // Cache is per-request (Scope.REQUEST) — no cross-request leakage
+          cache: true,
+          // Batch all loads within the same tick
+          batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
+        },
       },
     );
   }

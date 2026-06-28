@@ -163,12 +163,17 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
     for (const block of [capacityBlock, deployBlock]) {
       expect(block).not.toEqual('');
       const exec = executableShell(block);
-      expect(exec).toContain('source /var/aqua-saas/scripts/deploy/deploy-paths.sh');
+      // deploy-paths.sh is read from the DEPLOY_SHA via `git show` (object store,
+      // working-tree-independent — ORPHAN-211) then sourced from the extracted copy,
+      // so a stale /var/aqua-saas checkout can never break the bootstrap.
+      expect(exec).toContain('git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh"');
+      expect(exec).toContain('source /var/lib/aqua/deploy/deploy-paths.sh');
       expect(exec).toContain('materialize_deploy_checkout "${DEPLOY_SHA}"');
       expect(exec).toContain('cd "${DEPLOY_CHECKOUT_DIR}"');
-      // The deploy no longer force-checkouts the shared interactive tree.
-      expect(exec).not.toMatch(/\bcd\s+\/var\/aqua-saas\b/);
-      expect(exec).not.toMatch(/git\s+checkout\s+-f\s+"\$\{DEPLOY_SHA\}"/);
+      // The deploy may `cd /var/aqua-saas` ONLY to fetch objects / `git show` a blob
+      // (read-only); it must NEVER checkout or otherwise mutate that shared
+      // interactive working tree.
+      expect(exec).not.toMatch(/git\s+checkout\b/);
       // GitHub Actions hard-caps a single `${{ }}`/script expression at 21,000
       // chars; the thin-invoker form keeps each SSH block far under it.
       expect(block.length).toBeLessThan(21000);

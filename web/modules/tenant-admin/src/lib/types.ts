@@ -92,20 +92,10 @@ export interface TenantStats {
 // ============================================================================
 
 /**
- * Base module definition from the platform catalog.
- */
-export interface Module {
-  id: string;
-  code: string;
-  name: string;
-  description: string;
-  icon?: string;
-  category: string;
-  isActive: boolean;
-}
-
-/**
  * A module assigned to a tenant (many-to-many pivot).
+ *
+ * Scalar pivot columns only — the backend TenantModule type carries no nested
+ * `module` object (catalog details come from the separate `myModules` query).
  */
 export interface TenantModule {
   id: string;
@@ -115,7 +105,6 @@ export interface TenantModule {
   activatedAt: string;
   expiresAt?: string;
   managerId?: string;
-  module: Module;
 }
 
 /**

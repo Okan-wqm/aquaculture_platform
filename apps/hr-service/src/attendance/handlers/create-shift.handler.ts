@@ -8,8 +8,11 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 /**
  * Parse time string in HH:mm format with validation
  * Returns [hours, minutes] or throws BadRequestException for invalid format
+ *
+ * Exported so UpdateShiftHandler reuses the IDENTICAL validation rule — keeping
+ * the HH:mm contract a single source of truth across create + update.
  */
-function parseTimeString(time: string, fieldName: string): [number, number] {
+export function parseTimeString(time: string, fieldName: string): [number, number] {
   if (!time || typeof time !== 'string') {
     throw new BadRequestException(`${fieldName} is required and must be a string`);
   }

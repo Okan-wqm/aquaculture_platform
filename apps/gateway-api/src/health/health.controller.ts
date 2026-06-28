@@ -23,31 +23,37 @@ function safeRequireVersion(packageJsonPath: string): string {
 /**
  * Gateway Health Controller
  *
- * ARCH-GW-004: Health probe architecture for the API gateway.
+ * ARCH-GW-004 / ARCH-GW-006: Health probe architecture for the API gateway.
  *
- * The gateway has no database of its own. Its health depends on:
- *   1. NestJS process running (liveness)
- *   2. Supergraph composed successfully (implicit in liveness -- NestFactory.create
- *      blocks until RetryableIntrospectAndCompose completes)
- *   3. Critical downstream service reachable (readiness -- auth service)
+ * The gateway has no database of its own. Liveness and readiness are now fully
+ * decoupled (ARCH-GW-006): composition runs in the BACKGROUND, so the HTTP
+ * listener binds in <1s and /health/live answers immediately, while the live
+ * supergraph composes asynchronously and /health/ready gates real traffic.
  *
  * Probe endpoints:
- *   GET /health/live   - Liveness: 200 if NestJS process started (supergraph is composed).
- *                        Used by Docker healthcheck and deploy script. This endpoint only
- *                        becomes available AFTER NestFactory.create() completes, which
- *                        requires successful supergraph composition. Therefore, a 200 from
- *                        /health/live implicitly confirms federation is operational.
- *   GET /health/ready  - Readiness: 200 if auth service is reachable, 503 otherwise.
- *                        Intentionally checks only the auth service (critical path), NOT
- *                        all subgraphs. A single degraded subgraph should not remove the
- *                        gateway from the load balancer.
+ *   GET /health/live   - PURE LIVENESS: 200 the moment the HTTP listener is
+ *                        bound. It carries NO composition implication — a 200
+ *                        here means "the process is up and accepting
+ *                        connections", nothing more. This is the Docker
+ *                        healthcheck target AND the deploy script's health gate,
+ *                        precisely because it must NOT wait on supergraph
+ *                        composition (which previously blocked ~83-94s and broke
+ *                        the gate).
+ *   GET /health/ready  - READINESS: 200 only once (a) the supergraph has composed
+ *                        AND (b) auth is reachable AND (c) no subgraph is
+ *                        degraded; 503 with a `checks` breakdown otherwise. This
+ *                        is the load-balancer / readiness-sweep target. While the
+ *                        background composition is still running, /health/ready
+ *                        returns 503 with checks.composition = 'pending'.
  *   GET /health        - General: sanitized status with timestamp, uptime, version.
  *   GET /health/detail - Auth required: full internal details for monitoring.
  *   GET /health/ping   - Simple connectivity check.
  *
  * Deploy integration:
- *   - Docker healthcheck: /health/live (start_period: 120s, interval: 30s)
- *   - CI deploy script: curl /health/live (30 attempts x 10s = 300s window)
+ *   - Docker healthcheck: /health/live (start_period covers process boot, NOT
+ *     composition — composition is background, so a short start_period is fine)
+ *   - CI deploy script: curl /health/live to confirm the listener is up, then a
+ *     readiness sweep on /health/ready to confirm the supergraph is live
  *   - Rollback trigger: deploy script exits 1 if /health/live never returns 200
  */
 @Controller('health')
@@ -67,8 +73,10 @@ export class HealthController {
 
   /**
    * K8s Readiness Probe.
-   * Returns 200 if the gateway can reach critical downstream services.
-   * Returns 503 if not ready.
+   *
+   * ARCH-GW-006: Returns 200 only once the supergraph has composed AND auth is
+   * reachable AND no subgraph is degraded. Returns 503 with the `checks`
+   * breakdown otherwise (composition: 'pending' while still composing).
    */
   @Get('ready')
   @Public()
@@ -79,10 +87,9 @@ export class HealthController {
     const httpStatus = isReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
 
     res.status(httpStatus).json({
-      status: isReady ? 'ok' : 'not_ready',
-      checks: {
-        downstream: isReady ? 'ok' : 'error',
-      },
+      status: result.status,
+      checks: result.checks,
+      ...(result.message !== undefined ? { message: result.message } : {}),
     });
   }
 

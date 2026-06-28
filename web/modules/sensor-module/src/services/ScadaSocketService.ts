@@ -125,10 +125,18 @@ export class ScadaSocketService {
     }
 
     this.socket = io(SCADA_WS_NAMESPACE, {
+      // Dedicated WS path: /scada is a sensor-service namespace, but nginx routes
+      // ALL default /socket.io/ traffic to the gateway (which serves no /scada), so
+      // SCADA real-time never reached sensor-service. A distinct path lets nginx
+      // route SCADA straight to sensor-service:3000 (must match the gateway's path).
+      path: '/scada-ws/',
       transports: ['websocket', 'polling'],
       auth: { token },
       reconnection: true,
-      reconnectionAttempts: Infinity,
+      // Bounded, not Infinity: a full gateway/SCADA outage must not be amplified by
+      // an unbounded reconnect storm against a dead upstream. The backoff already
+      // caps the delay; this caps the count so the storm ends.
+      reconnectionAttempts: 20,
       reconnectionDelay: BACKOFF_BASE_MS,
       reconnectionDelayMax: BACKOFF_MAX_MS,
       randomizationFactor: 0.3,

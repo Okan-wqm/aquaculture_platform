@@ -80,20 +80,6 @@ export interface WorkRotation extends BaseEntity {
   approvedAt?: string;
 }
 
-export interface SafetyTrainingRecord extends BaseEntity {
-  employeeId: string;
-  employee?: Employee;
-  workAreaId: string;
-  workArea?: WorkArea;
-  trainingType: string;
-  conductedBy: string;
-  conductedAt: string;
-  validUntil?: string;
-  topics: string[];
-  attendanceConfirmed: boolean;
-  notes?: string;
-}
-
 // WHY: Backend CrewAssignment DTO is a flat structure with scalar fields only.
 // It does NOT include nested workArea or assignedEmployees objects —
 // those caused GraphQL 400 errors when requested. The UI must join
@@ -208,17 +194,6 @@ export interface UpdateWorkRotationInput {
   status?: RotationStatus;
   transportToSite?: TransportType;
   transportFromSite?: TransportType;
-  notes?: string;
-}
-
-export interface CreateSafetyTrainingRecordInput {
-  employeeId: string;
-  workAreaId: string;
-  trainingType: string;
-  conductedBy: string;
-  conductedAt: string;
-  validUntil?: string;
-  topics: string[];
   notes?: string;
 }
 

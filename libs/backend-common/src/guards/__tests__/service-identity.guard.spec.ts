@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common/interfaces';
 import { ConfigService } from '@nestjs/config';
 
+import { SecurityEventService } from '../../security/security-event.service';
 import { generateServiceIdentityHeadersV2 } from '../../utils/service-identity.util';
 import { ServiceIdentityGuard } from '../service-identity.guard';
 
@@ -243,5 +244,36 @@ describe('ServiceIdentityGuard — R1 Path-alpha body-hash binding', () => {
       rawBody: Buffer.from(receivedRaw, 'utf8'),
     };
     expect(() => makeGuard().canActivate(gqlContext(req))).toThrow(ForbiddenException);
+  });
+
+  it('ORPHAN-098: emits the raw machine-readable reasonCode to the security event on rejection', () => {
+    // A real SecurityEventService (its eventBus dep is @Optional) so the spy
+    // stays cast-free; the guard's client message is generic but the operator
+    // signal must carry the exact cause.
+    const eventService = new SecurityEventService();
+    const spy = jest
+      .spyOn(eventService, 'publishServiceIdentityRejected')
+      .mockResolvedValue(undefined);
+
+    const config = configServiceFor({
+      SERVICE_IDENTITY_KEYRING: KEYRING,
+      SERVICE_IDENTITY_AUDIENCE: RECEIVER_AUDIENCE,
+    });
+    const guard = new ServiceIdentityGuard(config, eventService, RECEIVER_AUDIENCE);
+
+    // No service-identity headers at all → outcome.reason === 'missing-headers'.
+    const req: FakeReq = {
+      method: METHOD,
+      originalUrl: PATH,
+      url: PATH,
+      path: PATH,
+      headers: {},
+      body: {},
+    };
+
+    expect(() => guard.canActivate(gqlContext(req))).toThrow(ForbiddenException);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: 'missing-headers' }),
+    );
   });
 });

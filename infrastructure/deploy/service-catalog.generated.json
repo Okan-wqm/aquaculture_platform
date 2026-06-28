@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 2,
-    "catalogHash": "ebeab8fd5710252559a710af7d019d9ca32e5b9991da21edd7d4f2408505a0f2",
+    "catalogHash": "fbec6868cc7ece95468ea70f6ce79892807ac9c904085aed7a127e32e82b9bef",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -26,6 +26,10 @@
     "config-service",
     "event-store-service",
     "observability-service",
+    "prometheus",
+    "cadvisor",
+    "node-exporter",
+    "alertmanager",
     "nginx",
     "shell",
     "dashboard",

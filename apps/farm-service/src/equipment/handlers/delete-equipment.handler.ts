@@ -4,7 +4,7 @@
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import {
+import { toEventIso,
   EquipmentDeletedEvent,
   SubEquipmentDeletedEvent,
   createBaseEvent,
@@ -173,7 +173,7 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
       equipmentId: saved.id,
       name: saved.name,
       code: saved.code,
-      deletedAt,
+      deletedAt: toEventIso(deletedAt),
     };
     await this.outboxPublisher.enqueue(event, queryRunner.manager, { aggregateId: saved.id });
   }
@@ -215,7 +215,7 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
       parentEquipmentId: saved.parentEquipmentId,
       name: saved.name,
       code: saved.code,
-      deletedAt: new Date(),
+      deletedAt: toEventIso(new Date()),
     };
     await this.outboxPublisher.enqueue(event, queryRunner.manager, { aggregateId: saved.id });
   }

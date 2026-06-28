@@ -5,7 +5,7 @@ import { Money } from '@aquaculture/backend-common/monetary';
 import { OutboxPublisher } from '@platform/outbox';
 import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { PayrollProcessedEvent } from '@platform/event-contracts';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
@@ -81,8 +81,8 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
         eventType: 'PayrollProcessed' as const,
         payrollId: savedPayroll.id,
         employeeId: savedPayroll.employeeId,
-        periodStart: savedPayroll.payPeriodStart,
-        periodEnd: savedPayroll.payPeriodEnd,
+        periodStart: toEventIso(savedPayroll.payPeriodStart),
+        periodEnd: toEventIso(savedPayroll.payPeriodEnd),
         grossAmount: Money.of(grossRaw, currency).toJSON().amount,
         netAmount: Money.of(netRaw, currency).toJSON().amount,
         currency,

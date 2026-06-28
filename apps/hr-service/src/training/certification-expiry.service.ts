@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventBus } from '@nestjs/cqrs';
 import { DataSource, EntityManager, Not, In, LessThan } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { CertificationExpiredEvent, CertificationExpiringSoonEvent } from '@platform/event-contracts';
 import { EmployeeCertification, CertificationStatus } from './entities/employee-certification.entity';
 import { CertificationType, CertificationRequirement } from './entities/certification-type.entity';
@@ -124,7 +124,7 @@ export class CertificationExpiryService {
                   certificationId: cert.id,
                   employeeId: cert.employeeId,
                   certificationTypeName: certType?.name ?? 'Unknown',
-                  expiryDate: cert.expiryDate!,
+                  expiryDate: toEventIso(cert.expiryDate!),
                 };
                 this.eventBus.publish(expiredEvent);
               } catch (eventErr) {

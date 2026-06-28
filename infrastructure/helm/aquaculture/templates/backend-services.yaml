@@ -460,17 +460,20 @@ spec:
             # Stripe credentials — pulled from the aggregated secret (see
             # templates/secrets.yaml). stripe-webhook.controller.ts reads
             # STRIPE_WEBHOOK_SECRET to verify inbound Stripe signatures;
-            # STRIPE_API_KEY authenticates outbound calls to Stripe's API.
-            # Both are `required` in values schema — deploy fails fast if
-            # they're missing, which is the preferred failure mode vs. the
-            # previous runtime warn "webhook signature verification will
-            # reject all requests".
+            # STRIPE_SECRET_KEY (the canonical name read by stripeClientFactory
+            # + PLATFORM_SECRET_ENV_VARS — NOT STRIPE_API_KEY) authenticates
+            # outbound calls to Stripe's API. STRIPE_BILLING_ENABLED is the
+            # non-secret SSoT flag: false (default) → billing boots with a
+            # disabled client (fail-closed at request time); true → STRIPE_SECRET_KEY
+            # is required and the factory throws at boot if it is missing.
+            - name: STRIPE_BILLING_ENABLED
+              value: {{ .Values.billingService.stripeBillingEnabled | default "false" | quote }}
             - name: STRIPE_WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "aquaculture.fullname" . }}-secrets
                   key: stripeWebhookSecret
-            - name: STRIPE_API_KEY
+            - name: STRIPE_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "aquaculture.fullname" . }}-secrets

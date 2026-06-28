@@ -8,6 +8,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
 import { useState, useCallback, useMemo } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
 import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
@@ -48,10 +49,13 @@ export interface AuditLogPage {
 // Query Keys
 // ============================================================================
 
+// Tenant-scoped via createTenantQueryKey (['tenant', tenantId, …]); `all` is a
+// function because the tenantId is only known at call time (web/CLAUDE.md
+// FE-CRITICAL-014/015/016).
 export const auditLogKeys = {
-  all: ['tenant-audit-log'] as const,
+  all: () => createTenantQueryKey(getTenantId(), 'tenant-audit-log'),
   list: (filters: AuditLogFilters, page: number, pageSize: number) =>
-    [...auditLogKeys.all, 'list', filters, page, pageSize] as const,
+    createTenantQueryKey(getTenantId(), 'tenant-audit-log', 'list', filters, page, pageSize),
 };
 
 // ============================================================================
@@ -138,7 +142,7 @@ export function useTenantAuditLog(pageSize = 20) {
   }, []);
 
   const refresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: auditLogKeys.all });
+    queryClient.invalidateQueries({ queryKey: auditLogKeys.all() });
   }, [queryClient]);
 
   // CSV export

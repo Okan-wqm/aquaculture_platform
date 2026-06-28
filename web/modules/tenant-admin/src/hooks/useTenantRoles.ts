@@ -13,6 +13,7 @@ import {
   type UseQueryResult,
   type UseMutationResult,
 } from '@tanstack/react-query';
+import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   getTenantRoles,
   getTenantRole,
@@ -148,9 +149,12 @@ export type UseSeedTenantRolesMutationResult = UseMutationResult<
 // ============================================================================
 
 /** Key for user queries - used for invalidation after role changes */
+// Tenant-scoped via createTenantQueryKey (['tenant', tenantId, …]) so cache never
+// leaks across a tenant switch (web/CLAUDE.md FE-CRITICAL-014/015/016). `all` is a
+// FUNCTION (not a static array) because the tenantId is only known at call time.
 export const userKeys = {
-  all: ['tenant-users'] as const,
-  lists: () => [...userKeys.all, 'list'] as const,
+  all: () => createTenantQueryKey(getTenantId(), 'tenant-users'),
+  lists: () => createTenantQueryKey(getTenantId(), 'tenant-users', 'list'),
 };
 
 // ============================================================================
@@ -158,14 +162,15 @@ export const userKeys = {
 // ============================================================================
 
 export const roleKeys = {
-  all: ['tenant-roles'] as const,
-  lists: () => [...roleKeys.all, 'list'] as const,
+  all: () => createTenantQueryKey(getTenantId(), 'tenant-roles'),
+  lists: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'list'),
   list: (filters?: Record<string, unknown>) =>
-    [...roleKeys.lists(), filters] as const,
-  details: () => [...roleKeys.all, 'detail'] as const,
-  detail: (roleId: string) => [...roleKeys.details(), roleId] as const,
-  default: () => [...roleKeys.all, 'default'] as const,
-  categories: () => [...roleKeys.all, 'categories'] as const,
+    createTenantQueryKey(getTenantId(), 'tenant-roles', 'list', filters),
+  details: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'detail'),
+  detail: (roleId: string) =>
+    createTenantQueryKey(getTenantId(), 'tenant-roles', 'detail', roleId),
+  default: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'default'),
+  categories: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'categories'),
 };
 
 // ============================================================================
@@ -512,7 +517,7 @@ export function useSeedTenantRoles() {
     mutationFn: seedTenantRoles,
     onSuccess: () => {
       // Invalidate all role queries to refetch
-      queryClient.invalidateQueries({ queryKey: roleKeys.all });
+      queryClient.invalidateQueries({ queryKey: roleKeys.all() });
     },
     onError: (error) => {
       // Log error with context

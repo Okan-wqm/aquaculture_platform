@@ -37,7 +37,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type GrowthSampleRecordedEvent,
 } from '@platform/event-contracts';
@@ -250,10 +250,7 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         sampleSize: saved.sampleSize,
         averageWeightG: saved.averageWeight,
         weightCV: saved.weightCV,
-        measurementDate:
-          saved.measurementDate instanceof Date
-            ? saved.measurementDate
-            : new Date(saved.measurementDate),
+        measurementDate: toEventIso(saved.measurementDate),
         performance: saved.performance,
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);

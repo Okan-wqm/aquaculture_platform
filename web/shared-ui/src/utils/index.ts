@@ -39,6 +39,10 @@ export type {
 // Token Lifecycle Manager
 export { tokenLifecycle } from './token-lifecycle';
 export type { TokenLifecycleManager, TokenState } from './token-lifecycle';
+export {
+  backendHealthCircuit,
+  refetchWhenBackendHealthy,
+} from './backend-health-circuit';
 
 // Tarih Yardımcıları
 export {

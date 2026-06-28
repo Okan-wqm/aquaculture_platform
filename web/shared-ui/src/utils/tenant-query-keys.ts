@@ -14,6 +14,7 @@
  *
  * @see FE-CRITICAL-014, FE-CRITICAL-015, FE-CRITICAL-016
  */
+import { sessionEpochSegment } from './session-epoch';
 
 /**
  * Creates a tenant-scoped query key by prepending ['tenant', tenantId] to
@@ -47,5 +48,10 @@ export function createTenantQueryKey(
   // ['tenant', null, ...] never materialises. Accepting the union at the
   // signature level eliminates the Phase-8.4 migration's type-error sprawl
   // at call sites that cannot narrow without refactoring.
-  return ['tenant', tenantId, ...segments] as const;
+  // Append the session epoch (cache generation) LAST so a tenant (re)entry —
+  // e.g. a SUPER_ADMIN A→B→A impersonation round-trip — gets a FRESH generation
+  // instead of the same tenant's pre-switch (possibly stale) cache. Appended (not
+  // inserted after tenantId) so `domain` stays at index 2 and prefix-based
+  // invalidations (['tenant', tenantId, …]) keep matching across generations.
+  return ['tenant', tenantId, ...segments, sessionEpochSegment()] as const;
 }

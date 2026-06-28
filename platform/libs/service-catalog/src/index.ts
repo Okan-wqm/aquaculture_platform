@@ -84,6 +84,31 @@ export interface ServiceCatalogEntry {
    * observability listens on 3009).
    */
   containerPort: number;
+  /**
+   * Cold-boot budget in seconds — the SSoT for startup timing across the
+   * deploy stack (DEPLOY-SSOT: the number lived in three unlinked places —
+   * a hardcoded 300 literal in generate-artifacts, a dead `?? 300` fallback
+   * in check-service-health, and hand-typed compose `start_period` values).
+   *
+   * Meaning depends on readinessContract:
+   *   - 'docker-healthcheck' — the realistic upper bound for the service to
+   *     report `healthy`. Compose `start_period` for this service MUST be
+   *     ≤ this value (enforced by the deploy invariant; a future generator
+   *     pass will EMIT start_period from here, collapsing the last copy).
+   *   - 'one-shot-success' / 'none' — there is no health-gated wait window;
+   *     the value is the boot budget the orchestration allows before the
+   *     one-shot is considered stuck. The readiness SLA is derived only from
+   *     CRITICAL docker-healthcheck services, so one-shot budgets never feed
+   *     the SLA computation (mirrors how check-service-health treats
+   *     `ignored`/one-shot entries as always-satisfied).
+   *
+   * The platform-wide readiness SLA (readiness_sla_seconds, consumed by
+   * scripts/deploy/check-service-health.ts) is DERIVED at artifact-generation
+   * time as max(startupBudgetSeconds over CRITICAL services) + a named margin
+   * — never typed. validateServiceCatalog REQUIRES this > 0 for every active
+   * service so a new service cannot ship without a declared budget.
+   */
+  startupBudgetSeconds: number;
   readinessContract: ReadinessContract;
   /**
    * Prometheus scrape surface — see MetricsExposure. Derived in buildEntry
@@ -269,6 +294,10 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'infra',
+    // DB cold-start (TimescaleDB-HA image): the compose healthcheck omits an
+    // explicit start_period (Docker default 0s) but pg accepts connections
+    // within ~30s on the droplet; the budget caps the readiness wait window.
+    startupBudgetSeconds: 30,
     privilegeMode: 'none',
     requiredSignals: [],
     requiredEnv: ['POSTGRES_PASSWORD'],
@@ -279,6 +308,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'infra',
+    startupBudgetSeconds: 15,
     privilegeMode: 'none',
     requiredSignals: [],
     requiredEnv: ['REDIS_PASSWORD'],
@@ -289,6 +319,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'infra',
+    // Matches compose start_period: 15s.
+    startupBudgetSeconds: 15,
     privilegeMode: 'none',
     requiredSignals: [],
     requiredEnv: [],
@@ -301,6 +333,11 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'ignored',
     classification: 'one-shot',
+    // One-shot migration runner — no health-gated wait window. The budget is
+    // the boot allowance before the job is considered stuck; it never feeds
+    // the readiness SLA (derived from CRITICAL docker-healthcheck services
+    // only). Matches the migration window in required-signals.yaml (300s).
+    startupBudgetSeconds: 300,
     privilegeMode: 'migration-authority',
     dbRoles: { migrator: 'db_migrate' },
     eventStoreTenantScopePolicy: 'all-tenants',
@@ -317,6 +354,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     criticality: 'required',
     classification: 'internal-service',
     readinessContract: 'none',
+    // One-shot provisioner — no health-gated wait window (readinessContract
+    // 'none'); budget is the boot allowance, not an SLA input.
+    startupBudgetSeconds: 120,
     privilegeMode: 'tenant-provisioner',
     dbRoles: { migrator: 'db_migrate' },
     eventStoreTenantScopePolicy: 'all-tenants',
@@ -333,6 +373,10 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'gateway',
+    // Gateway is now FAST to ready: supergraph composition moved to a
+    // background manager, so /health passes without waiting on subgraph
+    // introspection. Budget headroom over the compose start_period (30s).
+    startupBudgetSeconds: 40,
     requiredSignals: [],
     requiredEnv: [
       'GATEWAY_SERVICE_DB_PASS',
@@ -356,6 +400,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: [
       'AUTH_SERVICE_DB_PASS',
@@ -391,6 +437,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 120s — the heaviest backend cold-boot
+    // (entity metadata + migrations check) and the current SLA-defining max.
+    startupBudgetSeconds: 120,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
     gatewaySubgraph: subgraph(
@@ -421,6 +470,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 90s.
+    startupBudgetSeconds: 90,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['SENSOR_SERVICE_DB_PASS', 'CREDENTIAL_ENCRYPTION_KEY'],
     gatewaySubgraph: subgraph(
@@ -440,6 +491,9 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployProfiles: [],
     criticality: 'ignored',
     classification: 'internal-service',
+    // Inactive sidecar (not deployed to droplet) — nominal budget; the
+    // validator only enforces > 0 for active services.
+    startupBudgetSeconds: 30,
     privilegeMode: 'none',
     requiredSignals: [],
     requiredEnv: [],
@@ -465,6 +519,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'warning',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['HR_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
@@ -495,6 +551,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'warning',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['HYDROPONICS_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
@@ -528,6 +586,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['MESSAGING_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
@@ -564,6 +624,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // an unhealthy alert-engine now blocks the deploy gate.
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['ALERT_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
@@ -591,6 +653,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['BILLING_SERVICE_DB_PASS'],
     gatewaySubgraph: subgraph(
@@ -620,6 +684,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['NOTIFICATION_SERVICE_DB_PASS', 'WEBHOOK_ENCRYPTION_KEY'],
     gatewaySubgraph: subgraph(
@@ -647,6 +713,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     classification: 'subgraph',
     gatewayParticipation: 'none',
     eventStoreTenantScopePolicy: 'all-tenants',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['ADMIN_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
   }),
@@ -667,6 +735,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     criticality: 'required',
     classification: 'internal-service',
     gatewayParticipation: 'apollo-subgraph',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['schema_drift_clean'],
     requiredEnv: [
       'CONFIG_SERVICE_DB_PASS',
@@ -702,6 +772,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'critical',
     classification: 'internal-service',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['schema_drift_clean'],
     eventStoreTenantScopePolicy: 'none',
     requiredEnv: ['EVENT_STORE_SERVICE_DB_PASS', 'SERVICE_IDENTITY_KEYRING'],
@@ -730,6 +802,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     deployTarget: 'droplet',
     criticality: 'warning',
     classification: 'internal-service',
+    // Matches compose start_period: 60s.
+    startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['OBSERVABILITY_INTERNAL_API_KEY', 'OBSERVABILITY_SERVICE_DB_PASS'],
   }),
@@ -755,8 +829,69 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     criticality: 'ignored',
     classification: 'subgraph',
     gatewayParticipation: 'none',
+    // Inactive (not deployed to droplet) — nominal budget; the validator
+    // only enforces > 0 for active services.
+    startupBudgetSeconds: 60,
     requiredSignals: [],
     requiredEnv: ['AI_SERVICE_DB_PASS'],
+  }),
+  // ── Monitoring scraper stack (ORPHAN-090, PR #670) ─────────────────────────
+  // WHAT: the four observability-infra containers added to
+  // docker-compose.droplet.yml (prometheus + cadvisor + node-exporter +
+  // alertmanager). They consume the catalog-generated scrape config; they do
+  // not expose a Prometheus surface themselves (buildKind 'infra' ⇒
+  // metricsExposure 'none'), so they are not scrape targets.
+  // WHY criticality 'ignored': these are the monitoring plane, not the
+  // application plane. A scraper that is slow or down loses visibility but
+  // MUST NOT roll back an otherwise-healthy application deploy — same
+  // precedent as the mosquitto/minio infra entries. They declare no
+  // compose `profiles:` (always-on), so no profiles list here either
+  // (validate-criticality-manifest profile-parity check).
+  buildEntry({
+    serviceId: 'prometheus',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    // Pinned image cold-start (TSDB open + config load) is fast; budget caps
+    // the readiness wait. ignored services never feed the readiness SLA.
+    startupBudgetSeconds: 30,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'cadvisor',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 30,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'node-exporter',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 15,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'alertmanager',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 15,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
   }),
   ...[
     'nginx',
@@ -799,6 +934,15 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
         buildKind: serviceId === 'mosquitto' ? 'docker-only' : undefined,
         deploymentStatus: 'active',
         deployTarget: 'droplet',
+        // Startup budgets for the infra + frontend tail, aligned with each
+        // service's compose start_period (mosquitto 10s, nginx 30s); minio
+        // declares no start_period (Docker default 0s) — 15s caps the wait.
+        // Frontends serve static assets behind nginx and have no compose
+        // healthcheck, so 30s is a generous liveness budget. None of these
+        // are CRITICAL backends (nginx is the only critical entry here and
+        // sits at 30s ≤ SLA), so they never raise the readiness SLA.
+        startupBudgetSeconds:
+          serviceId === 'mosquitto' ? 10 : serviceId === 'minio' ? 15 : 30,
         criticality:
           serviceId === 'nginx'
             ? 'critical'
@@ -1028,6 +1172,45 @@ export function serviceIdentityCallers(): readonly string[] {
   ].sort();
 }
 
+/**
+ * Safety margin (seconds) added to the slowest CRITICAL service's startup
+ * budget to derive the platform readiness SLA. 180s on top of the current
+ * max CRITICAL budget (farm-service, 120s) reproduces the historical 300s
+ * SLA exactly — but as a DERIVED value, not a typed literal: raise the
+ * slowest critical budget and the SLA tracks it automatically.
+ */
+export const READINESS_SLA_MARGIN_SECONDS = 180;
+
+/**
+ * The platform readiness SLA in seconds — the single derived number that
+ * scripts/deploy/check-service-health.ts polls against. Computed as
+ * max(startupBudgetSeconds over CRITICAL services) + READINESS_SLA_MARGIN_SECONDS.
+ *
+ * Only CRITICAL services feed the max because the deploy gate rolls back on a
+ * CRITICAL service that misses the SLA; warning/required/ignored services do
+ * not block the gate, so a slow non-critical boot must not inflate the SLA.
+ * This is the SSoT replacement for the former hardcoded `readiness_sla_seconds:
+ * 300` literal in the generator and the dead `?? 300` fallback in the consumer.
+ */
+export function readinessSlaSeconds(
+  catalog: readonly ServiceCatalogEntry[] = PLATFORM_SERVICE_CATALOG,
+): number {
+  const criticalBudgets = catalog
+    .filter(
+      (entry) =>
+        entry.deploymentStatus === 'active' &&
+        entry.deployProfiles.includes('droplet') &&
+        entry.criticality === 'critical',
+    )
+    .map((entry) => entry.startupBudgetSeconds);
+  if (criticalBudgets.length === 0) {
+    throw new Error(
+      'readinessSlaSeconds: no active critical droplet services in catalog — cannot derive SLA',
+    );
+  }
+  return Math.max(...criticalBudgets) + READINESS_SLA_MARGIN_SECONDS;
+}
+
 export interface CatalogValidationError {
   serviceId: string;
   message: string;
@@ -1147,6 +1330,22 @@ export function validateServiceCatalog(
     // shared with /health — buildEntry defaults it to 3000, so a
     // prom-endpoint entry always has a valid scrape target; no separate
     // metrics port to validate.
+
+    // DEPLOY-SSOT: startup timing is catalog-derived. An active droplet
+    // service MUST declare a positive cold-boot budget — it feeds the
+    // readiness SLA (critical services) or the boot allowance (others), and
+    // the deploy invariant asserts compose start_period ≤ this. A zero/absent
+    // budget would let a new service ship with no startup contract.
+    if (
+      entry.deploymentStatus === 'active' &&
+      entry.deployProfiles.includes('droplet') &&
+      !(entry.startupBudgetSeconds > 0)
+    ) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'active droplet service must declare startupBudgetSeconds > 0',
+      });
+    }
   }
 
   return errors;

@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   Column,
   OneToOne,
@@ -98,6 +99,11 @@ export interface PanelPermissions {
  * Tenant Role Permissions Entity
  * Stores both panel-level and resource:action permissions
  */
+// ORPHAN-105: index the token-mint JOIN key. Token minting JOINs
+// tenant_role_permissions ON role_id per request; without this index the JOIN
+// seq-scans the table on every mint. DDL lands via the paired migration
+// (synchronize:false), this decorator records the intent for generated diffs.
+@Index('idx_tenant_role_permissions_role_id', ['roleId'])
 @Entity({ schema: 'auth', name: 'tenant_role_permissions', synchronize: false })
 export class TenantRolePermissions {
   @PrimaryGeneratedColumn('uuid')

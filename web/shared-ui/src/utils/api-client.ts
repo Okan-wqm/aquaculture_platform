@@ -5,6 +5,8 @@
  */
 
 import { print, type DocumentNode } from 'graphql';
+import { backendHealthCircuit } from './backend-health-circuit';
+import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
 
 // ============================================================================
@@ -267,6 +269,10 @@ export function clearSession(): void {
     // Ignore
   }
 
+  // Advance the cache generation on logout so a subsequent login (same browser,
+  // no full reload) cannot read the prior session's tenant cache — see session-epoch.ts.
+  bumpSessionEpoch();
+
   // Re-install auth global in case it wasn't set yet
   installAuthGlobal();
 
@@ -454,6 +460,9 @@ export function setTenantId(id: string | null): void {
 
   // SECURITY: Notify listeners when the active tenant actually changed
   if (previousTenantId && previousTenantId !== id) {
+    // Advance the cache generation so React Query keys for the new (or
+    // re-entered) tenant are fresh — see session-epoch.ts.
+    bumpSessionEpoch();
     for (const cb of tenantChangeCallbacks) {
       try {
         cb(previousTenantId);
@@ -600,8 +609,31 @@ class GraphQLClient {
         return this.request(query, variables, options, retryCount + 1);
       }
 
+      // A 5xx (nginx 502/503/504 when the gateway is down, or any server error)
+      // returns an HTML/text body, NOT GraphQL JSON. Calling response.json() on it
+      // throws a bare SyntaxError that callers can't classify, so the UI treats
+      // loaded data as failed and blanks it. Surface a TYPED transport error first
+      // so callers can show "backend unavailable" and keep showing cached data.
+      // 4xx (incl. 401/403) is left to the auth + GraphQL-error handling below.
+      if (response.status >= 500) {
+        // Feed the outage breaker so refetchOnWindowFocus/Reconnect stop storming
+        // a dead gateway (see backend-health-circuit).
+        backendHealthCircuit.recordFailure();
+        const code =
+          response.status >= 502 && response.status <= 504
+            ? 'BACKEND_UNAVAILABLE'
+            : 'NETWORK_ERROR';
+        throw new GraphQLClientError(
+          `Backend unavailable (HTTP ${response.status})`,
+          code,
+        );
+      }
+
       // Response parse
       const result = await response.json();
+      // A parsed body means the transport is healthy (even a GraphQL-level error
+      // is a 200) — close the outage breaker so refetches resume.
+      backendHealthCircuit.recordSuccess();
 
       // Check for GraphQL errors
       if (result.errors && result.errors.length > 0) {

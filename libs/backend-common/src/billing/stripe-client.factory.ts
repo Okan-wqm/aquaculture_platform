@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 
+import { MockBillingProvider } from './mock-billing.provider';
 import {
   IStripeApiClient,
   StripeCustomer,
@@ -29,16 +30,77 @@ import {
 const STRIPE_API_VERSION = '2024-12-18.acacia';
 
 /**
- * Thrown when a Stripe mutation is attempted but no STRIPE_SECRET_KEY is
- * configured. In production the factory fails CLOSED at boot instead (see
- * stripeClientFactory); this error only surfaces in non-prod/test when code
- * actually calls Stripe without a key — never a silent local-only success.
+ * Single source of truth for whether outbound Stripe billing is wired on.
+ *
+ * WHY this flag exists: two contracts collided. The 2026-04-14 graceful-boot
+ * contract wanted billing-service to start even with no Stripe key so the rest
+ * of the platform can deploy; the #640 fail-closed contract wanted the service
+ * to REFUSE to boot when it cannot bill. NODE_ENV gating reconciled neither —
+ * a production droplet with no key would crash-loop on boot and roll the deploy
+ * back. `STRIPE_BILLING_ENABLED` (default false) is the explicit operator
+ * intent that reconciles both:
+ *   - off (default, any env)        → boot with a fail-closed disabled client
+ *                                      (UnconfiguredStripeClient throws at the
+ *                                      moment any Stripe call is attempted).
+ *   - on + STRIPE_SECRET_KEY set    → the real Stripe adapter.
+ *   - on + STRIPE_SECRET_KEY missing → throw at BOOT (the service must not start
+ *                                      claiming it can bill when it cannot).
+ * The flag is NON-secret (it is intent, not a credential) — it is NOT part of
+ * PLATFORM_SECRET_ENV_VARS. The credential remains the canonical
+ * STRIPE_SECRET_KEY.
+ */
+export const STRIPE_BILLING_ENABLED_ENV = 'STRIPE_BILLING_ENABLED';
+export const STRIPE_SECRET_KEY_ENV = 'STRIPE_SECRET_KEY';
+
+/**
+ * BILLING_PROVIDER is the explicit provider SSoT, reconciled with
+ * STRIPE_BILLING_ENABLED (it does NOT compete with it):
+ *   - 'mock'   → a functional local MockBillingProvider (no Stripe SDK / no
+ *                outbound network, local subscriptions/receipts). For demo/test
+ *                tenants; needs NO STRIPE_SECRET_KEY. This is what the
+ *                app.suderra.com droplet runs, so billing actually works there
+ *                instead of throwing at every call.
+ *   - 'stripe' → the real Stripe adapter; implies enabled even when
+ *                STRIPE_BILLING_ENABLED is unset, so STRIPE_SECRET_KEY is then
+ *                mandatory and missing-key fails closed at boot.
+ *   - unset    → defer to STRIPE_BILLING_ENABLED (boot-decouple back-compat).
+ * Like STRIPE_BILLING_ENABLED it is intent, not a credential (NOT in
+ * PLATFORM_SECRET_ENV_VARS).
+ */
+export const BILLING_PROVIDER_ENV = 'BILLING_PROVIDER';
+
+type BillingProvider = 'mock' | 'stripe' | 'unset';
+
+function resolveBillingProvider(config: ConfigService): BillingProvider {
+  const raw = (config.get<string>(BILLING_PROVIDER_ENV) ?? '').trim().toLowerCase();
+  return raw === 'mock' ? 'mock' : raw === 'stripe' ? 'stripe' : 'unset';
+}
+
+/**
+ * Canonical boolean-env idiom (matches DATABASE_SSL in
+ * libs/backend-common/src/database/ssl-config.ts and SCHEMA_DRIFT_ENABLED in
+ * schema-drift-validator.service.ts): default to the safe value, opt-in only on
+ * the exact string 'true'.
+ */
+function isStripeBillingEnabled(config: ConfigService): boolean {
+  return config.get<string>(STRIPE_BILLING_ENABLED_ENV, 'false') === 'true';
+}
+
+/**
+ * Thrown when a Stripe mutation is attempted while billing is disabled
+ * (`STRIPE_BILLING_ENABLED` off or unset) — the service booted with a
+ * fail-closed disabled client (see stripeClientFactory / UnconfiguredStripeClient)
+ * so any code path that DOES try to call Stripe fails loudly rather than
+ * silently succeeding. When billing is ENABLED but no key is present the factory
+ * throws at boot instead, so this error never indicates an enabled-but-keyless
+ * misconfiguration.
  */
 export class StripeNotConfiguredError extends Error {
   constructor() {
     super(
-      'Stripe is not configured (STRIPE_SECRET_KEY missing). Outbound billing ' +
-        'calls are disabled in this environment.',
+      `Stripe billing is disabled (${STRIPE_BILLING_ENABLED_ENV} is off or ` +
+        'unset). Outbound billing calls are refused (fail-closed) until the ' +
+        `flag is enabled and ${STRIPE_SECRET_KEY_ENV} is configured.`,
     );
     this.name = 'StripeNotConfiguredError';
   }
@@ -223,10 +285,13 @@ class RealStripeClient implements IStripeApiClient {
 }
 
 /**
- * A client that throws on every mutating call — bound in non-production when no
- * STRIPE_SECRET_KEY is present, so unit tests that never touch Stripe boot
- * fine while any code path that DOES call Stripe fails loudly (never a silent
- * local-only success).
+ * A client that throws on every mutating call — bound in ANY environment
+ * (including production) when billing is disabled (`STRIPE_BILLING_ENABLED` off
+ * or unset). This is the fail-closed disabled binding: the service boots so the
+ * rest of the platform can deploy, but any code path that DOES attempt a Stripe
+ * call fails loudly with StripeNotConfiguredError (never a silent success). It
+ * is NOT gated by NODE_ENV — a production droplet with billing intentionally off
+ * boots cleanly with this client.
  */
 class UnconfiguredStripeClient implements IStripeApiClient {
   private fail(): never {
@@ -262,35 +327,59 @@ class UnconfiguredStripeClient implements IStripeApiClient {
 }
 
 /**
- * Production factory for the canonical Stripe client (bind to STRIPE_API_CLIENT).
+ * Factory for the canonical Stripe client (bind to STRIPE_API_CLIENT).
  *
- * Fail-closed sourcing:
- *   - production + no key  → throw at boot (the service must not start claiming
- *     it can bill when it cannot).
- *   - any env + `sk_live_` key outside production → throw (never let a real
- *     live key run against a non-prod database).
- *   - non-prod + no key    → an UnconfiguredStripeClient that throws on use.
- *   - key present          → the real Stripe adapter.
+ * Flag-gated SSoT (see STRIPE_BILLING_ENABLED_ENV docblock above). NODE_ENV no
+ * longer gates boot survival — it is consulted ONLY for the sk_live_ safety
+ * check — so a production droplet with billing intentionally off boots cleanly:
+ *   - STRIPE_BILLING_ENABLED off/unset (any env) → an UnconfiguredStripeClient
+ *     that fails closed at REQUEST time (the service boots).
+ *   - enabled + no STRIPE_SECRET_KEY             → throw at BOOT (refuse to start
+ *     claiming it can bill when it cannot).
+ *   - enabled + `sk_live_` key outside production → throw (never let a real live
+ *     key run against a non-prod database).
+ *   - enabled + key present                       → the real Stripe adapter.
  */
 export function stripeClientFactory(config: ConfigService): IStripeApiClient {
   const logger = new Logger('StripeClientFactory');
-  const isProd = config.get<string>('NODE_ENV') === 'production';
-  const secretKey = config.get<string>('STRIPE_SECRET_KEY');
 
-  if (!secretKey) {
-    if (isProd) {
-      throw new Error(
-        'STRIPE_SECRET_KEY is required in production — refusing to boot ' +
-          'billing without an outbound Stripe credential (fail-closed).',
-      );
-    }
+  // BILLING_PROVIDER=mock short-circuits to a functional local provider — no
+  // Stripe SDK/network, no secret. This lets a demo/test droplet (app.suderra.com)
+  // run billing for real without an outbound Stripe credential.
+  const provider = resolveBillingProvider(config);
+  if (provider === 'mock') {
     logger.warn(
-      'STRIPE_SECRET_KEY not set; binding an unconfigured Stripe client. ' +
-        'Outbound billing calls will throw StripeNotConfiguredError.',
+      `${BILLING_PROVIDER_ENV}=mock — binding the local no-op MockBillingProvider; ` +
+        'no outbound Stripe (SDK/network), local subscriptions/receipts only. ' +
+        `No ${STRIPE_SECRET_KEY_ENV} required.`,
+    );
+    return new MockBillingProvider();
+  }
+
+  // Enabled when STRIPE_BILLING_ENABLED=true OR BILLING_PROVIDER=stripe (an
+  // explicit real provider implies enabled even if the boot-decouple flag is unset).
+  const enabled = isStripeBillingEnabled(config) || provider === 'stripe';
+  if (!enabled) {
+    logger.warn(
+      `${STRIPE_BILLING_ENABLED_ENV} is off or unset; binding a disabled ` +
+        'Stripe client (fail-closed). The service boots, but any outbound ' +
+        `billing call will throw StripeNotConfiguredError. Set ${BILLING_PROVIDER_ENV}=mock ` +
+        'for a keyless local provider that actually serves billing.',
     );
     return new UnconfiguredStripeClient();
   }
 
+  const secretKey = config.get<string>(STRIPE_SECRET_KEY_ENV);
+  if (!secretKey) {
+    throw new Error(
+      `billing is enabled (${STRIPE_BILLING_ENABLED_ENV}=true or ${BILLING_PROVIDER_ENV}=stripe) ` +
+        `but ${STRIPE_SECRET_KEY_ENV} is missing — refusing to boot billing with no ` +
+        `outbound Stripe credential (fail-closed). Set ${BILLING_PROVIDER_ENV}=mock for a ` +
+        'keyless local provider.',
+    );
+  }
+
+  const isProd = config.get<string>('NODE_ENV') === 'production';
   if (!isProd && secretKey.startsWith('sk_live_')) {
     throw new Error(
       'Refusing to use a live Stripe key (sk_live_) outside production.',

@@ -1,5 +1,6 @@
 import {
   createBaseEvent,
+  toEventIso,
   type BaseEvent,
   type EventId,
 } from '../base-event';
@@ -132,5 +133,30 @@ describe('createBaseEvent — canonical contract invariants', () => {
       const event = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
       expect(event.eventType).toBe('TestEvent');
     });
+  });
+});
+
+describe('toEventIso (ORPHAN-111 canonical date→ISO normaliser)', () => {
+  it('converts a Date to an ISO 8601 string', () => {
+    const d = new Date('2026-06-26T10:20:30.000Z');
+    expect(toEventIso(d)).toBe('2026-06-26T10:20:30.000Z');
+  });
+
+  it('normalises an already-ISO string idempotently (round-trips)', () => {
+    expect(toEventIso('2026-06-26T10:20:30.000Z')).toBe('2026-06-26T10:20:30.000Z');
+  });
+
+  it('parses a non-ISO date string to canonical ISO', () => {
+    expect(toEventIso('2026-06-26')).toBe('2026-06-26T00:00:00.000Z');
+  });
+
+  it('maps null/undefined to undefined (never the string "null")', () => {
+    expect(toEventIso(null)).toBeUndefined();
+    expect(toEventIso(undefined)).toBeUndefined();
+  });
+
+  it('throws on an unparseable value rather than emitting a bad timestamp', () => {
+    expect(() => toEventIso('not-a-date')).toThrow(TypeError);
+    expect(() => toEventIso(new Date('nope'))).toThrow(TypeError);
   });
 });

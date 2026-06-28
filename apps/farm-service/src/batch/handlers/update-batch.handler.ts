@@ -20,7 +20,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type BatchMetadataUpdatedEvent,
 } from '@platform/event-contracts';
@@ -100,8 +100,8 @@ export class UpdateBatchHandler implements ICommandHandler<UpdateBatchCommand, B
         batchId: saved.id,
         changedFields,
         newTargetFCR: saved.fcr?.target,
-        newExpectedHarvestDate: saved.expectedHarvestDate,
-        updatedAt: new Date(),
+        newExpectedHarvestDate: toEventIso(saved.expectedHarvestDate),
+        updatedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

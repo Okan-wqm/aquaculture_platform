@@ -131,7 +131,10 @@ export interface AttendanceSummary {
   employee?: Employee;
   month: number;
   year: number;
-  totalWorkingDays: number;
+  // WHY: Matches the backend AttendanceSummary GraphQL field `totalWorkDays`
+  // (get-attendance-summary.handler.ts). The previous name `totalWorkingDays`
+  // did not exist on the type and produced a GraphQL field-selection drift.
+  totalWorkDays: number;
   presentDays: number;
   absentDays: number;
   lateDays: number;

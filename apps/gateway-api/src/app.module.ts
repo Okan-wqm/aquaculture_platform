@@ -38,6 +38,9 @@ import {
   fieldExtensionsEstimator,
 } from 'graphql-query-complexity';
 
+import { BackgroundCompositionManager } from './config/background-composition.manager';
+import { CompositionStateModule } from './config/composition-state.module';
+import { CompositionStateService } from './config/composition-state.service';
 import { FEDERATED_SUBGRAPHS } from './config/federated-subgraphs.generated';
 import { buildGatewayEdgeConfig } from './config/rate-limit.config';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
@@ -218,48 +221,71 @@ function positiveIntConfig(
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
     AuditedOperationModule.forRoot(),
 
+    // ARCH-GW-006: composition readiness state. Imported BEFORE GraphQLModule so
+    // the CompositionStateService singleton is resolvable inside the GraphQL
+    // factory's inject[] (where it is handed to the BackgroundCompositionManager)
+    // and inside HealthService (which reads it for /health/ready).
+    CompositionStateModule,
+
     // Apollo Federation Gateway
     GraphQLModule.forRootAsync<ApolloGatewayDriverConfig>({
       driver: ApolloGatewayDriver,
       imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
+      inject: [ConfigService, CompositionStateService],
+      useFactory: (
+        configService: ConfigService,
+        compositionState: CompositionStateService,
+      ) => ({
         gateway: {
           /**
-           * ARCH-GW-005: Federated subgraph registry.
+           * ARCH-GW-005 / ARCH-GW-006: Federated subgraph registry, composed in
+           * the BACKGROUND.
            *
            * CRITICAL INVARIANT: Every service listed here MUST also appear in:
-           *   1. docker-compose.droplet.yml gateway depends_on with condition: service_started
-           *   2. health.service.ts serviceUrls map (for /health/detail monitoring)
+           *   1. docker-compose.droplet.yml gateway depends_on with
+           *      condition: service_started (the compose health gate targets
+           *      /health/live, which no longer waits on composition)
+           *   2. health.service.ts serviceUrls map (for /health/detail + the
+           *      /health/ready subgraph fan-out)
            *
-           * The gateway may start before a subgraph is ready, but
-           * RetryableIntrospectAndCompose owns the retry window. If a subgraph
-           * never becomes reachable, composition failure blocks NestFactory.create()
-           * and prevents /health/live from responding; Docker restarts the gateway.
+           * ARCH-GW-006: RetryableIntrospectAndCompose still owns the real
+           * introspect+retry window, but it now runs INSIDE
+           * BackgroundCompositionManager, OFF the NestFactory.create() critical
+           * path. initialize() returns a tiny composed placeholder supergraph
+           * immediately so the HTTP listener binds in <1s and /health/live
+           * answers; the real schema is hot-swapped in later via the same
+           * options.update() path IntrospectAndCompose polling uses. A subgraph
+           * that never becomes reachable no longer blocks the listener — it just
+           * keeps /health/ready reporting not_ready until composition lands.
            *
-           * Composition is ALL-OR-NOTHING: if any single subgraph fails introspection,
-           * the entire supergraph composition fails. There is no partial composition.
+           * Composition is ALL-OR-NOTHING: if any single subgraph fails
+           * introspection, the entire supergraph composition fails. There is no
+           * partial composition — hence /health/ready short-circuits to
+           * not_ready until the all-or-nothing compose succeeds.
            *
-           * Current subgraphs (11):
+           * Current subgraphs (9):
            *   auth, farm, sensor, alert, hr, billing, hydroponics, config,
            *   notification (BUG-4 FIX), messaging (ADR-012)
            */
-          supergraphSdl: new RetryableIntrospectAndCompose({
-            subgraphs: FEDERATED_SUBGRAPHS.map((subgraph) => ({
-              name: subgraph.name,
-              url: configService.get(subgraph.urlEnv, subgraph.localUrl),
-            })),
-            pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
-            maxRetries: positiveIntConfig(
-              configService,
-              'GATEWAY_COMPOSITION_MAX_RETRIES',
-              24,
-            ),
-            retryDelayMs: positiveIntConfig(
-              configService,
-              'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
-              3000,
-            ),
+          supergraphSdl: new BackgroundCompositionManager({
+            state: compositionState,
+            retryable: new RetryableIntrospectAndCompose({
+              subgraphs: FEDERATED_SUBGRAPHS.map((subgraph) => ({
+                name: subgraph.name,
+                url: configService.get(subgraph.urlEnv, subgraph.localUrl),
+              })),
+              pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
+              maxRetries: positiveIntConfig(
+                configService,
+                'GATEWAY_COMPOSITION_MAX_RETRIES',
+                24,
+              ),
+              retryDelayMs: positiveIntConfig(
+                configService,
+                'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
+                3000,
+              ),
+            }),
           }),
           buildService({ name, url }) {
             return new AuthenticatedDataSource({ url, serviceAudience: name });

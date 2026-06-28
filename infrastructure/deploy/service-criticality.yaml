@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: ebeab8fd5710252559a710af7d019d9ca32e5b9991da21edd7d4f2408505a0f2
+# catalogHash: fbec6868cc7ece95468ea70f6ce79892807ac9c904085aed7a127e32e82b9bef
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -65,6 +65,18 @@ services:
   - name: observability-service
     level: warning
     reason: "generated from observability-service criticality in platform service catalog"
+  - name: prometheus
+    level: ignored
+    reason: "generated from prometheus criticality in platform service catalog"
+  - name: cadvisor
+    level: ignored
+    reason: "generated from cadvisor criticality in platform service catalog"
+  - name: node-exporter
+    level: ignored
+    reason: "generated from node-exporter criticality in platform service catalog"
+  - name: alertmanager
+    level: ignored
+    reason: "generated from alertmanager criticality in platform service catalog"
   - name: nginx
     level: critical
     reason: "generated from nginx criticality in platform service catalog"

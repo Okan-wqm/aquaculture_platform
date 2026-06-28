@@ -9,7 +9,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { SystemDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, SystemDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, In } from 'typeorm';
 
@@ -136,7 +136,7 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
         siteId: deletedSystem.siteId,
         name: deletedSystem.name,
         code: deletedSystem.code,
-        deletedAt: deletedSystem.deletedAt ?? new Date(),
+        deletedAt: toEventIso(deletedSystem.deletedAt ?? new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager, {
         aggregateId: deletedSystem.id,

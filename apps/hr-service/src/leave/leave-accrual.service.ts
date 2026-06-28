@@ -1,11 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { Employee, EmployeeStatus } from '../hr/entities/employee.entity';
+
+/**
+ * Outcome of a single tenant-schema carry-over run, surfaced to the
+ * on-demand carryOverLeaveBalances mutation.
+ */
+export interface CarryOverOutcome {
+  processed: number;
+  successful: number;
+  failed: number;
+  errors: string[];
+}
 
 /**
  * Scheduled service for leave accrual processing.
@@ -280,25 +291,79 @@ export class LeaveAccrualService {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
 
-    let rolledOver = 0;
+    let outcome: CarryOverOutcome = { processed: 0, successful: 0, failed: 0, errors: [] };
 
     try {
       // Set search_path BEFORE starting the transaction
       await queryRunner.query(`SET search_path TO "${schemaName}", hr, public`);
       await queryRunner.startTransaction();
 
-      const manager = queryRunner.manager;
+      // Single source of truth for the carry-over math — shared with the
+      // on-demand carryOverLeaveBalances mutation so the cron and the
+      // operator-triggered path can never diverge.
+      outcome = await this.carryOverWithinSchema(
+        queryRunner.manager,
+        previousYear,
+        newYear,
+      );
 
-      // Fetch all previous year balances within this tenant schema (with leave type info for maxCarryOverDays)
-      const previousBalances = await manager.find(LeaveBalance, {
-        where: {
-          year: previousYear,
-          isDeleted: false,
-        },
-        relations: ['leaveType'],
-      });
+      await queryRunner.commitTransaction();
+      this.logger.log(
+        `Schema ${schemaName}: rolled over ${outcome.successful} balance(s) from ${previousYear} to ${newYear}.`,
+      );
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Schema ${schemaName} rollover failed, rolled back: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
+      await queryRunner.release();
+    }
 
-      for (const prevBalance of previousBalances) {
+    return outcome.successful;
+  }
+
+  /**
+   * Carry remaining balances from `previousYear` into `newYear` for the schema
+   * the supplied EntityManager is currently routed to (search_path =
+   * tenant_<uuid>). Pure balance math — no schema switching, no transaction
+   * management; the caller owns the transaction boundary.
+   *
+   * Idempotent: a target-year balance whose carriedOver is already non-zero is
+   * left untouched, so re-running the carry-over cannot double-credit.
+   *
+   * @param manager     transactional EntityManager already scoped to the tenant
+   * @param previousYear source year to drain remaining balance from
+   * @param newYear      target year to credit carriedOver into
+   * @param actorUserId  optional auditing user recorded on touched rows
+   */
+  async carryOverWithinSchema(
+    manager: EntityManager,
+    previousYear: number,
+    newYear: number,
+    actorUserId?: string,
+  ): Promise<CarryOverOutcome> {
+    const outcome: CarryOverOutcome = {
+      processed: 0,
+      successful: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    // Fetch all previous year balances (with leave type info for maxCarryOverDays)
+    const previousBalances = await manager.find(LeaveBalance, {
+      where: {
+        year: previousYear,
+        isDeleted: false,
+      },
+      relations: ['leaveType'],
+    });
+
+    for (const prevBalance of previousBalances) {
+      outcome.processed++;
+      try {
         // Check if the employee is still active
         const employee = await manager.findOne(Employee, {
           where: {
@@ -353,8 +418,11 @@ export class LeaveAccrualService {
           // Already exists — update carriedOver only if it hasn't been set yet
           if (Number(newBalance.carriedOver) === 0) {
             newBalance.carriedOver = carryOverAmount;
+            if (actorUserId) {
+              newBalance.updatedBy = actorUserId;
+            }
             await manager.save(LeaveBalance, newBalance);
-            rolledOver++;
+            outcome.successful++;
           }
           // If carriedOver is already > 0, skip (idempotent)
         } else {
@@ -370,27 +438,21 @@ export class LeaveAccrualService {
             pending: 0,
             adjustment: 0,
             carriedOver: carryOverAmount,
+            createdBy: actorUserId,
+            updatedBy: actorUserId,
           });
           await manager.save(LeaveBalance, newBalance);
-          rolledOver++;
+          outcome.successful++;
         }
+      } catch (error) {
+        outcome.failed++;
+        const message = error instanceof Error ? error.message : String(error);
+        outcome.errors.push(
+          `employee ${prevBalance.employeeId} / leaveType ${prevBalance.leaveTypeId}: ${message}`,
+        );
       }
-
-      await queryRunner.commitTransaction();
-      this.logger.log(
-        `Schema ${schemaName}: rolled over ${rolledOver} balance(s) from ${previousYear} to ${newYear}.`,
-      );
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(
-        `Schema ${schemaName} rollover failed, rolled back: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    } finally {
-      await queryRunner.query('RESET search_path').catch(() => {});
-      await queryRunner.release();
     }
 
-    return rolledOver;
+    return outcome;
   }
 }

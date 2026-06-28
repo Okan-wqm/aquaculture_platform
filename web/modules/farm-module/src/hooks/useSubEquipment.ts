@@ -38,7 +38,6 @@ export interface SubEquipment {
   subEquipmentType?: {
     id: string;
     name: string;
-    category: string;
   };
 }
 
@@ -76,7 +75,6 @@ export interface SubEquipmentTypeOption {
   id: string;
   name: string;
   code: string;
-  category: string;
   description?: string;
 }
 
@@ -86,7 +84,6 @@ const LIST_SUB_EQUIPMENT_TYPES_QUERY = `
       id
       name
       code
-      category
       description
     }
   }
@@ -112,7 +109,6 @@ const LIST_SUB_EQUIPMENT_BY_PARENT_QUERY = `
       subEquipmentType {
         id
         name
-        category
       }
     }
   }

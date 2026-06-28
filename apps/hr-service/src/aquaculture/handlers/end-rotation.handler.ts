@@ -6,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { EmployeeRotationEndedEvent } from '@platform/event-contracts';
 import { DataSource, QueryRunner } from 'typeorm';
 import { EndRotationCommand } from '../commands/end-rotation.command';
@@ -83,7 +83,7 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
           rotationId: saved.id,
           employeeId: saved.employeeId,
           workAreaId: saved.workAreaId,
-          actualEndTime: saved.actualEndTime ?? new Date(),
+          actualEndTime: toEventIso(saved.actualEndTime ?? new Date()),
           wasExtended,
         };
         this.eventBus.publish(event);

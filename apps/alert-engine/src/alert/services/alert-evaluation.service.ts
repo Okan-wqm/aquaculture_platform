@@ -1,5 +1,6 @@
 import {
   createBaseEvent,
+  toEventIso,
   AlertTriggeredEvent,
   AlertResolvedEvent,
 } from '@platform/event-contracts';
@@ -512,7 +513,7 @@ export class AlertEvaluationService {
       }),
       alertId: incidentId,
       resolvedBy: 'SYSTEM_AUTO_RESOLVE',
-      resolvedAt,
+      resolvedAt: toEventIso(resolvedAt),
       resolution: 'Sensor readings returned to normal range',
       autoResolved: true,
     };

@@ -10,6 +10,15 @@ POSTGRES_DB="${POSTGRES_DB:-aquaculture}"
 POSTGRES_USER="${POSTGRES_USER:-aquaculture}"
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
 
+# Deploy filesystem SSoT. This verifier is piped to the droplet over SSH via
+# `bash -s`, so its initial cwd is the login home — it sources deploy-paths.sh
+# from the persistent source repo (always present) to learn the deploy-owned,
+# SHA-pinned DEPLOY_CHECKOUT_DIR it must verify from. The verifier reads the
+# deploy's worktree, NOT the interactive /var/aqua-saas tree, so the HEAD check
+# below can no longer false-fail when a parallel session drifts that tree.
+# shellcheck source=scripts/deploy/deploy-paths.sh
+source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+
 case "${TARGET_SHA}" in
   *[!0-9a-f]*)
     echo "::error::TARGET_SHA must be lowercase hex." >&2
@@ -53,13 +62,18 @@ require_command git
 require_command node
 require_command python3
 
-cd /var/aqua-saas
+# Verify from the dedicated, deploy-owned SHA-pinned checkout — not the shared
+# interactive working tree. The HEAD check is now a true invariant: the deploy
+# pins this worktree to the deploy SHA and nothing else writes to it, so a
+# session checking out a feature branch in /var/aqua-saas cannot make this
+# false-fail (the historical expected=<sha> actual=<feature-branch-sha> bug).
+cd "${DEPLOY_CHECKOUT_DIR}"
 
-log "=== Post-deploy verification for ${TARGET_SHA} ==="
+log "=== Post-deploy verification for ${TARGET_SHA} (checkout ${DEPLOY_CHECKOUT_DIR}) ==="
 
 deployed_head="$(git rev-parse HEAD)"
 if [ "${deployed_head}" != "${TARGET_SHA}" ]; then
-  echo "::error::droplet checkout mismatch: expected=${TARGET_SHA} actual=${deployed_head}" >&2
+  echo "::error::deploy checkout mismatch in ${DEPLOY_CHECKOUT_DIR}: expected=${TARGET_SHA} actual=${deployed_head}" >&2
   exit 1
 fi
 
@@ -195,6 +209,39 @@ fi
 docker exec "${gateway_container}" curl -sf "http://localhost:3000/health/live" >/dev/null
 docker exec "${gateway_container}" curl -sf "http://localhost:3000/health/ready" >/dev/null
 
+# Real public-path smoke THROUGH nginx — NOT the internal container. This is the gate
+# that the app.suderra.com outage slipped past: /health/live can pass inside the gateway
+# container while nginx→gateway returns 502 (e.g. a subgraph like billing is down so the
+# supergraph never composes). We curl nginx on the droplet host with the public Host
+# header so the request takes the exact path real traffic does, and we assert a valid
+# GraphQL JSON body — a 502 returns nginx HTML, which must FAIL the deploy.
+public_host="${PUBLIC_SMOKE_HOST:-app.suderra.com}"
+# Real https public path (was http://localhost → nginx 301-redirects http→https,
+# which false-failed the smoke). Pin to the local nginx via --resolve so it tests
+# the exact public TLS path (valid cert/SNI/Host) without external DNS;
+# -L/--post301/--post302 re-POST through a redirect if overridden back to http.
+nginx_origin="${PUBLIC_SMOKE_ORIGIN:-https://${public_host}}"
+nginx_resolve="${PUBLIC_SMOKE_RESOLVE:-${public_host}:443:127.0.0.1}"
+graphql_body='{"query":"{ __typename }"}'
+graphql_out="$(curl -sS -m 15 -L --post301 --post302 --resolve "${nginx_resolve}" -w $'\n%{http_code}' \
+  -H "Host: ${public_host}" -H 'Content-Type: application/json' \
+  -X POST --data "${graphql_body}" "${nginx_origin}/graphql" || true)"
+graphql_code="$(printf '%s' "${graphql_out}" | tail -n1)"
+graphql_payload="$(printf '%s' "${graphql_out}" | sed '$d')"
+if [ "${graphql_code}" != "200" ] || \
+   ! printf '%s' "${graphql_payload}" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("data",{}).get("__typename") else 1)' 2>/dev/null; then
+  echo "::error::public POST /graphql smoke FAILED through nginx (HTTP ${graphql_code}; body is not GraphQL JSON). The gateway is not serving public traffic — a subgraph is likely down. Refusing to mark the deploy healthy." >&2
+  exit 1
+fi
+
+# Socket.IO handshake through nginx (engine.io polling open).
+socketio_code="$(curl -sS -m 15 -L --resolve "${nginx_resolve}" -o /dev/null -w '%{http_code}' \
+  -H "Host: ${public_host}" "${nginx_origin}/socket.io/?EIO=4&transport=polling" || true)"
+if [ "${socketio_code}" != "200" ]; then
+  echo "::error::public /socket.io handshake FAILED through nginx (HTTP ${socketio_code})." >&2
+  exit 1
+fi
+
 ready_json="$(python3 -c "import json,sys; print(json.dumps(sys.argv[1:]))" "${ready_ok[@]}")"
 
 cat <<JSON
@@ -212,7 +259,9 @@ cat <<JSON
   "ready_services": ${ready_json},
   "gateway_smoke": {
     "health_live": "passed",
-    "health_ready": "passed"
+    "health_ready": "passed",
+    "public_graphql": "passed",
+    "public_socketio": "passed"
   },
   "verified_at": $(json_string "$(date -u +%FT%TZ)")
 }

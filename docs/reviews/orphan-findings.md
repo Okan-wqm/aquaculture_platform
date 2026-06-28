@@ -5612,6 +5612,27 @@ Verification: hr-service `tsc` 0; ESLint 0; new `leave-admin-ops.spec.ts` 29/29 
 
 Status: RESOLVED (2026-06-28) — 9 ops implemented + tested; the Leave-admin UI (CreateLeaveType/balances pages) now resolves. Remaining #3 tail: 29 hr (cert/training-admin, performance analytics, rotations analytics, detail-by-id) + 3 aquamobil + 1 sensor (CancelVfdChangeSet) — backend-feature-debt by product priority. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.
 
+---
+
+## ORPHAN-MEDIUM-198 - the residual deploy "critical service health check → rollback" race is the gateway, CPU-starved under the cold-boot thundering herd (ORPHAN-187 tail)
+
+Severity: MEDIUM (every recent deploy reports `deploy-production/deploy` failure + "Initiating rollback" — though services nonetheless land healthy on the new SHA, so it is a false/incomplete rollback that masks real outcomes + denies a clean post-deploy-verify; the ORPHAN-187 300s-SLA tail that #672 did not fully close). Root-caused live (gateway boot logs + Docker healthcheck probe history on the #686/#688 deploys).
+
+**Root cause (NOT composition-blocking — #672 works):** the gateway boots fast — `BackgroundCompositionManager` backgrounds composition, `Nest application successfully started` at ~+2s, `/health/live` answers `200 5ms`. BUT the deploy gate measures Docker `healthy`, and the Docker healthcheck (`curl -sf /health/live`, **timeout 10s**) **timed out at ~+70s** (probe exit -1) and the container only flipped `healthy` at ~+100s. During the simultaneous cold-boot of ~14 NestJS services + postgres on the 4-CPU droplet, the gateway process is CPU-starved, so a normally-5ms probe exceeds the 10s curl timeout. The catalog's `startupBudgetSeconds: 40` (set assuming composition-background = fast, on an unloaded box) under-counted the real ~100s under-thundering-herd time → the gate fails the gateway → "rollback".
+
+**Fix (targeted, SSoT, data-driven — reflect the real under-load timing):**
+- compose gateway healthcheck `timeout` 10s→30s + `start_period` 30s→60s (tolerate the transient CPU starvation; early storm-probes don't count toward `retries`).
+- service-catalog `gateway-api.startupBudgetSeconds` 40→120 (real under-herd time). The derived `readiness_sla_seconds` stays 300 (gateway 120 ties the existing farm 120 max; +180 margin). Regenerated all catalog/registry artifacts.
+- The `start_period ≤ SLA` invariant still holds (60 ≤ 300).
+
+**Deeper fix flagged (not in this PR):** the real driver is the thundering-herd cold-boot saturating the 4-CPU box — a staggered/dependency-ordered bring-up in droplet-up.sh (instead of `up -d` all at once) would shrink the storm so no critical service is starved. Tracked for a follow-up; this PR makes the gate tolerate the real timing meanwhile.
+
+Verification: compose YAML valid; catalog/criticality/startup-budget invariants green (11 tests); SLA regen = 300. CANNOT fully validate without a real deploy — first-deploy watch: gateway flips `healthy` within the 30s-timeout probes + the gate passes (no "rollback").
+
+Status: RESOLVED (2026-06-28) — gateway budget + healthcheck reflect the real under-load timing; PR for review (next deploy should pass the gate). Deeper staggered-bring-up tracked separately. Registry: orphan-findings.md.
+
+---
+
 ## ORPHAN-MEDIUM-200 — tenant query keys lack a cache-generation epoch (SUPER_ADMIN A→B→A serves stale cache)
 Found 2026-06-28 (tenant-panel WS-2 gap audit vs main). `createTenantQueryKey` isolates tenant A's cache from B's via the `['tenant', tenantId, …]` prefix, but does NOT distinguish two SESSIONS of the same tenant: on a SUPER_ADMIN impersonation round-trip (A→B→A), switching back to A reproduces A's exact keys, so React Query serves A's PRE-switch (possibly stale) cache. The 502-resilience / refetch-storm / HR-nested-QC / transport gaps were already closed by #673/#679/#682; this cache-generation gap remained. **Status: RESOLVED (2026-06-28 — added `web/shared-ui/src/utils/session-epoch.ts`: a monotonic counter bumped on every actual tenant change (`api-client.setTenantId`) and on logout (`clearSession`); `createTenantQueryKey` now APPENDS `{ __sessionEpoch }` as the LAST key segment so each tenant (re)entry gets a fresh cache generation (the prior is orphaned/GC'd), while `domain` stays at index 2 — `resolveStaleTime` and prefix invalidations are unaffected. shared-ui is a federation singleton so the epoch is shared across remotes. 3/3 vitest + tsc clean.)** The full unified SessionSnapshot SSoT (token-lifecycle tenant-verified `ready` + `useTenantQuery` hook) remains a larger follow-up; the epoch closes the impersonation cache-freshness hole.
 

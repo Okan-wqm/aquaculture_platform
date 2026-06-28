@@ -10,6 +10,7 @@
  *
  * @module Batch/DataLoaders
  */
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 import DataLoader from 'dataloader';
 import { Injectable, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -27,9 +28,15 @@ export class BatchFeedAssignmentDataLoader {
   ) {
     this.loader = new DataLoader<string, BatchFeedAssignment[]>(
       async (batchIds: readonly string[]) => {
+        // Defense-in-depth: filter by the request's tenant explicitly, in
+        // addition to the request-scoped search_path, so a misrouted pooled
+        // connection cannot batch-leak another tenant's rows. The request's
+        // AsyncLocalStorage frame propagates through the loader's batch tick.
+        const tenantId = getRequestContext().tenantId;
         const assignments = await this.feedAssignmentRepository.find({
           where: {
             batchId: In([...batchIds]),
+            tenantId,
             isActive: true,
             isDeleted: false,
           },

@@ -161,6 +161,23 @@ Evidence:
 Fix: `clearAllUserData()` now `localStorage.removeItem`s both keys (try/catch for
 private-mode safety), mirroring the biometric wipe.
 
+## FARM-MEDIUM-076 — batch DataLoaders batched by batchId with no explicit tenant filter
+
+`batch-feed-assignment`, `batch-location`, and `batch-document` DataLoaders
+batched `batchId IN (...)` with NO `tenantId` in the WHERE, relying solely on the
+request-scoped search_path. A misrouted pooled connection could batch-leak
+another tenant's rows.
+
+Evidence:
+- `apps/farm-service/src/batch/dataloaders/batch-feed-assignment.dataloader.ts`
+- `apps/farm-service/src/batch/dataloaders/batch-location.dataloader.ts`
+- `apps/farm-service/src/batch/dataloaders/batch-document.dataloader.ts`
+
+Fix: each batch fn now reads `getRequestContext().tenantId` (the request's
+AsyncLocalStorage frame propagates through the loader's batch tick) and adds it to
+the WHERE — defense-in-depth on top of search_path. (`batch-species` /
+`tank-batch` loaders already filtered explicitly.)
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

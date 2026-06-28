@@ -10,6 +10,7 @@
  *
  * @module Batch/DataLoaders
  */
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 import DataLoader from 'dataloader';
 import { Injectable, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -27,9 +28,13 @@ export class BatchLocationDataLoader {
   ) {
     this.loader = new DataLoader<string, BatchLocation[]>(
       async (batchIds: readonly string[]) => {
+        // Defense-in-depth: explicit tenant filter on top of the request-scoped
+        // search_path (AsyncLocalStorage frame propagates through the batch tick).
+        const tenantId = getRequestContext().tenantId;
         const locations = await this.locationRepository.find({
           where: {
             batchId: In([...batchIds]),
+            tenantId,
             isCurrentLocation: true,
           },
           order: { movedAt: 'DESC' },

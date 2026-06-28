@@ -389,6 +389,30 @@ variant) that pins search_path + asserts the RLS GUC AND honors SERIALIZABLE,
 then migrate this handler. Until then the path retains its bare boundary and is
 not search_path-pinned / GUC-asserted.
 
+## FARM-MEDIUM-078 — dead TenantRlsService with a non-canonical COALESCE RLS form
+
+Plan §8.4 / Task #21. `TenantRlsService` generated its tenant policy as
+`USING ("tenantId" = COALESCE(current_setting('app.current_tenant',true),'')::uuid)`
+— which throws `invalid input syntax for uuid ""` on an empty GUC (vs the
+canonical `NULLIF(...)` form that yields NULL → deny-by-default), and had no
+bypass clause or `WITH CHECK`. It was registered in `RlsModule.forPoolService`
+providers/exports across 12 services yet had **zero runtime injectors** —
+live-registered dead code that would break RLS if anyone ever wired it.
+
+Evidence:
+- `libs/backend-common/src/database/rls/tenant-rls.service.ts` (deleted)
+- `libs/backend-common/src/database/rls/rls.module.ts`
+
+Fix: deleted `tenant-rls.service.ts` + its spec; removed it from
+`RlsModule.forPoolService` providers/exports, the `rls/index.ts` barrel, and the
+doc comments; updated a stale reference comment in
+`rls-connection-bootstrap.service.ts`. The `rls.module.spec` provider-count
+assertions were decremented and the TenantRlsService-specific cases removed. The
+canonical RLS form remains in `apply-tenant-rls.helper.ts` (`NULLIF(...)`); the
+runtime GUC is owned by `RlsConnectionBootstrap` + the tenant read/write
+boundary. (Two pre-existing `rls.module.spec` DI failures — DataSource
+resolution in the test harness — are unrelated and present on HEAD.)
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

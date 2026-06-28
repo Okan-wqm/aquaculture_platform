@@ -77,8 +77,8 @@ import { getPgPoolFromDataSource } from '../pg-pool-from-data-source.util';
  */
 
 /**
- * UUID v4 / v7 validation. Same regex used in TenantRlsService — duplicated
- * here so the bootstrap has zero runtime dependencies on the service class.
+ * UUID v4 / v7 validation. Kept local so the bootstrap has zero runtime
+ * dependencies on any service class.
  */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -10,7 +10,6 @@ import {
   TenantRlsSyncService,
   TenantRlsSyncOptions,
 } from './tenant-rls-sync.service';
-import { TenantRlsService } from './tenant-rls.service';
 
 /**
  * RlsModule
@@ -59,9 +58,7 @@ import { TenantRlsService } from './tenant-rls.service';
  *   2. `BypassRlsService` — scoped, audited bypass for SUPER_ADMIN
  *      endpoints and background workers.
  *
- *   3. `TenantRlsService` — table-level helpers used by admin tooling.
- *
- *   4. **(optional)** `RlsSchemaBootstrap` when `autoApply: true` — runs
+ *   3. **(optional)** `RlsSchemaBootstrap` when `autoApply: true` — runs
  *      `applyTenantRlsToSchema` at `OnApplicationBootstrap`. Used by
  *      services WITHOUT a TypeORM migration runner (billing, ai,
  *      notification, alert, config, event-store). Services WITH a
@@ -69,7 +66,7 @@ import { TenantRlsService } from './tenant-rls.service';
  *      via a regular migration and should leave `autoApply` at its
  *      default (`false`).
  *
- *   5. **(optional)** `TenantRlsSyncService` when `syncTenantSchemas:
+ *   4. **(optional)** `TenantRlsSyncService` when `syncTenantSchemas:
  *      true` — iterates every `tenant_<uuid>` schema at
  *      `OnApplicationBootstrap` and reinstalls the canonical
  *      `tenant_isolation_policy`. Required for schema-per-tenant
@@ -122,9 +119,8 @@ import { TenantRlsService } from './tenant-rls.service';
  * there is no auto-registration. This guarantees "I forgot to wire RLS
  * into the new service" is caught at service setup time.
  *
- * Once registered, the exports (`BypassRlsService` + `TenantRlsService`
- * in the pool variant, `BypassRlsService` alone in the bypass-only
- * variant) are `global: true` within that service's module tree, so
+ * Once registered, the export (`BypassRlsService` in both the pool and
+ * bypass-only variants) is `global: true` within that service's module tree, so
  * feature modules can inject them without re-importing `RlsModule`.
  * This is deliberate: these services have no per-service configuration
  * (audit label is caller-supplied) and requiring every submodule that
@@ -233,7 +229,6 @@ export class RlsModule {
       // patching must complete before any code uses the DataSource.
       RlsConnectionBootstrap,
       BypassRlsService,
-      TenantRlsService,
     ];
 
     // Optional: register the startup-time installer. We construct
@@ -279,11 +274,10 @@ export class RlsModule {
       // only affects consumption of the already-registered providers.
       global: true,
       providers,
-      // Re-export the bypass + table helpers so feature modules can
-      // inject them without re-importing RlsModule. The bootstraps
-      // intentionally stay internal — nothing outside this module
-      // should call them.
-      exports: [BypassRlsService, TenantRlsService],
+      // Re-export the bypass helper so feature modules can inject it
+      // without re-importing RlsModule. The bootstraps intentionally
+      // stay internal — nothing outside this module should call them.
+      exports: [BypassRlsService],
     };
   }
 

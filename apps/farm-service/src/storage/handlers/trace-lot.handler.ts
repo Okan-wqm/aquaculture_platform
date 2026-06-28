@@ -24,47 +24,50 @@
  * common case, so the existing `(tenantId, lot_number)` composite
  * index still serves the query in < 200ms for typical volumes.
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, In } from 'typeorm';
 import { TraceLotQuery } from '../queries/trace-lot.query';
 import { StockMovement } from '../entities/stock-movement.entity';
-import { StorageLotMix } from '../entities/storage-lot-mix.entity';
 import { LotMixService } from '../services/lot-mix.service';
 
 @QueryHandler(TraceLotQuery)
 export class TraceLotHandler implements IQueryHandler<TraceLotQuery> {
   constructor(
-    @InjectRepository(StockMovement)
-    private readonly movementRepository: Repository<StockMovement>,
-    @InjectRepository(StorageLotMix)
-    private readonly mixRepository: Repository<StorageLotMix>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly lotMixService: LotMixService,
   ) {}
 
   async execute(query: TraceLotQuery): Promise<StockMovement[]> {
     const { lotNumber, tenantId } = query;
 
-    // Every composite lot identifier this lot participated in. When
-    // the lot never mixed with another, the set is empty and the
-    // caller sees the legacy lot-number-only trace.
-    const mixes = await this.lotMixService.findMixesForLot(
-      this.mixRepository,
-      tenantId,
-      lotNumber,
-    );
-    const compositeLotNumbers = mixes.map((m) => m.effectiveLotNumber);
-
-    const searchLots = [lotNumber, ...compositeLotNumbers];
-
-    return this.movementRepository.find({
-      where: {
+    // Read through the fail-closed tenant boundary so both the mix
+    // resolution and the movement scan run on the same pinned + asserted
+    // tenant connection.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // Every composite lot identifier this lot participated in. When
+      // the lot never mixed with another, the set is empty and the
+      // caller sees the legacy lot-number-only trace.
+      const mixes = await this.lotMixService.findMixesForLot(
+        queryRunner.manager,
         tenantId,
-        lotNumber: In(searchLots),
-      },
-      order: {
-        performedAt: 'ASC',
-      },
+        lotNumber,
+      );
+      const compositeLotNumbers = mixes.map((m) => m.effectiveLotNumber);
+
+      const searchLots = [lotNumber, ...compositeLotNumbers];
+
+      return queryRunner.manager.find(StockMovement, {
+        where: {
+          tenantId,
+          lotNumber: In(searchLots),
+        },
+        order: {
+          performedAt: 'ASC',
+        },
+      });
     });
   }
 }

@@ -304,6 +304,33 @@ With this batch, every tenant-owned GraphQL read query-handler in farm-service
 that can use the tenant boundary today now does; the residue is the explicit
 source-read set (Task #23) and the cursor primitive.
 
+## FARM-HIGH-076 — water-quality + trace-lot reads, and tenant-isolation postgres-spec realignment
+
+Final read-handler batch (plan Task #9). The 5 water-quality query-handlers
+(`get-parameter-config`, `get-parameter-config-by-code`, `get-equipment-params`,
+`list-param-equipment`, `list-parameter-configs`) and `storage/trace-lot` read
+via raw `@InjectRepository`.
+
+`trace-lot` delegates its mix resolution to `LotMixService.findMixesForLot`,
+which took a `Repository`. To run it on the boundary connection (rather than a
+banned `manager.getRepository(...)`), `findMixesForLot` now takes the caller's
+`EntityManager` and uses `manager.createQueryBuilder(StorageLotMix, 'mix')`.
+
+This batch also **repairs a latent type-check break**: four tenant-isolation
+postgres specs (`site-…`, `batch-allocation-…`, `feeding-record-…`,
+`mortality-cull-harvest-…`) still constructed migrated read handlers with their
+old `@InjectRepository` signatures (`new GetSiteHandler(siteRepository)`, …) —
+left behind by the earlier read-migration commits (FARM-HIGH-061/062/068/070/
+073/074/075). All such constructions are realigned to `new XHandler(dataSource)`
+and the now-dead repository locals removed.
+
+Evidence: see the registry entry for the full file list.
+
+Fix: all 6 handlers migrated to `runInTenantRead` via `queryRunner.manager`;
+`NotFoundException` paths preserved. Specs added (19 tests). farm-service
+`tsconfig.spec` type-check is green. With this batch, every tenant-owned GraphQL
+read query-handler in farm-service that can use the boundary today does.
+
 ## Related (tracked separately in the plan)
 
 - FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`

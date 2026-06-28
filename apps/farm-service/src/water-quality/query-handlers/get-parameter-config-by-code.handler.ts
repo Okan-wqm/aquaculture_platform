@@ -6,9 +6,10 @@
  *
  * @module WaterQuality/QueryHandlers
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetParameterConfigByCodeQuery } from '../queries/get-parameter-config-by-code.query';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
@@ -21,8 +22,8 @@ export class GetParameterConfigByCodeHandler
   private readonly logger = new Logger(GetParameterConfigByCodeHandler.name);
 
   constructor(
-    @InjectRepository(WaterQualityParameterConfig)
-    private readonly repository: Repository<WaterQualityParameterConfig>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetParameterConfigByCodeQuery): Promise<WaterQualityParameterConfig> {
@@ -30,16 +31,19 @@ export class GetParameterConfigByCodeHandler
 
     this.logger.debug(`Getting parameter config by code "${code}" for tenant ${tenantId}`);
 
-    const config = await this.repository.findOne({
-      where: { code, tenantId },
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const config = await queryRunner.manager.findOne(WaterQualityParameterConfig, {
+        where: { code, tenantId },
+      });
+
+      if (!config) {
+        throw new NotFoundException(
+          `Parameter config with code "${code}" not found for tenant "${tenantId}"`,
+        );
+      }
+
+      return config;
     });
-
-    if (!config) {
-      throw new NotFoundException(
-        `Parameter config with code "${code}" not found for tenant "${tenantId}"`,
-      );
-    }
-
-    return config;
   }
 }

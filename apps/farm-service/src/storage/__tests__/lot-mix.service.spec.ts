@@ -15,7 +15,9 @@
  * the service consumes. No `as any` anywhere — doubles expose exactly
  * the methods under test.
  */
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager } from 'typeorm';
+
+import { createMockDataSource } from '@aquaculture/testing';
 
 import { LotMixService } from '../services/lot-mix.service';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -248,13 +250,15 @@ describe('LotMixService.findMixesForLot', () => {
     const orderBy = jest.fn().mockReturnValue({ getMany });
     const andWhere = jest.fn().mockReturnValue({ orderBy });
     const where = jest.fn().mockReturnValue({ andWhere });
-    const createQueryBuilder = jest.fn().mockReturnValue({ where });
-    const repo = { createQueryBuilder } as unknown as Repository<StorageLotMix>;
+    const { mockManager } = createMockDataSource();
+    mockManager.createQueryBuilder = jest
+      .fn()
+      .mockReturnValue({ where }) as typeof mockManager.createQueryBuilder;
 
     const service = new LotMixService();
-    const result = await service.findMixesForLot(repo, TENANT, 'LOT-A');
+    const result = await service.findMixesForLot(mockManager, TENANT, 'LOT-A');
 
-    expect(createQueryBuilder).toHaveBeenCalledWith('mix');
+    expect(mockManager.createQueryBuilder).toHaveBeenCalledWith(StorageLotMix, 'mix');
     expect(where).toHaveBeenCalledWith('mix.tenantId = :tenantId', { tenantId: TENANT });
     expect(andWhere).toHaveBeenCalledWith('mix."contributingLots" @> :lotFilter', {
       lotFilter: JSON.stringify([{ lotNumber: 'LOT-A' }]),

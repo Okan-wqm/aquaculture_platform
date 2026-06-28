@@ -623,16 +623,20 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      # /health/live is pure process liveness (binds in <1s). Supergraph
-      # composition now runs in the BACKGROUND (BackgroundCompositionManager) and
-      # is reported on /health/ready — so the old 120s start_period that covered
-      # ~94s of blocking composition is no longer needed; this only needs to cover
-      # normal Nest cold-boot (DI graph + listener bind).
+      # /health/live is pure process liveness (composition is BACKGROUND via
+      # BackgroundCompositionManager, reported on /health/ready). It normally
+      # answers in <10ms, BUT during the simultaneous cold-boot of ~14 services on
+      # the 4-CPU droplet the gateway is CPU-starved and a probe can exceed 10s
+      # wall-clock (observed: a probe timed out at ~+70s; the container only went
+      # healthy at ~+100s). timeout 30s tolerates that transient starvation; the 60s
+      # start_period stops early storm-probes from counting toward `retries` so the
+      # container flips healthy on the first real success. Aligned with the gateway's
+      # startupBudgetSeconds (120) in the service-catalog SSoT.
       test: ['CMD', 'curl', '-sf', 'http://localhost:3000/health/live']
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   auth-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:${TAG:?TAG required}

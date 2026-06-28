@@ -3,7 +3,7 @@
  * Handles CRUD operations for departments via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types
 export interface Department {
@@ -281,8 +281,8 @@ export function useCreateDepartment() {
       return data.createDepartment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'bySite') });
     },
   });
 }
@@ -309,9 +309,9 @@ export function useUpdateDepartment() {
       return data.updateDepartment;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'detail', variables.id) });
     },
   });
 }
@@ -371,10 +371,10 @@ export function useDeleteDepartment() {
       return data.deleteDepartment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'equipment', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'list') });  // Systems may become orphaned
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'equipment', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'systems', 'list') });  // Systems may become orphaned
     },
   });
 }

@@ -2,7 +2,7 @@
  * Storage Inventory & Stock Movements hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types
 export enum StorageItemType {
@@ -358,12 +358,12 @@ export function useRecordStockMovement() {
       return data.recordStockMovement;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'consumables', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'consumables', 'list') });
     },
   });
 }
@@ -413,9 +413,9 @@ export function useTransferStock() {
       return data.transferStock;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
     },
   });
 }

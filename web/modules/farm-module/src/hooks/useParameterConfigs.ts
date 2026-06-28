@@ -3,7 +3,7 @@
  * Handles CRUD operations for water quality parameter configurations via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -324,7 +324,7 @@ export function useCreateParameterConfig() {
       return response.createParameterConfig;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -345,7 +345,7 @@ export function useUpdateParameterConfig() {
       return response.updateParameterConfig;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -366,7 +366,7 @@ export function useDeleteParameterConfig() {
       return response.deleteParameterConfig;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -387,7 +387,7 @@ export function useApplyParameterTemplate() {
       return response.applyParameterTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -408,7 +408,7 @@ export function useReorderParameterConfigs() {
       return response.reorderParameterConfigs;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'parameterConfigs') });
     },
   });
 }

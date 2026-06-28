@@ -5,7 +5,7 @@
 import { useRef } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
@@ -680,8 +680,8 @@ export function useCreateBatch() {
     },
     onSuccess: () => {
       // Invalidate batch list and batch number
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches', 'generateNumber') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches', 'generateNumber') });
     },
   });
 }
@@ -815,9 +815,9 @@ export function useRecordMortality() {
       // submit mints a fresh one (a double-click before this point reused it).
       envelope.reset();
       // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -847,9 +847,9 @@ export function useRecordCull() {
     onSuccess: () => {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -879,9 +879,9 @@ export function useTransferBatch() {
     onSuccess: () => {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -908,10 +908,10 @@ export function useCreateHarvestRecord() {
       return data.createHarvestRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'harvestRecords') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'harvestRecords') });
     },
   });
 }
@@ -1033,10 +1033,10 @@ export function useUpdateBatch() {
       // Invalidate the list AND the specific detail key so the
       // BatchDetailPage re-renders with the new values immediately.
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'batches'),
+        queryKey: createTenantInvalidationKey(tenantId, 'batches'),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'batches', 'detail', updatedBatch.id),
+        queryKey: createTenantInvalidationKey(tenantId, 'batches', 'detail', updatedBatch.id),
       });
     },
   });
@@ -1066,7 +1066,7 @@ export function useUpdateBatchStatus() {
       return data.updateBatchStatus;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
     },
   });
 }
@@ -1105,8 +1105,8 @@ export function useCloseBatch() {
       return data.closeBatch;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -1139,9 +1139,9 @@ export function useAllocateBatchToTank() {
     onSuccess: () => {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }

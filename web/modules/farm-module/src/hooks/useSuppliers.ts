@@ -3,7 +3,7 @@
  * Handles CRUD operations for suppliers via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SupplierType {
@@ -304,7 +304,7 @@ export function useCreateSupplier() {
       return data.createSupplier;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'suppliers', 'list') });
     },
   });
 }
@@ -331,8 +331,8 @@ export function useUpdateSupplier() {
       return data.updateSupplier;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'suppliers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'suppliers', 'detail', variables.id) });
     },
   });
 }
@@ -359,7 +359,7 @@ export function useDeleteSupplier() {
       return data.deleteSupplier;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'suppliers', 'list') });
     },
   });
 }
@@ -510,7 +510,7 @@ export function useSetSupplierApprovedSites() {
     },
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(
+        queryKey: createTenantInvalidationKey(
           tenantId,
           'suppliers',
           'sites',
@@ -518,7 +518,7 @@ export function useSetSupplierApprovedSites() {
         ),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list'),
+        queryKey: createTenantInvalidationKey(tenantId, 'suppliers', 'list'),
       });
     },
   });

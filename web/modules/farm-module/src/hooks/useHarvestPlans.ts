@@ -8,7 +8,7 @@
  * - React Query for caching and invalidation
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   HARVEST_PLANS_QUERY,
   HARVEST_PLAN_QUERY,
@@ -543,7 +543,7 @@ function invalidateAllHarvestPlanQueries(
       Array.isArray(query.queryKey) && query.queryKey[0] === HARVEST_PLANS_KEY,
   });
   // Also invalidate batches since harvest operations can affect batch state
-  queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+  queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
 }
 
 // ============================================================================

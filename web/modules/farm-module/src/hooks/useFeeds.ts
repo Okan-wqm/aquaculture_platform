@@ -3,7 +3,7 @@
  * Handles CRUD operations for feeds via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Enums
 export enum FeedType {
@@ -531,7 +531,7 @@ export function useCreateFeed() {
       return data.createFeed;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'list') });
     },
   });
 }
@@ -558,8 +558,8 @@ export function useUpdateFeed() {
       return data.updateFeed;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'detail', variables.id) });
     },
   });
 }
@@ -586,7 +586,7 @@ export function useDeleteFeed() {
       return data.deleteFeed;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'list') });
     },
   });
 }

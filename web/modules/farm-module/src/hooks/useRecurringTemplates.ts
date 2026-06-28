@@ -3,7 +3,7 @@
  * Handles CRUD operations for recurring task templates via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { RecurringTemplate } from '../pages/tasks/types/task.types';
 
 // ============================================================================
@@ -119,7 +119,7 @@ export function useRecurringTemplates(enabled = true) {
       return result.createRecurringTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'recurringTemplates') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'recurringTemplates') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -144,7 +144,7 @@ export function useRecurringTemplates(enabled = true) {
       return result.updateRecurringTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'recurringTemplates') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'recurringTemplates') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -167,7 +167,7 @@ export function useRecurringTemplates(enabled = true) {
       return result.deleteRecurringTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'recurringTemplates') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'recurringTemplates') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -192,7 +192,7 @@ export function useRecurringTemplates(enabled = true) {
       return result.toggleRecurringTemplateActive;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'recurringTemplates') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'recurringTemplates') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);

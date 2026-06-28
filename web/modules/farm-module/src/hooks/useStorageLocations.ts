@@ -2,7 +2,7 @@
  * Storage Locations hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 export enum StorageLocationType {
   WAREHOUSE = 'WAREHOUSE',
@@ -200,8 +200,8 @@ export function useCreateStorageLocation() {
       return data.createStorageLocation;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageLocations', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
     },
   });
 }
@@ -221,9 +221,9 @@ export function useUpdateStorageLocation() {
       return data.updateStorageLocation;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'detail', variables.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageLocations', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageLocations', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
     },
   });
 }
@@ -243,8 +243,8 @@ export function useDeleteStorageLocation() {
       return data.deleteStorageLocation;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageLocations', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
     },
   });
 }

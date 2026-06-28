@@ -3,7 +3,7 @@
  * Handles CRUD operations for auto rules via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { AutoRule } from '../pages/tasks/types/task.types';
 
 // ============================================================================
@@ -109,7 +109,7 @@ export function useAutoRules(enabled = true) {
       return result.createAutoRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'autoRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'autoRules') });
     },
     onError: (error: Error) => {
       console.error('CreateAutoRule failed:', error.message);
@@ -134,7 +134,7 @@ export function useAutoRules(enabled = true) {
       return result.updateAutoRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'autoRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'autoRules') });
     },
     onError: (error: Error) => {
       console.error('UpdateAutoRule failed:', error.message);
@@ -157,7 +157,7 @@ export function useAutoRules(enabled = true) {
       return result.deleteAutoRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'autoRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'autoRules') });
     },
     onError: (error: Error) => {
       console.error('DeleteAutoRule failed:', error.message);
@@ -182,7 +182,7 @@ export function useAutoRules(enabled = true) {
       return result.toggleAutoRuleActive;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'autoRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'autoRules') });
     },
     onError: (error: Error) => {
       console.error('ToggleAutoRuleActive failed:', error.message);

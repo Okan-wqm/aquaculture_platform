@@ -3,7 +3,7 @@
  * Handles CRUD operations for workers (employees) via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 export interface Worker {
   id: string;
@@ -127,7 +127,7 @@ export function useCreateWorker() {
       return data.createWorker;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workers', 'list') });
     },
   });
 }
@@ -147,7 +147,7 @@ export function useUpdateWorker() {
       return data.updateWorker;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workers', 'list') });
     },
   });
 }
@@ -167,7 +167,7 @@ export function useDeleteWorker() {
       return data.deleteWorker;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workers', 'list') });
     },
   });
 }

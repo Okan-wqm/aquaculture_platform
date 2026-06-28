@@ -3,7 +3,7 @@
  * Handles CRUD operations for water quality measurements via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -562,10 +562,10 @@ export function useCreateWaterQuality() {
     },
     onSuccess: (data) => {
       // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'latest', data.tankId) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'critical') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
     },
   });
 }
@@ -597,7 +597,7 @@ export function useCreateBatchWaterQuality() {
       return response.createBatchWaterQualityMeasurements;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality') });
     },
   });
 }
@@ -619,11 +619,11 @@ export function useUpdateWaterQuality() {
     },
     onSuccess: (data) => {
       // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'detail', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'latest', data.tankId) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'critical') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'detail', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
     },
   });
 }
@@ -645,7 +645,7 @@ export function useDeleteWaterQuality() {
     },
     onSuccess: () => {
       // Invalidate all water quality queries
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality') });
     },
   });
 }

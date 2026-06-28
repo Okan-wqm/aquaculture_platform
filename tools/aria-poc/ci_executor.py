@@ -903,10 +903,16 @@ def invoke_codex_cli(
             _at_gov(_ens_tools(tools_dir), "codex_subprocess_env_audit", _env_audit_payload)
         except Exception:
             pass
+    # Plan 023 §A — per-agent effort tiering. The reasoning effort is resolved
+    # from the dispatched agent's frontmatter (scout tier runs cheaper; the
+    # decider/writer tier stays xhigh). Fail-safe: unknown agent → xhigh.
+    from aria_kernel.agent_runtime_profile import resolve_codex_reasoning_effort
+    agent_effort = resolve_codex_reasoning_effort(subagent_type)
     try:
         completed = run_codex_exec(
             prompt_text=prompt_text,
             timeout_seconds=timeout_seconds,
+            reasoning_effort=agent_effort,
         )
     except (CodexAuthUnavailable, CodexCliUnavailable, CodexPolicyViolation, CodexUsageUnavailable) as exc:
         contract = "tools/aria-poc/ci_executor_contract_proven.md"

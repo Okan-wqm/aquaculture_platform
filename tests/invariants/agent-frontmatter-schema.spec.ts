@@ -129,11 +129,49 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
     },
   );
 
+  // Plan 023 §A — model/effort tiering. Non-ARIA platform reviewers stay on the
+  // pinned policy (opus/xhigh). ARIA agents tier per the "scout-and-verify"
+  // decision: read-only scorers/scanners may run on the cheap tier, while the
+  // consensus decider and every writer stay on opus/xhigh. Runtime SSoT:
+  // aria-kernel/aria_kernel/agent_runtime_profile.py; rationale:
+  // docs/aria/plans/023-cost-tiering-and-consensus-escalation.md.
+  const ARIA_VALID_MODELS = new Set<string>(['opus', 'sonnet']);
+  const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh']);
+  // Writers (Edit/Write/Bash) + governance-artifact authors must stay opus/xhigh.
+  const ARIA_WRITE_TIER = new Set<string>([
+    'aria-implementer',
+    'aria-drafter',
+    'aria-prompt-writer',
+    // Plan 030 — the acceptance lane's fixer holds Edit/Write/Bash and opens PRs;
+    // pin it to opus/xhigh so a write-capable auditor can never be downgraded.
+    'aria-acceptance-gap-fixer',
+  ]);
+  const isAriaAgent = (file: AgentFile): boolean => file.filenameStem.startsWith('aria-');
+
   it.each(files.map((f) => [f.relPath, f] as const))(
-    '%s — model is opus + effort is xhigh',
+    '%s — model/effort honor the tiering policy',
     (_label, file) => {
-      expect(file.frontmatter.get('model')).toBe('opus');
-      expect(file.frontmatter.get('effort')).toBe('xhigh');
+      const model = file.frontmatter.get('model');
+      const effort = file.frontmatter.get('effort');
+      if (!isAriaAgent(file)) {
+        expect(model).toBe('opus');
+        expect(effort).toBe('xhigh');
+        return;
+      }
+      expect({ file: file.relPath, model, valid: ARIA_VALID_MODELS.has(model ?? '') }).toEqual({
+        file: file.relPath,
+        model,
+        valid: true,
+      });
+      expect({ file: file.relPath, effort, valid: ARIA_VALID_EFFORTS.has(effort ?? '') }).toEqual({
+        file: file.relPath,
+        effort,
+        valid: true,
+      });
+      if (ARIA_WRITE_TIER.has(file.filenameStem)) {
+        expect(model).toBe('opus');
+        expect(effort).toBe('xhigh');
+      }
     },
   );
 

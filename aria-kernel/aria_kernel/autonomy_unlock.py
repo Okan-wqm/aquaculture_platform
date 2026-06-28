@@ -76,12 +76,19 @@ def record_acceptance_event(
     )
 
 
-def evaluate_autonomy_unlock(
+def verdict_from_rows(
+    rows: list[dict[str, Any]],
     *,
     lane: str,
-    base_dir: str | Path | None = None,
     policy: dict[str, Any] | None = None,
 ) -> AutonomyUnlockVerdict:
+    """Compute an unlock verdict from already-loaded acceptance-event rows.
+
+    Plan 031 §031a — extracted so the burn-in→ladder bridge can evaluate the
+    SEPARATE mock-mode ledger with the IDENTICAL counting + threshold logic,
+    without the real ``evaluate_autonomy_unlock`` ever reading the mock ledger.
+    The real and mock paths thus share one rule and one policy, but two ledgers.
+    """
     if lane not in {"L1", "L2", "L3"}:
         return AutonomyUnlockVerdict(
             valid=False,
@@ -91,10 +98,6 @@ def evaluate_autonomy_unlock(
             reasons=(f"autonomy_unlock_lane_not_supported:{lane}",),
         )
     active = load_autonomy_unlock_policy(policy)
-    rows = load_declared_jsonl(
-        ensure_tools_dir(base_dir) / "enterprise" / "acceptance-events.jsonl",
-        expected_surface="enterprise_acceptance_events",
-    )
     counts = {
         "observe_successes": _count(rows, "observe_success"),
         "l1_autonomous_successes": _count(rows, "l1_autonomous_success"),
@@ -121,6 +124,27 @@ def evaluate_autonomy_unlock(
         requirements=requirements,
         reasons=tuple(reasons),
     )
+
+
+def evaluate_autonomy_unlock(
+    *,
+    lane: str,
+    base_dir: str | Path | None = None,
+    policy: dict[str, Any] | None = None,
+) -> AutonomyUnlockVerdict:
+    if lane not in {"L1", "L2", "L3"}:
+        return AutonomyUnlockVerdict(
+            valid=False,
+            lane=lane,
+            counts={},
+            requirements={},
+            reasons=(f"autonomy_unlock_lane_not_supported:{lane}",),
+        )
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "enterprise" / "acceptance-events.jsonl",
+        expected_surface="enterprise_acceptance_events",
+    )
+    return verdict_from_rows(rows, lane=lane, policy=policy)
 
 
 def assert_autonomy_unlocked(
@@ -160,6 +184,7 @@ __all__ = [
     "AutonomyUnlockVerdict",
     "assert_autonomy_unlocked",
     "evaluate_autonomy_unlock",
+    "verdict_from_rows",
     "load_autonomy_unlock_policy",
     "record_acceptance_event",
 ]

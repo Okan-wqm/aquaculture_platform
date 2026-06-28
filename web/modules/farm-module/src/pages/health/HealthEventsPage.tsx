@@ -49,6 +49,7 @@ import {
   HealthEventFilter,
   CreateHealthEventInput,
 } from '../../hooks/useHealthEvents';
+import { isBlockingError } from '../../utils/list-view-state';
 
 // ============================================================================
 // CONSTANTS
@@ -514,7 +515,10 @@ export const HealthEventsPage: React.FC = () => {
   // RENDER
   // =========================================================================
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // data. A failed background refetch with cached data keeps rendering the list
+  // and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="p-6">
         <Alert type="error">Error loading health events. Please try again.</Alert>
@@ -524,6 +528,16 @@ export const HealthEventsPage: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
+      {error && (
+        <Alert
+          type="warning"
+          action={{ label: 'Retry', onClick: () => refetch() }}
+        >
+          Couldn&apos;t refresh health events — showing the last loaded data.
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

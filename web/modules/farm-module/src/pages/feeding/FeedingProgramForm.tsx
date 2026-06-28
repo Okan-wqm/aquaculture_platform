@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, Input, Textarea, Alert, Switch, DatePicker, MultiSelect, MultiSelectOption, useAuth, createTenantQueryKey, createTenantInvalidationKey, graphqlClient } from '@aquaculture/shared-ui';
 import { useEquipmentList } from '../../hooks/useEquipment';
 import { useFeedList, FeedingMatrix2D, Feed } from '../../hooks/useFeeds';
+import { isBlockingError } from '../../utils/list-view-state';
 import { FeedingMatrixEditor } from '../../components/feeding';
 import {
   CREATE_FEEDING_PROGRAM,
@@ -904,7 +905,7 @@ interface Step2Props {
 
 const Step2TankSelection: React.FC<Step2Props> = ({ data, onChange, errors }) => {
   // Fetch equipment (tanks, ponds, cages)
-  const { data: equipmentData, isLoading: equipmentLoading, error: equipmentError } = useEquipmentList();
+  const { data: equipmentData, isLoading: equipmentLoading, error: equipmentError, refetch: refetchEquipment } = useEquipmentList();
 
   // Filter to get only tanks/ponds/cages
   const tankEquipment = useMemo(() => {
@@ -986,8 +987,10 @@ const Step2TankSelection: React.FC<Step2Props> = ({ data, onChange, errors }) =>
   const tankSelectId = 'tank-selection';
   const sensorSelectPrefix = 'sensor-select-';
 
-  // Show error state for equipment fetch
-  if (equipmentError) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // equipment. A failed background refetch with cached options keeps rendering
+  // them and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(equipmentError, (equipmentData?.items?.length ?? 0) > 0)) {
     return (
       <div className="space-y-6">
         <h3 className="text-lg font-medium text-gray-900">Tank Secimi</h3>
@@ -1005,6 +1008,16 @@ const Step2TankSelection: React.FC<Step2Props> = ({ data, onChange, errors }) =>
         Besleme programina dahil edilecek tanklari secin. Her tank icin opsiyonel olarak sicaklik
         sensoru atayabilirsiniz.
       </p>
+
+      {/* Non-blocking refresh error — keeps the last-loaded equipment visible. */}
+      {equipmentError && (
+        <Alert
+          type="warning"
+          action={{ label: 'Yeniden Dene', onClick: () => refetchEquipment() }}
+        >
+          Ekipman verileri yenilenemedi — son yuklenen veriler gosteriliyor.
+        </Alert>
+      )}
 
       {/* Tank MultiSelect */}
       <div>
@@ -1173,7 +1186,7 @@ const WeightInput: React.FC<{
 };
 
 const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) => {
-  const { data: feedsData, isLoading: feedsLoading, error: feedsError } = useFeedList();
+  const { data: feedsData, isLoading: feedsLoading, error: feedsError, refetch: refetchFeeds } = useFeedList();
 
   // All active feeds for dropdown
   const activeFeeds = useMemo(() => {
@@ -1250,8 +1263,10 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
     onChange({ feedAssignments: newAssignments });
   };
 
-  // Show error state for feeds fetch
-  if (feedsError) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // feeds. A failed background refetch with cached options keeps rendering them
+  // and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(feedsError, (feedsData?.items?.length ?? 0) > 0)) {
     return (
       <div className="space-y-6">
         <h3 className="text-lg font-medium text-gray-900">Yem Atamalari</h3>
@@ -1269,6 +1284,16 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
         Balik agirlik araligina gore kullanilacak yemleri tanimlayin. Araliklar cakismamalidir.
         Yeni satir eklendiginde min agirlik otomatik olarak onceki satirin max agirligina esitlenir.
       </p>
+
+      {/* Non-blocking refresh error — keeps the last-loaded feeds visible. */}
+      {feedsError && (
+        <Alert
+          type="warning"
+          action={{ label: 'Yeniden Dene', onClick: () => refetchFeeds() }}
+        >
+          Yem verileri yenilenemedi — son yuklenen veriler gosteriliyor.
+        </Alert>
+      )}
 
       {errors.feedAssignments && (
         <Alert type="error">{errors.feedAssignments}</Alert>
@@ -2000,7 +2025,7 @@ const FeedingProgramForm: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
 
   // GraphQL hooks
-  const { data: programData, isLoading: programLoading, error: programError } = useFeedingProgram(programId);
+  const { data: programData, isLoading: programLoading, error: programError, refetch: refetchProgram } = useFeedingProgram(programId);
   const createMutation = useCreateFeedingProgram();
   const updateMutation = useUpdateFeedingProgram();
 
@@ -2134,8 +2159,10 @@ const FeedingProgramForm: React.FC = () => {
       return <FormSkeleton />;
     }
 
-    // Show error state for edit mode data fetch failure
-    if (isEdit && programError) {
+    // Blocking error — ONLY when the initial edit-mode load failed and there is
+    // no cached program. A failed background refetch with cached data keeps the
+    // already-populated form rendered and surfaces a non-blocking banner below.
+    if (isEdit && isBlockingError(programError, Boolean(programData))) {
       return (
         <Alert type="error">
           Program verileri yuklenirken bir hata olustu. Lutfen sayfayi yenileyin veya daha sonra
@@ -2144,6 +2171,24 @@ const FeedingProgramForm: React.FC = () => {
       );
     }
 
+    return (
+      <>
+        {/* Non-blocking refresh error — keeps the loaded form visible. */}
+        {isEdit && programError && (
+          <Alert
+            type="warning"
+            action={{ label: 'Yeniden Dene', onClick: () => refetchProgram() }}
+            className="mb-4"
+          >
+            Program verileri yenilenemedi — son yuklenen veriler gosteriliyor.
+          </Alert>
+        )}
+        {renderCurrentStep()}
+      </>
+    );
+  };
+
+  const renderCurrentStep = () => {
     switch (currentStep) {
       case 1:
         return <Step1BasicInfo data={formData} onChange={handleChange} errors={errors} />;

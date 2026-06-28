@@ -10,6 +10,7 @@ import { LeaveRequest, LeaveRequestStatus } from '../../leave/entities/leave-req
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
 import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
 import { Shift } from '../../attendance/entities/shift.entity';
+import { Holiday } from '../entities/holiday.entity';
 
 describe('ConflictDetectionService', () => {
   let service: ConflictDetectionService;
@@ -31,19 +32,31 @@ describe('ConflictDetectionService', () => {
     shift?: Partial<Shift>,
     plannedStartTime?: string,
     plannedEndTime?: string,
-  ): Partial<WeeklyPlanEntry> => ({
-    id: `entry-${date}`,
-    date: new Date(date),
-    entryType,
-    plannedMinutes,
-    shift: shift as Shift,
-    shiftId: shift?.id,
-    // WeeklyPlanEntry.plannedStart/EndTime narrowed from string to Date
-    // (data-layer normalization). The factory accepts string params for
-    // ergonomic test setup but converts at the boundary.
-    plannedStartTime: plannedStartTime ? new Date(plannedStartTime) : undefined,
-    plannedEndTime: plannedEndTime ? new Date(plannedEndTime) : undefined,
-  });
+  ): Partial<WeeklyPlanEntry> => {
+    // WHY: checkMinimumRest reads plannedStart/EndTime as the wall-clock
+    // shift boundary and parses it with `.split(':')` on hours:minutes
+    // (HH:MM). Its `instanceof Date ? toISOString() : raw` branch consumes a
+    // raw HH:MM string directly. The previous factory ran the param through
+    // `new Date('07:00')`, which yields an Invalid Date — the entry then hit
+    // the Date branch and `toISOString()` threw RangeError before any
+    // assertion could run. Pass the HH:MM time-of-day through unchanged so the
+    // service's documented string-input path is exercised.
+    // WHAT: build the loosely-typed mock fixture, then attach the wall-clock
+    // time strings via one Partial<WeeklyPlanEntry> cast (no as-any / as-unknown).
+    const base: Partial<WeeklyPlanEntry> = {
+      id: `entry-${date}`,
+      date: new Date(date),
+      entryType,
+      plannedMinutes,
+      shift: shift as Shift,
+      shiftId: shift?.id,
+    };
+    const timeFields: Partial<WeeklyPlanEntry> = {
+      plannedStartTime,
+      plannedEndTime,
+    } as Partial<WeeklyPlanEntry>;
+    return { ...base, ...timeFields };
+  };
 
   beforeEach(async () => {
     const mockQueryBuilder = {
@@ -65,6 +78,21 @@ describe('ConflictDetectionService', () => {
           provide: getRepositoryToken(SchedulingSettings),
           useValue: {
             findOne: jest.fn().mockResolvedValue(mockSettings),
+          },
+        },
+        {
+          // ConflictDetectionService injects a Holiday repository (index [2])
+          // and uses it via createQueryBuilder('h')...getMany() in
+          // checkHolidayOverlaps. Default getMany to [] so the existing
+          // detectConflicts integration test sees no holiday conflicts and
+          // its assertions (max-hours + consecutive-days only) still hold.
+          provide: getRepositoryToken(Holiday),
+          useValue: {
+            createQueryBuilder: jest.fn(() => ({
+              where: jest.fn().mockReturnThis(),
+              andWhere: jest.fn().mockReturnThis(),
+              getMany: jest.fn().mockResolvedValue([]),
+            })),
           },
         },
       ],
@@ -296,13 +324,10 @@ describe('ConflictDetectionService', () => {
 
   describe('detectConflicts - integration', () => {
     it('should detect multiple conflict types', async () => {
-      const mockQueryBuilder = {
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue([]),
-      };
-      leaveRequestRepository.createQueryBuilder = jest.fn(() => mockQueryBuilder) as any;
-
+      // The beforeEach already wires LeaveRequest + Holiday repositories with a
+      // createQueryBuilder whose getMany resolves to [] (no leave/holiday
+      // overlaps), so this test exercises only the in-memory max-hours and
+      // consecutive-days checks. No local repository re-mock is needed.
       const entries = [
         createEntry('2026-01-12', WeeklyPlanEntryType.WORK, 720), // Excessive hours
         createEntry('2026-01-13', WeeklyPlanEntryType.WORK, 720),

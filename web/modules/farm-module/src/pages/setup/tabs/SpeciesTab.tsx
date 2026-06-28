@@ -133,9 +133,17 @@ const CollapsibleSection: React.FC<{
   </div>
 );
 
+/**
+ * Server-side page size for the species list. The backend caps a single page at
+ * 100 (SpeciesFilterInput @Max), which comfortably covers a setup catalog; if a
+ * tenant ever exceeds it the banner below discloses the truncation rather than
+ * silently dropping rows (the old default-20 bug, where >20 species vanished).
+ */
+const SPECIES_LIST_LIMIT = 100;
+
 export const SpeciesTab: React.FC = () => {
   // API hooks
-  const { data: speciesData, isLoading, error, refetch } = useSpeciesList();
+  const { data: speciesData, isLoading, error, refetch } = useSpeciesList({ limit: SPECIES_LIST_LIMIT });
   const createSpecies = useCreateSpecies();
   const updateSpecies = useUpdateSpecies();
   const deleteSpeciesMutation = useDeleteSpecies();
@@ -455,6 +463,16 @@ export const SpeciesTab: React.FC = () => {
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load species. Please try again.</p>
           <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+        </div>
+      )}
+
+      {/* WHY: the species list previously used the server's default limit:20, so a
+          tenant with >20 species silently lost the rest after a refetch/focus. We
+          now request an explicit page (SPECIES_LIST_LIMIT); when MORE exist, disclose
+          it instead of silently truncating. */}
+      {!isLoading && !error && speciesData?.hasNextPage && (
+        <div className="mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Showing the first {SPECIES_LIST_LIMIT} species; this catalog has more.
         </div>
       )}
 

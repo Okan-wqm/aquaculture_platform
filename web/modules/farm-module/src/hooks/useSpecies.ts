@@ -305,6 +305,11 @@ export function useSpeciesList(filter?: {
   status?: SpeciesStatus;
   isActive?: boolean;
   search?: string;
+  // Server-side page size. The backend defaults to 20 (SpeciesFilterInput), so a
+  // caller that wants more than the first 20 rows MUST pass an explicit limit —
+  // otherwise a tenant with >20 species silently loses the rest after a refetch.
+  limit?: number;
+  offset?: number;
 }) {
   const { token, tenantId } = useAuth();
 

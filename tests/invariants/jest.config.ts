@@ -172,6 +172,7 @@ export default {
         '<rootDir>/required-signals-vs-emitters.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/migration-glob-contract.spec.ts',
+        '<rootDir>/migration-immutability.spec.ts',
         '<rootDir>/db-migrate-entity-metadata-contract.spec.ts',
         '<rootDir>/metrics-endpoint-adoption.spec.ts',
         '<rootDir>/monitoring-scrape-catalog-sync.spec.ts',

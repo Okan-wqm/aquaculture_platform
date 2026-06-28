@@ -656,6 +656,26 @@ export class TenantProvisioningWorkflowService {
     return typeof value === 'object' && value !== null;
   }
 
+  /**
+   * Best-effort, UNLOCKED duplicate pre-check for fast 409 UX feedback before the
+   * operation is queued.
+   *
+   * WHY no row lock: `Tenant` maps to `auth.tenants`, which auth-service owns
+   * (D14) and admin-api may only READ (SEC-015 least-privilege). A row lock
+   * (`FOR SHARE`/`FOR UPDATE`) requires the UPDATE privilege in PostgreSQL, so a
+   * `lock: { mode: 'pessimistic_read' }` here was both illegal for a read-only
+   * role AND useless — the authoritative tenant row is inserted later and
+   * asynchronously by auth-service's `reserveTenant` (processOperation →
+   * reserve_auth_tenant), so a lock taken in THIS short transaction guards no
+   * write it controls and is released at commit long before auth-service inserts.
+   *
+   * Uniqueness SSoT: auth-service `reserveTenant` enforces it inside its
+   * SERIALIZABLE receipt transaction, backed by the DB unique constraints on
+   * `auth.tenants.slug` (UQ) and `auth.tenants.customDomain` (partial UQ). A true
+   * race that slips past this best-effort pre-check is rejected there with a
+   * ConflictException, failing the run with a clear error — never a silent
+   * duplicate. This pre-check only short-circuits the obvious case early.
+   */
   private async assertNoDuplicateTenant(
     manager: EntityManager,
     data: CreateTenantDto,
@@ -663,7 +683,6 @@ export class TenantProvisioningWorkflowService {
     if (data.slug) {
       const existingBySlug = await manager.findOne(Tenant, {
         where: { slug: data.slug },
-        lock: { mode: 'pessimistic_read' },
       });
 
       if (existingBySlug) {
@@ -674,7 +693,6 @@ export class TenantProvisioningWorkflowService {
     if (data.domain) {
       const existingByDomain = await manager.findOne(Tenant, {
         where: { customDomain: data.domain },
-        lock: { mode: 'pessimistic_read' },
       });
 
       if (existingByDomain) {

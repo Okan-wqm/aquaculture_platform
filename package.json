@@ -137,6 +137,7 @@
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:migration-deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-deletion-witness.ts",
     "gates:entity-diff-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/entity-diff-witness.ts",
+    "gates:migration-immutability-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-immutability-witness.ts",
     "gates:type-check-spec": "ts-node --project tools/gates/tsconfig.json tools/gates/type-check-spec.ts",
     "gates:signals-manifest": "node scripts/ci/validate-signals-manifest.ts",
     "gates:criticality-manifest": "node scripts/ci/validate-criticality-manifest.ts",

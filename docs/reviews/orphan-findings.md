@@ -5614,3 +5614,19 @@ Found 2026-06-28 (tenant-panel WS-2 gap audit vs main). `createTenantQueryKey` i
 
 ## ORPHAN-MEDIUM-201 — farm DepartmentsTab shows false "Not associated with any site" (2nd-query join, not dept.site)
 Found 2026-06-27 (tenant-panel WS-5 gap audit vs main #681). The departments table rendered the site-name cell from a SECOND `useSiteList()` query — `web/modules/farm-module/src/pages/setup/tabs/DepartmentsTab.tsx:341` `sites.find(s => s.id === dept.siteId)` — so whenever that list was still loading, empty, or past its `limit:100`, a department with a valid `siteId` falsely rendered "Not associated with any site", even though `useDepartments` already fetches the nested `site { id name }` on each department row. **Status: RESOLVED (2026-06-27 — the name cell now renders `dept.site?.name` directly from the department's own fetched field; the `sites.find` join is dropped (the `sites`/`useSiteList` list stays for the filter + edit-form dropdowns). The red orphan-row highlight already keyed on `!dept.siteId`, so a genuinely site-less department still shows the red state.)** Tenant-panel WS-5. (Renumbered from ORPHAN-MEDIUM-195 at merge — main's 195 was concurrently taken by the HR/tenant-admin query-key finding.)
+
+---
+
+## ORPHAN-MEDIUM-202 - sensor CancelVfdChangeSet built ahead of the backend → implemented (CANCELLED state; #3 burndown 33→32)
+
+Severity: MEDIUM (the sensor-module VFD change-set UI shows a **Cancel** button on DRAFT + APPROVED change-sets and the FE `VfdChangeSetStatus` enum has `CANCELLED`, but the backend never exposed `cancelVfdChangeSet` nor the enum value → the mutation 400d; the "FE built ahead of backend" drift class, IMPLEMENT-BACKEND per ORPHAN-186 — cancel ≠ reject, which is PENDING_APPROVAL-only).
+
+**Implemented (mirroring the established `rejectChangeSet`/`rejectVfdChangeSet` pattern; tenant-scoped like every sibling method; state-machine respected):**
+- Added `CANCELLED = 'cancelled'` to the backend `VfdChangeSetStatus` enum. **No DB migration** — `vfd_change_sets.status` is `varchar(30)` (no PG enum type / CHECK constraint), so the new value is structurally blue-green safe; the GraphQL wire value is the enum key `CANCELLED` (matches the FE).
+- `cancelChangeSet(changeSetId, cancelledBy, tenantId, reason?)` in `vfd-change-set.service.ts`: new `assertStatusIn([DRAFT, APPROVED], 'cancel')` guard → `status = CANCELLED`, records `{cancelledBy, cancelledAt, reason}` into the existing `metadata` jsonb (mirrors rollback — no new columns), emits `vfd.changeset.cancelled` (mirrors reject). State-machine docblock updated (DRAFT→CANCELLED, APPROVED→CANCELLED).
+- `@Mutation cancelVfdChangeSet(changeSetId: ID!): VfdChangeSet` in `vfd-programming.resolver.ts` — `@Roles(MODULE_MANAGER, TENANT_ADMIN)` (maker action, like submit/rollback), `@AuditLog`, mirrors the reject mutation.
+- **Side-effect safety verified:** the scheduler applies ONLY `status = APPROVED` rows, so cancelling an APPROVED change-set moves it out of the apply query → no half-applied state. An already-APPLYING/APPLIED set is correctly rejected by the guard (rollback is then the right tool). No product decision needed.
+
+FE alignment: none — `CANCEL_VFD_CHANGE_SET_MUTATION` (`cancelVfdChangeSet(changeSetId: ID!)`), the hook, and the VfdChangeSetList Cancel buttons already match. Verification: sensor-service `tsc` 0; `vfd-change-set` spec 42/42 (7 new: DRAFT/APPROVED→CANCELLED, guard-rejects from PENDING/REJECTED/APPLIED, tenant-scoping, NotFound). Baseline 33 → 32 (cumulative #3 burndown 130 → 32). The sensor drift tail is now empty.
+
+Status: RESOLVED (2026-06-28). Remaining #3 tail: 29 hr (cert/training-admin, performance analytics, rotations analytics, detail-by-id) + 3 aquamobil (AI-consent product decision, StockAtLocation rework) — backend-feature-debt by product priority. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.

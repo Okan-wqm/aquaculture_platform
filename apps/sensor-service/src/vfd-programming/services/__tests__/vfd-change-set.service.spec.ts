@@ -627,6 +627,122 @@ describe('VfdChangeSetService', () => {
     });
   });
 
+  // ─── CANCEL ───────────────────────────────────────────────────────
+
+  describe('cancelChangeSet', () => {
+    it('should cancel a DRAFT change set -> CANCELLED', async () => {
+      const draft = createMockChangeSet({
+        status: VfdChangeSetStatus.DRAFT,
+      });
+
+      changeSetRepo.findOne!.mockResolvedValue(draft);
+      changeSetRepo.save!.mockImplementation(
+        (cs: VfdChangeSet) => Promise.resolve(cs),
+      );
+
+      const result = await service.cancelChangeSet(
+        'cs-001',
+        USER_MAKER,
+        TENANT_ID,
+      );
+
+      expect(result.status).toBe(VfdChangeSetStatus.CANCELLED);
+      const cancellation = (result.metadata as Record<string, Record<string, unknown>>)['cancellation']!;
+      expect(cancellation['cancelledBy']).toBe(USER_MAKER);
+      expect(cancellation['reason']).toBeNull();
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'vfd.changeset.cancelled',
+        expect.objectContaining({
+          changeSetId: 'cs-001',
+          cancelledBy: USER_MAKER,
+        }),
+      );
+    });
+
+    it('should cancel an APPROVED change set -> CANCELLED with reason recorded', async () => {
+      const approved = createMockChangeSet({
+        status: VfdChangeSetStatus.APPROVED,
+        approvedBy: USER_CHECKER,
+        scheduledAt: new Date('2099-01-01'),
+      });
+
+      changeSetRepo.findOne!.mockResolvedValue(approved);
+      changeSetRepo.save!.mockImplementation(
+        (cs: VfdChangeSet) => Promise.resolve(cs),
+      );
+
+      const result = await service.cancelChangeSet(
+        'cs-001',
+        USER_CHECKER,
+        TENANT_ID,
+        'Schedule no longer needed',
+      );
+
+      expect(result.status).toBe(VfdChangeSetStatus.CANCELLED);
+      const cancellation = (result.metadata as Record<string, Record<string, unknown>>)['cancellation']!;
+      expect(cancellation['cancelledBy']).toBe(USER_CHECKER);
+      expect(cancellation['reason']).toBe('Schedule no longer needed');
+    });
+
+    it('should reject cancelling a PENDING_APPROVAL change set', async () => {
+      const pending = createMockChangeSet({
+        status: VfdChangeSetStatus.PENDING_APPROVAL,
+      });
+      changeSetRepo.findOne!.mockResolvedValue(pending);
+
+      await expect(
+        service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject cancelling a REJECTED change set', async () => {
+      const rejected = createMockChangeSet({
+        status: VfdChangeSetStatus.REJECTED,
+      });
+      changeSetRepo.findOne!.mockResolvedValue(rejected);
+
+      await expect(
+        service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject cancelling an APPLIED change set (rollback territory)', async () => {
+      const applied = createMockChangeSet({
+        status: VfdChangeSetStatus.APPLIED,
+      });
+      changeSetRepo.findOne!.mockResolvedValue(applied);
+
+      await expect(
+        service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should scope the lookup to the tenant', async () => {
+      const draft = createMockChangeSet({
+        status: VfdChangeSetStatus.DRAFT,
+      });
+      changeSetRepo.findOne!.mockResolvedValue(draft);
+      changeSetRepo.save!.mockImplementation(
+        (cs: VfdChangeSet) => Promise.resolve(cs),
+      );
+
+      await service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID);
+
+      expect(changeSetRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'cs-001', tenantId: TENANT_ID },
+        relations: ['items'],
+      });
+    });
+
+    it('should throw NotFoundException for a non-existent change set', async () => {
+      changeSetRepo.findOne!.mockResolvedValue(null);
+
+      await expect(
+        service.cancelChangeSet('non-existent', USER_MAKER, TENANT_ID),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ─── ROLLBACK ─────────────────────────────────────────────────────
 
   describe('rollbackChangeSet', () => {

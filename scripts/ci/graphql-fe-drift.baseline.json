@@ -2,7 +2,7 @@
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
   "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 33,
+  "count": 32,
   "operations": [
     {
       "key": "web/apps/aquamobil/src/hooks/useAiConsent.ts::GetAiConsentStatus",
@@ -194,12 +194,6 @@
       "key": "web/modules/hr-module/src/graphql/performance.operations.ts::GetTeamPerformanceOverview",
       "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
       "op": "GetTeamPerformanceOverview",
-      "category": "MISSING-ROOT-OP"
-    },
-    {
-      "key": "web/modules/sensor-module/src/graphql/vfd-programming.operations.ts::CancelVfdChangeSet",
-      "file": "web/modules/sensor-module/src/graphql/vfd-programming.operations.ts",
-      "op": "CancelVfdChangeSet",
       "category": "MISSING-ROOT-OP"
     }
   ]

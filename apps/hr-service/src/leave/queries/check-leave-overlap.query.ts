@@ -1,0 +1,9 @@
+export class CheckLeaveOverlapQuery {
+  constructor(
+    public readonly tenantId: string,
+    public readonly employeeId: string,
+    public readonly startDate: string,
+    public readonly endDate: string,
+    public readonly excludeRequestId?: string,
+  ) {}
+}

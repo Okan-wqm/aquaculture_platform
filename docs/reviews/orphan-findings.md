@@ -5589,4 +5589,22 @@ Severity: MEDIUM (architectural; the proximate cause of ORPHAN-194's "droplet ch
 
 Verification: `bash -n` clean (all deploy scripts); the new invariant 8/8 + deploy-ssot/repo-hygiene/active-path/reachability regressions green. **CANNOT be validated without a real production deploy** — first-deploy watch items: (1) certs/JWT resolve through the symlinked `DEPLOY_CERTS_DIR` (NATS mTLS / postgres-TLS / JWT handshakes), (2) compose reuses the existing `aqua-saas_*` volumes (the COMPOSE_PROJECT_NAME pin should ensure this — verify no empty `checkout_*` volumes appear), (3) one-time worktree creation disk/time.
 
-Status: RESOLVED (2026-06-27) — implemented + locally gate-green; PR for review, NOT auto-deployed (live-deploy mechanism change needs close first-deploy watching with the rollback net). Registry: orphan-findings.md.
+Status: RESOLVED (2026-06-27) — implemented + locally gate-green; PR for review, NOT auto-deployed (live-deploy mechanism change needs close first-deploy watching with the rollback net). Registry: orphan-findings.md. **UPDATE (2026-06-28, #686 merged + deployed):** isolated-checkout LIVE-VALIDATED — worktree materialized at `/var/lib/aqua/deploy/checkout` (SHA-pinned), the COMPOSE_PROJECT_NAME pin HELD (canary clean: 0 `checkout_*` volumes, all 9 `aqua-saas_*` data volumes preserved — NO data loss), app healthy on the new images + 200. The deploy job still reported the ORPHAN-187 "critical service health check → rollback" race (services nonetheless landed healthy on the new SHA) — likely amplified by the one-time worktree-creation load on this first isolated deploy; a 2nd deploy (worktree exists → only re-pin) should confirm it's transitional. The 300s-SLA race is NOT fully eliminated by #672 (gateway) alone — tracked as remaining ORPHAN-187 tail.
+
+---
+
+## ORPHAN-MEDIUM-197 - hr leave-admin GraphQL ops built ahead of the backend → implemented (9 ops; #3 burndown 42→33)
+
+Severity: MEDIUM (the hr-module Leave-admin UI defined 9 GraphQL ops + hooks the hr-service never exposed → every call 400s; the "FE built ahead of backend" drift class, IMPLEMENT-BACKEND per ORPHAN-183). The leave domain was already rich (`apps/hr-service/src/leave/`: leave-type/balance/request entities, a create/submit/approve/reject/cancel CQRS lifecycle, `leave-accrual.service`, `leave-state-machine`, queries) — only the admin/management ops were missing.
+
+**Implemented (mirroring the established CQRS + state-machine + accrual SSoT; tenant-scoped like every existing leave handler; no `as any`/`?.`):**
+- `CreateLeaveType`/`UpdateLeaveType` (TENANT_ADMIN/MODULE_MANAGER; per-tenant `code` uniqueness; code immutable on update).
+- `AdjustLeaveBalance` (signed delta into the entity's `adjustment` accumulator; pessimistic lock; fail-closed below-zero).
+- `CarryOverLeaveBalances` — **refactored `leave-accrual.service` to extract `carryOverWithinSchema()` as the SSoT** for year-end rollover, and the existing cron now delegates to it (no duplicated balance math).
+- `InitializeLeaveBalances` (idempotent seed from `defaultDaysPerYear`, same as the accrual cron).
+- `UpdateLeaveRequest` (DRAFT/PENDING only; re-balances the pending reservation) + `WithdrawLeaveRequest` (the state-machine's first-class `WITHDRAWN` transition, ownership-only — NOT mapped to admin cancel; validated through `LeaveStateMachine`, never bypassed; releases pending balance).
+- `CheckLeaveOverlap` + `CalculateLeaveDays` queries (overlap predicate mirrors the create-request guard so FE pre-check + server agree; day calc honors weekends + the tenant `Holiday` entity + half-day flags).
+
+Verification: hr-service `tsc` 0; ESLint 0; new `leave-admin-ops.spec.ts` 29/29 (happy + guard/validation + tenant-scoping per op). Baseline 42 → 33 (cumulative #3 burndown 130 → 33, ~76%). Pre-existing (NOT a regression, confirmed on baseline via stash): `leave.integration.spec.ts` fails on a missing `OutboxPublisher` test provider (untouched handlers) — flagged separately.
+
+Status: RESOLVED (2026-06-28) — 9 ops implemented + tested; the Leave-admin UI (CreateLeaveType/balances pages) now resolves. Remaining #3 tail: 29 hr (cert/training-admin, performance analytics, rotations analytics, detail-by-id) + 3 aquamobil + 1 sensor (CancelVfdChangeSet) — backend-feature-debt by product priority. Registry: orphan-findings.md + graphql-fe-drift.baseline.json.

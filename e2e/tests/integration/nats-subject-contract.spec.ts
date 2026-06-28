@@ -35,7 +35,8 @@
  *   See: `docs/reviews/orphan-findings.md` ORPHAN-013.
  */
 
-import type { IEvent } from '../../../platform/libs/event-bus/src';
+import type { IEvent } from '@platform/event-bus';
+
 import { assertDefined } from '../../helpers/assertions';
 
 /**

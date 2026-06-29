@@ -36,14 +36,20 @@ VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh"})
 DEFAULT_MODEL: str = "opus"
 DEFAULT_EFFORT: str = "xhigh"
 
-# Agents that hold write tools (Edit/Write/Bash) or author governance
-# artifacts MUST stay on the expensive tier — the cheap scout tier is for
-# read-only judgment only. Enforced by the model-tier invariant test so a
-# frontmatter edit can never quietly downgrade a writer.
+# Agents that MUTATE the repo (hold Edit/Write, or run mutating Bash) or author
+# governance artifacts MUST stay on the expensive tier — the cheap scout tier is
+# for read-only judgment only. Plan 031-R R6 (B8): the rule keys on the WRITER
+# capability, not on bare Bash. A read-only scout that only RUNS deterministic
+# tools via Bash (e.g. aria-acceptance-output-validator running the acceptance
+# harness) is NOT a writer and legitimately stays on the cheap tier — that is the
+# scout-and-verify decision. Enforced by the model-tier invariant + a
+# cross-language SSoT test that pins this set to the TS ARIA_WRITE_TIER.
 WRITE_TIER_AGENTS: frozenset[str] = frozenset({
     "aria-implementer",
     "aria-drafter",
     "aria-prompt-writer",
+    # Plan 030 acceptance lane fixer — holds Edit/Write/Bash and opens PRs.
+    "aria-acceptance-gap-fixer",
 })
 
 _FRONTMATTER_RX = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)

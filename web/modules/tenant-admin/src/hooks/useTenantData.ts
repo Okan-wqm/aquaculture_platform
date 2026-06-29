@@ -5,7 +5,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   getMyTenant,
   getTenantStats,
@@ -335,7 +335,7 @@ export function useDeviceAction() {
     mutationFn: ({ mutation, variables }: { mutation: string; variables: Record<string, unknown> }) =>
       graphqlRequest(mutation, variables),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(getTenantId(), 'edgeDevice') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(getTenantId(), 'edgeDevice') });
       queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
     },
   });

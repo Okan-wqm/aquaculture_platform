@@ -89,7 +89,7 @@ def _seeding_cycle_runner_factory(
     inputs AND optionally emits governance events to simulate the
     real cycle's row-emission pattern.
     """
-    def _runner(*, workspace_root, cycle_id, base_dir, defer_reflection=False):
+    def _runner(*, workspace_root, cycle_id, base_dir, defer_reflection=False, **_kwargs):
         from aria_kernel.tool_registry import (
             append_tools_governance,
             ensure_tools_dir,

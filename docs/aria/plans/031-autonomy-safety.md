@@ -137,3 +137,31 @@ python3 tools/aria-acceptance/harness.py                              # still AC
   031e is therefore a judgment layer ON TOP of the deterministic floor (Gate A +
   harness), not a replacement for it.
 - Real autonomous merge stays operator/env-bound (031d) — deliberate, not removable.
+
+## Plan 031-R — remediation (B1–B8)
+
+An external multi-agent review + independent re-verification found that Plan 031
+built and unit-tested the safety MECHANISMS but did not WIRE several into the
+live autonomous path, and the evidence gate had loopholes. The 031-R remediation
+turns "mechanism exists" into "mechanism is enforced on the path autonomy takes":
+
+- **R1 (B2)** — Gate A enforced at the real chokepoint `emit_change_validated`
+  (profile/claim_id-derived), not just a cycle phase the orchestrator skipped;
+  the fixture anchor pattern narrowed so a production `fixture-*.ts` no longer
+  counts.
+- **R2 (B1)** — the expert-consensus gate is wired into pre-PR-open via a
+  canonical verdict ledger (`expert_verdicts.py`); `open_pr_for_action` reads an
+  approved, head-bound verdict and fails closed for ARIA-authored (claim_id)
+  changes.
+- **R3 (B3/B4)** — the expert gate requires ≥1 evidence ref per reviewer,
+  `repo_verified` at base SHA (fail-closed without base_sha), and a cited line
+  that actually exists (`classify_evidence_ref` line-bounds check).
+- **R4 (B5)** — `workspace_root` threaded through the CLI consensus path so the
+  evidence-gated arbiter fires there too.
+- **R5 (B6)** — the acceptance harness rejects a non-clean terminal cycle
+  (completed + runtime ok + no failed phases).
+- **R6 (B8)** — write-tier SSoT reconciled (Python ↔ TS) + the Bash policy
+  reworded so a read-only Bash scout stays cheap.
+- **R7 (B7)** — a clean autonomous cycle advances the unlock ladder
+  (operator-gated, mode-separated), and acceptance-event counting is idempotent
+  by `(event_type, cycle_id, lane, head_sha)`.

@@ -13,6 +13,7 @@ vi.mock('./useAuth', () => ({
 }));
 
 import { useTenantQuery, useTenantMutation } from './useTenantQuery';
+import { createTenantQueryKey } from '../utils/tenant-query-keys';
 
 function makeWrapper(client: QueryClient) {
   return ({ children }: { children: React.ReactNode }) =>
@@ -112,5 +113,28 @@ describe('useTenantMutation', () => {
       queryKey: expect.arrayContaining(['tenant', 'tenant-A', 'equipment', 'types']),
     });
     expect(onSuccess).toHaveBeenCalledTimes(1); // caller onSuccess still runs
+  });
+
+  it('actually invalidates a LIST query (epoch-safe — REGRESSION guard for #687)', async () => {
+    auth.tenantId = 'tenant-A';
+    const qc = new QueryClient();
+    // A list query is stored under createTenantQueryKey WITH the trailing epoch
+    // segment AND a filter segment.
+    await qc.prefetchQuery({
+      queryKey: createTenantQueryKey('tenant-A', 'equipment', 'list', { status: 'active' }),
+      queryFn: async () => 'rows',
+    });
+    const listQuery = qc.getQueryCache().getAll()[0];
+    expect(listQuery.state.isInvalidated).toBe(false);
+
+    const { result } = renderHook(
+      () => useTenantMutation(async () => 1, { invalidate: [['equipment', 'list']] }),
+      { wrapper: makeWrapper(qc) },
+    );
+    await result.current.mutateAsync();
+
+    // The mutation MUST invalidate the list query. With the buggy
+    // createTenantQueryKey-based invalidation (epoch index clash) this stayed false.
+    expect(listQuery.state.isInvalidated).toBe(true);
   });
 });

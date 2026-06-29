@@ -209,6 +209,7 @@ def run_consensus(
     cycle_id: str | None = None,
     min_confidence: float = CONSENSUS_MIN_CONFIDENCE,
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Thin wrapper over feedback_store.generate_ai_consensus.
 
@@ -217,12 +218,19 @@ def run_consensus(
     callers having to import feedback_store directly. The wrapper also
     emits a governance event so a consensus run lands in the same
     audit trail as the lease lifecycle events.
+
+    Plan 031-R R4 (B5): ``workspace_root`` is threaded through to
+    ``generate_ai_consensus`` so the evidence-gated arbiter actually fires on
+    the CLI path. Pre-R4 the wrapper never passed it, so a CLI consensus run
+    skipped evidence verification and fabricated judge evidence could be
+    rubber-stamped into consensus.
     """
     result = generate_ai_consensus(
         tool_id=tool_id,
         cycle_id=cycle_id,
         min_confidence=min_confidence,
         base_dir=base_dir,
+        workspace_root=workspace_root,
     )
     root = ensure_tools_dir(base_dir)
     append_tools_governance(

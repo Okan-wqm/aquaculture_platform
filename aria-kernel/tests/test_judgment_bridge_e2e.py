@@ -287,6 +287,21 @@ class JudgeBridgeUnitTests(unittest.TestCase):
 
         shutil.rmtree(self.repo, ignore_errors=True)
 
+    def test_run_consensus_threads_workspace_root(self) -> None:
+        # Plan 031-R R4 (B5) — the CLI consensus wrapper MUST forward
+        # workspace_root so generate_ai_consensus runs the evidence-gated
+        # arbiter. Pre-R4 it was dropped and the gate silently skipped.
+        from unittest.mock import patch
+
+        with patch(
+            "aria_kernel.judgment_bridge.generate_ai_consensus",
+            return_value={"consensus": [], "uncertainties": []},
+        ) as mock_gen:
+            run_consensus(
+                tool_id="demo-adapter", base_dir=self.tools, workspace_root=self.repo,
+            )
+        self.assertEqual(mock_gen.call_args.kwargs.get("workspace_root"), self.repo)
+
     def test_non_judge_role_is_noop(self) -> None:
         request = {"request_id": "req-x", "tool_id": "T", "run_id": "R", "finding_id": "F-001"}
         response = {"role": "primary_plan", "agent_id": "x", "details": {}}

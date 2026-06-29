@@ -3411,6 +3411,10 @@ def _main(argv: list[str] | None = None) -> int:
             cycle_id=args.cycle_id,
             min_confidence=args.min_confidence if args.min_confidence is not None else CONSENSUS_MIN_CONFIDENCE,
             base_dir=args.tools_dir,
+            # Plan 031-R R4 (B5) — bind the repo so the evidence-gated arbiter
+            # fires on the CLI consensus path; fabricated judge evidence no
+            # longer slips through unverified.
+            workspace_root=args.workspace_root,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

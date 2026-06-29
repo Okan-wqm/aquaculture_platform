@@ -17,7 +17,7 @@ from aria_kernel.agent_runtime_profile import (
     VALID_MODELS,
     WRITE_TIER_AGENTS,
     read_agent_runtime_profile,
-    resolve_codex_reasoning_effort,
+    resolve_claude_model,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -58,9 +58,12 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
         self.assertEqual(prof.model, DEFAULT_MODEL)
         self.assertEqual(prof.effort, DEFAULT_EFFORT)
 
-    def test_resolve_codex_reasoning_effort_matches_frontmatter(self) -> None:
-        self.assertEqual(resolve_codex_reasoning_effort("aria-evidence-judge"), "medium")
-        self.assertEqual(resolve_codex_reasoning_effort("aria-implementer"), "xhigh")
+    def test_resolve_claude_model_matches_frontmatter(self) -> None:
+        # resolve_claude_model returns the agent's MODEL tier (the Claude Code
+        # CLI --model alias), not the reasoning effort. Scout tier → sonnet;
+        # write tier → opus (fail-safe most-capable).
+        self.assertEqual(resolve_claude_model("aria-evidence-judge"), "sonnet")
+        self.assertEqual(resolve_claude_model("aria-implementer"), "opus")
 
 
 class ModelTierInvariantTests(unittest.TestCase):

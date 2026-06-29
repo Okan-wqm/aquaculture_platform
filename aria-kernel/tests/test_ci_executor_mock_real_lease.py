@@ -1,6 +1,6 @@
 """Plan 024 v3 §B-8 — CI executor mock envelope reads real lease identity.
 
-Pre-fix tools/aria-poc/ci_executor.py invoke_codex_cli mock path
+Pre-fix tools/aria-poc/ci_executor.py invoke_claude_cli mock path
 (line 118-122) hardcoded claim_id="claim_mock" and
 agent_id="ci-executor:mock". Plan 023 §A-5 lease binding rejects
 those literals; the "end-to-end mock" was broken at submit. Plus
@@ -9,18 +9,18 @@ from the request row — Plan 024 §H-4 envelope.role-vs-request.role
 match would have rejected mismatched roles too.
 
 Plan 024 §B-8 fix:
-* invoke_codex_cli now takes claim_id, agent_id, role,
+* invoke_claude_cli now takes claim_id, agent_id, role,
   must_satisfy as kwargs.
 * Mock envelope uses the passed claim_id + agent_id (real lease
   identity), the passed role (request row), and synthesizes a
   satisfaction matrix that satisfies must_satisfy so Plan 024 §B-2
   evidence_validator does not reject the mock at submit.
 * main() reads role + must_satisfy from request_envelope (already
-  loaded for cost-cap eval) and forwards to invoke_codex_cli
+  loaded for cost-cap eval) and forwards to invoke_claude_cli
   along with the claim_id from claim_request output.
 
 Tests:
-1. invoke_codex_cli mock without claim_id raises
+1. invoke_claude_cli mock without claim_id raises
    ci_executor_mock_missing_lease_identity.
 2. Mock envelope contains the passed claim_id + agent_id + role.
 3. Mock envelope's satisfaction_matrix has one entry per
@@ -46,18 +46,18 @@ sys.path.insert(0, str(_CI_EXEC_DIR))
 
 class CiExecutorMockRealLeaseTests(unittest.TestCase):
     def setUp(self) -> None:
-        os.environ["CODEX_CLI_MOCK"] = "1"
+        os.environ["CLAUDE_CLI_MOCK"] = "1"
 
     def tearDown(self) -> None:
-        os.environ.pop("CODEX_CLI_MOCK", None)
+        os.environ.pop("CLAUDE_CLI_MOCK", None)
 
     def test_mock_without_claim_id_raises(self) -> None:
         """Plan 024 §B-8 acceptance (1)."""
-        from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
+        from ci_executor import invoke_claude_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "out.json"
             with self.assertRaises(ValueError) as ctx:
-                invoke_codex_cli(
+                invoke_claude_cli(
                     request_id="REQ-1",
                     subagent_type="aria-evidence-judge",
                     prompt_file=Path(td) / "prompt.md",
@@ -75,10 +75,10 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
 
     def test_mock_envelope_contains_real_lease_identity(self) -> None:
         """Plan 024 §B-8 acceptance (2)."""
-        from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
+        from ci_executor import invoke_claude_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "out.json"
-            invoke_codex_cli(
+            invoke_claude_cli(
                 request_id="REQ-1",
                 subagent_type="aria-evidence-judge",
                 prompt_file=Path(td) / "prompt.md",
@@ -99,10 +99,10 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
 
     def test_mock_envelope_satisfies_must_satisfy(self) -> None:
         """Plan 024 §B-8 acceptance (3)."""
-        from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
+        from ci_executor import invoke_claude_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "out.json"
-            invoke_codex_cli(
+            invoke_claude_cli(
                 request_id="REQ-1",
                 subagent_type="aria-evidence-judge",
                 prompt_file=Path(td) / "prompt.md",

@@ -8,15 +8,13 @@
  */
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, ILike, Between, LessThan, MoreThan, FindOptionsWhere, SelectQueryBuilder } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
   HealthEvent,
-  HealthEventType,
   HealthEventStatus,
   HealthSeverity,
   TreatmentDetails,
 } from '../entities/health-event.entity';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
@@ -114,143 +112,6 @@ export class HealthEventService {
       throw new NotFoundException(`Health event ${id} not found`);
     }
     return event;
-  }
-
-  /**
-   * List health events with filtering and pagination
-   */
-  async findAll(
-    tenantId: string,
-    filter?: HealthEventFilterInput,
-  ): Promise<IStandardPaginatedResult<HealthEvent>> {
-    const query = this.healthEventRepository.createQueryBuilder('he')
-      .where('he.tenantId = :tenantId', { tenantId });
-
-    // Apply filters
-    this.applyFilters(query, filter);
-
-    // Get total count
-    const total = await query.getCount();
-
-    // Apply pagination
-    const limit = filter?.limit ?? 50;
-    const offset = filter?.offset ?? 0;
-    query.skip(offset).take(limit);
-
-    // Apply sorting with allowlist to prevent SQL injection
-    const sortBy = filter?.sortBy ?? 'eventDate';
-    const sortDir = filter?.sortDirection ?? 'DESC';
-    const validSortFields = ['eventDate', 'type', 'severity', 'status', 'createdAt', 'updatedAt'];
-    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'eventDate';
-    query.orderBy(`he.${safeSortBy}`, sortDir);
-
-    const items = await query.getMany();
-    const page = Math.floor(offset / limit) + 1;
-
-    return createStandardPaginatedResult(items, total, page, limit);
-  }
-
-  /**
-   * Get health events for a specific batch
-   */
-  async findByBatch(
-    tenantId: string,
-    batchId: string,
-    activeOnly = false,
-  ): Promise<HealthEvent[]> {
-    const where: FindOptionsWhere<HealthEvent> = { tenantId, batchId };
-
-    if (activeOnly) {
-      return this.healthEventRepository.find({
-        where: [
-          { ...where, status: HealthEventStatus.ACTIVE },
-          { ...where, status: HealthEventStatus.MONITORING },
-        ],
-        order: { eventDate: 'DESC' },
-      });
-    }
-
-    return this.healthEventRepository.find({
-      where,
-      order: { eventDate: 'DESC' },
-    });
-  }
-
-  /**
-   * Get critical health events
-   */
-  async findCritical(tenantId: string): Promise<HealthEvent[]> {
-    return this.healthEventRepository.find({
-      where: {
-        tenantId,
-        severity: In([HealthSeverity.CRITICAL, HealthSeverity.SEVERE]),
-        status: In([HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING]),
-      },
-      order: { eventDate: 'DESC' },
-    });
-  }
-
-  /**
-   * Get events with overdue follow-ups
-   */
-  async findOverdueFollowUps(tenantId: string): Promise<HealthEvent[]> {
-    return this.healthEventRepository
-      .createQueryBuilder('he')
-      .where('he.tenantId = :tenantId', { tenantId })
-      .andWhere('he.followUpRequired = true')
-      .andWhere('he.nextFollowUpDate < :now', { now: new Date() })
-      .andWhere('he.status IN (:...statuses)', {
-        statuses: [HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING],
-      })
-      .orderBy('he.nextFollowUpDate', 'ASC')
-      .getMany();
-  }
-
-  /**
-   * Get health event statistics
-   */
-  async getStats(tenantId: string): Promise<HealthEventStats> {
-    const events = await this.healthEventRepository.find({
-      where: { tenantId },
-    });
-
-    const stats: HealthEventStats = {
-      total: events.length,
-      active: 0,
-      critical: 0,
-      underTreatment: 0,
-      quarantined: 0,
-      resolved: 0,
-      byEventType: {},
-      bySeverity: {},
-    };
-
-    for (const event of events) {
-      // Status counts
-      if (event.status === HealthEventStatus.ACTIVE || event.status === HealthEventStatus.MONITORING) {
-        stats.active++;
-      }
-      if (event.status === HealthEventStatus.RESOLVED) {
-        stats.resolved++;
-      }
-      if (event.isUnderTreatment) {
-        stats.underTreatment++;
-      }
-      if (event.isQuarantined) {
-        stats.quarantined++;
-      }
-      if (event.severity === HealthSeverity.CRITICAL || event.severity === HealthSeverity.SEVERE) {
-        stats.critical++;
-      }
-
-      // By event type
-      stats.byEventType[event.eventType] = (stats.byEventType[event.eventType] ?? 0) + 1;
-
-      // By severity
-      stats.bySeverity[event.severity] = (stats.bySeverity[event.severity] ?? 0) + 1;
-    }
-
-    return stats;
   }
 
   // =========================================================================
@@ -361,7 +222,9 @@ export class HealthEventService {
   // PRIVATE HELPERS
   // =========================================================================
 
-  private applyFilters(
+  // Static so the ListHealthEvents query handler reuses the one filter SSoT
+  // without instantiating the service (FARM-HIGH-060 read-boundary migration).
+  static applyFilters(
     query: SelectQueryBuilder<HealthEvent>,
     filter?: HealthEventFilterInput,
   ): void {

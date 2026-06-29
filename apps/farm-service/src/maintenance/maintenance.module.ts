@@ -49,6 +49,15 @@ import { ListOverdueMaintenanceSchedulesHandler } from './handlers/list-overdue-
 import { ListMaintenanceScheduleAlertsHandler } from './handlers/list-maintenance-schedule-alerts.handler';
 import { GetMaintenanceComplianceReportHandler } from './handlers/get-maintenance-compliance-report.handler';
 
+// Spare-part read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetSparePartHandler } from './handlers/get-spare-part.handler';
+import { GetSparePartByCodeHandler } from './handlers/get-spare-part-by-code.handler';
+import { GetSparePartByPartNumberHandler } from './handlers/get-spare-part-by-part-number.handler';
+import { ListSparePartsHandler } from './handlers/list-spare-parts.handler';
+import { ListLowStockAlertsHandler } from './handlers/list-low-stock-alerts.handler';
+import { ListSparePartsByEquipmentTypeHandler } from './handlers/list-spare-parts-by-equipment-type.handler';
+import { GetStockSummaryHandler } from './handlers/get-stock-summary.handler';
+
 const WorkOrderQueryHandlers = [
   GetWorkOrderHandler,
   GetWorkOrderByCodeHandler,
@@ -66,6 +75,16 @@ const MaintenanceScheduleQueryHandlers = [
   ListOverdueMaintenanceSchedulesHandler,
   ListMaintenanceScheduleAlertsHandler,
   GetMaintenanceComplianceReportHandler,
+];
+
+const SparePartQueryHandlers = [
+  GetSparePartHandler,
+  GetSparePartByCodeHandler,
+  GetSparePartByPartNumberHandler,
+  ListSparePartsHandler,
+  ListLowStockAlertsHandler,
+  ListSparePartsByEquipmentTypeHandler,
+  GetStockSummaryHandler,
 ];
 
 @Module({
@@ -92,6 +111,9 @@ const MaintenanceScheduleQueryHandlers = [
 
     // Maintenance-schedule query handlers
     ...MaintenanceScheduleQueryHandlers,
+
+    // Spare-part query handlers
+    ...SparePartQueryHandlers,
   ],
   exports: [
     TypeOrmModule,

@@ -20,6 +20,13 @@ import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
 import { TreatmentDetailsInput } from '../dto/create-health-event.input';
+import { QueryBus } from '@platform/cqrs';
+import { GetHealthEventQuery } from '../queries/get-health-event.query';
+import { ListHealthEventsQuery } from '../queries/list-health-events.query';
+import { ListHealthEventsByBatchQuery } from '../queries/list-health-events-by-batch.query';
+import { ListCriticalHealthEventsQuery } from '../queries/list-critical-health-events.query';
+import { ListOverdueFollowUpsQuery } from '../queries/list-overdue-follow-ups.query';
+import { GetHealthEventStatsQuery } from '../queries/get-health-event-stats.query';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -114,6 +121,7 @@ export class HealthEventResolver {
   constructor(
     private readonly healthEventService: HealthEventService,
     private readonly harvestEligibilityService: BatchHarvestEligibilityService,
+    private readonly queryBus: QueryBus,
   ) {}
 
   // =========================================================================
@@ -129,7 +137,7 @@ export class HealthEventResolver {
     @CurrentTenant() tenantId: string,
     @Args('id', { type: () => ID }) id: string,
   ): Promise<HealthEvent | null> {
-    return this.healthEventService.findById(tenantId, id);
+    return this.queryBus.execute(new GetHealthEventQuery(tenantId, id));
   }
 
   /**
@@ -141,7 +149,7 @@ export class HealthEventResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: HealthEventFilterInput,
   ): Promise<IStandardPaginatedResult<HealthEvent>> {
-    return this.healthEventService.findAll(tenantId, filter);
+    return this.queryBus.execute(new ListHealthEventsQuery(tenantId, filter));
   }
 
   /**
@@ -154,7 +162,9 @@ export class HealthEventResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('activeOnly', { nullable: true, defaultValue: false }) activeOnly: boolean,
   ): Promise<HealthEvent[]> {
-    return this.healthEventService.findByBatch(tenantId, batchId, activeOnly);
+    return this.queryBus.execute(
+      new ListHealthEventsByBatchQuery(tenantId, batchId, activeOnly),
+    );
   }
 
   /**
@@ -165,7 +175,7 @@ export class HealthEventResolver {
   async criticalHealthEvents(
     @CurrentTenant() tenantId: string,
   ): Promise<HealthEvent[]> {
-    return this.healthEventService.findCritical(tenantId);
+    return this.queryBus.execute(new ListCriticalHealthEventsQuery(tenantId));
   }
 
   /**
@@ -176,7 +186,7 @@ export class HealthEventResolver {
   async overdueHealthFollowUps(
     @CurrentTenant() tenantId: string,
   ): Promise<HealthEvent[]> {
-    return this.healthEventService.findOverdueFollowUps(tenantId);
+    return this.queryBus.execute(new ListOverdueFollowUpsQuery(tenantId));
   }
 
   /**
@@ -187,7 +197,7 @@ export class HealthEventResolver {
   async healthEventStats(
     @CurrentTenant() tenantId: string,
   ): Promise<HealthEventStats> {
-    return this.healthEventService.getStats(tenantId);
+    return this.queryBus.execute(new GetHealthEventStatsQuery(tenantId));
   }
 
   // =========================================================================

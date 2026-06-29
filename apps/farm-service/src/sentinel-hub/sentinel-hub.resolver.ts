@@ -15,11 +15,18 @@ import {
 } from './entities/sentinel-hub-settings.entity';
 import { CurrentTenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { QueryBus } from '@platform/cqrs';
+import { GetSentinelHubStatusQuery } from './queries/get-sentinel-hub-status.query';
+import { GetSentinelHubCredentialsQuery } from './queries/get-sentinel-hub-credentials.query';
+import { IsSentinelHubConfiguredQuery } from './queries/is-sentinel-hub-configured.query';
 
 @Resolver(() => SentinelHubSettings)
 @UseGuards(TenantGuard)
 export class SentinelHubResolver {
-  constructor(private readonly sentinelHubService: SentinelHubService) {}
+  constructor(
+    private readonly sentinelHubService: SentinelHubService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   /**
    * Get Sentinel Hub configuration status (masked)
@@ -27,7 +34,7 @@ export class SentinelHubResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SentinelHubStatus, { name: 'sentinelHubStatus' })
   async getStatus(@CurrentTenant() tenantId: string): Promise<SentinelHubStatus> {
-    return this.sentinelHubService.getStatus(tenantId);
+    return this.queryBus.execute(new GetSentinelHubStatusQuery(tenantId));
   }
 
   /**
@@ -43,7 +50,7 @@ export class SentinelHubResolver {
   async getCredentials(
     @CurrentTenant() tenantId: string,
   ): Promise<SentinelHubCredentials | null> {
-    return this.sentinelHubService.getCredentials(tenantId);
+    return this.queryBus.execute(new GetSentinelHubCredentialsQuery(tenantId));
   }
 
   /**
@@ -77,7 +84,7 @@ export class SentinelHubResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => Boolean, { name: 'isSentinelHubConfigured' })
   async isConfigured(@CurrentTenant() tenantId: string): Promise<boolean> {
-    return this.sentinelHubService.isConfigured(tenantId);
+    return this.queryBus.execute(new IsSentinelHubConfiguredQuery(tenantId));
   }
 
   /**

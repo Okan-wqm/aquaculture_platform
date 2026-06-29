@@ -125,6 +125,11 @@ export type { TenantProviderProps } from './contexts/TenantContext';
 
 export { useAuth, useRequireAuth } from './hooks/useAuth';
 export { useTenant } from './hooks/useTenant';
+export { useTenantQuery, useTenantMutation } from './hooks/useTenantQuery';
+export type {
+  TenantQueryOptions,
+  TenantMutationOptions,
+} from './hooks/useTenantQuery';
 export {
   useTenantScopedStorage,
   TENANT_SCOPED_STORAGE_NAMESPACE,

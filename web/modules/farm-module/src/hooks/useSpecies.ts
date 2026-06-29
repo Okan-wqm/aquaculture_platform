@@ -3,7 +3,7 @@
  * Handles CRUD operations for species via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey, useTenantQuery } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SpeciesCategory {
@@ -311,20 +311,20 @@ export function useSpeciesList(filter?: {
   limit?: number;
   offset?: number;
 }) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'species', 'list', tenantId, filter),
-    queryFn: async () => {
+  // useTenantQuery enforces the tenant prefix + token/tenant enabled gate +
+  // keep-previous-data. (Dropped the redundant extra tenantId segment from the key —
+  // the tenant is already the prefix; prefix-based invalidation still matches.)
+  return useTenantQuery(
+    ['species', 'list', filter],
+    async () => {
       const data = await graphqlClient.request<{ speciesList: PaginatedResponse }>(
         SPECIES_LIST_QUERY,
         { filter }
       );
       return data.speciesList;
     },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId,
-  });
+    { staleTime: 30000 },
+  );
 }
 
 /**

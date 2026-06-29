@@ -8,7 +8,7 @@
  */
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder, In, LessThan, MoreThan, Between } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
   HarvestPlan,
   HarvestPlanStatus,
@@ -19,7 +19,6 @@ import {
   CustomerOrder,
   QualityRequirements,
 } from '../entities/harvest-plan.entity';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
@@ -379,198 +378,6 @@ export class HarvestPlanService {
     return plan;
   }
 
-  /**
-   * Find a harvest plan by plan code
-   */
-  async findByPlanCode(tenantId: string, planCode: string): Promise<HarvestPlan | null> {
-    return this.harvestPlanRepository.findOne({
-      where: { tenantId, planCode },
-    });
-  }
-
-  /**
-   * List harvest plans with filtering and pagination
-   */
-  async findAll(
-    tenantId: string,
-    filter?: HarvestPlanFilterInput,
-  ): Promise<IStandardPaginatedResult<HarvestPlan>> {
-    const query = this.harvestPlanRepository
-      .createQueryBuilder('hp')
-      .where('hp.tenantId = :tenantId', { tenantId });
-
-    // Apply filters
-    this.applyFilters(query, filter);
-
-    // Get total count
-    const total = await query.getCount();
-
-    // Apply pagination
-    const limit = filter?.limit ?? 50;
-    const offset = filter?.offset ?? 0;
-    query.skip(offset).take(limit);
-
-    // Apply sorting with allowlist to prevent SQL injection
-    const sortBy = filter?.sortBy ?? 'plannedDate';
-    const sortDir = filter?.sortDirection ?? 'ASC';
-    const validSortFields = ['plannedDate', 'status', 'estimatedWeight', 'createdAt', 'updatedAt'];
-    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'plannedDate';
-    query.orderBy(`hp.${safeSortBy}`, sortDir);
-
-    const items = await query.getMany();
-    const page = Math.floor(offset / limit) + 1;
-
-    return createStandardPaginatedResult(items, total, page, limit);
-  }
-
-  /**
-   * Get harvest plans for a specific batch
-   */
-  async findByBatch(
-    tenantId: string,
-    batchId: string,
-    activeOnly = false,
-  ): Promise<HarvestPlan[]> {
-    const query = this.harvestPlanRepository
-      .createQueryBuilder('hp')
-      .where('hp.tenantId = :tenantId', { tenantId })
-      .andWhere('hp.batchId = :batchId', { batchId });
-
-    if (activeOnly) {
-      query.andWhere('hp.status NOT IN (:...excludedStatuses)', {
-        excludedStatuses: [HarvestPlanStatus.COMPLETED, HarvestPlanStatus.CANCELLED],
-      });
-    }
-
-    return query.orderBy('hp.plannedDate', 'ASC').getMany();
-  }
-
-  /**
-   * Get upcoming harvest plans
-   */
-  async findUpcoming(tenantId: string, days = 30): Promise<HarvestPlan[]> {
-    const today = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + days);
-
-    return this.harvestPlanRepository.find({
-      where: {
-        tenantId,
-        status: In([
-          HarvestPlanStatus.PLANNED,
-          HarvestPlanStatus.APPROVED,
-          HarvestPlanStatus.SCHEDULED,
-        ]),
-        plannedDate: Between(today, futureDate),
-      },
-      order: { plannedDate: 'ASC' },
-    });
-  }
-
-  /**
-   * Get overdue harvest plans
-   */
-  async findOverdue(tenantId: string): Promise<HarvestPlan[]> {
-    const today = new Date();
-
-    return this.harvestPlanRepository.find({
-      where: {
-        tenantId,
-        status: In([
-          HarvestPlanStatus.PLANNED,
-          HarvestPlanStatus.APPROVED,
-          HarvestPlanStatus.SCHEDULED,
-        ]),
-        plannedDate: LessThan(today),
-      },
-      order: { plannedDate: 'ASC' },
-    });
-  }
-
-  /**
-   * Get harvest plan statistics
-   */
-  async getStats(tenantId: string): Promise<HarvestPlanStats> {
-    const plans = await this.harvestPlanRepository.find({
-      where: { tenantId },
-    });
-
-    const today = new Date();
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-
-    const stats: HarvestPlanStats = {
-      total: plans.length,
-      draft: 0,
-      planned: 0,
-      approved: 0,
-      scheduled: 0,
-      inProgress: 0,
-      completed: 0,
-      cancelled: 0,
-      postponed: 0,
-      totalEstimatedBiomass: 0,
-      totalActualBiomass: 0,
-      upcomingCount: 0,
-      overdueCount: 0,
-    };
-
-    for (const plan of plans) {
-      // Status counts
-      switch (plan.status) {
-        case HarvestPlanStatus.DRAFT:
-          stats.draft++;
-          break;
-        case HarvestPlanStatus.PLANNED:
-          stats.planned++;
-          break;
-        case HarvestPlanStatus.APPROVED:
-          stats.approved++;
-          break;
-        case HarvestPlanStatus.SCHEDULED:
-          stats.scheduled++;
-          break;
-        case HarvestPlanStatus.IN_PROGRESS:
-          stats.inProgress++;
-          break;
-        case HarvestPlanStatus.COMPLETED:
-          stats.completed++;
-          break;
-        case HarvestPlanStatus.CANCELLED:
-          stats.cancelled++;
-          break;
-        case HarvestPlanStatus.POSTPONED:
-          stats.postponed++;
-          break;
-      }
-
-      // Biomass totals
-      if (plan.estimates?.estimatedBiomass) {
-        stats.totalEstimatedBiomass += plan.estimates.estimatedBiomass;
-      }
-      if (plan.actualBiomassHarvested) {
-        stats.totalActualBiomass += Number(plan.actualBiomassHarvested);
-      }
-
-      // Upcoming and overdue
-      const plannedDate = new Date(plan.plannedDate);
-      const isActive = ![
-        HarvestPlanStatus.COMPLETED,
-        HarvestPlanStatus.CANCELLED,
-      ].includes(plan.status);
-
-      if (isActive) {
-        if (plannedDate < today) {
-          stats.overdueCount++;
-        } else if (plannedDate <= thirtyDaysFromNow) {
-          stats.upcomingCount++;
-        }
-      }
-    }
-
-    return stats;
-  }
-
   // =========================================================================
   // WORKFLOW OPERATIONS
   // =========================================================================
@@ -736,9 +543,11 @@ export class HarvestPlanService {
   }
 
   /**
-   * Apply filters to query
+   * Apply harvest-plan filters to a query builder. Static so the
+   * ListHarvestPlansHandler reuses this exact WHERE logic (single SSoT) without
+   * a service dependency or duplicated filter code.
    */
-  private applyFilters(
+  static applyFilters(
     query: SelectQueryBuilder<HarvestPlan>,
     filter?: HarvestPlanFilterInput,
   ): void {

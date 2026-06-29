@@ -14,6 +14,8 @@ import { WeatherFilterInput } from './dto/weather-filter.input';
 import { UpdateWeatherSettingsInput } from './dto/weather-settings.input';
 import { CurrentWeatherResponse, WeatherSyncResult } from './dto/current-weather.response';
 import { WeatherSyncService } from './services/weather-sync.service';
+import { QueryBus } from '@platform/cqrs';
+import { GetWeatherSettingsQuery } from './queries/get-weather-settings.query';
 
 @Resolver()
 @UseGuards(TenantGuard)
@@ -26,6 +28,7 @@ export class WeatherResolver {
     @InjectRepository(MarineObservation)
     private readonly marineRepo: Repository<MarineObservation>,
     private readonly syncService: WeatherSyncService,
+    private readonly queryBus: QueryBus,
   ) {}
 
   // =========================================================================
@@ -150,7 +153,7 @@ export class WeatherResolver {
   async weatherSettings(
     @CurrentTenant() tenantId: string,
   ): Promise<WeatherSettings> {
-    return this.syncService.getSettings(tenantId);
+    return this.queryBus.execute(new GetWeatherSettingsQuery(tenantId));
   }
 
   // =========================================================================

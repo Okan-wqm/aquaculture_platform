@@ -27,7 +27,7 @@ Default loop:
      ``artifact_mismatch``
 
 Defensive default: when no real adversarial / evidence judge is
-claiming envelopes (typical autonomous-run mode without real Codex
+claiming envelopes (typical autonomous-run mode without real Claude Code
 / Claude Code dispatchers), the drainer times out at ``gaps_open``;
 the orchestrator then skips ``auto_merge_runner`` cleanly. This is
 the correct fail-closed behaviour — no review consensus, no

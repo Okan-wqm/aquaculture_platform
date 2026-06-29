@@ -3,10 +3,10 @@
 Per-assignment counterpart to tools/aria-poc/ci_executor.py
 (planner). Receives ``assignment_id`` + ``target_agent`` on argv;
 lease token via ``ARIA_LEASE_TOKEN`` env var (NEVER argv). Mock
-mode (CODEX_CLI_MOCK=1) makes a deterministic no-op modification
+mode (CLAUDE_CLI_MOCK=1) makes a deterministic no-op modification
 + commit in the worktree + submits the worker result via the kernel
-``worker-result submit`` CLI. Live mode shells out to the Codex
-CLI with the worker prompt.
+``worker-result submit`` CLI. Live mode shells out to the Claude
+Code CLI with the worker prompt.
 
 Pre-fix the kernel had verification_gate primitives but no
 executor that knew how to read a dispatch assignment, run the work
@@ -20,7 +20,7 @@ Lease-token redaction discipline (mirrors ci_executor.py):
 * argv NEVER carries the raw token.
 * Stderr redacted at every subprocess return surface.
 
-Live-mode contract: the live ``codex`` CLI invocation shape is
+Live-mode contract: the live ``claude`` CLI invocation shape is
 locked under the proven-contract doc that the planner CLI also
 references (``tools/aria-poc/ci_executor_contract_proven.md``).
 Plan ARIA-V3 §B1 promoted the spike to load-bearing status; the
@@ -37,18 +37,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from codex_runtime import (
-    CODEX_MOCK_ENV_VAR,
-    CodexAuthUnavailable,
-    CodexCliUnavailable,
-    CodexPolicyViolation,
-    CodexUsageUnavailable,
-    run_codex_exec,
+from claude_runtime import (
+    CLAUDE_MOCK_ENV_VAR,
+    ClaudeAuthUnavailable,
+    ClaudeCliUnavailable,
+    ClaudePolicyViolation,
+    ClaudeUsageUnavailable,
+    run_claude_exec,
 )
 
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
-MOCK_MODE_ENV_VAR = CODEX_MOCK_ENV_VAR
+MOCK_MODE_ENV_VAR = CLAUDE_MOCK_ENV_VAR
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -227,13 +227,18 @@ def main(argv: list[str] | None = None) -> int:
         tools_dir / "dispatch" / "prompts" / f"{assignment_id}.md"
     )
     prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    # Resolve the per-agent model tier from frontmatter (fail-safe: opus).
+    from aria_kernel.agent_runtime_profile import resolve_claude_model
+
+    model = resolve_claude_model(parsed.target_agent, repo_root=repo)
     try:
-        completed = run_codex_exec(
+        completed = run_claude_exec(
             prompt_text=prompt_text,
             timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
+            model=model,
             cwd=worktree_path,
         )
-    except (CodexAuthUnavailable, CodexCliUnavailable, CodexPolicyViolation, CodexUsageUnavailable) as exc:
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
     if completed.returncode != 0:

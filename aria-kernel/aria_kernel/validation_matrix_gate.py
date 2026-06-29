@@ -213,6 +213,10 @@ _REQUIRED_TESTS_BY_RISK: dict[str, tuple[dict[str, Any], ...]] = {
 # kernel suite (test_*.py, *_test.py, tests/ dirs) plus fixture corpora
 # (fixture_set/cases/*.json). Containment/regex matches — same heuristic style
 # as the risk-path detector above.
+#
+# Plan 031-R R1 (B2): the fixture pattern is NARROWED to fixture-corpus paths
+# (a directory or a *.fixture.* file). A bare "fixture" substring wrongly counted
+# production sources like `apps/x/fixture-loader.ts` as a regression anchor.
 _REGRESSION_ANCHOR_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(^|/)__tests__/"),
     re.compile(r"\.spec\.[cm]?[jt]sx?$"),
@@ -220,7 +224,10 @@ _REGRESSION_ANCHOR_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(^|/)test_[^/]+\.py$"),
     re.compile(r"(^|/)[^/]+_test\.py$"),
     re.compile(r"(^|/)tests?/"),
-    re.compile(r"fixture", re.I),
+    re.compile(r"(^|/)__fixtures__/"),
+    re.compile(r"(^|/)fixtures?/"),
+    re.compile(r"(^|/)fixture_set/"),
+    re.compile(r"\.fixture\.[a-z0-9]+$", re.I),
 )
 
 

@@ -22,6 +22,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.change_ledger import (
+    emit_change_committed,
+    emit_change_planned,
+    emit_change_validated,
+)
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.validation_matrix_gate import (
     enforce_validation_matrix,
@@ -56,6 +62,9 @@ class HasRegressionAnchorTests(unittest.TestCase):
             "aria-kernel/tests/test_foo.py",
             "aria-kernel/aria_kernel/foo_test.py",
             "fixture_set/cases/case1.json",
+            "apps/x/__fixtures__/data.json",
+            "apps/x/fixtures/data.json",
+            "apps/x/seed.fixture.json",
             "e2e/tests/integration/schema.spec.ts",
         ]
         for path in anchors:
@@ -70,6 +79,10 @@ class HasRegressionAnchorTests(unittest.TestCase):
             "apps/farm-service/src/farm.entity.ts",
             "docs/README.md",
             "aria-kernel/aria_kernel/cycle.py",
+            # Plan 031-R R1 (B2): a production source whose name merely contains
+            # "fixture" must NOT count as a regression anchor.
+            "apps/x/fixture-loader.ts",
+            "apps/x/src/fixtureService.ts",
         ]
         self.assertFalse(has_regression_anchor(non_anchors))
 
@@ -147,6 +160,76 @@ class EnforceAnchorGateTests(unittest.TestCase):
             validation_mode="historical_attestation",
         )
         self.assertTrue(result["passed"])
+
+
+class ChangeValidatedChokepointTests(unittest.TestCase):
+    """Plan 031-R R1 (B2) — emit_change_validated enforces the regression anchor
+    for autonomous / ARIA-authored changes, derived from profile + claim_id."""
+
+    def setUp(self) -> None:
+        self.tools, self.repo = _seed_workspace()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tools.parent, ignore_errors=True)
+
+    def _seed_chain(self, *, affected: list[str], claim_id: str | None) -> str:
+        planned = emit_change_planned(
+            plan_id="plan-1", finding_id="F-001",
+            intended_affected_files=affected,
+            intended_validation_refs=["nx test"],
+            architectural_tier=1, base_dir=self.tools,
+        )
+        emit_change_committed(
+            change_id=planned["change_id"], commit_sha="abc001",
+            actual_affected_files=affected, base_dir=self.tools,
+            claim_id=claim_id,
+        )
+        return planned["change_id"]
+
+    def _validate(self, change_id: str):
+        return emit_change_validated(
+            change_id=change_id,
+            validation_run_refs=[_structured_ref()],
+            base_dir=self.tools, workspace_root=self.repo,
+        )
+
+    def test_claim_id_change_requires_anchor(self) -> None:
+        # standard profile but an agent-issued change (claim_id) + test-less diff.
+        cid = self._seed_chain(
+            affected=["apps/farm-service/src/farm.service.ts"], claim_id="claim-xyz",
+        )
+        with self.assertRaises(GovernanceError) as cm:
+            self._validate(cid)
+        self.assertIn("regression_anchor_required", str(cm.exception))
+
+    def test_human_standard_change_not_anchor_gated(self) -> None:
+        # No claim_id + standard profile → derivation False → anchor not enforced
+        # (it falls through to the no-risk-evidence path, not the anchor error).
+        cid = self._seed_chain(
+            affected=["apps/farm-service/src/farm.service.ts"], claim_id=None,
+        )
+        with self.assertRaises(GovernanceError) as cm:
+            self._validate(cid)
+        self.assertNotIn("regression_anchor_required", str(cm.exception))
+
+    def test_strict_profile_requires_anchor(self) -> None:
+        set_profile("strict", operator_approval_ref="op-ref-1", base_dir=self.tools)
+        cid = self._seed_chain(
+            affected=["apps/farm-service/src/farm.service.ts"], claim_id=None,
+        )
+        with self.assertRaises(GovernanceError) as cm:
+            self._validate(cid)
+        self.assertIn("regression_anchor_required", str(cm.exception))
+
+    def test_anchored_autonomous_change_passes_precondition(self) -> None:
+        # claim_id change WITH a test file → anchor satisfied; control moves to
+        # the next layer (no_risk_evidence), not the anchor error.
+        cid = self._seed_chain(
+            affected=["apps/farm-service/src/__tests__/farm.spec.ts"], claim_id="claim-xyz",
+        )
+        with self.assertRaises(GovernanceError) as cm:
+            self._validate(cid)
+        self.assertNotIn("regression_anchor_required", str(cm.exception))
 
 
 if __name__ == "__main__":

@@ -393,6 +393,7 @@ def emit_change_validated(
     validation_mode: str = "enforced",
     enforce_validation_matrix: bool = True,
     workspace_root: str | Path | None = None,
+    require_regression_anchor: bool | None = None,
 ) -> dict[str, Any]:
     """Record the validation pass that closes a change chain.
 
@@ -463,6 +464,18 @@ def emit_change_validated(
     matrix_result: dict[str, Any] | None = None
     if enforce_validation_matrix:
         from .validation_matrix_gate import enforce_validation_matrix as _enforce_matrix
+        # Plan 031-R R1 (B2) — enforce the regression anchor at the real
+        # change-validated chokepoint, not only inside a cycle phase the
+        # autonomy orchestrator might not run. When the caller does not pin
+        # require_regression_anchor, derive it: PRIMARY = the runtime profile is
+        # autonomous/strict; SECONDARY (fail-safe) = the change carries a
+        # claim_id (an agent-issued change). Over-requiring a test is fail-safe;
+        # a plain human/standard change without a claim_id is unaffected.
+        anchor_required = require_regression_anchor
+        if anchor_required is None:
+            from .runtime_profile import get_profile
+            profile = get_profile(base_dir=base_dir)
+            anchor_required = profile in ("strict", "autonomous") or bool(committed.get("claim_id"))
         # Raises GovernanceError on blocked; result returned only on pass.
         matrix_result = _enforce_matrix(
             change_id=change_id,
@@ -470,6 +483,7 @@ def emit_change_validated(
             repo_root=workspace_root,
             candidate_refs=list(validation_run_refs),
             validation_mode=validation_mode,
+            require_regression_anchor=anchor_required,
         )
 
     row = {

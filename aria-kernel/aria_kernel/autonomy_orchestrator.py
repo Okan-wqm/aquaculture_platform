@@ -789,11 +789,17 @@ def run_autonomy_orchestrator(
                 # deferred to post-drainer per V3.3 §2b — see the
                 # post_drain_reflection block after auto_merge below).
                 try:
+                    # Plan 031-R R1 (B2) — run the validation_matrix phase so
+                    # Gate A's regression-anchor check fires in the autonomous
+                    # path (belt-and-suspenders; emit_change_validated is the
+                    # primary chokepoint that enforces it regardless of phase).
+                    from .cycle import DEFAULT_CYCLE_PHASES
                     cycle_result = cycle_runner(
                         workspace_root=workspace_root,
                         cycle_id=cycle_id,
                         base_dir=root,
                         defer_reflection=True,
+                        run_phases=DEFAULT_CYCLE_PHASES + ("validation_matrix",),
                     )
                     cycle_summary["cycle"] = _bounded_cycle_summary(cycle_result)
                     raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")

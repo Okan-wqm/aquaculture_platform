@@ -45,6 +45,18 @@ VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku")
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
+# Operator acknowledgement that the autonomous-write executor runs inside a
+# real isolated sandbox/container. The Claude Code CLI refuses
+# ``--dangerously-skip-permissions`` under root/sudo for security; a genuine
+# sandboxed runner sets this so the runtime passes ``IS_SANDBOX=1`` through to
+# the CLI. The recommended production path is a NON-ROOT runner (no env needed)
+# — see ADR-040.
+SANDBOX_ACK_ENV_VAR = "ARIA_CLAUDE_SANDBOX"
+# Claude Code CLI permission modes the autonomous executor may select instead
+# of the full ``--dangerously-skip-permissions`` bypass. ``acceptEdits`` /
+# ``bypassPermissions`` enable autonomous worktree writes; ``plan`` / ``default``
+# are read-only / human-gated.
+VALID_PERMISSION_MODES: tuple[str, ...] = ("acceptEdits", "bypassPermissions", "plan", "default")
 
 API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 # Claude Code honours ANTHROPIC_AUTH_TOKEN / custom base URLs for proxy
@@ -179,13 +191,23 @@ def build_claude_exec_argv(
     *,
     model: str | None = None,
     skip_permissions: bool = True,
+    permission_mode: str | None = None,
 ) -> list[str]:
     """Build the live Claude Code CLI invocation argv.
 
-    ``skip_permissions`` defaults True because the autonomous executor runs
-    on a trusted/private runner and must edit its assigned worktree without a
-    human approving each tool call (the autonomy ``codex exec`` provided).
-    Callers that want a read-only/preview turn pass ``skip_permissions=False``.
+    Autonomous worktree writes need one of two permission shapes:
+
+    * ``permission_mode`` (e.g. ``acceptEdits`` / ``bypassPermissions``) →
+      ``--permission-mode <mode>``. ``bypassPermissions`` works under root;
+      ``acceptEdits`` auto-accepts edits while still gating shell. This is the
+      preferred autonomous-write lever when the runner is root and not
+      sandboxed (``--dangerously-skip-permissions`` is refused there).
+    * ``skip_permissions`` (default, no ``permission_mode``) →
+      ``--dangerously-skip-permissions`` (full bypass). Requires a NON-ROOT or
+      acknowledged-sandbox runner (enforced by :func:`assert_write_runner_ok`).
+
+    A read-only/preview turn passes ``skip_permissions=False`` with no
+    ``permission_mode`` (the autonomy a judge/scout never needs).
     """
     resolved_model = model or CLAUDE_DEFAULT_MODEL
     argv = [
@@ -197,9 +219,51 @@ def build_claude_exec_argv(
         "--model",
         resolved_model,
     ]
-    if skip_permissions:
+    if permission_mode is not None:
+        if permission_mode not in VALID_PERMISSION_MODES:
+            raise ClaudePolicyViolation(
+                f"invalid permission_mode {permission_mode!r}; allowed: {VALID_PERMISSION_MODES}"
+            )
+        argv.extend(["--permission-mode", permission_mode])
+    elif skip_permissions:
         argv.append("--dangerously-skip-permissions")
     return argv
+
+
+def _running_as_root() -> bool:
+    """True when the current process is uid 0. ``os.geteuid`` is POSIX-only;
+    on platforms without it ARIA is never root, so return False."""
+    geteuid = getattr(os, "geteuid", None)
+    return geteuid is not None and geteuid() == 0
+
+
+def _sandbox_acknowledged() -> bool:
+    """True when the operator has acknowledged a real isolated sandbox via
+    ``ARIA_CLAUDE_SANDBOX`` (or the CLI's own ``IS_SANDBOX``)."""
+    return _parse_bool(
+        os.environ.get(SANDBOX_ACK_ENV_VAR, "0"), env_name=SANDBOX_ACK_ENV_VAR
+    ) or _parse_bool(os.environ.get("IS_SANDBOX", "0"), env_name="IS_SANDBOX")
+
+
+def assert_write_runner_ok(*, skip_permissions: bool, permission_mode: str | None) -> None:
+    """Fail closed BEFORE the subprocess when the autonomous-write shape cannot
+    run on this runner.
+
+    ``--dangerously-skip-permissions`` (full bypass) is refused by the Claude
+    Code CLI under root/sudo for security. Rather than surface that as a cryptic
+    non-zero subprocess exit, ARIA detects it at preflight and raises with the
+    operator-actionable fix: run the autonomous-write executor as a NON-ROOT
+    user, OR select a ``permission_mode`` (e.g. ``bypassPermissions``), OR
+    acknowledge a genuine sandbox via ``ARIA_CLAUDE_SANDBOX=1`` (ADR-040).
+    """
+    uses_full_bypass = permission_mode is None and skip_permissions
+    if uses_full_bypass and _running_as_root() and not _sandbox_acknowledged():
+        raise ClaudePolicyViolation(
+            "claude_autonomous_write_runner_is_root: the Claude Code CLI refuses "
+            "--dangerously-skip-permissions under root. Run the autonomous-write "
+            "executor as a non-root user, pass permission_mode='bypassPermissions', "
+            "or set ARIA_CLAUDE_SANDBOX=1 inside a genuine isolated sandbox (ADR-040)."
+        )
 
 
 def run_claude_exec(
@@ -210,9 +274,18 @@ def run_claude_exec(
     require_usage: bool | None = None,
     cwd: str | Path | None = None,
     skip_permissions: bool = True,
+    permission_mode: str | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
-    argv = build_claude_exec_argv(model=model, skip_permissions=skip_permissions)
+    assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
+    argv = build_claude_exec_argv(
+        model=model, skip_permissions=skip_permissions, permission_mode=permission_mode
+    )
+    # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
+    # bypass even under root; the non-root runner path needs no env change.
+    run_env = os.environ.copy()
+    if _sandbox_acknowledged():
+        run_env["IS_SANDBOX"] = "1"
     proc = subprocess.run(
         argv,
         input=prompt_text,
@@ -221,6 +294,7 @@ def run_claude_exec(
         timeout=timeout_seconds + 30,
         check=False,
         cwd=str(cwd) if cwd is not None else None,
+        env=run_env,
     )
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)

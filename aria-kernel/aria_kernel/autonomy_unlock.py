@@ -55,9 +55,14 @@ def record_acceptance_event(
     pr_number: int | None = None,
     head_sha: str | None = None,
     reason: str | None = None,
+    cycle_id: str | None = None,
+    lane: str | None = None,
 ) -> dict[str, Any]:
     if event_type not in ACCEPTANCE_EVENT_TYPES:
         raise GovernanceError(f"autonomy_acceptance_event_type_unknown:{event_type}")
+    # Plan 031-R R7 (B7) — carry cycle_id + lane so the unlock evaluation can
+    # dedupe by (event_type, cycle_id, lane, head_sha). Without these a replay of
+    # the same clean cycle would inflate the threshold counts.
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -67,6 +72,8 @@ def record_acceptance_event(
         "status": "success" if event_type != "critical_violation" else "violation",
         "pr_number": pr_number,
         "head_sha": head_sha,
+        "cycle_id": cycle_id,
+        "lane": lane,
         "reason": reason,
     }
     return append_declared_jsonl(
@@ -176,7 +183,23 @@ def assert_autonomy_unlocked(
 
 
 def _count(rows: list[dict[str, Any]], event_type: str, *, status: str = "success") -> int:
-    return sum(1 for row in rows if row.get("event_type") == event_type and row.get("status") == status)
+    # Plan 031-R R7 (B7) — count DISTINCT (event_type, cycle_id, lane, head_sha)
+    # so a replay of the same clean cycle cannot inflate the threshold. Rows with
+    # no cycle_id fall back to their unique row_id, so each legacy event still
+    # counts exactly once (no over-dedup).
+    seen: set[tuple[Any, ...]] = set()
+    for row in rows:
+        if row.get("event_type") != event_type or row.get("status") != status:
+            continue
+        cycle_id = row.get("cycle_id")
+        key = (
+            event_type,
+            cycle_id if cycle_id else row.get("row_id"),
+            row.get("lane"),
+            row.get("head_sha"),
+        )
+        seen.add(key)
+    return len(seen)
 
 
 __all__ = [

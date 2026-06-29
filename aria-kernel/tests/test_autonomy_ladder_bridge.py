@@ -63,6 +63,26 @@ class AutonomyLadderBridgeTests(unittest.TestCase):
         self.assertEqual(real.counts["observe_successes"], 0)
         self.assertFalse(real.valid)
 
+    def test_replay_same_cycle_id_does_not_inflate(self) -> None:
+        # Plan 031-R R7 (B7) — a replay of the same clean cycle must not inflate
+        # the threshold count (evaluation-time dedupe by cycle_id).
+        for _ in range(3):  # same cycle_id recorded three times (replay)
+            record_clean_cycle(
+                cycle_id="cycle-A", mode="real", harness_accepted=True,
+                base_dir=self.tools,
+            )
+        real = evaluate_autonomy_unlock(lane="L1", base_dir=self.tools)
+        self.assertEqual(real.counts["observe_successes"], 1)
+
+    def test_distinct_cycle_ids_each_count(self) -> None:
+        for i in range(5):
+            record_clean_cycle(
+                cycle_id=f"cycle-{i}", mode="real", harness_accepted=True,
+                base_dir=self.tools,
+            )
+        real = evaluate_autonomy_unlock(lane="L1", base_dir=self.tools)
+        self.assertEqual(real.counts["observe_successes"], 5)
+
     def test_real_mode_advances_real_ledger(self) -> None:
         record_clean_cycle(
             cycle_id="real-1", mode="real", harness_accepted=True,

@@ -825,6 +825,21 @@ def run_autonomy_orchestrator(
                 )
                 if cycle_status == "ok":
                     cycles_completed += 1
+                    # Plan 031-R R7 (B7) — a clean autonomous cycle advances the
+                    # unlock ladder. Operator-gated opt-in so it never disturbs
+                    # non-autonomous runs; mode follows the runtime (mock under
+                    # CODEX_CLI_MOCK so the sandbox can never unlock real merge,
+                    # real otherwise). Idempotent by cycle_id, so a replay of the
+                    # same clean cycle cannot inflate the threshold.
+                    if os.environ.get("ARIA_LADDER_ACCOUNTING") == "1":
+                        from .autonomy_ladder import record_clean_cycle
+                        record_clean_cycle(
+                            cycle_id=cycle_id,
+                            mode="mock" if os.environ.get("CODEX_CLI_MOCK") else "real",
+                            harness_accepted=True,
+                            base_dir=root,
+                            profile=profile_snapshot,
+                        )
                 elif fail_closed_on_cycle_failure:
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "cycle_failed"

@@ -58,6 +58,7 @@ def record_clean_cycle(
     profile: str | None = None,
     pr_number: int | None = None,
     head_sha: str | None = None,
+    lane: str | None = None,
     reason: str | None = None,
 ) -> dict[str, Any]:
     """Record a deterministically-clean cycle as an ``observe_success`` event.
@@ -83,6 +84,8 @@ def record_clean_cycle(
             base_dir=base_dir,
             pr_number=pr_number,
             head_sha=head_sha,
+            cycle_id=cycle_id,
+            lane=lane,
             reason=resolved_reason,
         )
 
@@ -96,6 +99,7 @@ def record_clean_cycle(
         "status": "success",
         "mode": MODE_MOCK,
         "cycle_id": cycle_id,
+        "lane": lane,
         "profile": profile,
         "harness_accepted": True,
         "reason": resolved_reason,

@@ -22,6 +22,7 @@ import { Chemical } from '../chemical/entities/chemical.entity';
 import { Consumable } from '../consumable/entities/consumable.entity';
 
 import { StorageResolver } from './storage.resolver';
+import { InventoryCountResponseResolver } from './resolvers/inventory-count-response.resolver';
 
 import { CreateStorageLocationHandler } from './handlers/create-storage-location.handler';
 import { UpdateStorageLocationHandler } from './handlers/update-storage-location.handler';
@@ -49,6 +50,7 @@ import { GetPurchaseOrderHandler } from './handlers/get-purchase-order.handler';
 import { GetPendingDeliveriesHandler } from './handlers/get-pending-deliveries.handler';
 import { ListInventoryCountsHandler } from './handlers/list-inventory-counts.handler';
 import { GetInventoryCountHandler } from './handlers/get-inventory-count.handler';
+import { GetStorageLocationNameHandler } from './handlers/get-storage-location-name.handler';
 import { TraceLotHandler } from './handlers/trace-lot.handler';
 
 const CommandHandlers = [
@@ -80,6 +82,7 @@ const QueryHandlers = [
   GetPendingDeliveriesHandler,
   ListInventoryCountsHandler,
   GetInventoryCountHandler,
+  GetStorageLocationNameHandler,
   TraceLotHandler,
 ];
 
@@ -102,6 +105,7 @@ const QueryHandlers = [
   ],
   providers: [
     StorageResolver,
+    InventoryCountResponseResolver,
     LotMixService,
     // StockMovementService holds the inventory-mutation core that
     // RecordStockMovementHandler (here) and the feeding callers both use.

@@ -5,24 +5,24 @@ Closes the V3.1-D2 follow-up architectural seam: after the V3.1-D2
 sentinel + factory wires landed, the actual per-LLM-call
 record_cost_attribution invocation site was tracked as
 F-015-V31-D3 OPEN. V3.1-D3 closes the loop by wiring
-`_record_codex_cli_usage` into `invoke_codex_cli` after a
+`_record_claude_cli_usage` into `invoke_claude_cli` after a
 successful Codex CLI subprocess, gated on the V3.1-D2 frozen
 mock-mode sentinel.
 
 Invariants:
 
-* I-V31-D3-01 — `_record_codex_cli_usage` helper exists in
+* I-V31-D3-01 — `_record_claude_cli_usage` helper exists in
   ci_executor + parses wrapper for `usage.input_tokens`,
   `usage.output_tokens`, `record_cost_attribution`, `model`.
-* I-V31-D3-02 — invoke_codex_cli signature accepts request_envelope
+* I-V31-D3-02 — invoke_claude_cli signature accepts request_envelope
   + tools_dir optional kwargs (V8 backward-compat preserved with
   None defaults).
-* I-V31-D3-03 — invoke_codex_cli main() callsite passes both
+* I-V31-D3-03 — invoke_claude_cli main() callsite passes both
   kwargs (real-path wire).
 * I-V31-D3-04 — record gate uses `_MOCK_MODE_AT_ENTRY is False`
   (NOT `_is_mock_mode()` direct read; the frozen sentinel is the
   V3.1-D2 anchor for ai-safety HIGH-007).
-* I-V31-D3-05 — `_record_codex_cli_usage` reads `signer_key_fp`
+* I-V31-D3-05 — `_record_claude_cli_usage` reads `signer_key_fp`
   from `ARIA_CYCLE_SIGNER_KEY_FP` env var with `SHA256:no-key`
   sentinel default (V3.1-D-1 schema compliance).
 * I-V31-D3-06 — behavioral: JSONL without usage block → no
@@ -56,15 +56,15 @@ def _load_ci_executor():
 
 
 class CiExecutorCostRecorderTests(unittest.TestCase):
-    """Plan ARIA-V3.1-D3 — _record_codex_cli_usage helper + signature."""
+    """Plan ARIA-V3.1-D3 — _record_claude_cli_usage helper + signature."""
 
     def test_i_v31_d3_01_record_helper_exists_with_correct_signature(self) -> None:
         ci_executor = _load_ci_executor()
         self.assertTrue(
-            hasattr(ci_executor, "_record_codex_cli_usage"),
-            "ci_executor missing _record_codex_cli_usage helper",
+            hasattr(ci_executor, "_record_claude_cli_usage"),
+            "ci_executor missing _record_claude_cli_usage helper",
         )
-        sig = inspect.signature(ci_executor._record_codex_cli_usage)
+        sig = inspect.signature(ci_executor._record_claude_cli_usage)
         for kw in (
             "raw_stdout", "request_envelope", "tools_dir", "role",
             "request_id",
@@ -77,28 +77,28 @@ class CiExecutorCostRecorderTests(unittest.TestCase):
         helper reads `usage.input_tokens`, `usage.output_tokens`,
         `record_cost_attribution`, `model` from the Codex CLI wrapper."""
         ci_executor = _load_ci_executor()
-        src = inspect.getsource(ci_executor._record_codex_cli_usage)
+        src = inspect.getsource(ci_executor._record_claude_cli_usage)
         for token in (
             "input_tokens", "output_tokens",
             "record_cost_attribution", "model",
         ):
             self.assertIn(token, src,
-                          f"_record_codex_cli_usage missing {token!r} field")
+                          f"_record_claude_cli_usage missing {token!r} field")
         # Threads cycle_id + pressure_source_type from request_envelope.
         self.assertIn("cycle_id", src)
         self.assertIn("pressure_source_type", src)
 
 
 class InvokeClaudeCodeSignatureTests(unittest.TestCase):
-    """Plan ARIA-V3.1-D3-02 + 03 — invoke_codex_cli signature +
+    """Plan ARIA-V3.1-D3-02 + 03 — invoke_claude_cli signature +
     main() callsite passes the new kwargs."""
 
     def test_i_v31_d3_02_signature_accepts_optional_kwargs(self) -> None:
         ci_executor = _load_ci_executor()
-        sig = inspect.signature(ci_executor.invoke_codex_cli)
+        sig = inspect.signature(ci_executor.invoke_claude_cli)
         for kw in ("request_envelope", "tools_dir"):
             self.assertIn(kw, sig.parameters,
-                          f"invoke_codex_cli missing {kw!r} kwarg")
+                          f"invoke_claude_cli missing {kw!r} kwarg")
             # Default None preserves V8 backward-compat.
             self.assertIs(sig.parameters[kw].default, None)
 
@@ -106,23 +106,23 @@ class InvokeClaudeCodeSignatureTests(unittest.TestCase):
         ci_executor = _load_ci_executor()
         main_src = inspect.getsource(ci_executor.main)
         self.assertIn("request_envelope=request_envelope", main_src,
-                      "main() does not thread request_envelope to invoke_codex_cli")
+                      "main() does not thread request_envelope to invoke_claude_cli")
         self.assertIn("tools_dir=tools_dir", main_src,
-                      "main() does not thread tools_dir to invoke_codex_cli")
+                      "main() does not thread tools_dir to invoke_claude_cli")
 
 
 class FrozenSentinelGateTests(unittest.TestCase):
     """Plan ARIA-V3.1-D3-04 — record gate uses frozen sentinel."""
 
     def test_i_v31_d3_04_gate_uses_mock_mode_at_entry(self) -> None:
-        """Plan ARIA-V3.1-D3-04 — invoke_codex_cli source contains
+        """Plan ARIA-V3.1-D3-04 — invoke_claude_cli source contains
         the frozen-sentinel gate `_MOCK_MODE_AT_ENTRY is False` (NOT
         a direct `_is_mock_mode()` call). Closes ai-safety HIGH-007
         race window between mint + record."""
         ci_executor = _load_ci_executor()
-        src = inspect.getsource(ci_executor.invoke_codex_cli)
+        src = inspect.getsource(ci_executor.invoke_claude_cli)
         self.assertIn("_MOCK_MODE_AT_ENTRY is False", src,
-                      "invoke_codex_cli does not gate on the V3.1-D2 "
+                      "invoke_claude_cli does not gate on the V3.1-D2 "
                       "frozen sentinel — race window open")
         # Sanity: the V3.1-D2 sentinel + main() capture remain in place.
         self.assertTrue(hasattr(ci_executor, "_MOCK_MODE_AT_ENTRY"))
@@ -133,9 +133,9 @@ class SignerKeyFpEnvTests(unittest.TestCase):
 
     def test_i_v31_d3_05_signer_key_fp_from_env(self) -> None:
         ci_executor = _load_ci_executor()
-        src = inspect.getsource(ci_executor._record_codex_cli_usage)
+        src = inspect.getsource(ci_executor._record_claude_cli_usage)
         self.assertIn("ARIA_CYCLE_SIGNER_KEY_FP", src,
-                      "_record_codex_cli_usage missing signer_key_fp env read")
+                      "_record_claude_cli_usage missing signer_key_fp env read")
         # Sentinel default for non-autonomous cycles.
         self.assertIn("SHA256:no-key", src)
 
@@ -165,7 +165,7 @@ class CostRecordBehavioralTests(unittest.TestCase):
         with patch(
             "aria_kernel.budget.record_cost_attribution",
         ) as record_mock:
-            ci_executor._record_codex_cli_usage(
+            ci_executor._record_claude_cli_usage(
                 raw_stdout='{"type":"message","text":"ok"}',
                 request_envelope={"cycle_id": "cyc-1", "role": "primary_plan"},
                 tools_dir=self.base,
@@ -193,7 +193,7 @@ class CostRecordBehavioralTests(unittest.TestCase):
             "aria_kernel.budget.record_cost_attribution",
             side_effect=_capture,
         ):
-            ci_executor._record_codex_cli_usage(
+            ci_executor._record_claude_cli_usage(
                 raw_stdout="\n".join(_json.dumps(event) for event in events),
                 request_envelope={
                     "cycle_id": "cyc-real-001",

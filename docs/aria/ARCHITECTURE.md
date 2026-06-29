@@ -4,7 +4,7 @@
 
 Authority: explanatory-architecture
 Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts
-Runtime status: Codex CLI mainline
+Runtime status: Claude Code CLI mainline
 Historical scope: snowball/Claude-era references are non-normative unless reaffirmed by current executable contracts
 
 ## Authority Chain / Yetki Zinciri
@@ -519,17 +519,17 @@ flowchart TD
 
 ### EN
 
-ARIA live autonomous execution is Codex CLI based. Promotion evidence must be artifact-bearing, hash-bound, path-contained, indexed, and connected to cycle/run ledgers. Lifecycle-only cycles do not authorize promotion.
+ARIA live autonomous execution is Claude Code CLI based. Promotion evidence must be artifact-bearing, hash-bound, path-contained, indexed, and connected to cycle/run ledgers. Lifecycle-only cycles do not authorize promotion.
 
 ### TR
 
-ARIA canlı autonomous execution Codex CLI tabanlıdır. Promotion evidence artifact-bearing, hash-bound, path-contained, indexed ve cycle/run ledger bağlantılı olmalıdır. Lifecycle-only cycle promotion yetkisi vermez.
+ARIA canlı autonomous execution Claude Code CLI tabanlıdır. Promotion evidence artifact-bearing, hash-bound, path-contained, indexed ve cycle/run ledger bağlantılı olmalıdır. Lifecycle-only cycle promotion yetkisi vermez.
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
 | Claim | Code/Test authority | Why it matters |
 |---|---|---|
-| Codex runtime | [tools/aria-poc/codex_runtime.py](../../tools/aria-poc/codex_runtime.py) | Runtime calls are Codex CLI mainline. |
+| Claude runtime | [tools/aria-poc/claude_runtime.py](../../tools/aria-poc/claude_runtime.py) | Runtime calls are Claude Code CLI mainline. |
 | CI executor | [tools/aria-poc/ci_executor.py](../../tools/aria-poc/ci_executor.py) | CI execution path is explicit. |
 | Worker executor | [tools/aria-poc/worker_executor.py](../../tools/aria-poc/worker_executor.py) | Worker execution path is explicit. |
 | Artifact graph | [aria-kernel/aria_kernel/runtime_artifacts.py](../../aria-kernel/aria_kernel/runtime_artifacts.py) | Promotion proof is graph and hash bound. |
@@ -544,14 +544,14 @@ ARIA canlı autonomous execution Codex CLI tabanlıdır. Promotion evidence arti
 ```mermaid
 sequenceDiagram
   participant CI as GitHub Actions / CI
-  participant Codex as Codex CLI
+  participant Claude as Claude Code CLI
   participant Kernel as ARIA Kernel
   participant Tools as Bound tools-dir
   participant Artifacts as Artifact Graph
   participant Gates as Validation Gates
 
-  CI->>Codex: ChatGPT-managed login
-  Codex->>Kernel: run with workspace-root and tools-dir
+  CI->>Claude: managed Claude Code login
+  Claude->>Kernel: run with workspace-root and tools-dir
   Kernel->>Tools: write bounded ledgers
   Kernel->>Artifacts: attach hash-bound proof
   Artifacts->>Gates: validate promotion evidence
@@ -657,7 +657,7 @@ Bu matris açıklayıcı grafikleri koda bağlı tutar. Aşağıdaki ana dayanak
 | Merge authority | [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) |
 | CI executor | [tools/aria-poc/ci_executor.py](../../tools/aria-poc/ci_executor.py) |
 | Worker executor | [tools/aria-poc/worker_executor.py](../../tools/aria-poc/worker_executor.py) |
-| Codex runtime | [tools/aria-poc/codex_runtime.py](../../tools/aria-poc/codex_runtime.py) |
+| Claude runtime | [tools/aria-poc/claude_runtime.py](../../tools/aria-poc/claude_runtime.py) |
 | Artifact safety | [aria-kernel/aria_kernel/artifact_safety.py](../../aria-kernel/aria_kernel/artifact_safety.py) |
 
 ### Diagram / Diyagram

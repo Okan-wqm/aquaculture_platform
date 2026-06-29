@@ -1,8 +1,7 @@
 """Per-agent runtime profile (model + reasoning effort) SSoT reader.
 
 Plan 023 §A — model/effort tiering. Until this module existed every ARIA
-agent ran on the single most expensive setting: the Codex executor forced
-``model_reasoning_effort="xhigh"`` globally and the Claude-path frontmatter
+agent ran on the single most expensive setting and the frontmatter
 ``model:``/``effort:`` fields were declared but never consumed at runtime.
 
 The fix follows the "scout-and-verify" operator decision: the cheap tier
@@ -12,11 +11,10 @@ cheap tier blindly. The agent frontmatter is the single source of truth for
 which tier each agent runs on. Two backends consume it:
 
 * Claude Code Agent dispatch honours ``model:`` natively.
-* The Codex CLI executor (``tools/aria-poc/codex_runtime.py``) maps
-  ``effort:`` to ``model_reasoning_effort`` via
-  :func:`resolve_codex_reasoning_effort`.
+* The Claude Code CLI executor (``tools/aria-poc/claude_runtime.py``) resolves
+  ``model:`` to the ``--model`` alias via :func:`resolve_claude_model`.
 
-This module is the only reader, so the two backends can never drift from the
+This module is the only reader, so both consumers can never drift from the
 frontmatter. Fail-safe by design: an unknown agent or a missing/invalid field
 resolves to the most expensive tier (``opus`` / ``xhigh``). A silent cost
 downgrade can therefore never be introduced by omission — only by an explicit,
@@ -122,11 +120,12 @@ def read_agent_runtime_profile(
     return _read_profile_cached(agent_name.strip(), root_str)
 
 
-def resolve_codex_reasoning_effort(
+def resolve_claude_model(
     agent_name: str,
     *,
     repo_root: str | Path | None = None,
 ) -> str:
-    """Codex executor lever: map an agent's frontmatter ``effort`` to the
-    ``model_reasoning_effort`` config value. Fail-safe to ``xhigh``."""
-    return read_agent_runtime_profile(agent_name, repo_root=repo_root).effort
+    """Claude Code CLI executor lever: resolve an agent's frontmatter
+    ``model`` tier to the ``--model`` alias the CLI consumes. Fail-safe to
+    ``opus`` (the most capable tier) for unknown agents or invalid fields."""
+    return read_agent_runtime_profile(agent_name, repo_root=repo_root).model

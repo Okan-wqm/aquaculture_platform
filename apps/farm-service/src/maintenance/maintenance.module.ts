@@ -40,6 +40,15 @@ import { ListOverdueWorkOrdersHandler } from './handlers/list-overdue-work-order
 import { ListMyWorkOrdersHandler } from './handlers/list-my-work-orders.handler';
 import { GetWorkOrderStatisticsHandler } from './handlers/get-work-order-statistics.handler';
 
+// Maintenance-schedule read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetMaintenanceScheduleHandler } from './handlers/get-maintenance-schedule.handler';
+import { GetMaintenanceScheduleByCodeHandler } from './handlers/get-maintenance-schedule-by-code.handler';
+import { ListMaintenanceSchedulesHandler } from './handlers/list-maintenance-schedules.handler';
+import { ListUpcomingMaintenanceSchedulesHandler } from './handlers/list-upcoming-maintenance-schedules.handler';
+import { ListOverdueMaintenanceSchedulesHandler } from './handlers/list-overdue-maintenance-schedules.handler';
+import { ListMaintenanceScheduleAlertsHandler } from './handlers/list-maintenance-schedule-alerts.handler';
+import { GetMaintenanceComplianceReportHandler } from './handlers/get-maintenance-compliance-report.handler';
+
 const WorkOrderQueryHandlers = [
   GetWorkOrderHandler,
   GetWorkOrderByCodeHandler,
@@ -47,6 +56,16 @@ const WorkOrderQueryHandlers = [
   ListOverdueWorkOrdersHandler,
   ListMyWorkOrdersHandler,
   GetWorkOrderStatisticsHandler,
+];
+
+const MaintenanceScheduleQueryHandlers = [
+  GetMaintenanceScheduleHandler,
+  GetMaintenanceScheduleByCodeHandler,
+  ListMaintenanceSchedulesHandler,
+  ListUpcomingMaintenanceSchedulesHandler,
+  ListOverdueMaintenanceSchedulesHandler,
+  ListMaintenanceScheduleAlertsHandler,
+  GetMaintenanceComplianceReportHandler,
 ];
 
 @Module({
@@ -70,6 +89,9 @@ const WorkOrderQueryHandlers = [
 
     // Work-order query handlers
     ...WorkOrderQueryHandlers,
+
+    // Maintenance-schedule query handlers
+    ...MaintenanceScheduleQueryHandlers,
   ],
   exports: [
     TypeOrmModule,

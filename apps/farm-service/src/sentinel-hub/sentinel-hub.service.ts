@@ -12,9 +12,13 @@
  * @see HIGH sentinel-cbc
  */
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { TenantContextError } from '@aquaculture/backend-common/database';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
+import {
+  TenantContextError,
+  runInTenantRead,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import {
   SentinelHubSettings,
   SentinelHubStatus,
@@ -29,6 +33,8 @@ export class SentinelHubService implements OnModuleInit {
   constructor(
     @InjectRepository(SentinelHubSettings)
     private readonly settingsRepo: Repository<SentinelHubSettings>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   onModuleInit(): void {
@@ -91,7 +97,9 @@ export class SentinelHubService implements OnModuleInit {
    */
   async getCredentials(tenantId: string): Promise<SentinelHubCredentials | null> {
     try {
-      const settings = await this.settingsRepo.findOne({ where: { tenantId } });
+      const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
+        qr.manager.findOne(SentinelHubSettings, { where: { tenantId } }),
+      );
 
       if (!settings || !settings.isConfigured) {
         return null;
@@ -132,22 +140,26 @@ export class SentinelHubService implements OnModuleInit {
     tenantId: string,
   ): Promise<{ clientId: string; clientSecret: string } | null> {
     try {
-      const settings = await this.settingsRepo.findOne({ where: { tenantId } });
+      // Credential read + usage-write on the fail-closed READ-WRITE boundary
+      // (runInTenantTransaction, since usage stats are persisted here).
+      return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (qr) => {
+        const settings = await qr.manager.findOne(SentinelHubSettings, { where: { tenantId } });
 
-      if (!settings || !settings.isConfigured) {
-        return null;
-      }
+        if (!settings || !settings.isConfigured) {
+          return null;
+        }
 
-      // Update usage stats
-      settings.usageCount += 1;
-      settings.lastUsed = new Date();
-      await this.settingsRepo.save(settings);
+        // Update usage stats
+        settings.usageCount += 1;
+        settings.lastUsed = new Date();
+        await qr.manager.save(settings);
 
-      // Values are already plaintext (ORM transformer decrypted on read).
-      return {
-        clientId: settings.clientId,
-        clientSecret: settings.clientSecret,
-      };
+        // Values are already plaintext (ORM transformer decrypted on read).
+        return {
+          clientId: settings.clientId,
+          clientSecret: settings.clientSecret,
+        };
+      });
     } catch (error) {
       if (error instanceof TenantContextError) {
         throw error;
@@ -165,7 +177,9 @@ export class SentinelHubService implements OnModuleInit {
    */
   async getStatus(tenantId: string): Promise<SentinelHubStatus> {
     try {
-      const settings = await this.settingsRepo.findOne({ where: { tenantId } });
+      const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
+        qr.manager.findOne(SentinelHubSettings, { where: { tenantId } }),
+      );
 
       if (!settings) {
         return {
@@ -232,10 +246,12 @@ export class SentinelHubService implements OnModuleInit {
    * Check if a tenant has configured Sentinel Hub
    */
   async isConfigured(tenantId: string): Promise<boolean> {
-    const settings = await this.settingsRepo.findOne({
-      where: { tenantId },
-      select: ['isConfigured'],
-    });
+    const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
+      qr.manager.findOne(SentinelHubSettings, {
+        where: { tenantId },
+        select: ['isConfigured'],
+      }),
+    );
     return settings?.isConfigured ?? false;
   }
 
@@ -316,7 +332,9 @@ export class SentinelHubService implements OnModuleInit {
    */
   async getWmtsConfig(tenantId: string): Promise<SentinelHubWmtsConfig | null> {
     try {
-      const settings = await this.settingsRepo.findOne({ where: { tenantId } });
+      const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
+        qr.manager.findOne(SentinelHubSettings, { where: { tenantId } }),
+      );
 
       if (!settings || !settings.instanceId) {
         this.logger.debug(`No WMTS instanceId configured for tenant ${tenantId}`);

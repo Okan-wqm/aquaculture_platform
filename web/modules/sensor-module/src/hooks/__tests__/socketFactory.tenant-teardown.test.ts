@@ -52,7 +52,7 @@ vi.mock('@aquaculture/shared-ui', () => ({
   registerLogoutCleanup: () => () => {},
 }));
 
-import { getSocket } from '../socketFactory';
+import { getSocket, releaseSocket } from '../socketFactory';
 
 function fireTenantChange(oldTenantId: string): void {
   for (const cb of ten.tenantChangeCbs) cb(oldTenantId);
@@ -97,5 +97,24 @@ describe('socketFactory tenant-switch teardown (B2a)', () => {
 
     expect(sio.sockets[0].disconnect).toHaveBeenCalled(); // A torn down
     expect(sio.sockets[1].disconnect).not.toHaveBeenCalled(); // B untouched
+  });
+
+  it('releaseSocket(socket) releases the ACQUIRED entry by identity, immune to a switch (B2b)', () => {
+    ten.tenantId = 'tenantA3';
+    const sockA = getSocket('wss://host/io'); // ::A3, refCount 1
+    ten.tenantId = 'tenantB3';
+    const sockB = getSocket('wss://host/io'); // ::B3, refCount 1
+
+    // Release A's socket while the ambient tenant is now B. The old tenant-derived
+    // releaseSocket(url) would have keyed ::B3 and torn down B's socket; identity
+    // release must tear down A's and leave B untouched (ORPHAN-MEDIUM-213).
+    releaseSocket(sockA);
+
+    expect(sockA?.disconnect).toHaveBeenCalled();
+    expect(sockB?.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('releaseSocket(null) is a no-op (getSocket returned null → nothing acquired)', () => {
+    expect(() => releaseSocket(null)).not.toThrow();
   });
 });

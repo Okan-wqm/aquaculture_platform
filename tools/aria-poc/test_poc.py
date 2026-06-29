@@ -267,6 +267,57 @@ export function StatusPanel() {
 
         self.assertEqual(groups, [])
 
+    def test_detect_sql_enums_skips_archived_migrations(self) -> None:
+        """Archived (re-baselined) migrations must not enter the drift corpus.
+
+        Regression for the ``goal`` phantom drift: the active baseline dropped
+        ``partially_completed`` but the archived migration still declares it.
+        Comparing a TS entity against the archived enum produced a false drift.
+        ``detect_sql_enums`` must return only the ACTIVE migration's enum.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            active = (root / "apps" / "hr-service" / "src" / "database"
+                      / "migrations" / "1800000000000-Baseline.ts")
+            archived = (root / "apps" / "hr-service" / "src" / "database"
+                        / "migrations" / ".archive" / "2026-05-18T09-43-29-900Z"
+                        / "1736000000000-CreateHRModuleSchema.ts")
+            active.parent.mkdir(parents=True)
+            archived.parent.mkdir(parents=True)
+            active.write_text(
+                "CREATE TYPE goal_status AS ENUM "
+                "('not_started', 'in_progress', 'completed', 'cancelled', 'on_hold');\n",
+                encoding="utf-8",
+            )
+            archived.write_text(
+                "CREATE TYPE goal_status AS ENUM "
+                "('not_started', 'in_progress', 'completed', "
+                "'partially_completed', 'on_hold', 'cancelled');\n",
+                encoding="utf-8",
+            )
+            fates = [
+                aria_poc.FileFate(str(active.relative_to(root)), "read_deeply"),
+                aria_poc.FileFate(str(archived.relative_to(root)), "read_deeply"),
+            ]
+
+            enums = aria_poc.detect_sql_enums(root, fates)
+
+        self.assertEqual(len(enums), 1, "archived migration enum must be skipped")
+        self.assertEqual(enums[0]["name"], "goal_status")
+        self.assertNotIn("partially_completed", enums[0]["values"])
+        self.assertTrue(enums[0]["ref"].startswith("apps/hr-service/src/database/migrations/1800000000000"))
+
+    def test_is_archived_migration_path_predicate(self) -> None:
+        from tools.shared.excluded_paths import is_archived_migration_path
+
+        self.assertTrue(is_archived_migration_path(
+            "apps/hr-service/src/database/migrations/.archive/2026-05-18T0/x.ts"))
+        # active migration — not archived
+        self.assertFalse(is_archived_migration_path(
+            "apps/hr-service/src/database/migrations/1800000000000-Baseline.ts"))
+        # ARIA's own runtime archive under aria-tools must NOT be mistaken for one
+        self.assertFalse(is_archived_migration_path("aria-tools/.archive/runtime/x.json"))
+
     def test_const_array_zod_and_graphql_extractors(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

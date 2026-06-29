@@ -122,6 +122,7 @@ export default {
         '<rootDir>/federation-shared-singleton.spec.ts',
         '<rootDir>/web-remotes-no-nested-queryclient.spec.ts',
         '<rootDir>/web-no-raw-graphql-rest-fetch.spec.ts',
+        '<rootDir>/web-usetenantquery-adoption-ratchet.spec.ts',
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',

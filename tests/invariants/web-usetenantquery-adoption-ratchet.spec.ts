@@ -28,10 +28,10 @@ const PATTERN = /createTenantQueryKey\(/g;
 /**
  * High-water mark of raw createTenantQueryKey usages in FE modules/shell. RATCHET:
  * only ever DECREASE this, in lockstep with migrating hooks to useTenantQuery.
- * 2026-06-29: 282 → 258 (useEdgeDevices' 24 invalidation keys moved to
- * createTenantInvalidationKey, see web-no-createtenantquerykey-in-invalidate).
+ * 2026-06-29: 282 → 258 (useEdgeDevices, #722) → 220 (the sensor invalidation-key
+ * cluster moved to createTenantInvalidationKey, see web-no-createtenantquerykey-in-invalidate).
  */
-const BASELINE_CEILING = 258;
+const BASELINE_CEILING = 220;
 
 function walk(dir: string): string[] {
   const out: string[] = [];

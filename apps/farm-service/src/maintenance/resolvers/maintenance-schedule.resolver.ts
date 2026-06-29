@@ -33,6 +33,14 @@ import {
   ScheduleAlert,
   ComplianceReport,
 } from '../services/maintenance-schedule.service';
+import { QueryBus } from '@platform/cqrs';
+import { GetMaintenanceScheduleQuery } from '../queries/get-maintenance-schedule.query';
+import { GetMaintenanceScheduleByCodeQuery } from '../queries/get-maintenance-schedule-by-code.query';
+import { ListMaintenanceSchedulesQuery } from '../queries/list-maintenance-schedules.query';
+import { ListUpcomingMaintenanceSchedulesQuery } from '../queries/list-upcoming-maintenance-schedules.query';
+import { ListOverdueMaintenanceSchedulesQuery } from '../queries/list-overdue-maintenance-schedules.query';
+import { ListMaintenanceScheduleAlertsQuery } from '../queries/list-maintenance-schedule-alerts.query';
+import { GetMaintenanceComplianceReportQuery } from '../queries/get-maintenance-compliance-report.query';
 import { CreateMaintenanceScheduleInput } from '../dto/create-maintenance-schedule.dto';
 import {
   UpdateMaintenanceScheduleInput,
@@ -133,6 +141,7 @@ export class MaintenanceScheduleResolver {
 
   constructor(
     private readonly maintenanceScheduleService: MaintenanceScheduleService,
+    private readonly queryBus: QueryBus,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -146,7 +155,7 @@ export class MaintenanceScheduleResolver {
     @Tenant() tenantId: string,
   ): Promise<MaintenanceSchedule> {
     this.logger.debug(`Getting maintenance schedule: ${id}`);
-    return this.maintenanceScheduleService.findById(tenantId, id);
+    return this.queryBus.execute(new GetMaintenanceScheduleQuery(tenantId, id));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -156,7 +165,7 @@ export class MaintenanceScheduleResolver {
     @Tenant() tenantId: string,
   ): Promise<MaintenanceSchedule> {
     this.logger.debug(`Getting maintenance schedule by code: ${code}`);
-    return this.maintenanceScheduleService.findByCode(tenantId, code);
+    return this.queryBus.execute(new GetMaintenanceScheduleByCodeQuery(tenantId, code));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -175,13 +184,8 @@ export class MaintenanceScheduleResolver {
     sortOrder?: 'ASC' | 'DESC',
   ): Promise<IStandardPaginatedResult<MaintenanceSchedule>> {
     this.logger.debug(`Listing maintenance schedules for tenant: ${tenantId}`);
-    return this.maintenanceScheduleService.findAll(
-      tenantId,
-      filter,
-      page,
-      limit,
-      sortBy,
-      sortOrder,
+    return this.queryBus.execute(
+      new ListMaintenanceSchedulesQuery(tenantId, filter, page, limit, sortBy, sortOrder),
     );
   }
 
@@ -193,7 +197,7 @@ export class MaintenanceScheduleResolver {
     days?: number,
   ): Promise<MaintenanceSchedule[]> {
     this.logger.debug(`Getting upcoming maintenance schedules for tenant: ${tenantId}`);
-    return this.maintenanceScheduleService.findUpcoming(tenantId, days);
+    return this.queryBus.execute(new ListUpcomingMaintenanceSchedulesQuery(tenantId, days));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -202,7 +206,7 @@ export class MaintenanceScheduleResolver {
     @Tenant() tenantId: string,
   ): Promise<MaintenanceSchedule[]> {
     this.logger.debug(`Getting overdue maintenance schedules for tenant: ${tenantId}`);
-    return this.maintenanceScheduleService.findOverdue(tenantId);
+    return this.queryBus.execute(new ListOverdueMaintenanceSchedulesQuery(tenantId));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -211,8 +215,8 @@ export class MaintenanceScheduleResolver {
     @Tenant() tenantId: string,
   ): Promise<ScheduleAlertResponse[]> {
     this.logger.debug(`Getting maintenance alerts for tenant: ${tenantId}`);
-    const alerts = await this.maintenanceScheduleService.findSchedulesRequiringAlert(
-      tenantId,
+    const alerts = await this.queryBus.execute<ListMaintenanceScheduleAlertsQuery, ScheduleAlert[]>(
+      new ListMaintenanceScheduleAlertsQuery(tenantId),
     );
 
     return alerts.map((alert) => ({
@@ -228,8 +232,8 @@ export class MaintenanceScheduleResolver {
     @Tenant() tenantId: string,
   ): Promise<ComplianceReportResponse> {
     this.logger.debug(`Getting compliance report for tenant: ${tenantId}`);
-    const report = await this.maintenanceScheduleService.getComplianceReport(
-      tenantId,
+    const report = await this.queryBus.execute<GetMaintenanceComplianceReportQuery, ComplianceReport>(
+      new GetMaintenanceComplianceReportQuery(tenantId),
     );
 
     return {

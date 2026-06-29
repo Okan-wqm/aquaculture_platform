@@ -32,6 +32,23 @@ import { WorkOrderResolver } from './resolvers/work-order.resolver';
 import { MaintenanceScheduleResolver } from './resolvers/maintenance-schedule.resolver';
 import { SparePartResolver } from './resolvers/spare-part.resolver';
 
+// Work-order read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetWorkOrderHandler } from './handlers/get-work-order.handler';
+import { GetWorkOrderByCodeHandler } from './handlers/get-work-order-by-code.handler';
+import { ListWorkOrdersHandler } from './handlers/list-work-orders.handler';
+import { ListOverdueWorkOrdersHandler } from './handlers/list-overdue-work-orders.handler';
+import { ListMyWorkOrdersHandler } from './handlers/list-my-work-orders.handler';
+import { GetWorkOrderStatisticsHandler } from './handlers/get-work-order-statistics.handler';
+
+// Maintenance-schedule read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetMaintenanceScheduleHandler } from './handlers/get-maintenance-schedule.handler';
+import { GetMaintenanceScheduleByCodeHandler } from './handlers/get-maintenance-schedule-by-code.handler';
+import { ListMaintenanceSchedulesHandler } from './handlers/list-maintenance-schedules.handler';
+import { ListUpcomingMaintenanceSchedulesHandler } from './handlers/list-upcoming-maintenance-schedules.handler';
+import { ListOverdueMaintenanceSchedulesHandler } from './handlers/list-overdue-maintenance-schedules.handler';
+import { ListMaintenanceScheduleAlertsHandler } from './handlers/list-maintenance-schedule-alerts.handler';
+import { GetMaintenanceComplianceReportHandler } from './handlers/get-maintenance-compliance-report.handler';
+
 // Spare-part read handlers (fail-closed tenant boundary — FARM-HIGH-060)
 import { GetSparePartHandler } from './handlers/get-spare-part.handler';
 import { GetSparePartByCodeHandler } from './handlers/get-spare-part-by-code.handler';
@@ -40,6 +57,25 @@ import { ListSparePartsHandler } from './handlers/list-spare-parts.handler';
 import { ListLowStockAlertsHandler } from './handlers/list-low-stock-alerts.handler';
 import { ListSparePartsByEquipmentTypeHandler } from './handlers/list-spare-parts-by-equipment-type.handler';
 import { GetStockSummaryHandler } from './handlers/get-stock-summary.handler';
+
+const WorkOrderQueryHandlers = [
+  GetWorkOrderHandler,
+  GetWorkOrderByCodeHandler,
+  ListWorkOrdersHandler,
+  ListOverdueWorkOrdersHandler,
+  ListMyWorkOrdersHandler,
+  GetWorkOrderStatisticsHandler,
+];
+
+const MaintenanceScheduleQueryHandlers = [
+  GetMaintenanceScheduleHandler,
+  GetMaintenanceScheduleByCodeHandler,
+  ListMaintenanceSchedulesHandler,
+  ListUpcomingMaintenanceSchedulesHandler,
+  ListOverdueMaintenanceSchedulesHandler,
+  ListMaintenanceScheduleAlertsHandler,
+  GetMaintenanceComplianceReportHandler,
+];
 
 const SparePartQueryHandlers = [
   GetSparePartHandler,
@@ -69,6 +105,12 @@ const SparePartQueryHandlers = [
     WorkOrderResolver,
     MaintenanceScheduleResolver,
     SparePartResolver,
+
+    // Work-order query handlers
+    ...WorkOrderQueryHandlers,
+
+    // Maintenance-schedule query handlers
+    ...MaintenanceScheduleQueryHandlers,
 
     // Spare-part query handlers
     ...SparePartQueryHandlers,

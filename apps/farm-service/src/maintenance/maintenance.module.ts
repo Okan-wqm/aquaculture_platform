@@ -32,6 +32,25 @@ import { WorkOrderResolver } from './resolvers/work-order.resolver';
 import { MaintenanceScheduleResolver } from './resolvers/maintenance-schedule.resolver';
 import { SparePartResolver } from './resolvers/spare-part.resolver';
 
+// Spare-part read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetSparePartHandler } from './handlers/get-spare-part.handler';
+import { GetSparePartByCodeHandler } from './handlers/get-spare-part-by-code.handler';
+import { GetSparePartByPartNumberHandler } from './handlers/get-spare-part-by-part-number.handler';
+import { ListSparePartsHandler } from './handlers/list-spare-parts.handler';
+import { ListLowStockAlertsHandler } from './handlers/list-low-stock-alerts.handler';
+import { ListSparePartsByEquipmentTypeHandler } from './handlers/list-spare-parts-by-equipment-type.handler';
+import { GetStockSummaryHandler } from './handlers/get-stock-summary.handler';
+
+const SparePartQueryHandlers = [
+  GetSparePartHandler,
+  GetSparePartByCodeHandler,
+  GetSparePartByPartNumberHandler,
+  ListSparePartsHandler,
+  ListLowStockAlertsHandler,
+  ListSparePartsByEquipmentTypeHandler,
+  GetStockSummaryHandler,
+];
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -50,6 +69,9 @@ import { SparePartResolver } from './resolvers/spare-part.resolver';
     WorkOrderResolver,
     MaintenanceScheduleResolver,
     SparePartResolver,
+
+    // Spare-part query handlers
+    ...SparePartQueryHandlers,
   ],
   exports: [
     TypeOrmModule,

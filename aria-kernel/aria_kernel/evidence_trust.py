@@ -82,6 +82,17 @@ def classify_evidence_ref(
     exists = is_file or is_dir
     content_hash = _file_sha256(absolute) if is_file else None
     resolved_target_sha = _resolve_target_sha(root, target_sha)
+    # Plan 031-R R3 (B4) — a cited line MUST exist in the file. Pre-R3 only the
+    # path was checked, so `real.ts:999999` resolved as worktree_candidate even
+    # though the line does not exist. A line beyond the file's length is a
+    # fabricated citation → invalid.
+    if is_file and line is not None and line > 0:
+        try:
+            line_count = len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
+        except OSError:
+            line_count = 0
+        if line > line_count:
+            validation_errors = (*validation_errors, f"line_out_of_bounds:{line}>{line_count}")
     if validation_errors:
         trust_grade = "invalid"
     elif self_output_class is not None:

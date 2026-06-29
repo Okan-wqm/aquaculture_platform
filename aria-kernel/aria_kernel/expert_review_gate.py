@@ -64,10 +64,13 @@ _INDEPENDENCE_TOPUP: tuple[str, ...] = (
     "root-cause-auditor",
 )
 
-# Evidence grades that count as a hallucination (a ref that does not resolve in
-# the repo). Mirrors feedback_store._has_unverifiable_evidence — worktree_candidate
-# gets the benefit of the doubt; repo_verified / self_output pass.
-_UNVERIFIABLE_GRADES: frozenset[str] = frozenset({"missing", "invalid"})
+# Plan 031-R R3 (B3/B4) — the expert gate requires repo_verified evidence.
+# Unlike the judge consensus gate (which gives worktree_candidate the benefit of
+# the doubt), an autonomous fix's approval must cite evidence that resolves to
+# the git blob at the fix's BASE SHA. Anything else — worktree_candidate,
+# self_output, missing, invalid — is unverifiable here. This is the per-ref form
+# of EvidencePolicy.require_repo_verified (evidence_trust.py).
+_REQUIRED_TRUST_GRADE: str = "repo_verified"
 
 
 def select_expert_reviewers(
@@ -122,6 +125,16 @@ def evaluate_expert_consensus(
     git-blob cost, and the hallucination signal is only computed on an otherwise
     passing panel.
     """
+    # Plan 031-R R3 (B4) — without a base SHA the gate cannot verify any ref
+    # against the fix's committed code, so it fails closed rather than falling
+    # back to worktree_candidate acceptance.
+    if not base_sha:
+        return {
+            "approved": False,
+            "reason": "base_sha_required",
+            "distinct_reviewers": [],
+        }
+
     distinct = sorted({str(v.get("expert") or "") for v in verdicts if v.get("expert")})
     if len(distinct) < min_reviewers:
         return {
@@ -149,9 +162,21 @@ def evaluate_expert_consensus(
             "mean_confidence": mean_confidence,
         }
 
-    # Anti-hallucination: re-verify every reviewer's evidence_refs against the
-    # git blob at the fix's base SHA. A ref that does not resolve is a fabricated
-    # citation — the approval is not trustworthy.
+    # Plan 031-R R3 (B3) — each reviewer MUST cite at least one evidence ref.
+    # An empty/absent evidence list is an ungrounded approval; the whole point of
+    # the gate is evidence-grounded review.
+    for v in verdicts:
+        if not (v.get("evidence_refs") or []):
+            return {
+                "approved": False,
+                "reason": "missing_evidence_refs",
+                "distinct_reviewers": distinct,
+                "expert": str(v.get("expert") or ""),
+            }
+
+    # Anti-hallucination: every reviewer's evidence_refs must resolve to the git
+    # blob at the fix's base SHA (repo_verified). A ref that is worktree_candidate
+    # / self_output / missing / invalid is not trustworthy for an autonomous fix.
     unverifiable: list[dict[str, str]] = []
     for v in verdicts:
         for ref in v.get("evidence_refs", []) or []:
@@ -161,7 +186,7 @@ def evaluate_expert_consensus(
                 context="expert_consensus_evidence_gate",
                 target_sha=base_sha,
             )
-            if envelope.trust_grade in _UNVERIFIABLE_GRADES:
+            if envelope.trust_grade != _REQUIRED_TRUST_GRADE:
                 unverifiable.append({
                     "expert": str(v.get("expert") or ""),
                     "ref": str(ref),

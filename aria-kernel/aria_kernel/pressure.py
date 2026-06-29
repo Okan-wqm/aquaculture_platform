@@ -96,7 +96,10 @@ def run_pressure(
             ),
         )
     migration_count = int(fingerprint.get("migration_ts_count") or fingerprint.get("migration_count") or 0)
-    if migration_count >= 5:
+    # Concrete, repo-verifiable evidence (L1) — discovery surfaces bounded real
+    # migration paths in ``migration_evidence_paths``; a glob is not resolvable.
+    migration_evidence_paths = fingerprint.get("migration_evidence_paths") or []
+    if migration_count >= 5 and isinstance(migration_evidence_paths, list) and migration_evidence_paths:
         pressures.append(
             _pressure(
                 cycle_id=cycle_id,
@@ -104,7 +107,7 @@ def run_pressure(
                 pressure_type="REPETITION",
                 severity="medium",
                 reason="repository has repeated TypeORM migration surfaces",
-                evidence=["apps/*/src/database/migrations/*.ts"],
+                evidence=list(migration_evidence_paths),
                 occurrence_count=migration_count,
                 candidate_tools=["typeorm-entity-schema-adapter"],
                 recommended_action="continue TypeORM schema drift checks",

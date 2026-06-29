@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Between, LessThan, MoreThan, Like, ILike, DataSource } from 'typeorm';
+import { Repository, In, Like, DataSource } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 import {
   WorkOrder,
@@ -40,8 +40,6 @@ import {
   UsedMaterialInput,
   LaborRecordInput,
 } from '../dto/update-work-order.dto';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
-import { WorkOrderFilterInput } from '../dto/work-order-filter.dto';
 
 /**
  * WorkOrder statistics
@@ -259,183 +257,6 @@ export class WorkOrderService {
     }
 
     return workOrder;
-  }
-
-  /**
-   * Kod ile iş emri bulur
-   */
-  async findByCode(tenantId: string, code: string): Promise<WorkOrder> {
-    const workOrder = await this.workOrderRepository.findOne({
-      where: { workOrderCode: code, tenantId },
-    });
-
-    if (!workOrder) {
-      throw new NotFoundException(`İş emri bulunamadı: ${code}`);
-    }
-
-    return workOrder;
-  }
-
-  /**
-   * Filtrelenmiş iş emirlerini listeler
-   */
-  async findAll(
-    tenantId: string,
-    filter?: WorkOrderFilterInput,
-    page = 1,
-    limit = 20,
-    sortBy = 'createdAt',
-    sortOrder: 'ASC' | 'DESC' = 'DESC',
-  ): Promise<IStandardPaginatedResult<WorkOrder>> {
-    const query = this.workOrderRepository
-      .createQueryBuilder('wo')
-      .where('wo.tenantId = :tenantId', { tenantId });
-
-    // Apply filters
-    if (filter?.status?.length) {
-      query.andWhere('wo.status IN (:...statuses)', { statuses: filter.status });
-    }
-    if (filter?.type?.length) {
-      query.andWhere('wo.type IN (:...types)', { types: filter.type });
-    }
-    if (filter?.priority?.length) {
-      query.andWhere('wo.priority IN (:...priorities)', {
-        priorities: filter.priority,
-      });
-    }
-    if (filter?.assetType) {
-      query.andWhere('wo.assetType = :assetType', { assetType: filter.assetType });
-    }
-    if (filter?.assetId) {
-      query.andWhere('wo.assetId = :assetId', { assetId: filter.assetId });
-    }
-    if (filter?.assignedTo) {
-      query.andWhere('wo.assignedTo = :assignedTo', {
-        assignedTo: filter.assignedTo,
-      });
-    }
-    if (filter?.assignedTeamId) {
-      query.andWhere('wo.assignedTeamId = :assignedTeamId', {
-        assignedTeamId: filter.assignedTeamId,
-      });
-    }
-    if (filter?.maintenanceScheduleId) {
-      query.andWhere('wo.maintenanceScheduleId = :scheduleId', {
-        scheduleId: filter.maintenanceScheduleId,
-      });
-    }
-    if (filter?.dueDateFrom) {
-      query.andWhere('wo.dueDate >= :dueDateFrom', {
-        dueDateFrom: new Date(filter.dueDateFrom),
-      });
-    }
-    if (filter?.dueDateTo) {
-      query.andWhere('wo.dueDate <= :dueDateTo', {
-        dueDateTo: new Date(filter.dueDateTo),
-      });
-    }
-    if (filter?.createdFrom) {
-      query.andWhere('wo.createdAt >= :createdFrom', {
-        createdFrom: new Date(filter.createdFrom),
-      });
-    }
-    if (filter?.createdTo) {
-      query.andWhere('wo.createdAt <= :createdTo', {
-        createdTo: new Date(filter.createdTo),
-      });
-    }
-    if (filter?.isOverdue) {
-      query.andWhere('wo.dueDate < :now', { now: new Date() });
-      query.andWhere('wo.status NOT IN (:...completedStatuses)', {
-        completedStatuses: [
-          WorkOrderStatus.COMPLETED,
-          WorkOrderStatus.VERIFIED,
-          WorkOrderStatus.CANCELLED,
-        ],
-      });
-    }
-    if (filter?.isRecurring !== undefined) {
-      query.andWhere('wo.isRecurring = :isRecurring', {
-        isRecurring: filter.isRecurring,
-      });
-    }
-    if (filter?.searchTerm) {
-      query.andWhere(
-        '(wo.title ILIKE :search OR wo.workOrderCode ILIKE :search OR wo.description ILIKE :search)',
-        { search: `%${filter.searchTerm}%` },
-      );
-    }
-
-    // Count total
-    const total = await query.getCount();
-
-    // Apply sorting and pagination
-    const validSortFields = [
-      'createdAt',
-      'dueDate',
-      'priority',
-      'status',
-      'title',
-      'workOrderCode',
-    ];
-    const finalSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
-
-    query
-      .orderBy(`wo.${finalSortBy}`, sortOrder)
-      .skip((page - 1) * limit)
-      .take(limit);
-
-    const items = await query.getMany();
-
-    return createStandardPaginatedResult(items, total, page, limit);
-  }
-
-  /**
-   * Gecikmiş iş emirlerini getirir
-   */
-  async findOverdue(tenantId: string): Promise<WorkOrder[]> {
-    return this.workOrderRepository.find({
-      where: {
-        tenantId,
-        dueDate: LessThan(new Date()),
-        status: In([
-          WorkOrderStatus.DRAFT,
-          WorkOrderStatus.PENDING_APPROVAL,
-          WorkOrderStatus.APPROVED,
-          WorkOrderStatus.SCHEDULED,
-          WorkOrderStatus.IN_PROGRESS,
-          WorkOrderStatus.ON_HOLD,
-        ]),
-      },
-      order: { dueDate: 'ASC' },
-    });
-  }
-
-  /**
-   * Kullanıcıya atanmış iş emirlerini getirir
-   */
-  async findByAssignee(
-    tenantId: string,
-    userId: string,
-    activeOnly = true,
-  ): Promise<WorkOrder[]> {
-    const whereClause: Record<string, unknown> = {
-      tenantId,
-      assignedTo: userId,
-    };
-
-    if (activeOnly) {
-      whereClause.status = In([
-        WorkOrderStatus.APPROVED,
-        WorkOrderStatus.SCHEDULED,
-        WorkOrderStatus.IN_PROGRESS,
-      ]);
-    }
-
-    return this.workOrderRepository.find({
-      where: whereClause,
-      order: { priority: 'DESC', dueDate: 'ASC' },
-    });
   }
 
   // -------------------------------------------------------------------------
@@ -737,84 +558,6 @@ export class WorkOrderService {
     workOrder.status = WorkOrderStatus.PENDING_APPROVAL;
 
     return this.workOrderRepository.save(workOrder);
-  }
-
-  // -------------------------------------------------------------------------
-  // STATISTICS
-  // -------------------------------------------------------------------------
-
-  /**
-   * İş emri istatistiklerini hesaplar
-   */
-  async getStatistics(
-    tenantId: string,
-    dateFrom?: Date,
-    dateTo?: Date,
-  ): Promise<WorkOrderStatistics> {
-    const query = this.workOrderRepository
-      .createQueryBuilder('wo')
-      .where('wo.tenantId = :tenantId', { tenantId });
-
-    if (dateFrom) {
-      query.andWhere('wo.createdAt >= :dateFrom', { dateFrom });
-    }
-    if (dateTo) {
-      query.andWhere('wo.createdAt <= :dateTo', { dateTo });
-    }
-
-    const workOrders = await query.getMany();
-
-    const stats: WorkOrderStatistics = {
-      total: workOrders.length,
-      byStatus: {} as Record<WorkOrderStatus, number>,
-      byType: {} as Record<WorkOrderType, number>,
-      byPriority: {} as Record<WorkOrderPriority, number>,
-      overdue: 0,
-      completedOnTime: 0,
-      avgCompletionTime: 0,
-      totalCost: 0,
-    };
-
-    // Initialize counts
-    Object.values(WorkOrderStatus).forEach((s) => (stats.byStatus[s] = 0));
-    Object.values(WorkOrderType).forEach((t) => (stats.byType[t] = 0));
-    Object.values(WorkOrderPriority).forEach((p) => (stats.byPriority[p] = 0));
-
-    let totalCompletionTime = 0;
-    let completedCount = 0;
-
-    for (const wo of workOrders) {
-      stats.byStatus[wo.status]++;
-      stats.byType[wo.type]++;
-      stats.byPriority[wo.priority]++;
-
-      if (wo.isOverdue()) {
-        stats.overdue++;
-      }
-
-      if (
-        wo.status === WorkOrderStatus.COMPLETED ||
-        wo.status === WorkOrderStatus.VERIFIED
-      ) {
-        if (wo.completedAt && wo.dueDate && wo.completedAt <= wo.dueDate) {
-          stats.completedOnTime++;
-        }
-        if (wo.actualDurationMinutes) {
-          totalCompletionTime += wo.actualDurationMinutes;
-          completedCount++;
-        }
-      }
-
-      if (wo.costSummary?.totalCost) {
-        stats.totalCost += Number(wo.costSummary.totalCost);
-      }
-    }
-
-    if (completedCount > 0) {
-      stats.avgCompletionTime = totalCompletionTime / completedCount;
-    }
-
-    return stats;
   }
 
   // -------------------------------------------------------------------------

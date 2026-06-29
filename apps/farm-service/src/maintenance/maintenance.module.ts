@@ -32,6 +32,23 @@ import { WorkOrderResolver } from './resolvers/work-order.resolver';
 import { MaintenanceScheduleResolver } from './resolvers/maintenance-schedule.resolver';
 import { SparePartResolver } from './resolvers/spare-part.resolver';
 
+// Work-order read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetWorkOrderHandler } from './handlers/get-work-order.handler';
+import { GetWorkOrderByCodeHandler } from './handlers/get-work-order-by-code.handler';
+import { ListWorkOrdersHandler } from './handlers/list-work-orders.handler';
+import { ListOverdueWorkOrdersHandler } from './handlers/list-overdue-work-orders.handler';
+import { ListMyWorkOrdersHandler } from './handlers/list-my-work-orders.handler';
+import { GetWorkOrderStatisticsHandler } from './handlers/get-work-order-statistics.handler';
+
+const WorkOrderQueryHandlers = [
+  GetWorkOrderHandler,
+  GetWorkOrderByCodeHandler,
+  ListWorkOrdersHandler,
+  ListOverdueWorkOrdersHandler,
+  ListMyWorkOrdersHandler,
+  GetWorkOrderStatisticsHandler,
+];
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -50,6 +67,9 @@ import { SparePartResolver } from './resolvers/spare-part.resolver';
     WorkOrderResolver,
     MaintenanceScheduleResolver,
     SparePartResolver,
+
+    // Work-order query handlers
+    ...WorkOrderQueryHandlers,
   ],
   exports: [
     TypeOrmModule,

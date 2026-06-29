@@ -23,7 +23,7 @@ The drainer drives the primary↔challenger debate via the bridge:
      ``aria_stop_interrupted`` (Plan v2 R-A10 fix)
   7. on restart, resume from persisted state (Plan v2 R-A8)
 
-In autonomous-run mode where no external agents (Codex / Claude Code
+In autonomous-run mode where no external agents (Claude Code
 sessions) are claiming envelopes, the drainer correctly times out and
 returns ``primary_silent`` / ``challenger_unavailable`` — the
 orchestrator then skips ``worker_drainer`` for that cycle. This is
@@ -426,7 +426,7 @@ def run_convergence_drainer(
     convergence progress.
 
     Defensive defaults: with no external agents claiming envelopes
-    (typical V5.1 autonomous run without real Codex/Claude Code
+    (typical V5.1 autonomous run without real Claude Code
     dispatchers), the drainer times out at ``primary_silent`` or
     ``challenger_unavailable``; the orchestrator then skips
     ``worker_drainer`` for that cycle. This is the correct

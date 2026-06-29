@@ -8,7 +8,7 @@ impact graph all attach to the same request_id. This module is the
 adapter — it does not replace plan_convergence's logic; it extends
 the entry point so a single CLI call (a) records the plan in
 plan_convergence and (b) issues the matching envelope to the
-maintenance planner queue for an external orchestrator (Codex /
+maintenance planner queue for an external orchestrator (Claude
 Claude Code session) to claim.
 """
 from __future__ import annotations

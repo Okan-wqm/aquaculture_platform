@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
 from tools.shared.excluded_paths import (
     BASE_EXCLUDED_DIRS as EXCLUDED_DIRS,
     augmented_excluded_paths,
+    is_archived_migration_path,
 )
 
 LANGUAGE_BY_EXT: dict[str, str] = {
@@ -830,6 +831,13 @@ def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     enums: list[dict] = []
     for f in fates:
         if "/database/migrations/" not in f.path:
+            continue
+        # WHY: archived (superseded) migrations under ``migrations/.archive/``
+        # describe a schema that has since been re-baselined. Comparing a
+        # current TS entity against them emits phantom drift (e.g. the
+        # ``goal`` enum's dropped ``partially_completed``). They stay walked
+        # + fated by discovery; only the drift value-set corpus skips them.
+        if is_archived_migration_path(f.path):
             continue
         full = repo_root / f.path
         try:

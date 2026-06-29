@@ -3,7 +3,7 @@
  * Handles CRUD operations for equipment via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, useTenantQuery } from '@aquaculture/shared-ui';
 
 // Types
 export interface EquipmentType {
@@ -359,23 +359,20 @@ export function useEquipmentList(filter?: {
  * Hook to fetch equipment types
  */
 export function useEquipmentTypes() {
-  const { tenantId } = useAuth();
-  const { token } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'equipment', 'types'),
-    queryFn: async () => {
+  // Per-tenant catalog (no @SkipTenantGuard) — useTenantQuery enforces the tenant
+  // prefix + the token/tenant enabled gate + keep-previous-data, so this hook no
+  // longer hand-rolls them.
+  return useTenantQuery(
+    ['equipment', 'types'],
+    async () => {
       const data = await graphqlClient.request<{ equipmentTypes: EquipmentType[] }>(
         EQUIPMENT_TYPES_QUERY,
         {},
       );
       return data.equipmentTypes;
     },
-    staleTime: 60000, // Types don't change often
-    // Per-tenant catalog: equipmentTypes is now tenant-scoped (no @SkipTenantGuard),
-    // so require a tenant context before firing.
-    enabled: !!token && !!tenantId,
-  });
+    { staleTime: 60000 },
+  );
 }
 
 /**

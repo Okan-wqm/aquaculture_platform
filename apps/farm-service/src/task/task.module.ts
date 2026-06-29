@@ -37,6 +37,29 @@ import { TaskResolver } from './resolvers/task.resolver';
 import { RecurringTemplateResolver } from './resolvers/recurring-template.resolver';
 import { AutoRuleResolver } from './resolvers/auto-rule.resolver';
 
+// Query Handlers (fail-closed reads via runInTenantRead — FARM-HIGH-060)
+import { GetTaskHandler } from './handlers/get-task.handler';
+import { ListTasksHandler } from './handlers/list-tasks.handler';
+import { ListMyTasksHandler } from './handlers/list-my-tasks.handler';
+import { ListTodaysTasksHandler } from './handlers/list-todays-tasks.handler';
+import { GetTaskStatsHandler } from './handlers/get-task-stats.handler';
+import { ListAutoRulesHandler } from './handlers/list-auto-rules.handler';
+import { GetAutoRuleHandler } from './handlers/get-auto-rule.handler';
+import { ListRecurringTemplatesHandler } from './handlers/list-recurring-templates.handler';
+import { GetRecurringTemplateHandler } from './handlers/get-recurring-template.handler';
+
+const QueryHandlers = [
+  GetTaskHandler,
+  ListTasksHandler,
+  ListMyTasksHandler,
+  ListTodaysTasksHandler,
+  GetTaskStatsHandler,
+  ListAutoRulesHandler,
+  GetAutoRuleHandler,
+  ListRecurringTemplatesHandler,
+  GetRecurringTemplateHandler,
+];
+
 @Module({
   imports: [
     // FarmMobileCommandReceipt registered so the at-most-once receipt table
@@ -57,6 +80,9 @@ import { AutoRuleResolver } from './resolvers/auto-rule.resolver';
     TaskResolver,
     RecurringTemplateResolver,
     AutoRuleResolver,
+
+    // Query Handlers
+    ...QueryHandlers,
   ],
   exports: [TaskService, AutoRuleService, AutoRuleTriggerService],
 })

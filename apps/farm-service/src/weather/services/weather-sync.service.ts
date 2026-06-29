@@ -10,6 +10,7 @@ import { MarineObservation } from '../entities/marine-observation.entity';
 import { WeatherSettings } from '../entities/weather-settings.entity';
 import { Site } from '../../site/entities/site.entity';
 import { OpenMeteoService, WeatherHourlyData, MarineHourlyData } from './open-meteo.service';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 const RATE_LIMIT_DELAY = 200; // ms between site requests
 
@@ -99,12 +100,20 @@ export class WeatherSyncService {
    * Get or create weather settings for a tenant
    */
   async getSettings(tenantId: string): Promise<WeatherSettings> {
-    let settings = await this.settingsRepo.findOne({ where: { tenantId } });
-    if (!settings) {
-      settings = this.settingsRepo.create({ tenantId });
-      settings = await this.settingsRepo.save(settings);
-    }
-    return settings;
+    // FARM-HIGH-060: get-or-create on the fail-closed READ-WRITE tenant boundary.
+    // runInTenantTransaction (not runInTenantRead) because the first read for a
+    // tenant lazily persists the default row — a read-only transaction would
+    // reject that INSERT. The boundary pins search_path + asserts the tenant GUC,
+    // so a pooled connection that lost the tenant frame throws instead of
+    // silently reading/writing the wrong (empty) schema.
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      let settings = await queryRunner.manager.findOne(WeatherSettings, { where: { tenantId } });
+      if (!settings) {
+        settings = queryRunner.manager.create(WeatherSettings, { tenantId });
+        settings = await queryRunner.manager.save(settings);
+      }
+      return settings;
+    });
   }
 
   /**

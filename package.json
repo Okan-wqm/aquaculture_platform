@@ -167,7 +167,9 @@
     "factory:reset:execute": "FACTORY_RESET_ALLOWED=1 node --experimental-strip-types tools/factory-reset/factory-reset.ts --execute",
     "gates:farm-service": "ts-node --project tools/gates/tsconfig.json tools/gates/farm-service-enterprise-guardrails.ts",
     "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
-    "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all"
+    "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all",
+    "quality:format-scope:generate": "node tools/quality/quality.mjs format-scope generate",
+    "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",

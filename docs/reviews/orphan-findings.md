@@ -3861,7 +3861,7 @@ Effect: the quality-format-scope gate is red at the branch base. A gate that is 
 
 Fix direction: run `node tools/quality/quality.mjs format-scope generate`, commit the regenerated `tools/quality/format-scope.json` in a dedicated infra/quality-tooling change, and keep the drift check in CI so this file stays synchronized with the source tree.
 
-Status: OPEN (2026-06-15; owner: infra-expert / quality-tooling). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-117.
+Status: RESOLVED (2026-06-29) — regenerated `tools/quality/format-scope.json` via `node tools/quality/quality.mjs format-scope generate` (+1984/-22; new migrations/specs + removed eslint configs reconciled), so `format-scope check` is green at HEAD. To stop silent re-drift, the drift check is now a PR gate: a `Run format-scope drift gate` step (`npm run quality:format-scope:check`) in `.github/workflows/quality-gates.yml` (`banned-phrase-gate` job, alongside the ESLint-rules dist drift check), plus the previously-dangling `quality:format-scope:{generate,check}` npm scripts the gate's own error message referenced. Unblocks ORPHAN-MEDIUM-121 (the dead-dir removal can now regenerate the manifest cleanly). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-117.
 
 ---
 

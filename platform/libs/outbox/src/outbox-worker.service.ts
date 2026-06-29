@@ -20,6 +20,10 @@ import type { IEventBus, IEvent } from '@platform/event-bus';
 import { OutboxEntityBase } from './outbox-entity.base';
 import { OutboxMetricsService } from './outbox-metrics.service';
 import {
+  assertOutboxTenantIntegrity,
+  OutboxTenantIntegrityError,
+} from './tenant-integrity';
+import {
   OUTBOX_ENTITY_CLASS,
   OUTBOX_BATCH_SIZE,
   OUTBOX_MAX_RETRIES,
@@ -327,6 +331,14 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
           // (OutboxPublisher.enqueue); the cast is safe because only
           // validated BaseEvent objects can reach this column.
           const event = row.payload as IEvent;
+
+          // FARM-HIGH-083: tenant-of-record integrity gate. A tenant-scoped row
+          // whose payload tenant is missing / non-UUID / drifted from the column
+          // would be silently downgraded onto the cross-tenant events.system.*
+          // subject by deriveSubject(). Assert before publishing; a violation
+          // throws OutboxTenantIntegrityError, which markFailed dead-letters
+          // immediately (the mismatch is permanent — never published).
+          assertOutboxTenantIntegrity(row);
           await this.eventBus.publish(event);
 
           successIds.push(row.id);
@@ -396,9 +408,18 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     const newRetryCount = row.retryCount + 1;
     const message = error.message;
 
-    if (newRetryCount >= OUTBOX_MAX_RETRIES) {
+    // A tenant-integrity violation is PERMANENT — a retry re-reads the same
+    // mismatched payload — so dead-letter it immediately instead of consuming the
+    // retry budget and re-leasing a row that can never publish (FARM-HIGH-083).
+    const permanent = error instanceof OutboxTenantIntegrityError;
+
+    if (permanent || newRetryCount >= OUTBOX_MAX_RETRIES) {
       this.logger.error(
-        `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED after ${newRetryCount} attempts: ${message}`,
+        `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED ` +
+          (permanent
+            ? '(tenant-integrity violation, permanent)'
+            : `after ${newRetryCount} attempts`) +
+          `: ${message}`,
       );
       await this.repo.update(row.id, {
         retryCount: newRetryCount,

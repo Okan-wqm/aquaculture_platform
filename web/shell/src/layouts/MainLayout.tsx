@@ -10,7 +10,7 @@ import {
   ADMIN_BILLING_NAV_ITEMS,
   Header,
   Sidebar,
-  createTenantQueryKey,
+  createTenantInvalidationKey,
   type NavigationItem,
   type SidebarTheme,
   useAuthContext,
@@ -452,7 +452,7 @@ const MainLayout: React.FC = () => {
       await logout();
     } finally {
       if (currentTenantId) {
-        queryClient.removeQueries({ queryKey: createTenantQueryKey(currentTenantId) });
+        queryClient.removeQueries({ queryKey: createTenantInvalidationKey(currentTenantId) });
       }
       navigate('/login');
     }

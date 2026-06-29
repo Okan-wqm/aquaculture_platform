@@ -10,7 +10,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   ALERT_RULE_QUERY,
@@ -149,7 +149,7 @@ export function useCreateAlertRule() {
       return data.createAlertRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'alertRules') });
     },
   });
 }
@@ -170,8 +170,8 @@ export function useUpdateAlertRule() {
       return data.updateAlertRule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'alertRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'alertRule', data.id) });
     },
   });
 }
@@ -192,7 +192,7 @@ export function useDeleteAlertRule() {
       return data.deleteAlertRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'alertRules') });
     },
   });
 }
@@ -213,8 +213,8 @@ export function useToggleAlertRule() {
       return data.updateAlertRule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'alertRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'alertRule', data.id) });
     },
   });
 }

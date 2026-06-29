@@ -28,9 +28,10 @@ const PATTERN = /createTenantQueryKey\(/g;
 /**
  * High-water mark of raw createTenantQueryKey usages in FE modules/shell. RATCHET:
  * only ever DECREASE this, in lockstep with migrating hooks to useTenantQuery.
- * 2026-06-29 baseline: 282.
+ * 2026-06-29: 282 → 258 (#722) → 220 (#723) → 214 (the last invalidation-key cluster
+ * moved to createTenantInvalidationKey, see web-no-createtenantquerykey-in-invalidate).
  */
-const BASELINE_CEILING = 282;
+const BASELINE_CEILING = 214;
 
 function walk(dir: string): string[] {
   const out: string[] = [];

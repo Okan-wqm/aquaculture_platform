@@ -35,7 +35,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
   ProgramStatus,
@@ -376,29 +376,29 @@ const AutomationProgramsPage: React.FC = () => {
   // Mutations
   const deleteMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(DELETE_PROGRAM_MUTATION, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationPrograms') }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
   });
 
   const cloneMutation = useMutation({
     mutationFn: ({ id, newCode }: { id: string; newCode: string }) =>
       graphqlFetch(CLONE_PROGRAM_MUTATION, { id, newCode }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationPrograms') }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
   });
 
   const archiveMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(ARCHIVE_PROGRAM_MUTATION, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationPrograms') }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
   });
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationPrograms') }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
   });
 
   const rejectMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       graphqlFetch(REJECT_PROGRAM_MUTATION, { id, reason }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationPrograms') }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
   });
 
   // Filtered programs — guard against non-array responses

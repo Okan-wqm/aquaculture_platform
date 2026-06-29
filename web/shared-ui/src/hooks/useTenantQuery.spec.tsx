@@ -63,16 +63,24 @@ describe('useTenantQuery', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it('keeps last-good data across a refetch by default (A5 placeholderData)', async () => {
-    let n = 0;
-    const fn = vi.fn().mockImplementation(() => Promise.resolve(++n));
-    const { result } = renderHook(() => useTenantQuery(['n'], fn, { staleTime: 0 }), {
-      wrapper: makeWrapper(qc),
-    });
-    await waitFor(() => expect(result.current.data).toBe(1));
-    // A keepPreviousData query is configured with a placeholderData function.
-    const q = qc.getQueryCache().getAll()[0];
-    expect(typeof q.options.placeholderData).toBe('function');
+  it('keeps the previous tenant data when the key changes (A5 keepPreviousData)', async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce('first')
+      .mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve('second'), 50)),
+      );
+    const { result, rerender } = renderHook(
+      ({ seg }: { seg: string }) => useTenantQuery(['n', seg], fn, { staleTime: 0 }),
+      { wrapper: makeWrapper(qc), initialProps: { seg: 'a' } },
+    );
+    await waitFor(() => expect(result.current.data).toBe('first'));
+
+    // Changing the key starts a NEW query; keepPreviousData keeps 'first' on screen
+    // (isPlaceholderData) instead of blanking to undefined while 'second' loads.
+    rerender({ seg: 'b' });
+    expect(result.current.data).toBe('first');
+    expect(result.current.isPlaceholderData).toBe(true);
   });
 });
 

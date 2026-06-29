@@ -16,6 +16,10 @@ import { SentinelHubService } from './sentinel-hub.service';
 import { SentinelHubResolver } from './sentinel-hub.resolver';
 import { SentinelHubProxyController } from './sentinel-hub-proxy.controller';
 import { SentinelProxyPolicy } from './sentinel-proxy.policy';
+// Read query handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetSentinelHubStatusHandler } from './handlers/get-sentinel-hub-status.handler';
+import { GetSentinelHubCredentialsHandler } from './handlers/get-sentinel-hub-credentials.handler';
+import { IsSentinelHubConfiguredHandler } from './handlers/is-sentinel-hub-configured.handler';
 
 @Module({
   imports: [
@@ -23,7 +27,14 @@ import { SentinelProxyPolicy } from './sentinel-proxy.policy';
     TypeOrmModule.forFeature([SentinelHubSettings]),
   ],
   controllers: [SentinelHubProxyController],
-  providers: [SentinelHubService, SentinelHubResolver, SentinelProxyPolicy],
+  providers: [
+    SentinelHubService,
+    SentinelHubResolver,
+    SentinelProxyPolicy,
+    GetSentinelHubStatusHandler,
+    GetSentinelHubCredentialsHandler,
+    IsSentinelHubConfiguredHandler,
+  ],
   // SentinelProxyPolicy is exported because MarineDataModule imports this module
   // and MarineDataService constructor-injects it. Providing it without exporting
   // it left the policy private to this module, crash-looping farm-service boot

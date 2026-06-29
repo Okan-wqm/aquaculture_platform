@@ -108,29 +108,6 @@ export class BiomassReportService {
     return saved;
   }
 
-  async findByPeriod(
-    tenantId: string,
-    siteId: string,
-    reportMonth: number,
-    reportYear: number,
-  ): Promise<BiomassReport | null> {
-    return this.repo.findOne({
-      where: { tenantId, siteId, reportMonth, reportYear },
-    });
-  }
-
-  async listForSite(
-    tenantId: string,
-    siteId: string,
-    limit: number,
-  ): Promise<BiomassReport[]> {
-    return this.repo.find({
-      where: { tenantId, siteId },
-      order: { reportYear: 'DESC', reportMonth: 'DESC' },
-      take: Math.min(Math.max(limit, 1), 120),
-    });
-  }
-
   /**
    * Shape-narrowing copy from the input DTO into the typed
    * BiomassReportPayload. Keeps the persistence layer free of the

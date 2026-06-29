@@ -138,6 +138,21 @@ materialize_deploy_checkout() {
   ln -sfn "${DEPLOY_ENV_FILE}" "${dir}/.env"
   ln -sfn "${DEPLOY_CERTS_DIR}" "${dir}/certs"
 
+  # node_modules provisioning (ORPHAN-HIGH-218): the deploy checkout is a bare
+  # SHA-pinned worktree that never runs `npm ci`, but the deploy now executes
+  # third-party-importing TS scripts via Node 22 type-stripping (e.g.
+  # check-service-health.ts → `import js-yaml`). Node resolves node_modules by
+  # walking up from the script's dir, which never reaches the source repo's
+  # tree, so those imports died with ERR_MODULE_NOT_FOUND — the health gate
+  # crashed, reported a false "critical service health check failed", and the
+  # rollback ran the same broken gate (rollback_failed). Symlink the source
+  # repo's already-installed node_modules (gitignored, so the SHA checkout never
+  # carries it) so the deploy scripts resolve their declared deps. Guarded:
+  # absent only on a never-installed droplet, where the scripts can't run anyway.
+  if [ -d "${src}/node_modules" ]; then
+    ln -sfn "${src}/node_modules" "${dir}/node_modules"
+  fi
+
   local head
   head="$(git -C "${dir}" rev-parse HEAD)"
   if [ "${head}" != "${sha}" ]; then

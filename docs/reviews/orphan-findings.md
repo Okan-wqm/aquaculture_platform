@@ -5757,3 +5757,29 @@ Found 2026-06-29 (tenant-panel PR-A core). Every tenant-scoped query hand-assemb
 
 ## ORPHAN-MEDIUM-217 — PR-A migration batch 1: 4 farm query hooks → useTenantQuery (+ latent species-detail invalidation fix)
 Found 2026-06-29 (tenant-panel PR-A incremental migration of [[ORPHAN-MEDIUM-216]]). Migrated `useEquipmentList`, `useEquipmentDeletePreview`, `useSpecies` (detail), `useActiveSpecies` from hand-rolled `useQuery` + `createTenantQueryKey` + manual `enabled` to `useTenantQuery` — each now gets `keepPreviousData` (A5) + a consistent tenant gate. **Status: RESOLVED (2026-06-29 — 4 hooks migrated; removed the now-unused `useQuery` + `createTenantQueryKey` imports; farm-module 44/44 + tsc + eslint clean.)** Also fixed a LATENT bug: `useSpecies`/`useActiveSpecies` keys carried a redundant extra `tenantId` segment (`createTenantQueryKey(tid,'species','detail',tid,id)`), so the mutation invalidation `createTenantInvalidationKey(tid,'species','detail',id)` NEVER matched the detail query (position-4 mismatch: `id` vs `tid`) — species detail was not being invalidated after an update. Dropping the redundant segment makes the prefix invalidation match. Remaining migration (other modules + mutations → `useTenantMutation`) continues under ORPHAN-216.
+
+---
+
+## ORPHAN-HIGH-218 — production deploy health-gate crashes on `ERR_MODULE_NOT_FOUND: js-yaml`: deploy checkout never provisions node_modules → false `critical_health` + `rollback_failed` on every deploy
+
+Severity: HIGH (every production deploy's health verification is broken — masks real failures, leaves `rollback_failed` ledger entries + a stale `deployed/production` baseline tag). Discovered 2026-06-29 while deploying the tenant-create-500 fix (#706).
+
+**Problem:** The deploy runs `node scripts/deploy/check-service-health.ts` (Node 22 type-stripping, "no tsc/tsx on the droplet") from the SHA-pinned deploy checkout (`DEPLOY_CHECKOUT_DIR=/var/lib/aqua/deploy/checkout`). That script (and `assert-service-signals.ts` / `compose-profile-contract.ts`) does `import yaml from 'js-yaml'`. But `materialize_deploy_checkout` (`scripts/deploy/deploy-paths.sh`) creates a bare git worktree and symlinks only `.env` + `certs/` — it never provisions `node_modules`, and the deploy runs no `npm ci`. Node resolves `node_modules` by walking up from the script dir (`/var/lib/aqua/deploy/checkout/…`), which never reaches the source repo's `node_modules`, so the import dies with `ERR_MODULE_NOT_FOUND: Cannot find package 'js-yaml'`. The deploy treats the crashed gate as "critical service health check failed," triggers a rollback that runs the SAME broken gate → `rollback_failed`. The services are actually healthy; the gate just can't see them. Compounding: `js-yaml` was an UNDECLARED dependency (imported directly but absent from `package.json` — present only transitively). Latent since ~2026-05-17 (the "criticality-aware health gate + TS scripts" WS6 commits 5a5c63d0e / 40485ed44).
+
+**Evidence:** CI-Affected run 28356946480 (merge `4b54997b`) `deploy-production / deploy` failed; job log: `Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /var/lib/aqua/deploy/checkout/scripts/deploy/check-service-health.ts` → `status=rollback_failed phase=critical_health`. Live droplet: services healthy on the new image; `node_modules/js-yaml` ABSENT in the deploy checkout, PRESENT in the source repo.
+
+**Resolution (this PR):** (1) `materialize_deploy_checkout` symlinks the source repo's already-installed `node_modules` into the deploy checkout (gitignored, mirrors the existing `.env`/`certs` symlinks; guarded on `[ -d "${src}/node_modules" ]`) so deploy scripts resolve their deps. (2) Declare `js-yaml` (`^4.1.1`) as an explicit `dependencies` entry so the import is honest and the package is guaranteed present (no longer relying on a transitive provider). The deploy health gate then runs and verifies real service health.
+
+Status: RESOLVED (2026-06-29; fix branch `fix/deploy-checkout-node-modules`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-219 — admin-api Scheduler logs `permission denied for schema messaging` every ~5 min (admin_service lacks messaging-schema grant)
+
+Severity: MEDIUM (non-fatal — admin-api stays healthy — but a scheduled job errors every ~5 min, polluting logs and silently not doing its work). Discovered 2026-06-29 after deploying admin-api to current main.
+
+**Problem:** An admin-api scheduled job (log `context: "Scheduler"`) queries the `messaging` schema, but the production DB role `admin_service` has no `USAGE`/`SELECT` grant there → `permission denied for schema messaging` (13 occurrences in 35 min on admin-api; 157 server-side denials in postgres). It is NOT caused by the tenant-create-500 fix (0 occurrences before the new image; surfaced by bringing admin-api up to current main — i.e. #696-era admin-api changes that added/enabled a messaging-touching scheduler). Per the per-service least-privilege model (SEC-015), admin-api reading messaging cross-schema is itself questionable.
+
+**How to fix:** Identify the specific admin-api scheduler + exactly which `messaging.*` objects it needs (read-only analytics/aggregation?), then either (a) grant `admin_service` `USAGE` on schema `messaging` + `SELECT` on the specific tables via a forward migration (if the cross-schema read is intended), or (b) route the data through an admin-owned read-model / a messaging-service query API and disable the direct cross-schema scheduler (preferred per service-boundary discipline). Until then it is noisy-but-harmless.
+
+Status: OPEN (owner: admin-expert / messaging-expert / multi-tenant-saas-expert). Registry: orphan-findings.md only.

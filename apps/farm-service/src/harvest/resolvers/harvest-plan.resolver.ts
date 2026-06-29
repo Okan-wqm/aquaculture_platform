@@ -33,6 +33,14 @@ import {
   HarvestPlanService,
   HarvestPlanStats,
 } from '../services/harvest-plan.service';
+import { QueryBus } from '@platform/cqrs';
+import { GetHarvestPlanQuery } from '../queries/get-harvest-plan.query';
+import { GetHarvestPlanByCodeQuery } from '../queries/get-harvest-plan-by-code.query';
+import { ListHarvestPlansQuery } from '../queries/list-harvest-plans.query';
+import { ListHarvestPlansByBatchQuery } from '../queries/list-harvest-plans-by-batch.query';
+import { ListUpcomingHarvestPlansQuery } from '../queries/list-upcoming-harvest-plans.query';
+import { ListOverdueHarvestPlansQuery } from '../queries/list-overdue-harvest-plans.query';
+import { GetHarvestPlanStatsQuery } from '../queries/get-harvest-plan-stats.query';
 
 // DTOs
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
@@ -128,7 +136,10 @@ export class HarvestVarianceResponse {
 export class HarvestPlanResolver {
   private readonly logger = new Logger(HarvestPlanResolver.name);
 
-  constructor(private readonly harvestPlanService: HarvestPlanService) {}
+  constructor(
+    private readonly harvestPlanService: HarvestPlanService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   // =========================================================================
   // QUERIES
@@ -143,7 +154,7 @@ export class HarvestPlanResolver {
     @Tenant() tenantId: string,
     @Args('id', { type: () => ID }) id: string,
   ): Promise<HarvestPlan | null> {
-    return this.harvestPlanService.findById(tenantId, id);
+    return this.queryBus.execute(new GetHarvestPlanQuery(tenantId, id));
   }
 
   /**
@@ -155,7 +166,7 @@ export class HarvestPlanResolver {
     @Tenant() tenantId: string,
     @Args('planCode') planCode: string,
   ): Promise<HarvestPlan | null> {
-    return this.harvestPlanService.findByPlanCode(tenantId, planCode);
+    return this.queryBus.execute(new GetHarvestPlanByCodeQuery(tenantId, planCode));
   }
 
   /**
@@ -167,7 +178,7 @@ export class HarvestPlanResolver {
     @Tenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: HarvestPlanFilterInput,
   ): Promise<IStandardPaginatedResult<HarvestPlan>> {
-    return this.harvestPlanService.findAll(tenantId, filter);
+    return this.queryBus.execute(new ListHarvestPlansQuery(tenantId, filter));
   }
 
   /**
@@ -180,7 +191,9 @@ export class HarvestPlanResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('activeOnly', { nullable: true, defaultValue: false }) activeOnly: boolean,
   ): Promise<HarvestPlan[]> {
-    return this.harvestPlanService.findByBatch(tenantId, batchId, activeOnly);
+    return this.queryBus.execute(
+      new ListHarvestPlansByBatchQuery(tenantId, batchId, activeOnly),
+    );
   }
 
   /**
@@ -192,7 +205,7 @@ export class HarvestPlanResolver {
     @Tenant() tenantId: string,
     @Args('days', { type: () => Int, nullable: true, defaultValue: 30 }) days: number,
   ): Promise<HarvestPlan[]> {
-    return this.harvestPlanService.findUpcoming(tenantId, days);
+    return this.queryBus.execute(new ListUpcomingHarvestPlansQuery(tenantId, days));
   }
 
   /**
@@ -203,7 +216,7 @@ export class HarvestPlanResolver {
   async overdueHarvestPlans(
     @Tenant() tenantId: string,
   ): Promise<HarvestPlan[]> {
-    return this.harvestPlanService.findOverdue(tenantId);
+    return this.queryBus.execute(new ListOverdueHarvestPlansQuery(tenantId));
   }
 
   /**
@@ -214,7 +227,7 @@ export class HarvestPlanResolver {
   async harvestPlanStats(
     @Tenant() tenantId: string,
   ): Promise<HarvestPlanStats> {
-    return this.harvestPlanService.getStats(tenantId);
+    return this.queryBus.execute(new GetHarvestPlanStatsQuery(tenantId));
   }
 
   // =========================================================================

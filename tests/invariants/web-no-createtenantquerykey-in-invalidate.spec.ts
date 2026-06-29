@@ -24,15 +24,12 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', 'test', '__mocks
 const PATTERN = /(?:invalidateQueries|removeQueries)\([^;]*createTenantQueryKey\(/g;
 
 /**
- * High-water mark of broken createTenantQueryKey-based invalidations. RATCHET: only
- * ever DECREASE this, in lockstep with migrating call sites to
- * createTenantInvalidationKey. 2026-06-29: a #687 regression. useEdgeDevices fixed in
- * #722 (→44); the sensor cluster (AutomationProgramEditorPage/usePlcControl/
- * useAlertRules/AutomationProgramsPage/useLoRaDevices) fixed here (→6). The last 6
- * (hr useLeaves/useCertifications, tenant-admin TenantDashboard/useTenantData, shell
- * MainLayout) burn down next.
+ * The #687 epoch regression is FULLY burned down — this is now an absolute ban (0):
+ * invalidateQueries/removeQueries MUST use createTenantInvalidationKey, never
+ * createTenantQueryKey. Burndown history: 68 → #722 (useEdgeDevices, 44) → #723
+ * (sensor cluster, 6) → 0 (hr/tenant-admin/shell). Keep at 0.
  */
-const BASELINE_CEILING = 6;
+const BASELINE_CEILING = 0;
 
 function walk(dir: string): string[] {
   const out: string[] = [];

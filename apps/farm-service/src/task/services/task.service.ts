@@ -24,13 +24,11 @@ import {
 import { assertSelfOrManager, type SelfScopeCaller } from '@aquaculture/backend-common/security';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { randomUUID } from 'crypto';
 import { Task, TaskChecklistItem, TaskStatus, TaskPriority } from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
 import { UpdateTaskInput } from '../dto/update-task.dto';
-import { TaskFilterInput } from '../dto/task-filter.dto';
 import { EventNames } from '../../events/event-types';
 
 @Injectable()
@@ -297,6 +295,10 @@ export class TaskService {
   /**
    * ID ile görev bulur
    */
+  // NOTE: findById is now called ONLY by internal write methods (the GraphQL
+  // `task(id)` read goes through GetTaskHandler). It stays a raw repo read here;
+  // it is migrated onto the fail-closed boundary together with the task WRITE
+  // path (runInTenantTransaction) in the follow-up write-migration PR.
   async findById(tenantId: string, id: string): Promise<Task> {
     const task = await this.taskRepository.findOne({
       where: { id, tenantId },
@@ -307,108 +309,6 @@ export class TaskService {
     }
 
     return task;
-  }
-
-  /**
-   * Filtrelenmiş görevleri listeler (sayfalama destekli)
-   */
-  async findAll(
-    tenantId: string,
-    filter?: TaskFilterInput,
-  ): Promise<IStandardPaginatedResult<Task>> {
-    const limit = filter?.limit || 50;
-    const offset = filter?.offset || 0;
-
-    const query = this.taskRepository
-      .createQueryBuilder('task')
-      .where('task.tenantId = :tenantId', { tenantId });
-
-    // Apply filters
-    if (filter?.status?.length) {
-      query.andWhere('task.status IN (:...statuses)', { statuses: filter.status });
-    }
-    if (filter?.category?.length) {
-      query.andWhere('task.category IN (:...categories)', { categories: filter.category });
-    }
-    if (filter?.priority?.length) {
-      query.andWhere('task.priority IN (:...priorities)', { priorities: filter.priority });
-    }
-    if (filter?.assignedTo) {
-      query.andWhere('task.assignedTo = :assignedTo', { assignedTo: filter.assignedTo });
-    }
-    if (filter?.dateFrom) {
-      query.andWhere('task.dueDate >= :dateFrom', { dateFrom: new Date(filter.dateFrom) });
-    }
-    if (filter?.dateTo) {
-      query.andWhere('task.dueDate <= :dateTo', { dateTo: new Date(filter.dateTo) });
-    }
-    if (filter?.search) {
-      query.andWhere(
-        '(task.title ILIKE :search OR task.description ILIKE :search)',
-        { search: `%${filter.search}%` },
-      );
-    }
-
-    const total = await query.getCount();
-
-    query
-      .orderBy('task.dueDate', 'ASC')
-      .addOrderBy(
-        `CASE task.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
-        'ASC',
-      )
-      .skip(offset)
-      .take(limit);
-
-    const items = await query.getMany();
-    const page = Math.floor(offset / limit) + 1;
-
-    return createStandardPaginatedResult(items, total, page, limit);
-  }
-
-  /**
-   * Kullanıcıya atanmış görevleri getirir
-   */
-  async findByAssignee(
-    tenantId: string,
-    userId: string,
-    statuses?: TaskStatus[],
-  ): Promise<Task[]> {
-    const query = this.taskRepository
-      .createQueryBuilder('task')
-      .where('task.tenantId = :tenantId', { tenantId })
-      .andWhere('task.assignedTo = :userId', { userId });
-
-    if (statuses?.length) {
-      query.andWhere('task.status IN (:...statuses)', { statuses });
-    }
-
-    return query
-      .orderBy('task.dueDate', 'ASC')
-      .addOrderBy(
-        `CASE task.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
-        'ASC',
-      )
-      .getMany();
-  }
-
-  /**
-   * Bugünün görevlerini getirir
-   */
-  async findTodaysTasks(tenantId: string): Promise<Task[]> {
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-
-    return this.taskRepository
-      .createQueryBuilder('task')
-      .where('task.tenantId = :tenantId', { tenantId })
-      .andWhere('task.dueDate >= :startOfDay', { startOfDay })
-      .andWhere('task.dueDate < :endOfDay', { endOfDay })
-      .andWhere('task.status != :cancelled', { cancelled: TaskStatus.CANCELLED })
-      .orderBy('task.priority', 'ASC')
-      .addOrderBy('task.dueTime', 'ASC')
-      .getMany();
   }
 
   /**
@@ -780,61 +680,6 @@ export class TaskService {
 
     await this.taskRepository.softRemove(task);
     return true;
-  }
-
-  /**
-   * Görev istatistiklerini hesaplar
-   */
-  async getStats(tenantId: string): Promise<{
-    totalToday: number;
-    completedToday: number;
-    overdueCount: number;
-    upcomingCount: number;
-    completionRate: number;
-    avgCompletionMinutes: number;
-  }> {
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-    const endOfWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const [todayStats] = await this.taskRepository.query(
-      `SELECT
-        COUNT(*) FILTER (WHERE "dueDate" >= $2 AND "dueDate" < $3 AND status != $4) AS "totalToday",
-        COUNT(*) FILTER (WHERE "dueDate" >= $2 AND "dueDate" < $3 AND status = $5) AS "completedToday",
-        COUNT(*) FILTER (WHERE status = $6) AS "overdueCount",
-        COUNT(*) FILTER (WHERE "dueDate" >= $3 AND "dueDate" < $7 AND status IN ($8, $9)) AS "upcomingCount"
-      FROM tasks
-      WHERE "tenantId" = $1 AND "deletedAt" IS NULL`,
-      [tenantId, startOfDay, endOfDay, TaskStatus.CANCELLED, TaskStatus.COMPLETED, TaskStatus.OVERDUE, endOfWeek, TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
-    );
-
-    const [recentStats] = await this.taskRepository.query(
-      `SELECT
-        COUNT(*) FILTER (WHERE status != $3) AS "totalRecent",
-        COUNT(*) FILTER (WHERE status = $4) AS "completedRecent",
-        AVG(EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) / 60)
-          FILTER (WHERE status = $4 AND "completedAt" IS NOT NULL) AS "avgMinutes"
-      FROM tasks
-      WHERE "tenantId" = $1 AND "createdAt" >= $2 AND "deletedAt" IS NULL`,
-      [tenantId, thirtyDaysAgo, TaskStatus.CANCELLED, TaskStatus.COMPLETED],
-    );
-
-    const totalRecent = parseInt(recentStats?.totalRecent || '0', 10);
-    const completedRecent = parseInt(recentStats?.completedRecent || '0', 10);
-    const completionRate = totalRecent > 0
-      ? Math.round((completedRecent / totalRecent) * 100)
-      : 0;
-
-    return {
-      totalToday: parseInt(todayStats?.totalToday || '0', 10),
-      completedToday: parseInt(todayStats?.completedToday || '0', 10),
-      overdueCount: parseInt(todayStats?.overdueCount || '0', 10),
-      upcomingCount: parseInt(todayStats?.upcomingCount || '0', 10),
-      completionRate,
-      avgCompletionMinutes: Math.round(parseFloat(recentStats?.avgMinutes || '0')),
-    };
   }
 
   // -------------------------------------------------------------------------

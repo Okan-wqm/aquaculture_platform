@@ -45,6 +45,13 @@ const ten = vi.hoisted(() => ({
 vi.mock('@aquaculture/shared-ui', () => ({
   getAccessToken: () => 'test-token',
   getTenantId: () => ten.tenantId,
+  getSessionSnapshot: () => ({
+    accessToken: 'test-token',
+    effectiveTenantId: ten.tenantId,
+    sessionEpoch: 0,
+    tokenState: 'READY',
+    ready: !!ten.tenantId,
+  }),
   onTenantChange: (fn: (oldTenantId: string) => void) => {
     ten.tenantChangeCbs.add(fn);
     return () => ten.tenantChangeCbs.delete(fn);

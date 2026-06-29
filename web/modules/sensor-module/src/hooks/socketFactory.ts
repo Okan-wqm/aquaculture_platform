@@ -22,7 +22,7 @@
 import { io, type Socket } from 'socket.io-client';
 import {
   getAccessToken,
-  getTenantId,
+  getSessionSnapshot,
   onTenantChange,
   registerLogoutCleanup,
 } from '@aquaculture/shared-ui';
@@ -65,11 +65,11 @@ export function getSocket(
   url: string,
   options?: Record<string, unknown>,
 ): Socket | null {
-  const token = getAccessToken();
-  if (!token) return null;
-
-  const tenantId = getTenantId();
-  if (!tenantId) return null;
+  // SSoT: one read of the session (getSessionSnapshot) instead of scattered
+  // getAccessToken()/getTenantId() checks. We still need both VALUES — the token for
+  // the socket auth, the tenantId for the tenant-scoped pool key.
+  const { accessToken: token, effectiveTenantId: tenantId } = getSessionSnapshot();
+  if (!token || !tenantId) return null;
 
   const key = poolKey(url, tenantId);
   const existing = pool.get(key);

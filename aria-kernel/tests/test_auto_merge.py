@@ -399,7 +399,7 @@ class AutoMergeTests(unittest.TestCase):
                 "ephemeral_runner": True,
                 "approved_runner_group": True,
                 "sandbox_available": True,
-                "codex_auth": "chatgpt_managed_codex_cli",
+                "claude_auth": "managed_claude_code_cli",
                 "api_key_auth": False,
             },
             base_dir=self.tools_dir,

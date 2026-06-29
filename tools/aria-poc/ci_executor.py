@@ -1,9 +1,9 @@
 """ARIA CI executor (Plan 019 Phase 8.B).
 
-Orchestrates one cycle of {next-pending → claim → invoke Codex CLI →
+Orchestrates one cycle of {next-pending → claim → invoke Claude Code CLI →
 submit-result} per GHA run. Designed to be called from
 `.github/workflows/aria-agent-executor.yml`; the kernel CLI does the
-queue/lease/submit work, and this script handles the Codex CLI
+queue/lease/submit work, and this script handles the Claude Code CLI
 invocation in the middle.
 
 Lease-token redaction discipline (operator critique #9):
@@ -19,14 +19,14 @@ Account-budget discipline:
     vars enforce a budget cap before invoking the CLI; cap exceedance
     is logged and skipped rather than failing the run (budget signal,
     not build failure).
-  - Codex account/session/rate-limit headroom is verified by the runtime preflight.
+  - Claude account/session headroom is verified by the runtime preflight.
   - API key billing mode is disallowed by default.
 
 Invocation contract: see tools/aria-poc/ci_executor_contract_proven.md
 for the load-bearing contract — argv shape locked by Plan ARIA-V3
-invariant I-V3-21. `CODEX_CLI_MOCK=1` wires the test fixture path;
-`CODEX_CLI_MOCK=0` requires a live `codex` binary on $PATH and a
-ChatGPT-managed Codex login on a trusted/private runner.
+invariant I-V3-21. `CLAUDE_CLI_MOCK=1` wires the test fixture path;
+`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and a
+managed Claude Code login on a trusted/private runner.
 """
 from __future__ import annotations
 
@@ -45,18 +45,18 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from codex_runtime import (
-    CODEX_MOCK_ENV_VAR,
-    CodexAuthUnavailable,
-    CodexCliUnavailable,
-    CodexPolicyViolation,
-    CodexUsageUnavailable,
+from claude_runtime import (
+    CLAUDE_MOCK_ENV_VAR,
+    ClaudeAuthUnavailable,
+    ClaudeCliUnavailable,
+    ClaudePolicyViolation,
+    ClaudeUsageUnavailable,
     extract_final_message,
     extract_usage,
-    is_mock_mode as _codex_is_mock_mode,
-    parse_codex_jsonl,
-    preflight_codex_auth,
-    run_codex_exec,
+    is_mock_mode as _claude_is_mock_mode,
+    parse_claude_jsonl,
+    preflight_claude_auth,
+    run_claude_exec,
 )
 
 try:
@@ -454,7 +454,7 @@ def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[s
     return errors
 
 
-MOCK_MODE_ENV_VAR = CODEX_MOCK_ENV_VAR
+MOCK_MODE_ENV_VAR = CLAUDE_MOCK_ENV_VAR
 
 # Plan 026R §B.5 — single-claim env-var contract (mirror of
 # planner_dispatch_hook.CLAIM_METADATA_ENV_VAR). When set by the
@@ -509,7 +509,7 @@ def claim_and_dispatch_one(
 
     Workflow:
       1. Validate role is in SUPPORTED_ROLES.
-      2. Check Codex CLI auth/session preflight. Unavailable → return
+      2. Check Claude Code CLI auth/session preflight. Unavailable → return
          ``{"status": "dispatchers_unavailable"}``.
       3. Find next pending request of the given role via
          ``aria-kernel agent-invocations list --role <role>
@@ -532,12 +532,12 @@ def claim_and_dispatch_one(
         )
 
     try:
-        preflight_codex_auth()
-    except (CodexAuthUnavailable, CodexCliUnavailable, CodexPolicyViolation) as exc:
+        preflight_claude_auth()
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
         return {
             "status": "dispatchers_unavailable",
             "role": role,
-            "reason": f"codex_preflight_failed: {exc}",
+            "reason": f"claude_preflight_failed: {exc}",
         }
 
     # Find next pending request for this role.
@@ -623,7 +623,7 @@ def _max_timeout_seconds() -> int:
 def _max_budget_usd() -> float:
     """Legacy operator-tunable USD cap for API-key mode.
 
-    Default Codex execution uses ChatGPT-managed auth and does not use
+    Default Claude Code execution uses managed-session auth and does not use
     this value for billing control. It remains for compatibility with
     older cost-cap heuristics only.
     """
@@ -642,8 +642,8 @@ def _parse_bool_env(name: str, default: str = "0") -> bool:
     """Plan 026R §B.2 — case-insensitive multi-token bool env var parser.
 
     Pre-§B.2 ``_is_mock_mode`` did ``os.environ.get(...) == "1"`` only,
-    so a workflow that exported ``CODEX_CLI_MOCK=true`` (the common
-    shell convention) silently fell to mock=OFF → ``CodexCliUnavailable``
+    so a workflow that exported ``CLAUDE_CLI_MOCK=true`` (the common
+    shell convention) silently fell to mock=OFF → ``ClaudeCliUnavailable``
     raise → CI exit code 1. The bug is REAL in today's CI.
 
     Accepts the canonical truthy/falsy set:
@@ -667,13 +667,13 @@ def _parse_bool_env(name: str, default: str = "0") -> bool:
 
 
 def _is_mock_mode() -> bool:
-    return _codex_is_mock_mode()
+    return _claude_is_mock_mode()
 
 
 # Plan ARIA-V3.1-D2 — frozen mock-mode sentinel. main() sets this at
 # entry exactly once; cost-attribution callers gate on this value
 # rather than re-reading the live env, so a mid-run env mutation
-# (e.g. a subprocess that exports CODEX_CLI_MOCK=1) cannot flip the
+# (e.g. a subprocess that exports CLAUDE_CLI_MOCK=1) cannot flip the
 # mock decision between mint + record sites. Closes ai-safety
 # HIGH-007 (mock-mode race window).
 #
@@ -689,7 +689,7 @@ def _validate_cost_cap(*, request: dict[str, Any]) -> None:
     The kernel's request envelope MAY carry a hint of the expected
     verdict cardinality (e.g. judges that scan many evidence_refs). When
     a hint is absent the executor permits the run and lets the
-    Codex CLI's own --max-turns enforce the second layer.
+    Claude Code CLI's own --max-turns enforce the second layer.
 
     Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — the per-run dollar cap is
     enforced separately via `aria_kernel.budget.reserve_cycle_budget`
@@ -754,7 +754,7 @@ def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, to
         pass  # Reconciliation is observability, not a hard fail
 
 
-def invoke_codex_cli(
+def invoke_claude_cli(
     *,
     request_id: str,
     subagent_type: str,
@@ -774,7 +774,7 @@ def invoke_codex_cli(
     request_envelope: dict[str, Any] | None = None,
     tools_dir: Path | None = None,
 ) -> int:
-    """Call the Codex CLI; mock path for tests + CI dry-runs.
+    """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
     Plan 024 v3 §B-8 — mock envelope reads REAL lease tokens (claim_id
     + agent_id from claim_request) and REAL role (from the request
@@ -792,8 +792,8 @@ def invoke_codex_cli(
     site (tier-1 structural enforcement) — every caller must source
     role from the request row's SSoT field.
 
-    Returns the CLI exit code. Raises CodexCliUnavailable when the
-    `codex` binary is not on $PATH and mock mode is OFF — the proven
+    Returns the CLI exit code. Raises ClaudeCliUnavailable when the
+    `claude` binary is not on $PATH and mock mode is OFF — the proven
     contract doc at tools/aria-poc/ci_executor_contract_proven.md is
     the argv SSoT (Plan ARIA-V3 §B1 promotion, invariant I-V3-21).
     """
@@ -853,7 +853,7 @@ def invoke_codex_cli(
                         "confidence": 0.5,
                         "judge_id": subagent_type,
                         "model": "mock",
-                        "rationale": "MOCK MODE — CI executor placeholder; real Codex CLI invocation not configured",
+                        "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
                         "evidence_refs": [],
                         "judgment_group_id": "ci-mock",
                         "severity": "low",
@@ -888,38 +888,38 @@ def invoke_codex_cli(
         try:
             _env_audit_keys = sorted([
                 k for k in os.environ.keys()
-                if k.startswith(("CODEX_", "OPENAI_")) or k in ("HOME", "USER")
+                if k.startswith(("CLAUDE_", "ANTHROPIC_")) or k in ("HOME", "USER")
             ])
             _env_audit_payload = {
                 "subagent_type": subagent_type,
                 "request_id": request_id,
-                "codex_sensitive_env_keys_present": _env_audit_keys,
-                "api_key_mode_allowed": os.environ.get("ARIA_ALLOW_CODEX_API_KEY_MODE") == "1",
+                "claude_sensitive_env_keys_present": _env_audit_keys,
+                "api_key_mode_allowed": os.environ.get("ARIA_ALLOW_CLAUDE_API_KEY_MODE") == "1",
             }
             from aria_kernel.tool_registry import (
                 append_tools_governance as _at_gov,
                 ensure_tools_dir as _ens_tools,
             )
-            _at_gov(_ens_tools(tools_dir), "codex_subprocess_env_audit", _env_audit_payload)
+            _at_gov(_ens_tools(tools_dir), "claude_subprocess_env_audit", _env_audit_payload)
         except Exception:
             pass
-    # Plan 023 §A — per-agent effort tiering. The reasoning effort is resolved
-    # from the dispatched agent's frontmatter (scout tier runs cheaper; the
-    # decider/writer tier stays xhigh). Fail-safe: unknown agent → xhigh.
-    from aria_kernel.agent_runtime_profile import resolve_codex_reasoning_effort
-    agent_effort = resolve_codex_reasoning_effort(subagent_type)
+    # Plan 023 §A — per-agent model tiering. The model is resolved from the
+    # dispatched agent's frontmatter (scout tier runs cheaper; the
+    # decider/writer tier stays opus). Fail-safe: unknown agent → opus.
+    from aria_kernel.agent_runtime_profile import resolve_claude_model
+    agent_model = resolve_claude_model(subagent_type)
     try:
-        completed = run_codex_exec(
+        completed = run_claude_exec(
             prompt_text=prompt_text,
             timeout_seconds=timeout_seconds,
-            reasoning_effort=agent_effort,
+            model=agent_model,
         )
-    except (CodexAuthUnavailable, CodexCliUnavailable, CodexPolicyViolation, CodexUsageUnavailable) as exc:
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
         contract = "tools/aria-poc/ci_executor_contract_proven.md"
-        raise CodexCliUnavailable(f"{exc}; see {contract}") from exc
+        raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
-    # WHY: codex exec --json emits JSONL events
+    # WHY: claude -p stream-json emits JSONL events
     # ({"result": "...", "total_cost_usd": ..., ...}) where the agent's final message may contain the
     # actual aria/agent-response/v1 envelope as fenced ```json``` block
     # or as final JSON block. Writing raw JSONL to output_path means
@@ -941,7 +941,7 @@ def invoke_codex_cli(
     # is now produced correctly by default; agents don't have to know
     # internal kernel identity fields.
     if completed.stdout:
-        envelope = _build_envelope_from_codex_output(
+        envelope = _build_envelope_from_claude_output(
             raw_stdout=completed.stdout,
             request_id=request_id,
             claim_id=claim_id or "",
@@ -956,7 +956,7 @@ def invoke_codex_cli(
         resolved_transcript_path.write_text(completed.stdout, encoding="utf-8")
         # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution. Gated on
         # _MOCK_MODE_AT_ENTRY frozen sentinel (V3.1-D2) so a mid-run
-        # CODEX_CLI_MOCK flip cannot rewrite mock-mode classification
+        # CLAUDE_CLI_MOCK flip cannot rewrite mock-mode classification
         # between mint + record sites. request_envelope + tools_dir
         # MUST both be supplied for the record to fire — None defaults
         # preserve V8 backward-compat for callers that haven't migrated.
@@ -966,7 +966,7 @@ def invoke_codex_cli(
             and request_envelope is not None
             and tools_dir is not None
         ):
-            _record_codex_cli_usage(
+            _record_claude_cli_usage(
                 raw_stdout=completed.stdout,
                 request_envelope=request_envelope,
                 tools_dir=tools_dir,
@@ -976,7 +976,7 @@ def invoke_codex_cli(
     return completed.returncode
 
 
-def _record_codex_cli_usage(
+def _record_claude_cli_usage(
     *,
     raw_stdout: str,
     request_envelope: dict[str, Any],
@@ -984,14 +984,14 @@ def _record_codex_cli_usage(
     role: str,
     request_id: str,
 ) -> None:
-    """Record Codex account usage without treating it as API-dollar spend.
+    """Record Claude account usage without treating it as API-dollar spend.
 
-    Default ARIA Codex mode uses ChatGPT-managed auth, not API-key
+    Default ARIA Claude mode uses managed-session auth, not API-key
     billing. The attribution row therefore records token counts and a
-    zero USD estimate. If Codex JSONL omits usage, real mode has already
-    failed closed in ``codex_runtime.run_codex_exec`` before submit.
+    zero USD estimate. If Claude stream-json omits usage, real mode has already
+    failed closed in ``claude_runtime.run_claude_exec`` before submit.
     """
-    events = parse_codex_jsonl(raw_stdout)
+    events = parse_claude_jsonl(raw_stdout)
     usage = extract_usage(events)
     if not isinstance(usage, dict):
         return
@@ -1002,7 +1002,7 @@ def _record_codex_cli_usage(
         output_tokens = int(output_tokens)
     except (TypeError, ValueError):
         return
-    model = "codex-cli"
+    model = "claude-cli"
     for event in reversed(events):
         candidate = event.get("model")
         if isinstance(candidate, str) and candidate.strip():
@@ -1096,7 +1096,7 @@ def _extract_envelope_json(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _build_envelope_from_codex_output(
+def _build_envelope_from_claude_output(
     *,
     raw_stdout: str,
     request_id: str,
@@ -1106,13 +1106,13 @@ def _build_envelope_from_codex_output(
     subagent_type: str,
     must_satisfy: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Convert ``codex exec --json`` JSONL into a kernel-valid envelope.
+    """Convert ``claude -p stream-json`` JSONL into a kernel-valid envelope.
 
-    Codex emits JSONL events. ARIA keeps those raw events out of
+    Claude Code emits JSONL events. ARIA keeps those raw events out of
     artifacts, extracts the final agent message, and injects the
     lease-bound identity fields that the agent cannot know.
     """
-    events = parse_codex_jsonl(raw_stdout)
+    events = parse_claude_jsonl(raw_stdout)
     agent_text = extract_final_message(events)
     if not agent_text:
         agent_text = raw_stdout
@@ -1178,9 +1178,9 @@ def _build_envelope_from_codex_output(
         details = {}
     details.setdefault("agent_subagent_type", subagent_type)
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
-    usage = extract_usage(parse_codex_jsonl(raw_stdout))
+    usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:
-        details.setdefault("codex_cli_usage", usage)
+        details.setdefault("claude_cli_usage", usage)
     envelope["details"] = details
 
     return envelope
@@ -1361,12 +1361,12 @@ def _on_disk_anchors(
 
 def _record_mock_mode_audit(tools_dir: Path) -> None:
     """Plan ARIA-V3 §B1 AUDITTRAIL-HIGH-009 — record which layer
-    decided the CODEX_CLI_MOCK value at executor entry.
+    decided the CLAUDE_CLI_MOCK value at executor entry.
 
     The workflow's pre-flight step computes ``effective_mock`` +
     ``mock_source`` (kill_switch / workflow_dispatch_input /
-    workflow_default_codex) and exports both via the env. This
-    function appends one ``codex_mock_mode_resolved`` governance
+    workflow_default_claude) and exports both via the env. This
+    function appends one ``claude_mock_mode_resolved`` governance
     row per executor invocation so an audit reviewer can replay the
     decision chain. Invariant I-V3-23a locks this contract.
     """
@@ -1380,10 +1380,10 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     root = ensure_tools_dir(tools_dir)
     append_tools_governance(
         root,
-        "codex_mock_mode_resolved",
+        "claude_mock_mode_resolved",
         {
             "effective_mock": os.environ.get(MOCK_MODE_ENV_VAR, "unset"),
-            "mock_source": os.environ.get("CODEX_CLI_MOCK_SOURCE", "unset"),
+            "mock_source": os.environ.get("CLAUDE_CLI_MOCK_SOURCE", "unset"),
             "workflow_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
             "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "local"),
         },
@@ -1578,8 +1578,8 @@ def main(argv: list[str] | None = None) -> int:
     # consumer mode mints requests directly via
     # create_agent_invocation_request which writes ONLY to
     # requests.jsonl (no prompt file). Without this write, the
-    # modernized invoke_codex_cli reads an empty prompt and the
-    # codex CLI subprocess receives an empty prompt.
+    # modernized invoke_claude_cli reads an empty prompt and the
+    # claude CLI subprocess receives an empty prompt.
     prompt_file = tools_dir / "agent-invocations" / "prompts" / f"{request_id}.md"
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     if _render_invocation_prompt is None:
@@ -1614,7 +1614,7 @@ def main(argv: list[str] | None = None) -> int:
         # agent_id come from the kernel CLI's claim output (line 209-
         # 211); role + must_satisfy come from the request_envelope
         # we already loaded for cost-cap evaluation.
-        cli_exit = invoke_codex_cli(
+        cli_exit = invoke_claude_cli(
             request_id=request_id,
             subagent_type=subagent_type,
             prompt_file=prompt_file,
@@ -1631,17 +1631,17 @@ def main(argv: list[str] | None = None) -> int:
             # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution wire.
             # Pass the request_envelope (provides cycle_id +
             # pressure_source_type + convergence_id) + tools_dir so
-            # invoke_codex_cli can mint a V10.4 cost row gated on
+            # invoke_claude_cli can mint a V10.4 cost row gated on
             # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
             request_envelope=request_envelope,
             tools_dir=tools_dir,
         )
-    except CodexCliUnavailable as exc:
+    except ClaudeCliUnavailable as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
 
     if cli_exit != 0:
-        sys.stderr.write(f"codex exec exited {cli_exit}\n")
+        sys.stderr.write(f"claude exec exited {cli_exit}\n")
         # Plan ARIA-V7 §2g v2 — release the lease on CLI failure so
         # the claim doesn't sit in CLAIMED state until expiry; the
         # convergence_drainer's poll sees the requeue and either
@@ -1651,11 +1651,11 @@ def main(argv: list[str] | None = None) -> int:
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
-            reason=f"codex_cli_exit_{cli_exit}",
+            reason=f"claude_cli_exit_{cli_exit}",
         )
         return 1
 
-    _stage(f"codex_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
+    _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
 
     # Plan ARIA-V8.13 — agent refusal as first-class terminal outcome.
     # When the agent emits `aria/agent-refusal/v1` (legitimate refusal

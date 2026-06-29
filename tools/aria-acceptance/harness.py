@@ -136,6 +136,26 @@ _EXPECTED_PHASE_KEYS = (
 )
 
 
+def _cycle_cleanliness_failures(result: dict[str, Any]) -> list[str]:
+    """Plan 031-R R5 (B6) — a cycle is acceptable ONLY when it completed cleanly.
+
+    Pre-R5 the acceptance check treated ``status in {completed, failed}`` as a
+    valid terminal, so a FAILED cycle passed acceptance — which would let the
+    031c harness-ACCEPT precondition certify a broken cycle as clean. A clean
+    terminal is: status == ``completed`` AND runtime_status == ``ok`` AND no
+    failed phases.
+    """
+    failures: list[str] = []
+    if result.get("status") != "completed":
+        failures.append(f"cycle not completed: status={result.get('status')!r}")
+    if result.get("runtime_status") != "ok":
+        failures.append(f"cycle runtime_status not ok: {result.get('runtime_status')!r}")
+    failed_phases = result.get("failed_phases") or result.get("extended_phase_failures") or []
+    if failed_phases:
+        failures.append(f"cycle had failed phases: {failed_phases}")
+    return failures
+
+
 def run_cycle_acceptance() -> dict[str, Any]:
     """Run a full cycle in an isolated temp workspace + bound tools-dir and assert
     ARIA's behaviour. Writes only to the temp dir — never the real repo."""
@@ -154,9 +174,8 @@ def run_cycle_acceptance() -> dict[str, Any]:
 
         result = run_enterprise_cycle(workspace_root=ws, cycle_id="accept-1", base_dir=tools)
 
-        # (1) cycle reached a terminal status
-        if result.get("status") not in ("completed", "failed"):
-            failures.append(f"cycle did not reach terminal status: {result.get('status')}")
+        # (1) cycle reached a CLEAN terminal state (Plan 031-R R5 / B6).
+        failures.extend(_cycle_cleanliness_failures(result))
         # (2) every expected phase produced a state key
         for key in _EXPECTED_PHASE_KEYS:
             if key not in result:

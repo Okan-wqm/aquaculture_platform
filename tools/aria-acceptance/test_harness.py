@@ -20,6 +20,31 @@ sys.modules[_spec.name] = harness
 _spec.loader.exec_module(harness)
 
 
+class CycleCleanlinessTests(unittest.TestCase):
+    """Plan 031-R R5 (B6) — only a clean terminal cycle is acceptable."""
+
+    def test_clean_cycle_passes(self) -> None:
+        result = {"status": "completed", "runtime_status": "ok", "failed_phases": []}
+        self.assertEqual(harness._cycle_cleanliness_failures(result), [])
+
+    def test_failed_cycle_rejected(self) -> None:
+        result = {"status": "failed", "runtime_status": "ok", "failed_phases": []}
+        self.assertTrue(harness._cycle_cleanliness_failures(result))
+
+    def test_aborted_cycle_rejected(self) -> None:
+        result = {"status": "aborted", "runtime_status": "ok", "failed_phases": []}
+        self.assertTrue(harness._cycle_cleanliness_failures(result))
+
+    def test_nonok_runtime_status_rejected(self) -> None:
+        result = {"status": "completed", "runtime_status": "degraded", "failed_phases": []}
+        self.assertTrue(harness._cycle_cleanliness_failures(result))
+
+    def test_failed_phases_rejected(self) -> None:
+        result = {"status": "completed", "runtime_status": "ok",
+                  "failed_phases": [{"phase": "validation_matrix", "status": "failed"}]}
+        self.assertTrue(harness._cycle_cleanliness_failures(result))
+
+
 class DriftClassifierTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

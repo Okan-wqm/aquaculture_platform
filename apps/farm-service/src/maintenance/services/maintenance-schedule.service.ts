@@ -15,6 +15,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Like } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
+import { QueryBus } from '@platform/cqrs';
+import { GetMaintenanceComplianceReportQuery } from '../queries/get-maintenance-compliance-report.query';
 import {
   MaintenanceSchedule,
   MaintenanceScheduleStatus,
@@ -69,6 +71,7 @@ export class MaintenanceScheduleService {
     private readonly scheduleRepository: Repository<MaintenanceSchedule>,
     @InjectRepository(WorkOrder)
     private readonly workOrderRepository: Repository<WorkOrder>,
+    private readonly queryBus: QueryBus,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -548,6 +551,16 @@ export class MaintenanceScheduleService {
     }
 
     return generatedWorkOrders;
+  }
+
+  /**
+   * Compliance report — delegates to the fail-closed GetMaintenanceComplianceReport
+   * query handler (single SSoT, FARM-HIGH-060). Retained because the cron
+   * scheduler (cron-jobs.service) consumes it; the GraphQL read path uses the
+   * handler directly via queryBus.
+   */
+  async getComplianceReport(tenantId: string): Promise<ComplianceReport> {
+    return this.queryBus.execute(new GetMaintenanceComplianceReportQuery(tenantId));
   }
 
   // -------------------------------------------------------------------------

@@ -46,12 +46,15 @@ ARIA's live LLM runtime is the Claude Code CLI. The executor-side contract is
 
 **Autonomous-write runner constraint (verified live 2026-06-29):** the Claude
 Code CLI REFUSES `--dangerously-skip-permissions` under root/sudo for security.
-Therefore the autonomous-write executor MUST run as a **non-root user** (the
-recommended production path — the flag then works with no extra config), OR
-select `permission_mode='bypassPermissions'`, OR acknowledge a genuine isolated
-sandbox via `ARIA_CLAUDE_SANDBOX=1` (the runtime then passes `IS_SANDBOX=1` to
-the CLI). `claude_runtime.assert_write_runner_ok` fails closed at preflight with
-this guidance instead of surfacing a cryptic non-zero subprocess exit. Read-only
+`--permission-mode bypassPermissions` is refused the same way. Therefore the
+autonomous-write executor MUST run as a **non-root user** (the recommended
+production path — the full bypass then works with no extra config), OR select
+`permission_mode='acceptEdits'` (the root-COMPATIBLE lever — verified live: it
+autonomously wrote a real file as root in an isolated dir), OR acknowledge a
+genuine isolated sandbox via `ARIA_CLAUDE_SANDBOX=1` (the runtime then passes
+`IS_SANDBOX=1` to the CLI). `claude_runtime.assert_write_runner_ok` fails closed
+at preflight (for the full bypass AND `bypassPermissions` under root) with this
+guidance instead of surfacing a cryptic non-zero subprocess exit. Read-only
 agent turns (judge/scout, `skip_permissions=False`) are unaffected and run fine
 under root.
 

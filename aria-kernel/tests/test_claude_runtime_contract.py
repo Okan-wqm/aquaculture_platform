@@ -110,11 +110,18 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
         with patch.object(claude_runtime, "_running_as_root", return_value=False):
             claude_runtime.assert_write_runner_ok(skip_permissions=True, permission_mode=None)  # no raise
 
-    def test_permission_mode_under_root_is_allowed(self) -> None:
-        # A non-bypass permission mode is not the root-blocked flag.
+    def test_accept_edits_mode_under_root_is_allowed(self) -> None:
+        # acceptEdits is NOT root-blocked (verified live: it writes files as root).
         with patch.object(claude_runtime, "_running_as_root", return_value=True), \
                 patch.dict(os.environ, {"ARIA_CLAUDE_SANDBOX": "0", "IS_SANDBOX": "0"}, clear=False):
-            claude_runtime.assert_write_runner_ok(skip_permissions=True, permission_mode="bypassPermissions")
+            claude_runtime.assert_write_runner_ok(skip_permissions=True, permission_mode="acceptEdits")
+
+    def test_bypass_permissions_mode_under_root_fails_closed(self) -> None:
+        # bypassPermissions is root-blocked by the CLI exactly like the full bypass.
+        with patch.object(claude_runtime, "_running_as_root", return_value=True), \
+                patch.dict(os.environ, {"ARIA_CLAUDE_SANDBOX": "0", "IS_SANDBOX": "0"}, clear=False):
+            with self.assertRaises(claude_runtime.ClaudePolicyViolation):
+                claude_runtime.assert_write_runner_ok(skip_permissions=True, permission_mode="bypassPermissions")
 
     def test_read_only_turn_under_root_is_allowed(self) -> None:
         with patch.object(claude_runtime, "_running_as_root", return_value=True), \

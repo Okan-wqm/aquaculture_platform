@@ -197,11 +197,11 @@ def build_claude_exec_argv(
 
     Autonomous worktree writes need one of two permission shapes:
 
-    * ``permission_mode`` (e.g. ``acceptEdits`` / ``bypassPermissions``) →
-      ``--permission-mode <mode>``. ``bypassPermissions`` works under root;
-      ``acceptEdits`` auto-accepts edits while still gating shell. This is the
-      preferred autonomous-write lever when the runner is root and not
-      sandboxed (``--dangerously-skip-permissions`` is refused there).
+    * ``permission_mode`` → ``--permission-mode <mode>``. Verified live: the
+      Claude Code CLI allows ``acceptEdits`` under root (auto-accepts file edits
+      — the root-COMPATIBLE autonomous-write lever, proven to write a real file
+      as root in an isolated dir), but refuses ``bypassPermissions`` under root
+      exactly like the full bypass.
     * ``skip_permissions`` (default, no ``permission_mode``) →
       ``--dangerously-skip-permissions`` (full bypass). Requires a NON-ROOT or
       acknowledged-sandbox runner (enforced by :func:`assert_write_runner_ok`).
@@ -249,20 +249,23 @@ def assert_write_runner_ok(*, skip_permissions: bool, permission_mode: str | Non
     """Fail closed BEFORE the subprocess when the autonomous-write shape cannot
     run on this runner.
 
-    ``--dangerously-skip-permissions`` (full bypass) is refused by the Claude
-    Code CLI under root/sudo for security. Rather than surface that as a cryptic
-    non-zero subprocess exit, ARIA detects it at preflight and raises with the
-    operator-actionable fix: run the autonomous-write executor as a NON-ROOT
-    user, OR select a ``permission_mode`` (e.g. ``bypassPermissions``), OR
-    acknowledge a genuine sandbox via ``ARIA_CLAUDE_SANDBOX=1`` (ADR-040).
+    The Claude Code CLI refuses BOTH ``--dangerously-skip-permissions`` AND
+    ``--permission-mode bypassPermissions`` under root/sudo for security (verified
+    live). Rather than surface that as a cryptic non-zero subprocess exit, ARIA
+    detects it at preflight and raises with the operator-actionable fix: run the
+    autonomous-write executor as a NON-ROOT user, OR select
+    ``permission_mode='acceptEdits'`` (the root-compatible autonomous-write
+    lever), OR acknowledge a genuine sandbox via ``ARIA_CLAUDE_SANDBOX=1``
+    (ADR-040). ``acceptEdits`` / ``plan`` / ``default`` are NOT root-blocked.
     """
-    uses_full_bypass = permission_mode is None and skip_permissions
-    if uses_full_bypass and _running_as_root() and not _sandbox_acknowledged():
+    root_blocked = (permission_mode is None and skip_permissions) or permission_mode == "bypassPermissions"
+    if root_blocked and _running_as_root() and not _sandbox_acknowledged():
         raise ClaudePolicyViolation(
             "claude_autonomous_write_runner_is_root: the Claude Code CLI refuses "
-            "--dangerously-skip-permissions under root. Run the autonomous-write "
-            "executor as a non-root user, pass permission_mode='bypassPermissions', "
-            "or set ARIA_CLAUDE_SANDBOX=1 inside a genuine isolated sandbox (ADR-040)."
+            "--dangerously-skip-permissions / bypassPermissions under root. Run the "
+            "autonomous-write executor as a non-root user, pass "
+            "permission_mode='acceptEdits' (root-compatible), or set "
+            "ARIA_CLAUDE_SANDBOX=1 inside a genuine isolated sandbox (ADR-040)."
         )
 
 

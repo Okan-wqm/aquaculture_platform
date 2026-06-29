@@ -2,8 +2,8 @@
  * Equipment hooks for farm-module
  * Handles CRUD operations for equipment via GraphQL API
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, useTenantQuery } from '@aquaculture/shared-ui';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, graphqlClient, useTenantQuery } from '@aquaculture/shared-ui';
 
 // Types
 export interface EquipmentType {
@@ -339,20 +339,17 @@ export function useEquipmentList(filter?: {
   isActive?: boolean;
   search?: string;
 }) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'equipment', 'list', filter),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['equipment', 'list', filter],
+    async () => {
       const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
         EQUIPMENT_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } },
       );
       return data.equipmentList;
     },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId,
-  });
+    { staleTime: 30000 },
+  );
 }
 
 /**
@@ -453,19 +450,17 @@ export interface EquipmentDeletePreviewResult {
  * Hook to get equipment delete preview
  */
 export function useEquipmentDeletePreview(id: string | null) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'equipment', 'deletePreview', id),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['equipment', 'deletePreview', id],
+    async () => {
       const data = await graphqlClient.request<{
         equipmentDeletePreview: EquipmentDeletePreviewResult;
       }>(EQUIPMENT_DELETE_PREVIEW_QUERY, { id });
       return data.equipmentDeletePreview;
     },
-    staleTime: 0, // Always fetch fresh data for delete preview
-    enabled: !!token && !!tenantId && !!id,
-  });
+    // token+tenant gate is added by useTenantQuery; !!id is ANDed on top.
+    { staleTime: 0, enabled: !!id },
+  );
 }
 
 /**

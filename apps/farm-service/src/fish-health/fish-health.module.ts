@@ -31,6 +31,23 @@ import { BatchHarvestEligibilityService } from './services/batch-harvest-eligibi
 // Resolvers
 import { HealthEventResolver } from './resolvers/health-event.resolver';
 
+// Read query handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetHealthEventHandler } from './handlers/get-health-event.handler';
+import { ListHealthEventsHandler } from './handlers/list-health-events.handler';
+import { ListHealthEventsByBatchHandler } from './handlers/list-health-events-by-batch.handler';
+import { ListCriticalHealthEventsHandler } from './handlers/list-critical-health-events.handler';
+import { ListOverdueFollowUpsHandler } from './handlers/list-overdue-follow-ups.handler';
+import { GetHealthEventStatsHandler } from './handlers/get-health-event-stats.handler';
+
+const HealthEventQueryHandlers = [
+  GetHealthEventHandler,
+  ListHealthEventsHandler,
+  ListHealthEventsByBatchHandler,
+  ListCriticalHealthEventsHandler,
+  ListOverdueFollowUpsHandler,
+  GetHealthEventStatsHandler,
+];
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -45,6 +62,8 @@ import { HealthEventResolver } from './resolvers/health-event.resolver';
     BatchHarvestEligibilityService,
     // Resolvers
     HealthEventResolver,
+    // Query handlers
+    ...HealthEventQueryHandlers,
   ],
   exports: [
     TypeOrmModule,

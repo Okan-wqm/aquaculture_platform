@@ -32,7 +32,10 @@ import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { TaskCategory, TaskChecklistItem, TaskPriority } from '../entities/task.entity';
+import { QueryBus } from '@platform/cqrs';
 import { RecurringTaskService } from '../services/recurring-task.service';
+import { ListRecurringTemplatesQuery } from '../queries/list-recurring-templates.query';
+import { GetRecurringTemplateQuery } from '../queries/get-recurring-template.query';
 
 // ============================================================================
 // USER CONTEXT
@@ -193,7 +196,10 @@ class UpdateRecurringTemplateInput {
 export class RecurringTemplateResolver {
   private readonly logger = new Logger(RecurringTemplateResolver.name);
 
-  constructor(private readonly recurringTaskService: RecurringTaskService) {}
+  constructor(
+    private readonly recurringTaskService: RecurringTaskService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   // -------------------------------------------------------------------------
   // QUERIES
@@ -205,7 +211,7 @@ export class RecurringTemplateResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<RecurringTemplate[]> {
     this.logger.debug(`Listing recurring templates for tenant: ${tenantId}`);
-    return this.recurringTaskService.findAll(tenantId);
+    return this.queryBus.execute(new ListRecurringTemplatesQuery(tenantId));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -215,7 +221,7 @@ export class RecurringTemplateResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<RecurringTemplate> {
     this.logger.debug(`Getting recurring template: ${id}`);
-    return this.recurringTaskService.findById(tenantId, id);
+    return this.queryBus.execute(new GetRecurringTemplateQuery(tenantId, id));
   }
 
   // -------------------------------------------------------------------------

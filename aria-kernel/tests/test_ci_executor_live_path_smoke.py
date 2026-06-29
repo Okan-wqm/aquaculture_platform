@@ -298,8 +298,8 @@ class LivePathFetchTests(unittest.TestCase):
             "prompt_hash_binding_mismatch",
         )
 
-    def test_invoke_codex_cli_mock_empty_role_raises_no_string_mangle(self) -> None:
-        # Plan 025 §B latent-bug-2 closure — invoke_codex_cli mock
+    def test_invoke_claude_cli_mock_empty_role_raises_no_string_mangle(self) -> None:
+        # Plan 025 §B latent-bug-2 closure — invoke_claude_cli mock
         # branch refuses empty role. Pre-fix ``role or subagent_type
         # .replace("aria-", "").replace("-judge", "_judgment")``
         # silently fabricated "evidence_judgment" from "aria-evidence-
@@ -308,7 +308,7 @@ class LivePathFetchTests(unittest.TestCase):
             prompt = self.tmp / "prompt.md"
             prompt.write_text("test", encoding="utf-8")
             with self.assertRaises(ValueError) as ctx:
-                ci_executor.invoke_codex_cli(
+                ci_executor.invoke_claude_cli(
                     request_id="REQ-bad",
                     subagent_type="aria-evidence-judge",
                     prompt_file=prompt,

@@ -2,18 +2,18 @@ name: aria-agent-executor
 
 # Plan ARIA-V3 §B1 — scheduled CI executor for ARIA's bound-agent
 # pipeline. Runs once per off-hours window OR on manual dispatch; pulls
-# the next pending agent request from the kernel's queue, invokes
-# Codex CLI via ChatGPT-managed auth, submits the result.
+# the next pending agent request from the kernel's queue, invokes the
+# Claude Code CLI via a managed login session, submits the result.
 #
 # Argv contract status (DEBT-2026-05-08-001 retired by V3 §B1): the
 # kernel-side argv shape is now PROVEN — see
 # tools/aria-poc/ci_executor_contract_proven.md (locked by invariant
-# I-V3-21). The workflow ships with CODEX_CLI_MOCK default flipped
+# I-V3-21). The workflow ships with CLAUDE_CLI_MOCK default flipped
 # to 'false' (production); `vars.ARIA_MOCK_KILL_SWITCH` is read
 # AHEAD of the default so operators can keep mock active without
 # editing this file (INFRA-MEDIUM-011). The operator's single
 # supervised live invocation populates the verified_at_commit /
-# codex_cli_version_minimum fields in the proven-contract doc.
+# claude_cli_version_minimum fields in the proven-contract doc.
 #
 # Lease-token redaction:
 #   - LEASE token flows ONLY through ARIA_LEASE_TOKEN env var.
@@ -31,7 +31,7 @@ on:
         required: false
         type: string
       mock:
-        description: 'Run in mock mode (no real Codex CLI invocation)'
+        description: 'Run in mock mode (no real Claude Code CLI invocation)'
         required: false
         default: 'false'
         type: choice
@@ -48,7 +48,7 @@ permissions:
 
 jobs:
   executor:
-    runs-on: [self-hosted, linux, codex]
+    runs-on: [self-hosted, linux, claude]
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -64,27 +64,27 @@ jobs:
         with:
           node-version: '20'
 
-      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — verify the pinned Codex
-      # CLI floor BEFORE the executor step. The proven-contract doc
+      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — verify the pinned Claude
+      # Code CLI floor BEFORE the executor step. The proven-contract doc
       # (tools/aria-poc/ci_executor_contract_proven.md) is the SSoT
       # for the argv shape; this step ensures the binary that
       # interprets that argv is present and version-pinned. The
       # --ignore-scripts flag satisfies V2 I-25 clause 4
       # (INFRA-CRITICAL-001 supply chain).
-      - name: Pre-flight - Codex CLI present
+      - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail
-          REQUIRED_CODEX_VERSION="0.135.0"
-          CODEX_VERSION="$(codex --version | awk '{print $2}')"
-          python3 - "$REQUIRED_CODEX_VERSION" "$CODEX_VERSION" <<'PY'
+          REQUIRED_CLAUDE_VERSION="2.1.0"
+          CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
+          python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
           import sys
           def parse(value):
               return tuple(int(part) for part in value.split('.'))
           required = parse(sys.argv[1])
           current = parse(sys.argv[2])
           if current < required:
-              raise SystemExit(f"codex-cli {sys.argv[2]} is below required {sys.argv[1]}")
-          print(f"codex-cli {sys.argv[2]} satisfies required {sys.argv[1]}")
+              raise SystemExit(f"claude-code {sys.argv[2]} is below required {sys.argv[1]}")
+          print(f"claude-code {sys.argv[2]} satisfies required {sys.argv[1]}")
           PY
 
       # Plan ARIA-V3 §B2 + §2n + INFRA-HIGH-004 — cross-host lease
@@ -133,14 +133,14 @@ jobs:
           exit 0
 
       # Plan ARIA-V3 §B1 INFRA-CRITICAL-002 — refuse to start when
-      # the workflow is in live mode but the OAuth token is unset.
-      # The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read AHEAD
-      # of the workflow default — operator opt-out path (Plan
+      # the workflow is in live mode but managed Claude Code auth is
+      # absent. The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
+      # AHEAD of the workflow default — operator opt-out path (Plan
       # ARIA-V3 §B1 INFRA-MEDIUM-011). The mock_source value flows
-      # into the ci_executor via CODEX_CLI_MOCK_SOURCE so the
-      # codex_mock_mode_resolved audit event (AUDITTRAIL-HIGH-009)
+      # into the ci_executor via CLAUDE_CLI_MOCK_SOURCE so the
+      # claude_mock_mode_resolved audit event (AUDITTRAIL-HIGH-009)
       # records exactly which layer decided the mock state.
-      - name: Pre-flight - Codex auth + mock-mode kill-switch resolution
+      - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
         id: preflight
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
@@ -155,18 +155,22 @@ jobs:
             MOCK_SOURCE="workflow_dispatch_input"
           else
             EFFECTIVE_MOCK="false"
-            MOCK_SOURCE="workflow_default_codex"
+            MOCK_SOURCE="workflow_default_claude"
           fi
           echo "effective_mock=${EFFECTIVE_MOCK}" >> "$GITHUB_OUTPUT"
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
-            if env | grep -E '^(OPENAI_API_KEY|CODEX_API_KEY)=' >/dev/null; then
-              echo "::error::API-key Codex mode is disallowed for ARIA; use ChatGPT-managed codex login on the trusted runner." >&2
+            if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
+              echo "::error::API-key Claude mode is disallowed for ARIA; use a managed Claude Code login on the trusted runner." >&2
               exit 1
             fi
-            codex login status --json >/tmp/aria-codex-auth.json 2>/tmp/aria-codex-auth.err \
-              || codex doctor --json >/tmp/aria-codex-auth.json 2>>/tmp/aria-codex-auth.err \
-              || { echo "::error::Codex ChatGPT auth preflight failed" >&2; cat /tmp/aria-codex-auth.err >&2; exit 1; }
+            claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
+              || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
+            CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+            if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
+              echo "::error::Claude Code managed-auth session not found on the trusted runner" >&2
+              exit 1
+            fi
           fi
 
       - name: Find next pending request
@@ -264,9 +268,9 @@ jobs:
       - name: Run CI executor
         if: steps.pending.outputs.request_id != ''
         env:
-          CODEX_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
-          CODEX_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
-          ARIA_CODEX_REQUIRE_USAGE: '1'
+          CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
+          CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
+          ARIA_CLAUDE_REQUIRE_USAGE: '1'
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'

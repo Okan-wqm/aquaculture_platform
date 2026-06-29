@@ -1,11 +1,13 @@
 import { Args, Int, Query, Resolver } from '@nestjs/graphql';
+import { QueryBus } from '@platform/cqrs';
 import { CurrentTenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { StockEventsSummary, TodaysDailyOpsCounts } from './dto/mobile-dashboard.dto';
-import { MobileDashboardService } from './mobile-dashboard.service';
+import { GetTodaysDailyOpsCountsQuery } from './queries/get-todays-daily-ops-counts.query';
+import { GetStockEventsSummaryQuery } from './queries/get-stock-events-summary.query';
 
 @Resolver()
 export class MobileDashboardResolver {
-  constructor(private readonly mobileDashboardService: MobileDashboardService) {}
+  constructor(private readonly queryBus: QueryBus) {}
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TodaysDailyOpsCounts, { name: 'todaysDailyOpsCounts' })
@@ -18,7 +20,9 @@ export class MobileDashboardResolver {
     // only selects a day within the caller's OWN tenant.
     @Args('clientDate', { type: () => String, nullable: true }) clientDate?: string,
   ): Promise<TodaysDailyOpsCounts> {
-    return this.mobileDashboardService.getTodaysDailyOpsCounts(tenantId, clientDate ?? undefined);
+    return this.queryBus.execute(
+      new GetTodaysDailyOpsCountsQuery(tenantId, clientDate ?? undefined),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -27,6 +31,6 @@ export class MobileDashboardResolver {
     @CurrentTenant() tenantId: string,
     @Args('daysBack', { type: () => Int, nullable: true, defaultValue: 7 }) daysBack?: number,
   ): Promise<StockEventsSummary> {
-    return this.mobileDashboardService.getStockEventsSummary(tenantId, daysBack ?? 7);
+    return this.queryBus.execute(new GetStockEventsSummaryQuery(tenantId, daysBack ?? 7));
   }
 }

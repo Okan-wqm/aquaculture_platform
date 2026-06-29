@@ -205,6 +205,7 @@ class EnforceExpertConsensusGateTests(unittest.TestCase):
                 _verdict("security-reviewer", evidence_refs=["real.ts:2"]),
             ],
             workspace_root=self.repo, base_dir=self.tools, base_sha=self.sha,
+            head_sha=self.sha,
         )
         self.assertTrue(result["approved"])
         self.assertIn("expert_consensus_check", self._governance_kinds())
@@ -218,6 +219,7 @@ class EnforceExpertConsensusGateTests(unittest.TestCase):
                     _verdict("security-reviewer", evidence_refs=["ghost/file.ts:99"]),
                 ],
                 workspace_root=self.repo, base_dir=self.tools, base_sha=self.sha,
+                head_sha=self.sha,
             )
         self.assertIn("expert_consensus_evidence_verified_failed", str(cm.exception))
         pending = list_human_required(base_dir=self.tools)
@@ -233,6 +235,7 @@ class EnforceExpertConsensusGateTests(unittest.TestCase):
                     _verdict("security-reviewer", evidence_refs=["real.ts:2"]),
                 ],
                 workspace_root=self.repo, base_dir=self.tools, base_sha=None,
+                head_sha=self.sha,
             )
         self.assertEqual(list_human_required(base_dir=self.tools), [])
 

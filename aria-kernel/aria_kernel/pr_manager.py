@@ -197,6 +197,20 @@ def open_pr_for_action(
         # head_sha / base_branch but drops base_sha.
         row["base_sha"] = payload.get("base_sha")
         return row
+    # Plan 031-R R2 (B1) — an ARIA-authored fix PR cannot open without an
+    # evidence-verified expert consensus recorded for THIS head. Scope: changes
+    # whose committed row carries a claim_id (agent-issued). Operator/manual PR
+    # opens are NOT gated — the operator is the reviewer there. Dispatch happens
+    # upstream (worker/bridge, after verify_worker_result); here we only READ the
+    # canonical verdict ledger and fail closed. Already past the dry_run
+    # early-return, so the cycle's pr_lifecycle preview is unaffected.
+    from .change_ledger import get_change_chain
+    _committed = get_change_chain(change_id=str(change_id), base_dir=base_dir).get("committed") or {}
+    if _committed.get("claim_id"):
+        from .expert_verdicts import assert_change_expert_approved
+        assert_change_expert_approved(
+            change_id=str(change_id), head_sha=resolved_head_sha, base_dir=base_dir,
+        )
     # Plan 023 v3 §P-3 — `--head <branch>` always passed. Pre-fix gh
     # inferred the branch from the current checkout, which could be
     # wrong (the gate may have run on a different worktree than the

@@ -215,6 +215,7 @@ def enforce_expert_consensus_gate(
     change_id: str,
     verdicts: list[dict[str, Any]],
     workspace_root: str | Path,
+    head_sha: str,
     base_dir: str | Path | None = None,
     base_sha: str | None = None,
     min_reviewers: int = DEFAULT_MIN_REVIEWERS,
@@ -222,11 +223,12 @@ def enforce_expert_consensus_gate(
     """The enforced gate behind ``expert_consensus_evidence_verified``.
 
     Evaluates the panel; emits an ``expert_consensus_check`` governance event;
-    on failure raises ``GovernanceError`` to block the fix PR. A failure caused
-    by unverifiable (hallucinated) evidence ALSO escalates to a HUMAN_REQUIRED
+    records the verdict to the canonical expert-verdict ledger (Plan 031-R R2)
+    bound to ``head_sha`` so the pre-PR-open chokepoint can read it; on failure
+    raises ``GovernanceError`` to block the fix PR. A failure caused by
+    unverifiable (hallucinated) evidence ALSO escalates to a HUMAN_REQUIRED
     record — a reviewer citing a file:line that does not exist is a fabrication
-    signal the operator must see, exactly as the judge-consensus evidence gate
-    escalates fabricated judge evidence.
+    signal the operator must see.
     """
     result = evaluate_expert_consensus(
         verdicts=verdicts,
@@ -245,6 +247,19 @@ def enforce_expert_consensus_gate(
             "reason": result.get("reason", ""),
             "distinct_reviewers": result.get("distinct_reviewers", []),
         },
+    )
+    # Plan 031-R R2 — persist the verdict (approved or not) to the canonical
+    # ledger so pr_manager can fail closed without re-dispatching reviewers.
+    from .expert_verdicts import record_expert_verdicts
+    record_expert_verdicts(
+        change_id=change_id,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        verdicts=verdicts,
+        approved=bool(result["approved"]),
+        reason=result.get("reason", ""),
+        unverifiable_refs=result.get("unverifiable_refs", []),
+        base_dir=base_dir,
     )
     if result["approved"]:
         return result

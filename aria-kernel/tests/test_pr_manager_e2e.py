@@ -197,6 +197,28 @@ class OpenPRForActionTests(unittest.TestCase):
         self.assertIn("## Problem", result["body"])
         self.assertIn("## Provenance", result["body"])
 
+    def test_claim_id_change_requires_expert_consensus(self) -> None:
+        # Plan 031-R R2 (B1) — a real PR for an ARIA-authored change (claim_id)
+        # cannot open without an evidence-verified expert consensus on record.
+        from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
+        proposal = _seed_proposal(tools=self.tools)
+        _seed_apply_action(tools=self.tools, proposal_id=proposal["proposal_id"], status="ready_for_pr")
+        planned = emit_change_planned(
+            plan_id="p", finding_id="F-1", intended_affected_files=["x.ts"],
+            intended_validation_refs=["nx test"], architectural_tier=1, base_dir=self.tools,
+        )
+        emit_change_committed(
+            change_id=planned["change_id"], commit_sha="c1",
+            actual_affected_files=["x.ts"], base_dir=self.tools, claim_id="claim-1",
+        )
+        with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success):
+            with self.assertRaises(GovernanceError) as cm:
+                open_pr_for_action(
+                    proposal_id=proposal["proposal_id"], workspace_root=self.repo,
+                    base_dir=self.tools, change_id=planned["change_id"], dry_run=False,
+                )
+        self.assertIn("expert_consensus_verdict_missing", str(cm.exception))
+
     def test_action_not_ready_for_pr_raises(self) -> None:
         proposal = _seed_proposal(tools=self.tools)
         _seed_apply_action(tools=self.tools, proposal_id=proposal["proposal_id"], status="blocked")

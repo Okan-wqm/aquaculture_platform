@@ -224,6 +224,7 @@
     "helmet": "^7.2.0",
     "immer": "^11.1.4",
     "ioredis": "^5.8.2",
+    "js-yaml": "^4.1.1",
     "minio": "^8.0.7",
     "modbus-serial": "^8.0.23",
     "motion": "^12.38.0",

@@ -33,7 +33,7 @@ import {
 } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
-import { createTenantQueryKey } from '../utils/tenant-query-keys';
+import { createTenantQueryKey, createTenantInvalidationKey } from '../utils/tenant-query-keys';
 
 export type TenantQueryOptions<TData, TError> = Omit<
   UseQueryOptions<TData, TError, TData, readonly unknown[]>,
@@ -98,8 +98,12 @@ export function useTenantMutation<TData = unknown, TError = Error, TVariables = 
     mutationFn,
     onSuccess: (...args) => {
       for (const segments of invalidate ?? []) {
+        // MUST be the epoch-LESS invalidation key: createTenantQueryKey appends a
+        // {__sessionEpoch} segment, which would land at the same index as a list
+        // query's filter and break the prefix match (it would invalidate nothing).
+        // createTenantInvalidationKey is the epoch-less prefix made for this.
         void queryClient.invalidateQueries({
-          queryKey: createTenantQueryKey(tenantId, ...segments),
+          queryKey: createTenantInvalidationKey(tenantId, ...segments),
         });
       }
       // Forward every arg react-query passes (v5's callback arity), so a caller's

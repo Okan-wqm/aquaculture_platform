@@ -2,7 +2,7 @@
 
 Date: 2026-06-21
 Target ref: `origin/main`
-Last verified ARIA authority hash: `db056cc122d4d8a0c539a8ce440b2fa8d726c0c665366fbf7ed8d22e08ad4171`
+Last verified ARIA authority hash: `1a4a84980a56be30f156d621fe2f8c598c5f3fe38d1de8cbcd22bb229257621d`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -38,16 +38,16 @@ When two sources disagree, the lower-priority source must be updated, generated 
 - Runner attestation owner: `aria-kernel/aria_kernel/runner_attestation.py`
 - Capability resolution owner: `aria-kernel/aria_kernel/capability_resolver.py`
 - Required PR merge check: `.github/workflows/aria-merge-authority.yml`
-- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
+- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/claude_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 - Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`
 - Observe burn-in report schema: `docs/aria/schemas/autonomy-burn-in-report.schema.json`
 
 ## Runtime
 
-ARIA live autonomous execution is Codex CLI based and must use ChatGPT-managed Codex CLI authentication on a trusted/private runner. Direct API-key runtime mode is not the default authority for this repository.
+ARIA live autonomous execution is Claude Code CLI based and must use a managed Claude Code login session on a trusted/private runner. Direct API-key / proxy-billing runtime mode is not the default authority for this repository.
 
-Legacy Claude/Anthropic executor language in older docs is historical or compatibility reference unless an executable contract explicitly calls it. Any live doc section that treats Claude Code, Anthropic API keys, or `llm_bridge.py` as the current ARIA runtime authority is a documentation defect.
+Legacy Codex executor language in older docs is historical or compatibility reference unless an executable contract explicitly calls it. Any live doc section that treats `codex exec`, ChatGPT-managed Codex auth, or `codex_runtime.py` as the current ARIA runtime authority is a documentation defect.
 
 ## State And Lifecycle
 

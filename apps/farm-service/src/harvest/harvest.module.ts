@@ -38,6 +38,14 @@ import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.h
 import { GetHarvestHandler } from './handlers/get-harvest.handler';
 import { ListHarvestsHandler } from './handlers/list-harvests.handler';
 import { UpdateHarvestRecordHandler } from './handlers/update-harvest-record.handler';
+// Harvest-plan read handlers (fail-closed tenant boundary — FARM-HIGH-074)
+import { GetHarvestPlanHandler } from './handlers/get-harvest-plan.handler';
+import { GetHarvestPlanByCodeHandler } from './handlers/get-harvest-plan-by-code.handler';
+import { ListHarvestPlansHandler } from './handlers/list-harvest-plans.handler';
+import { ListHarvestPlansByBatchHandler } from './handlers/list-harvest-plans-by-batch.handler';
+import { ListUpcomingHarvestPlansHandler } from './handlers/list-upcoming-harvest-plans.handler';
+import { ListOverdueHarvestPlansHandler } from './handlers/list-overdue-harvest-plans.handler';
+import { GetHarvestPlanStatsHandler } from './handlers/get-harvest-plan-stats.handler';
 import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
 import { HarvestResolver } from './resolvers/harvest.resolver';
 import { HarvestPlanService } from './services/harvest-plan.service';
@@ -75,6 +83,14 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
     ListHarvestsHandler,
     GetHarvestHandler,
     GetHarvestStatisticsHandler,
+    // Harvest-plan read handlers
+    GetHarvestPlanHandler,
+    GetHarvestPlanByCodeHandler,
+    ListHarvestPlansHandler,
+    ListHarvestPlansByBatchHandler,
+    ListUpcomingHarvestPlansHandler,
+    ListOverdueHarvestPlansHandler,
+    GetHarvestPlanStatsHandler,
     // Resolvers
     HarvestResolver,
     HarvestPlanResolver,

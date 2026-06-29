@@ -7,7 +7,7 @@ from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
-APPROVED_CODEX_AUTH = frozenset({"chatgpt_managed_codex_cli", "codex_cli_chatgpt"})
+APPROVED_CLAUDE_AUTH = frozenset({"managed_claude_code_cli", "claude_code_managed"})
 
 
 def record_runner_attestation(
@@ -61,7 +61,7 @@ def verify_runner_attestation(
 
 
 def _validate_attestation(row: dict[str, Any]) -> None:
-    required = ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id", "runner_id", "runner_group", "codex_auth")
+    required = ("repo", "pr_number", "target_ref", "head_ref", "head_sha", "readiness_claim_id", "runner_id", "runner_group", "claude_auth")
     missing = [key for key in required if row.get(key) in (None, "", [], {})]
     if missing:
         raise GovernanceError("runner_attestation_missing_fields:" + ",".join(missing))
@@ -73,12 +73,12 @@ def _validate_attestation(row: dict[str, Any]) -> None:
         raise GovernanceError("runner_attestation_sandbox_required")
     if row.get("api_key_auth") is not False:
         raise GovernanceError("runner_attestation_api_key_auth_forbidden")
-    if row.get("codex_auth") not in APPROVED_CODEX_AUTH:
-        raise GovernanceError("runner_attestation_codex_chatgpt_auth_required")
+    if row.get("claude_auth") not in APPROVED_CLAUDE_AUTH:
+        raise GovernanceError("runner_attestation_claude_managed_auth_required")
 
 
 __all__ = [
-    "APPROVED_CODEX_AUTH",
+    "APPROVED_CLAUDE_AUTH",
     "record_runner_attestation",
     "verify_runner_attestation",
 ]

@@ -38,10 +38,25 @@ ARIA's live LLM runtime is the Claude Code CLI. The executor-side contract is
   default. `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
   `ANTHROPIC_BASE_URL` (proxy billing) are fail-closed unless an operator opts
   in via `ARIA_ALLOW_CLAUDE_API_KEY_MODE=1` under a future ADR.
-- `--dangerously-skip-permissions` is required so the autonomous executor can
-  edit its assigned worktree without per-tool human approval (the autonomy the
-  Codex `exec` path previously provided), and is acceptable only on the trusted
-  runner.
+- Autonomous worktree writes need a permission bypass. Two supported shapes:
+  `--dangerously-skip-permissions` (full bypass) OR
+  `--permission-mode bypassPermissions`/`acceptEdits` (via
+  `claude_runtime.build_claude_exec_argv(permission_mode=...)`). The full bypass
+  is acceptable only on the trusted runner.
+
+**Autonomous-write runner constraint (verified live 2026-06-29):** the Claude
+Code CLI REFUSES `--dangerously-skip-permissions` under root/sudo for security.
+`--permission-mode bypassPermissions` is refused the same way. Therefore the
+autonomous-write executor MUST run as a **non-root user** (the recommended
+production path — the full bypass then works with no extra config), OR select
+`permission_mode='acceptEdits'` (the root-COMPATIBLE lever — verified live: it
+autonomously wrote a real file as root in an isolated dir), OR acknowledge a
+genuine isolated sandbox via `ARIA_CLAUDE_SANDBOX=1` (the runtime then passes
+`IS_SANDBOX=1` to the CLI). `claude_runtime.assert_write_runner_ok` fails closed
+at preflight (for the full bypass AND `bypassPermissions` under root) with this
+guidance instead of surfacing a cryptic non-zero subprocess exit. Read-only
+agent turns (judge/scout, `skip_permissions=False`) are unaffected and run fine
+under root.
 
 The runner attestation contract (`aria_kernel.runner_attestation`) requires a
 `claude_auth` field in the approved set; the GH `aria-agent-executor.yml`

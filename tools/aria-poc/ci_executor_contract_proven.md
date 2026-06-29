@@ -74,7 +74,7 @@ human approving each tool call (the autonomy `codex exec` previously provided).
 ## Workflow Policy
 
 * Scheduled workflows run from the repository default branch and checkout the `main` target ref.
-* The executor job runs on a trusted self-hosted runner labelled `claude`; GitHub-hosted runners must not carry a persisted managed Claude Code session.
+* The executor job runs on a trusted self-hosted runner labelled `claude`; GitHub-hosted runners must not carry a persisted managed Claude Code session. The autonomous-WRITE executor runs as a **non-root** user (the Claude Code CLI refuses `--dangerously-skip-permissions` under root) or in an acknowledged sandbox (`ARIA_CLAUDE_SANDBOX=1`); `claude_runtime.assert_write_runner_ok` enforces this fail-closed (ADR-040, ORPHAN-MEDIUM-254).
 * `CLAUDE_CLI_MOCK` kill switch remains available for dry-runs.
 * Anthropic API-key / OAuth-token workflow secrets are not part of the live executor contract.
 

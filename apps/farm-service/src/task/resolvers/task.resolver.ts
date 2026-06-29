@@ -22,8 +22,14 @@ import { CurrentTenant, CurrentUser, Role, Roles, RequiresMobileFeature } from '
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { QueryBus } from '@platform/cqrs';
 import { Task, TaskStatus } from '../entities/task.entity';
 import { TaskService } from '../services/task.service';
+import { GetTaskQuery } from '../queries/get-task.query';
+import { ListTasksQuery } from '../queries/list-tasks.query';
+import { ListMyTasksQuery } from '../queries/list-my-tasks.query';
+import { ListTodaysTasksQuery } from '../queries/list-todays-tasks.query';
+import { GetTaskStatsQuery } from '../queries/get-task-stats.query';
 import { CreateTaskInput } from '../dto/create-task.dto';
 import {
   UpdateTaskInput,
@@ -88,7 +94,10 @@ class TaskStatsResponse {
 export class TaskResolver {
   private readonly logger = new Logger(TaskResolver.name);
 
-  constructor(private readonly taskService: TaskService) {}
+  constructor(
+    private readonly taskService: TaskService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   // -------------------------------------------------------------------------
   // QUERIES
@@ -101,7 +110,7 @@ export class TaskResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<Task> {
     this.logger.debug(`Getting task: ${id}`);
-    return this.taskService.findById(tenantId, id);
+    return this.queryBus.execute(new GetTaskQuery(tenantId, id));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -112,7 +121,7 @@ export class TaskResolver {
     filter?: TaskFilterInput,
   ): Promise<IStandardPaginatedResult<Task>> {
     this.logger.debug(`Listing tasks for tenant: ${tenantId}`);
-    return this.taskService.findAll(tenantId, filter);
+    return this.queryBus.execute(new ListTasksQuery(tenantId, filter));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -124,7 +133,7 @@ export class TaskResolver {
     status?: TaskStatus[],
   ): Promise<Task[]> {
     this.logger.debug(`Getting tasks for user: ${user.sub}`);
-    return this.taskService.findByAssignee(tenantId, user.sub, status);
+    return this.queryBus.execute(new ListMyTasksQuery(tenantId, user.sub, status));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -133,7 +142,7 @@ export class TaskResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<Task[]> {
     this.logger.debug(`Getting today's tasks for tenant: ${tenantId}`);
-    return this.taskService.findTodaysTasks(tenantId);
+    return this.queryBus.execute(new ListTodaysTasksQuery(tenantId));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -142,7 +151,7 @@ export class TaskResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<TaskStatsResponse> {
     this.logger.debug(`Getting task stats for tenant: ${tenantId}`);
-    return this.taskService.getStats(tenantId);
+    return this.queryBus.execute(new GetTaskStatsQuery(tenantId));
   }
 
   // -------------------------------------------------------------------------

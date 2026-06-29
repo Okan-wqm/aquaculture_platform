@@ -5,7 +5,8 @@ import { FarmStockBatchSnapshot } from './entities/farm-stock-batch-snapshot.ent
 import { FarmStockContainerSnapshot } from './entities/farm-stock-container-snapshot.entity';
 import { FarmStockProjectionService } from './farm-stock-projection.service';
 import { FarmStockResolver } from './farm-stock.resolver';
-import { FarmStockService } from './farm-stock.service';
+// Read query handler (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetFarmStockInventoryHandler } from './handlers/get-farm-stock-inventory.handler';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { FarmStockService } from './farm-stock.service';
       FarmStockBatchSnapshot,
     ]),
   ],
-  providers: [FarmStockResolver, FarmStockService, FarmStockProjectionService],
-  exports: [FarmStockService, FarmStockProjectionService, TypeOrmModule],
+  providers: [FarmStockResolver, GetFarmStockInventoryHandler, FarmStockProjectionService],
+  exports: [FarmStockProjectionService, TypeOrmModule],
 })
 export class FarmStockModule {}

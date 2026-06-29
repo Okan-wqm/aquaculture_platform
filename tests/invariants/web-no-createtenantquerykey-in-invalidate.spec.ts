@@ -26,11 +26,13 @@ const PATTERN = /(?:invalidateQueries|removeQueries)\([^;]*createTenantQueryKey\
 /**
  * High-water mark of broken createTenantQueryKey-based invalidations. RATCHET: only
  * ever DECREASE this, in lockstep with migrating call sites to
- * createTenantInvalidationKey. 2026-06-29: a #687 regression; useEdgeDevices (24) is
- * fixed in the same PR. 44 remain (this regex matches multi-line calls a line-based
- * grep misses, hence > the 42 grep reported).
+ * createTenantInvalidationKey. 2026-06-29: a #687 regression. useEdgeDevices fixed in
+ * #722 (→44); the sensor cluster (AutomationProgramEditorPage/usePlcControl/
+ * useAlertRules/AutomationProgramsPage/useLoRaDevices) fixed here (→6). The last 6
+ * (hr useLeaves/useCertifications, tenant-admin TenantDashboard/useTenantData, shell
+ * MainLayout) burn down next.
  */
-const BASELINE_CEILING = 44;
+const BASELINE_CEILING = 6;
 
 function walk(dir: string): string[] {
   const out: string[] = [];

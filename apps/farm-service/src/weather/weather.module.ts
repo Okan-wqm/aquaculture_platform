@@ -12,6 +12,7 @@ import { OpenMeteoService } from './services/open-meteo.service';
 import { WeatherSyncService } from './services/weather-sync.service';
 import { WeatherCronService } from './services/weather-cron.service';
 import { WeatherResolver } from './weather.resolver';
+import { GetWeatherSettingsHandler } from './handlers/get-weather-settings.handler';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { WeatherResolver } from './weather.resolver';
     WeatherSyncService,
     WeatherCronService,
     WeatherResolver,
+    GetWeatherSettingsHandler,
   ],
   exports: [
     WeatherSyncService,

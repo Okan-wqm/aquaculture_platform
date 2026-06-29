@@ -22,6 +22,9 @@ import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { BiomassReport } from './entities/biomass-report.entity';
 import { BiomassReportService } from './services/biomass-report.service';
 import { CreateBiomassReportInput } from './dto/create-biomass-report.input';
+import { QueryBus } from '@platform/cqrs';
+import { GetBiomassReportByPeriodQuery } from './queries/get-biomass-report-by-period.query';
+import { ListBiomassReportsForSiteQuery } from './queries/list-biomass-reports-for-site.query';
 
 interface UserContext {
   sub: string;
@@ -34,7 +37,10 @@ interface UserContext {
 export class BiomassReportResolver {
   private readonly logger = new Logger(BiomassReportResolver.name);
 
-  constructor(private readonly biomassReportService: BiomassReportService) {}
+  constructor(
+    private readonly biomassReportService: BiomassReportService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @Mutation(() => BiomassReport, {
     description:
@@ -65,11 +71,8 @@ export class BiomassReportResolver {
     @Args('reportMonth', { type: () => Int }) reportMonth: number,
     @Args('reportYear', { type: () => Int }) reportYear: number,
   ): Promise<BiomassReport | null> {
-    return this.biomassReportService.findByPeriod(
-      tenantId,
-      siteId,
-      reportMonth,
-      reportYear,
+    return this.queryBus.execute(
+      new GetBiomassReportByPeriodQuery(tenantId, siteId, reportMonth, reportYear),
     );
   }
 
@@ -83,6 +86,8 @@ export class BiomassReportResolver {
     @Args('siteId', { type: () => ID }) siteId: string,
     @Args('limit', { type: () => Int, defaultValue: 24 }) limit: number,
   ): Promise<BiomassReport[]> {
-    return this.biomassReportService.listForSite(tenantId, siteId, limit);
+    return this.queryBus.execute(
+      new ListBiomassReportsForSiteQuery(tenantId, siteId, limit),
+    );
   }
 }

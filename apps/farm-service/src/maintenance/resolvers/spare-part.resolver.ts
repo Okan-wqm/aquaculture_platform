@@ -28,6 +28,14 @@ import {
   LowStockAlert,
   StockSummary,
 } from '../services/spare-part.service';
+import { QueryBus } from '@platform/cqrs';
+import { GetSparePartQuery } from '../queries/get-spare-part.query';
+import { GetSparePartByCodeQuery } from '../queries/get-spare-part-by-code.query';
+import { GetSparePartByPartNumberQuery } from '../queries/get-spare-part-by-part-number.query';
+import { ListSparePartsQuery } from '../queries/list-spare-parts.query';
+import { ListLowStockAlertsQuery } from '../queries/list-low-stock-alerts.query';
+import { ListSparePartsByEquipmentTypeQuery } from '../queries/list-spare-parts-by-equipment-type.query';
+import { GetStockSummaryQuery } from '../queries/get-stock-summary.query';
 import {
   CreateSparePartInput,
   UpdateSparePartInput,
@@ -133,7 +141,10 @@ export class BulkStockInItemInput {
 export class SparePartResolver {
   private readonly logger = new Logger(SparePartResolver.name);
 
-  constructor(private readonly sparePartService: SparePartService) {}
+  constructor(
+    private readonly sparePartService: SparePartService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   // -------------------------------------------------------------------------
   // QUERIES
@@ -146,7 +157,7 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<SparePart> {
     this.logger.debug(`Getting spare part: ${id}`);
-    return this.sparePartService.findById(tenantId, id);
+    return this.queryBus.execute(new GetSparePartQuery(tenantId, id));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -156,7 +167,7 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<SparePart> {
     this.logger.debug(`Getting spare part by code: ${code}`);
-    return this.sparePartService.findByCode(tenantId, code);
+    return this.queryBus.execute(new GetSparePartByCodeQuery(tenantId, code));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -166,7 +177,7 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<SparePart> {
     this.logger.debug(`Getting spare part by part number: ${partNumber}`);
-    return this.sparePartService.findByPartNumber(tenantId, partNumber);
+    return this.queryBus.execute(new GetSparePartByPartNumberQuery(tenantId, partNumber));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -185,13 +196,8 @@ export class SparePartResolver {
     sortOrder?: 'ASC' | 'DESC',
   ): Promise<IStandardPaginatedResult<SparePart>> {
     this.logger.debug(`Listing spare parts for tenant: ${tenantId}`);
-    return this.sparePartService.findAll(
-      tenantId,
-      filter,
-      page,
-      limit,
-      sortBy,
-      sortOrder,
+    return this.queryBus.execute(
+      new ListSparePartsQuery(tenantId, filter, page, limit, sortBy, sortOrder),
     );
   }
 
@@ -201,7 +207,9 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<LowStockAlertResponse[]> {
     this.logger.debug(`Getting low stock alerts for tenant: ${tenantId}`);
-    const alerts = await this.sparePartService.findLowStock(tenantId);
+    const alerts = await this.queryBus.execute<ListLowStockAlertsQuery, LowStockAlert[]>(
+      new ListLowStockAlertsQuery(tenantId),
+    );
 
     return alerts.map((alert) => ({
       sparePart: alert.sparePart,
@@ -219,7 +227,9 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<SparePart[]> {
     this.logger.debug(`Getting spare parts for equipment type: ${equipmentTypeId}`);
-    return this.sparePartService.findByEquipmentType(tenantId, equipmentTypeId);
+    return this.queryBus.execute(
+      new ListSparePartsByEquipmentTypeQuery(tenantId, equipmentTypeId),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -228,7 +238,9 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<StockSummaryResponse> {
     this.logger.debug(`Getting stock summary for tenant: ${tenantId}`);
-    const summary = await this.sparePartService.getStockSummary(tenantId);
+    const summary = await this.queryBus.execute<GetStockSummaryQuery, StockSummary>(
+      new GetStockSummaryQuery(tenantId),
+    );
 
     return {
       totalParts: summary.totalParts,

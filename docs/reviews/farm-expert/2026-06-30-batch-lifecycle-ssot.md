@@ -27,3 +27,16 @@ mortality/cull/transfer/createBatch through `applyBatchDelta` + delete the two d
 ### Verification
 `tsc -p tsconfig.spec.json` → 0; `invariants:fast` 1680/1680; allocate spec 5/5; new
 TankBatchService spec 4/4 (single-batch persisted, mixed derive, zero-removes, partial-decrement).
+
+## FARM-HIGH-099 — recordMortality routed through the shared TankBatch SSoT writer (PR-2)
+recordMortality updated TankBatch with a hand-written `totalQuantity -= qty` / `totalBiomassKg -= biomass`
+(+ denormalized current*/lastMortalityAt/avg/density) that NEVER touched `batchDetails[]` — so in a
+mixed-batch tank the per-batch breakdown drifted from the aggregate (and the farm_stock_batch_snapshots
+projection, rebuilt from batchDetails[], went wrong). Migrated to `TankBatchService.applyBatchDelta`
+(quantityDelta:-qty, biomassDelta:-biomass, lastMortalityAt) — batchDetails[] is the SSoT, aggregates +
+current* derived. Extended applyBatchDelta to maintain the denormalized current*/lastMortalityAt AND to
+SELF-HEAL pre-SSoT single-batch rows (empty batchDetails + populated total + primaryBatchId) by
+reconstructing the single entry from the totals, so a negative delta is never a silent no-op on a tank
+stocked before #776. recordCull + transferBatch follow (PR-2b/2c); then delete the 2 duplicate
+updateTankBatchWithManager. Verification: tsc-spec 0, invariants 1682/1682, mortality unit spec 20/20
+(batch decrement unchanged), race-conditions + postgres-isolation handler constructions updated.

@@ -9,6 +9,7 @@ import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { AllocateToTankHandler } from '../../handlers/allocate-to-tank.handler';
+import { TankBatchService } from '../../services/tank-batch.service';
 import { AllocateToTankCommand, AllocationType } from '../../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { EquipmentStatus } from '../../../equipment/entities/equipment.entity';
@@ -73,6 +74,16 @@ describe('AllocateToTankHandler', () => {
       // SEC-HIGH-051: the real fail-closed SSoT; the commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
+      // SSoT tank-composition writer; returns the derived TankBatch row so the
+      // canonical-container update + capacity-flag write + audit can proceed.
+      ({
+        applyBatchDelta: jest.fn().mockResolvedValue({
+          id: 'tankbatch-1',
+          totalQuantity: 10,
+          totalBiomassKg: 100,
+          batchDetails: [],
+        }),
+      }) as Partial<TankBatchService> as TankBatchService,
       // Working no-op DI deps (the throwing direct-handler defaults are
       // test-only and would abort begin()/refreshContainers() before assertions).
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
@@ -216,8 +227,9 @@ describe('AllocateToTankHandler', () => {
     mockManager.findOne
       .mockResolvedValueOnce(batch)
       .mockResolvedValueOnce(tank)
-      .mockResolvedValueOnce(null) // existingTankBatch lookup #1
-      .mockResolvedValueOnce(null); // tankBatch pessimistic lookup #2
+      // Only the existingTankBatch (capacity) lookup remains; the composition
+      // read+write now lives inside the mocked TankBatchService.applyBatchDelta.
+      .mockResolvedValueOnce(null);
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data, 'tank-batch-1')) as never);
     mockManager.create.mockImplementation((_cls: any, data: any) => data);
@@ -281,7 +293,6 @@ describe('AllocateToTankHandler', () => {
     mockManager.findOne
       .mockResolvedValueOnce(batch)
       .mockResolvedValueOnce(tank)
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data)) as never);

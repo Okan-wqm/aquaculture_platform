@@ -80,11 +80,13 @@ registerEnumType(MeasurementMethod, {
  * Büyüme performansı değerlendirmesi
  */
 export enum GrowthPerformance {
-  EXCELLENT = 'excellent',           // Mükemmel (>10% over target)
-  GOOD = 'good',                     // İyi (±5% of target)
-  AVERAGE = 'average',               // Ortalama (±10% of target)
-  BELOW_AVERAGE = 'below_average',   // Ortalamanın altında (10-20% below)
-  POOR = 'poor',                     // Zayıf (>20% below target)
+  // Signed bands on growthComparison.variancePercent (actual vs theoretical
+  // weight). Over-target is good→excellent; under-target degrades by magnitude.
+  EXCELLENT = 'excellent',           // Mükemmel (>10% over theoretical)
+  GOOD = 'good',                     // İyi (on target..+10% over)
+  AVERAGE = 'average',               // Ortalama (0..5% under)
+  BELOW_AVERAGE = 'below_average',   // Ortalamanın altında (5..15% under)
+  POOR = 'poor',                     // Zayıf (>15% under theoretical)
 }
 
 registerEnumType(GrowthPerformance, {
@@ -583,18 +585,22 @@ export class GrowthMeasurement {
   evaluatePerformance(): void {
     if (!this.growthComparison) return;
 
-    const variancePercent = Math.abs(this.growthComparison.variancePercent);
+    // SIGNED variance: growing BELOW theoretical (negative) is under-performance
+    // and must grade strictly worse than the same-magnitude over-performance.
+    // The prior Math.abs() conflated them — a batch 15% below theoretical scored
+    // the same band as 15% above — masking the earliest underperformance signal.
+    const variancePercent = this.growthComparison.variancePercent;
 
-    if (this.growthComparison.variancePercent > 10) {
-      this.performance = GrowthPerformance.EXCELLENT;
-    } else if (variancePercent <= 5) {
-      this.performance = GrowthPerformance.GOOD;
-    } else if (variancePercent <= 10) {
-      this.performance = GrowthPerformance.AVERAGE;
-    } else if (variancePercent <= 20) {
-      this.performance = GrowthPerformance.BELOW_AVERAGE;
+    if (variancePercent > 10) {
+      this.performance = GrowthPerformance.EXCELLENT; // >10% over theoretical
+    } else if (variancePercent >= 0) {
+      this.performance = GrowthPerformance.GOOD; // on target..+10% over
+    } else if (variancePercent >= -5) {
+      this.performance = GrowthPerformance.AVERAGE; // 0..5% under
+    } else if (variancePercent >= -15) {
+      this.performance = GrowthPerformance.BELOW_AVERAGE; // 5..15% under
     } else {
-      this.performance = GrowthPerformance.POOR;
+      this.performance = GrowthPerformance.POOR; // >15% under
     }
   }
 

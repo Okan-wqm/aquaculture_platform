@@ -40,6 +40,7 @@ import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-t
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
+import { TankBatchService } from '../services/tank-batch.service';
 import { resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 /**
@@ -71,7 +72,7 @@ function toAllocationTypeCode(
 
 @Injectable()
 @CommandHandler(AllocateToTankCommand)
-export class AllocateToTankHandler implements ICommandHandler<AllocateToTankCommand, TankAllocation> {
+export class AllocateToTankHandler implements ICommandHandler<AllocateToTankCommand, Batch> {
   private readonly logger = new Logger(AllocateToTankHandler.name);
 
   constructor(
@@ -90,6 +91,10 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
+    // SSoT writer for tank composition: batchDetails[] is the source of truth,
+    // aggregates derived. Shared with transfer/mortality/cull so every stock
+    // mutation updates a tank the same way (no divergent hand-written copies).
+    private readonly tankBatchService: TankBatchService,
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -103,7 +108,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
    * to prevent race conditions when concurrent requests attempt to allocate
    * to the same tank simultaneously.
    */
-  async execute(command: AllocateToTankCommand): Promise<TankAllocation> {
+  async execute(command: AllocateToTankCommand): Promise<Batch> {
     const { tenantId, batchId, payload, allocatedBy, userRoles, callerAssignedSiteIds } = command;
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -116,12 +121,12 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         tenantId,
         envelope: command.mobileCommand,
         operationType: 'allocateBatchToTank',
-        responseType: 'TankAllocation',
+        responseType: 'Batch',
       });
       if (receipt.mode === 'replay') {
         const replayed = receipt.responseId
-          ? await queryRunner.manager.findOne(TankAllocation, {
-              where: { id: receipt.responseId, tenantId, isDeleted: false },
+          ? await queryRunner.manager.findOne(Batch, {
+              where: { id: receipt.responseId, tenantId, isActive: true },
             })
           : null;
         if (!replayed) {
@@ -225,84 +230,36 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         isDeleted: false,
       });
 
-      const savedAllocation = await queryRunner.manager.save(allocation);
+      // The TankAllocation ledger row still persists (audit/history); the handler
+      // now returns the Batch, so the saved row no longer needs to be captured.
+      await queryRunner.manager.save(allocation);
 
-      // TankBatch güncelle veya oluştur with pessimistic lock
-      let tankBatch = await queryRunner.manager.findOne(TankBatch, {
-        where: { tenantId, tankId: payload.tankId },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!tankBatch) {
-        tankBatch = queryRunner.manager.create(TankBatch, {
-          tenantId,
-          tankId: payload.tankId,
-          primaryBatchId: batchId,
-          tankCode: equipment.code,
-          tankName: equipment.name,
-          primaryBatchNumber: batch.batchNumber,
-          totalQuantity: 0,
-          totalBiomassKg: 0,
-          avgWeightG: 0,
-          densityKgM3: 0,
-          isMixedBatch: false,
-          isOverCapacity: false,
-          cleanerFishBiomassKg: 0,
-          cleanerFishQuantity: 0,
-        });
-      }
-
-      // Mevcut batch details
-      const batchDetails = tankBatch.batchDetails || [];
-      const existingBatchIndex = batchDetails.findIndex(b => b.batchId === batchId);
-
-      if (existingBatchIndex >= 0 && batchDetails[existingBatchIndex]) {
-        // Mevcut batch'i güncelle
-        const existingBatch = batchDetails[existingBatchIndex];
-        existingBatch.quantity += payload.quantity;
-        existingBatch.biomassKg += biomassKg;
-        existingBatch.avgWeightG = payload.avgWeightG;
-      } else {
-        // Yeni batch ekle
-        batchDetails.push({
+      // TankBatch composition: batchDetails[] is the SSoT, aggregates derived.
+      // Routed through the shared TankBatchService so allocate, transfer,
+      // mortality and cull all mutate a tank's stock identically — and the
+      // per-batch detail is ALWAYS persisted (it was discarded for single-batch
+      // tanks, which hid the just-stocked batch from the snapshot read model).
+      const savedTankBatch = await this.tankBatchService.applyBatchDelta(
+        queryRunner.manager,
+        tenantId,
+        payload.tankId,
+        {
           batchId,
           batchNumber: batch.batchNumber,
-          quantity: payload.quantity,
+          quantityDelta: payload.quantity,
+          biomassDelta: biomassKg,
           avgWeightG: payload.avgWeightG,
-          biomassKg,
-          percentageOfTank: 0, // Sonra hesaplanacak
-        });
-      }
+        },
+        { code: equipment.code, name: equipment.name, volumeM3: Number(effectiveVolume) || 0 },
+      );
 
-      // Totalleri hesapla
-      tankBatch.totalQuantity = batchDetails.reduce((sum, b) => sum + b.quantity, 0);
-      tankBatch.totalBiomassKg = batchDetails.reduce((sum, b) => sum + b.biomassKg, 0);
-      tankBatch.avgWeightG = tankBatch.totalQuantity > 0
-        ? (tankBatch.totalBiomassKg * 1000) / tankBatch.totalQuantity
-        : 0;
-      tankBatch.densityKgM3 = effectiveVolume
-        ? tankBatch.totalBiomassKg / Number(effectiveVolume)
-        : 0;
-
-      // Yüzdeleri hesapla
-      for (const detail of batchDetails) {
-        detail.percentageOfTank = tankBatch.totalQuantity > 0
-          ? (detail.quantity / tankBatch.totalQuantity) * 100
-          : 0;
-      }
-
-      tankBatch.isMixedBatch = batchDetails.length > 1;
-      tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;
-      tankBatch.primaryBatchId = batchDetails[0]?.batchId || batchId;
-      tankBatch.primaryBatchNumber = batchDetails[0]?.batchNumber || batch.batchNumber;
-
-      // Kapasite bayrakları — TankCapacityService'den gelen kalkulasyonu
-      // doğrudan TankBatch'e yaz. Admin-override alındıysa flag yine `true`
-      // kaydedilir (audit trail için) ama throw edilmez.
-      tankBatch.isOverCapacity = capacity.isOverCapacity;
-      tankBatch.capacityUsedPercent = capacity.utilizationPercent;
-
-      const savedTankBatch = await queryRunner.manager.save(tankBatch);
+      // Capacity flags are allocate-specific (from TankCapacityService.enforce);
+      // persist them onto the SSoT-derived row. Admin-override keeps the flag
+      // `true` for the audit trail without throwing.
+      savedTankBatch.isOverCapacity = capacity.isOverCapacity;
+      savedTankBatch.capacityUsedPercent = capacity.utilizationPercent;
+      await queryRunner.manager.save(savedTankBatch);
+      const tankBatch = savedTankBatch;
 
       // Phase 1.1: when an admin consciously overrode the capacity gate
       // we record a CAPACITY_BLOCKED row in farm_audit_logs. The write
@@ -390,9 +347,9 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       await this.mobileCommandReceipts.complete(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         receipt,
-        responseType: 'TankAllocation',
-        responseId: savedAllocation.id,
-        responsePayload: { id: savedAllocation.id },
+        responseType: 'Batch',
+        responseId: batch.id,
+        responsePayload: { id: batch.id },
       });
 
       await queryRunner.commitTransaction();
@@ -402,7 +359,11 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         `qty=${payload.quantity}, type=${payload.allocationType}, tenant=${tenantId}`,
       );
 
-      return savedAllocation;
+      // Return the (updated) Batch — the @Mutation declares `() => Batch` and the
+      // web/mobile clients read `Batch{currentQuantity,…}` to refresh after
+      // stocking. Returning the TankAllocation here previously gave the client a
+      // malformed object, so the tank/batch counts didn't refresh post-allocation.
+      return batch;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;

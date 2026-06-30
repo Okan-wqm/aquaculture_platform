@@ -48,6 +48,7 @@ import { isMortalityReason } from '../entities/tank-operation.enums';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
+import { TankBatchService } from '../services/tank-batch.service';
 import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 @Injectable()
@@ -76,6 +77,8 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
+    // SSoT tank-composition writer (batchDetails[] + derived aggregates + current*).
+    private readonly tankBatchService: TankBatchService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -279,24 +282,25 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
       await queryRunner.manager.save(Batch, batch);
 
-      // TankBatch güncelle
+      // TankBatch update via the shared SSoT writer: decrement THIS batch in
+      // batchDetails[], then re-derive totalQuantity/biomass/avg/density/current*
+      // and stamp lastMortalityAt. assertBatchInTank above guarantees the batch
+      // is held here, and the writer self-heals pre-SSoT single-batch rows that
+      // carry empty batchDetails so the negative delta is never a silent no-op.
       if (tankBatch) {
-        // Ensure numeric operations (database may return decimal columns as strings)
-        // Math.max(0, ...) prevents negative values from concurrent operations
-        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - payload.quantity);
-        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
-        tankBatch.lastMortalityAt = payload.observedAt;
-        // Update current quantity/biomass denormalized fields
-        tankBatch.currentQuantity = tankBatch.totalQuantity;
-        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-        if (tankBatch.totalQuantity > 0) {
-          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-          const effectiveVolume = tank.volume;
-          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-        }
-
-        await queryRunner.manager.save(TankBatch, tankBatch);
+        await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          tenantId,
+          payload.tankId,
+          {
+            batchId,
+            batchNumber: batch.batchNumber,
+            quantityDelta: -payload.quantity,
+            biomassDelta: -biomassKg,
+            lastMortalityAt: payload.observedAt,
+          },
+          { volumeM3: Number(tank.volume) || 0 },
+        );
       }
 
       // Tank biomass güncelle (update the correct table, Math.max to prevent negatives)

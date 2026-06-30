@@ -14,8 +14,9 @@
  * @module Batch/QueryHandlers
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get-batch-performance.query';
 import { Batch } from '../entities/batch.entity';
@@ -30,10 +31,8 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
   private readonly logger = new Logger(GetBatchPerformanceHandler.name);
 
   constructor(
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(Species)
-    private readonly speciesRepository: Repository<Species>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly costCalculator: BatchCostCalculatorService,
     private readonly fcrCalculation: FCRCalculationService,
   ) {}
@@ -41,20 +40,28 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
   async execute(query: GetBatchPerformanceQuery): Promise<BatchPerformanceResult> {
     const { tenantId, batchId } = query;
 
-    // Batch bul
-    const batch = await this.batchRepository.findOne({
-      where: { id: batchId, tenantId },
-      relations: ['species'],
-    });
+    // Batch bul — read through the fail-closed tenant boundary so a lost/wrong
+    // pooled-connection search_path raises instead of silently resolving the
+    // source schema (→ NotFound / empty for a record that actually exists).
+    const batch = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+      queryRunner.manager.findOne(Batch, {
+        where: { id: batchId, tenantId },
+        relations: ['species'],
+      }),
+    );
 
     if (!batch) {
       throw new NotFoundException(`Batch ${batchId} bulunamadı`);
     }
 
-    // Species bilgileri
-    const species = batch.species || await this.speciesRepository.findOne({
-      where: { id: batch.speciesId, tenantId },
-    });
+    // Species bilgileri — same fail-closed boundary for the relation fallback.
+    const species =
+      batch.species ||
+      (await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+        queryRunner.manager.findOne(Species, {
+          where: { id: batch.speciesId, tenantId },
+        }),
+      ));
 
     // Weight calculations
     const initialAvgWeightG = batch.weight.initial.avgWeight;

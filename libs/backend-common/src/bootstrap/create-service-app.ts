@@ -35,11 +35,12 @@
  * });
  * ```
  */
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import type {
   CanActivate,
   INestApplication,
   Type,
+  ValidationError,
   ValidationPipeOptions,
   VersioningOptions,
 } from '@nestjs/common';
@@ -406,6 +407,30 @@ function configureCors(
 }
 
 /**
+ * Flattens nested class-validator errors to a compact list for structured
+ * server-side logging. PII-safe: includes property paths + constraint messages
+ * only, never the rejected field values.
+ */
+function flattenValidationErrors(
+  errors: ValidationError[],
+  parentPath = '',
+): Array<{ field: string; constraints: string[] }> {
+  const flattened: Array<{ field: string; constraints: string[] }> = [];
+  for (const error of errors) {
+    const field = parentPath ? `${parentPath}.${error.property}` : error.property;
+    if (error.constraints) {
+      flattened.push({ field, constraints: Object.values(error.constraints) });
+    }
+    if (error.children && error.children.length > 0) {
+      flattened.push(...flattenValidationErrors(error.children, field));
+    }
+  }
+  return flattened;
+}
+
+const validationLogger = new Logger('RequestValidation');
+
+/**
  * Configures the global ValidationPipe with enterprise security defaults.
  *
  * - whitelist: strips properties not in the DTO
@@ -446,6 +471,21 @@ function configureValidationPipe(
       value: false,
     },
     disableErrorMessages: isProduction,
+    // WHY: production sets disableErrorMessages, which masks the RESPONSE to a
+    // bare "Bad Request" — historically undiagnosable from logs (masked 400s
+    // cost real debugging time). WHAT: always emit the failing field paths +
+    // constraint messages to the service log (structured, PII-safe — never the
+    // rejected field values), while the client response stays masked in
+    // production. Makes masked validation failures detectable (Tier-3).
+    exceptionFactory: (errors: ValidationError[]): BadRequestException => {
+      const fields = flattenValidationErrors(errors);
+      validationLogger.warn(
+        `Request validation failed: ${JSON.stringify({ fields })}`,
+      );
+      return isProduction
+        ? new BadRequestException()
+        : new BadRequestException(fields);
+    },
   };
 
   // Shallow-merge caller overrides so services can opt in to specific

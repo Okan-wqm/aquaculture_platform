@@ -489,20 +489,23 @@ def run_enterprise_cycle(
             )
         except Exception as exc:
             post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
-    # Per-service examination plan (ORPHAN-MEDIUM-258): when this cycle changed
-    # files, surface the changed services + their downstream ripple in DEPENDENCY
-    # (topological) order so the examination walks upstream-before-downstream.
-    # Cached by graph fingerprint (no re-scan when the project graph is
-    # unchanged); skipped on a no-change baseline. Never fails the cycle.
+    # Per-service examination plan (ORPHAN-MEDIUM-258/259): surface the changed
+    # services + their downstream ripple in DEPENDENCY (topological) order, and
+    # scope this cycle's pressures to the service(s) their evidence touches —
+    # grouped per-service in that same order (ORPHAN-MEDIUM-259). Cached by graph
+    # fingerprint (no re-scan when the project graph is unchanged); skipped when
+    # there is neither a change nor a pressure. Never fails the cycle.
     service_examination: dict[str, Any] = {}
     if not discovery_only:
         try:
-            changed_paths = diff.get("changed_paths") if isinstance(diff, dict) else None
-            if changed_paths:
+            changed_paths = (diff.get("changed_paths") if isinstance(diff, dict) else None) or []
+            cycle_pressures = pressure.get("pressures") if isinstance(pressure, dict) else None
+            if changed_paths or cycle_pressures:
                 emit_progress("service_examination", cycle_id=cycle_id, phase="started",
-                              changed_paths=len(changed_paths))
+                              changed_paths=len(changed_paths), pressures=len(cycle_pressures or []))
                 service_examination = cycle_service_examination(
-                    workspace_root=workspace_root, base_dir=root, changed_files=changed_paths,
+                    workspace_root=workspace_root, base_dir=root,
+                    changed_files=changed_paths, pressures=cycle_pressures,
                 )
         except Exception:
             service_examination = {}

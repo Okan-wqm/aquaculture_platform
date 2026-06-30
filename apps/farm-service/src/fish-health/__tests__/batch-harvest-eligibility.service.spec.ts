@@ -6,10 +6,11 @@
  * date. Drives the compliance gate in createHarvestRecord (see
  * docs/illustrator/ — Girdi 14h).
  *
- * Architecture: direct instantiation with a repository mock —
- * mirroring the record-mortality.handler.spec.ts pattern.
+ * Architecture: the service reads health_events through the fail-closed
+ * runInTenantRead boundary, so the test drives it with createMockDataSource
+ * (runInTenantRead-aware) and stubs the boundary manager's `find`.
  */
-import { Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
 import { BatchHarvestEligibilityService } from '../services/batch-harvest-eligibility.service';
 import {
   HealthEvent,
@@ -26,10 +27,20 @@ type HealthEventRow = Pick<
   | 'status'
 >;
 
-function makeRepoMock(rows: HealthEventRow[]): Repository<HealthEvent> {
+function makeService(rows: HealthEventRow[]): {
+  service: BatchHarvestEligibilityService;
+  scopedRepo: { find: jest.Mock };
+} {
+  const { mockDataSource, mockManager } = createMockDataSource();
+  // tenantManagerRepo wraps the manager's per-entity repository; createMockDataSource
+  // returns one fixed repo object for every such lookup, so stubbing that repo's find
+  // drives the boundary read.
+  const scopedRepo = (mockManager.getRepository as jest.Mock)() as { find: jest.Mock };
+  scopedRepo.find.mockResolvedValue(rows);
   return {
-    find: jest.fn().mockResolvedValue(rows),
-  } as unknown as Repository<HealthEvent>;
+    service: new BatchHarvestEligibilityService(mockDataSource),
+    scopedRepo,
+  };
 }
 
 describe('BatchHarvestEligibilityService', () => {
@@ -37,8 +48,7 @@ describe('BatchHarvestEligibilityService', () => {
   const batchId = '22222222-2222-4222-8222-222222222222';
 
   it('returns eligible=true when no blocking events exist', async () => {
-    const repo = makeRepoMock([]);
-    const service = new BatchHarvestEligibilityService(repo);
+    const { service } = makeService([]);
 
     const result = await service.checkEligibility(
       tenantId,
@@ -53,7 +63,7 @@ describe('BatchHarvestEligibilityService', () => {
 
   it('blocks harvest when an active event has earliestHarvestDate in the future', async () => {
     const earliest = new Date('2026-07-15');
-    const repo = makeRepoMock([
+    const { service } = makeService([
       {
         id: 'evt-1',
         title: 'Amoxicillin treatment',
@@ -63,7 +73,6 @@ describe('BatchHarvestEligibilityService', () => {
         status: HealthEventStatus.ACTIVE,
       },
     ]);
-    const service = new BatchHarvestEligibilityService(repo);
 
     const result = await service.checkEligibility(
       tenantId,
@@ -80,11 +89,11 @@ describe('BatchHarvestEligibilityService', () => {
 
   it('returns the LATEST earliestHarvestDate as blockedUntil when multiple events block', async () => {
     // Service orders DESC by earliestHarvestDate, so the first row is the
-    // latest. The repo mock must return rows in the same order the real
-    // query would (sorted DESC) to keep the test aligned with production.
+    // latest. The mock must return rows in the same order the real query
+    // would (sorted DESC) to keep the test aligned with production.
     const later = new Date('2026-08-20');
     const earlier = new Date('2026-07-15');
-    const repo = makeRepoMock([
+    const { service } = makeService([
       {
         id: 'evt-late',
         title: 'Oxytetracycline treatment',
@@ -102,7 +111,6 @@ describe('BatchHarvestEligibilityService', () => {
         status: HealthEventStatus.MONITORING,
       },
     ]);
-    const service = new BatchHarvestEligibilityService(repo);
 
     const result = await service.checkEligibility(
       tenantId,
@@ -117,8 +125,7 @@ describe('BatchHarvestEligibilityService', () => {
   });
 
   it('narrows the query to the correct tenant and batch', async () => {
-    const repo = makeRepoMock([]);
-    const service = new BatchHarvestEligibilityService(repo);
+    const { service, scopedRepo } = makeService([]);
 
     await service.checkEligibility(
       tenantId,
@@ -126,8 +133,11 @@ describe('BatchHarvestEligibilityService', () => {
       new Date('2026-06-01'),
     );
 
-    expect(repo.find).toHaveBeenCalledTimes(1);
-    const calledWith = (repo.find as jest.Mock).mock.calls[0][0];
+    expect(scopedRepo.find).toHaveBeenCalledTimes(1);
+    // tenantManagerRepo injects tenantId into the WHERE; batchId is set by the service.
+    const calledWith = scopedRepo.find.mock.calls[0]![0] as {
+      where: { tenantId: string; batchId: string; status?: unknown };
+    };
     expect(calledWith.where.tenantId).toBe(tenantId);
     expect(calledWith.where.batchId).toBe(batchId);
     // Status filter must include ACTIVE and MONITORING; resolved/chronic/

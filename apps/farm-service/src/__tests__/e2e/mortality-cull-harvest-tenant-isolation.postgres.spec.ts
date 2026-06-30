@@ -273,6 +273,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       outboxPublisher,
       auditLogService as never,
       new SiteAuthorizationService(),
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,

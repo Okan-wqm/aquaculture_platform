@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .agent_routing import load_routing_table, recommended_agents_for_project
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -251,6 +252,18 @@ def cycle_service_examination(
         for e in cache["order"]  # already topological → examine upstream first
         if e["project"] in impacted_set
     ]
+    # Recommend WHICH domain agent(s) examine each impacted service, from the
+    # Lane-A routing SSoT. A service with no primary owner is a coverage gap —
+    # an agent-genesis candidate (agent_genesis.draft_agent_from_gap).
+    routing = load_routing_table(workspace_root)
+    project_root_of = cache["project_roots"]
+    for entry in examination_order:
+        root = project_root_of.get(entry["project"], entry["project"])
+        entry["recommended_agents"] = recommended_agents_for_project(root, routing)
+    agent_coverage_gaps = sorted(
+        entry["project"] for entry in examination_order
+        if not entry["recommended_agents"]["primary"]
+    )
     # Scope each pressure to the service(s) its evidence touches, then group
     # per-service in the same topological order (upstream first). A pressure
     # whose evidence maps to no project is global (cross-cutting).
@@ -286,6 +299,7 @@ def cycle_service_examination(
         "changed_projects": changed_projects,
         "impacted_projects": impacted,
         "examination_order": examination_order,
+        "agent_coverage_gaps": agent_coverage_gaps,
         "per_service_pressures": per_service_pressures,
         "global_pressures": global_pressures,
         "project_count": cache["project_count"],

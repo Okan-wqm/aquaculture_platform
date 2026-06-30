@@ -1248,7 +1248,23 @@ def _main(argv: list[str] | None = None) -> int:
     )
     i_compute.add_argument("--max-depth", type=int, default=None)
 
-    apply_parser = add_subparser(sub, 
+    i_order = add_subparser(impact_sub, "service-order")
+    add_workspace_args(i_order)
+    i_order.add_argument("--cycle-id", default=None)
+    i_order.add_argument(
+        "--nx-graph",
+        default=None,
+        help="Path to an `nx graph --file` JSON for a fast, authoritative dependency graph "
+        "(falls back to a local import scan when omitted).",
+    )
+    i_order.add_argument(
+        "--changed-file",
+        action="append",
+        default=None,
+        help="Repeatable: changed paths to annotate per-service (and surface the downstream ripple).",
+    )
+
+    apply_parser = add_subparser(sub,
         "apply",
         help="Plan 016 Faz D5 — apply gate utilities (suppression scan, etc.).",
     )
@@ -3134,6 +3150,19 @@ def _main(argv: list[str] | None = None) -> int:
             "summary": result["summary"],
         }, indent=2, sort_keys=True))
         return 0 if result["summary"]["by_status"].get("unknown", 0) == 0 else 2
+
+    if args.command == "impact" and args.impact_command == "service-order":
+        from aria_kernel.impact_graph import plan_service_analysis_order
+
+        workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+        plan = plan_service_analysis_order(
+            workspace_root=workspace,
+            cycle_id=args.cycle_id,
+            nx_graph_file=args.nx_graph,
+            changed_files=args.changed_file,
+        )
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "apply" and args.apply_command == "scan-diff":
         from aria_kernel.suppression_scanner import scan_unified_diff_text

@@ -57,12 +57,145 @@ def list_impact_graphs(*, base_dir: str | Path | None = None) -> list[dict[str, 
     )
 
 
+def build_service_analysis_order(graph: dict[str, Any]) -> dict[str, Any]:
+    """Order projects so each is examined AFTER its dependencies (upstream
+    foundational layers first), with each project's dependents surfaced so
+    cross-service impact is explicit.
+
+    This is the "logical order" for per-service analysis: discovery scans the
+    whole repo ONCE (it must, to build the graph); the examination stage then
+    walks services in THIS order so a downstream service is analysed with its
+    upstream dependencies already understood, and an upstream change's ripple
+    reaches its dependents. ``layer`` is the topological depth (0 = no in-graph
+    dependencies). Within a layer projects are name-sorted for determinism;
+    cycles are broken by forcing the lexicographically smallest stuck node, so
+    the order is always TOTAL and STABLE.
+    """
+    deps_raw = graph.get("dependencies") or {}
+    nodes = sorted(deps_raw.keys())
+    node_set = set(nodes)
+    deps = {
+        n: {d for d in (deps_raw.get(n) or []) if d in node_set and d != n}
+        for n in nodes
+    }
+    dependents: dict[str, set[str]] = {n: set() for n in nodes}
+    for n in nodes:
+        for d in deps[n]:
+            dependents[d].add(n)
+
+    placed: set[str] = set()
+    layers: list[list[str]] = []
+    cycle_broken: list[str] = []
+    while len(placed) < len(nodes):
+        ready = sorted(n for n in nodes if n not in placed and deps[n] <= placed)
+        if not ready:
+            # Dependency cycle: force the smallest unplaced node so the order
+            # stays total + deterministic (recorded for audit).
+            forced = sorted(n for n in nodes if n not in placed)[0]
+            cycle_broken.append(forced)
+            ready = [forced]
+        layers.append(ready)
+        placed.update(ready)
+
+    order = [
+        {
+            "project": project,
+            "layer": layer_idx,
+            "depends_on": sorted(deps[project]),
+            "dependents": sorted(dependents[project]),
+        }
+        for layer_idx, layer in enumerate(layers)
+        for project in layer
+    ]
+    return {
+        "schema_version": 1,
+        "graph_source": graph.get("graph_source"),
+        "project_count": len(nodes),
+        "layer_count": len(layers),
+        "cycle_broken_projects": cycle_broken,
+        "order": order,
+    }
+
+
+def plan_service_analysis_order(
+    *,
+    workspace_root: str | Path,
+    cycle_id: str | None = None,
+    nx_graph_file: str | Path | None = None,
+    changed_files: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build the project dependency graph and return the per-service analysis
+    plan: projects in topological dependency order, each annotated with its
+    upstream ``depends_on`` (already-understood context) and ``dependents``
+    (ripple targets). When ``changed_files`` is given, annotate how many of this
+    cycle's changes landed in each project (the examination focus). Pure
+    computation — no ledger write."""
+    root = Path(workspace_root).resolve()
+    if not root.exists():
+        raise GovernanceError(f"workspace root does not exist: {workspace_root}")
+    graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
+    plan = build_service_analysis_order(graph)
+    plan["cycle_id"] = cycle_id
+    plan["recorded_at"] = utc_now()
+    if changed_files:
+        counts: dict[str, int] = {}
+        for path in _normalize_paths([p for p in changed_files if isinstance(p, str) and p.strip()]):
+            project = _project_for_path(path, graph["projects"])
+            if project:
+                counts[project] = counts.get(project, 0) + 1
+        for entry in plan["order"]:
+            entry["changed_files"] = counts.get(entry["project"], 0)
+        plan["changed_project_count"] = sum(1 for e in plan["order"] if e.get("changed_files"))
+        # The examination subset: changed services + every downstream dependent
+        # (the ripple). Empty when nothing changed.
+        changed_projects = [p for p, c in counts.items() if c]
+        plan["impacted_projects"] = sorted(
+            set(changed_projects) | set(_reverse_closure(changed_projects, graph["dependencies"]))
+        )
+    return plan
+
+
 def _project_graph(*, root: Path, nx_graph_file: Path | None) -> dict[str, Any]:
     if nx_graph_file and nx_graph_file.exists():
         return _read_nx_graph(root=root, graph_file=nx_graph_file)
     projects = _discover_projects(root)
-    dependencies = {name: sorted(_scan_project_dependencies(root, meta, projects)) for name, meta in projects.items()}
+    # The repo resolves cross-project imports through tsconfig path aliases
+    # (``@platform/cqrs`` → platform/libs/cqrs, ``@aquaculture/backend-common``
+    # → libs/backend-common), NOT bare directory names. Reading that alias SSoT
+    # is what makes the local-scan dependency graph reflect reality instead of a
+    # flat single-layer graph.
+    alias_targets = _tsconfig_alias_targets(root)
+    dependencies = {
+        name: sorted(_scan_project_dependencies(root, meta, projects, alias_targets))
+        for name, meta in projects.items()
+    }
     return {"projects": projects, "dependencies": dependencies, "graph_source": "local_import_scan_v1"}
+
+
+def _tsconfig_alias_targets(root: Path) -> dict[str, str]:
+    """Map each tsconfig.base.json path alias to its (normalized) target path,
+    stripped of the trailing ``/*`` glob. Returns ``{}`` when the file is absent
+    or unparseable so callers fall back to the directory-name heuristic."""
+    config = root / "tsconfig.base.json"
+    if not config.exists():
+        return {}
+    try:
+        raw = config.read_text(encoding="utf-8")
+        raw = re.sub(r"//[^\n]*", "", raw)
+        raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+        paths = (json.loads(raw).get("compilerOptions") or {}).get("paths") or {}
+    except (OSError, ValueError):
+        return {}
+    targets: dict[str, str] = {}
+    if isinstance(paths, dict):
+        for alias, mapped in paths.items():
+            if not isinstance(mapped, list) or not mapped:
+                continue
+            key = alias[:-2] if alias.endswith("/*") else alias
+            target = str(mapped[0])
+            target = target[:-2] if target.endswith("/*") else target
+            targets[key] = _normalize_path(target)
+    return targets
 
 
 def _read_nx_graph(*, root: Path, graph_file: Path) -> dict[str, Any]:
@@ -108,8 +241,14 @@ def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
     return projects
 
 
-def _scan_project_dependencies(root: Path, meta: dict[str, str], projects: dict[str, dict[str, str]]) -> set[str]:
+def _scan_project_dependencies(
+    root: Path,
+    meta: dict[str, str],
+    projects: dict[str, dict[str, str]],
+    alias_targets: dict[str, str] | None = None,
+) -> set[str]:
     project_root = root / meta["root"]
+    self_project = _project_for_path(meta["root"], projects)
     deps: set[str] = set()
     for source in list(project_root.rglob("*.ts")) + list(project_root.rglob("*.tsx")):
         if any(part in ("node_modules", "dist", "build", "coverage") for part in source.parts):
@@ -120,13 +259,27 @@ def _scan_project_dependencies(root: Path, meta: dict[str, str], projects: dict[
             continue
         for match in IMPORT_RE.finditer(content):
             specifier = match.group(1) or match.group(2) or ""
-            project = _project_for_import(specifier, projects)
-            if project:
+            project = _project_for_import(specifier, projects, alias_targets)
+            if project and project != self_project:
                 deps.add(project)
     return deps
 
 
-def _project_for_import(specifier: str, projects: dict[str, dict[str, str]]) -> str | None:
+def _project_for_import(
+    specifier: str,
+    projects: dict[str, dict[str, str]],
+    alias_targets: dict[str, str] | None = None,
+) -> str | None:
+    # Resolve through tsconfig path aliases first (the repo's real module map) —
+    # longest alias prefix wins so ``@aquaculture/backend-common/auth`` beats
+    # ``@aquaculture/backend-common``.
+    if alias_targets:
+        for alias in sorted(alias_targets, key=len, reverse=True):
+            if specifier == alias or specifier.startswith(alias + "/"):
+                project = _project_for_path(alias_targets[alias], projects)
+                if project:
+                    return project
+    # Fallback: directory-name heuristic (synthetic fixtures / no tsconfig paths).
     for project, meta in projects.items():
         root = meta["root"]
         if specifier.startswith(root) or specifier.startswith(f"@/{root}"):

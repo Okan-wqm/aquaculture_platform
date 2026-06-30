@@ -8,7 +8,8 @@
  */
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   HealthEvent,
   HealthEventStatus,
@@ -37,6 +38,7 @@ export class HealthEventService {
   constructor(
     @InjectRepository(HealthEvent)
     private readonly healthEventRepository: Repository<HealthEvent>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // =========================================================================
@@ -51,15 +53,22 @@ export class HealthEventService {
     input: CreateHealthEventInput,
     userId: string,
   ): Promise<HealthEvent> {
-    const event = this.healthEventRepository.create({
-      ...input,
-      tenantId,
-      reportedBy: userId,
-    });
+    // WHY: a health-event row is per-tenant data — it MUST be written inside the
+    // fail-closed tenant boundary so the INSERT lands in tenant_<uuid>.health_events,
+    // not the source `farm` schema (which the source-write guard rejects). reportedBy
+    // is set authoritatively from the JWT subject, overriding any client value.
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const healthEventRepo = tenantManagerRepo(queryRunner.manager, HealthEvent, tenantId);
+      const event = healthEventRepo.create({
+        ...input,
+        tenantId,
+        reportedBy: userId,
+      });
 
-    const saved = await this.healthEventRepository.save(event);
-    this.logger.log(`Created health event ${saved.id} for batch ${input.batchId}`);
-    return saved;
+      const saved = await healthEventRepo.save(event);
+      this.logger.log(`Created health event ${saved.id} for batch ${input.batchId}`);
+      return saved;
+    });
   }
 
   /**

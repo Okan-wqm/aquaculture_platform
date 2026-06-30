@@ -2,10 +2,9 @@
  * Create Feed Command Handler
  */
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreateFeedCommand } from '../commands/create-feed.command';
 import { Feed, FeedStatus, FloatingType } from '../entities/feed.entity';
 import { FeedSite } from '../entities/feed-site.entity';
@@ -18,102 +17,96 @@ import { Species } from '../../species/entities/species.entity';
 export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Feed> {
   private readonly logger = new Logger(CreateFeedHandler.name);
 
-  constructor(
-    @InjectRepository(Feed)
-    private readonly feedRepository: Repository<Feed>,
-    @InjectRepository(Supplier)
-    private readonly supplierRepository: Repository<Supplier>,
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-    @InjectRepository(Species)
-    private readonly speciesRepository: Repository<Species>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(command: CreateFeedCommand): Promise<Feed> {
     const { input, tenantId, userId } = command;
 
     this.logger.log(`Creating feed "${input.name}" for tenant ${tenantId}`);
 
-    const normalizedCode = input.code.toUpperCase();
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const feedRepo = tenantManagerRepo(queryRunner.manager, Feed, tenantId);
+      const feedSiteRepo = tenantManagerRepo(queryRunner.manager, FeedSite, tenantId);
+      const feedTypeSpeciesRepo = tenantManagerRepo(queryRunner.manager, FeedTypeSpecies, tenantId);
+      const supplierRepo = tenantManagerRepo(queryRunner.manager, Supplier, tenantId);
+      const siteRepo = tenantManagerRepo(queryRunner.manager, Site, tenantId);
+      const speciesRepo = tenantManagerRepo(queryRunner.manager, Species, tenantId);
 
-    const site = await this.siteRepository.findOne({
-      where: { id: input.siteId, tenantId },
-    });
-    if (!site) {
-      throw new NotFoundException(`Site with ID "${input.siteId}" not found`);
-    }
-    if (site.isDeleted) {
-      throw new BadRequestException(`Site with ID "${input.siteId}" is deleted`);
-    }
+      const normalizedCode = input.code.toUpperCase();
 
-    if (input.supplierId) {
-      const supplier = await this.supplierRepository.findOne({
-        where: { id: input.supplierId, tenantId },
+      const site = await siteRepo.findOne({
+        where: { id: input.siteId, tenantId },
       });
-      if (!supplier) {
-        throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
+      if (!site) {
+        throw new NotFoundException(`Site with ID "${input.siteId}" not found`);
       }
-      if (supplier.isDeleted) {
-        throw new BadRequestException(`Supplier with ID "${input.supplierId}" is deleted`);
+      if (site.isDeleted) {
+        throw new BadRequestException(`Site with ID "${input.siteId}" is deleted`);
       }
-    }
 
-    // Check for duplicate code within tenant
-    const existingByCode = await this.feedRepository.findOne({
-      where: { tenantId, code: normalizedCode },
-    });
-    if (existingByCode) {
-      throw new ConflictException(`Feed with code "${normalizedCode}" already exists`);
-    }
+      if (input.supplierId) {
+        const supplier = await supplierRepo.findOne({
+          where: { id: input.supplierId, tenantId },
+        });
+        if (!supplier) {
+          throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
+        }
+        if (supplier.isDeleted) {
+          throw new BadRequestException(`Supplier with ID "${input.supplierId}" is deleted`);
+        }
+      }
 
-    // Check for duplicate name within tenant
-    const existingByName = await this.feedRepository.findOne({
-      where: { tenantId, name: input.name },
-    });
-    if (existingByName) {
-      throw new ConflictException(`Feed with name "${input.name}" already exists`);
-    }
-
-    // Validate species mappings (optional)
-    const speciesMappings = input.speciesMappings ?? [];
-    const uniqueSpeciesIds = Array.from(new Set(speciesMappings.map((m) => m.speciesId)));
-
-    const speciesById = new Map<string, Species>();
-    if (uniqueSpeciesIds.length > 0) {
-      const species = await this.speciesRepository.find({
-        where: { tenantId, id: In(uniqueSpeciesIds) },
+      // Check for duplicate code within tenant
+      const existingByCode = await feedRepo.findOne({
+        where: { tenantId, code: normalizedCode },
       });
-
-      for (const s of species) {
-        speciesById.set(s.id, s);
+      if (existingByCode) {
+        throw new ConflictException(`Feed with code "${normalizedCode}" already exists`);
       }
 
-      const missing = uniqueSpeciesIds.filter((id) => !speciesById.has(id));
-      if (missing.length > 0) {
-        throw new NotFoundException(`Species not found: ${missing.join(', ')}`);
+      // Check for duplicate name within tenant
+      const existingByName = await feedRepo.findOne({
+        where: { tenantId, name: input.name },
+      });
+      if (existingByName) {
+        throw new ConflictException(`Feed with name "${input.name}" already exists`);
       }
 
-      const deleted = species.filter((s) => s.isDeleted);
-      if (deleted.length > 0) {
-        throw new BadRequestException(`Species is deleted: ${deleted.map((s) => s.id).join(', ')}`);
+      // Validate species mappings (optional)
+      const speciesMappings = input.speciesMappings ?? [];
+      const uniqueSpeciesIds = Array.from(new Set(speciesMappings.map((m) => m.speciesId)));
+
+      const speciesById = new Map<string, Species>();
+      if (uniqueSpeciesIds.length > 0) {
+        const species = await speciesRepo.find({
+          where: { tenantId, id: In(uniqueSpeciesIds) },
+        });
+
+        for (const s of species) {
+          speciesById.set(s.id, s);
+        }
+
+        const missing = uniqueSpeciesIds.filter((id) => !speciesById.has(id));
+        if (missing.length > 0) {
+          throw new NotFoundException(`Species not found: ${missing.join(', ')}`);
+        }
+
+        const deleted = species.filter((s) => s.isDeleted);
+        if (deleted.length > 0) {
+          throw new BadRequestException(`Species is deleted: ${deleted.map((s) => s.id).join(', ')}`);
+        }
+
+        const inactive = species.filter((s) => !s.isActive);
+        if (inactive.length > 0) {
+          throw new BadRequestException(`Species is inactive: ${inactive.map((s) => s.id).join(', ')}`);
+        }
       }
 
-      const inactive = species.filter((s) => !s.isActive);
-      if (inactive.length > 0) {
-        throw new BadRequestException(`Species is inactive: ${inactive.map((s) => s.id).join(', ')}`);
-      }
-    }
-
-    // Keep legacy targetSpecies string as a derived, human-readable value for backward compatibility
-    const derivedTargetSpecies =
-      uniqueSpeciesIds.length > 0
-        ? uniqueSpeciesIds.map((id) => speciesById.get(id)!.commonName).join(', ')
-        : input.targetSpecies;
-
-    const savedFeed = await this.feedRepository.manager.transaction(async (manager) => {
-      const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
-      const feedSiteRepo = tenantManagerRepo(manager, FeedSite, tenantId);
-      const feedTypeSpeciesRepo = tenantManagerRepo(manager, FeedTypeSpecies, tenantId);
+      // Keep legacy targetSpecies string as a derived, human-readable value for backward compatibility
+      const derivedTargetSpecies =
+        uniqueSpeciesIds.length > 0
+          ? uniqueSpeciesIds.map((id) => speciesById.get(id)!.commonName).join(', ')
+          : input.targetSpecies;
 
       // Create feed entity - aligned with Feed entity
       const feed = feedRepo.create({
@@ -211,11 +204,9 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Fee
         await feedTypeSpeciesRepo.saveMany(rows);
       }
 
+      this.logger.log(`Feed "${created.name}" created with ID ${created.id}`);
+
       return created;
     });
-
-    this.logger.log(`Feed "${savedFeed.name}" created with ID ${savedFeed.id}`);
-
-    return savedFeed;
   }
 }

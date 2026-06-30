@@ -50,3 +50,8 @@ write boundary.
 - **ORPHAN-MEDIUM-255** — `EMPLOYEE_PII_BLIND_INDEX_KEY` (32-byte/64-hex HMAC) not set on the
   deployed farm-service → createWorker fails; set the secret in the droplet env. Owner: infra.
   Deadline: 2026-07-07.
+
+## FARM-HIGH-092 — createSpecies + createFeed enum coercion (follow-up to FARM-HIGH-090, found in live E2E)
+After #756 deployed, live E2E showed 3/5 setup domains (consumable/supplier/chemical) + tanks working, but **species** and **feed** still failed at the ValidationPipe.
+- **Species:** `category` + `waterType` carried a GraphQL `defaultValue` (same class as FARM-HIGH-090) — missed earlier because the file is `create-species.dto.ts`, not `*.input.ts`. Fixed: drop defaultValue → `@IsOptional`; defaults applied in `CreateSpeciesHandler`.
+- **Feed:** `FeedType`/`FloatingType`/`FeedStatus` were registered only in `feed/dto/feed.response.ts`, while `create-feed.input.ts` imports them from `feed/entities/feed.entity.ts` (which did NOT register them). Input enum coercion then passed the raw uppercase key to `@IsEnum`. Fixed: co-locate `registerEnumType` in `feed.entity.ts` (matching consumable/supplier/chemical, which register in their entity files).

@@ -387,13 +387,19 @@ export class CreateSpeciesInput {
   // SINIFLANDIRMA
   // -------------------------------------------------------------------------
 
-  @Field(() => SpeciesCategory, { defaultValue: SpeciesCategory.FISH })
+  // WHY: same enum `defaultValue` coercion bug as tankType — a defaultValue on an enum
+  // input field makes the raw uppercase KEY reach @IsEnum (which validates the lowercase
+  // VALUE), rejecting every createSpecies with a masked "Bad Request". WHAT: drop the
+  // defaultValue, make the field optional; CreateSpeciesHandler applies the default.
+  @Field(() => SpeciesCategory, { nullable: true })
+  @IsOptional()
   @IsEnum(SpeciesCategory)
-  category: SpeciesCategory;
+  category?: SpeciesCategory;
 
-  @Field(() => SpeciesWaterType, { defaultValue: SpeciesWaterType.SALTWATER })
+  @Field(() => SpeciesWaterType, { nullable: true })
+  @IsOptional()
   @IsEnum(SpeciesWaterType)
-  waterType: SpeciesWaterType;
+  waterType?: SpeciesWaterType;
 
   @Field({ nullable: true })
   @IsOptional()

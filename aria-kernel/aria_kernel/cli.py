@@ -1565,8 +1565,9 @@ def _main(argv: list[str] | None = None) -> int:
         help="Inspect the autonomy unlock ladder (acceptance-event thresholds, read-only).",
     )
     unlock_sub = unlock_parser.add_subparsers(dest="unlock_command", required=True)
-    unlock_status = add_subparser(unlock_sub, "status")
-    unlock_status.add_argument("--lane", choices=["L1", "L2", "L3"], default="L1")
+    # No --lane flag: lane is kernel-derived (Plan ARIA-V3 §2c, invariant
+    # I-V3-00b/29b). `status` reports the whole ladder (L1/L2/L3) read-only.
+    add_subparser(unlock_sub, "status")
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
@@ -4096,14 +4097,16 @@ def _main(argv: list[str] | None = None) -> int:
         if args.unlock_command == "status":
             from .autonomy_unlock import evaluate_autonomy_unlock
 
-            verdict = evaluate_autonomy_unlock(lane=args.lane, base_dir=args.tools_dir)
-            print(json.dumps({
-                "lane": verdict.lane,
-                "unlocked": verdict.valid,
-                "counts": dict(verdict.counts),
-                "requirements": dict(verdict.requirements),
-                "reasons": list(verdict.reasons),
-            }, indent=2, sort_keys=True))
+            lanes = {}
+            for lane in ("L1", "L2", "L3"):
+                verdict = evaluate_autonomy_unlock(lane=lane, base_dir=args.tools_dir)
+                lanes[lane] = {
+                    "unlocked": verdict.valid,
+                    "counts": dict(verdict.counts),
+                    "requirements": dict(verdict.requirements),
+                    "reasons": list(verdict.reasons),
+                }
+            print(json.dumps({"lanes": lanes}, indent=2, sort_keys=True))
             return 0
         parser.error("unknown autonomy unlock command")
 

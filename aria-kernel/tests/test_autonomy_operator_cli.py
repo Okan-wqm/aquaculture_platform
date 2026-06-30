@@ -45,10 +45,12 @@ class BurnInAcceptCliTests(unittest.TestCase):
                             "--report", str(report), "--mode", "real"])
             self.assertEqual(rc, 0)
             self.assertEqual(out["recorded"], 3)
-            rc2, status = _run(["--tools-dir", tools, "autonomy", "unlock", "status", "--lane", "L1"])
+            rc2, status = _run(["--tools-dir", tools, "autonomy", "unlock", "status"])
             self.assertEqual(rc2, 0)
-            self.assertEqual(status["counts"]["observe_successes"], 3)
-            self.assertFalse(status["unlocked"])  # 3 < 30
+            # status reports the whole ladder (no operator-chosen lane)
+            self.assertEqual(status["lanes"]["L1"]["counts"]["observe_successes"], 3)
+            self.assertFalse(status["lanes"]["L1"]["unlocked"])  # 3 < 30
+            self.assertIn("L3", status["lanes"])
 
     def test_accept_failed_report_records_nothing_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as td:

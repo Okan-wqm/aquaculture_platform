@@ -445,12 +445,7 @@ describe('Site tenant isolation on real Postgres', () => {
         tankEquipmentAdapter,
       ),
       getEquipment: new GetEquipmentHandler(dataSource, tankEquipmentAdapter),
-      listEquipment: new ListEquipmentHandler(
-        equipmentRepository,
-        tankRepository,
-        equipmentTypeRepository,
-        dataSource,
-      ),
+      listEquipment: new ListEquipmentHandler(dataSource),
       updateEquipment: new UpdateEquipmentHandler(
         dataSource,
         auditLogService,

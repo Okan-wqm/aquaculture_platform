@@ -40,7 +40,6 @@ const READ_BOUNDARY_ALLOWLIST = new Set<string>([
   'batch/query-handlers/get-batch-performance.handler.ts',
   'equipment/handlers/get-equipment-types.handler.ts',
   'equipment/handlers/get-sub-equipment-types.handler.ts',
-  'equipment/handlers/list-equipment.handler.ts',
   // Delegates to the shared paginateCursor(repository, …) primitive; routing it
   // through the boundary needs paginateCursor to accept a boundary-scoped
   // manager first (plan Task #9 tail).

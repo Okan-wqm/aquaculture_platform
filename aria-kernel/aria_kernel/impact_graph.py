@@ -216,14 +216,17 @@ def cycle_service_examination(
     *,
     workspace_root: str | Path,
     changed_files: list[str],
+    pressures: list[dict[str, Any]] | None = None,
     base_dir: str | Path | None = None,
     nx_graph_file: str | Path | None = None,
 ) -> dict[str, Any]:
     """This cycle's per-service examination plan: the changed services + their
     downstream ripple, presented in DEPENDENCY (topological) order so the
-    examination stage walks upstream-before-downstream. Uses the cached order
-    (no re-scan when the graph is unchanged). Returns an empty plan when nothing
-    changed (the discovery snapshot already covers a no-change baseline)."""
+    examination stage walks upstream-before-downstream. When ``pressures`` is
+    given, each pressure is scoped to the service(s) its evidence touches and
+    grouped per-service in the same dependency order (``per_service_pressures``);
+    pressures whose evidence maps to no project fall under ``global_pressures``.
+    Uses the cached order (no re-scan when the graph is unchanged)."""
     cache = cached_service_analysis_order(
         workspace_root=workspace_root, base_dir=base_dir, nx_graph_file=nx_graph_file
     )
@@ -248,12 +251,43 @@ def cycle_service_examination(
         for e in cache["order"]  # already topological → examine upstream first
         if e["project"] in impacted_set
     ]
+    # Scope each pressure to the service(s) its evidence touches, then group
+    # per-service in the same topological order (upstream first). A pressure
+    # whose evidence maps to no project is global (cross-cutting).
+    layer_of = {e["project"]: e["layer"] for e in cache["order"]}
+    order_pos = {e["project"]: i for i, e in enumerate(cache["order"])}
+    by_service: dict[str, list[dict[str, Any]]] = {}
+    global_pressures: list[dict[str, Any]] = []
+    for pressure in pressures or []:
+        if not isinstance(pressure, dict):
+            continue
+        evidence = [p for p in (pressure.get("evidence") or []) if isinstance(p, str) and p.strip()]
+        services = sorted(
+            {_project_for_path(path, projects) for path in _normalize_paths(evidence)} - {None}
+        )
+        summary = {
+            "pressure_id": pressure.get("pressure_id"),
+            "source": pressure.get("source"),
+            "severity": pressure.get("severity"),
+            "affected_services": services,
+        }
+        if services:
+            for service in services:
+                by_service.setdefault(service, []).append(summary)
+        else:
+            global_pressures.append(summary)
+    per_service_pressures = [
+        {"service": service, "layer": layer_of.get(service), "pressures": by_service[service]}
+        for service in sorted(by_service, key=lambda s: order_pos.get(s, len(order_pos)))
+    ]
     return {
         "schema_version": 1,
         "graph_source": cache["graph_source"],
         "changed_projects": changed_projects,
         "impacted_projects": impacted,
         "examination_order": examination_order,
+        "per_service_pressures": per_service_pressures,
+        "global_pressures": global_pressures,
         "project_count": cache["project_count"],
         "layer_count": cache["layer_count"],
     }

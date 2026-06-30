@@ -7,8 +7,8 @@
  */
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { DataSource, EntityManager } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { Equipment, EquipmentStatus, EquipmentLocation, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
@@ -59,15 +59,13 @@ function mapTankTypeToEquipmentTypeCode(tankType: TankType): string {
 
 @QueryHandler(ListEquipmentQuery)
 export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
-  constructor(
-    @InjectRepository(Equipment)
-    private readonly equipmentRepository: Repository<Equipment>,
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
-    @InjectRepository(EquipmentType)
-    private readonly equipmentTypeRepository: Repository<EquipmentType>,
-    private readonly dataSource: DataSource,
-  ) {}
+  // WHY: equipment + tanks are per-tenant data. Reading them through a raw injected
+  // repository resolves the table via the pooled connection's ambient search_path,
+  // which on a lost/rotated tenant context silently reads the wrong schema (or the
+  // empty source schema) — the "equipment appears then disappears" intermittent
+  // failure. WHAT: read through the fail-closed runInTenantRead boundary, which pins +
+  // asserts search_path + the RLS GUC to tenant_<uuid> before any query runs.
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: ListEquipmentQuery): Promise<PaginatedQueryResult<Equipment>> {
     const { tenantId, filter, pagination } = query;
@@ -86,27 +84,31 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     // We need (page * limit) rows from the merged set to satisfy the current page.
     const maxRowsNeeded = page * limit;
 
-    // Query equipment table with row cap
-    const equipmentResult = await this.queryEquipmentTable(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
 
-    // Query tanks table if applicable with row cap
-    let tankResult: { items: Equipment[]; total: number } = { items: [], total: 0 };
-    if (shouldQueryTanks) {
-      tankResult = await this.queryAndTransformTanks(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
-    }
+      // Query equipment table with row cap
+      const equipmentResult = await this.queryEquipmentTable(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
 
-    // Merge results from both tables
-    const allItems = this.dedupeMergedResults([...equipmentResult.items, ...tankResult.items]);
-    const totalCount = equipmentResult.total + tankResult.total;
+      // Query tanks table if applicable with row cap
+      let tankResult: { items: Equipment[]; total: number } = { items: [], total: 0 };
+      if (shouldQueryTanks) {
+        tankResult = await this.queryAndTransformTanks(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
+      }
 
-    // Sort merged results
-    const sortedItems = this.sortMergedResults(allItems, sortBy, sortOrder);
+      // Merge results from both tables
+      const allItems = this.dedupeMergedResults([...equipmentResult.items, ...tankResult.items]);
+      const totalCount = equipmentResult.total + tankResult.total;
 
-    // Apply pagination to merged results
-    const startIndex = (page - 1) * limit;
-    const paginatedItems = sortedItems.slice(startIndex, startIndex + limit);
+      // Sort merged results
+      const sortedItems = this.sortMergedResults(allItems, sortBy, sortOrder);
 
-    return createPaginatedQueryResult(paginatedItems, page, limit, totalCount);
+      // Apply pagination to merged results
+      const startIndex = (page - 1) * limit;
+      const paginatedItems = sortedItems.slice(startIndex, startIndex + limit);
+
+      return createPaginatedQueryResult(paginatedItems, page, limit, totalCount);
+    });
   }
 
   /**
@@ -136,14 +138,16 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
    * Query the equipment table
    */
   private async queryEquipmentTable(
+    manager: EntityManager,
     tenantId: string,
     filter: ListEquipmentQuery['filter'],
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
     maxRows?: number,
   ): Promise<{ items: Equipment[]; total: number }> {
-    const queryBuilder = this.equipmentRepository.createQueryBuilder('equipment');
-    queryBuilder.where('equipment.tenantId = :tenantId', { tenantId });
+    // tenantId is auto-injected by the tenant-scoped createQueryBuilder() — the manual
+    // tenant predicate is dropped (the boundary + scoped repo enforce isolation).
+    const queryBuilder = tenantManagerRepo(manager, Equipment, tenantId).createQueryBuilder('equipment');
     // DEFAULT: Only return non-deleted equipment
     queryBuilder.andWhere('equipment.isDeleted = :isDeleted', { isDeleted: false });
 
@@ -239,14 +243,15 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
    * Query tanks table and transform to Equipment format
    */
   private async queryAndTransformTanks(
+    manager: EntityManager,
     tenantId: string,
     filter: ListEquipmentQuery['filter'],
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
     maxRows?: number,
   ): Promise<{ items: Equipment[]; total: number }> {
-    const tankQueryBuilder = this.tankRepository.createQueryBuilder('tank');
-    tankQueryBuilder.where('tank.tenantId = :tenantId', { tenantId });
+    // tenantId is auto-injected by the tenant-scoped createQueryBuilder().
+    const tankQueryBuilder = tenantManagerRepo(manager, Tank, tenantId).createQueryBuilder('tank');
     tankQueryBuilder.andWhere('tank.isActive = :isActive', { isActive: true });
 
     // Join department for siteId filtering
@@ -310,7 +315,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const tanks = await tankQueryBuilder.getMany();
 
     // Load equipment types for transformation
-    const equipmentTypes = await this.loadEquipmentTypesMap();
+    const equipmentTypes = await this.loadEquipmentTypesMap(manager);
 
     // Transform tanks to Equipment format
     return {
@@ -358,13 +363,14 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
   private equipmentTypesCache: { map: Map<string, EquipmentType>; expiresAt: number } | null = null;
   private static readonly EQUIPMENT_TYPES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-  private async loadEquipmentTypesMap(): Promise<Map<string, EquipmentType>> {
+  private async loadEquipmentTypesMap(manager: EntityManager): Promise<Map<string, EquipmentType>> {
     if (this.equipmentTypesCache && this.equipmentTypesCache.expiresAt > Date.now()) {
       return this.equipmentTypesCache.map;
     }
 
-    // Use explicit farm schema to avoid tenant shadow tables
-    const equipmentTypes: EquipmentType[] = await this.dataSource.query(
+    // Use explicit farm schema to avoid tenant shadow tables; run on the boundary's
+    // tenant-pinned connection (manager) rather than a random pooled connection.
+    const equipmentTypes: EquipmentType[] = await manager.query(
       `SELECT * FROM "farm"."equipment_types" WHERE "category" = ANY($1)`,
       [[EquipmentCategory.TANK, EquipmentCategory.POND, EquipmentCategory.CAGE]],
     );

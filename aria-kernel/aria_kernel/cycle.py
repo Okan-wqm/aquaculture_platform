@@ -15,6 +15,7 @@ from .learning import run_learning_pass, run_learning_post_evidence_closure, run
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
+from .cycle_progress import emit_progress
 from .memory import decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
@@ -303,9 +304,14 @@ def run_enterprise_cycle(
         "post_evidence_closure": {},
         "hooks": list(learning_pre.get("hooks", [])),
     }
+    emit_progress("cycle_started", cycle_id=cycle_id, shadow_only=shadow_only, discovery_only=discovery_only)
+    emit_progress("discovery", cycle_id=cycle_id, phase="started")
     discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
+    emit_progress("discovery", cycle_id=cycle_id, phase="completed",
+                  fated_file_count=(discovery.get("completion_proof") or {}).get("fated_file_count"))
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
     if discovery_only:
+        emit_progress("cycle_completed", cycle_id=cycle_id, status="completed", discovery_only=True)
         event = _complete_event(root, cycle_id, 0, git_head_sha_at_cycle=git_head_sha_at_cycle)
         state = {
             "schema_version": 2,
@@ -377,6 +383,7 @@ def run_enterprise_cycle(
     decisions = []
     run_summary = []
     pressure_summary: dict[str, Any] = {}
+    emit_progress("tools", cycle_id=cycle_id, phase="started")
     for tool in list_tools(base_dir=root):
         if shadow_only and tool.get("status") not in ("SHADOW", "ACTIVE", "CALIBRATE"):
             continue
@@ -425,6 +432,7 @@ def run_enterprise_cycle(
     proactive_priorities: dict[str, Any] = {}
     belief_decay: dict[str, Any] = {}
     post_tool_failure = None
+    emit_progress("memory", cycle_id=cycle_id, phase="started")
     try:
         memory = update_memory(
             cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
@@ -440,6 +448,7 @@ def run_enterprise_cycle(
         except Exception as exc:
             post_tool_failure = {"phase": "belief_decay", "status": "failed", "error": str(exc)}
     if post_tool_failure is None:
+        emit_progress("pressure", cycle_id=cycle_id, phase="started")
         try:
             pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
         except Exception as exc:
@@ -470,6 +479,7 @@ def run_enterprise_cycle(
         except Exception as exc:
             post_tool_failure = {"phase": "proactive_priority", "status": "failed", "error": str(exc)}
     if post_tool_failure is None and not defer_reflection:
+        emit_progress("reflection", cycle_id=cycle_id, phase="started")
         try:
             reflection = run_reflection(
                 cycle_id=cycle_id, base_dir=root, repo_root=workspace_root,
@@ -576,6 +586,8 @@ def run_enterprise_cycle(
         )
         update_tools_index(root)
         state_status = "completed"
+    emit_progress("cycle_completed", cycle_id=cycle_id, status=state_status,
+                  runtime_status=runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,

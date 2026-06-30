@@ -408,6 +408,13 @@ def _main(argv: list[str] | None = None) -> int:
     cycle_run.add_argument("--cycle-id", required=True)
     cycle_run.add_argument("--discovery-only", action="store_true")
     cycle_run.add_argument("--shadow-only", action="store_true")
+    cycle_run.add_argument(
+        "--progress",
+        action="store_true",
+        help="Stream live per-phase progress to stderr as the cycle runs "
+        "(stdout still carries only the final JSON). Equivalent to "
+        "ARIA_CYCLE_PROGRESS=1.",
+    )
     cycle_legacy = cycle_parser
     add_workspace_args(cycle_legacy)
     cycle_legacy.add_argument("--cycle-id", default=None)
@@ -1890,6 +1897,10 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "cycle":
         if getattr(args, "cycle_command", None) == "run":
+            if getattr(args, "progress", False):
+                # The cycle's env-gated progress emitter reads this; --progress
+                # is just the operator-facing front door for ARIA_CYCLE_PROGRESS.
+                os.environ["ARIA_CYCLE_PROGRESS"] = "1"
             print(
                 json.dumps(
                     run_cycle(

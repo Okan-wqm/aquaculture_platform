@@ -95,8 +95,35 @@ def recommended_agents_for_project(
     return {"primary": sorted(primary), "also_notify": sorted(also_notify)}
 
 
+def unowned_projects(
+    *,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    nx_graph_file: str | Path | None = None,
+) -> dict[str, str]:
+    """Whole-repo: ``{project_name: project_root}`` for every project whose
+    routing-table ``primary`` owner is empty — i.e. a service no domain agent
+    owns (a coverage gap, and an agent-genesis candidate). Reuses the cached
+    service order (no rescan when the project graph is unchanged) so this is
+    cheap to call every cycle."""
+    # Imported lazily: impact_graph imports this module, so a top-level import
+    # here would be circular.
+    from .impact_graph import cached_service_analysis_order
+
+    cache = cached_service_analysis_order(
+        workspace_root=workspace_root, base_dir=base_dir, nx_graph_file=nx_graph_file
+    )
+    routing = load_routing_table(workspace_root)
+    return {
+        name: root
+        for name, root in cache.get("project_roots", {}).items()
+        if not recommended_agents_for_project(root, routing)["primary"]
+    }
+
+
 __all__ = [
     "ROUTING_TABLE_REL",
     "load_routing_table",
     "recommended_agents_for_project",
+    "unowned_projects",
 ]

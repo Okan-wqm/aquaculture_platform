@@ -15,7 +15,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { CreateSpeciesCommand } from '../commands/create-species.command';
-import { Species } from '../entities/species.entity';
+import { Species, SpeciesCategory, SpeciesWaterType } from '../entities/species.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { AuditAction } from '../../database/entities/audit-log.entity';
@@ -68,8 +68,8 @@ export class CreateSpeciesHandler
         localName: input.localName,
         code: input.code.toUpperCase(),
         description: input.description,
-        category: input.category,
-        waterType: input.waterType,
+        category: input.category ?? SpeciesCategory.FISH,
+        waterType: input.waterType ?? SpeciesWaterType.SALTWATER,
         family: input.family,
         genus: input.genus,
         optimalConditions: input.optimalConditions as Species['optimalConditions'],

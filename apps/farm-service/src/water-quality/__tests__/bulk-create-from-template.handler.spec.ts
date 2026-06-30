@@ -10,6 +10,7 @@ import { NotFoundException } from '@nestjs/common';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 
 import { BulkCreateFromTemplateCommand } from '../commands/bulk-create-from-template.command';
+import { getTemplateById } from '../data/parameter-templates.data';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { BulkCreateFromTemplateHandler } from '../handlers/bulk-create-from-template.handler';
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
@@ -63,16 +64,28 @@ describe('BulkCreateFromTemplateHandler', () => {
     expect(invalidate).toHaveBeenCalledWith(tenantId);
   });
 
-  it('deletes existing configs before saving in overwrite mode', async () => {
+  it('upserts template configs by code in overwrite mode — never deletes, preserves custom params', async () => {
     const { handler, mockManager, mockQueryRunner } = setup();
-    (mockManager.save as jest.Mock).mockImplementationOnce((entities: unknown[]) =>
-      Promise.resolve(entities.map((e, i) => ({ id: `cfg-${i}`, ...(e as object) }))),
-    );
+    const templateCode = getTemplateById(templateId)?.parameters[0]?.code;
+    if (!templateCode) {
+      throw new Error('salmon_freshwater template fixture has no parameters');
+    }
+    // existing rows: one template-code param the tenant tuned + one custom
+    // (non-template) param that must survive the re-apply.
+    const tunedTemplateRow = { id: 'cfg-existing', tenantId, code: templateCode, optimalMin: 999 };
+    const customRow = { id: 'cfg-custom', tenantId, code: 'CUSTOM_PARAM_NOT_IN_TEMPLATE' };
+    (mockManager.find as jest.Mock).mockResolvedValueOnce([tunedTemplateRow, customRow]);
+    (mockManager.save as jest.Mock).mockImplementationOnce((entities: unknown[]) => Promise.resolve(entities));
 
     await handler.execute(new BulkCreateFromTemplateCommand(tenantId, templateId, true, userId));
 
-    expect(mockManager.delete).toHaveBeenCalledWith(WaterQualityParameterConfig, { tenantId });
-    expect(mockManager.save).toHaveBeenCalledTimes(1);
+    // the destructive delete-all is gone
+    expect(mockManager.delete).not.toHaveBeenCalled();
+    const saved = (mockManager.save as jest.Mock).mock.calls[0][0] as Array<{ id?: string; code: string }>;
+    // the custom param is NOT in the save set → left untouched (preserved)
+    expect(saved.map((entry) => entry.code)).not.toContain('CUSTOM_PARAM_NOT_IN_TEMPLATE');
+    // the existing template-code row is updated IN PLACE (keeps its id), not re-inserted
+    expect(saved.find((entry) => entry.code === templateCode)?.id).toBe('cfg-existing');
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
   });
 

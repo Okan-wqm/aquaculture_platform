@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -153,6 +154,143 @@ def plan_service_analysis_order(
             set(changed_projects) | set(_reverse_closure(changed_projects, graph["dependencies"]))
         )
     return plan
+
+
+def _graph_fingerprint(root: Path) -> str:
+    """A cheap fingerprint of the project dependency graph's INPUTS (project dir
+    layout + the tsconfig alias SSoT) — does NOT read any ``*.ts`` file, so it is
+    fast enough to compute every cycle to decide whether the cached order is
+    still valid. The order only changes when projects are added/removed or the
+    tsconfig path aliases change; both are captured here."""
+    roots = sorted(meta["root"] for meta in _discover_projects(root).values())
+    tsconfig = root / "tsconfig.base.json"
+    ts = tsconfig.read_text(encoding="utf-8") if tsconfig.exists() else ""
+    digest = hashlib.sha256()
+    digest.update("\0".join(roots).encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(ts.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def cached_service_analysis_order(
+    *,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    nx_graph_file: str | Path | None = None,
+) -> dict[str, Any]:
+    """The topological service order, cached by graph fingerprint so the
+    expensive import scan runs ONLY when the project layout / tsconfig aliases
+    change. Cache is a plain JSON file (not a declared ledger) under
+    ``tools/impact/service-order-cache.json`` — read-through, write-back."""
+    root = Path(workspace_root).resolve()
+    cache_file = ensure_tools_dir(base_dir) / "impact" / "service-order-cache.json"
+    fingerprint = _graph_fingerprint(root)
+    if cache_file.exists():
+        try:
+            cached = json.loads(cache_file.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and cached.get("graph_fingerprint") == fingerprint:
+                return cached
+        except (OSError, ValueError):
+            pass
+    graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
+    plan = build_service_analysis_order(graph)
+    payload = {
+        "graph_fingerprint": fingerprint,
+        "graph_source": graph["graph_source"],
+        "project_roots": {name: meta["root"] for name, meta in graph["projects"].items()},
+        "dependencies": graph["dependencies"],
+        "order": plan["order"],
+        "layer_count": plan["layer_count"],
+        "project_count": plan["project_count"],
+        "cycle_broken_projects": plan["cycle_broken_projects"],
+    }
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cache_file.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    except OSError:
+        pass
+    return payload
+
+
+def cycle_service_examination(
+    *,
+    workspace_root: str | Path,
+    changed_files: list[str],
+    pressures: list[dict[str, Any]] | None = None,
+    base_dir: str | Path | None = None,
+    nx_graph_file: str | Path | None = None,
+) -> dict[str, Any]:
+    """This cycle's per-service examination plan: the changed services + their
+    downstream ripple, presented in DEPENDENCY (topological) order so the
+    examination stage walks upstream-before-downstream. When ``pressures`` is
+    given, each pressure is scoped to the service(s) its evidence touches and
+    grouped per-service in the same dependency order (``per_service_pressures``);
+    pressures whose evidence maps to no project fall under ``global_pressures``.
+    Uses the cached order (no re-scan when the graph is unchanged)."""
+    cache = cached_service_analysis_order(
+        workspace_root=workspace_root, base_dir=base_dir, nx_graph_file=nx_graph_file
+    )
+    projects = {name: {"root": r} for name, r in cache["project_roots"].items()}
+    counts: dict[str, int] = {}
+    for path in _normalize_paths([p for p in (changed_files or []) if isinstance(p, str) and p.strip()]):
+        project = _project_for_path(path, projects)
+        if project:
+            counts[project] = counts.get(project, 0) + 1
+    changed_projects = sorted(p for p, c in counts.items() if c)
+    impacted = sorted(set(changed_projects) | set(_reverse_closure(changed_projects, cache["dependencies"])))
+    impacted_set = set(impacted)
+    examination_order = [
+        {
+            "project": e["project"],
+            "layer": e["layer"],
+            "depends_on": e["depends_on"],
+            "dependents": e["dependents"],
+            "changed_files": counts.get(e["project"], 0),
+            "reason": "changed" if counts.get(e["project"]) else "downstream_impact",
+        }
+        for e in cache["order"]  # already topological → examine upstream first
+        if e["project"] in impacted_set
+    ]
+    # Scope each pressure to the service(s) its evidence touches, then group
+    # per-service in the same topological order (upstream first). A pressure
+    # whose evidence maps to no project is global (cross-cutting).
+    layer_of = {e["project"]: e["layer"] for e in cache["order"]}
+    order_pos = {e["project"]: i for i, e in enumerate(cache["order"])}
+    by_service: dict[str, list[dict[str, Any]]] = {}
+    global_pressures: list[dict[str, Any]] = []
+    for pressure in pressures or []:
+        if not isinstance(pressure, dict):
+            continue
+        evidence = [p for p in (pressure.get("evidence") or []) if isinstance(p, str) and p.strip()]
+        services = sorted(
+            {_project_for_path(path, projects) for path in _normalize_paths(evidence)} - {None}
+        )
+        summary = {
+            "pressure_id": pressure.get("pressure_id"),
+            "source": pressure.get("source"),
+            "severity": pressure.get("severity"),
+            "affected_services": services,
+        }
+        if services:
+            for service in services:
+                by_service.setdefault(service, []).append(summary)
+        else:
+            global_pressures.append(summary)
+    per_service_pressures = [
+        {"service": service, "layer": layer_of.get(service), "pressures": by_service[service]}
+        for service in sorted(by_service, key=lambda s: order_pos.get(s, len(order_pos)))
+    ]
+    return {
+        "schema_version": 1,
+        "graph_source": cache["graph_source"],
+        "changed_projects": changed_projects,
+        "impacted_projects": impacted,
+        "examination_order": examination_order,
+        "per_service_pressures": per_service_pressures,
+        "global_pressures": global_pressures,
+        "project_count": cache["project_count"],
+        "layer_count": cache["layer_count"],
+    }
 
 
 def _project_graph(*, root: Path, nx_graph_file: Path | None) -> dict[str, Any]:

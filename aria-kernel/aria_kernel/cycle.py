@@ -16,6 +16,7 @@ from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
+from .impact_graph import cycle_service_examination
 from .memory import decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
@@ -488,6 +489,26 @@ def run_enterprise_cycle(
             )
         except Exception as exc:
             post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
+    # Per-service examination plan (ORPHAN-MEDIUM-258/259): surface the changed
+    # services + their downstream ripple in DEPENDENCY (topological) order, and
+    # scope this cycle's pressures to the service(s) their evidence touches —
+    # grouped per-service in that same order (ORPHAN-MEDIUM-259). Cached by graph
+    # fingerprint (no re-scan when the project graph is unchanged); skipped when
+    # there is neither a change nor a pressure. Never fails the cycle.
+    service_examination: dict[str, Any] = {}
+    if not discovery_only:
+        try:
+            changed_paths = (diff.get("changed_paths") if isinstance(diff, dict) else None) or []
+            cycle_pressures = pressure.get("pressures") if isinstance(pressure, dict) else None
+            if changed_paths or cycle_pressures:
+                emit_progress("service_examination", cycle_id=cycle_id, phase="started",
+                              changed_paths=len(changed_paths), pressures=len(cycle_pressures or []))
+                service_examination = cycle_service_examination(
+                    workspace_root=workspace_root, base_dir=root,
+                    changed_files=changed_paths, pressures=cycle_pressures,
+                )
+        except Exception:
+            service_examination = {}
     try:
         learning_post = run_learning_post_evidence_closure(workspace, cycle_id=cycle_id, tools_root=root)
     except Exception as exc:
@@ -600,6 +621,7 @@ def run_enterprise_cycle(
         "learning": learning,
         "discovery": discovery,
         "cycle_diff": diff,
+        "service_examination": service_examination,
         "memory": memory,
         "belief_decay": belief_decay,
         "pressure": pressure,

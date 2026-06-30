@@ -40,3 +40,14 @@ reconstructing the single entry from the totals, so a negative delta is never a 
 stocked before #776. recordCull + transferBatch follow (PR-2b/2c); then delete the 2 duplicate
 updateTankBatchWithManager. Verification: tsc-spec 0, invariants 1682/1682, mortality unit spec 20/20
 (batch decrement unchanged), race-conditions + postgres-isolation handler constructions updated.
+
+## FARM-HIGH-101 — transferBatch routed through the SSoT writer; duplicate updateTankBatchWithManager deleted (PR-2c)
+transferBatch maintained TankBatch via a private `updateTankBatchWithManager` (a DUPLICATE of the same-named
+method in batch.service) that moved totalQuantity by delta WITHOUT touching `batchDetails[]`, and recomputed
+dest `isOverCapacity` from a hand-rolled density-only formula (hardcoded 30 kg/m³, maxBiomass ignored — its own
+comment admits this). Both legs now route through `TankBatchService.applyBatchDelta` (source −, dest +;
+batchDetails[] SSoT + derived aggregates + current* + self-heal), and `isOverCapacity`/`capacityUsedPercent`
+are set from `TankCapacityService.calculate` — the single source of truth for capacity — exactly as allocate
+does. The private duplicate is DELETED (and the now-unused EntityManager import removed). The SECOND duplicate
+(batch.service.updateTankBatchWithManager, reachable only from the DEAD recordOperation shadow path) is deleted
+in a follow-up (PR-2d). Verification: build tsc 0, tsc-spec 0, transfer unit spec 3/3, invariants 1684, eslint clean.

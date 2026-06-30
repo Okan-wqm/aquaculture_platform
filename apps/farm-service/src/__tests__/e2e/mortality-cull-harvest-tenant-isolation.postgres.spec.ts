@@ -259,6 +259,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
       new SiteAuthorizationService(),
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,

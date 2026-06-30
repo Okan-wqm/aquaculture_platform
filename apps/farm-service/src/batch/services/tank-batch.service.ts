@@ -34,6 +34,8 @@ export interface TankBatchDelta {
   biomassDelta: number;
   /** Optional new per-batch average weight (g); when omitted it is derived from biomass/quantity. */
   avgWeightG?: number;
+  /** Optional last-mortality timestamp (mortality path) — stamped onto the row when present. */
+  lastMortalityAt?: Date;
 }
 
 export interface TankMeta {
@@ -88,6 +90,23 @@ export class TankBatchService {
     }
 
     const details: BatchDetail[] = tankBatch.batchDetails ?? [];
+    // Self-heal pre-SSoT rows: a single-batch tank stocked before batchDetails[]
+    // became the SSoT carries empty details but a populated total + primaryBatchId.
+    // Reconstruct that single entry from the totals so a (negative) delta applies
+    // to it, instead of being treated as "batch not present" (a silent no-op that
+    // would skip mortality/cull/transfer on every pre-existing tank).
+    if (details.length === 0 && Number(tankBatch.totalQuantity) > 0 && tankBatch.primaryBatchId) {
+      const seededQty = Number(tankBatch.totalQuantity);
+      const seededBiomass = Number(tankBatch.totalBiomassKg);
+      details.push({
+        batchId: tankBatch.primaryBatchId,
+        batchNumber: tankBatch.primaryBatchNumber ?? '',
+        quantity: seededQty,
+        biomassKg: seededBiomass,
+        avgWeightG: seededQty > 0 ? (seededBiomass * 1000) / seededQty : 0,
+        percentageOfTank: 100,
+      });
+    }
     const idx = details.findIndex((d) => d.batchId === delta.batchId);
 
     if (idx >= 0) {
@@ -134,6 +153,15 @@ export class TankBatchService {
     tankBatch.batchDetails = details;
     tankBatch.primaryBatchId = details[0]?.batchId;
     tankBatch.primaryBatchNumber = details[0]?.batchNumber;
+
+    // Denormalized current* mirror the totals — the mortality/cull handlers
+    // maintained these alongside totalQuantity/totalBiomassKg; keep them in the
+    // single SSoT writer so callers never have to (and they cannot drift).
+    tankBatch.currentQuantity = tankBatch.totalQuantity;
+    tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
+    if (delta.lastMortalityAt) {
+      tankBatch.lastMortalityAt = delta.lastMortalityAt;
+    }
 
     return manager.save(TankBatch, tankBatch);
   }

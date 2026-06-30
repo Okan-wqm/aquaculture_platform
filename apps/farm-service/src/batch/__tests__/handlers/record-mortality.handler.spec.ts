@@ -204,6 +204,9 @@ describe('RecordMortalityHandler', () => {
       auditLogService,
       // SEC-HIGH-051: the real SSoT — fail-closed object-level site authz.
       new SiteAuthorizationService(),
+      // TankBatchService SSoT writer — mocked here (its derivation is covered by
+      // tank-batch.service.spec); the handler does not consume its return.
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new MortalityCullPolicyService(),
       farmStockProjection,
       mobileCommandReceipts,

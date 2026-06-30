@@ -24,8 +24,9 @@ import {
 import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate, IsEnum, IsNotEmpty, IsString } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Roles, Role, CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -916,8 +917,8 @@ export class FeedingResolver {
     private readonly queryBus: QueryBus,
     private readonly growthSimulator: GrowthSimulatorService,
     private readonly feedForecastService: FeedConsumptionForecastService,
-    @InjectRepository(FeedingRecord)
-    private readonly feedingRecordRepository: Repository<FeedingRecord>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   // ==========================================================================
@@ -933,10 +934,14 @@ export class FeedingResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
   ): Promise<FeedingRecord | null> {
-    return this.feedingRecordRepository.findOne({
-      where: { id, tenantId },
-      relations: ['batch', 'feed', 'tank'],
-    });
+    // Fail-closed tenant boundary: a lost pooled-connection search_path must
+    // raise, not silently resolve the wrong schema for a single-record read.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+      queryRunner.manager.findOne(FeedingRecord, {
+        where: { id, tenantId },
+        relations: ['batch', 'feed', 'tank'],
+      }),
+    );
   }
 
   /**

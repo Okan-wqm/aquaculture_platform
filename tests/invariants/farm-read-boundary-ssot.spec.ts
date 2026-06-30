@@ -37,7 +37,8 @@ const READ_BOUNDARY_ALLOWLIST = new Set<string>([
   // not yet route through a boundary; tracked under plan Task #23 / #9-tail.
   // (get-farm migrated in FARM-* Task #23: tenant path → runInTenantRead,
   // federation __resolveReference → runInSourceRead.)
-  'batch/query-handlers/get-batch-performance.handler.ts',
+  // get-batch-performance.handler.ts migrated to runInTenantRead (read-boundary
+  // straggler remediation, ORPHAN-MEDIUM-264) → removed from this allowlist.
   'equipment/handlers/get-equipment-types.handler.ts',
   'equipment/handlers/get-sub-equipment-types.handler.ts',
   // Delegates to the shared paginateCursor(repository, …) primitive; routing it
@@ -80,6 +81,77 @@ function readQueryHandlers(): HandlerFile[] {
     }))
     .filter(({ content }) => /\bIQueryHandler\b/.test(content));
 }
+
+/**
+ * Resolver-level read boundary (ORPHAN-MEDIUM-264). The query-handler invariant
+ * above misses reads done DIRECTLY in a GraphQL resolver via
+ * `this.<x>Repository.find*` on the shared pool — the same fail-closed gap
+ * (`growthMeasurement(id)` / `feedingRecord(id)` shipped this way). A resolver
+ * must read a tenant-scoped entity through `runInTenantRead` (or delegate to the
+ * query bus), never off a raw `@InjectRepository` handle. The remaining direct-
+ * read resolvers are tracked deferrals (ORPHAN-MEDIUM-265); the list MUST shrink.
+ */
+const DIRECT_REPO_READ = /this\.[a-zA-Z]+Repository\.(find|findOne|findAndCount|count|createQueryBuilder)\b/;
+
+const RESOLVER_READ_BOUNDARY_ALLOWLIST = new Set<string>([
+  'batch/resolvers/cleaner-fish.resolver.ts',
+  'chemical/chemical.resolver.ts',
+  'feed/feed.resolver.ts',
+  'feeding/resolvers/feeding-program.resolver.ts',
+  'supplier/supplier.resolver.ts',
+  'tank/resolvers/tank.resolver.ts',
+]);
+
+function findResolverFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
+        files.push(...findResolverFiles(fullPath));
+      }
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith('.resolver.ts') && !entry.name.endsWith('.spec.ts')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function readResolvers(): HandlerFile[] {
+  return findResolverFiles(FARM_SRC).map((file) => ({
+    relativePath: toPosix(normalize(relative(FARM_SRC, file))),
+    content: readFileSync(file, 'utf-8'),
+  }));
+}
+
+describe('INVARIANT: farm resolvers route tenant reads through the boundary', () => {
+  it('has no resolver reading a tenant entity via raw this.<x>Repository (outside the tracked allowlist)', () => {
+    const violations = readResolvers()
+      .filter(({ relativePath }) => !RESOLVER_READ_BOUNDARY_ALLOWLIST.has(relativePath))
+      .filter(({ content }) => DIRECT_REPO_READ.test(content))
+      .map(({ relativePath }) => relativePath);
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps the resolver deferral allowlist honest — every entry still does a direct repository read', () => {
+    const stale: string[] = [];
+    for (const relativePath of RESOLVER_READ_BOUNDARY_ALLOWLIST) {
+      const absolute = resolve(FARM_SRC, relativePath);
+      if (!existsSync(absolute)) {
+        stale.push(`${relativePath} (file no longer exists)`);
+        continue;
+      }
+      if (!DIRECT_REPO_READ.test(readFileSync(absolute, 'utf-8'))) {
+        stale.push(`${relativePath} (now reads through the boundary — remove from allowlist)`);
+      }
+    }
+
+    expect(stale).toEqual([]);
+  });
+});
 
 describe('INVARIANT: farm read query-handlers route through the tenant boundary', () => {
   it('has no read query-handler reading via raw @InjectRepository (outside the tracked allowlist)', () => {

@@ -66,6 +66,12 @@ function makeHarness(opts: HarnessOpts = {}) {
     orderBy: jest.fn().mockReturnThis(),
     setLock: jest.fn().mockReturnThis(),
     getOne: jest.fn().mockResolvedValue(null),
+    // Also serves the handler's biomass-only UPDATE (.update().set().where()
+    // .execute()) — currentCount is now written by applyBatchDelta (single
+    // writer) and biomass uses a column-scoped update that must not clobber it.
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 
   // A stocked tank-batch so the handler's tank-composition path executes; the

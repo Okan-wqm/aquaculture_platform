@@ -303,20 +303,27 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         );
       }
 
-      // Tank biomass güncelle (update the correct table, Math.max to prevent negatives)
+      // Tank biomass update (Math.max prevents negatives). currentCount is now
+      // derived + written by TankBatchService.applyBatchDelta (the SINGLE count
+      // writer) above — writing it here too re-introduced the 900-vs-719 drift
+      // (web equipment.currentCount vs mobile batchMetrics.pieces). currentBiomass
+      // stays on its growth-tracking path; biomass-ONLY UPDATE (never a full-entity
+      // save, which would clobber the derived currentCount).
       const newBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      const newCount = Math.max(0, (tank.currentCount || 0) - payload.quantity);
       if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({ currentBiomass: newBiomass, currentCount: newCount })
+          .set({ currentBiomass: newBiomass })
           .where('id = :id', { id: tankLookup.originalTank.id })
           .execute();
       } else {
-        tank.currentBiomass = newBiomass;
-        tank.currentCount = newCount;
-        await queryRunner.manager.save(Equipment, tank);
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newBiomass })
+          .where('id = :id', { id: tank.id })
+          .execute();
       }
 
       await this.farmStockProjection.refreshContainers(

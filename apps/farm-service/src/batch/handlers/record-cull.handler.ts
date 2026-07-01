@@ -250,23 +250,27 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         );
       }
 
-      // Tank biomass güncelle (Math.max prevents negatives). Persist to the
-      // physical table where the tank was found; otherwise legacy tenants with
-      // `tanks` rows would get a successful cull whose visible tank totals never
-      // change in the frontend/mobile read model.
+      // Tank biomass update (Math.max prevents negatives). currentCount is now
+      // derived + written by TankBatchService.applyBatchDelta (the SINGLE count
+      // writer) above — no independent count write here (that drifted from
+      // tank_batches, the SSoT). currentBiomass stays on its growth-tracking path;
+      // biomass-ONLY UPDATE (never a full-entity save, which would clobber the
+      // derived currentCount).
       const newBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      const newCount = Math.max(0, (tank.currentCount || 0) - payload.quantity);
       if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({ currentBiomass: newBiomass, currentCount: newCount })
+          .set({ currentBiomass: newBiomass })
           .where('id = :id', { id: tankLookup.originalTank.id })
           .execute();
       } else {
-        tank.currentBiomass = newBiomass;
-        tank.currentCount = newCount;
-        await queryRunner.manager.save(Equipment, tank);
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newBiomass })
+          .where('id = :id', { id: tank.id })
+          .execute();
       }
 
       await this.farmStockProjection.refreshContainers(

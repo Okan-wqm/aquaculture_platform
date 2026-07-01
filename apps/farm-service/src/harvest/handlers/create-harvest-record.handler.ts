@@ -374,10 +374,16 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         );
       }
 
-      // Tank güncelle (Math.max to prevent negatives)
-      tank.currentBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      tank.currentCount = Math.max(0, (tank.currentCount || 0) - input.quantityHarvested);
-      await queryRunner.manager.save(Tank, tank);
+      // Tank biomass update. currentCount is derived + written by
+      // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
+      // independent count write here (that drifted from tank_batches). biomass-ONLY
+      // UPDATE so it can't clobber the derived currentCount.
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update(Tank)
+        .set({ currentBiomass: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg) })
+        .where('id = :id', { id: tank.id })
+        .execute();
       await this.farmStockProjection.refreshContainers(
         queryRunner.manager,
         tenantId,

@@ -631,7 +631,7 @@ def _max_budget_usd() -> float:
 
 
 def _max_budget_usd_per_cycle() -> float:
-    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "1.50"))
+    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "3.00"))
 
 
 _TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
@@ -722,10 +722,24 @@ def _estimate_envelope_cost_usd(*, request: dict[str, Any]) -> float:
     """
     refs = len(request.get("evidence_refs") or [])
     if refs >= 8:
-        return 0.30  # Opus-heavy
-    if refs >= 3:
-        return 0.18
-    return 0.10
+        base = 0.30  # heavy decision-node envelope
+    elif refs >= 3:
+        base = 0.18
+    else:
+        base = 0.10
+    # K4 (ORPHAN-MEDIUM-286) — model-aware reservation. Fable prices at 2x
+    # opus on both input and output; an opus-calibrated estimate under-
+    # reserves and trips the per-cycle cap mid-cycle. Resolution is
+    # fail-safe (unknown agent -> most expensive tier -> conservative 2x).
+    target_agent = str(request.get("target_agent") or "")
+    if target_agent:
+        try:
+            from aria_kernel.agent_runtime_profile import resolve_claude_model
+            if resolve_claude_model(target_agent) == "fable":
+                return base * 2.0
+        except Exception:
+            return base * 2.0
+    return base
 
 
 def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, tools_dir: Path) -> None:

@@ -31,6 +31,7 @@ preconditions it depends on.
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 - @.claude/agents/_shared/aria-implementer-safety-contract.md
 - @.claude/agents/_shared/aria-code-writing-standards.md
 - @aria-kernel/aria_kernel/implementation_safety.py (HARD_FAIL_CHECKS registry SSoT)

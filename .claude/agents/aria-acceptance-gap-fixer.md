@@ -19,6 +19,7 @@ dispatch: ad-hoc
 - @.claude/agents/_shared/aria-code-writing-standards.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 ## What you do
 

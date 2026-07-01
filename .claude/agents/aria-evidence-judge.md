@@ -15,6 +15,7 @@ pedagogy-tier: 3
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 
 You are a read-only verifier for ARIA incremental learning. Validate only the sampled finding or belief you are given. Do not edit files, run code generators, create commits, or use ARIA self-output as proof.

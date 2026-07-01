@@ -47,3 +47,11 @@ Same divergence as FARM-HIGH-099 for the cull path: recordCull hand-wrote `total
 to `TankBatchService.applyBatchDelta(quantityDelta:-qty, biomassDelta:-biomass)` (no lastMortalityAt — cull
 is not mortality). Self-heal (from #777) covers pre-SSoT single-batch rows. tsc-spec 0; cull unit spec 12/12;
 batch-level cullCount/currentQuantity decrement unchanged. transferBatch + duplicate-deletion follow.
+
+## FARM-HIGH-102 — cleaner-fish mortality never decremented the cleaner batch currentQuantity (PR-3)
+record-cleaner-mortality.handler bumped `cleanerBatch.totalMortality += quantity` but never dropped
+`cleanerBatch.currentQuantity` — so the live cleaner-fish count drifted permanently above the true stock
+(the regular record-mortality.handler decrements both). Added
+`cleanerBatch.currentQuantity = Math.max(0, currentQuantity - quantity)` (the tank-level
+cleanerFishQuantity + the cleaner-fish batchDetail were already decremented; only the batch aggregate was
+missed). New unit test asserts 900 → 890 alongside totalMortality 100 → 110. spec 10/10, tsc-spec 0.

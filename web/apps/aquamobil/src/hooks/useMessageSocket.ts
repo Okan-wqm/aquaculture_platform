@@ -545,6 +545,22 @@ export function useMessageSocket(): UseMessageSocketResult {
         );
       });
 
+      // MSG-HIGH-063: the gateway could not hydrate a live message (NATS hydration
+      // timeout / empty) and would otherwise have DROPPED it with no redelivery,
+      // leaving it permanently absent from the open chat. Instead it sends this
+      // content-free hint; invalidate the channel's messages (+ list/badge) so a
+      // refetch converges on server truth — recoverable, not lost.
+      nextSocket.on('messageSyncHint', (data: unknown) => {
+        const event = data as { channelId?: string };
+        if (!event.channelId) return;
+        const qc = queryClientRef.current;
+        void qc.invalidateQueries({
+          queryKey: messagesQueryKey(tenantId, userIdRef.current, event.channelId),
+        });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+      });
+
       // MSG-HIGH-068: the current user was removed from (or left) this channel.
       // The gateway sends this to our user room AND has already removed our socket
       // from the channel room. Evict the channel's client caches so the open

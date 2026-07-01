@@ -123,4 +123,25 @@ describe('useMessageSocket — channel eviction + lifecycle (MSG-HIGH-068 / MSG-
     expect(calledWithKey(mockInvalidateQueries, CHANNELS_KEY)).toBe(true);
     expect(calledWithKey(mockInvalidateQueries, MEMBERS_KEY)).toBe(true);
   });
+
+  it('invalidates the channel messages on a messageSyncHint so a dropped live message is refetched (MSG-HIGH-063)', async () => {
+    renderHook(() => useMessageSocket());
+    await waitFor(() => expect(handlers.get('messageSyncHint')).toBeDefined());
+
+    fire('messageSyncHint', { channelId: CHANNEL });
+
+    // Messages for the channel are invalidated under the user-scoped key → refetch.
+    expect(calledWithKey(mockInvalidateQueries, MESSAGES_KEY)).toBe(true);
+    expect(calledWithKey(mockInvalidateQueries, CHANNELS_KEY)).toBe(true);
+  });
+
+  it('ignores a messageSyncHint without a channelId', async () => {
+    renderHook(() => useMessageSocket());
+    await waitFor(() => expect(handlers.get('messageSyncHint')).toBeDefined());
+
+    mockInvalidateQueries.mockClear();
+    fire('messageSyncHint', {});
+
+    expect(mockInvalidateQueries).not.toHaveBeenCalled();
+  });
 });

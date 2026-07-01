@@ -47,7 +47,16 @@ Same divergence as FARM-HIGH-099 for the cull path: recordCull hand-wrote `total
 to `TankBatchService.applyBatchDelta(quantityDelta:-qty, biomassDelta:-biomass)` (no lastMortalityAt — cull
 is not mortality). Self-heal (from #777) covers pre-SSoT single-batch rows. tsc-spec 0; cull unit spec 12/12;
 batch-level cullCount/currentQuantity decrement unchanged. transferBatch + duplicate-deletion follow.
-
+## FARM-HIGH-101 — transferBatch routed through the SSoT writer; duplicate updateTankBatchWithManager deleted (PR-2c)
+transferBatch maintained TankBatch via a private `updateTankBatchWithManager` (a DUPLICATE of the same-named
+method in batch.service) that moved totalQuantity by delta WITHOUT touching `batchDetails[]`, and recomputed
+dest `isOverCapacity` from a hand-rolled density-only formula (hardcoded 30 kg/m³, maxBiomass ignored — its own
+comment admits this). Both legs now route through `TankBatchService.applyBatchDelta` (source −, dest +;
+batchDetails[] SSoT + derived aggregates + current* + self-heal), and `isOverCapacity`/`capacityUsedPercent`
+are set from `TankCapacityService.calculate` — the single source of truth for capacity — exactly as allocate
+does. The private duplicate is DELETED (and the now-unused EntityManager import removed). The SECOND duplicate
+(batch.service.updateTankBatchWithManager, reachable only from the DEAD recordOperation shadow path) is deleted
+in a follow-up (PR-2d). Verification: build tsc 0, tsc-spec 0, transfer unit spec 3/3, invariants 1684, eslint clean.
 ## FARM-HIGH-102 — cleaner-fish mortality never decremented the cleaner batch currentQuantity (PR-3)
 record-cleaner-mortality.handler bumped `cleanerBatch.totalMortality += quantity` but never dropped
 `cleanerBatch.currentQuantity` — so the live cleaner-fish count drifted permanently above the true stock

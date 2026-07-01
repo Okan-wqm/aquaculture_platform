@@ -5786,10 +5786,10 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-MEDIUM-286 — ARIA budget caps and estimates are opus-calibrated, not model-aware — RESOLVED (PR #807, 3ee3e2c9a)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-286). _estimate_envelope_cost_usd hardcodes opus-priced estimates; the $1.50 per-cycle cap assumes opus decision nodes — at fable 2× pricing the reservation math undercounts and the cap fires mid-cycle. **Remediation:** slice K4.
 
-## ORPHAN-MEDIUM-287 — acceptance lane outside the canonical envelope profile; drafter refusals bypass the refusal ledger — OPEN
+## ORPHAN-MEDIUM-287 — acceptance lane outside the canonical envelope profile; drafter refusals bypass the refusal ledger — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-287). The 4 dispatch:ad-hoc acceptance agents emit results in no documented envelope profile; DRAFTER_REFUSAL sentinels never render as aria/agent-refusal/v1 ledger rows. **Remediation:** slice K6.
 
-## ORPHAN-MEDIUM-288 — ARIA tier assignments predate the operator capability policy — IN-PROGRESS
+## ORPHAN-MEDIUM-288 — ARIA tier assignments predate the operator capability policy — RESOLVED (PR #809, e2aab7dae)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-288). Operator policy 2026-07-01: decision nodes fable, judge layer opus; current frontmatter 12 opus + 6 sonnet; dispatcher_factory defaults opus + 600s subprocess timeout (too tight for fable turn lengths). **Remediation:** slice K5 (tier flip, single-revert unit).
 
 ## ORPHAN-LOW-289 — build-validator body cites a repo-external memory file — RESOLVED (PR #801, 0beecb4e3)

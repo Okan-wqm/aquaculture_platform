@@ -145,6 +145,9 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
     // Plan 030 — the acceptance lane's fixer holds Edit/Write/Bash and opens PRs;
     // pin it to opus/xhigh so a write-capable auditor can never be downgraded.
     'aria-acceptance-gap-fixer',
+    // K3 (ORPHAN-HIGH-285) — the promoted-plan assignment executor holds the
+    // full write toolset; mirrored in python WRITE_TIER_AGENTS.
+    'aria-worker',
   ]);
   const isAriaAgent = (file: AgentFile): boolean => file.filenameStem.startsWith('aria-');
 

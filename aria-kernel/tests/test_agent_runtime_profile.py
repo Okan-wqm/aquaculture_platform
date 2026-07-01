@@ -112,3 +112,17 @@ class FableTierValidityTests(unittest.TestCase):
             resolve_claude_effort,
         )
         self.assertEqual(resolve_claude_effort("no-such-agent-xyz"), DEFAULT_EFFORT)
+
+
+class WhitelistOrphanResolutionTests(unittest.TestCase):
+    """K3 — the two kernel-dispatched agents resolve from real frontmatter,
+    never the silent default_missing_file fallback (ORPHAN-HIGH-285)."""
+
+    def test_aria_worker_resolves_from_frontmatter(self) -> None:
+        profile = read_agent_runtime_profile("aria-worker")
+        self.assertEqual(profile.source, "frontmatter")
+        self.assertIn("aria-worker", WRITE_TIER_AGENTS)
+
+    def test_aria_autonomy_planner_resolves_from_frontmatter(self) -> None:
+        profile = read_agent_runtime_profile("aria-autonomy-planner")
+        self.assertEqual(profile.source, "frontmatter")

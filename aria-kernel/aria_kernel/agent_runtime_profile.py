@@ -28,8 +28,8 @@ from functools import lru_cache
 from pathlib import Path
 
 
-VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku"})
-VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh"})
+VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable"})
+VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 DEFAULT_MODEL: str = "opus"
 DEFAULT_EFFORT: str = "xhigh"
@@ -127,5 +127,16 @@ def resolve_claude_model(
 ) -> str:
     """Claude Code CLI executor lever: resolve an agent's frontmatter
     ``model`` tier to the ``--model`` alias the CLI consumes. Fail-safe to
-    ``opus`` (the most capable tier) for unknown agents or invalid fields."""
+    the most expensive tier for unknown agents or invalid fields."""
     return read_agent_runtime_profile(agent_name, repo_root=repo_root).model
+
+
+def resolve_claude_effort(
+    agent_name: str,
+    *,
+    repo_root: str | Path | None = None,
+) -> str:
+    """Claude Code CLI executor lever: resolve an agent's frontmatter
+    ``effort`` tier to the ``--effort`` level the CLI consumes. Shares the
+    fail-safe path with :func:`resolve_claude_model` (most expensive tier)."""
+    return read_agent_runtime_profile(agent_name, repo_root=repo_root).effort

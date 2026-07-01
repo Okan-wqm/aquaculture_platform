@@ -903,16 +903,18 @@ def invoke_claude_cli(
             _at_gov(_ens_tools(tools_dir), "claude_subprocess_env_audit", _env_audit_payload)
         except Exception:
             pass
-    # Plan 023 §A — per-agent model tiering. The model is resolved from the
-    # dispatched agent's frontmatter (scout tier runs cheaper; the
-    # decider/writer tier stays opus). Fail-safe: unknown agent → opus.
-    from aria_kernel.agent_runtime_profile import resolve_claude_model
-    agent_model = resolve_claude_model(subagent_type)
+    # Plan 023 §A — per-agent model/effort tiering. Both levers resolve from
+    # the dispatched agent's frontmatter (scout tier runs cheaper; the
+    # decider/writer tier stays on the most expensive model). Fail-safe:
+    # unknown agent → most expensive tier.
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    agent_profile = read_agent_runtime_profile(subagent_type)
     try:
         completed = run_claude_exec(
             prompt_text=prompt_text,
             timeout_seconds=timeout_seconds,
-            model=agent_model,
+            model=agent_profile.model,
+            effort=agent_profile.effort,
         )
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
         contract = "tools/aria-poc/ci_executor_contract_proven.md"

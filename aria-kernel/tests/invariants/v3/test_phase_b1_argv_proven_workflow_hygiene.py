@@ -63,6 +63,7 @@ _EXPECTED_CLAUDE_FLAGS = {
     "--output-format",
     "--verbose",
     "--model",
+    "--effort",
     "--dangerously-skip-permissions",
 }
 

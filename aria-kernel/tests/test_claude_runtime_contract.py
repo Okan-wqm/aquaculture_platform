@@ -131,3 +131,25 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EffortArgvTests(unittest.TestCase):
+    """K1 — the CLI ``--effort`` lever (ORPHAN-HIGH-283)."""
+
+    def test_exec_argv_includes_effort_when_supplied(self) -> None:
+        argv = claude_runtime.build_claude_exec_argv(model="fable", effort="xhigh")
+        self.assertIn("--effort", argv)
+        self.assertEqual(argv[argv.index("--effort") + 1], "xhigh")
+        self.assertEqual(argv[argv.index("--model") + 1], "fable")
+
+    def test_exec_argv_omits_effort_when_absent(self) -> None:
+        argv = claude_runtime.build_claude_exec_argv(model="opus")
+        self.assertNotIn("--effort", argv)
+
+    def test_exec_argv_rejects_invalid_effort(self) -> None:
+        with self.assertRaises(claude_runtime.ClaudePolicyViolation):
+            claude_runtime.build_claude_exec_argv(model="opus", effort="turbo")
+
+    def test_valid_models_includes_fable(self) -> None:
+        self.assertIn("fable", claude_runtime.VALID_MODELS)
+        self.assertIn("max", claude_runtime.VALID_EFFORTS)

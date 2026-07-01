@@ -5774,10 +5774,10 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — RESOLVED (PR #802, bad35ebda)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-282). Lane flows reconstructable only from kernel source; prompt-writer roster paragraph stale, model render rule hardcoded (bypasses tier registry), lacks code-writing-standards + prompt-shape-economy clauses for agents/skills ARIA authors itself. **Remediation:** slice B3 (PIPELINES.md + mandate clauses 12/13 + authoring rules).
 
-## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — IN-PROGRESS
+## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — RESOLVED (PR #803, 39f92174a)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-283). VALID_MODELS={opus,sonnet,haiku} → `model: fable` parses default_invalid; resolved effort: computed then dropped (CLI 2.1.197 ships --effort); REQUIRED_CLAUDE_VERSION=2.1.0 predates the fable alias. **Remediation:** slice K1.
 
-## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — OPEN
+## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-284). parse_claude_jsonl never inspects stop_reason; a Fable safety-classifier refusal surfaces as a generic failure — no audited fallback, no HUMAN_REQUIRED, no ledger row distinguishing it from an outage. **Remediation:** slice K2 (detect + one audited opus retry + HUMAN_REQUIRED on double refusal).
 
 ## ORPHAN-HIGH-285 — kernel dispatches two agents that have no agent files; WRITE_TIER sets diverge — OPEN

@@ -129,3 +129,6 @@ currentBiomass = totalBiomassKg (like currentCount); remove the handlers' Phase-
 this session: it touches the daily feeding hot-path + capacity-safety guards; the test surface (feeding +
 capacity + applyBatchDelta specs) is large and a wrong avgWeight/mixed-batch derivation would regress capacity.
 Biomass is not user-facing broken (growth-tracked, capacity-safe today). Owner: farm-expert. Deadline: 2026-07-22.
+
+
+## FARM-MEDIUM-108 — snapshot count from tank_batches SSoT (Phase 3). tsc0/proj10/inv1686.

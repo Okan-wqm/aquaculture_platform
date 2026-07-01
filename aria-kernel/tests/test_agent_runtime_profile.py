@@ -96,3 +96,19 @@ class ModelTierInvariantTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FableTierValidityTests(unittest.TestCase):
+    """K1 — fable/max become valid frontmatter values (ORPHAN-HIGH-283)."""
+
+    def test_fable_and_max_are_valid(self) -> None:
+        from aria_kernel.agent_runtime_profile import VALID_EFFORTS, VALID_MODELS
+        self.assertIn("fable", VALID_MODELS)
+        self.assertIn("max", VALID_EFFORTS)
+
+    def test_resolve_claude_effort_fail_safe(self) -> None:
+        from aria_kernel.agent_runtime_profile import (
+            DEFAULT_EFFORT,
+            resolve_claude_effort,
+        )
+        self.assertEqual(resolve_claude_effort("no-such-agent-xyz"), DEFAULT_EFFORT)

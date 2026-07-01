@@ -5771,10 +5771,10 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-LOW-281 — banned-phrase discipline and refusal sections missing from judge/acceptance bodies — RESOLVED (PR #800, d2dd2a98c)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-281). Judges constrain banned phrases only in refusal text (agent_contract._check_banned_phrases also scans rationale/notes); the 4 acceptance-lane agents document no refusal/stop conditions. **Remediation:** slice B2.
 
-## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — IN-PROGRESS
+## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — RESOLVED (PR #802, bad35ebda)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-282). Lane flows reconstructable only from kernel source; prompt-writer roster paragraph stale, model render rule hardcoded (bypasses tier registry), lacks code-writing-standards + prompt-shape-economy clauses for agents/skills ARIA authors itself. **Remediation:** slice B3 (PIPELINES.md + mandate clauses 12/13 + authoring rules).
 
-## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — OPEN
+## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-283). VALID_MODELS={opus,sonnet,haiku} → `model: fable` parses default_invalid; resolved effort: computed then dropped (CLI 2.1.197 ships --effort); REQUIRED_CLAUDE_VERSION=2.1.0 predates the fable alias. **Remediation:** slice K1.
 
 ## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — OPEN

@@ -135,8 +135,8 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // consensus decider and every writer stay on opus/xhigh. Runtime SSoT:
   // aria-kernel/aria_kernel/agent_runtime_profile.py; rationale:
   // docs/aria/plans/023-cost-tiering-and-consensus-escalation.md.
-  const ARIA_VALID_MODELS = new Set<string>(['opus', 'sonnet']);
-  const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh']);
+  const ARIA_VALID_MODELS = new Set<string>(['opus', 'sonnet', 'fable']);
+  const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh', 'max']);
   // Writers (Edit/Write/Bash) + governance-artifact authors must stay opus/xhigh.
   const ARIA_WRITE_TIER = new Set<string>([
     'aria-implementer',

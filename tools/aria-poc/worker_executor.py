@@ -227,15 +227,17 @@ def main(argv: list[str] | None = None) -> int:
         tools_dir / "dispatch" / "prompts" / f"{assignment_id}.md"
     )
     prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
-    # Resolve the per-agent model tier from frontmatter (fail-safe: opus).
-    from aria_kernel.agent_runtime_profile import resolve_claude_model
+    # Resolve the per-agent model/effort tier from frontmatter (fail-safe:
+    # most expensive tier).
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
 
-    model = resolve_claude_model(parsed.target_agent, repo_root=repo)
+    profile = read_agent_runtime_profile(parsed.target_agent, repo_root=repo)
     try:
         completed = run_claude_exec(
             prompt_text=prompt_text,
             timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
-            model=model,
+            model=profile.model,
+            effort=profile.effort,
             cwd=worktree_path,
         )
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:

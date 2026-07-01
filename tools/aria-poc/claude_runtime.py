@@ -37,11 +37,12 @@ CLAUDE_MOCK_ENV_VAR = "CLAUDE_CLI_MOCK"
 # runner, keeping ARIA on the most capable tier by default. Per-agent
 # overrides flow in via build_claude_exec_argv(model=...).
 CLAUDE_DEFAULT_MODEL = "opus"
-# The Claude Code CLI selects capability by model alias, not by a separate
-# reasoning-effort knob (Codex's model_reasoning_effort had no CLI analog).
-# These are the model aliases ARIA may target; the agent-runtime-profile
-# maps each agent's tier to one of them.
-VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku")
+# The Claude Code CLI selects capability by model alias AND, since CLI 2.1.x,
+# by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
+# model aliases and effort levels ARIA may target; the agent-runtime-profile
+# maps each agent's frontmatter to one of them.
+VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
+VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
@@ -190,6 +191,7 @@ def _managed_auth_present() -> bool:
 def build_claude_exec_argv(
     *,
     model: str | None = None,
+    effort: str | None = None,
     skip_permissions: bool = True,
     permission_mode: str | None = None,
 ) -> list[str]:
@@ -219,6 +221,12 @@ def build_claude_exec_argv(
         "--model",
         resolved_model,
     ]
+    if effort is not None:
+        if effort not in VALID_EFFORTS:
+            raise ClaudePolicyViolation(
+                f"invalid effort {effort!r}; allowed: {VALID_EFFORTS}"
+            )
+        argv.extend(["--effort", effort])
     if permission_mode is not None:
         if permission_mode not in VALID_PERMISSION_MODES:
             raise ClaudePolicyViolation(
@@ -274,6 +282,7 @@ def run_claude_exec(
     prompt_text: str,
     timeout_seconds: int,
     model: str | None = None,
+    effort: str | None = None,
     require_usage: bool | None = None,
     cwd: str | Path | None = None,
     skip_permissions: bool = True,
@@ -282,7 +291,10 @@ def run_claude_exec(
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     argv = build_claude_exec_argv(
-        model=model, skip_permissions=skip_permissions, permission_mode=permission_mode
+        model=model,
+        effort=effort,
+        skip_permissions=skip_permissions,
+        permission_mode=permission_mode,
     )
     # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
     # bypass even under root; the non-root runner path needs no env change.

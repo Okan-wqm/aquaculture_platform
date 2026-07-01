@@ -57,7 +57,13 @@ are set from `TankCapacityService.calculate` — the single source of truth for 
 does. The private duplicate is DELETED (and the now-unused EntityManager import removed). The SECOND duplicate
 (batch.service.updateTankBatchWithManager, reachable only from the DEAD recordOperation shadow path) is deleted
 in a follow-up (PR-2d). Verification: build tsc 0, tsc-spec 0, transfer unit spec 3/3, invariants 1684, eslint clean.
-
+## FARM-HIGH-102 — cleaner-fish mortality never decremented the cleaner batch currentQuantity (PR-3)
+record-cleaner-mortality.handler bumped `cleanerBatch.totalMortality += quantity` but never dropped
+`cleanerBatch.currentQuantity` — so the live cleaner-fish count drifted permanently above the true stock
+(the regular record-mortality.handler decrements both). Added
+`cleanerBatch.currentQuantity = Math.max(0, currentQuantity - quantity)` (the tank-level
+cleanerFishQuantity + the cleaner-fish batchDetail were already decremented; only the batch aggregate was
+missed). New unit test asserts 900 → 890 alongside totalMortality 100 → 110. spec 10/10, tsc-spec 0.
 ## FARM-HIGH-103 — mobile↔web stock drift: event-driven farm-stock read-model projector (mobile fix)
 The mobile `farmStockInventory` read model (farm_stock_container_snapshots/batch_snapshots) was refreshed by
 a `FarmStockProjectionService.refreshContainers` call HAND-ENUMERATED inside ~10 write handlers. Any handler

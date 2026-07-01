@@ -36,20 +36,30 @@ export function totalFluoride(S: number): number {
 /**
  * K1 - First dissociation constant of carbonic acid (Millero 2010, SWS scale)
  * H2CO3 ⇌ H+ + HCO3-
- * Valid for S=0-50, T=1-50°C (estuarine waters)
+ * Valid for S=0-50, T=0-50°C (estuarine waters — full freshwater→seawater range)
  * Returns K1 in mol/kg-SW
+ *
+ * WHY this exact fit: the pure-water term (-126.34048 + 6320.813/T +
+ * 19.568224·lnT) reproduces the thermodynamic freshwater constant
+ * (pK1(25°C,S=0) ≈ 6.355), and the √S salinity terms carry the fit smoothly
+ * down to S=0. The previous linear-in-S ("Millero 2010 Table 2") coefficients
+ * were a SEAWATER-ONLY fit: accurate at S≈35 but ~0.23 pK low at S=0, which
+ * shifted every Deffeyes isoline / DIC / CO₂ readout in fresh & brackish water.
+ * The √S terms are load-bearing — do not drop them.
  */
 export function getK1(tempC: number, S: number): number {
   const T = tempCToK(tempC);
   const lnT = Math.log(T);
+  const sqrtS = Math.sqrt(S);
 
-  // Millero (2010) Table 2 - pK1 on SWS scale
+  // Millero (2010) estuarine fit — pK1 on SWS scale
   const pK1 =
-    -43.6977 -
-    0.0129037 * S +
-    1.364e-4 * S * S +
-    2885.378 / T +
-    7.045159 * lnT;
+    -126.34048 +
+    6320.813 / T +
+    19.568224 * lnT +
+    (13.4191 * sqrtS + 0.0331 * S - 0.0000533 * S * S) +
+    (-530.123 * sqrtS - 6.103 * S) / T +
+    -2.06950 * sqrtS * lnT;
 
   return Math.pow(10, -pK1);
 }
@@ -57,22 +67,28 @@ export function getK1(tempC: number, S: number): number {
 /**
  * K2 - Second dissociation constant of carbonic acid (Millero 2010, SWS scale)
  * HCO3- ⇌ H+ + CO3²-
- * Valid for S=0-50, T=1-50°C (estuarine waters)
+ * Valid for S=0-50, T=0-50°C (estuarine waters — full freshwater→seawater range)
  * Returns K2 in mol/kg-SW
+ *
+ * WHY this exact fit: reproduces the thermodynamic freshwater constant
+ * (pK2(25°C,S=0) ≈ 10.329). The previous linear-in-S fit was ~0.9 pK LOW at
+ * S=0 — i.e. K2 ~8× too high — which grossly distorted CO₃²⁻/alkalinity
+ * speciation (α₂, isoline slope, Ω isopleths) in fresh & brackish water. The
+ * √S terms are load-bearing — do not drop them.
  */
 export function getK2(tempC: number, S: number): number {
   const T = tempCToK(tempC);
   const lnT = Math.log(T);
+  const sqrtS = Math.sqrt(S);
 
-  // Millero (2010) Table 2 - pK2 on SWS scale
+  // Millero (2010) estuarine fit — pK2 on SWS scale
   const pK2 =
-    -452.0940 +
-    13.142162 * S -
-    8.101e-4 * S * S +
-    21263.61 / T +
-    68.483143 * lnT +
-    (-581.4428 * S + 0.259601 * S * S) / T +
-    (-1.967035 * S) * lnT;
+    -90.18333 +
+    5143.692 / T +
+    14.613358 * lnT +
+    (21.0894 * sqrtS + 0.1248 * S - 0.0003687 * S * S) +
+    (-772.483 * sqrtS - 20.051 * S) / T +
+    -3.3336 * sqrtS * lnT;
 
   return Math.pow(10, -pK2);
 }

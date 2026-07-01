@@ -101,3 +101,20 @@ the stock-mutation handlers (mortality/cull/transfer/create-harvest/delete-harve
 change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount themselves (comments stripped).
 A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
 cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).
+
+## FARM-MEDIUM-110 — central-only invariant: no production caller of the BatchService write-shadow
+tests/invariants/farm-stock-mutation-central-only.spec.ts fails the build if any production farm file calls the
+legacy BatchService.allocateBatchToTank/transferBatch/recordOperation (the dead second write path that bypasses
+the command handlers + the single writer). Enforces "mortality/cull/transfer always flow through ONE central
+system regardless of surface". 0 production callers today; layer-3 green (1023).
+
+## FARM-HIGH-109 — DELETE the BatchService write-shadow + migrate its e2e spec (tracked, owner+deadline)
+The dead methods (allocateBatchToTank 258, transferBatch 324, updateTankBatch 508, updateTankBatchWithManager
+582, recordOperation 663, updateBatchAfterOperation 761, assertStockRemovalAllowed 804 — ~586 lines) must be
+physically deleted (Tier-1 make-it-impossible). Blocker: the sole remaining caller is a real-Postgres tenant-
+isolation e2e spec (batch-allocation-tenant-isolation.postgres.spec.ts) that exercises them as an isolation
+proxy; it must first be re-pointed at AllocateToTankHandler + TransferBatchHandler (10-12 deps each; the sibling
+mortality-cull-harvest spec is the wiring template) so allocation/transfer isolation coverage is preserved, not
+lost. Deferred THIS session (not the next commit) to avoid breaking the isolation e2e under time pressure — the
+central-only invariant (FARM-MEDIUM-110) delivers the functional guarantee in the interim. Owner: farm-expert.
+Deadline: 2026-07-15.

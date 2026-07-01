@@ -39,6 +39,10 @@ vi.mock('socket.io-client', () => ({ io: mockIo }));
 // --------------------------------------------------------------------------
 const mockSetQueryData = vi.fn();
 const mockInvalidateQueries = vi.fn();
+const mockGetQueriesData = vi.fn<(filters: unknown) => unknown[]>();
+// MSG-HIGH-064: the first-connect watermark is the newest SERVER createdAt in the
+// cached channel list — this timestamp, NOT a client `new Date()`.
+const SERVER_WATERMARK = '2026-06-13T11:00:00.000Z';
 // Typed so the mocked graphqlRequest returns Promise<unknown> (not any) — keeps
 // the mock factory + .mock.calls destructuring free of no-unsafe-* lint.
 const mockGraphqlRequest = vi.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -64,6 +68,7 @@ vi.mock('@tanstack/react-query', async () => {
     useQueryClient: () => ({
       setQueryData: mockSetQueryData,
       invalidateQueries: mockInvalidateQueries,
+      getQueriesData: mockGetQueriesData,
     }),
   };
 });
@@ -95,6 +100,14 @@ describe('useMessageSocket — Wave-6 M3 reconnect reconciliation', () => {
     handlers.clear();
     emitted.length = 0;
     fakeSocket.connected = true;
+    // Channels cache holds one channel whose newest message is SERVER_WATERMARK,
+    // so the first-connect watermark is seeded from server truth (MSG-HIGH-064).
+    mockGetQueriesData.mockReturnValue([
+      [
+        ['tenant', 'tenant-1', 'messaging', 'channels', 'user-1', 0],
+        { items: [{ id: 'chan-7', lastMessage: { createdAt: SERVER_WATERMARK } }], total: 1 },
+      ],
+    ]);
     mockGraphqlRequest.mockResolvedValue({
       allMessagesSince: {
         messages: [
@@ -145,8 +158,10 @@ describe('useMessageSocket — Wave-6 M3 reconnect reconciliation', () => {
 
     const [query, variables] = mockGraphqlRequest.mock.calls[0];
     expect(query).toBe(ALL_MESSAGES_SINCE);
-    expect(variables).toMatchObject({ limit: 100, syncToken: null });
-    expect(typeof (variables as { since: string }).since).toBe('string');
+    // MSG-HIGH-064: `since` is the SERVER-derived watermark from the channels
+    // cache, not a client `new Date()` — so a skewed local clock cannot skip
+    // messages whose server createdAt falls in the skew window.
+    expect(variables).toMatchObject({ since: SERVER_WATERMARK, limit: 100, syncToken: null });
 
     // Missed message upserted into its channel's cache — under the user-scoped
     // key the reader (useMessages) actually reads (MSG-CRITICAL-055): the user.id

@@ -38,6 +38,7 @@ import type {
   Message,
   MessagePage,
   ChannelMember,
+  ChannelPage,
 } from '@/types/messaging';
 import { messagesQueryKey } from '@/utils/messaging-query-keys';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -237,6 +238,30 @@ function emitJoinChannelWithAck(
   });
 }
 
+/**
+ * The newest SERVER-authoritative message timestamp the client already holds —
+ * the max `lastMessage.createdAt` across every cached channel-list page. Used to
+ * seed the reconnect watermark from server truth instead of the client clock
+ * (MSG-HIGH-064): a skewed local clock otherwise makes the next reconnect's
+ * `allMessagesSince(since)` skip messages whose server createdAt falls in the skew
+ * window. Returns null when no channel has a lastMessage (nothing to reconcile).
+ */
+function newestServerCreatedAt(qc: QueryClient, tenantId: string): string | null {
+  const entries = qc.getQueriesData<ChannelPage>({
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+  });
+  let newest: string | null = null;
+  for (const [, page] of entries) {
+    for (const channel of page?.items ?? []) {
+      const ts = channel.lastMessage?.createdAt;
+      if (ts && (!newest || ts > newest)) {
+        newest = ts;
+      }
+    }
+  }
+  return newest;
+}
+
 export function useMessageSocket(): UseMessageSocketResult {
   const { accessToken, isAuthenticated, tenantId, user, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
@@ -281,6 +306,9 @@ export function useMessageSocket(): UseMessageSocketResult {
       try {
         let cursor: string | null = null;
         const touchedChannels = new Set<string>();
+        // Track the newest SERVER createdAt we actually fetched, so the watermark
+        // advances on server truth, never the client clock (MSG-HIGH-064).
+        let maxCreatedAt: string | null = null;
         // Drain the delta in pages so a long offline window can't silently
         // drop messages past a single page limit.
         for (;;) {
@@ -293,6 +321,10 @@ export function useMessageSocket(): UseMessageSocketResult {
           for (const message of page.messages) {
             touchedChannels.add(message.channelId);
             upsertMessageIntoChannelCache(qc, tid, userIdRef.current, message.channelId, message);
+            // ISO-8601 timestamps compare chronologically as strings.
+            if (!maxCreatedAt || message.createdAt > maxCreatedAt) {
+              maxCreatedAt = message.createdAt;
+            }
           }
           if (!page.hasMore || !page.syncToken) break;
           cursor = page.syncToken;
@@ -309,7 +341,13 @@ export function useMessageSocket(): UseMessageSocketResult {
             }),
           ]);
         }
-        lastSyncAtRef.current = new Date().toISOString();
+        // MSG-HIGH-064: advance the watermark to the newest fetched message's
+        // SERVER createdAt — not `new Date()` (client clock). On an empty delta,
+        // keep the prior watermark so the next reconnect retries from the same
+        // point instead of jumping the window forward on a skewed local clock.
+        if (maxCreatedAt) {
+          lastSyncAtRef.current = maxCreatedAt;
+        }
       } catch {
         // Reconciliation failed (server/network). The live newMessage stream is
         // already restored and lastSyncAtRef is unchanged, so the NEXT reconnect
@@ -372,15 +410,21 @@ export function useMessageSocket(): UseMessageSocketResult {
         for (const channelId of [...joinedChannelsRef.current]) {
           emitJoinChannelWithAck(nextSocket, channelId, joinedChannelsRef.current);
         }
-        // M3: on RECONNECT (not the first connect), reconcile messages that
-        // arrived while the socket was down. allMessagesSince(since=watermark)
-        // returns the multi-channel delta; reconcile patches caches + badges.
-        if (hasConnectedRef.current && lastSyncAtRef.current) {
-          void reconcileRef.current(lastSyncAtRef.current);
+        // M3 / MSG-HIGH-064: watermark is always SERVER-authoritative, never the
+        // client clock.
+        if (hasConnectedRef.current) {
+          // RECONNECT: reconcile the gap. Use the tracked watermark, or — if no
+          // live message advanced it since first connect — derive it from server
+          // truth (newest cached message createdAt).
+          const since = lastSyncAtRef.current ?? newestServerCreatedAt(queryClientRef.current, tenantId);
+          if (since) {
+            void reconcileRef.current(since);
+          }
         } else {
-          // First connect: initial queries already loaded fresh state — just
-          // establish the sync watermark going forward.
-          lastSyncAtRef.current = new Date().toISOString();
+          // FIRST connect: initial queries already loaded fresh state — seed the
+          // watermark from server truth (newest cached message createdAt) so the
+          // next reconnect's delta cannot be skewed by a fast/slow local clock.
+          lastSyncAtRef.current = newestServerCreatedAt(queryClientRef.current, tenantId);
         }
         hasConnectedRef.current = true;
       });

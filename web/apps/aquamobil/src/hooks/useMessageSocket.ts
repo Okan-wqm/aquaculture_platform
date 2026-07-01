@@ -197,6 +197,46 @@ async function getIo(): Promise<typeof ioFactory> {
   }
 }
 
+/** joinChannel ack-retry bounds (MSG-HIGH-065). */
+const JOIN_ACK_MAX_RETRIES = 3;
+const JOIN_ACK_RETRY_BASE_MS = 500;
+
+type JoinChannelAck = { success?: boolean; reason?: string } | undefined;
+
+/**
+ * Emit `joinChannel` and CONSUME the server ack (MSG-HIGH-065).
+ *
+ * `joinChannel` was fire-and-forget: the gateway returns `{success:false}` when a
+ * NATS membership-verify times out (or the user genuinely is not a member) and
+ * does NOT add the socket to the channel room, but the client discarded that ack,
+ * kept the channel in its "joined" set, and showed a connected socket receiving
+ * ZERO live events for that channel with no error — a flaky NATS window could
+ * leave whole channels permanently live-dead. Now the ack is consumed: a
+ * confirmed join is a no-op; an unconfirmed one is retried with bounded backoff,
+ * and on exhaustion the channel is dropped from the intent set so the client
+ * stops implying live delivery for a room it never entered.
+ */
+function emitJoinChannelWithAck(
+  socket: SocketInstance,
+  channelId: string,
+  joinedChannels: Set<string>,
+  attempt = 0,
+): void {
+  socket.emit('joinChannel', { channelId }, (ack: JoinChannelAck) => {
+    if (ack?.success) return;
+    if (attempt < JOIN_ACK_MAX_RETRIES && joinedChannels.has(channelId)) {
+      const delay = JOIN_ACK_RETRY_BASE_MS * 2 ** attempt;
+      setTimeout(() => {
+        if (socket.connected && joinedChannels.has(channelId)) {
+          emitJoinChannelWithAck(socket, channelId, joinedChannels, attempt + 1);
+        }
+      }, delay);
+    } else {
+      joinedChannels.delete(channelId);
+    }
+  });
+}
+
 export function useMessageSocket(): UseMessageSocketResult {
   const { accessToken, isAuthenticated, tenantId, user, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
@@ -327,9 +367,10 @@ export function useMessageSocket(): UseMessageSocketResult {
       nextSocket.on('connect', () => {
         if (!mounted) return;
         setIsConnected(true);
-        // Rejoin all previously joined channels
-        for (const channelId of joinedChannelsRef.current) {
-          nextSocket.emit('joinChannel', { channelId });
+        // Rejoin all previously joined channels — ack-confirmed (MSG-HIGH-065).
+        // Snapshot the set: the ack callback may delete from it on exhaustion.
+        for (const channelId of [...joinedChannelsRef.current]) {
+          emitJoinChannelWithAck(nextSocket, channelId, joinedChannelsRef.current);
         }
         // M3: on RECONNECT (not the first connect), reconcile messages that
         // arrived while the socket was down. allMessagesSince(since=watermark)
@@ -548,7 +589,7 @@ export function useMessageSocket(): UseMessageSocketResult {
   const joinChannel = useCallback((channelId: string) => {
     joinedChannelsRef.current.add(channelId);
     if (socketRef.current?.connected) {
-      socketRef.current.emit('joinChannel', { channelId });
+      emitJoinChannelWithAck(socketRef.current, channelId, joinedChannelsRef.current);
     }
   }, []);
 

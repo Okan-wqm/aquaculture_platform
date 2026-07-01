@@ -29,7 +29,7 @@ import { logger } from '@/utils/logger';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 
-interface SyncResult {
+export interface SyncResult {
   success: number;
   failed: number;
 }

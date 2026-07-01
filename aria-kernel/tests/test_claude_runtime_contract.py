@@ -153,3 +153,44 @@ class EffortArgvTests(unittest.TestCase):
     def test_valid_models_includes_fable(self) -> None:
         self.assertIn("fable", claude_runtime.VALID_MODELS)
         self.assertIn("max", claude_runtime.VALID_EFFORTS)
+
+
+class RefusalDetectionTests(unittest.TestCase):
+    """K2 — model-safety refusal detection (ORPHAN-HIGH-284)."""
+
+    def test_detects_assistant_stop_reason_refusal(self) -> None:
+        events = (
+            {"type": "system", "subtype": "init", "model": "claude-fable-5"},
+            {
+                "type": "assistant",
+                "message": {
+                    "stop_reason": "refusal",
+                    "model": "claude-fable-5",
+                    "stop_details": {"category": "cyber", "explanation": "declined"},
+                },
+            },
+            {"type": "result", "subtype": "success", "is_error": False},
+        )
+        refusal = claude_runtime.extract_refusal(events)
+        self.assertIsNotNone(refusal)
+        self.assertEqual(refusal["source"], "assistant_stop_reason")
+        self.assertEqual(refusal["category"], "cyber")
+
+    def test_detects_result_subtype_refusal(self) -> None:
+        events = (
+            {"type": "result", "subtype": "error_refusal", "result": "declined"},
+        )
+        refusal = claude_runtime.extract_refusal(events)
+        self.assertIsNotNone(refusal)
+        self.assertEqual(refusal["source"], "result_subtype")
+
+    def test_clean_run_yields_no_refusal(self) -> None:
+        events = (
+            {"type": "system", "subtype": "init", "model": "claude-fable-5"},
+            {
+                "type": "assistant",
+                "message": {"stop_reason": None, "model": "claude-fable-5"},
+            },
+            {"type": "result", "subtype": "success", "is_error": False},
+        )
+        self.assertIsNone(claude_runtime.extract_refusal(events))

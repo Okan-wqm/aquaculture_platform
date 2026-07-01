@@ -90,6 +90,10 @@ class ClaudeRunResult:
     final_message: str
     usage: dict[str, Any] | None
     events: tuple[dict[str, Any], ...]
+    # K2 (ORPHAN-HIGH-284) — model-safety refusal record extracted from the
+    # stream-json events, or None. Callers own the fallback policy; the
+    # runtime only detects and reports.
+    refusal: dict[str, Any] | None = None
 
 
 def is_mock_mode() -> bool:
@@ -328,6 +332,7 @@ def run_claude_exec(
         final_message=final_message,
         usage=usage,
         events=events,
+        refusal=extract_refusal(events),
     )
 
 
@@ -381,6 +386,48 @@ def _assistant_text(message: Any) -> str:
         ]
         return "".join(p for p in parts if isinstance(p, str))
     return ""
+
+
+def extract_refusal(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:
+    """Detect a model-safety refusal in Claude stream-json events (K2).
+
+    Two candidate shapes are matched, per the 2026-07-01 live probe of the
+    stream-json surface (assistant events embed the API message with
+    ``stop_reason`` + ``stop_details``; the terminal ``result`` event carries
+    ``subtype``):
+
+    * an ``assistant`` event whose ``message.stop_reason == "refusal"`` —
+      the API-level classifier decline (Fable safety classifiers; category
+      commonly ``cyber``/``bio``);
+    * a ``result`` event whose ``subtype`` names a refusal.
+
+    Returns a record naming which shape fired (``source``) plus the
+    ``category``/``explanation`` from ``stop_details`` when present, or
+    ``None`` when no refusal marker exists. Detection only — the fallback
+    policy (single audited retry on the fallback tier, HUMAN_REQUIRED on a
+    second refusal) lives in the executors.
+    """
+    for event in events:
+        if event.get("type") == "assistant":
+            message = event.get("message") or {}
+            if message.get("stop_reason") == "refusal":
+                details = message.get("stop_details") or {}
+                return {
+                    "source": "assistant_stop_reason",
+                    "category": details.get("category"),
+                    "explanation": details.get("explanation"),
+                    "model": message.get("model"),
+                }
+        if event.get("type") == "result":
+            subtype = str(event.get("subtype") or "")
+            if "refusal" in subtype:
+                return {
+                    "source": "result_subtype",
+                    "category": None,
+                    "explanation": str(event.get("result") or "")[:300],
+                    "model": None,
+                }
+    return None
 
 
 def extract_usage(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:

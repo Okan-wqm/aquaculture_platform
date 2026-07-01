@@ -240,6 +240,28 @@ def main(argv: list[str] | None = None) -> int:
             effort=profile.effort,
             cwd=worktree_path,
         )
+        # K2 (ORPHAN-HIGH-284) — same refusal policy as ci_executor: one
+        # audited fable->opus retry; a second refusal is a hard, explicit
+        # failure (deterministic — never a retryable outage).
+        if completed.refusal is not None and profile.model == "fable":
+            sys.stderr.write(
+                f"model_refusal_fallback assignment={assignment_id} "
+                f"category={completed.refusal.get('category')!r} fable->opus\n"
+            )
+            completed = run_claude_exec(
+                prompt_text=prompt_text,
+                timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
+                model="opus",
+                effort=profile.effort,
+                cwd=worktree_path,
+            )
+        if completed.refusal is not None:
+            sys.stderr.write(
+                "model_safety_refusal_unresolved: assignment "
+                f"{assignment_id} refused (category="
+                f"{completed.refusal.get('category')!r}); operator triage required\n"
+            )
+            return 1
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1

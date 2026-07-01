@@ -102,10 +102,19 @@ change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount th
 A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
 cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).
 
+## FARM-HIGH-106 — ledger-reconcile for existing tank-count drift (fixes the current 900-vs-719)
+Phase-1 (FARM-HIGH-104) stops FUTURE drift; existing rows are still off. TankCountReconcileService recomputes
+each tank-batch's TRUE count from the operation ledger — trueQty = Σ tank_allocations(initial_stocking+split+
+transfer_in − transfer_out) − Σ tank_operations(mortality+cull+harvest, not-deleted) — the auditable source,
+not either drifted denormalization (verified no double-count: transfers live in allocations, mortality/cull/
+harvest only in operations). Exposed as the TENANT_ADMIN mutation reconcileTankCounts(dryRun=true default,
+tankIds?): DRY-RUN reports the per-tank-batch diff (current vs ledger vs delta) WITHOUT writing so the operator
+reviews first; apply routes every non-zero delta through applyBatchDelta (the single writer) so batchDetails +
+totalQuantity + currentCount all land on the ledger truth. Service spec 4/4 (dry-run no-write, apply-via-single-
+writer, delta-0 no-op, tankIds filter); tsc 0, tsc-spec 0, invariants 1686.
+
 ## FARM-MEDIUM-108 — farm-stock snapshot count derives from tank_batches only (drift leak closed)
-The projection read-model still sourced COUNT from the drift-prone denormalization: the tank branch fell back
-COALESCE(tb.totalQuantity, t.currentCount) and the equipment branch read e.currentCount directly (no tank_batches
-join at all). Post single-writer, currentCount is a derived mirror, so those reads could only re-surface pre-fix
-drift. Fixed: tank branch → COALESCE(tb.totalQuantity, 0) (absent tank_batches = empty tank); equipment branch →
-LEFT JOIN tank_batches + COALESCE(tb.totalQuantity, 0) for both the count and the has-stock flag. Biomass keeps
-its fallback until its SSoT unification (Phase 1b). tsc 0, projection specs 10/10, invariants 1686.
+Projection read-model sourced COUNT from the drift-prone denormalization (tank fallback COALESCE(tb.totalQuantity,
+t.currentCount); equipment read e.currentCount directly, no tank_batches join). Post single-writer those reads can
+only re-surface pre-fix drift. Fixed: tank → COALESCE(tb.totalQuantity, 0); equipment → LEFT JOIN tank_batches +
+derive count/has-stock from it. Biomass fallback stays until Phase 1b. tsc 0, projection 10/10, invariants 1686.

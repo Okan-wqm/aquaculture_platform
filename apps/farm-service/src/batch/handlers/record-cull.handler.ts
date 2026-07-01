@@ -43,6 +43,7 @@ import { Batch } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
+import { TankBatchService } from '../services/tank-batch.service';
 import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 @Injectable()
@@ -62,6 +63,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
+    // SSoT tank-composition writer (batchDetails[] + derived aggregates + current*).
+    private readonly tankBatchService: TankBatchService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -228,25 +231,23 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
 
       await queryRunner.manager.save(Batch, batch);
 
-      // TankBatch güncelle (Math.max prevents negative values, denormalized
-      // currentQuantity/currentBiomassKg fields kept in sync with totals)
+      // TankBatch update via the shared SSoT writer: decrement THIS batch in
+      // batchDetails[], then re-derive totalQuantity/biomass/avg/density/current*.
+      // The writer self-heals pre-SSoT single-batch rows (empty batchDetails) so
+      // the negative cull delta is never a silent no-op on a pre-existing tank.
       if (tankBatch) {
-        // Ensure numeric operations (database may return decimal columns as strings)
-        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - payload.quantity);
-        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
-        tankBatch.currentQuantity = tankBatch.totalQuantity;
-        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-        if (tankBatch.totalQuantity > 0) {
-          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-          const effectiveVolume = tank.volume;
-          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-        } else {
-          tankBatch.avgWeightG = 0;
-          tankBatch.densityKgM3 = 0;
-        }
-
-        await queryRunner.manager.save(TankBatch, tankBatch);
+        await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          tenantId,
+          payload.tankId,
+          {
+            batchId,
+            batchNumber: batch.batchNumber,
+            quantityDelta: -payload.quantity,
+            biomassDelta: -biomassKg,
+          },
+          { volumeM3: Number(tank.volume) || 0 },
+        );
       }
 
       // Tank biomass güncelle (Math.max prevents negatives). Persist to the

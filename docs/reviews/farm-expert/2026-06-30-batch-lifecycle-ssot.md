@@ -41,6 +41,12 @@ stocked before #776. recordCull + transferBatch follow (PR-2b/2c); then delete t
 updateTankBatchWithManager. Verification: tsc-spec 0, invariants 1682/1682, mortality unit spec 20/20
 (batch decrement unchanged), race-conditions + postgres-isolation handler constructions updated.
 
+## FARM-HIGH-100 — recordCull routed through the shared TankBatch SSoT writer (PR-2b)
+Same divergence as FARM-HIGH-099 for the cull path: recordCull hand-wrote `totalQuantity/totalBiomassKg -=`
++ current* + avg/density without touching `batchDetails[]` (mixed-batch drift + stale snapshot). Migrated
+to `TankBatchService.applyBatchDelta(quantityDelta:-qty, biomassDelta:-biomass)` (no lastMortalityAt — cull
+is not mortality). Self-heal (from #777) covers pre-SSoT single-batch rows. tsc-spec 0; cull unit spec 12/12;
+batch-level cullCount/currentQuantity decrement unchanged. transferBatch + duplicate-deletion follow.
 ## FARM-HIGH-101 — transferBatch routed through the SSoT writer; duplicate updateTankBatchWithManager deleted (PR-2c)
 transferBatch maintained TankBatch via a private `updateTankBatchWithManager` (a DUPLICATE of the same-named
 method in batch.service) that moved totalQuantity by delta WITHOUT touching `batchDetails[]`, and recomputed

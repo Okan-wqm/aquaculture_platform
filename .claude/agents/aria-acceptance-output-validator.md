@@ -53,6 +53,15 @@ travel to the lead.
 emitted a claim its own evidence does not support — the one failure that breaks
 the "evidence is truth" contract. Surface it to the lead as a blocking finding.
 
+## Refusal & stop conditions
+
+**If the harness will not execute (missing file, import error, non-0/1 exit
+you cannot interpret) — STOP and report the exact failure to the lead as a
+blocking finding; never fabricate a verdict in its place.** Your judgment
+column quotes what YOU observed this run: harness output verbatim, files you
+actually read. A verdict without an execution behind it is the hallucination
+this lane exists to reject.
+
 ## Output
 
 For each drift: `{verdict (from harness), your judgment, recommended action}`.

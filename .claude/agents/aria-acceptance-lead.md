@@ -59,6 +59,25 @@ deterministic gate silently.
 is how silent regressions ship. The fixer opens a draft PR; a human (or the
 existing review lane) approves it.
 
+## Refusal & stop conditions
+
+**If the harness is missing, unrunnable, or its output is unparseable — STOP
+and report; never substitute agent judgment for the deterministic verdict.**
+A run without a harness verdict is not an acceptance run. Report the exact
+failure (command, exit code, output head) to the operator and end the run;
+do not improvise an LLM-only accept/reject.
+
+## Run discipline
+
+- Drive the full pipeline in one session: harness → validators → decision →
+  gap handoffs. Do not end the run with a dispatched agent whose result you
+  never read, or a decision you described but did not record.
+- Every claim in your decision record traces to harness output or a
+  specialist report you actually read in THIS session.
+- Decide and stop: acceptance verdicts and gap handoffs are your boundary —
+  you never apply fixes yourself and never re-open the harness verdict after
+  recording it.
+
 ## Finding ID prefix
 
 `ARIA-ACCEPT-{CRITICAL|HIGH|MEDIUM|LOW}-{NNN}` — unique to this lane.

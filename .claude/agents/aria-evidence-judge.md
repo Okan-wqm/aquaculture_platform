@@ -40,6 +40,7 @@ Return JSON with:
 - Prefer concrete source files, tests, migrations, schemas, manifests, and config.
 - If evidence is missing, stale, or ambiguous, lower confidence and explain the gap.
 - Do not infer product intent from naming alone.
+- Banned-phrase discipline covers EVERY text you emit — `details.verdict.rationale`, `satisfaction_matrix[].note`, and refusal text alike. The kernel scans all of them (`agent_contract._check_banned_phrases` on notes/rationale/refusals, `agent_compliance.banned_phrase_in_response_body` on the response body); the SSoT list is `draft_intent.BANNED_PHRASES_DEFAULT`. A verdict whose rationale soft-pedals with a gating-excuse phrase is rejected at the boundary exactly like a malformed schema.
 
 ## Plan 016 Envelope Contract
 

@@ -94,3 +94,10 @@ their currentBiomass write is preserved as a biomass-ONLY UPDATE (never a full-e
 the derived count). currentBiomass unification deferred to FARM-HIGH-105 (needs feeding→batchDetails growth
 model; deriving it now would drop weight-gain → capacity under-report). Existing drift is corrected by the
 ledger-reconcile (FARM-HIGH-106). tsc 0, 6 specs 55/55, invariants 1684.
+
+## FARM-MEDIUM-107 — single-writer invariant for tank fish-count (locks in FARM-HIGH-104)
+Codifies the Phase-1 fix as a build-time guard (tests/invariants/farm-count-single-writer.spec.ts, layer-3):
+the stock-mutation handlers (mortality/cull/transfer/create-harvest/delete-harvest) MUST route the count
+change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount themselves (comments stripped).
+A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
+cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).

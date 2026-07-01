@@ -32,7 +32,7 @@ import { ReactFlow,
 import '@xyflow/react/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import type { ConnectionPointKey } from '../../types/scada-widget.types';
 import { useScadaDataOptional } from '../../context/ScadaDataProvider';
 import type { ScreenWidget } from '../../types/scada-package.types';

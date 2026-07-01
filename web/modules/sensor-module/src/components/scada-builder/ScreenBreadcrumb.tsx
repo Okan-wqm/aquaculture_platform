@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
 import { ChevronRight, Home } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import { getScreenPath } from '../../store/scada/sceneUtils';
 
 export const ScreenBreadcrumb: React.FC = () => {
-  const screens = useScadaStore((s) => s.screens);
-  const activeScreenId = useScadaStore((s) => s.activeScreenId);
-  const setActiveScreen = useScadaStore((s) => s.setActiveScreen);
+  const screens = useScadaPackageStore((s) => s.screens);
+  const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
+  const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
 
   const path = useMemo(
     () => getScreenPath(screens, activeScreenId),

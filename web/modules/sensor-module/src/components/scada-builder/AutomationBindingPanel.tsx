@@ -7,7 +7,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search } from 'lucide-react';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import { useAutomationPrograms, useAutomationProgramVariables } from '../../hooks/useAutomationPrograms';
 import { getStatusColor, getStatusText, ProgramStatus } from '../../utils/automation.utils';
 import type { AutomationBinding, VariableBinding } from '../../types/scada-package.types';

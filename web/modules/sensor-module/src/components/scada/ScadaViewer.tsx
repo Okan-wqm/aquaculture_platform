@@ -6,7 +6,7 @@
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
-import { useScadaStore, ScadaProcess } from '../../store/scadaStore';
+import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
 
 // Strip HTML tags from a string to prevent stored XSS via canvas node rendering
 function stripHtml(value: unknown): unknown {
@@ -53,7 +53,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
     selectedEquipmentId,
     setSelectedEquipmentId,
     setIsPanelOpen,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // Send message to canvas iframe
   const sendToCanvas = useCallback((type: string, data: unknown) => {

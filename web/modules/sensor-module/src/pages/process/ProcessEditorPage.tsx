@@ -50,7 +50,8 @@ import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPa
 import { useProcess, type ProcessNode } from '../../hooks/useProcess';
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
 import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../../components/dashboard/types';
-import { DeployToEdgeDialog } from '../../components/process-editor/dialogs/DeployToEdgeDialog';
+import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
+import { useDeployProcessToEdge } from '../../hooks/useDeployProcess';
 
 // Message types for iframe communication
 interface IframeMessage {
@@ -726,6 +727,23 @@ const ProcessEditorPage: React.FC = () => {
 
   // Edge Deploy dialog state (SCADA process deploy)
   const [isEdgeDeployOpen, setIsEdgeDeployOpen] = useState(false);
+  const edgeDeployMutation = useDeployProcessToEdge();
+
+  // Deploy menüsü — otomasyon programı, proses diyagramı ve SCADA paketi
+  // girişleri tek toolbar menüsünde toplanır (üç ayrı buton yerine)
+  const [isDeployMenuOpen, setIsDeployMenuOpen] = useState(false);
+  const deployMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isDeployMenuOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (deployMenuRef.current && !deployMenuRef.current.contains(e.target as Node)) {
+        setIsDeployMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => window.removeEventListener('mousedown', handlePointerDown);
+  }, [isDeployMenuOpen]);
 
   // Memoized bound devices — canvasNodes değişmedikçe yeniden hesaplanmaz.
   // Her render'da Array.from(new Map(...)) oluşturmak gereksiz GC baskısı yaratır.
@@ -1119,41 +1137,61 @@ const ProcessEditorPage: React.FC = () => {
             Test
           </button>
 
-          {/* Deploy Automation Butonu (Kemik Yapı — Faz D)
-              Process diyagramından direkt automation program deploy edebilme.
-              Tıklayınca modal açılır: program seç → device seç → deploy */}
-          <button
-            onClick={() => setIsDeployModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-            disabled={!isCanvasReady}
-            title="Deploy automation program to edge device"
-          >
-            <Upload className="w-4 h-4" />
-            Deploy
-          </button>
-
-          {/* Edge Deploy Butonu — SCADA process'i edge device'a deploy et */}
-          {processId && processId !== 'new' && (
+          {/* Deploy menüsü — otomasyon programı, proses diyagramı ve SCADA
+              paketi girişleri tek yerde */}
+          <div className="relative" ref={deployMenuRef}>
             <button
-              onClick={() => setIsEdgeDeployOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 disabled:opacity-50 transition-colors"
+              onClick={() => setIsDeployMenuOpen((open) => !open)}
+              className="flex items-center gap-2 px-4 py-2 text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
               disabled={!isCanvasReady}
-              title="SCADA proses diyagramini edge device'a deploy et"
+              title="Deploy secenekleri"
             >
-              <Monitor className="w-4 h-4" />
-              Edge'e Deploy
+              <Upload className="w-4 h-4" />
+              Deploy
+              <ChevronDown className="w-4 h-4" />
             </button>
-          )}
-
-          {/* SCADA Paketi Olustur Butonu */}
-          <button
-            onClick={() => navigate(`/sensor/scada-builder/new${processId && processId !== 'new' ? `?processId=${processId}` : ''}`)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            title="SCADA Paketi Olustur"
-          >
-            <Monitor className="w-4 h-4" />
-            SCADA Paketi
-          </button>
+            {isDeployMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1">
+                <button
+                  onClick={() => {
+                    setIsDeployMenuOpen(false);
+                    setIsDeployModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 text-left"
+                  title="Deploy automation program to edge device"
+                >
+                  <Cpu className="w-4 h-4 text-indigo-600" />
+                  Otomasyon Programi Deploy Et
+                </button>
+                <button
+                  onClick={() => {
+                    setIsDeployMenuOpen(false);
+                    setIsEdgeDeployOpen(true);
+                  }}
+                  disabled={!processId || processId === 'new'}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-cyan-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="SCADA proses diyagramini edge device'a deploy et"
+                >
+                  <Monitor className="w-4 h-4 text-cyan-600" />
+                  Edge'e Deploy
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  onClick={() => {
+                    setIsDeployMenuOpen(false);
+                    navigate(
+                      `/sensor/scada-builder/new${processId && processId !== 'new' ? `?processId=${processId}` : ''}`,
+                    );
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
+                  title="SCADA Paketi Olustur"
+                >
+                  <Monitor className="w-4 h-4 text-purple-600" />
+                  SCADA Paketi Olustur
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={handleSave}
@@ -1282,10 +1320,13 @@ const ProcessEditorPage: React.FC = () => {
       {/* Edge Deploy Dialog — SCADA process'i edge device'a deploy et */}
       {isEdgeDeployOpen && processId && processId !== 'new' && (
         <DeployToEdgeDialog
-          processId={processId}
-          processName={processName}
+          title="Edge Device'a Deploy Et"
+          artifactLabel="Proses"
+          artifactName={processName}
+          accent="cyan"
           isOpen={isEdgeDeployOpen}
           onClose={() => setIsEdgeDeployOpen(false)}
+          onDeploy={(deviceId) => edgeDeployMutation.mutateAsync({ processId, deviceId })}
         />
       )}
     </div>

@@ -30,7 +30,7 @@ import { ScadaDataContext } from '../../context/ScadaDataProvider';
 import type { ScadaDataContextValue } from '../../context/ScadaDataProvider';
 import type { ConnectionStatus } from '../../hooks/useScadaLiveData';
 import { useScadaLiveData } from '../../hooks/useScadaLiveData';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import type { BuilderMode } from '../../pages/scada/ScadaBuilderToolbar';
 
 interface StableModeProviderProps {
@@ -132,7 +132,7 @@ function usePreviewData(
 }
 
 function useSimulationData(enabled: boolean): ScadaDataContextValue | null {
-  const simTagValues = useScadaStore((s) => s.simTagValues);
+  const simTagValues = useScadaPackageStore((s) => s.simTagValues);
 
   return useMemo<ScadaDataContextValue | null>(() => {
     if (!enabled) return null;

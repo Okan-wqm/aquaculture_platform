@@ -17,7 +17,7 @@ import {
   Waves,
   Activity,
 } from 'lucide-react';
-import { SensorReading, SensorStatus, SensorType } from '../../../store/scadaStore';
+import { SensorReading, SensorStatus, SensorType } from '../../../store/scadaViewerStore';
 
 interface StatusWidgetProps {
   reading: SensorReading;

@@ -16,7 +16,7 @@ import type {
   ScadaPackageListResult,
   ScadaPackageStatus,
 } from '../types/scada-package.types';
-import type { ScadaPackageJSON } from '../store/scadaPackageStore';
+import type { ScadaPackageJSON } from '../store/scada';
 
 // Re-export types for backwards compatibility
 export type {
@@ -33,7 +33,7 @@ export type {
   ScadaPackageFilter,
   ScadaPackageListResult,
 } from '../types/scada-package.types';
-export type { ScadaPackageJSON } from '../store/scadaPackageStore';
+export type { ScadaPackageJSON } from '../store/scada';
 
 // Hook for fetching SCADA packages list
 export function useScadaPackages(filter?: ScadaPackageFilter) {

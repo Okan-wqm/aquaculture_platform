@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { X, Settings, Bell, History, Gauge, BarChart3 } from 'lucide-react';
-import { useScadaStore, useEquipmentReadings, SensorReading } from '../../store/scadaStore';
+import { useScadaViewerStore, useEquipmentReadings, SensorReading } from '../../store/scadaViewerStore';
 import { getEquipmentIcon } from '../equipment-icons';
 import { GaugeWidget } from './widgets/GaugeWidget';
 import { NumericWidget } from './widgets/NumericWidget';
@@ -28,7 +28,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
     isPanelOpen,
     setSelectedEquipmentId,
     setIsPanelOpen,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // PERF-008: fine-grained selector — only re-renders when THIS equipment's readings change,
   // not on every sensor update across the whole SCADA page.

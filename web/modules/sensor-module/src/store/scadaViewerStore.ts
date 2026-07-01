@@ -112,7 +112,7 @@ const initialState = {
   lastUpdate: null,
 };
 
-export const useScadaStore = create<ScadaState>((set, get) => ({
+export const useScadaViewerStore = create<ScadaState>((set, get) => ({
   ...initialState,
 
   setSelectedProcessId: (id) => {
@@ -213,16 +213,16 @@ function getStatusFromValue(value: number, reading: SensorReading): SensorStatus
 }
 
 // Selector hooks
-export const useSelectedProcess = () => useScadaStore((state) => state.selectedProcess);
-export const useSelectedEquipmentId = () => useScadaStore((state) => state.selectedEquipmentId);
-export const useIsLiveMode = () => useScadaStore((state) => state.isLiveMode);
-export const useIsPanelOpen = () => useScadaStore((state) => state.isPanelOpen);
-export const useProcesses = () => useScadaStore((state) => state.processes);
+export const useSelectedProcess = () => useScadaViewerStore((state) => state.selectedProcess);
+export const useSelectedEquipmentId = () => useScadaViewerStore((state) => state.selectedEquipmentId);
+export const useIsLiveMode = () => useScadaViewerStore((state) => state.isLiveMode);
+export const useIsPanelOpen = () => useScadaViewerStore((state) => state.isPanelOpen);
+export const useProcesses = () => useScadaViewerStore((state) => state.processes);
 
 // PERF-008: Fine-grained equipment-scoped selector.
 // SensorPanel uses this so it only re-renders when its OWN equipment's readings change,
 // not on every other sensor update across the SCADA page.
 export const useEquipmentReadings = (equipmentId: string | null) =>
-  useScadaStore((state) =>
+  useScadaViewerStore((state) =>
     equipmentId ? (state.sensorReadings[equipmentId] ?? []) : []
   );

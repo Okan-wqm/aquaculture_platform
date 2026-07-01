@@ -39,7 +39,7 @@ import {
 import { useEditorModeStore, type EditorMode } from '../../store/editorModeStore';
 import { useProcessStore, EquipmentNodeData } from '../../store/processStore';
 import { isCanvasMessage } from '../../types/canvas-messages';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import { useProcess } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useUnifiedTags } from '../../hooks/useUnifiedTags';

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useScadaStore } from '../../../store/scada';
+import { useScadaPackageStore } from '../../../store/scada';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -17,7 +17,7 @@ const SCREEN_TYPE_ICONS: Record<string, string> = {
 };
 
 export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
-  const screens = useScadaStore((s) => s.screens);
+  const screens = useScadaPackageStore((s) => s.screens);
 
   return (
     <div className="space-y-3">

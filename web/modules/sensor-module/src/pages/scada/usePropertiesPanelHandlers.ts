@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import type { ScadaEdgeType, ScadaEdge } from '../../types/scada-edge.types';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import type { WidgetEventDef } from '../../engine/events/types';

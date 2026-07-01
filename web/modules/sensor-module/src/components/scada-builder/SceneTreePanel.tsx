@@ -20,7 +20,7 @@ import {
   Download,
   Upload,
 } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import { buildScreenTree, wouldCreateCycle, type ScreenTreeNode } from '../../store/scada/sceneUtils';
 import type { ScreenType } from '../../store/scada/types';
 
@@ -196,13 +196,13 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
 /* ------------------------------------------------------------------ */
 
 export const SceneTreePanel: React.FC = () => {
-  const screens = useScadaStore((s) => s.screens);
-  const activeScreenId = useScadaStore((s) => s.activeScreenId);
-  const setActiveScreen = useScadaStore((s) => s.setActiveScreen);
-  const addScreen = useScadaStore((s) => s.addScreen);
-  const removeScreen = useScadaStore((s) => s.removeScreen);
-  const updateScreen = useScadaStore((s) => s.updateScreen);
-  const duplicateScreen = useScadaStore((s) => s.duplicateScreen);
+  const screens = useScadaPackageStore((s) => s.screens);
+  const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
+  const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
+  const addScreen = useScadaPackageStore((s) => s.addScreen);
+  const removeScreen = useScadaPackageStore((s) => s.removeScreen);
+  const updateScreen = useScadaPackageStore((s) => s.updateScreen);
+  const duplicateScreen = useScadaPackageStore((s) => s.duplicateScreen);
 
   /* ---- Local state ---- */
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
@@ -280,7 +280,7 @@ export const SceneTreePanel: React.FC = () => {
     (parentId: string) => {
       addScreen('dashboard' as ScreenType, 'New Screen');
       // The newly added screen is the last one in the store
-      const latestScreens = useScadaStore.getState().screens;
+      const latestScreens = useScadaPackageStore.getState().screens;
       const newScreen = latestScreens[latestScreens.length - 1];
       if (newScreen) {
         updateScreen(newScreen.id, { parentId });
@@ -415,7 +415,7 @@ export const SceneTreePanel: React.FC = () => {
         const { importScreen } = await import('../../store/scada/screenIO');
         const newScreen = importScreen(json);
         // Use immer-powered set to push the imported screen into the store
-        useScadaStore.setState((state) => {
+        useScadaPackageStore.setState((state) => {
           state.screens.push(newScreen);
           state.activeScreenId = newScreen.id;
           state.isDirty = true;

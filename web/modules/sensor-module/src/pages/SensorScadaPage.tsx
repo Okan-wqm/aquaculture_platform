@@ -23,7 +23,7 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
-import { useScadaStore, type ScadaProcess } from '../store/scadaStore';
+import { useScadaViewerStore, type ScadaProcess } from '../store/scadaViewerStore';
 import { useSensorList } from '../hooks/useSensorList';
 import { useActiveProcesses } from '../hooks/useProcess';
 import { ScadaViewer } from '../components/scada/ScadaViewer';
@@ -136,7 +136,7 @@ const SensorScadaPage: React.FC = () => {
     setProcesses,
     setIsLiveMode,
     setSelectedProcessId,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // Trend panel state
   const [isTrendOpen, setIsTrendOpen] = useState(false);

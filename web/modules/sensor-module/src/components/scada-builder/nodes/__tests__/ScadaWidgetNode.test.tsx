@@ -87,7 +87,7 @@ const mockStoreSelectors: Record<string, unknown> = {
   widgetEvents: undefined,
 };
 
-vi.mock('../../../../store/scadaPackageStore', () => ({
+vi.mock('../../../../store/scada', () => ({
   useScadaPackageStore: Object.assign(
     (selector: (s: Record<string, unknown>) => unknown) => {
       // Zustand store mock: selector'u sahte state ile cagir

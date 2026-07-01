@@ -11,7 +11,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { useScadaStore } from '../store/scada';
+import { useScadaPackageStore } from '../store/scada';
 import type { ConnectionStatus } from '../hooks/useScadaLiveData';
 
 // Re-use the exact same context so widget renderers work unmodified
@@ -26,7 +26,7 @@ const SIM_CONNECTION_STATUS: ConnectionStatus = 'connected';
 
 export function SimulationDataProvider({ children }: SimulationDataProviderProps) {
   // Direct selector — immer structural sharing already guarantees reference stability
-  const simTagValues = useScadaStore((s) => s.simTagValues);
+  const simTagValues = useScadaPackageStore((s) => s.simTagValues);
 
   const contextValue = useMemo<ScadaDataContextValue>(
     () => ({

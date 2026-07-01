@@ -9,7 +9,7 @@
 
 import React, { useCallback, useEffect, useRef } from 'react';
 import ScreenTabBar from '../scada-builder/ScreenTabBar';
-import { useScadaPackageStore, ScreenViewport } from '../../store/scadaPackageStore';
+import { useScadaPackageStore, ScreenViewport } from '../../store/scada';
 
 interface ScreenManagerProps {
   /** Ref to the canvas iframe for sending postMessage */

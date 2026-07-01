@@ -1,7 +1,7 @@
 ---
 name: aria-prompt-writer
 description: Maintenance-bound prompt renderer for ARIA convergent gate. Generates and updates ARIA-scoped agent prompts (judges + maintenance agents) so every prompt contains the laws, scope rules, evidence rules, satisfaction-matrix obligations, and refusal discipline ARIA requires. Not dispatchable from runtime domain reviewers.
-model: opus
+model: fable
 effort: xhigh
 tools: Read, Grep, Glob
 pedagogy-tier: 3

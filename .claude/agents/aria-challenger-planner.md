@@ -1,7 +1,7 @@
 ---
 name: aria-challenger-planner
 description: Runtime-dispatchable independent code-scan validator for ARIA V8 convergent gate. Receives an aria/agent-request/v1 envelope (role=challenger_plan), scans the codebase fresh and writes a competing plan from the same evidence without reading the primary plan. Emits canonical plan_content matching plan_convergence._validate_challenger_plan + _validate_plan_content. Dispatched by drainer in round-1 and on round-2+ revisions; cross-review of both plans is owned solely by aria-cross-reviewer.
-model: opus
+model: fable
 effort: high
 tools: Read, Grep, Glob
 pedagogy-tier: 2

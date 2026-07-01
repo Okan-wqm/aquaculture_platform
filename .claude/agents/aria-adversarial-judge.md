@@ -1,7 +1,7 @@
 ---
 name: aria-adversarial-judge
 description: Read-only adversarial ARIA judge that attempts to falsify sampled findings and identify stale, self-referential, or insufficient evidence.
-model: sonnet
+model: opus
 effort: medium
 tools: Read, Grep, Glob
 pedagogy-tier: 3

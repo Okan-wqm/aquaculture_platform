@@ -38,10 +38,11 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
             ],
         )
 
-    def test_exec_argv_defaults_to_opus(self) -> None:
+    def test_exec_argv_defaults_to_fable(self) -> None:
+        # K5 tier flip — the fail-safe default is the most capable tier.
         argv = claude_runtime.build_claude_exec_argv()
         self.assertIn("--model", argv)
-        self.assertEqual(argv[argv.index("--model") + 1], "opus")
+        self.assertEqual(argv[argv.index("--model") + 1], "fable")
 
     def test_exec_argv_read_only_omits_skip_permissions(self) -> None:
         argv = claude_runtime.build_claude_exec_argv(model="opus", skip_permissions=False)

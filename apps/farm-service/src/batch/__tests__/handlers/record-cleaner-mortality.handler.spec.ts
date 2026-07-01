@@ -70,6 +70,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   enqueue: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
+  cleanerBatch: Partial<Batch> | null;
 } {
   const cleanerBatch: Partial<Batch> | null =
     opts.cleanerBatch === null
@@ -166,7 +167,7 @@ function makeHarness(opts: HarnessOpts = {}): {
     new MortalityCullPolicyService(),
   );
 
-  return { handler, enqueue, commit, rollback };
+  return { handler, enqueue, commit, rollback, cleanerBatch };
 }
 
 function makeCommand(overrides: Partial<{
@@ -214,6 +215,16 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
     expect(event['newCleanerBatchMortalityRate']).toBeCloseTo(11, 5);
 
     expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('decrements the cleaner batch currentQuantity alongside totalMortality (FARM-HIGH-102)', async () => {
+    const { handler, cleanerBatch } = makeHarness();
+
+    // 900 live cleaner fish → 10 die → 890 live; totalMortality 100 → 110.
+    await handler.execute(makeCommand({ quantity: 10 }));
+
+    expect(cleanerBatch!.currentQuantity).toBe(890);
+    expect(cleanerBatch!.totalMortality).toBe(110);
   });
 
   it('normalises every common lowercase reason to its uppercase counterpart', async () => {

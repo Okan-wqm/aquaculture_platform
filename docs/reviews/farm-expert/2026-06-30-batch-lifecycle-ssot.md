@@ -101,3 +101,11 @@ the stock-mutation handlers (mortality/cull/transfer/create-harvest/delete-harve
 change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount themselves (comments stripped).
 A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
 cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).
+
+## FARM-MEDIUM-108 — farm-stock snapshot count derives from tank_batches only (drift leak closed)
+The projection read-model still sourced COUNT from the drift-prone denormalization: the tank branch fell back
+COALESCE(tb.totalQuantity, t.currentCount) and the equipment branch read e.currentCount directly (no tank_batches
+join at all). Post single-writer, currentCount is a derived mirror, so those reads could only re-surface pre-fix
+drift. Fixed: tank branch → COALESCE(tb.totalQuantity, 0) (absent tank_batches = empty tank); equipment branch →
+LEFT JOIN tank_batches + COALESCE(tb.totalQuantity, 0) for both the count and the has-stock flag. Biomass keeps
+its fallback until its SSoT unification (Phase 1b). tsc 0, projection specs 10/10, invariants 1686.

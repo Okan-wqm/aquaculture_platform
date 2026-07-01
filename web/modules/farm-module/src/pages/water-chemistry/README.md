@@ -24,8 +24,9 @@ as a recharts `<Area>`:
 
 H₂S becomes toxic **below** a critical pH (`criticalPHforH2S`), so its boundary
 is the critical-pH isoline and the danger band fills downward to the X-axis —
-the same shape as CO₂. Inputs come from the H₂S panel
-(`h2sUgL`, `h2sMeasuredAtPH`, `h2sLimitUgL`).
+the same shape as CO₂. Inputs come from the H₂S panel (`h2sUgL`, `h2sLimitUgL`);
+H₂S is measured in-situ so its measurement pH is the single realtime pH — the
+same pH used for the CO₂ and NH₃ toxicity calcs (no separate H₂S pH input).
 
 All toxic layers default to hidden. The printed report forces every toxic layer
 (NH₃ + CO₂ + H₂S) plus the safe zone visible via the `forceSafetyOverlays` prop,

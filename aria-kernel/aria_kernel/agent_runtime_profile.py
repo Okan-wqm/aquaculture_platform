@@ -42,6 +42,10 @@ WRITE_TIER_AGENTS: frozenset[str] = frozenset({
     "aria-implementer",
     "aria-drafter",
     "aria-prompt-writer",
+    # Plan 030 / K3 — write-capable agents the jest mirror already pinned;
+    # the two sets must never diverge (ORPHAN-HIGH-285).
+    "aria-acceptance-gap-fixer",
+    "aria-worker",
 })
 
 _FRONTMATTER_RX = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)

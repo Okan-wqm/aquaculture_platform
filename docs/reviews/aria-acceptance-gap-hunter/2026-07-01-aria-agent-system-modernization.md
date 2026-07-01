@@ -211,3 +211,37 @@ trigger language, no recall-depressing reporting instructions.
 Non-defect note: orchestrator.md's "Phase 9/10" promotion reference resolves
 to the concrete promotions it lists (compliance-expert, ai-safety-auditor,
 contract-parity-enforcer) and stays.
+
+---
+
+## Wave W-B verification record
+
+Full-roster verification of the remaining 63 non-ARIA agents (three
+parallel batches, 5-point checklist: frontmatter, reference truth,
+codebase-claim truth, Fable prompt-shape, routing/ownership alignment).
+
+- **W-B1 (Lane-A remainder, 29 agents):** 27 clean. Real defects:
+  ORPHAN-LOW-291 (contract-parity-enforcer dead `infra/openapi` path in body
+  + routing glob — spec changes never dispatched the parity reviewer),
+  ORPHAN-LOW-292 (security-reviewer brittle research-file count).
+  Adversarial verification killed 5 candidate findings: the
+  `docs/recommendations/<agent>/` "dead directories" are on-demand
+  TEACHER-mode output targets (12 sibling dirs exist) — the exact class the
+  agent-prompt-accuracy spec's deferred path-existence check anticipated.
+- **W-B2 (Lane-B product-audit, 22 agents):** 21 clean; ORPHAN-MEDIUM-293
+  (routing anchored job-queue-auditor to non-existent
+  `libs/backend-common/src/queue/**`; corrected to `platform/libs/outbox/**`).
+  No recall-depressing reporting instructions found in the CATCHER roster.
+- **W-B3 (edge-docs 13 + non-ARIA maintenance 3):** structurally clean;
+  ORPHAN-MEDIUM-294 — the ORPHAN-EDGE-001..014 cross-reference system
+  (240+ citations spanning agents AND the delivered Siemens package,
+  including SOC2 Type-II blocker anchors) has no defining ledger.
+  Root-cause remediation: reconstruct
+  `sens-api-gateway/docs/reviews/edge-orphan-findings.md` from inline usage;
+  renaming was rejected (would corrupt 121 delivered docs).
+  protocol-reference-writer additionally gains the standard
+  "Invoked by edge-docs-orchestrator" dispatch anchor.
+
+Fable prompt-shape: zero over-aggressive triggers and zero
+recall-depressing filters across all 63 — the roster's language discipline
+holds under the Fable literalism guidance without edits.

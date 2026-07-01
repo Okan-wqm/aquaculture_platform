@@ -5798,14 +5798,14 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-MEDIUM-290 — orchestrator roster describes database-reviewer as primary schema owner while the routing table dispatches it secondary-only — RESOLVED (PR #801, 0beecb4e3)
 Found 2026-07-01 (wave W-A of the ARIA modernization roster verification; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#wave-w-a-verification-record). orchestrator.md roster row read "All schema sources — state health audit" (primary-ownership phrasing) while orchestrator-routing-table.md — the authoritative primary-ownership registry per agent-ownership-uniqueness.spec.ts — routes database-reviewer as SECONDARY on all four schema globs. An operator reading the roster would expect a primary dispatch that never fires. **Remediation:** align the roster row to secondary-only phrasing (same PR).
 
-## ORPHAN-LOW-291 — contract-parity-enforcer cites the dead infra/openapi path — IN-PROGRESS
+## ORPHAN-LOW-291 — contract-parity-enforcer cites the dead infra/openapi path — RESOLVED (PR #812, 24f7f483e)
 Found 2026-07-02 (wave W-B1 roster verification; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#wave-w-b-verification-record). Agent body (lines 32/45) and orchestrator-routing-table.md glob route `infra/openapi/**`, but the OpenAPI specs live at `docs/api/openapi/*.yaml` — spec changes never dispatched the parity reviewer. **Remediation:** path + glob corrected to docs/api/openapi (same PR); the forward-declared `contract-parity.spec.ts` Phase-4 deliverable markers stay (honest declarations, not dead refs).
 
-## ORPHAN-LOW-292 — security-reviewer pins a brittle research-file count — IN-PROGRESS
+## ORPHAN-LOW-292 — security-reviewer pins a brittle research-file count — RESOLVED (PR #812, 24f7f483e)
 Found 2026-07-02 (wave W-B1). Body claimed "7 research files" in docs/research/security-reviewer/ while the directory holds 8 — the drift class agent-prompt-accuracy.spec.ts exists to prevent. **Remediation:** count-free phrasing (same PR).
 
-## ORPHAN-MEDIUM-293 — product-audit routing anchors job-queue-auditor to a non-existent shared queue lib — IN-PROGRESS
+## ORPHAN-MEDIUM-293 — product-audit routing anchors job-queue-auditor to a non-existent shared queue lib — RESOLVED (PR #812, 24f7f483e)
 Found 2026-07-02 (wave W-B2). product-audit-orchestrator-routing.md:38 routed `libs/backend-common/src/queue/**`, which does not exist; the real shared async-work surface is `platform/libs/outbox/**`. **Remediation:** glob corrected (same PR).
 
-## ORPHAN-MEDIUM-294 — ORPHAN-EDGE finding ids are cited 240+ times but no ledger defines them — IN-PROGRESS
+## ORPHAN-MEDIUM-294 — ORPHAN-EDGE finding ids are cited 240+ times but no ledger defines them — RESOLVED (PR #812, 24f7f483e)
 Found 2026-07-02 (wave W-B3). ORPHAN-EDGE-001..014 are a live cross-reference system across the 13 edge-docs agents AND the delivered Siemens documentation package (SOC2 Type-II blocker anchors, protocol roadmap tracking), minted during the Lane-C 12-producer run (ed8184ead), but the defining ledger never landed — an auditor following a citation finds nothing. Renaming is wrong (breaks 121 delivered docs + auditor-facing anchors). **Remediation:** reconstruct the ledger at `sens-api-gateway/docs/reviews/edge-orphan-findings.md` from the inline usage contexts (same PR); protocol-reference-writer also gains the missing dispatch anchor.

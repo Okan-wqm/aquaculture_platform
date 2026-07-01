@@ -631,7 +631,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
     ),
     HardFailCheck(
         name="cycle_and_turn_budget_cap",
-        description="per-cycle $1.50 + per-implementer-turn N=10 caps with reservation-reconcile",
+        description="per-cycle budget cap (budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE) + per-implementer-turn N=10 caps with reservation-reconcile",
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
     ),
     HardFailCheck(

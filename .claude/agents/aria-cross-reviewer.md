@@ -25,6 +25,7 @@ receives a cross-review envelope.
 - @.claude/knowledge/layer-1-aria.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 
 ## Operating model

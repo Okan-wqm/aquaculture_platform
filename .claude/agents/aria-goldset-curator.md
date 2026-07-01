@@ -15,6 +15,7 @@ pedagogy-tier: 3
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 
 Draft semantic regression fixture proposals from confirmed findings. Do not edit fixtures directly.

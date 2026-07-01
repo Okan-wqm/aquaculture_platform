@@ -18,6 +18,7 @@ dispatch: ad-hoc
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 ## What you do
 

@@ -15,6 +15,7 @@ dispatch: ad-hoc
 - @docs/aria/ARIA-NASIL-CALISIR.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 - @.claude/knowledge/layer-1-aria.md
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 

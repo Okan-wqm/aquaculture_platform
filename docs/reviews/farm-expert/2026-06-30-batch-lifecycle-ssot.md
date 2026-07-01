@@ -112,3 +112,7 @@ tankIds?): DRY-RUN reports the per-tank-batch diff (current vs ledger vs delta) 
 reviews first; apply routes every non-zero delta through applyBatchDelta (the single writer) so batchDetails +
 totalQuantity + currentCount all land on the ledger truth. Service spec 4/4 (dry-run no-write, apply-via-single-
 writer, delta-0 no-op, tankIds filter); tsc 0, tsc-spec 0, invariants 1686.
+
+
+## FARM-MEDIUM-110 — central-only invariant (no BatchService bypass caller). See FARM-HIGH-109 for physical deletion.
+## FARM-HIGH-109 — DELETE the ~586-line BatchService write-shadow + migrate its tenant-isolation e2e spec. Owner farm-expert, deadline 2026-07-15.

@@ -94,3 +94,38 @@ their currentBiomass write is preserved as a biomass-ONLY UPDATE (never a full-e
 the derived count). currentBiomass unification deferred to FARM-HIGH-105 (needs feeding→batchDetails growth
 model; deriving it now would drop weight-gain → capacity under-report). Existing drift is corrected by the
 ledger-reconcile (FARM-HIGH-106). tsc 0, 6 specs 55/55, invariants 1684.
+
+## FARM-MEDIUM-107 — single-writer invariant for tank fish-count (locks in FARM-HIGH-104)
+Codifies the Phase-1 fix as a build-time guard (tests/invariants/farm-count-single-writer.spec.ts, layer-3):
+the stock-mutation handlers (mortality/cull/transfer/create-harvest/delete-harvest) MUST route the count
+change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount themselves (comments stripped).
+A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
+cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).
+
+## FARM-HIGH-106 — ledger-reconcile for existing tank-count drift (fixes the current 900-vs-719)
+Phase-1 (FARM-HIGH-104) stops FUTURE drift; existing rows are still off. TankCountReconcileService recomputes
+each tank-batch's TRUE count from the operation ledger — trueQty = Σ tank_allocations(initial_stocking+split+
+transfer_in − transfer_out) − Σ tank_operations(mortality+cull+harvest, not-deleted) — the auditable source,
+not either drifted denormalization (verified no double-count: transfers live in allocations, mortality/cull/
+harvest only in operations). Exposed as the TENANT_ADMIN mutation reconcileTankCounts(dryRun=true default,
+tankIds?): DRY-RUN reports the per-tank-batch diff (current vs ledger vs delta) WITHOUT writing so the operator
+reviews first; apply routes every non-zero delta through applyBatchDelta (the single writer) so batchDetails +
+totalQuantity + currentCount all land on the ledger truth. Service spec 4/4 (dry-run no-write, apply-via-single-
+writer, delta-0 no-op, tankIds filter); tsc 0, tsc-spec 0, invariants 1686.
+
+
+## FARM-MEDIUM-110 — central-only invariant (no BatchService bypass caller). See FARM-HIGH-109 for physical deletion.
+## FARM-HIGH-109 — DELETE the ~586-line BatchService write-shadow + migrate its tenant-isolation e2e spec. Owner farm-expert, deadline 2026-07-15.
+
+## FARM-HIGH-111 — biomass single-SSoT via feeding→applyBatchDelta growth routing (tracked, owner+deadline)
+Phase 1 unified COUNT; BIOMASS is intentionally NOT yet single-SSoT. daily-feeding-execution
+updateTankBiomassWithManager writes tankBatch.totalBiomassKg/currentBiomassKg + tank.currentBiomass DIRECTLY from
+the FCR weight-gain (absolute newBiomassKg), while applyBatchDelta re-derives totalBiomassKg from batchDetails
+(no growth). Deriving currentBiomass from batchDetails now would DROP growth → capacity under-report → over-stock
+risk. DESIGN (actionable): route feeding's weight-gain through applyBatchDelta(quantityDelta=0, biomassDelta=
+newBiomassKg − currentTotalBiomassKg) so the growth lands in batchDetails; applyBatchDelta re-derives
+totalBiomassKg (with growth) + avgWeightG (= biomass×1000/qty, matches feeding's newAvgWeightG) and then derives
+currentBiomass = totalBiomassKg (like currentCount); remove the handlers' Phase-1 biomass-only writes. NOT done
+this session: it touches the daily feeding hot-path + capacity-safety guards; the test surface (feeding +
+capacity + applyBatchDelta specs) is large and a wrong avgWeight/mixed-batch derivation would regress capacity.
+Biomass is not user-facing broken (growth-tracked, capacity-safe today). Owner: farm-expert. Deadline: 2026-07-22.

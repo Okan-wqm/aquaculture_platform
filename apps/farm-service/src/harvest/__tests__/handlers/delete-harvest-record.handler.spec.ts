@@ -126,6 +126,10 @@ function makeHarness(opts: HarnessOpts = {}) {
   const refreshContainers = jest
     .spyOn(farmStockProjection, 'refreshContainers')
     .mockResolvedValue(undefined);
+  // The single SSoT writer for tank composition — the reversal restores
+  // batchDetails[] through this, never by direct field arithmetic.
+  const applyBatchDelta = jest.fn().mockResolvedValue(undefined);
+  const tankBatchService = { applyBatchDelta };
 
   const handler = new DeleteHarvestRecordHandler(
     harvestRepository as unknown as Repository<HarvestRecord>,
@@ -134,6 +138,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     tankRepository,
     mockDataSource,
     outboxPublisher,
+    tankBatchService as never,
     farmStockProjection,
   );
 
@@ -143,6 +148,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     commit: mockQueryRunner.commitTransaction as jest.Mock,
     rollback: mockQueryRunner.rollbackTransaction as jest.Mock,
     refreshContainers,
+    applyBatchDelta,
   };
 }
 
@@ -173,6 +179,24 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
       ['tank-1'],
     );
     expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes the reversal through the SSoT writer with a positive signed delta (batchDetails restored)', async () => {
+    const { handler, applyBatchDelta } = makeHarness();
+
+    await handler.execute(makeCommand());
+
+    // The reversal must re-add the harvested fish through applyBatchDelta so
+    // batchDetails[] is restored in lock-step — not by hand-incrementing
+    // totalQuantity (which left the per-batch SSoT stale).
+    expect(applyBatchDelta).toHaveBeenCalledTimes(1);
+    const call = applyBatchDelta.mock.calls[0];
+    expect(call[1]).toBe(TENANT_ID);
+    expect(call[2]).toBe('tank-1');
+    const delta = call[3];
+    expect(delta.batchId).toBe('batch-1');
+    expect(delta.quantityDelta).toBe(100);
+    expect(delta.biomassDelta).toBe(350);
   });
 
   it('rejects DISPATCHED harvests BEFORE any tx opens', async () => {

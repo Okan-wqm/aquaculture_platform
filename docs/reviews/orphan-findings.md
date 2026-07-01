@@ -5771,7 +5771,7 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-LOW-281 — banned-phrase discipline and refusal sections missing from judge/acceptance bodies — RESOLVED (PR #800, d2dd2a98c)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-281). Judges constrain banned phrases only in refusal text (agent_contract._check_banned_phrases also scans rationale/notes); the 4 acceptance-lane agents document no refusal/stop conditions. **Remediation:** slice B2.
 
-## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — OPEN
+## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-282). Lane flows reconstructable only from kernel source; prompt-writer roster paragraph stale, model render rule hardcoded (bypasses tier registry), lacks code-writing-standards + prompt-shape-economy clauses for agents/skills ARIA authors itself. **Remediation:** slice B3 (PIPELINES.md + mandate clauses 12/13 + authoring rules).
 
 ## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — OPEN
@@ -5792,8 +5792,8 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-MEDIUM-288 — ARIA tier assignments predate the operator capability policy — OPEN
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-288). Operator policy 2026-07-01: decision nodes fable, judge layer opus; current frontmatter 12 opus + 6 sonnet; dispatcher_factory defaults opus + 600s subprocess timeout (too tight for fable turn lengths). **Remediation:** slice K5 (tier flip, single-revert unit).
 
-## ORPHAN-LOW-289 — build-validator body cites a repo-external memory file — IN-PROGRESS
+## ORPHAN-LOW-289 — build-validator body cites a repo-external memory file — RESOLVED (PR #801, 0beecb4e3)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-289). build-validator.md:66 cites feedback_webpack_nestjs.md — an operator-session memory file absent from the repo; the webpack/NestJS-DI claim is correct but must anchor to in-repo evidence. **Remediation:** wave W-A.
 
-## ORPHAN-MEDIUM-290 — orchestrator roster describes database-reviewer as primary schema owner while the routing table dispatches it secondary-only — IN-PROGRESS
+## ORPHAN-MEDIUM-290 — orchestrator roster describes database-reviewer as primary schema owner while the routing table dispatches it secondary-only — RESOLVED (PR #801, 0beecb4e3)
 Found 2026-07-01 (wave W-A of the ARIA modernization roster verification; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#wave-w-a-verification-record). orchestrator.md roster row read "All schema sources — state health audit" (primary-ownership phrasing) while orchestrator-routing-table.md — the authoritative primary-ownership registry per agent-ownership-uniqueness.spec.ts — routes database-reviewer as SECONDARY on all four schema globs. An operator reading the roster would expect a primary dispatch that never fires. **Remediation:** align the roster row to secondary-only phrasing (same PR).

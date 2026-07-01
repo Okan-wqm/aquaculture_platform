@@ -57,3 +57,28 @@ are set from `TankCapacityService.calculate` — the single source of truth for 
 does. The private duplicate is DELETED (and the now-unused EntityManager import removed). The SECOND duplicate
 (batch.service.updateTankBatchWithManager, reachable only from the DEAD recordOperation shadow path) is deleted
 in a follow-up (PR-2d). Verification: build tsc 0, tsc-spec 0, transfer unit spec 3/3, invariants 1684, eslint clean.
+## FARM-HIGH-102 — cleaner-fish mortality never decremented the cleaner batch currentQuantity (PR-3)
+record-cleaner-mortality.handler bumped `cleanerBatch.totalMortality += quantity` but never dropped
+`cleanerBatch.currentQuantity` — so the live cleaner-fish count drifted permanently above the true stock
+(the regular record-mortality.handler decrements both). Added
+`cleanerBatch.currentQuantity = Math.max(0, currentQuantity - quantity)` (the tank-level
+cleanerFishQuantity + the cleaner-fish batchDetail were already decremented; only the batch aggregate was
+missed). New unit test asserts 900 → 890 alongside totalMortality 100 → 110. spec 10/10, tsc-spec 0.
+## FARM-HIGH-103 — mobile↔web stock drift: event-driven farm-stock read-model projector (mobile fix)
+The mobile `farmStockInventory` read model (farm_stock_container_snapshots/batch_snapshots) was refreshed by
+a `FarmStockProjectionService.refreshContainers` call HAND-ENUMERATED inside ~10 write handlers. Any handler
+that omitted the call left mobile stale: CreateBatchHandler.initialLocations (a freshly-stocked tank's fish —
+the "180 fish in Cage-1 don't show in the app" report), DailyFeedingExecutionService, and every cleaner-fish
+handler had no call, so their mutations never reached the app while web (which reads tank_batches live) showed
+them. Root cause = the fragile per-handler obligation, not any one missing call.
+FIX (Tier-2, automatic): new `FarmStockProjectionListener` (events/listeners) reuses the SHARED IEventHandler +
+subscribeWildcard pattern (identical to MortalityRecordedListener) and the SHARED refreshContainers SSoT, and
+subscribes to all 7 stock-mutation events (BatchCreated, BatchAllocatedToTank, BatchTransferred,
+MortalityRecorded, CullRecorded, CleanerFishMortalityRecorded, FeedingRecorded — every one already emitted via
+the transactional outbox). It extracts the affected tank id(s) (tankId / tankIds[] / source+dest) and refreshes
+inside runInTenantTransaction (pinned search_path + RLS, fail-closed) — so a NEW stock path is covered
+automatically and no handler can silently forget. Idempotent + rethrow-on-error → the read model converges via
+bounded redelivery. The tank-CONFIG handlers keep their sync refreshContainers (tank metadata changes emit no
+stock event); the batch-stock handlers' sync calls become defense-in-depth (immediate + event-driven, both
+idempotent). Verification: listener unit spec 10/10, tsc-spec 0, invariants 1684, eslint clean; module wired
+into app.module (boots + subscribes).

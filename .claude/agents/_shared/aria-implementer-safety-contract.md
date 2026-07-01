@@ -134,8 +134,8 @@ accepts. The agent-emitted subset includes:
   workspace_root (after `..` normalization + symlink resolution)
 - `file_lock_conflict` — another `IMPLEMENTATION_*` plan locks one
   of this plan's `affected_surfaces[]`
-- `cycle_budget_exhausted` — per-cycle $1.50 cap hit at next turn
-  boundary
+- `cycle_budget_exhausted` — per-cycle budget cap hit at next turn
+  boundary (SSoT: `budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE`)
 - `implementer_turn_budget_exhausted` — per-implementer-turn N=10
   cap hit (Edit + Write + Bash combined)
 - `content_hash_mismatch` — content_hash recheck on CONVERGED plan
@@ -212,6 +212,8 @@ Emit `aria/agent-response/v1` where:
     ]
   }
   ```
-- `details.usage` — Codex CLI usage block
-- `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint
-  with `satisfied: true|false` + `evidence_ref`
+- `details.usage` — Claude Code CLI usage block (stream-json `usage` totals)
+- `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint with
+  `verdict` ∈ `satisfied | blocked | contradicted`
+  (`agent_contract.SATISFACTION_VERDICTS`); `blocked`/`contradicted` entries
+  additionally REQUIRE a non-empty `note` + `evidence_refs`

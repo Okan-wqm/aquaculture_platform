@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Channel, Message } from '@/types/messaging';
+import { messagesFamilyKey } from '@/utils/messaging-query-keys';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ export function ForwardModal({
       // Invalidate message queries for the target channel. invalidateQueries
       // returns a Promise; we intentionally fire-and-forget the refetch here, so
       // mark it void to satisfy no-floating-promises without blocking onClose.
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages') });
+      void queryClient.invalidateQueries({ queryKey: messagesFamilyKey(tenantId) });
       void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       onClose();
     },

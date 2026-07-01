@@ -33,8 +33,8 @@ import { useOfflineQueue } from './useOfflineQueue';
 import { SEND_MESSAGE } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage, MessageContentType } from '@/types/messaging';
+import { messagesQueryKey } from '@/utils/messaging-query-keys';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 interface SendMessageParams {
   content: string | null;
@@ -72,10 +72,11 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
   const isOnline = useNetworkStatus();
   const { addToQueue } = useOfflineQueue();
 
-  // WHY 2026-04-29: useMessages reads this exact tenant-prefixed key. Optimistic
-  // writes, cancellation, rollback, and invalidation must target the same cache
-  // tree or sent messages can vanish until a full refetch.
-  const messageQueryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', channelId);
+  // MSG-CRITICAL-055: useMessages reads this EXACT key (incl. the user.id
+  // segment). Optimistic writes, cancellation, rollback, and setQueryData must
+  // target the same cache entry via the shared `messagesQueryKey` SSoT — a
+  // user.id-less key here is precisely why optimistic bubbles never rendered.
+  const messageQueryKey = messagesQueryKey(tenantId, user?.id, channelId);
 
   const mutation = useMutation({
     mutationFn: async (params: SendMessageParams & { _idempotencyKey: string }) => {
@@ -107,14 +108,13 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
       // here. Throwing narrows channelId to `string` so the optimistic message
       // needs no non-null assertion, and the impossible branch fails loudly.
       if (!channelId) throw new Error('useSendMessage: channelId is required');
-      // Cancel any outgoing refetches to avoid overwriting optimistic update.
-      // WHY the factory call is inlined here (and messageQueryKey is reused for
-      // the positional get/setQueryData calls): no-bare-tenant-query-key only
-      // statically verifies a `queryKey:` property, and it cannot prove a local
-      // variable was produced by createTenantQueryKey — so the property form
-      // must carry the factory call directly.
+      // Cancel any outgoing refetches to avoid overwriting the optimistic update.
+      // Uses the SAME `messagesQueryKey` SSoT as the reader and the setQueryData
+      // calls below, so the cancel targets the cache entry actually in flight
+      // (MSG-CRITICAL-055). `messagesQueryKey` wraps createTenantQueryKey, keeping
+      // the tenant-prefix discipline the no-bare-tenant-query-key rule protects.
       await queryClient.cancelQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
+        queryKey: messagesQueryKey(tenantId, user?.id, channelId),
       });
 
       // Snapshot previous data for rollback

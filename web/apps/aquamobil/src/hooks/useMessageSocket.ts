@@ -39,6 +39,7 @@ import type {
   MessagePage,
   ChannelMember,
 } from '@/types/messaging';
+import { messagesQueryKey } from '@/utils/messaging-query-keys';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /** Shape of the per-channel infinite-message-list react-query cache entry. */
@@ -67,11 +68,15 @@ const RECONNECT_SYNC_PAGE_LIMIT = 100;
 function upsertMessageIntoChannelCache(
   qc: QueryClient,
   tenantId: string,
+  userId: string | null | undefined,
   channelId: string,
   message: Message,
 ): void {
   qc.setQueryData(
-    createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
+    // MSG-CRITICAL-055: the SAME key the reader (useMessages) reads, incl. the
+    // user.id segment. `userId` is a required parameter of this helper, so the
+    // live + reconnect callers below cannot silently drop it (tier-1).
+    messagesQueryKey(tenantId, userId, channelId),
     (old: MessagesQueryData | undefined): MessagesQueryData | undefined => {
       if (!old?.pages?.length) return old;
       const firstPage = old.pages[0];
@@ -193,11 +198,17 @@ async function getIo(): Promise<typeof ioFactory> {
 }
 
 export function useMessageSocket(): UseMessageSocketResult {
-  const { accessToken, isAuthenticated, tenantId, refreshAuth } = useAuth();
+  const { accessToken, isAuthenticated, tenantId, user, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<SocketInstance | null>(null);
   const joinedChannelsRef = useRef<Set<string>>(new Set());
+  // MSG-CRITICAL-055: the message cache key is user-scoped (MT-CRITICAL-051), so
+  // every socket cache write must carry the current user.id. Held in a ref —
+  // mirroring queryClientRef/accessTokenRef — so the socket-lifecycle effect
+  // stays keyed on auth identity and never re-subscribes just to see a new id.
+  const userIdRef = useRef<string | null | undefined>(user?.id);
+  userIdRef.current = user?.id;
   // WHY: Ref tracks the latest accessToken for use inside the reAuth callback.
   // refreshAuth() updates React state, but the callback needs the new token
   // in the same tick without waiting for a re-render.
@@ -241,7 +252,7 @@ export function useMessageSocket(): UseMessageSocketResult {
           const page: AllMessagesSincePage = response.allMessagesSince;
           for (const message of page.messages) {
             touchedChannels.add(message.channelId);
-            upsertMessageIntoChannelCache(qc, tid, message.channelId, message);
+            upsertMessageIntoChannelCache(qc, tid, userIdRef.current, message.channelId, message);
           }
           if (!page.hasMore || !page.syncToken) break;
           cursor = page.syncToken;
@@ -346,7 +357,7 @@ export function useMessageSocket(): UseMessageSocketResult {
         // the M3 reconnect reconciliation path. Enrich the id-only WS sender
         // from the channelMembers cache first (no-PII oracle; MSG-MEDIUM-052).
         const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
-        upsertMessageIntoChannelCache(qc, tenantId, event.channelId, incoming);
+        upsertMessageIntoChannelCache(qc, tenantId, userIdRef.current, event.channelId, incoming);
         // Invalidate channel list to update lastMessage / unread counts
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
@@ -373,7 +384,7 @@ export function useMessageSocket(): UseMessageSocketResult {
         // would vanish on every edit (no-PII oracle; MSG-MEDIUM-052).
         const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
         qc.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
+          messagesQueryKey(tenantId, userIdRef.current, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -392,7 +403,7 @@ export function useMessageSocket(): UseMessageSocketResult {
       nextSocket.on('messageDeleted', (data: unknown) => {
         const event = data as MessageDeletedEvent;
         queryClientRef.current.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
+          messagesQueryKey(tenantId, userIdRef.current, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -417,7 +428,7 @@ export function useMessageSocket(): UseMessageSocketResult {
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') });
         // Update receipt in message cache
         qc.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
+          messagesQueryKey(tenantId, userIdRef.current, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {

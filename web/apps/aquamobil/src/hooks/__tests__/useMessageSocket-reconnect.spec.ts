@@ -48,6 +48,9 @@ vi.mock('../useAuth', () => ({
     accessToken: 'token-1',
     isAuthenticated: true,
     tenantId: 'tenant-1',
+    // MSG-CRITICAL-055: the message cache key is user-scoped, so the reconcile
+    // upsert must carry user.id. The assertion below pins the full key.
+    user: { id: 'user-1' },
     refreshAuth: vi.fn().mockResolvedValue(undefined),
   }),
 }));
@@ -145,9 +148,11 @@ describe('useMessageSocket — Wave-6 M3 reconnect reconciliation', () => {
     expect(variables).toMatchObject({ limit: 100, syncToken: null });
     expect(typeof (variables as { since: string }).since).toBe('string');
 
-    // Missed message upserted into its channel's cache.
+    // Missed message upserted into its channel's cache — under the user-scoped
+    // key the reader (useMessages) actually reads (MSG-CRITICAL-055): the user.id
+    // segment sits between 'messages' and the channelId.
     expect(mockSetQueryData).toHaveBeenCalledWith(
-      ['tenant', 'tenant-1', 'messaging', 'messages', 'chan-7'],
+      ['tenant', 'tenant-1', 'messaging', 'messages', 'user-1', 'chan-7'],
       expect.any(Function),
     );
 

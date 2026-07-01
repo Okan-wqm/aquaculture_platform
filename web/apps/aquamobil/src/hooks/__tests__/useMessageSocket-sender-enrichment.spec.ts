@@ -72,6 +72,9 @@ vi.mock('../useAuth', () => ({
     accessToken: 'token-1',
     isAuthenticated: true,
     tenantId: 'tenant-1',
+    // MSG-CRITICAL-055: the message cache key is user-scoped; MESSAGES_KEY below
+    // carries this user.id so the enrichment writes land on the reader's key.
+    user: { id: 'user-1' },
     refreshAuth: vi.fn().mockResolvedValue(undefined),
   }),
 }));
@@ -101,7 +104,9 @@ import { useMessageSocket } from '../useMessageSocket';
 
 const CHANNEL = 'chan-7';
 const MEMBERS_KEY = ['tenant', 'tenant-1', 'messaging', 'channelMembers', CHANNEL, 'tenant-1'];
-const MESSAGES_KEY = ['tenant', 'tenant-1', 'messaging', 'messages', CHANNEL];
+// MSG-CRITICAL-055: user.id ('user-1') is part of the messages key between
+// 'messages' and the channelId — the same key useMessages reads.
+const MESSAGES_KEY = ['tenant', 'tenant-1', 'messaging', 'messages', 'user-1', CHANNEL];
 
 interface TestMember {
   userId: string;

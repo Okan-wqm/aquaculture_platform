@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * Reconcile stale single-batch `tank_batches.batchDetails` to the live aggregates.
+ * Backfill stale single-batch `tank_batches.batchDetails` to the live aggregates.
  *
  * WHY: before the TankBatch SSoT writer (`TankBatchService.applyBatchDelta`) routed
  * every count mutation — allocate/mortality/cull/transfer (#776-779) + harvest
@@ -27,8 +27,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * runs. `tank_batches` is a per-tenant table, so the body no-ops in schemas that do
  * not own it (e.g. the source `farm` schema).
  */
-export class ReconcileTankBatchDetails1801700000000 implements MigrationInterface {
-  name = 'ReconcileTankBatchDetails1801700000000';
+export class BackfillStaleTankBatchDetails1801700000000 implements MigrationInterface {
+  name = 'BackfillStaleTankBatchDetails1801700000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
@@ -71,7 +71,7 @@ export class ReconcileTankBatchDetails1801700000000 implements MigrationInterfac
           AND (SELECT COALESCE(sum((d->>'quantity')::numeric), 0)
                FROM jsonb_array_elements(tb."batchDetails") d) <> tb."totalQuantity";
         IF multi_stale > 0 THEN
-          RAISE NOTICE 'ReconcileTankBatchDetails: % multi-batch stale row(s) in schema % left for coordinated review (ORPHAN-HIGH-272)', multi_stale, current_schema();
+          RAISE NOTICE 'BackfillStaleTankBatchDetails: % multi-batch stale row(s) in schema % left for coordinated review (ORPHAN-HIGH-272)', multi_stale, current_schema();
         END IF;
       END
       $$;

@@ -2,7 +2,7 @@ import type { QueryRunner } from 'typeorm';
 
 import { createMockDataSource } from '@aquaculture/testing';
 
-import { ReconcileTankBatchDetails1801700000000 } from '../1801700000000-ReconcileTankBatchDetails';
+import { BackfillStaleTankBatchDetails1801700000000 } from '../1801700000000-BackfillStaleTankBatchDetails';
 
 /**
  * Contract cover for the tank_batches.batchDetails reconciliation backfill
@@ -12,7 +12,7 @@ import { ReconcileTankBatchDetails1801700000000 } from '../1801700000000-Reconci
  * per-tenant table absent in the source `farm` schema, and (b) inventing a
  * multi-batch split it cannot know.
  */
-describe('ReconcileTankBatchDetails1801700000000', () => {
+describe('BackfillStaleTankBatchDetails1801700000000', () => {
   let mockQueryRunner: jest.Mocked<QueryRunner>;
 
   beforeEach(() => {
@@ -23,7 +23,7 @@ describe('ReconcileTankBatchDetails1801700000000', () => {
   afterEach(() => jest.restoreAllMocks());
 
   async function upSql(): Promise<string> {
-    await new ReconcileTankBatchDetails1801700000000().up(mockQueryRunner);
+    await new BackfillStaleTankBatchDetails1801700000000().up(mockQueryRunner);
     return String(mockQueryRunner.query.mock.calls[0]![0]);
   }
 
@@ -52,7 +52,7 @@ describe('ReconcileTankBatchDetails1801700000000', () => {
   });
 
   it('down() is a deliberate no-op — the reconciliation is not reversible', async () => {
-    await new ReconcileTankBatchDetails1801700000000().down(mockQueryRunner);
+    await new BackfillStaleTankBatchDetails1801700000000().down(mockQueryRunner);
     expect(mockQueryRunner.query).not.toHaveBeenCalled();
   });
 });

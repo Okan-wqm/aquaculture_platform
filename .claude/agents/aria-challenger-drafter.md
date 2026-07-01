@@ -80,7 +80,7 @@ Before emitting `counter_examples`, dry-run primary's rule against the evidence_
 
 ## Refusal Protocol
 
-When primary's draft is empty or malformed beyond fact-checking, write a `aria/agent-refusal/v1` row. Refusal text MUST NOT contain banned phrases (`for now`, `interim`, `pragmatic`, `temporary`, `deferred`, `out of scope`, `good enough`, `sufficient for now`, `simpler approach`, `middle ground`, `for momentum`, `just this commit`, `follow-up commit will handle it`). Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
+When primary's draft is empty or malformed beyond fact-checking, write a `aria/agent-refusal/v1` row. Refusal text MUST NOT contain any phrase from the kernel banned-phrase SSoT (`draft_intent.BANNED_PHRASES_DEFAULT`, mirroring CLAUDE.md §Architectural Approach — e.g. `for now`, `good enough`); cite the SSoT rather than restating the list, so prompt copies can never drift from the scanner. Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
 
 - **Consequence:** a refusal carrying any phrase from that banned list trips the same architectural-language gate the adapters enforce, so the refusal record is itself rejected and the cycle stalls with no actionable `reason_class` — the challenger fails the discipline it is meant to police.
 

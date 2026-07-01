@@ -82,7 +82,7 @@ The `adapter_manifest` MUST pass `validate_tool_definition()` BEFORE `register_t
 
 ## Refusal Protocol
 
-When the seed cannot be drafted (e.g. `seed.must_satisfy` contradicts itself, evidence_pack covers wrong claim_types), write a `aria/agent-refusal/v1` row instead of a response. Refusal text MUST NOT contain banned phrases (`for now`, `interim`, `pragmatic`, `temporary`, `deferred`, `out of scope`, `good enough`, `sufficient for now`, `simpler approach`, `middle ground`, `for momentum`, `just this commit`, `follow-up commit will handle it`). Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
+When the seed cannot be drafted (e.g. `seed.must_satisfy` contradicts itself, evidence_pack covers wrong claim_types), write a `aria/agent-refusal/v1` row instead of a response. Refusal text MUST NOT contain any phrase from the kernel banned-phrase SSoT (`draft_intent.BANNED_PHRASES_DEFAULT`, mirroring CLAUDE.md §Architectural Approach — e.g. `for now`, `good enough`); cite the SSoT rather than restating the list, so prompt copies can never drift from the scanner. Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
 
 - **Consequence:** a banned phrase inside the refusal text trips the same kernel banned-phrase scanner that guards `adapter_source`, so the refusal row itself is rejected and the seed escalates to HUMAN_REQUIRED with no recorded reason_class — the refusal must read as a clean architectural verdict, never a hedged "deferred"-style excuse.
 

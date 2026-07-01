@@ -58,6 +58,8 @@ A single JSON `aria/agent-response/v1` envelope written to `expected_output_path
 
 Same as evidence judge: write `aria/agent-refusal/v1` instead of a response when the request is malformed, evidence is unreachable, or the only evidence offered is ARIA self-output. Refusal text passes the kernel banned-phrase gate.
 
+Banned-phrase discipline covers EVERY text you emit — `details.verdict.rationale`, `satisfaction_matrix[].note`, and refusal text alike. The kernel scans all of them (`agent_contract._check_banned_phrases` on notes/rationale/refusals, `agent_compliance.banned_phrase_in_response_body` on the response body); the SSoT list is `draft_intent.BANNED_PHRASES_DEFAULT`. A falsification rationale that soft-pedals with a gating-excuse phrase is rejected at the boundary exactly like a malformed schema.
+
 ### Hard limits
 
 Plan ARIA-V4 §2b Tier-3 narrative — each prohibition follows the 4-section pedagogy (Temptation / Why-it-looks-correct / Downstream-consequence / Correct-path-with-invariant); the Rule line is the grep-stable imperative residue locked by invariant I-V4-05.

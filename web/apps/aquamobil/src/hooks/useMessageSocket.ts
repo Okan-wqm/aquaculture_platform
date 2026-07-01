@@ -460,6 +460,39 @@ export function useMessageSocket(): UseMessageSocketResult {
         );
       });
 
+      // MSG-HIGH-068: the current user was removed from (or left) this channel.
+      // The gateway sends this to our user room AND has already removed our socket
+      // from the channel room. Evict the channel's client caches so the open
+      // ChatRoom stops rendering a channel we no longer belong to and the channel
+      // drops out of the list — access revocation must reach the read model.
+      nextSocket.on('channelMemberRemoved', (data: unknown) => {
+        const event = data as { channelId?: string };
+        const channelId = event.channelId;
+        if (!channelId) return;
+        const qc = queryClientRef.current;
+        joinedChannelsRef.current.delete(channelId);
+        qc.removeQueries({ queryKey: messagesQueryKey(tenantId, userIdRef.current, channelId) });
+        qc.removeQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', channelId) });
+        qc.removeQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId) });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+      });
+
+      // MSG-MEDIUM-062: channel lifecycle (create / rename / member add-remove /
+      // archive) rides the gateway's `channelEvent` SSoT name. The client used to
+      // listen for a `channelUpdated` name the gateway never emits, so the list
+      // never refreshed live on structural changes. Converge the list + this
+      // channel's members/detail on server truth.
+      nextSocket.on('channelEvent', (data: unknown) => {
+        const event = data as { channelId?: string };
+        const qc = queryClientRef.current;
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        if (event.channelId) {
+          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', event.channelId) });
+          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', event.channelId) });
+        }
+      });
+
       // --- reAuth: server requests fresh token ---
       // WHY: When the server detects an expired JWT, it emits 'reAuth'.
       // refreshAuth() obtains a new token via httpOnly cookie and updates

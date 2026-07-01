@@ -234,23 +234,43 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
 
       const idempotencyKey = generateIdempotencyKey();
 
+      // The durable queue payload for this logical send. Identical for the
+      // offline-first path and the online-failure fallback (MSG-HIGH-061), so a
+      // transient online failure replays the SAME send — same idempotencyKey,
+      // same attachmentKeys (durable storageKey, no re-upload). idempotencyKey is
+      // ALSO threaded as the clientCommandId (3rd arg, FARM-HIGH-057) so an
+      // online-fail-then-queue retry is one at-most-once command the server dedups.
+      const queuePayload = {
+        channelId,
+        content: params.content,
+        contentType: params.contentType ?? 'TEXT',
+        idempotencyKey,
+        parentId: params.parentId ?? undefined,
+        attachmentKeys: params.attachmentKeys ?? [],
+        metadata: params.metadata ?? undefined,
+      };
+
       if (!isOnline) {
         // Route through the main offline queue — syncAllOperations() will
         // drain this when connectivity returns, using the 'sendMessage'
         // GraphQL mutation defined in useOfflineQueue MUTATIONS map.
-        await addToQueue('sendMessage', {
-          channelId,
-          content: params.content,
-          contentType: params.contentType ?? 'TEXT',
-          idempotencyKey,
-          parentId: params.parentId ?? undefined,
-          attachmentKeys: params.attachmentKeys ?? [],
-          metadata: params.metadata ?? undefined,
-        });
+        await addToQueue('sendMessage', queuePayload, idempotencyKey);
         return;
       }
 
-      await mutation.mutateAsync({ ...params, _idempotencyKey: idempotencyKey });
+      try {
+        await mutation.mutateAsync({ ...params, _idempotencyKey: idempotencyKey });
+      } catch {
+        // MSG-HIGH-061: an online send that fails transiently (5xx / dropped
+        // socket / gateway 429) must NOT be silently dropped, nor left as a
+        // perpetual "pending" bubble with no retry. Durably queue the identical
+        // send so it replays on reconnect; the server ledger dedups against the
+        // threaded idempotencyKey. Parity with useEditMessage / useMarkRead,
+        // which already fall through to the queue on an online error. onMutate
+        // already inserted the optimistic bubble and onError marked it failed;
+        // the queued replay reconciles it to the server message on next sync.
+        await addToQueue('sendMessage', queuePayload, idempotencyKey);
+      }
     },
     [channelId, isAuthenticated, isOnline, mutation, addToQueue],
   );

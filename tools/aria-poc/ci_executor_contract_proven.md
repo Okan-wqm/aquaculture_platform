@@ -19,7 +19,7 @@ ci_executor:
     - stream-json
     - --verbose
     - --model
-    - opus
+    - fable
     - --effort
     - xhigh
     - --dangerously-skip-permissions
@@ -40,7 +40,7 @@ worker_executor:
     - stream-json
     - --verbose
     - --model
-    - opus
+    - fable
     - --effort
     - xhigh
     - --dangerously-skip-permissions
@@ -55,7 +55,7 @@ worker_executor:
 The per-agent `--model` and `--effort` values are resolved from the dispatched
 agent's frontmatter `model:`/`effort:` tiers by
 `aria_kernel.agent_runtime_profile.read_agent_runtime_profile` (fail-safe: the
-most expensive tier). The `opus`/`xhigh` values above are the fail-safe
+most expensive tier). The `fable`/`xhigh` values above are the fail-safe
 defaults; scout-tier agents may resolve to cheaper aliases/levels, and the CLI
 accepts `--effort low|medium|high|xhigh|max` since 2.1.x.
 

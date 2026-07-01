@@ -1,7 +1,7 @@
 ---
 name: aria-change-intelligence
 description: Read-only ARIA change intelligence agent that analyzes PR/diff/merge events and plans impacted belief, finding, fixture, and adapter revalidation.
-model: sonnet
+model: opus
 effort: medium
 tools: Read, Grep, Glob
 pedagogy-tier: 3

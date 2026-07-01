@@ -1,7 +1,7 @@
 ---
 name: aria-consensus-arbiter
 description: Read-only arbiter that combines independent ARIA judge verdicts and emits consensus only when agreement and confidence meet the gate.
-model: opus
+model: fable
 effort: xhigh
 tools: Read
 pedagogy-tier: 1

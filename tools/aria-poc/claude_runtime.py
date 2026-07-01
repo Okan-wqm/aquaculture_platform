@@ -16,7 +16,7 @@ dependency-light shape of the previous Codex contract so both
   runner) ``--dangerously-skip-permissions`` so the agent can edit its
   assigned worktree autonomously, the way ``codex exec`` did.
 * The per-agent model comes from the agent frontmatter (resolved by
-  ``aria_kernel.agent_runtime_profile``); ARIA's default is Opus.
+  ``aria_kernel.agent_runtime_profile``); ARIA's fail-safe default is Fable.
 * Raw stream-json stays in memory; callers persist only sanitized envelopes.
 """
 from __future__ import annotations
@@ -33,10 +33,11 @@ from typing import Any
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
 CLAUDE_MOCK_ENV_VAR = "CLAUDE_CLI_MOCK"
 # ARIA's default model tier. The Claude Code CLI accepts a model alias
-# ("opus") or a full id; the alias resolves to the latest Opus on the
-# runner, keeping ARIA on the most capable tier by default. Per-agent
-# overrides flow in via build_claude_exec_argv(model=...).
-CLAUDE_DEFAULT_MODEL = "opus"
+# ("fable") or a full id; the alias resolves to Claude Fable 5 on the
+# runner, keeping ARIA's fail-safe on the most capable tier (K5 tier
+# flip, operator policy 2026-07-01). Per-agent overrides flow in via
+# build_claude_exec_argv(model=...).
+CLAUDE_DEFAULT_MODEL = "fable"
 # The Claude Code CLI selects capability by model alias AND, since CLI 2.1.x,
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile

@@ -6,10 +6,9 @@ import React from 'react';
 
 interface ResultsPanelProps {
   outputs: CalculatedOutputs | null;
-  h2sMeasuredAtPH?: number;
 }
 
-const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs, h2sMeasuredAtPH }) => {
+const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
   if (!outputs) {
     return (
       <div className="bg-white rounded-lg shadow p-4">
@@ -90,11 +89,6 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs, h2sMeasuredAtPH })
                 label="Total Sulfide (calc)"
                 value={outputs.totalSulfide > 10000 ? '> 10000' : outputs.totalSulfide.toFixed(1)}
                 unit="µg/L"
-              />
-              <ResultRow
-                label="H₂S measured at pH"
-                value={h2sMeasuredAtPH == null ? 'N/A' : h2sMeasuredAtPH.toFixed(2)}
-                unit="NBS"
               />
               <ResultRow
                 label="Safe Total Sulfide (max)"

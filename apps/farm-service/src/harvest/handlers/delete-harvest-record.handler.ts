@@ -108,11 +108,16 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
           { volumeM3: Number(tank?.waterVolume || tank?.volume) || 0 },
         );
 
-        // Reverse tank changes
+        // Reverse tank biomass. currentCount is derived + written by
+        // TankBatchService.applyBatchDelta (the SINGLE count writer) above — the
+        // harvest-reversal delta already went through it. biomass-ONLY UPDATE.
         if (tank) {
-          tank.currentBiomass = Number(tank.currentBiomass || 0) + Number(harvestRecord.totalBiomass);
-          tank.currentCount = (tank.currentCount || 0) + harvestRecord.quantityHarvested;
-          await queryRunner.manager.save(Tank, tank);
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update(Tank)
+            .set({ currentBiomass: Number(tank.currentBiomass || 0) + Number(harvestRecord.totalBiomass) })
+            .where('id = :id', { id: tank.id })
+            .execute();
         }
 
         await this.farmStockProjection.refreshContainers(

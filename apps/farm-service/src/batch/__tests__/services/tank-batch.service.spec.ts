@@ -20,7 +20,13 @@ describe('TankBatchService.applyBatchDelta (tank composition SSoT)', () => {
 
   function manager(existing: Partial<TankBatch> | null) {
     const { mockManager } = createMockDataSource();
-    (mockManager.findOne as jest.Mock).mockResolvedValue(existing);
+    // TankBatch lookup returns the existing row; the tank/equipment lookup (the
+    // single-writer currentCount derive-write) resolves to null here so these
+    // batchDetails-derivation tests stay focused — the currentCount write is
+    // covered by its own test below.
+    (mockManager.findOne as jest.Mock).mockImplementation((entity: unknown) =>
+      Promise.resolve(entity === TankBatch ? existing : null),
+    );
     (mockManager.create as jest.Mock).mockImplementation((_c: unknown, d: unknown) => d);
     (mockManager.save as jest.Mock).mockImplementation((_c: unknown, d: unknown) => Promise.resolve(d));
     return mockManager;

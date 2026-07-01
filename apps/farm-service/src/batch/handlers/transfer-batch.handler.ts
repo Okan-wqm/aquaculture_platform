@@ -387,47 +387,53 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       savedDestTankBatch.capacityUsedPercent = destCapacity.utilizationPercent;
       await queryRunner.manager.save(savedDestTankBatch);
 
-      // 6. Tank/Equipment biomass güncellemeleri (Math.max to prevent negatives)
+      // 6. Tank/Equipment biomass güncellemeleri (Math.max to prevent negatives).
+      // currentCount for BOTH legs is derived + written by
+      // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
+      // independent count write here (that drifted from tank_batches, the SSoT).
+      // currentBiomass stays on its growth-tracking path; biomass-ONLY UPDATEs
+      // (never a full-entity save, which would clobber the derived currentCount).
+      // A transfer INTO a PREPARING/FALLOW tank still ACTIVATES it (status-only,
+      // folded into the same biomass UPDATE).
       const newSourceBiomass = Math.max(0, Number(sourceTank.currentBiomass || 0) - biomassKg);
-      const newSourceCount = Math.max(0, (sourceTank.currentCount || 0) - payload.quantity);
       if (sourceLookup.isFromTanksTable && sourceLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({ currentBiomass: newSourceBiomass, currentCount: newSourceCount })
+          .set({ currentBiomass: newSourceBiomass })
           .where('id = :id', { id: sourceLookup.originalTank.id })
           .execute();
       } else {
-        sourceTank.currentBiomass = newSourceBiomass;
-        sourceTank.currentCount = newSourceCount;
-        await queryRunner.manager.save(Equipment, sourceTank);
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newSourceBiomass })
+          .where('id = :id', { id: sourceTank.id })
+          .execute();
       }
 
       const newDestBiomass = Number(destinationTank.currentBiomass || 0) + biomassKg;
-      const newDestCount = (destinationTank.currentCount || 0) + payload.quantity;
       if (destLookup.isFromTanksTable && destLookup.originalTank) {
         const destOriginalTank = destLookup.originalTank;
-        // Activate tank if it was preparing/fallow
         const shouldActivate =
           destOriginalTank.status === TankStatus.PREPARING ||
           destOriginalTank.status === TankStatus.FALLOW;
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({
-            currentBiomass: newDestBiomass,
-            currentCount: newDestCount,
-            ...(shouldActivate ? { status: TankStatus.ACTIVE } : {}),
-          })
+          .set({ currentBiomass: newDestBiomass, ...(shouldActivate ? { status: TankStatus.ACTIVE } : {}) })
           .where('id = :id', { id: destOriginalTank.id })
           .execute();
       } else {
-        destinationTank.currentBiomass = newDestBiomass;
-        destinationTank.currentCount = newDestCount;
-        if (destinationTank.status === EquipmentStatus.PREPARING || destinationTank.status === EquipmentStatus.FALLOW) {
-          destinationTank.status = EquipmentStatus.ACTIVE;
-        }
-        await queryRunner.manager.save(Equipment, destinationTank);
+        const shouldActivate =
+          destinationTank.status === EquipmentStatus.PREPARING ||
+          destinationTank.status === EquipmentStatus.FALLOW;
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newDestBiomass, ...(shouldActivate ? { status: EquipmentStatus.ACTIVE } : {}) })
+          .where('id = :id', { id: destinationTank.id })
+          .execute();
       }
 
       // Post-operation states güncelle

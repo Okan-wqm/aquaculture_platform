@@ -82,3 +82,15 @@ bounded redelivery. The tank-CONFIG handlers keep their sync refreshContainers (
 stock event); the batch-stock handlers' sync calls become defense-in-depth (immediate + event-driven, both
 idempotent). Verification: listener unit spec 10/10, tsc-spec 0, invariants 1684, eslint clean; module wired
 into app.module (boots + subscribes).
+
+## FARM-HIGH-104 — tank fish-COUNT single-writer (mobil↔web 900-vs-719 root cause)
+Same physical tank stock had TWO independently-maintained count fields: tank_batches.totalQuantity (SSoT,
+mobile batchMetrics.pieces) vs equipment/tank.currentCount (web equipmentList.currentCount). Each handler did a
+compute-then-write on currentCount independently of tank_batches → drift (prod 900 vs 719). Made
+TankBatchService.applyBatchDelta the SINGLE currentCount writer: it derives tank/equipment.currentCount =
+totalQuantity (count-only QueryBuilder, same tx) via findTankOrEquipmentWithManager. Removed the independent
+currentCount compute-then-write from record-mortality/record-cull/transfer-batch/create-harvest/delete-harvest;
+their currentBiomass write is preserved as a biomass-ONLY UPDATE (never a full-entity save, which would clobber
+the derived count). currentBiomass unification deferred to FARM-HIGH-105 (needs feeding→batchDetails growth
+model; deriving it now would drop weight-gain → capacity under-report). Existing drift is corrected by the
+ledger-reconcile (FARM-HIGH-106). tsc 0, 6 specs 55/55, invariants 1684.

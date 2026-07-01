@@ -41,6 +41,7 @@ interface MockManager {
   create: jest.Mock;
   save: jest.Mock;
   query: jest.Mock;
+  createQueryBuilder: jest.Mock;
 }
 
 function createMockManager(): MockManager {
@@ -51,6 +52,13 @@ function createMockManager(): MockManager {
     // MobileCommandReceiptService.begin: with an envelope the INSERT returns a
     // receipt id (started mode). complete() UPDATE returns nothing.
     query: jest.fn().mockResolvedValue([{ id: 'receipt-1' }]),
+    // biomass-only column write: `.createQueryBuilder().update().set().where().execute()`.
+    createQueryBuilder: jest.fn(() => {
+      const qb: Record<string, jest.Mock> = {};
+      for (const m of ['update', 'set', 'where']) qb[m] = jest.fn(() => qb);
+      qb.execute = jest.fn().mockResolvedValue({ affected: 1 });
+      return qb;
+    }),
   };
 }
 

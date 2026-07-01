@@ -23,7 +23,10 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import { TankBatch, BatchDetail } from '../entities/tank-batch.entity';
+import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 
 export interface TankBatchDelta {
   batchId: string;
@@ -163,6 +166,37 @@ export class TankBatchService {
       tankBatch.lastMortalityAt = delta.lastMortalityAt;
     }
 
-    return manager.save(TankBatch, tankBatch);
+    const saved = await manager.save(TankBatch, tankBatch);
+
+    // SINGLE WRITER for the denormalized Tank/Equipment.currentCount column.
+    // The web tenant panel reads equipmentList.currentCount while mobile reads
+    // batchMetrics.pieces (← tank_batches). Historically each handler maintained
+    // currentCount independently (compute-then-write), which drifted from
+    // tank_batches (the SSoT) — the 900-vs-719 divergence. Derive currentCount
+    // here from the just-computed totalQuantity so there is ONE count writer and
+    // web + mobile can never diverge. COUNT-ONLY on purpose: currentBiomass is
+    // left to its growth-tracking path (feeding weight-gain) — deriving it from
+    // batchDetails-only totals would drop growth and under-report capacity
+    // (unified separately once feeding growth flows into batchDetails).
+    const lookup = await findTankOrEquipmentWithManager(manager, tankId, tenantId);
+    if (lookup) {
+      if (lookup.isFromTanksTable && lookup.originalTank) {
+        await manager
+          .createQueryBuilder()
+          .update(Tank)
+          .set({ currentCount: tankBatch.totalQuantity })
+          .where('id = :id', { id: lookup.originalTank.id })
+          .execute();
+      } else {
+        await manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentCount: tankBatch.totalQuantity })
+          .where('id = :id', { id: lookup.equipment.id })
+          .execute();
+      }
+    }
+
+    return saved;
   }
 }

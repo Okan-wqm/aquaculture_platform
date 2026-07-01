@@ -5777,10 +5777,10 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-HIGH-283 — kernel model set frozen pre-Fable; frontmatter effort never delivered to the CLI — RESOLVED (PR #803, 39f92174a)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-283). VALID_MODELS={opus,sonnet,haiku} → `model: fable` parses default_invalid; resolved effort: computed then dropped (CLI 2.1.197 ships --effort); REQUIRED_CLAUDE_VERSION=2.1.0 predates the fable alias. **Remediation:** slice K1.
 
-## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — IN-PROGRESS
+## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — RESOLVED (PR #804, 7255595c3)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-284). parse_claude_jsonl never inspects stop_reason; a Fable safety-classifier refusal surfaces as a generic failure — no audited fallback, no HUMAN_REQUIRED, no ledger row distinguishing it from an outage. **Remediation:** slice K2 (detect + one audited opus retry + HUMAN_REQUIRED on double refusal).
 
-## ORPHAN-HIGH-285 — kernel dispatches two agents that have no agent files; WRITE_TIER sets diverge — OPEN
+## ORPHAN-HIGH-285 — kernel dispatches two agents that have no agent files; WRITE_TIER sets diverge — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-285). aria-autonomy-planner + aria-worker are whitelisted envelope targets with no .md files (silent default_missing_file fallback, zero invariant coverage); jest ARIA_WRITE_TIER contains aria-acceptance-gap-fixer while python WRITE_TIER_AGENTS does not. **Remediation:** slice K3.
 
 ## ORPHAN-MEDIUM-286 — ARIA budget caps and estimates are opus-calibrated, not model-aware — OPEN

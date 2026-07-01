@@ -56,6 +56,7 @@ import { BatchDomainService } from './services/batch-domain.service';
 import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
@@ -112,6 +113,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
   ],
   providers: [
     BatchService,
+    TankCountReconcileService,
     BatchDomainService,
     BatchLifecyclePolicyService,
     MortalityCullPolicyService,

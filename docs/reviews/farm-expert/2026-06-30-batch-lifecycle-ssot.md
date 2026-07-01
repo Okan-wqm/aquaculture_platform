@@ -102,19 +102,17 @@ change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount th
 A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
 cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).
 
-## FARM-MEDIUM-110 — central-only invariant: no production caller of the BatchService write-shadow
-tests/invariants/farm-stock-mutation-central-only.spec.ts fails the build if any production farm file calls the
-legacy BatchService.allocateBatchToTank/transferBatch/recordOperation (the dead second write path that bypasses
-the command handlers + the single writer). Enforces "mortality/cull/transfer always flow through ONE central
-system regardless of surface". 0 production callers today; layer-3 green (1023).
+## FARM-HIGH-106 — ledger-reconcile for existing tank-count drift (fixes the current 900-vs-719)
+Phase-1 (FARM-HIGH-104) stops FUTURE drift; existing rows are still off. TankCountReconcileService recomputes
+each tank-batch's TRUE count from the operation ledger — trueQty = Σ tank_allocations(initial_stocking+split+
+transfer_in − transfer_out) − Σ tank_operations(mortality+cull+harvest, not-deleted) — the auditable source,
+not either drifted denormalization (verified no double-count: transfers live in allocations, mortality/cull/
+harvest only in operations). Exposed as the TENANT_ADMIN mutation reconcileTankCounts(dryRun=true default,
+tankIds?): DRY-RUN reports the per-tank-batch diff (current vs ledger vs delta) WITHOUT writing so the operator
+reviews first; apply routes every non-zero delta through applyBatchDelta (the single writer) so batchDetails +
+totalQuantity + currentCount all land on the ledger truth. Service spec 4/4 (dry-run no-write, apply-via-single-
+writer, delta-0 no-op, tankIds filter); tsc 0, tsc-spec 0, invariants 1686.
 
-## FARM-HIGH-109 — DELETE the BatchService write-shadow + migrate its e2e spec (tracked, owner+deadline)
-The dead methods (allocateBatchToTank 258, transferBatch 324, updateTankBatch 508, updateTankBatchWithManager
-582, recordOperation 663, updateBatchAfterOperation 761, assertStockRemovalAllowed 804 — ~586 lines) must be
-physically deleted (Tier-1 make-it-impossible). Blocker: the sole remaining caller is a real-Postgres tenant-
-isolation e2e spec (batch-allocation-tenant-isolation.postgres.spec.ts) that exercises them as an isolation
-proxy; it must first be re-pointed at AllocateToTankHandler + TransferBatchHandler (10-12 deps each; the sibling
-mortality-cull-harvest spec is the wiring template) so allocation/transfer isolation coverage is preserved, not
-lost. Deferred THIS session (not the next commit) to avoid breaking the isolation e2e under time pressure — the
-central-only invariant (FARM-MEDIUM-110) delivers the functional guarantee in the interim. Owner: farm-expert.
-Deadline: 2026-07-15.
+
+## FARM-MEDIUM-110 — central-only invariant (no BatchService bypass caller). See FARM-HIGH-109 for physical deletion.
+## FARM-HIGH-109 — DELETE the ~586-line BatchService write-shadow + migrate its tenant-isolation e2e spec. Owner farm-expert, deadline 2026-07-15.

@@ -101,3 +101,14 @@ the stock-mutation handlers (mortality/cull/transfer/create-harvest/delete-harve
 change through applyBatchDelta and MUST NOT write Tank/Equipment.currentCount themselves (comments stripped).
 A future handler reintroducing a compute-then-write currentCount fails the build — the 900-vs-719 drift class
 cannot regress. Passes on main post-#790; all layer-3 green (1022 tests).
+
+## FARM-HIGH-106 — ledger-reconcile for existing tank-count drift (fixes the current 900-vs-719)
+Phase-1 (FARM-HIGH-104) stops FUTURE drift; existing rows are still off. TankCountReconcileService recomputes
+each tank-batch's TRUE count from the operation ledger — trueQty = Σ tank_allocations(initial_stocking+split+
+transfer_in − transfer_out) − Σ tank_operations(mortality+cull+harvest, not-deleted) — the auditable source,
+not either drifted denormalization (verified no double-count: transfers live in allocations, mortality/cull/
+harvest only in operations). Exposed as the TENANT_ADMIN mutation reconcileTankCounts(dryRun=true default,
+tankIds?): DRY-RUN reports the per-tank-batch diff (current vs ledger vs delta) WITHOUT writing so the operator
+reviews first; apply routes every non-zero delta through applyBatchDelta (the single writer) so batchDetails +
+totalQuantity + currentCount all land on the ledger truth. Service spec 4/4 (dry-run no-write, apply-via-single-
+writer, delta-0 no-op, tankIds filter); tsc 0, tsc-spec 0, invariants 1686.

@@ -5765,10 +5765,10 @@ Found 2026-07-01 root-causing why two prod deploys (8ddf96465, 812da3885) rolled
 ## ORPHAN-MEDIUM-279 — ARIA writer agents carry no repo coding standards; contract prose drifted from kernel truth — RESOLVED (PR #799, 292e28c77)
 Found 2026-07-01 (operator-commissioned ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-279). implementer/gap-fixer/drafter reference no per-diff repo standards; safety-contract prose contradicts agent_contract.SATISFACTION_VERDICTS (boolean vs enum), counts 15 vs the 16-entry HARD_FAIL_CHECKS registry, mentions Codex CLI (runtime is Claude Code per ADR-040), hardcodes the per-cycle cap dollar value. **Remediation:** slice B1 — shared `_shared/aria-code-writing-standards.md` + writer wiring + prose corrections.
 
-## ORPHAN-MEDIUM-280 — challenger-planner claims cross_review/implementation_review roles the kernel never routes to it — OPEN
+## ORPHAN-MEDIUM-280 — challenger-planner claims cross_review/implementation_review roles the kernel never routes to it — RESOLVED (PR #800, d2dd2a98c)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-280). cross_review single mint point is aria-cross-reviewer (cross_review_bridge.py:48); the challenger-planner body still documents both pre-V8 run modes — dead prompt weight + dual-ownership audit hazard; body at 2750/2800 of the Tier-2 token budget. **Remediation:** slice B2.
 
-## ORPHAN-LOW-281 — banned-phrase discipline and refusal sections missing from judge/acceptance bodies — OPEN
+## ORPHAN-LOW-281 — banned-phrase discipline and refusal sections missing from judge/acceptance bodies — RESOLVED (PR #800, d2dd2a98c)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-281). Judges constrain banned phrases only in refusal text (agent_contract._check_banned_phrases also scans rationale/notes); the 4 acceptance-lane agents document no refusal/stop conditions. **Remediation:** slice B2.
 
 ## ORPHAN-MEDIUM-282 — no end-to-end ARIA pipeline SSoT; prompt-writer mandate stale — OPEN
@@ -5792,5 +5792,8 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-MEDIUM-288 — ARIA tier assignments predate the operator capability policy — OPEN
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-288). Operator policy 2026-07-01: decision nodes fable, judge layer opus; current frontmatter 12 opus + 6 sonnet; dispatcher_factory defaults opus + 600s subprocess timeout (too tight for fable turn lengths). **Remediation:** slice K5 (tier flip, single-revert unit).
 
-## ORPHAN-LOW-289 — build-validator body cites a repo-external memory file — OPEN
+## ORPHAN-LOW-289 — build-validator body cites a repo-external memory file — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-LOW-289). build-validator.md:66 cites feedback_webpack_nestjs.md — an operator-session memory file absent from the repo; the webpack/NestJS-DI claim is correct but must anchor to in-repo evidence. **Remediation:** wave W-A.
+
+## ORPHAN-MEDIUM-290 — orchestrator roster describes database-reviewer as primary schema owner while the routing table dispatches it secondary-only — IN-PROGRESS
+Found 2026-07-01 (wave W-A of the ARIA modernization roster verification; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#wave-w-a-verification-record). orchestrator.md roster row read "All schema sources — state health audit" (primary-ownership phrasing) while orchestrator-routing-table.md — the authoritative primary-ownership registry per agent-ownership-uniqueness.spec.ts — routes database-reviewer as SECONDARY on all four schema globs. An operator reading the roster would expect a primary dispatch that never fires. **Remediation:** align the roster row to secondary-only phrasing (same PR).

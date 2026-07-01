@@ -180,3 +180,34 @@ cause) but must anchor to in-repo evidence. **Remediation: wave W-A.**
 
 Non-ARIA wave verification (W-A/W-B) registers additional findings as real
 defects surface; each wave PR closes its own entries.
+
+---
+
+## Wave W-A verification record
+
+Deep verification of the 8 highest-traffic non-ARIA agents (orchestrator,
+farm-expert, sensor-expert, auth-security-expert, test-runner,
+architectural-arbiter, context-manager, build-validator) against repo reality
+and Fable 5 prompt-shape guidance. Method: every load-bearing path/module/doc
+citation existence-checked; 5-8 codebase claims per agent spot-checked against
+source; trigger-language and conservative-reporting patterns scanned.
+
+**Result: 6/8 fully clean** (farm-expert, sensor-expert, auth-security-expert,
+test-runner, architectural-arbiter, context-manager) — all research-doc and
+ADR citations resolve, domain invariants match code, no over-aggressive
+trigger language, no recall-depressing reporting instructions.
+
+**Defects (both fixed in the W-A slice):**
+- `ORPHAN-LOW-289` — build-validator.md cited the repo-external
+  `feedback_webpack_nestjs.md`; the webpack/NestJS-DI claim itself is correct
+  and now anchors to
+  `docs/superpowers/specs/2026-04-06-webpack-to-tsc-migration-design.md`.
+- `ORPHAN-MEDIUM-290` — orchestrator roster row for database-reviewer used
+  primary-ownership phrasing ("All schema sources") while
+  `orchestrator-routing-table.md` (authoritative registry,
+  `agent-ownership-uniqueness.spec.ts`) dispatches it secondary-only on all
+  four schema globs; roster row aligned to secondary-only.
+
+Non-defect note: orchestrator.md's "Phase 9/10" promotion reference resolves
+to the concrete promotions it lists (compliance-expert, ai-safety-auditor,
+contract-parity-enforcer) and stays.

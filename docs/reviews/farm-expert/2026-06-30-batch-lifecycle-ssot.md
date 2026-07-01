@@ -116,3 +116,16 @@ writer, delta-0 no-op, tankIds filter); tsc 0, tsc-spec 0, invariants 1686.
 
 ## FARM-MEDIUM-110 — central-only invariant (no BatchService bypass caller). See FARM-HIGH-109 for physical deletion.
 ## FARM-HIGH-109 — DELETE the ~586-line BatchService write-shadow + migrate its tenant-isolation e2e spec. Owner farm-expert, deadline 2026-07-15.
+
+## FARM-HIGH-111 — biomass single-SSoT via feeding→applyBatchDelta growth routing (tracked, owner+deadline)
+Phase 1 unified COUNT; BIOMASS is intentionally NOT yet single-SSoT. daily-feeding-execution
+updateTankBiomassWithManager writes tankBatch.totalBiomassKg/currentBiomassKg + tank.currentBiomass DIRECTLY from
+the FCR weight-gain (absolute newBiomassKg), while applyBatchDelta re-derives totalBiomassKg from batchDetails
+(no growth). Deriving currentBiomass from batchDetails now would DROP growth → capacity under-report → over-stock
+risk. DESIGN (actionable): route feeding's weight-gain through applyBatchDelta(quantityDelta=0, biomassDelta=
+newBiomassKg − currentTotalBiomassKg) so the growth lands in batchDetails; applyBatchDelta re-derives
+totalBiomassKg (with growth) + avgWeightG (= biomass×1000/qty, matches feeding's newAvgWeightG) and then derives
+currentBiomass = totalBiomassKg (like currentCount); remove the handlers' Phase-1 biomass-only writes. NOT done
+this session: it touches the daily feeding hot-path + capacity-safety guards; the test surface (feeding +
+capacity + applyBatchDelta specs) is large and a wrong avgWeight/mixed-batch derivation would regress capacity.
+Biomass is not user-facing broken (growth-tracked, capacity-safe today). Owner: farm-expert. Deadline: 2026-07-22.

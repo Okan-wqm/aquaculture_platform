@@ -46,6 +46,12 @@ export default defineConfig(({ mode }) => {
         '@': resolve(__dirname, 'src'),
         '@aquaculture/shared-ui': sharedUiAlias,
         '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
+        // Water-chemistry engine (browser-safe, shared SSoT). tsc resolves this via
+        // tsconfig.base paths, but Vite needs the explicit alias or dev/build fails.
+        '@platform/aquaculture-engines': resolve(
+          __dirname,
+          '../../../libs/aquaculture-engines/src/index.ts',
+        ),
         '@aquaculture/node-components': resolve(
           __dirname,
           '../../../libs/node-components/src/index.ts',

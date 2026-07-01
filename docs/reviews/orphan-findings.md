@@ -5780,10 +5780,10 @@ Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance
 ## ORPHAN-HIGH-284 — no refusal detection on the ARIA CLI executor path — RESOLVED (PR #804, 7255595c3)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-284). parse_claude_jsonl never inspects stop_reason; a Fable safety-classifier refusal surfaces as a generic failure — no audited fallback, no HUMAN_REQUIRED, no ledger row distinguishing it from an outage. **Remediation:** slice K2 (detect + one audited opus retry + HUMAN_REQUIRED on double refusal).
 
-## ORPHAN-HIGH-285 — kernel dispatches two agents that have no agent files; WRITE_TIER sets diverge — IN-PROGRESS
+## ORPHAN-HIGH-285 — kernel dispatches two agents that have no agent files; WRITE_TIER sets diverge — RESOLVED (PR #806, cce2c9508)
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-HIGH-285). aria-autonomy-planner + aria-worker are whitelisted envelope targets with no .md files (silent default_missing_file fallback, zero invariant coverage); jest ARIA_WRITE_TIER contains aria-acceptance-gap-fixer while python WRITE_TIER_AGENTS does not. **Remediation:** slice K3.
 
-## ORPHAN-MEDIUM-286 — ARIA budget caps and estimates are opus-calibrated, not model-aware — OPEN
+## ORPHAN-MEDIUM-286 — ARIA budget caps and estimates are opus-calibrated, not model-aware — IN-PROGRESS
 Found 2026-07-01 (ARIA modernization audit; detail: docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md#ORPHAN-MEDIUM-286). _estimate_envelope_cost_usd hardcodes opus-priced estimates; the $1.50 per-cycle cap assumes opus decision nodes — at fable 2× pricing the reservation math undercounts and the cap fires mid-cycle. **Remediation:** slice K4.
 
 ## ORPHAN-MEDIUM-287 — acceptance lane outside the canonical envelope profile; drafter refusals bypass the refusal ledger — OPEN

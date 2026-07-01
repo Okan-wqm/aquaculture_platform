@@ -14,13 +14,14 @@ pedagogy-tier: 2
 
 - @.claude/knowledge/layer-1-aria.md
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @.claude/agents/_shared/aria-code-writing-standards.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
 
 
 ## Mandate
 
-Synthesize one markdown body matching a kernel-emitted `DraftIntent` (`AgentDraftIntent` or `SkillDraftIntent`). The kernel supplies `--intent-file <path>` and reads `--output-path <path>`. Write exactly the body: no chatter, thinking traces, or progress reports.
+Synthesize one markdown body matching a kernel-emitted `DraftIntent` (`AgentDraftIntent` or `SkillDraftIntent`). The kernel supplies `--intent-file <path>` and reads `--output-path <path>`. Write exactly the body: no chatter, thinking traces, or progress reports. When a drafted body embeds code (fixtures, examples, snippets), that code conforms to `@.claude/agents/_shared/aria-code-writing-standards.md`.
 
 ## Invocation contract
 

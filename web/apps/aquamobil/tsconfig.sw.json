@@ -6,7 +6,11 @@
     // virtual-module types; `self.__WB_MANIFEST` is declared by the
     // `workbox-precaching` import in messaging-sw.ts (a `declare global` on
     // ServiceWorkerGlobalScope), so it resolves without an extra ambient type.
-    "types": ["vite-plugin-pwa/client"],
+    // 'vite/client' adds ImportMetaEnv (import.meta.env.DEV) — a real value
+    // Vite injects into every module it builds, including this SW's
+    // injectManifest sub-build; messaging-sw.ts imports the shared `logger`
+    // util, which reads import.meta.env.DEV to gate debug/info output.
+    "types": ["vite-plugin-pwa/client", "vite/client"],
     // noEmit stays TRUE: injectManifest compiles the SW through VitePWA's OWN
     // Vite sub-build, NOT tsc. This tsconfig only type-checks the SW. Removing
     // noEmit would emit stray .js next to the .ts source.

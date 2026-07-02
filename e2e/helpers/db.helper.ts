@@ -1,11 +1,34 @@
 import { Pool, QueryResult, PoolConfig } from 'pg';
 
+import { getRequiredE2eDatabaseUrl } from './env.helper';
+
 /**
- * Default connection string for E2E tests.
- * Matches the docker-compose and CI service container configuration.
+ * Last-resort connection string, used only if neither DATABASE_URL nor a
+ * readable docker-compose postgres service can be resolved. Matches the
+ * documented docker-compose / CI service container defaults, but is a
+ * fallback, not the source of truth — resolveDefaultDatabaseUrl() below
+ * prefers the live .env/docker-compose-derived value so this constant
+ * cannot silently drift from the actual running Postgres credentials.
  */
 const DEFAULT_DATABASE_URL =
   'postgresql://aquaculture:aquaculture@localhost:5432/aquaculture';
+
+/**
+ * Resolves DATABASE_URL the same way the rest of e2e does (env var, then
+ * .env/.env.local, then docker-compose.infra.yml/docker-compose.yml's
+ * postgres service) before falling back to the hardcoded default. Errors
+ * from resolution are swallowed here (not from TestDatabase's constructor,
+ * which must stay synchronous and non-throwing) so a missing/unreadable
+ * compose file degrades to the documented default instead of crashing
+ * every e2e test file at import time.
+ */
+function resolveDefaultDatabaseUrl(): string {
+  try {
+    return getRequiredE2eDatabaseUrl();
+  } catch {
+    return DEFAULT_DATABASE_URL;
+  }
+}
 
 /**
  * Row type for a user record from auth.users.
@@ -65,7 +88,7 @@ export class TestDatabase {
 
   constructor(connectionString?: string) {
     this.config = {
-      connectionString: connectionString ?? process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
+      connectionString: connectionString ?? resolveDefaultDatabaseUrl(),
       max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,

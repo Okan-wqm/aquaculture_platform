@@ -72,7 +72,13 @@ permissions:
 jobs:
   cycle:
     runs-on: [self-hosted, linux, claude]
-    timeout-minutes: 50
+    # Mode-aware sizing: a REAL observe burn-in is 30 kernel-guarded cycles at
+    # ~2.5 min/cycle ≈ 80-90 min (run 28577469404 was cancelled mid-burn-in by
+    # the previous flat 50-minute limit, producing ZERO ladder evidence because
+    # the acceptance verdict is all-or-nothing). Schedule/cycle runs keep 50.
+    # The 150/120 floor is enforced by the workflow contract
+    # (burn_in_timeout_floor_minutes in workflow_contract_registry.py).
+    timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}
     env:
       # Kernel-workflow parity: no .pyc litter in the checkout — the
       # burn-in pre-clean guard treats any untracked path as dirty.

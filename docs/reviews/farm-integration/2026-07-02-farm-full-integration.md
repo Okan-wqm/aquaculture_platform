@@ -6,7 +6,9 @@ Status legend: OPEN → IN-PROGRESS → RESOLVED (merged commit carries `Closes:
 
 ---
 
-## FARM-HIGH-125 — Regulatory report submissions are not persisted; FE lists are mock
+## FARM-HIGH-125 — Regulatory report submissions are not persisted
+
+> ID provenance: originally registered as FARM-HIGH-112; renumbered to FARM-HIGH-125 during the 2026-07-02 merge because main independently allocated FARM-HIGH-112 to the reconcile-ledger finding. Commits e8b12f9f6, 6ea9f5f30 and 9e120c5fa carry the pre-collision `Closes: …#FARM-HIGH-112` trailer and belong to THIS finding.; FE lists are mock
 
 Seven regulatory report types (sea lice, cleaner fish, smolt, planned slaughter, executed slaughter, welfare event, escape, disease outbreak) are submitted to Mattilsynet through `apps/farm-service/src/regulatory/regulatory.resolver.ts` (+ `mattilsynet-api.service.ts`, `regulatory-varsling.service.ts`) but never persisted locally. Only biomass has an entity (`regulatory/entities/biomass-report.entity.ts`) and list query.
 

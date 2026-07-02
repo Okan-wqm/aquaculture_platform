@@ -16,7 +16,7 @@ which tier each agent runs on. Two backends consume it:
 
 This module is the only reader, so both consumers can never drift from the
 frontmatter. Fail-safe by design: an unknown agent or a missing/invalid field
-resolves to the most expensive tier (``opus`` / ``xhigh``). A silent cost
+resolves to the most expensive tier (``fable`` / ``xhigh``). A silent cost
 downgrade can therefore never be introduced by omission — only by an explicit,
 reviewable frontmatter edit.
 """
@@ -31,7 +31,7 @@ from pathlib import Path
 VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable"})
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
-DEFAULT_MODEL: str = "opus"
+DEFAULT_MODEL: str = "fable"
 DEFAULT_EFFORT: str = "xhigh"
 
 # Agents that hold write tools (Edit/Write/Bash) or author governance

@@ -1,7 +1,7 @@
 ---
 name: aria-goldset-curator
 description: Read-only curator that drafts semantic regression fixture candidates from confirmed ARIA TP/FP examples.
-model: sonnet
+model: opus
 effort: medium
 tools: Read, Grep, Glob
 pedagogy-tier: 3

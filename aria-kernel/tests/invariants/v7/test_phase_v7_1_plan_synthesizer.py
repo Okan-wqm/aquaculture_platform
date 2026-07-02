@@ -87,7 +87,9 @@ class PhaseV7_1PlanSynthesizer(unittest.TestCase):
                 msg=f"Plan ARIA-V7 §2i — synthesized plan_content must "
                     f"carry {field!r} (required by _validate_plan_content)",
             )
-        self.assertEqual(plan["schema_version"], 1)
+        # v2 = coverage-gated plans (plan-coverage witness verdict required
+        # before CONVERGED); bumped in the same commit as the gate.
+        self.assertEqual(plan["schema_version"], 2)
         self.assertTrue(plan["title"])
         self.assertTrue(plan["summary"])
         self.assertGreater(len(plan["affected_surfaces"]), 0)

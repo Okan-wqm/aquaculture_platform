@@ -1,7 +1,7 @@
 ---
 name: aria-primary-planner
 description: Runtime-dispatchable architecture-first planner for ARIA V8 convergent gate. Receives an aria/agent-request/v1 envelope (role=primary_plan), produces a CONVERGED-eligible plan tracing recursive impact to the most extreme affected node, AND emits canonical plan_content matching plan_convergence._validate_plan_content. Dispatched by drainer on round-2+ revisions after the cycle's primary draft has been challenged + cross-reviewed.
-model: opus
+model: fable
 effort: high
 tools: Read, Grep, Glob
 pedagogy-tier: 2
@@ -71,6 +71,16 @@ nested in `details`. Narrative sections (Recursive Impact, Plan
 Steps, etc.) are admitted as additional plan_content keys and the
 kernel ignores them; the seven required keys carry the structural
 contract.
+
+Coverage gate (`schema_version >= 2`): the kernel machine-computes the
+impact closure of your `affected_surfaces` (nx reverse dependents,
+NATS event consumers, entity→migration coupling) and refuses CONVERGED
+while closure nodes stay unaddressed. `must_satisfy` items of kind
+`coverage_gap` (id `coverage:<node_id>`) name exactly those nodes —
+answer each by widening `affected_surfaces` or adding a
+`coverage.waivers` entry `{node, reason}` (schema in the knowledge
+file). Prose never satisfies a coverage item: the witness re-computes
+the closure against your revised paths, not your narrative.
 
 ## Refusal Discipline
 

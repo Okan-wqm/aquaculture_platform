@@ -36,15 +36,17 @@ def _all_aria_agent_names() -> list[str]:
 
 
 class AgentRuntimeProfileReaderTests(unittest.TestCase):
-    def test_scout_tier_agent_reads_sonnet(self) -> None:
+    def test_scout_tier_agent_reads_opus(self) -> None:
+        # K5 tier flip — the judge/validator layer moved sonnet -> opus.
         prof = read_agent_runtime_profile("aria-evidence-judge")
-        self.assertEqual(prof.model, "sonnet")
+        self.assertEqual(prof.model, "opus")
         self.assertEqual(prof.effort, "medium")
         self.assertEqual(prof.source, "frontmatter")
 
-    def test_decider_tier_agent_reads_opus_xhigh(self) -> None:
+    def test_decider_tier_agent_reads_fable_xhigh(self) -> None:
+        # K5 tier flip — decision nodes moved opus -> fable.
         prof = read_agent_runtime_profile("aria-consensus-arbiter")
-        self.assertEqual(prof.model, "opus")
+        self.assertEqual(prof.model, "fable")
         self.assertEqual(prof.effort, "xhigh")
 
     def test_unknown_agent_fails_safe_to_most_expensive(self) -> None:
@@ -60,10 +62,10 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
 
     def test_resolve_claude_model_matches_frontmatter(self) -> None:
         # resolve_claude_model returns the agent's MODEL tier (the Claude Code
-        # CLI --model alias), not the reasoning effort. Scout tier → sonnet;
-        # write tier → opus (fail-safe most-capable).
-        self.assertEqual(resolve_claude_model("aria-evidence-judge"), "sonnet")
-        self.assertEqual(resolve_claude_model("aria-implementer"), "opus")
+        # CLI --model alias), not the reasoning effort. Judge tier → opus;
+        # write tier → fable (fail-safe most-capable).
+        self.assertEqual(resolve_claude_model("aria-evidence-judge"), "opus")
+        self.assertEqual(resolve_claude_model("aria-implementer"), "fable")
 
 
 class ModelTierInvariantTests(unittest.TestCase):
@@ -79,14 +81,15 @@ class ModelTierInvariantTests(unittest.TestCase):
                 f"{name} frontmatter model/effort failed to parse — fix the frontmatter",
             )
 
-    def test_write_tier_agents_never_downgraded_below_opus(self) -> None:
+    def test_write_tier_agents_never_downgraded_below_fable(self) -> None:
         # Writers (Edit/Write/Bash) and governance-artifact authors must stay on
         # the expensive tier — the cheap scout tier is read-only judgment only.
+        # K5 tier flip: the expensive tier is fable.
         for name in WRITE_TIER_AGENTS:
             prof = read_agent_runtime_profile(name)
             self.assertEqual(
-                prof.model, "opus",
-                f"write-tier agent {name} must run on opus, got {prof.model}",
+                prof.model, "fable",
+                f"write-tier agent {name} must run on fable, got {prof.model}",
             )
             self.assertEqual(
                 prof.effort, "xhigh",

@@ -1458,12 +1458,13 @@ def _main(argv: list[str] | None = None) -> int:
     # Plan ARIA-V9.7 — per-cycle hard cap kill-switch (ai HIGH-013).
     # Per-cycle reservation; cycle that would exceed kills at next
     # turn boundary, not after the turn completes (so refund/reserve
-    # discipline holds). $1.50 default = 20-cycle target $30 + 50%
-    # headroom.
+    # discipline holds). $3.00 default = the K4 re-baseline for
+    # fable-tier decision nodes at 2x opus pricing; preserves the
+    # original 20-cycle-target headroom ratio.
     auto_run.add_argument(
-        "--max-budget-usd-per-cycle", type=float, default=1.50,
+        "--max-budget-usd-per-cycle", type=float, default=3.00,
         help="Per-cycle LLM hard cap kill-switch in USD (default "
-             "$1.50). Cycle that would exceed: kernel emits "
+             "$3.00). Cycle that would exceed: kernel emits "
              "cycle_budget_exhausted refusal at next turn boundary. "
              "Combined with --max-budget-usd-per-run, the two caps "
              "bound both a single runaway cycle AND a slowly-creeping "

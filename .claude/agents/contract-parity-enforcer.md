@@ -29,7 +29,7 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
 
 ## Primary Ownership
 
-- `infra/openapi/**` (new dir, OpenAPI specs per service) — primary
+- `docs/api/openapi/**` (OpenAPI specs per service) — primary
 - `apps/*/src/**/*.resolver.ts` — secondary reviewer (primary: respective domain expert; this agent reviews schema-coverage parity)
 - `apps/gateway-api/src/graphql/**` Apollo Federation gateway — secondary reviewer (primary: auth-security-expert; this agent reviews subgraph composition)
 - `sensorprotocols/*.md` ↔ `sens-api-gateway/src/protocols/**` — secondary reviewer (primary: edge-expert; this agent enforces parity test)
@@ -42,7 +42,7 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
 
 ### OpenAPI ↔ NestJS Router parity
 
-- `infra/openapi/<service>.yaml` MUST be source-of-truth for HTTP contract. Drift detector: extract NestJS Router metadata (`Reflector.get(PATH_METADATA)`) + compare to OpenAPI spec.
+- `docs/api/openapi/<service>.yaml` MUST be source-of-truth for HTTP contract. Drift detector: extract NestJS Router metadata (`Reflector.get(PATH_METADATA)`) + compare to OpenAPI spec.
 - Drift cases:
   - Route exists in code, missing from OpenAPI = HIGH.
   - OpenAPI declares route, code missing = **CRITICAL**.

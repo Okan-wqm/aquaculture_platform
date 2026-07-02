@@ -258,6 +258,7 @@ jobs:
   proof:
     permissions:
       contents: read
+    timeout-minutes: 35
     steps:
       - name: Persist enterprise workflow preflight
         run: |
@@ -284,7 +285,7 @@ jobs:
           )
           PY
       - name: Run observe burn-in proof
-        run: npm run aria:test:unit
+        run: python3 -m aria_kernel autonomy burn-in observe --cycles 30
       - name: Upload ARIA operational proof
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -457,6 +458,122 @@ jobs:
         self.assertFalse(verdict.valid)
         self.assertIn("workflow_dlp_proof_missing", verdict.failure_classes)
         self.assertIn("workflow_preflight_artifact_workflow_hash_missing", verdict.reasons)
+
+
+class BurnInTimeoutFloorTests(unittest.TestCase):
+    """ORPHAN finding: run 28577469404 — a flat 50-minute job timeout killed a
+    REAL 30-cycle observe burn-in (~80-90 min) mid-flight; the all-or-nothing
+    acceptance verdict turned the truncation into ZERO ladder evidence. The
+    contract floor makes the workload>timeout class structurally detectable.
+    """
+
+    def _verdict_for(self, workflow_id: str, timeout_line: str, burn_in_step: bool):
+        run_line = (
+            "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe --cycles 30"
+            if burn_in_step
+            else "echo no-burn-in"
+        )
+        job_id = WORKFLOW_CONTRACTS[workflow_id].job_contracts[0].job_id
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / WORKFLOW_CONTRACTS[workflow_id].workflow_file
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                f"""
+name: unit
+permissions:
+  contents: read
+jobs:
+  {job_id}:
+    {timeout_line}
+    permissions:
+      contents: read
+    steps:
+      - name: Step
+        run: {run_line}
+""",
+                encoding="utf-8",
+            )
+            return verify_workflow_contract(
+                workflow_id=workflow_id,
+                workspace_root=root,
+                event_context={"token_source": "github_actions_artifact_token"},
+            )
+
+    def test_registry_pins_measured_floors(self) -> None:
+        # Value pins: REAL burn-in floor sized from the 80-90 min measurement;
+        # MOCK proof floor sized from its minutes-scale dry-run cycles.
+        cycle = WORKFLOW_CONTRACTS["aria-auto-cycle"].job_contracts[0]
+        proof = WORKFLOW_CONTRACTS["aria-operational-proof"].job_contracts[0]
+        self.assertEqual(cycle.burn_in_timeout_floor_minutes, 120)
+        self.assertEqual(proof.burn_in_timeout_floor_minutes, 30)
+
+    def test_integer_timeout_at_or_above_floor_passes(self) -> None:
+        verdict = self._verdict_for(
+            "aria-operational-proof", "timeout-minutes: 35", burn_in_step=True
+        )
+        self.assertNotIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+
+    def test_mode_expression_burn_in_branch_at_floor_passes(self) -> None:
+        verdict = self._verdict_for(
+            "aria-operational-proof",
+            "timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}",
+            burn_in_step=True,
+        )
+        self.assertNotIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+
+    def test_mode_expression_burn_in_branch_below_floor_rejects(self) -> None:
+        verdict = self._verdict_for(
+            "aria-operational-proof",
+            "timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 25 || 50 }}",
+            burn_in_step=True,
+        )
+        self.assertIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+        self.assertTrue(
+            any(r.startswith("burn_in_timeout_below_floor:proof:25<30") for r in verdict.reasons),
+            verdict.reasons,
+        )
+
+    def test_integer_timeout_below_floor_rejects(self) -> None:
+        verdict = self._verdict_for(
+            "aria-operational-proof", "timeout-minutes: 20", burn_in_step=True
+        )
+        self.assertIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+
+    def test_missing_timeout_rejects_despite_github_default(self) -> None:
+        # GitHub's implicit 360-minute default would exceed the floor, but an
+        # unexamined inherited timeout is exactly the original defect —
+        # explicit sizing is the contract.
+        verdict = self._verdict_for(
+            "aria-operational-proof", "env: {}", burn_in_step=True
+        )
+        self.assertIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+        self.assertTrue(
+            any(r.startswith("burn_in_timeout_missing_or_unparseable") for r in verdict.reasons),
+            verdict.reasons,
+        )
+
+    def test_floor_without_burn_in_step_rejects(self) -> None:
+        verdict = self._verdict_for(
+            "aria-operational-proof", "timeout-minutes: 35", burn_in_step=False
+        )
+        self.assertIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+        self.assertTrue(
+            any(r.startswith("burn_in_timeout_floor_without_burn_in_step") for r in verdict.reasons),
+            verdict.reasons,
+        )
+
+    def test_burn_in_step_without_declared_floor_rejects(self) -> None:
+        # Self-enforcing direction: a NEW burn-in step cannot land in a job
+        # whose contract never declared (= never sized) a floor.
+        verdict = self._verdict_for(
+            "aria-agent-executor", "timeout-minutes: 35", burn_in_step=True
+        )
+        self.assertIn("workflow_contract_burn_in_timeout", verdict.failure_classes)
+        self.assertTrue(
+            any(r.startswith("burn_in_step_without_contract_timeout_floor") for r in verdict.reasons),
+            verdict.reasons,
+        )
 
 
 if __name__ == "__main__":

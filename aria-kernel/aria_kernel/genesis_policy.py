@@ -16,6 +16,9 @@ POLICY_KEYS = {
     "cost_caps_usd",
     # Plan ARIA-V3 §B2 — circuit-breaker failure threshold.
     "circuit_breaker",
+    # Plan S4 (ORPHAN-MEDIUM-298) — per-drift-class pressure score
+    # multipliers consumed by pressure.run_pressure.
+    "drift_class_weights",
     # Plan ARIA-V6 §2e v2 — convergent_skill_authoring loop config
     # (max_authoring_rounds, sandbox_min_fixtures, recall_floor).
     "convergent_authoring",

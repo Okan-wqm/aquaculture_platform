@@ -26,6 +26,7 @@ import { GET_MESSAGES } from '@/graphql/messaging-operations';
 import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage } from '@/types/messaging';
+import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -128,7 +129,9 @@ export function useMessages(
         // cached messages on a shared device. cacheUserData keeps tenant isolation.
         if (!pageParam && tenantId && userId) {
           const cacheKey = userScopedCacheKey(userId, `${CACHE_KEY_PREFIX}${channelId}`);
-          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch(() => undefined);
+          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch((error: unknown) => {
+            logger.error('[useMessages] failed to cache message page for offline fallback', error);
+          });
         }
         return page;
       } catch (error) {

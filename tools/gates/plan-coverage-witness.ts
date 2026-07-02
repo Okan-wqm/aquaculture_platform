@@ -154,27 +154,6 @@ function parseServicesYaml(source: string): readonly ServiceEntry[] {
   return services;
 }
 
-/** NATS-spec token match with the aqua-saas `Prefix*` extension. */
-function tokenMatches(patternToken: string, subjectToken: string): boolean {
-  if (patternToken === '*' || patternToken === subjectToken) return true;
-  if (patternToken.endsWith('*') && patternToken.length > 1) {
-    return subjectToken.startsWith(patternToken.slice(0, -1));
-  }
-  return false;
-}
-
-function subjectMatches(pattern: string, subject: string): boolean {
-  const patternTokens = pattern.split('.');
-  const subjectTokens = subject.split('.');
-  for (let i = 0; i < patternTokens.length; i += 1) {
-    const token = patternTokens[i] as string;
-    if (token === '>') return i < subjectTokens.length || i === patternTokens.length - 1;
-    if (i >= subjectTokens.length) return false;
-    if (!tokenMatches(token, subjectTokens[i] as string)) return false;
-  }
-  return patternTokens.length === subjectTokens.length;
-}
-
 /** Two wildcard patterns overlap if some concrete subject matches both. */
 function patternsOverlap(a: string, b: string): boolean {
   const aTokens = a.split('.');
@@ -218,6 +197,39 @@ const DEFAULT_MAX_NODES = 200;
 function fail(message: string): never {
   process.stderr.write(`plan-coverage-witness: ${message}\n`);
   process.exit(2);
+}
+
+/** Runtime-validated input parse — the type is EARNED, not asserted. */
+function parseWitnessInput(raw: string): WitnessInput {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null) fail('input must be a JSON object');
+  const candidate = parsed as Record<string, unknown>;
+  const rawPaths = candidate.affected_paths;
+  if (!Array.isArray(rawPaths) || !rawPaths.every((p): p is string => typeof p === 'string')) {
+    fail('input.affected_paths must be a string array');
+  }
+  const rawWaivers = Array.isArray(candidate.waivers) ? candidate.waivers : [];
+  const waivers: WaiverEntry[] = [];
+  for (const entry of rawWaivers) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const waiver = entry as Record<string, unknown>;
+    if (typeof waiver.node === 'string' && typeof waiver.reason === 'string') {
+      waivers.push({ node: waiver.node, reason: waiver.reason });
+    }
+  }
+  const rawOptions =
+    typeof candidate.options === 'object' && candidate.options !== null
+      ? (candidate.options as Record<string, unknown>)
+      : {};
+  return {
+    schema_version: typeof candidate.schema_version === 'number' ? candidate.schema_version : 1,
+    affected_paths: rawPaths,
+    waivers,
+    options: {
+      transitive: rawOptions.transitive === true,
+      max_nodes: typeof rawOptions.max_nodes === 'number' ? rawOptions.max_nodes : undefined,
+    },
+  };
 }
 
 function loadGraph(graphArg: string | undefined, repoRoot: string): NxGraphFile {
@@ -315,14 +327,19 @@ function main(): void {
   if (!inputArg) fail('--input <input.json> is required');
   const repoRoot = resolve(repoRootArg ?? process.cwd());
 
-  let input: WitnessInput;
+  let rawInput: string;
   try {
-    input = JSON.parse(readFileSync(inputArg, 'utf8')) as WitnessInput;
+    rawInput = readFileSync(inputArg, 'utf8');
   } catch (error) {
     fail(`input unreadable: ${String(error)}`);
   }
-  if (!Array.isArray(input.affected_paths)) fail('input.affected_paths must be an array');
-  const waivers: readonly WaiverEntry[] = Array.isArray(input.waivers) ? input.waivers : [];
+  let input: WitnessInput;
+  try {
+    input = parseWitnessInput(rawInput);
+  } catch (error) {
+    fail(`input unparseable: ${String(error)}`);
+  }
+  const waivers: readonly WaiverEntry[] = input.waivers;
   const transitive = input.options?.transitive === true;
   const maxNodes = input.options?.max_nodes ?? DEFAULT_MAX_NODES;
   const inputsHash = createHash('sha256')
@@ -457,7 +474,10 @@ function main(): void {
     unmapped_paths: unmappedPaths,
     inputs_hash: inputsHash,
   };
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  // Single-line JSON on purpose (repo-wide no-restricted-syntax bans
+  // indented stringify): the kernel wrapper parses stdout, humans read
+  // the pretty manifest artifact the kernel writes instead.
+  process.stdout.write(`${JSON.stringify(report)}\n`);
   process.exit(uncovered.length > 0 ? 1 : 0);
 }
 

@@ -65,13 +65,15 @@ function runWitness(input: object, extraArgs: string[] = []): WitnessRun {
   ];
   try {
     const stdout = execFileSync('npx', args, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return { exitCode: 0, report: JSON.parse(stdout), stdout };
+    return { exitCode: 0, report: JSON.parse(stdout) as WitnessRun['report'], stdout };
   } catch (error) {
     const failed = error as { status?: number; stdout?: string };
     const stdout = failed.stdout ?? '';
     return {
       exitCode: failed.status ?? -1,
-      report: stdout.trim().startsWith('{') ? JSON.parse(stdout) : ({} as WitnessRun['report']),
+      report: stdout.trim().startsWith('{')
+        ? (JSON.parse(stdout) as WitnessRun['report'])
+        : ({} as WitnessRun['report']),
       stdout,
     };
   }

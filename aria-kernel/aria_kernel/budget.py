@@ -7,6 +7,45 @@ from typing import Any
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
+# Notional per-model pricing, USD per 1M tokens (input_rate, output_rate).
+# WHY this exists: managed-session Claude auth has no per-call dollar bill,
+# and the executor used to record a literal estimated_usd=0.0 — which made
+# the operator's USD budget caps ($3/cycle, $20/run) structurally toothless
+# and the daily-report ROI metric read $0 forever (ORPHAN-HIGH-311, found on
+# the FIRST real production cycle: 15.8k in + 27.3k out on claude-fable-5
+# attributed as $0.00). Caps must bind on economic value regardless of the
+# billing channel; subscription capacity is rate-limited, not free. Rates
+# mirror the public Anthropic price list at the time of writing; the row
+# keeps model + token counts so any rate revision is re-derivable.
+MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5": (10.0, 50.0),
+    "claude-opus-4-8": (5.0, 25.0),
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-opus-4-6": (5.0, 25.0),
+    "claude-sonnet-5": (3.0, 15.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+
+
+def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
+    """Notional USD for a token pair under MODEL_PRICING_USD_PER_MTOK.
+
+    Model ids may carry date suffixes (``claude-haiku-4-5-20251001``) —
+    prefix matching handles them. Unknown models return 0.0; the CALLER is
+    responsible for making that visible (governance event), because a silent
+    zero is exactly the defect class this function exists to close.
+    """
+    normalized = (model or "").strip().lower()
+    for known, (in_rate, out_rate) in MODEL_PRICING_USD_PER_MTOK.items():
+        if normalized == known or normalized.startswith(f"{known}-"):
+            return round(
+                (max(0, input_tokens) * in_rate + max(0, output_tokens) * out_rate) / 1_000_000,
+                6,
+            )
+    return 0.0
+
 
 DEFAULT_BUDGET = {
     "schema_version": 1,

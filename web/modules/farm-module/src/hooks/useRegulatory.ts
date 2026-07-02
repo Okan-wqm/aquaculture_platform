@@ -489,10 +489,24 @@ export function useRegulatoryHealth() {
 // HELPER: Invalidate all regulatory queries
 // ============================================================================
 
+const SUBMISSION_HISTORY_KEYS = [
+  'regulatoryReports',
+  'regulatoryReportSummary',
+  'regulatoryReport',
+  'biomassReports',
+  'biomassReport',
+];
+
 function invalidateAllRegulatoryQueries(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({
     predicate: (query) =>
-      Array.isArray(query.queryKey) && query.queryKey[0] === REGULATORY_KEY,
+      Array.isArray(query.queryKey) &&
+      (query.queryKey[0] === REGULATORY_KEY ||
+        // Tenant-scoped persisted-submission caches (FARM-HIGH-112):
+        // ['tenant', tenantId, '<key>', ...] — a fresh submission must
+        // appear in the history lists without a manual refresh.
+        (typeof query.queryKey[2] === 'string' &&
+          SUBMISSION_HISTORY_KEYS.includes(query.queryKey[2]))),
   });
 }
 

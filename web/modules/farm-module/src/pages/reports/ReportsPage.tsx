@@ -14,8 +14,13 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { getReportSummary, getOverdueReports } from './mock/helpers';
 import { ReportSettingsModal } from './components/ReportSettingsModal';
+import { ExportSubmissionsButton } from './components/ExportSubmissionsButton';
+import {
+  useRegulatoryReportSummary,
+  RegulatoryReportTypeValue,
+} from '../../hooks/useRegulatoryReports';
+import { getNextDeadline, getDaysUntilDeadline, REPORTING_DEADLINES } from './utils/thresholds';
 
 // Urgent Report Tabs
 import { WelfareEventTab } from './tabs/WelfareEventTab';
@@ -198,12 +203,12 @@ const Badge: React.FC<BadgeProps> = ({ count, variant }) => {
 // ============================================================================
 
 interface WarningBannerProps {
-  overdueCount: number;
-  urgentCount: number;
+  failedCount: number;
+  dueSoonCount: number;
 }
 
-const WarningBanner: React.FC<WarningBannerProps> = ({ overdueCount, urgentCount }) => {
-  if (overdueCount === 0 && urgentCount === 0) return null;
+const WarningBanner: React.FC<WarningBannerProps> = ({ failedCount, dueSoonCount }) => {
+  if (failedCount === 0 && dueSoonCount === 0) return null;
 
   return (
     <div className="bg-red-50 border-l-4 border-red-400 p-4">
@@ -223,19 +228,19 @@ const WarningBanner: React.FC<WarningBannerProps> = ({ overdueCount, urgentCount
         </div>
         <div className="ml-3">
           <p className="text-sm text-red-700">
-            {overdueCount > 0 && (
+            {failedCount > 0 && (
               <span className="font-medium">
-                {overdueCount} overdue {overdueCount === 1 ? 'report' : 'reports'}
+                {failedCount} failed {failedCount === 1 ? 'submission' : 'submissions'}
               </span>
             )}
-            {overdueCount > 0 && urgentCount > 0 && ' and '}
-            {urgentCount > 0 && (
+            {failedCount > 0 && dueSoonCount > 0 && ' and '}
+            {dueSoonCount > 0 && (
               <span className="font-medium">
-                {urgentCount} {urgentCount === 1 ? 'report' : 'reports'} due soon
+                {dueSoonCount} {dueSoonCount === 1 ? 'report type' : 'report types'} due within 3 days
               </span>
             )}
             {'. '}
-            Please submit pending reports to avoid regulatory penalties.
+            Please review and resubmit to avoid regulatory penalties.
           </p>
         </div>
       </div>
@@ -252,34 +257,92 @@ export const ReportsPage: React.FC = () => {
   const location = useLocation();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
-  // Get report summary for badges
-  const summary = useMemo(() => getReportSummary(), []);
-  const overdueReports = useMemo(() => getOverdueReports(), []);
+  // Persisted-submission summary (FARM-HIGH-112) — per-type status counts
+  // + last submission timestamp from the backend record-of-submission.
+  const { data: typeSummaries = [] } = useRegulatoryReportSummary();
 
-  // Calculate tab badges
+  const summaryByType = useMemo(() => {
+    const map = new Map<RegulatoryReportTypeValue, (typeof typeSummaries)[number]>();
+    for (const entry of typeSummaries) map.set(entry.reportType, entry);
+    return map;
+  }, [typeSummaries]);
+
+  const totals = useMemo(
+    () =>
+      typeSummaries.reduce(
+        (acc, entry) => ({
+          pending: acc.pending + entry.pendingCount,
+          failed: acc.failed + entry.failedCount,
+          submitted: acc.submitted + entry.submittedCount + entry.queuedCount,
+        }),
+        { pending: 0, failed: 0, submitted: 0 },
+      ),
+    [typeSummaries],
+  );
+
+  // "Due soon": a periodic report type whose next calendar deadline is
+  // within 3 days and which has no successful submission inside the
+  // current reporting period.
+  const dueSoonCount = useMemo(() => {
+    const periodic: Array<{
+      type: RegulatoryReportTypeValue;
+      calendarKey: keyof typeof REPORTING_DEADLINES;
+      periodMs: number;
+    }> = [
+      { type: 'SEA_LICE', calendarKey: 'SEA_LICE', periodMs: 7 * 24 * 60 * 60 * 1000 },
+      { type: 'SMOLT', calendarKey: 'SMOLT', periodMs: 31 * 24 * 60 * 60 * 1000 },
+      { type: 'CLEANER_FISH', calendarKey: 'CLEANER_FISH', periodMs: 31 * 24 * 60 * 60 * 1000 },
+    ];
+    return periodic.filter(({ type, calendarKey, periodMs }) => {
+      const deadline = getNextDeadline(calendarKey);
+      const days = getDaysUntilDeadline(deadline);
+      if (days > 3) return false;
+      const last = summaryByType.get(type)?.lastSubmittedAt;
+      if (!last) return true;
+      const periodStart = deadline.getTime() - periodMs;
+      return new Date(last).getTime() < periodStart;
+    }).length;
+  }, [summaryByType]);
+
+  // Tab badges: failed submissions need operator action.
   const reportTabs: ReportTab[] = useMemo(() => {
-    // Show total pending/overdue on urgent tabs
+    const typeByTabId: Partial<Record<string, RegulatoryReportTypeValue[]>> = {
+      'sea-lice': ['SEA_LICE'],
+      smolt: ['SMOLT'],
+      'cleaner-fish': ['CLEANER_FISH'],
+      slaughter: ['SLAUGHTER_PLANNED', 'SLAUGHTER_EXECUTED'],
+      welfare: ['WELFARE_EVENT'],
+      disease: ['DISEASE_OUTBREAK'],
+      escape: ['ESCAPE'],
+    };
     return baseReportTabs.map((tab) => {
       const tabWithBadge: ReportTab = { ...tab };
-
-      // Urgent tabs show any active incidents
-      if (['welfare', 'disease', 'escape'].includes(tab.id)) {
-        const urgentOverdue = overdueReports.filter(
-          (r) => r.reportType === tab.id
-        ).length;
-        if (urgentOverdue > 0) {
-          tabWithBadge.badge = urgentOverdue;
-          tabWithBadge.badgeVariant = 'error';
-        }
+      const failed = (typeByTabId[tab.id] ?? []).reduce(
+        (sum, type) => sum + (summaryByType.get(type)?.failedCount ?? 0),
+        0,
+      );
+      if (failed > 0) {
+        tabWithBadge.badge = failed;
+        tabWithBadge.badgeVariant = 'error';
       }
-
       return tabWithBadge;
     });
-  }, [overdueReports]);
+  }, [summaryByType]);
 
   // Determine active tab from URL
   const currentPath = location.pathname.split('/').pop() || 'sea-lice';
   const activeTab = reportTabs.find((tab) => tab.path === currentPath)?.id || 'sea-lice';
+
+  const EXPORT_TYPES: Partial<Record<string, [RegulatoryReportTypeValue, RegulatoryReportTypeValue?]>> = {
+    'sea-lice': ['SEA_LICE'],
+    smolt: ['SMOLT'],
+    'cleaner-fish': ['CLEANER_FISH'],
+    slaughter: ['SLAUGHTER_PLANNED', 'SLAUGHTER_EXECUTED'],
+    welfare: ['WELFARE_EVENT'],
+    disease: ['DISEASE_OUTBREAK'],
+    escape: ['ESCAPE'],
+  };
+  const activeExportTypes = EXPORT_TYPES[activeTab];
 
   const handleTabChange = (tabPath: string) => {
     navigate(`/sites/reports/${tabPath}`);
@@ -288,10 +351,7 @@ export const ReportsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Warning Banner */}
-      <WarningBanner
-        overdueCount={summary.totalOverdue}
-        urgentCount={summary.urgentCount}
-      />
+      <WarningBanner failedCount={totals.failed} dueSoonCount={dueSoonCount} />
 
       {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
@@ -307,15 +367,15 @@ export const ReportsPage: React.FC = () => {
               {/* Summary Stats */}
               <div className="hidden sm:flex items-center space-x-4 mr-4">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">{summary.totalPending}</div>
+                  <div className="text-2xl font-bold text-gray-900">{totals.pending}</div>
                   <div className="text-xs text-gray-500">Pending</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{summary.totalOverdue}</div>
-                  <div className="text-xs text-gray-500">Overdue</div>
+                  <div className="text-2xl font-bold text-red-600">{totals.failed}</div>
+                  <div className="text-xs text-gray-500">Failed</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">{summary.recentlySubmitted}</div>
+                  <div className="text-2xl font-bold text-green-600">{totals.submitted}</div>
                   <div className="text-xs text-gray-500">Submitted</div>
                 </div>
               </div>
@@ -334,16 +394,16 @@ export const ReportsPage: React.FC = () => {
                 Report Settings
               </button>
 
-              {/* Export Button */}
-              <button
-                type="button"
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Export
-              </button>
+              {/* Export (FARM-LOW-119) — CSV of the active tab's persisted
+                  submissions. Biomass keeps its own draft table and has no
+                  regulatory_reports rows, so no export renders there. */}
+              {activeExportTypes && (
+                <ExportSubmissionsButton
+                  primaryType={activeExportTypes[0]}
+                  secondaryType={activeExportTypes[1]}
+                  filename={`regulatory-submissions-${activeTab}.csv`}
+                />
+              )}
             </div>
           </div>
         </div>

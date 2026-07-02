@@ -19,16 +19,13 @@ import type {
   SubmitExecutedSlaughterInput,
   ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
-import { mockSlaughterReports } from '../mock/slaughterData';
 import {
-  SlaughterReport,
   PlannedSlaughter,
   CompletedSlaughter,
-  ReportStatus,
   SlaughterReportType,
 } from '../types/reports.types';
-import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
@@ -258,124 +255,6 @@ function calculateSummary(planned: PlannedSlaughter[], completed: CompletedSlaug
     completedBiomassKg: completed.reduce((sum, c) => sum + c.actualBiomassKg, 0),
   };
 }
-
-// ============================================================================
-// Report Card Component
-// ============================================================================
-
-interface SlaughterReportCardProps {
-  report: SlaughterReport;
-  onView: () => void;
-  onEdit?: () => void;
-}
-
-const SlaughterReportCard: React.FC<SlaughterReportCardProps> = ({ report, onView, onEdit }) => {
-  const isPending = report.status === 'pending' || report.status === 'draft';
-  const hasVariance = report.summary.totalCompleted > 0 &&
-    Math.abs(report.summary.totalCompleted - report.summary.totalPlanned) > 0;
-
-  const variance = report.summary.totalPlanned > 0
-    ? ((report.summary.totalCompleted - report.summary.totalPlanned) / report.summary.totalPlanned * 100)
-    : 0;
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">{report.id}</h3>
-              <p className="text-sm text-gray-500">{report.siteName}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-              report.reportPeriodType === 'planned'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-green-100 text-green-700'
-            }`}>
-              {report.reportPeriodType === 'planned' ? 'Planned' : 'Completed'}
-            </span>
-            <ReportStatusBadge status={report.status} size="sm" />
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-3">
-        {/* Key Metrics */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="text-center p-2 bg-blue-50 rounded">
-            <div className="text-lg font-bold text-blue-700">{formatNumber(report.summary.totalPlanned)}</div>
-            <div className="text-xs text-gray-500">Planned</div>
-            <div className="text-xs text-blue-600">{formatWeight(report.summary.plannedBiomassKg)}</div>
-          </div>
-          <div className="text-center p-2 bg-green-50 rounded">
-            <div className="text-lg font-bold text-green-700">{formatNumber(report.summary.totalCompleted)}</div>
-            <div className="text-xs text-gray-500">Completed</div>
-            <div className="text-xs text-green-600">{formatWeight(report.summary.completedBiomassKg)}</div>
-          </div>
-        </div>
-
-        {/* Variance */}
-        {hasVariance && (
-          <div className={`text-center p-2 mb-3 rounded ${
-            variance >= 0 ? 'bg-green-50' : 'bg-red-50'
-          }`}>
-            <span className={`text-sm font-medium ${variance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-              Variance: {variance > 0 ? '+' : ''}{variance.toFixed(1)}%
-            </span>
-          </div>
-        )}
-
-        {/* Slaughter Records Summary */}
-        <div className="grid grid-cols-2 gap-2 text-sm pt-3 border-t border-gray-100">
-          <div>
-            <span className="text-gray-500">Planned Events:</span>
-            <span className="ml-1 font-medium">{report.plannedSlaughters.length}</span>
-          </div>
-          <div>
-            <span className="text-gray-500">Completed Events:</span>
-            <span className="ml-1 font-medium">{report.completedSlaughters.length}</span>
-          </div>
-        </div>
-
-        {/* Deadline for pending/draft */}
-        {isPending && report.plannedSlaughters.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <div className="text-sm text-gray-500">
-              Next planned: {formatDate(report.plannedSlaughters[0].plannedDate)}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
-        <button
-          onClick={onView}
-          className="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          View Details
-        </button>
-        {isPending && onEdit && (
-          <button
-            onClick={onEdit}
-            className="px-3 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            Update Report
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // Wizard Step Components
@@ -1395,12 +1274,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
 export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }) => {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<SlaughterReport | null>(null);
   const [formData, setFormData] = useState<SlaughterFormData>(getInitialFormData());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
-  const [typeFilter, setTypeFilter] = useState<SlaughterReportType | 'all'>('all');
 
   // Fetch tanks for batch auto-populate
   const { data: tanksData } = useTanksList();
@@ -1412,48 +1288,13 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const submitExecutedMutation = useSubmitExecutedSlaughterReport();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockSlaughterReports.filter((r) => r.siteId === siteId)
-      : mockSlaughterReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    if (typeFilter !== 'all') {
-      filtered = filtered.filter((r) => r.reportPeriodType === typeFilter);
-    }
-
-    return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }, [siteId, statusFilter, typeFilter]);
-
-  // Stats
-  const stats = useMemo(() => {
-    const totalPlanned = mockSlaughterReports.reduce((sum, r) => sum + r.summary.totalPlanned, 0);
-    const totalCompleted = mockSlaughterReports.reduce((sum, r) => sum + r.summary.totalCompleted, 0);
-    const pending = mockSlaughterReports.filter((r) => r.status === 'pending' || r.status === 'draft').length;
-    return { totalPlanned, totalCompleted, pending, total: mockSlaughterReports.length };
-  }, []);
-
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SlaughterFormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  const handleOpenWizard = useCallback((report?: SlaughterReport) => {
-    if (report) {
-      setFormData({
-        ...getInitialFormData(),
-        reportType: report.reportPeriodType,
-        plannedSlaughters: [...report.plannedSlaughters],
-        completedSlaughters: [...report.completedSlaughters],
-        summary: { ...report.summary },
-      });
-    } else {
-      setFormData(getInitialFormData());
-    }
+  const handleOpenWizard = useCallback(() => {
+    setFormData(getInitialFormData());
     setIsWizardOpen(true);
   }, []);
 
@@ -1562,7 +1403,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
           <ReportTypeStep
             formData={formData}
             onChange={handleFormChange}
-            siteName={selectedReport?.siteName || 'Default Site'}
+            siteName={'Default Site'}
           />
         ),
       },
@@ -1602,10 +1443,10 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={selectedReport?.siteName || 'Default Site'} />,
+        content: <ReviewStep formData={formData} siteName={'Default Site'} />,
       },
     ],
-    [formData, handleFormChange, selectedReport, batchOptions]
+    [formData, handleFormChange, batchOptions]
   );
 
   return (
@@ -1627,98 +1468,15 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Reports</div>
-        </div>
-        <div className="bg-white rounded-lg border border-blue-200 p-4">
-          <div className="text-2xl font-bold text-blue-600">{formatNumber(stats.totalPlanned)}</div>
-          <div className="text-sm text-gray-500">Total Planned</div>
-        </div>
-        <div className="bg-white rounded-lg border border-green-200 p-4">
-          <div className="text-2xl font-bold text-green-600">{formatNumber(stats.totalCompleted)}</div>
-          <div className="text-sm text-gray-500">Total Completed</div>
-        </div>
-        <div className="bg-white rounded-lg border border-yellow-200 p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-          <div className="text-sm text-gray-500">Pending</div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Status:</span>
-          {(['all', 'pending', 'draft', 'submitted', 'approved'] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                statusFilter === status
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Type:</span>
-          {(['all', 'planned', 'completed'] as const).map((type) => (
-            <button
-              key={type}
-              onClick={() => setTypeFilter(type)}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                typeFilter === type
-                  ? 'bg-purple-100 text-purple-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {type === 'all' ? 'All' : type.charAt(0).toUpperCase() + type.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Reports Grid */}
-      {reports.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500">No reports found</p>
-          <button
-            onClick={() => handleOpenWizard()}
-            className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            Create First Report
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {reports.map((report) => (
-            <SlaughterReportCard
-              key={report.id}
-              report={report}
-              onView={() => setSelectedReport(report)}
-              onEdit={() => {
-                setSelectedReport(report);
-                handleOpenWizard(report);
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* Submission History */}
+      <SubmissionHistorySection reportType="SLAUGHTER_PLANNED" title="Planned Slaughter Submissions" siteId={siteId} />
+      <SubmissionHistorySection reportType="SLAUGHTER_EXECUTED" title="Executed Slaughter Submissions" siteId={siteId} />
 
       {/* Wizard Modal */}
       <ReportWizard
         isOpen={isWizardOpen}
         onClose={() => {
           setIsWizardOpen(false);
-          setSelectedReport(null);
           setFormData(getInitialFormData());
         }}
         onSubmit={handleSubmit}

@@ -1,7 +1,7 @@
 {
-  "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate — wire or delete the operation instead.",
-  "generated_against": "origin/main @ #655 (hr dead-contract removals) — farm feeding-program dead ops deleted under FARM-MEDIUM-116",
-  "count": 57,
+  "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate \u2014 wire or delete the operation instead.",
+  "generated_against": "origin/main @ #655 (hr dead-contract removals) \u2014 farm feeding-program dead ops deleted under FARM-MEDIUM-116",
+  "count": 56,
   "entries": [
     {
       "id": "ACTIVATE_SENSOR",
@@ -30,11 +30,6 @@
     },
     {
       "id": "BIOMASS_REPORT_QUERY",
-      "file": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "BIOMASS_REPORTS_QUERY",
       "file": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
       "kind": "query"
     },

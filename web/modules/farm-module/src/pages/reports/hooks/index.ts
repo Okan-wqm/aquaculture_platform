@@ -4,7 +4,9 @@
  */
 
 export { useReportDraft } from './useReportDraft';
-export { useDeadlines, getUrgencyColorClasses, getUrgencyLabel } from './useDeadlines';
-export type { DeadlineUrgency, DeadlineInfo, UpcomingDeadline, UseDeadlinesOptions, UseDeadlinesReturn } from './useDeadlines';
+// useDeadlines was deleted under FARM-HIGH-112: it had no consumer and
+// synthesized deadline state from the mock report arrays. Deadline
+// awareness now derives from the persisted-submission summary in
+// ReportsPage (useRegulatoryReportSummary + utils/thresholds calendar).
 export { useThresholdCheck } from './useThresholdCheck';
 export type { ThresholdSeverity, ThresholdCheckResult, MortalityThresholdInput, SeaLiceThresholdInput, UseThresholdCheckReturn } from './useThresholdCheck';

@@ -11,18 +11,14 @@ import {
   useSubmitSeaLiceReport,
 } from '../../../hooks/useRegulatory';
 import type { SubmitSeaLiceReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
-import { mockSeaLiceReports } from '../mock/seaLiceData';
 import {
-  SeaLiceReport,
   SeaLiceCounts,
-  SeaLiceCageCount,
   CleanerFishEntry,
   SeaLiceTreatment,
-  ReportStatus,
 } from '../types/reports.types';
 import { SEA_LICE_THRESHOLDS, REGULATORY_CONTACTS } from '../utils/thresholds';
-import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 
 // ============================================================================
 // Types
@@ -120,14 +116,6 @@ const DOSAGE_UNITS = [
 // Helper Functions
 // ============================================================================
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
 function getWeekLabel(weekNumber: number, year: number): string {
   return `Week ${weekNumber}, ${year}`;
 }
@@ -174,139 +162,6 @@ function getInitialFormData(): SeaLiceFormData {
     treatments: [],
   };
 }
-
-// ============================================================================
-// Report Card Component
-// ============================================================================
-
-interface SeaLiceReportCardProps {
-  report: SeaLiceReport;
-  onView: () => void;
-  onEdit?: () => void;
-}
-
-const SeaLiceReportCard: React.FC<SeaLiceReportCardProps> = ({ report, onView, onEdit }) => {
-  const thresholdStatus = getThresholdStatus(report.siteCounts.adultFemale);
-  const isPending = report.status === 'pending' || report.status === 'overdue';
-
-  return (
-    <div
-      className={`bg-white rounded-lg border shadow-sm hover:shadow-md transition-shadow ${
-        report.thresholdExceeded ? 'border-orange-200' : 'border-gray-200'
-      }`}
-    >
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">{getWeekLabel(report.weekNumber, report.year)}</h3>
-              <p className="text-sm text-gray-500">{report.siteName}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <ReportStatusBadge status={report.status} size="sm" />
-            {report.thresholdExceeded && (
-              <span className="px-2 py-0.5 text-xs font-semibold text-orange-700 bg-orange-100 rounded">
-                Threshold Exceeded
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-3">
-        {/* Lice Counts */}
-        <div className="grid grid-cols-4 gap-3 mb-3">
-          <div className="text-center">
-            <div className={`text-lg font-bold ${thresholdStatus.level !== 'normal' ? 'text-orange-600' : 'text-gray-900'}`}>
-              {report.siteCounts.adultFemale.toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500">Adult Female</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-gray-900">{report.siteCounts.mobile.toFixed(2)}</div>
-            <div className="text-xs text-gray-500">Mobile</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-gray-900">{report.siteCounts.attached.toFixed(2)}</div>
-            <div className="text-xs text-gray-500">Attached</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-blue-600">{report.siteCounts.averagePerFish.toFixed(2)}</div>
-            <div className="text-xs text-gray-500">Avg/Fish</div>
-          </div>
-        </div>
-
-        {/* Threshold Badge */}
-        {report.siteCounts.adultFemale > 0 && (
-          <div className="mb-3">
-            <span className={`px-2 py-1 text-xs font-medium rounded ${thresholdStatus.color}`}>
-              {thresholdStatus.label} (Threshold: {SEA_LICE_THRESHOLDS.ALERT_LEVEL})
-            </span>
-          </div>
-        )}
-
-        {/* Metadata */}
-        <div className="grid grid-cols-2 gap-2 text-sm pt-3 border-t border-gray-100">
-          <div>
-            <span className="text-gray-500">Water Temp:</span>
-            <span className="ml-1 font-medium">{report.waterTemperature3m}°C</span>
-          </div>
-          <div>
-            <span className="text-gray-500">Cages:</span>
-            <span className="ml-1 font-medium">{report.cageCounts.length}</span>
-          </div>
-          {report.treatments.length > 0 && (
-            <div className="col-span-2">
-              <span className="text-gray-500">Treatments:</span>
-              <span className="ml-1 font-medium text-orange-600">{report.treatments.length}</span>
-            </div>
-          )}
-          {report.cleanerFish.length > 0 && (
-            <div className="col-span-2">
-              <span className="text-gray-500">Cleaner Fish:</span>
-              <span className="ml-1 font-medium">
-                {report.cleanerFish.reduce((sum, cf) => sum + cf.count, 0).toLocaleString()}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Deadline for pending */}
-        {isPending && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <DeadlineIndicator deadline={report.deadline} status={report.status} reportType="Sea Lice" />
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
-        <button
-          onClick={onView}
-          className="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          View Details
-        </button>
-        {isPending && onEdit && (
-          <button
-            onClick={onEdit}
-            className="px-3 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            Complete Report
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // Wizard Step Components
@@ -1306,11 +1161,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
 export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) => {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<SeaLiceReport | null>(null);
   const [formData, setFormData] = useState<SeaLiceFormData>(getInitialFormData());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
 
   // Fetch tanks/cages for per-cage breakdown
   const { data: tanksData } = useTanksList({ isActive: true });
@@ -1324,85 +1177,18 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
 
   // Derive site name from tanks data if available
   const derivedSiteName = useMemo(() => {
-    if (selectedReport?.siteName) return selectedReport.siteName;
-    // Try to get site name from first tank's department.site
     const firstTankWithSite = tanks.find(t => t.department?.site?.name);
     if (firstTankWithSite?.department?.site?.name) return firstTankWithSite.department.site.name;
     return 'Current Site';
-  }, [selectedReport, tanks]);
-
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockSeaLiceReports.filter((r) => r.siteId === siteId)
-      : mockSeaLiceReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    return filtered.sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.weekNumber - a.weekNumber;
-    });
-  }, [siteId, statusFilter]);
-
-  // Stats
-  const stats = useMemo(() => {
-    const pending = mockSeaLiceReports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
-    const overdue = mockSeaLiceReports.filter((r) => r.status === 'overdue').length;
-    const thresholdExceeded = mockSeaLiceReports.filter((r) => r.thresholdExceeded).length;
-    return { pending, overdue, thresholdExceeded, total: mockSeaLiceReports.length };
-  }, []);
+  }, [tanks]);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SeaLiceFormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  const handleOpenWizard = useCallback((report?: SeaLiceReport) => {
-    if (report) {
-      setFormData({
-        weekNumber: report.weekNumber,
-        year: report.year,
-        waterTemperature3m: report.waterTemperature3m,
-        siteCounts: { ...report.siteCounts },
-        cageCounts: report.cageCounts.map(cc => ({
-          cageId: cc.cageId,
-          cageName: cc.cageName,
-          adultFemale: cc.counts.adultFemale,
-          mobile: cc.counts.mobile,
-          attached: cc.counts.attached,
-          fishSampled: cc.sampleSize,
-        })),
-        treatmentEntries: report.treatments.map(t => ({
-          id: t.id,
-          category: t.type,
-          nonMedicatedType: t.type === 'non_medicated' ? '' : undefined,
-          activeIngredient: t.activeIngredient || '',
-          dosage: t.amount,
-          dosageUnit: t.unit || 'mg/L',
-          date: t.date.toISOString().split('T')[0],
-          beforeCounting: false,
-          wholeSite: true,
-          cagesTreated: undefined,
-          notes: t.notes || '',
-        })),
-        cleanerFish: [...report.cleanerFish],
-        resistanceSuspicion: false,
-        resistanceDetails: '',
-        sensitivityTest: {
-          performed: false,
-          labName: '',
-          testDate: '',
-          ingredientTested: '',
-          result: '',
-        },
-        treatments: [...report.treatments],
-      });
-    } else {
-      setFormData(getInitialFormData());
-    }
+  const handleOpenWizard = useCallback(() => {
+    setFormData(getInitialFormData());
     setIsWizardOpen(true);
   }, []);
 
@@ -1560,7 +1346,7 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
         content: <ReviewStep formData={formData} siteName={derivedSiteName} />,
       },
     ],
-    [formData, handleFormChange, selectedReport, derivedSiteName, tankOptions]
+    [formData, handleFormChange, derivedSiteName, tankOptions]
   );
 
   return (
@@ -1582,80 +1368,14 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Reports</div>
-        </div>
-        <div className="bg-white rounded-lg border border-yellow-200 p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-          <div className="text-sm text-gray-500">Pending</div>
-        </div>
-        <div className="bg-white rounded-lg border border-red-200 p-4">
-          <div className="text-2xl font-bold text-red-600">{stats.overdue}</div>
-          <div className="text-sm text-gray-500">Overdue</div>
-        </div>
-        <div className="bg-white rounded-lg border border-orange-200 p-4">
-          <div className="text-2xl font-bold text-orange-600">{stats.thresholdExceeded}</div>
-          <div className="text-sm text-gray-500">Threshold Exceeded</div>
-        </div>
-      </div>
-
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-500">Filter:</span>
-        {(['all', 'pending', 'overdue', 'submitted', 'approved'] as const).map((status) => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              statusFilter === status
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Reports Grid */}
-      {reports.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500">No reports found</p>
-          <button
-            onClick={() => handleOpenWizard()}
-            className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            Create First Report
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {reports.map((report) => (
-            <SeaLiceReportCard
-              key={report.id}
-              report={report}
-              onView={() => setSelectedReport(report)}
-              onEdit={() => {
-                setSelectedReport(report);
-                handleOpenWizard(report);
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* Submission History */}
+      <SubmissionHistorySection reportType="SEA_LICE" siteId={siteId} />
 
       {/* Wizard Modal */}
       <ReportWizard
         isOpen={isWizardOpen}
         onClose={() => {
           setIsWizardOpen(false);
-          setSelectedReport(null);
           setFormData(getInitialFormData());
         }}
         onSubmit={handleSubmit}

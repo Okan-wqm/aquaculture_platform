@@ -60,6 +60,14 @@ vi.mock('../../../../hooks/useTanks', () => ({
   useTanksList: () => ({ data: { items: [] } }),
 }));
 
+// The tabs now render the real SubmissionHistorySection — stub its read-model
+// hooks so the history query does not pollute the graphqlClient mutation seam.
+vi.mock('../../../../hooks/useRegulatoryReports', () => ({
+  useRegulatoryReports: () => ({ data: [], isLoading: false, error: null }),
+  useRegulatoryReport: () => ({ data: null, isLoading: false }),
+  useInvalidateRegulatoryReports: () => () => {},
+}));
+
 vi.mock('../../../../hooks/useRegulatory', async () => {
   const actual =
     await vi.importActual<typeof import('../../../../hooks/useRegulatory')>(

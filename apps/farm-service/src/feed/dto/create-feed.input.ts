@@ -313,8 +313,14 @@ export class CreateFeedInput {
   @Type(() => NutritionalContentInput)
   nutritionalContent?: NutritionalContentInput;
 
-  /** Feed availability status. Defaults to AVAILABLE when not provided. */
-  @Field(() => FeedStatus, { nullable: true, defaultValue: FeedStatus.AVAILABLE, description: 'Feed availability status' })
+  // WHY: `@Field(() => Enum, { defaultValue })` makes @nestjs/graphql apply the
+  // raw enum KEY (AVAILABLE) — not the value ('available') — when the field is
+  // omitted, so @IsEnum (which validates the lowercase values) rejects every
+  // createFeed that doesn't send status, masked as "Bad Request". WHAT: drop the
+  // GraphQL defaultValue; the handler already applies FeedStatus.AVAILABLE when
+  // status is undefined (create-feed.handler.ts) so the default is preserved.
+  /** Feed availability status. Handler defaults it to AVAILABLE when omitted. */
+  @Field(() => FeedStatus, { nullable: true, description: 'Feed availability status' })
   @IsOptional()
   @IsEnum(FeedStatus)
   status?: FeedStatus;

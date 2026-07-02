@@ -224,15 +224,16 @@ export function useSensorSocket(sensorIds: string[] = []) {
 
   // Initialize socket on first use
   useEffect(() => {
-    getSensorSocket();
+    const socket = getSensorSocket();
 
     return () => {
       // Cleanup: unsubscribe from sensors when component unmounts
       if (subscribedRef.current.size > 0) {
         unsubscribeFromSensors(Array.from(subscribedRef.current));
       }
-      // Release our reference so the pool can clean up when no consumers remain
-      releaseSocket(WS_URL);
+      // Release our reference (by socket identity) so the pool can clean up when no
+      // consumers remain — immune to a tenant switch between acquire and release.
+      releaseSocket(socket);
       listenersAttached = false;
     };
   }, []);

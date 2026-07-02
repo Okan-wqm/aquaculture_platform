@@ -4,7 +4,10 @@
   "title": "NATS Per-Service Identity + ACL Registry",
   "description": "Single source of truth for NATS per-service authentication. Validates infrastructure/nats/services.yaml. Consumed by the CI invariant test nats-invariants.spec.ts.",
   "type": "object",
-  "required": ["version", "services"],
+  "required": [
+    "version",
+    "services"
+  ],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -15,22 +18,29 @@
     "services": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/definitions/service" },
+      "items": {
+        "$ref": "#/definitions/service"
+      },
       "description": "Ordered list of NATS services. Order is preserved by the nats.conf generator for auditable diffs."
     }
   },
   "definitions": {
     "service": {
       "type": "object",
-      "required": ["name", "description", "publish", "subscribe"],
+      "required": [
+        "name",
+        "description",
+        "publish",
+        "subscribe"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+          "pattern": "^[a-z][a-z0-9_-]*[a-z0-9]$",
           "minLength": 3,
           "maxLength": 40,
-          "description": "NATS user identifier. MUST exactly match the mTLS client cert CN for this service (verify_and_map maps CN → user). Lowercase snake_case."
+          "description": "NATS user identifier. MUST exactly match the mTLS client cert CN for this service (verify_and_map maps CN \u2192 user). Lowercase snake_case."
         },
         "description": {
           "type": "string",
@@ -40,23 +50,27 @@
         "publish": {
           "type": "array",
           "minItems": 3,
-          "items": { "$ref": "#/definitions/subject" },
+          "items": {
+            "$ref": "#/definitions/subject"
+          },
           "description": "Subjects this service is permitted to publish to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
         },
         "subscribe": {
           "type": "array",
           "minItems": 2,
-          "items": { "$ref": "#/definitions/subject" },
+          "items": {
+            "$ref": "#/definitions/subject"
+          },
           "description": "Subjects this service is permitted to subscribe to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
         }
       }
     },
     "subject": {
       "type": "string",
-      "pattern": "^(AQUACULTURE_EVENTS\\.|events\\.|request\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>]+$",
+      "pattern": "^(events\\.|commands\\.|request\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern. Must begin with one of: AQUACULTURE_EVENTS., events., request., st.language., policy., $JS.API., _INBOX. — platform subject-space conventions enforced by SSoT. The `policy.` namespace carries dynamic-policy propagation (e.g. `policy.ingest_backend.>` — ADR-027 per-tenant toggle + ADR-031 request-reply snapshot)."
+      "description": "NATS subject pattern. Must begin with one of: events., commands., request., sensor., st.language., policy., $JS.API., _INBOX. \u2014 platform subject-space conventions enforced by SSoT. The legacy AQUACULTURE_EVENTS. prefix is STRUCTURALLY REJECTED (ORPHAN-HIGH-317): it is the JetStream stream NAME, never a subject prefix \u2014 grants written in that scheme are dead weight that silently deny the real events.* publishes. The `policy.` namespace carries dynamic-policy propagation (e.g. policy.ingest_backend.> \u2014 ADR-027 per-tenant toggle + ADR-031 request-reply snapshot); `sensor.lookup.by-topic` is the Rust sidecar cache-miss RPC (ADR-029)."
     }
   }
 }

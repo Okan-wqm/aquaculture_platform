@@ -125,7 +125,7 @@ export function useAlarmRuntime(
 
     return () => {
       socket.off(ScadaSocketEvent.ALARM_STATUS, handleAlarmStatus);
-      releaseSocket(SCADA_WS_URL);
+      releaseSocket(socket);
     };
   }, [updateAlarmStatus]);
 
@@ -174,7 +174,7 @@ export function useAlarmRuntime(
       return;
     }
     socket.emit(ScadaSocketEvent.ALARM_ACK, { alarmInstanceId: alarmId });
-    releaseSocket(SCADA_WS_URL);
+    releaseSocket(socket);
   }, []);
 
   // ── ACK all alarms ───────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ export function useAlarmRuntime(
       return;
     }
     socket.emit(ScadaSocketEvent.ALARM_ACK_ALL, {});
-    releaseSocket(SCADA_WS_URL);
+    releaseSocket(socket);
   }, []);
 
   // ── History query ────────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ export function useAlarmRuntime(
     } catch (err) {
       console.error('[useAlarmRuntime] queryHistory error:', err);
     } finally {
-      releaseSocket(SCADA_WS_URL);
+      releaseSocket(socket);
       setIsLoading(false);
     }
   }, []);

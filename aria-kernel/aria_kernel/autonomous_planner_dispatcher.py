@@ -4,7 +4,7 @@ The pre-fix kernel had every planner-request primitive
 (``next_pending_request`` / ``claim_request`` / ``submit_claim_result``)
 but no daemon that bound them into a closed loop. The convergent
 planning bridge docstring even named the gap: "external orchestrator
-(Codex / Claude Code session) to claim". Operators had to invoke
+(Claude Code session) to claim". Operators had to invoke
 each step manually — ARIA was a semi-autonomous kernel with
 composable primitives, not a fully-autonomous closed-loop system.
 

@@ -30,6 +30,13 @@ import {
   AssetType,
 } from '../entities/work-order.entity';
 import { WorkOrderService, WorkOrderStatistics } from '../services/work-order.service';
+import { QueryBus } from '@platform/cqrs';
+import { GetWorkOrderQuery } from '../queries/get-work-order.query';
+import { GetWorkOrderByCodeQuery } from '../queries/get-work-order-by-code.query';
+import { ListWorkOrdersQuery } from '../queries/list-work-orders.query';
+import { ListOverdueWorkOrdersQuery } from '../queries/list-overdue-work-orders.query';
+import { ListMyWorkOrdersQuery } from '../queries/list-my-work-orders.query';
+import { GetWorkOrderStatisticsQuery } from '../queries/get-work-order-statistics.query';
 import { CreateWorkOrderInput } from '../dto/create-work-order.dto';
 import {
   UpdateWorkOrderInput,
@@ -144,7 +151,10 @@ export class DeleteWorkOrderResponse {
 export class WorkOrderResolver {
   private readonly logger = new Logger(WorkOrderResolver.name);
 
-  constructor(private readonly workOrderService: WorkOrderService) {}
+  constructor(
+    private readonly workOrderService: WorkOrderService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   // -------------------------------------------------------------------------
   // QUERIES
@@ -157,7 +167,7 @@ export class WorkOrderResolver {
     @Tenant() tenantId: string,
   ): Promise<WorkOrder> {
     this.logger.debug(`Getting work order: ${id}`);
-    return this.workOrderService.findById(tenantId, id);
+    return this.queryBus.execute(new GetWorkOrderQuery(tenantId, id));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -167,7 +177,7 @@ export class WorkOrderResolver {
     @Tenant() tenantId: string,
   ): Promise<WorkOrder> {
     this.logger.debug(`Getting work order by code: ${code}`);
-    return this.workOrderService.findByCode(tenantId, code);
+    return this.queryBus.execute(new GetWorkOrderByCodeQuery(tenantId, code));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -186,13 +196,8 @@ export class WorkOrderResolver {
     sortOrder?: 'ASC' | 'DESC',
   ): Promise<IStandardPaginatedResult<WorkOrder>> {
     this.logger.debug(`Listing work orders for tenant: ${tenantId}`);
-    return this.workOrderService.findAll(
-      tenantId,
-      filter,
-      page,
-      limit,
-      sortBy,
-      sortOrder,
+    return this.queryBus.execute(
+      new ListWorkOrdersQuery(tenantId, filter, page, limit, sortBy, sortOrder),
     );
   }
 
@@ -202,7 +207,7 @@ export class WorkOrderResolver {
     @Tenant() tenantId: string,
   ): Promise<WorkOrder[]> {
     this.logger.debug(`Getting overdue work orders for tenant: ${tenantId}`);
-    return this.workOrderService.findOverdue(tenantId);
+    return this.queryBus.execute(new ListOverdueWorkOrdersQuery(tenantId));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -214,7 +219,7 @@ export class WorkOrderResolver {
     activeOnly?: boolean,
   ): Promise<WorkOrder[]> {
     this.logger.debug(`Getting work orders for user: ${user.sub}`);
-    return this.workOrderService.findByAssignee(tenantId, user.sub, activeOnly);
+    return this.queryBus.execute(new ListMyWorkOrdersQuery(tenantId, user.sub, activeOnly));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -225,10 +230,8 @@ export class WorkOrderResolver {
     @Args('dateTo', { nullable: true }) dateTo?: Date,
   ): Promise<WorkOrderStatisticsResponse> {
     this.logger.debug(`Getting work order statistics for tenant: ${tenantId}`);
-    const stats = await this.workOrderService.getStatistics(
-      tenantId,
-      dateFrom,
-      dateTo,
+    const stats = await this.queryBus.execute<GetWorkOrderStatisticsQuery, WorkOrderStatistics>(
+      new GetWorkOrderStatisticsQuery(tenantId, dateFrom, dateTo),
     );
 
     return {

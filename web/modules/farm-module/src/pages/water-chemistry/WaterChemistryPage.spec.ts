@@ -1,3 +1,4 @@
+import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -14,7 +15,7 @@ vi.mock('./components/ParameterConfigManager', () => ({ ParameterConfigManager: 
 
 import { WATER_CHEMISTRY_DIAGNOSTIC_EVENT } from './waterChemistryDiagnostics';
 import type { WaterChemistryDiagnosticDetail } from './waterChemistryDiagnostics';
-import { getVisibleH2SChartZones } from './WaterChemistryPage';
+import { getVisibleH2SChartZones, getVisibleNH3ChartZones } from './WaterChemistryPage';
 import WaterChemistryPage from './WaterChemistryPage';
 
 function renderWaterChemistryPage(route = '/water-chemistry'): ReturnType<typeof render> {
@@ -59,6 +60,36 @@ describe('getVisibleH2SChartZones', () => {
       danger: { x1: 4, x2: 6 },
       alert: { x1: 6, x2: 6.2 },
       safe: { x1: 6.2, x2: 12.5 },
+      showCriticalLine: true,
+    });
+  });
+});
+
+describe('getVisibleNH3ChartZones (NH₃ toxic ABOVE crit, clamped to 6.0–9.5)', () => {
+  it('renders full safe domain when the NH₃ critical pH is absent or above the visible chart', () => {
+    // Regression guard: off-domain critical pH must NOT leave the chart unshaded.
+    expect(getVisibleNH3ChartZones(NaN)).toEqual({
+      safe: { x1: 6, x2: 9.5 },
+      showCriticalLine: false,
+    });
+    expect(getVisibleNH3ChartZones(10)).toEqual({
+      safe: { x1: 6, x2: 9.5 },
+      showCriticalLine: false,
+    });
+  });
+
+  it('renders full danger domain when the NH₃ critical pH is below the visible chart', () => {
+    expect(getVisibleNH3ChartZones(5)).toEqual({
+      danger: { x1: 6, x2: 9.5 },
+      showCriticalLine: false,
+    });
+  });
+
+  it('splits safe, alert, and danger bands inside the visible chart', () => {
+    expect(getVisibleNH3ChartZones(8)).toEqual({
+      safe: { x1: 6, x2: 7.8 },
+      alert: { x1: 7.8, x2: 8 },
+      danger: { x1: 8, x2: 9.5 },
       showCriticalLine: true,
     });
   });
@@ -109,16 +140,14 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
     vi.advanceTimersByTime(1000);
   }, 30000);
 
-  it('falls back to realtime pH when the optional H₂S measurement pH is cleared', async () => {
+  it('uses the single realtime pH for H₂S — no separate H₂S measurement pH input or readout', async () => {
     renderWaterChemistryPage();
     expect(await screen.findByText('Water Quality Management Chart')).toBeInTheDocument();
 
-    const h2sPHInput = screen.getByLabelText('H₂S pH');
-    fireEvent.change(h2sPHInput, { target: { value: '' } });
-
-    expect(screen.getByText('H₂S measured at pH')).toBeInTheDocument();
-    expect(screen.getByText('7.00')).toBeInTheDocument();
-    expect(screen.queryByText('0.00')).not.toBeInTheDocument();
+    // H₂S, CO₂ and NH₃ all share the one realtime pH; the separate H₂S
+    // measurement-pH knob and its readout row are gone.
+    expect(screen.queryByLabelText('H₂S pH')).not.toBeInTheDocument();
+    expect(screen.queryByText('H₂S measured at pH')).not.toBeInTheDocument();
   }, 15000);
 
   it('prints through the iframe without reporting a fallback diagnostic', async () => {

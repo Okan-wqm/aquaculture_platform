@@ -514,6 +514,36 @@ def materialize_agent_draft(
             body, intent_obj, auto_action_policy_path=policy_path,
         )
         if not result.valid:
+            # K6 (ORPHAN-MEDIUM-287) — surface a drafter refusal as a
+            # structured aria/agent-refusal/v1 ledger row instead of a
+            # generic grammar failure, so refusals are queryable on the
+            # same surface as every other agent refusal and the retry
+            # budget is never burned on a deterministic outcome.
+            first = result.complaints[0] if result.complaints else ""
+            if first.startswith("drafter_refusal"):
+                reason_code = first.split(":", 1)[1] if ":" in first else "unrecognized"
+                from .agent_contract import render_refusal
+                from .draft_validator import DRAFTER_REFUSAL_CLASS_BY_CODE
+                refusal_row = render_refusal(
+                    request_id=str(draft_id),
+                    cycle_id=str(materialize_event_id),
+                    refused_by="aria-drafter",
+                    reason_class=DRAFTER_REFUSAL_CLASS_BY_CODE.get(reason_code, "law"),
+                    reason_text=f"drafter refusal sentinel: {reason_code}",
+                    evidence_refs=[str(target_path)],
+                )
+                from .tool_registry import append_tools_governance as _dr_gov
+                _dr_gov(
+                    ensure_tools_dir(base_dir),
+                    "drafter_refusal_recorded",
+                    {
+                        "materialize_event_id": materialize_event_id,
+                        "draft_id": draft_id,
+                        "reason_code": reason_code,
+                        "refusal": refusal_row,
+                    },
+                )
+                raise GovernanceError(f"drafter_refused:{reason_code}")
             raise GovernanceError(
                 "materialize_body_grammar_invalid: "
                 + ";".join(result.complaints)

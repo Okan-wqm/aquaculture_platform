@@ -13,14 +13,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual, Like, DataSource } from 'typeorm';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { Repository, In, Like, DataSource } from 'typeorm';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   CreateSparePartInput,
   UpdateSparePartInput,
   StockMovementInput,
-  SparePartFilterInput,
 } from '../dto/spare-part.dto';
 
 /**
@@ -223,151 +221,6 @@ export class SparePartService {
     return sparePart;
   }
 
-  /**
-   * Kod ile yedek parça bulur
-   */
-  async findByCode(tenantId: string, code: string): Promise<SparePart> {
-    const sparePart = await this.sparePartRepository.findOne({
-      where: { code, tenantId },
-    });
-
-    if (!sparePart) {
-      throw new NotFoundException(`Yedek parça bulunamadı: ${code}`);
-    }
-
-    return sparePart;
-  }
-
-  /**
-   * Parça numarası ile yedek parça bulur
-   */
-  async findByPartNumber(tenantId: string, partNumber: string): Promise<SparePart> {
-    const sparePart = await this.sparePartRepository.findOne({
-      where: { partNumber, tenantId },
-    });
-
-    if (!sparePart) {
-      throw new NotFoundException(`Yedek parça bulunamadı: ${partNumber}`);
-    }
-
-    return sparePart;
-  }
-
-  /**
-   * Filtrelenmiş yedek parçaları listeler
-   */
-  async findAll(
-    tenantId: string,
-    filter?: SparePartFilterInput,
-    page = 1,
-    limit = 20,
-    sortBy = 'name',
-    sortOrder: 'ASC' | 'DESC' = 'ASC',
-  ): Promise<IStandardPaginatedResult<SparePart>> {
-    const query = this.sparePartRepository
-      .createQueryBuilder('sp')
-      .where('sp.tenantId = :tenantId', { tenantId });
-
-    // Apply filters
-    if (filter?.status?.length) {
-      query.andWhere('sp.status IN (:...statuses)', { statuses: filter.status });
-    }
-    if (filter?.equipmentTypeId) {
-      query.andWhere('sp.equipmentTypeId = :equipmentTypeId', {
-        equipmentTypeId: filter.equipmentTypeId,
-      });
-    }
-    if (filter?.supplierId) {
-      query.andWhere('sp.supplierId = :supplierId', {
-        supplierId: filter.supplierId,
-      });
-    }
-    if (filter?.manufacturer) {
-      query.andWhere('sp.manufacturer ILIKE :manufacturer', {
-        manufacturer: `%${filter.manufacturer}%`,
-      });
-    }
-    if (filter?.isActive !== undefined) {
-      query.andWhere('sp.isActive = :isActive', { isActive: filter.isActive });
-    }
-    if (filter?.isLowStock) {
-      query.andWhere('sp.quantity <= sp.minStock');
-      query.andWhere('sp.quantity > 0');
-    }
-    if (filter?.isOutOfStock) {
-      query.andWhere('sp.quantity = 0');
-    }
-    if (filter?.searchTerm) {
-      query.andWhere(
-        '(sp.name ILIKE :search OR sp.code ILIKE :search OR sp.partNumber ILIKE :search)',
-        { search: `%${filter.searchTerm}%` },
-      );
-    }
-
-    // Count total
-    const total = await query.getCount();
-
-    // Apply sorting and pagination
-    const validSortFields = [
-      'name',
-      'code',
-      'partNumber',
-      'quantity',
-      'status',
-      'createdAt',
-    ];
-    const finalSortBy = validSortFields.includes(sortBy) ? sortBy : 'name';
-
-    query
-      .orderBy(`sp.${finalSortBy}`, sortOrder)
-      .skip((page - 1) * limit)
-      .take(limit);
-
-    const items = await query.getMany();
-
-    return createStandardPaginatedResult(items, total, page, limit);
-  }
-
-  /**
-   * Düşük stoklu yedek parçaları getirir
-   */
-  async findLowStock(tenantId: string): Promise<LowStockAlert[]> {
-    const parts = await this.sparePartRepository.find({
-      where: [
-        { tenantId, isActive: true, status: SparePartStatus.LOW_STOCK },
-        { tenantId, isActive: true, status: SparePartStatus.OUT_OF_STOCK },
-      ],
-      order: { quantity: 'ASC' },
-    });
-
-    return parts.map((part) => ({
-      sparePart: part,
-      currentQuantity: part.quantity,
-      minStock: part.minStock,
-      reorderPoint: part.reorderPoint,
-      deficit: Math.max(0, part.reorderPoint - part.quantity),
-    }));
-  }
-
-  /**
-   * Ekipman tipi için uyumlu yedek parçaları getirir
-   */
-  async findByEquipmentType(
-    tenantId: string,
-    equipmentTypeId: string,
-  ): Promise<SparePart[]> {
-    return this.sparePartRepository
-      .createQueryBuilder('sp')
-      .where('sp.tenantId = :tenantId', { tenantId })
-      .andWhere('sp.isActive = true')
-      .andWhere(
-        '(sp.equipmentTypeId = :equipmentTypeId OR :equipmentTypeId = ANY(sp.compatibleEquipmentTypes))',
-        { equipmentTypeId },
-      )
-      .orderBy('sp.name', 'ASC')
-      .getMany();
-  }
-
   // -------------------------------------------------------------------------
   // STOCK MANAGEMENT
   // -------------------------------------------------------------------------
@@ -552,49 +405,6 @@ export class SparePartService {
     const savedParts = await this.sparePartRepository.save(spareParts);
 
     return savedParts;
-  }
-
-  // -------------------------------------------------------------------------
-  // STATISTICS & REPORTS
-  // -------------------------------------------------------------------------
-
-  /**
-   * Stok özeti getirir
-   */
-  async getStockSummary(tenantId: string): Promise<StockSummary> {
-    const parts = await this.sparePartRepository.find({
-      where: { tenantId, isActive: true },
-    });
-
-    const summary: StockSummary = {
-      totalParts: parts.length,
-      totalValue: 0,
-      lowStockCount: 0,
-      outOfStockCount: 0,
-      byStatus: {} as Record<SparePartStatus, number>,
-    };
-
-    // Initialize status counts
-    Object.values(SparePartStatus).forEach((s) => (summary.byStatus[s] = 0));
-
-    for (const part of parts) {
-      // Calculate total value
-      if (part.unitPrice) {
-        summary.totalValue += Number(part.unitPrice) * part.quantity;
-      }
-
-      // Count by status
-      summary.byStatus[part.status]++;
-
-      // Count low/out of stock
-      if (part.status === SparePartStatus.LOW_STOCK) {
-        summary.lowStockCount++;
-      } else if (part.status === SparePartStatus.OUT_OF_STOCK) {
-        summary.outOfStockCount++;
-      }
-    }
-
-    return summary;
   }
 
   // -------------------------------------------------------------------------

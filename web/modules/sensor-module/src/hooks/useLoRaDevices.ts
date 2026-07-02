@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   LORA_DEVICES_QUERY,
@@ -109,7 +109,7 @@ export function useAddLoRaDevice() {
       return data.addLoRaDevice;
     },
     onSuccess: (_, { edgeDeviceId }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'loraDevices', edgeDeviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'loraDevices', edgeDeviceId) });
     },
   });
 }
@@ -137,7 +137,7 @@ export function useRemoveLoRaDevice() {
       return data.removeLoRaDevice;
     },
     onSuccess: (_, { edgeDeviceId }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'loraDevices', edgeDeviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'loraDevices', edgeDeviceId) });
     },
   });
 }

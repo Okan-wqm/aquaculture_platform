@@ -155,12 +155,12 @@ class TestCrossReviewerAgentFile(unittest.TestCase):
         content = _AGENT_FILE.read_text(encoding="utf-8")
         # Frontmatter assertions (line-anchored via MULTILINE)
         self.assertRegex(content, r"(?m)^name:\s*aria-cross-reviewer\s*$", msg="name field")
-        # Plan 023 §A — model/effort tiering supersedes the prior
-        # "every ARIA agent is opus" standing rule. The cross-reviewer is a
-        # read-only scorer (it reviews/scores plans and flags risks), so it
-        # runs on the cheap scout tier (sonnet/medium); the decider/writer
-        # tier stays opus. SSoT: aria_kernel/agent_runtime_profile.py.
-        self.assertRegex(content, r"(?m)^model:\s*sonnet\s*$", msg="model: sonnet (scout tier)")
+        # Plan 023 §A model/effort tiering + K5 tier flip (operator policy
+        # 2026-07-01): the judge/validator layer moved sonnet -> opus while
+        # decision nodes moved to fable. The cross-reviewer is a read-only
+        # scorer, so it runs on the judge tier (opus/medium).
+        # SSoT: aria_kernel/agent_runtime_profile.py.
+        self.assertRegex(content, r"(?m)^model:\s*opus\s*$", msg="model: opus (judge tier)")
         self.assertRegex(content, r"(?m)^effort:\s*medium\s*$", msg="effort: medium (scout tier)")
         self.assertRegex(content, r"(?m)^tools:\s*Read,\s*Grep,\s*Glob\s*$", msg="tools: Read, Grep, Glob")
 

@@ -27,7 +27,7 @@ import type { BatchTransferredEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 
 import {
   defaultFarmStockProjectionForDirectHandlerConstruction,
@@ -43,6 +43,7 @@ import { Batch } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
+import { TankBatchService } from '../services/tank-batch.service';
 import { findTankOrEquipmentWithManager, resolveTankSiteId } from '../utils/tank-lookup.util';
 
 // Note: TransferResult interface kept for internal tracking but handler returns Batch for GraphQL compatibility
@@ -78,6 +79,8 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly tankCapacityService: TankCapacityService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
+    // SSoT tank-composition writer (batchDetails[] + derived aggregates + current*).
+    private readonly tankBatchService: TankBatchService,
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -326,51 +329,111 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
 
       await queryRunner.manager.save(TankAllocation, destAllocation);
 
-      // 5. TankBatch güncellemeleri
-      await this.updateTankBatchWithManager(queryRunner.manager, tenantId, payload.sourceTankId, batchId, -payload.quantity, -biomassKg);
-      await this.updateTankBatchWithManager(queryRunner.manager, tenantId, payload.destinationTankId, batchId, payload.quantity, biomassKg, batch.batchNumber);
+      // 5. TankBatch updates via the shared SSoT writer (batchDetails[] is the
+      // per-batch SSoT; totalQuantity/biomass/avg/density/current* are derived).
+      // Capacity flags are then set from TankCapacityService — the single source
+      // of truth for capacity — instead of the prior hand-rolled density formula
+      // (hardcoded 30 kg/m³, maxBiomass ignored) that lived in the now-deleted
+      // private updateTankBatchWithManager.
+      const savedSourceTankBatch = await this.tankBatchService.applyBatchDelta(
+        queryRunner.manager,
+        tenantId,
+        payload.sourceTankId,
+        {
+          batchId,
+          batchNumber: batch.batchNumber,
+          quantityDelta: -payload.quantity,
+          biomassDelta: -biomassKg,
+        },
+        { volumeM3: Number(sourceTank.volume) || 0 },
+      );
+      const sourceCapacity = this.tankCapacityService.calculate({
+        equipment: sourceTank,
+        existing: {
+          salmonBiomassKg: Number(savedSourceTankBatch.totalBiomassKg),
+          cleanerBiomassKg: Number(savedSourceTankBatch.cleanerFishBiomassKg || 0),
+        },
+        incomingBiomassKg: 0,
+      });
+      savedSourceTankBatch.isOverCapacity = sourceCapacity.isOverCapacity;
+      savedSourceTankBatch.capacityUsedPercent = sourceCapacity.utilizationPercent;
+      await queryRunner.manager.save(savedSourceTankBatch);
 
-      // 6. Tank/Equipment biomass güncellemeleri (Math.max to prevent negatives)
+      const savedDestTankBatch = await this.tankBatchService.applyBatchDelta(
+        queryRunner.manager,
+        tenantId,
+        payload.destinationTankId,
+        {
+          batchId,
+          batchNumber: batch.batchNumber,
+          quantityDelta: payload.quantity,
+          biomassDelta: biomassKg,
+        },
+        {
+          code: destinationTank.code,
+          name: destinationTank.name,
+          volumeM3: Number(destinationTank.volume) || 0,
+        },
+      );
+      const destCapacity = this.tankCapacityService.calculate({
+        equipment: destinationTank,
+        existing: {
+          salmonBiomassKg: Number(savedDestTankBatch.totalBiomassKg),
+          cleanerBiomassKg: Number(savedDestTankBatch.cleanerFishBiomassKg || 0),
+        },
+        incomingBiomassKg: 0,
+      });
+      savedDestTankBatch.isOverCapacity = destCapacity.isOverCapacity;
+      savedDestTankBatch.capacityUsedPercent = destCapacity.utilizationPercent;
+      await queryRunner.manager.save(savedDestTankBatch);
+
+      // 6. Tank/Equipment biomass güncellemeleri (Math.max to prevent negatives).
+      // currentCount for BOTH legs is derived + written by
+      // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
+      // independent count write here (that drifted from tank_batches, the SSoT).
+      // currentBiomass stays on its growth-tracking path; biomass-ONLY UPDATEs
+      // (never a full-entity save, which would clobber the derived currentCount).
+      // A transfer INTO a PREPARING/FALLOW tank still ACTIVATES it (status-only,
+      // folded into the same biomass UPDATE).
       const newSourceBiomass = Math.max(0, Number(sourceTank.currentBiomass || 0) - biomassKg);
-      const newSourceCount = Math.max(0, (sourceTank.currentCount || 0) - payload.quantity);
       if (sourceLookup.isFromTanksTable && sourceLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({ currentBiomass: newSourceBiomass, currentCount: newSourceCount })
+          .set({ currentBiomass: newSourceBiomass })
           .where('id = :id', { id: sourceLookup.originalTank.id })
           .execute();
       } else {
-        sourceTank.currentBiomass = newSourceBiomass;
-        sourceTank.currentCount = newSourceCount;
-        await queryRunner.manager.save(Equipment, sourceTank);
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newSourceBiomass })
+          .where('id = :id', { id: sourceTank.id })
+          .execute();
       }
 
       const newDestBiomass = Number(destinationTank.currentBiomass || 0) + biomassKg;
-      const newDestCount = (destinationTank.currentCount || 0) + payload.quantity;
       if (destLookup.isFromTanksTable && destLookup.originalTank) {
         const destOriginalTank = destLookup.originalTank;
-        // Activate tank if it was preparing/fallow
         const shouldActivate =
           destOriginalTank.status === TankStatus.PREPARING ||
           destOriginalTank.status === TankStatus.FALLOW;
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({
-            currentBiomass: newDestBiomass,
-            currentCount: newDestCount,
-            ...(shouldActivate ? { status: TankStatus.ACTIVE } : {}),
-          })
+          .set({ currentBiomass: newDestBiomass, ...(shouldActivate ? { status: TankStatus.ACTIVE } : {}) })
           .where('id = :id', { id: destOriginalTank.id })
           .execute();
       } else {
-        destinationTank.currentBiomass = newDestBiomass;
-        destinationTank.currentCount = newDestCount;
-        if (destinationTank.status === EquipmentStatus.PREPARING || destinationTank.status === EquipmentStatus.FALLOW) {
-          destinationTank.status = EquipmentStatus.ACTIVE;
-        }
-        await queryRunner.manager.save(Equipment, destinationTank);
+        const shouldActivate =
+          destinationTank.status === EquipmentStatus.PREPARING ||
+          destinationTank.status === EquipmentStatus.FALLOW;
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newDestBiomass, ...(shouldActivate ? { status: EquipmentStatus.ACTIVE } : {}) })
+          .where('id = :id', { id: destinationTank.id })
+          .execute();
       }
 
       // Post-operation states güncelle
@@ -441,97 +504,6 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     );
 
     return transferredBatch;
-  }
-
-  /**
-   * Transaction-aware TankBatch update using EntityManager
-   */
-  private async updateTankBatchWithManager(
-    manager: EntityManager,
-    tenantId: string,
-    tankId: string,
-    batchId: string,
-    quantityDelta: number,
-    biomassDelta: number,
-    batchNumber?: string,
-  ): Promise<void> {
-    let tankBatch = await manager.findOne(TankBatch, {
-      where: { tenantId, tankId },
-    });
-
-    // Scope by tenantId on every lookup — `tankId` arrived from a
-    // tenant-scoped caller but the discipline is that every findOne
-    // carries its tenant filter so a future caller refactor can't
-    // silently strip the isolation boundary.
-    const equipment = await manager.findOne(Equipment, {
-      where: { id: tankId, tenantId },
-    });
-    const effectiveVolume = equipment?.volume || 0;
-
-    if (!tankBatch && quantityDelta > 0) {
-      // Yeni TankBatch oluştur
-      tankBatch = manager.create(TankBatch, {
-        tenantId,
-        tankId,
-        primaryBatchId: batchId,
-        primaryBatchNumber: batchNumber,
-        tankCode: equipment?.code,
-        tankName: equipment?.name,
-        totalQuantity: quantityDelta,
-        totalBiomassKg: biomassDelta,
-        avgWeightG: quantityDelta > 0 ? (biomassDelta * 1000) / quantityDelta : 0,
-        densityKgM3: effectiveVolume ? biomassDelta / Number(effectiveVolume) : 0,
-        isMixedBatch: false,
-        isOverCapacity: false,
-        cleanerFishBiomassKg: 0,
-        cleanerFishQuantity: 0,
-      });
-    } else if (tankBatch) {
-      // FARM-MEDIUM-003: Math.max(0) guards prevent negative fish count / biomass
-      // when concurrent operations produce stale reads (even with pessimistic locks,
-      // the delta might be computed from a stale snapshot in edge cases).
-      // Ensure numeric operations (database may return decimal columns as strings)
-      tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) + quantityDelta);
-      tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) + biomassDelta);
-
-      if (tankBatch.totalQuantity > 0) {
-        tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-        tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-      } else {
-        // Tank boşaldı
-        tankBatch.avgWeightG = 0;
-        tankBatch.densityKgM3 = 0;
-        tankBatch.primaryBatchId = undefined;
-        tankBatch.batchDetails = undefined;
-      }
-
-      // Post-update capacity flags — read from the same single source of
-      // truth (TankCapacityService) that gates the destination check at
-      // line 159. Earlier pass-through here recomputed isOverCapacity
-      // from a density-only formula with a hardcoded 30 kg/m³ default,
-      // which (a) ignored maxBiomass entirely and (b) produced a
-      // different answer than enforce() at the source side. calculate()
-      // is the no-throw variant and returns every axis the destination
-      // path also enforces.
-      if (equipment) {
-        const cleanerKg = Number(tankBatch.cleanerFishBiomassKg ?? 0);
-        const totalKg = Number(tankBatch.totalBiomassKg ?? 0);
-        const capacity = this.tankCapacityService.calculate({
-          equipment,
-          existing: {
-            salmonBiomassKg: Math.max(0, totalKg - cleanerKg),
-            cleanerBiomassKg: cleanerKg,
-          },
-          incomingBiomassKg: 0,
-        });
-        tankBatch.isOverCapacity = capacity.isOverCapacity;
-        tankBatch.capacityUsedPercent = capacity.utilizationPercent;
-      }
-    }
-
-    if (tankBatch) {
-      await manager.save(TankBatch, tankBatch);
-    }
   }
 
 }

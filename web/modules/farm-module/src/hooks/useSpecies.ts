@@ -2,8 +2,8 @@
  * Species hooks for farm-module
  * Handles CRUD operations for species via GraphQL API
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, graphqlClient, createTenantInvalidationKey, useTenantQuery } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SpeciesCategory {
@@ -311,60 +311,54 @@ export function useSpeciesList(filter?: {
   limit?: number;
   offset?: number;
 }) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'species', 'list', tenantId, filter),
-    queryFn: async () => {
+  // useTenantQuery enforces the tenant prefix + token/tenant enabled gate +
+  // keep-previous-data. (Dropped the redundant extra tenantId segment from the key —
+  // the tenant is already the prefix; prefix-based invalidation still matches.)
+  return useTenantQuery(
+    ['species', 'list', filter],
+    async () => {
       const data = await graphqlClient.request<{ speciesList: PaginatedResponse }>(
         SPECIES_LIST_QUERY,
         { filter }
       );
       return data.speciesList;
     },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId,
-  });
+    { staleTime: 30000 },
+  );
 }
 
 /**
  * Hook to fetch single species
  */
 export function useSpecies(id: string) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'species', 'detail', tenantId, id),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['species', 'detail', id],
+    async () => {
       const data = await graphqlClient.request<{ species: Species }>(
         SPECIES_QUERY,
         { id }
       );
       return data.species;
     },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId && !!id,
-  });
+    { staleTime: 30000, enabled: !!id },
+  );
 }
 
 /**
  * Hook to fetch active species (for dropdowns)
  */
 export function useActiveSpecies() {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'species', 'active', tenantId),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['species', 'active'],
+    async () => {
       const data = await graphqlClient.request<{ activeSpecies: Species[] }>(
         ACTIVE_SPECIES_QUERY,
         {}
       );
       return data.activeSpecies;
     },
-    staleTime: 60000,
-    enabled: !!token && !!tenantId,
-  });
+    { staleTime: 60000 },
+  );
 }
 
 /**

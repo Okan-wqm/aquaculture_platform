@@ -198,6 +198,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
       // these lock/TOCTOU race tests focused on concurrency, not site authz).
       new SiteAuthorizationService(),
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),
@@ -602,6 +603,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
       // these lock/TOCTOU race tests focused on concurrency, not site authz).
       new SiteAuthorizationService(),
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),

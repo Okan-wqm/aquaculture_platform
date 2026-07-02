@@ -2,10 +2,9 @@
  * Create Chemical Command Handler
  */
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreateChemicalCommand } from '../commands/create-chemical.command';
 import { Chemical, ChemicalStatus } from '../entities/chemical.entity';
 import { ChemicalSite } from '../entities/chemical-site.entity';
@@ -16,55 +15,50 @@ import { Site } from '../../site/entities/site.entity';
 export class CreateChemicalHandler implements ICommandHandler<CreateChemicalCommand, Chemical> {
   private readonly logger = new Logger(CreateChemicalHandler.name);
 
-  constructor(
-    @InjectRepository(Chemical)
-    private readonly chemicalRepository: Repository<Chemical>,
-    @InjectRepository(Supplier)
-    private readonly supplierRepository: Repository<Supplier>,
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(command: CreateChemicalCommand): Promise<Chemical> {
     const { input, tenantId, userId } = command;
 
     this.logger.log(`Creating chemical "${input.name}" for tenant ${tenantId}`);
 
-    const normalizedCode = input.code.toUpperCase();
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const chemicalRepo = tenantManagerRepo(queryRunner.manager, Chemical, tenantId);
+      const supplierRepo = tenantManagerRepo(queryRunner.manager, Supplier, tenantId);
+      const siteRepo = tenantManagerRepo(queryRunner.manager, Site, tenantId);
+      const chemicalSiteRepo = tenantManagerRepo(queryRunner.manager, ChemicalSite, tenantId);
 
-    const site = await this.siteRepository.findOne({
-      where: { id: input.siteId, tenantId },
-    });
-    if (!site) {
-      throw new NotFoundException(`Site with ID "${input.siteId}" not found`);
-    }
-    if (site.isDeleted) {
-      throw new BadRequestException(`Site with ID "${input.siteId}" is deleted`);
-    }
+      const normalizedCode = input.code.toUpperCase();
 
-    if (input.supplierId) {
-      const supplier = await this.supplierRepository.findOne({
-        where: { id: input.supplierId, tenantId },
+      const site = await siteRepo.findOne({
+        where: { id: input.siteId, tenantId },
       });
-      if (!supplier) {
-        throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
+      if (!site) {
+        throw new NotFoundException(`Site with ID "${input.siteId}" not found`);
       }
-      if (supplier.isDeleted) {
-        throw new BadRequestException(`Supplier with ID "${input.supplierId}" is deleted`);
+      if (site.isDeleted) {
+        throw new BadRequestException(`Site with ID "${input.siteId}" is deleted`);
       }
-    }
 
-    // Check for duplicate code within tenant
-    const existingByCode = await this.chemicalRepository.findOne({
-      where: { tenantId, code: normalizedCode },
-    });
-    if (existingByCode) {
-      throw new ConflictException(`Chemical with code "${normalizedCode}" already exists`);
-    }
+      if (input.supplierId) {
+        const supplier = await supplierRepo.findOne({
+          where: { id: input.supplierId, tenantId },
+        });
+        if (!supplier) {
+          throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
+        }
+        if (supplier.isDeleted) {
+          throw new BadRequestException(`Supplier with ID "${input.supplierId}" is deleted`);
+        }
+      }
 
-    const savedChemical = await this.chemicalRepository.manager.transaction(async (manager) => {
-      const chemicalRepo = tenantManagerRepo(manager, Chemical, tenantId);
-      const chemicalSiteRepo = tenantManagerRepo(manager, ChemicalSite, tenantId);
+      // Check for duplicate code within tenant
+      const existingByCode = await chemicalRepo.findOne({
+        where: { tenantId, code: normalizedCode },
+      });
+      if (existingByCode) {
+        throw new ConflictException(`Chemical with code "${normalizedCode}" already exists`);
+      }
 
       // Create chemical entity - aligned with Chemical entity and CreateChemicalInput
       const chemical = chemicalRepo.create({
@@ -104,11 +98,11 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
         updatedBy: userId,
       });
 
-      const created = await chemicalRepo.save(chemical);
+      const savedChemical = await chemicalRepo.save(chemical);
 
       const chemicalSite = chemicalSiteRepo.create({
         tenantId,
-        chemicalId: created.id,
+        chemicalId: savedChemical.id,
         siteId: input.siteId,
         isApproved: true,
         approvedBy: userId,
@@ -117,11 +111,9 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
       });
       await chemicalSiteRepo.save(chemicalSite);
 
-      return created;
+      this.logger.log(`Chemical "${savedChemical.name}" created with ID ${savedChemical.id}`);
+
+      return savedChemical;
     });
-
-    this.logger.log(`Chemical "${savedChemical.name}" created with ID ${savedChemical.id}`);
-
-    return savedChemical;
   }
 }

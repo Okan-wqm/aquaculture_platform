@@ -63,7 +63,8 @@ domain experts + `infra-expert` for lint infra), e2e (owned by
 - **Decorator metadata regressions = HIGH.** NestJS DI metadata
   (`emitDecoratorMetadata: true`) must survive every build config
   change; block any config change that reintroduces webpack for backend
-  services (reference: `feedback_webpack_nestjs.md`).
+  services (reference:
+  `docs/superpowers/specs/2026-04-06-webpack-to-tsc-migration-design.md`).
   - **Consequence:** reintroducing webpack for a backend service
     (HIGH) silently strips `emitDecoratorMetadata`, so the build stays
     green yet NestJS DI reflection breaks at runtime — the service

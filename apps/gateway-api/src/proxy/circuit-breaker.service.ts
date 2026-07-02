@@ -11,6 +11,8 @@ import { EventEmitter } from 'events';
 import { Injectable, Logger, ServiceUnavailableException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { toError } from '../common/error-normalization';
+
 /**
  * Circuit breaker states
  */
@@ -549,7 +551,7 @@ export class CircuitBreakerService extends EventEmitter {
         })
         .catch((error: unknown) => {
           clearTimeout(timer);
-          reject(error instanceof Error ? error : new Error(String(error)));
+          reject(toError(error));
         });
     });
   }

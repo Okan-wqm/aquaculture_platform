@@ -1,0 +1,14 @@
+version: 1
+services:
+  - name: farm-service
+    description: farm domain
+    publish:
+      - "AQUACULTURE_EVENTS.>"
+    subscribe:
+      - "AQUACULTURE_EVENTS.SensorReading.>"
+  - name: notification-service
+    description: notifications
+    publish:
+      - "NOTIFICATION_EVENTS.>"
+    subscribe:
+      - "AQUACULTURE_EVENTS.BatchHarvested.>"

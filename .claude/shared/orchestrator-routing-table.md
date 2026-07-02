@@ -98,7 +98,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | destructive action paths (cross-cutting) | legal-hold-auditor | *primary destructive handler owner* |
 | every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
 | `libs/backend-common/src/ai-safety/**` | ai-safety-auditor | messaging-expert, security-reviewer |
-| `infra/openapi/**` | contract-parity-enforcer | *respective domain expert* |
+| `docs/api/openapi/**` | contract-parity-enforcer | *respective domain expert* |
 | `libs/backend-common/src/circuit-breaker/**` | circuit-breaker-auditor | platform-kernel-expert |
 | Performance / N+1 / EXPLAIN evidence reviews (cross-cutting) | performance-expert | *primary domain expert* |
 | Supply-chain CVE / license / SLSA (cross-cutting on package.json, Cargo.toml, Dockerfile) | supply-chain-auditor | infra-expert, security-reviewer |

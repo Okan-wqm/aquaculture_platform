@@ -25,8 +25,8 @@
  * docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md (Girdi 14h).
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, Repository } from 'typeorm';
+import { DataSource, In, MoreThan } from 'typeorm';
+import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 import {
   HealthEvent,
@@ -57,10 +57,11 @@ export interface HarvestEligibilityResult {
 export class BatchHarvestEligibilityService {
   private readonly logger = new Logger(BatchHarvestEligibilityService.name);
 
-  constructor(
-    @InjectRepository(HealthEvent)
-    private readonly healthEventRepo: Repository<HealthEvent>,
-  ) {}
+  // WHY: harvest-eligibility reads tenant health_events; a raw injected repository
+  // resolves the table via the pooled connection's ambient search_path and can read
+  // another tenant's events (a wrong, safety-relevant harvest decision). WHAT: read
+  // through the fail-closed runInTenantRead boundary (search_path + RLS pinned).
+  constructor(private readonly dataSource: DataSource) {}
 
   /**
    * Check whether the given batch can be harvested on (or after) the
@@ -80,23 +81,25 @@ export class BatchHarvestEligibilityService {
     batchId: string,
     harvestDate: Date,
   ): Promise<HarvestEligibilityResult> {
-    const events = await this.healthEventRepo.find({
-      where: {
-        tenantId,
-        batchId,
-        status: In([HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING]),
-        earliestHarvestDate: MoreThan(harvestDate),
-      },
-      order: { earliestHarvestDate: 'DESC' },
-      select: [
-        'id',
-        'title',
-        'diseaseName',
-        'earliestHarvestDate',
-        'withdrawalPeriodDays',
-        'status',
-      ],
-    });
+    const events = await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      // tenantId auto-injected by the tenant-scoped repo
+      tenantManagerRepo(queryRunner.manager, HealthEvent, tenantId).find({
+        where: {
+          batchId,
+          status: In([HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING]),
+          earliestHarvestDate: MoreThan(harvestDate),
+        },
+        order: { earliestHarvestDate: 'DESC' },
+        select: [
+          'id',
+          'title',
+          'diseaseName',
+          'earliestHarvestDate',
+          'withdrawalPeriodDays',
+          'status',
+        ],
+      }),
+    );
 
     const blockingEvents: BlockingHealthEvent[] = events.map((e) => ({
       id: e.id,

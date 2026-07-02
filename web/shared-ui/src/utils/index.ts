@@ -155,6 +155,9 @@ export type {
 // createTenantQueryKey -> full useQuery key (epoch'd); createTenantInvalidationKey
 // -> epoch-less prefix for invalidateQueries/removeQueries (see the factory docs).
 export { createTenantQueryKey, createTenantInvalidationKey } from './tenant-query-keys';
+// SessionSnapshot (A1) — SSoT read-model for "is there an authenticated tenant session".
+export { getSessionSnapshot } from './session-snapshot';
+export type { SessionSnapshot } from './session-snapshot';
 
 // Logout Cleanup (SECURITY: FE-HIGH-005 — clears all browser storage layers)
 export { logoutCleanup, registerLogoutCleanup } from './logout-cleanup';

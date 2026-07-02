@@ -55,6 +55,10 @@ import {
   AvailableTankResponse,
 } from '../dto/batch-resolver.dto';
 import { CreateBatchInput as CreateBatchInputDTO } from '../dto/create-batch.dto';
+import {
+  TankCountReconcileService,
+  TankCountReconcileRow,
+} from '../services/tank-count-reconcile.service';
 import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
 import { BatchFeedAssignment } from '../entities/batch-feed-assignment.entity';
 import { BatchLocation } from '../entities/batch-location.entity';
@@ -121,7 +125,40 @@ export class BatchResolver {
     private readonly batchDocumentDataLoader: BatchDocumentDataLoader,
     private readonly batchLocationDataLoader: BatchLocationDataLoader,
     private readonly batchFeedAssignmentDataLoader: BatchFeedAssignmentDataLoader,
+    private readonly tankCountReconcile: TankCountReconcileService,
   ) {}
+
+  // -------------------------------------------------------------------------
+  // MAINTENANCE
+  // -------------------------------------------------------------------------
+
+  /**
+   * One-time reconciliation of the tank fish-COUNT drift (FARM-HIGH-106): recompute
+   * each tank-batch's true count from the operation ledger and, when dryRun=false,
+   * correct it through the single writer (applyBatchDelta) so tank_batches +
+   * currentCount land on the ledger truth and web == mobile. dryRun (default true)
+   * returns the diff WITHOUT writing so the operator reviews it first. TENANT_ADMIN
+   * only — it corrects persisted counts.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => [TankCountReconcileRow], {
+    description:
+      'Reconcile tank fish-count drift from the operation ledger. dryRun (default ' +
+      'true) reports the per-tank-batch diff without writing; dryRun=false applies ' +
+      'the correction through the single writer. TENANT_ADMIN only.',
+  })
+  async reconcileTankCounts(
+    @Tenant() tenantId: string,
+    @Args('dryRun', { type: () => Boolean, nullable: true, defaultValue: true })
+    dryRun: boolean,
+    @Args('tankIds', { type: () => [ID], nullable: true })
+    tankIds?: string[] | null,
+  ): Promise<TankCountReconcileRow[]> {
+    return this.tankCountReconcile.reconcile(tenantId, {
+      dryRun,
+      tankIds: tankIds ?? undefined,
+    });
+  }
 
   // -------------------------------------------------------------------------
   // QUERIES

@@ -17,7 +17,7 @@ from aria_kernel.agent_runtime_profile import (
     VALID_MODELS,
     WRITE_TIER_AGENTS,
     read_agent_runtime_profile,
-    resolve_codex_reasoning_effort,
+    resolve_claude_model,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,15 +36,17 @@ def _all_aria_agent_names() -> list[str]:
 
 
 class AgentRuntimeProfileReaderTests(unittest.TestCase):
-    def test_scout_tier_agent_reads_sonnet(self) -> None:
+    def test_scout_tier_agent_reads_opus(self) -> None:
+        # K5 tier flip — the judge/validator layer moved sonnet -> opus.
         prof = read_agent_runtime_profile("aria-evidence-judge")
-        self.assertEqual(prof.model, "sonnet")
+        self.assertEqual(prof.model, "opus")
         self.assertEqual(prof.effort, "medium")
         self.assertEqual(prof.source, "frontmatter")
 
-    def test_decider_tier_agent_reads_opus_xhigh(self) -> None:
+    def test_decider_tier_agent_reads_fable_xhigh(self) -> None:
+        # K5 tier flip — decision nodes moved opus -> fable.
         prof = read_agent_runtime_profile("aria-consensus-arbiter")
-        self.assertEqual(prof.model, "opus")
+        self.assertEqual(prof.model, "fable")
         self.assertEqual(prof.effort, "xhigh")
 
     def test_unknown_agent_fails_safe_to_most_expensive(self) -> None:
@@ -58,9 +60,12 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
         self.assertEqual(prof.model, DEFAULT_MODEL)
         self.assertEqual(prof.effort, DEFAULT_EFFORT)
 
-    def test_resolve_codex_reasoning_effort_matches_frontmatter(self) -> None:
-        self.assertEqual(resolve_codex_reasoning_effort("aria-evidence-judge"), "medium")
-        self.assertEqual(resolve_codex_reasoning_effort("aria-implementer"), "xhigh")
+    def test_resolve_claude_model_matches_frontmatter(self) -> None:
+        # resolve_claude_model returns the agent's MODEL tier (the Claude Code
+        # CLI --model alias), not the reasoning effort. Judge tier → opus;
+        # write tier → fable (fail-safe most-capable).
+        self.assertEqual(resolve_claude_model("aria-evidence-judge"), "opus")
+        self.assertEqual(resolve_claude_model("aria-implementer"), "fable")
 
 
 class ModelTierInvariantTests(unittest.TestCase):
@@ -76,14 +81,15 @@ class ModelTierInvariantTests(unittest.TestCase):
                 f"{name} frontmatter model/effort failed to parse — fix the frontmatter",
             )
 
-    def test_write_tier_agents_never_downgraded_below_opus(self) -> None:
+    def test_write_tier_agents_never_downgraded_below_fable(self) -> None:
         # Writers (Edit/Write/Bash) and governance-artifact authors must stay on
         # the expensive tier — the cheap scout tier is read-only judgment only.
+        # K5 tier flip: the expensive tier is fable.
         for name in WRITE_TIER_AGENTS:
             prof = read_agent_runtime_profile(name)
             self.assertEqual(
-                prof.model, "opus",
-                f"write-tier agent {name} must run on opus, got {prof.model}",
+                prof.model, "fable",
+                f"write-tier agent {name} must run on fable, got {prof.model}",
             )
             self.assertEqual(
                 prof.effort, "xhigh",
@@ -93,3 +99,33 @@ class ModelTierInvariantTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FableTierValidityTests(unittest.TestCase):
+    """K1 — fable/max become valid frontmatter values (ORPHAN-HIGH-283)."""
+
+    def test_fable_and_max_are_valid(self) -> None:
+        from aria_kernel.agent_runtime_profile import VALID_EFFORTS, VALID_MODELS
+        self.assertIn("fable", VALID_MODELS)
+        self.assertIn("max", VALID_EFFORTS)
+
+    def test_resolve_claude_effort_fail_safe(self) -> None:
+        from aria_kernel.agent_runtime_profile import (
+            DEFAULT_EFFORT,
+            resolve_claude_effort,
+        )
+        self.assertEqual(resolve_claude_effort("no-such-agent-xyz"), DEFAULT_EFFORT)
+
+
+class WhitelistOrphanResolutionTests(unittest.TestCase):
+    """K3 — the two kernel-dispatched agents resolve from real frontmatter,
+    never the silent default_missing_file fallback (ORPHAN-HIGH-285)."""
+
+    def test_aria_worker_resolves_from_frontmatter(self) -> None:
+        profile = read_agent_runtime_profile("aria-worker")
+        self.assertEqual(profile.source, "frontmatter")
+        self.assertIn("aria-worker", WRITE_TIER_AGENTS)
+
+    def test_aria_autonomy_planner_resolves_from_frontmatter(self) -> None:
+        profile = read_agent_runtime_profile("aria-autonomy-planner")
+        self.assertEqual(profile.source, "frontmatter")

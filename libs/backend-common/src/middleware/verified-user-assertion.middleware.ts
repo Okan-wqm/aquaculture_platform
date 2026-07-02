@@ -168,6 +168,16 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     ) {
       throw new BadRequestException('Verified user assertion has invalid planLevel');
     }
+    // ORPHAN-MEDIUM-319: optional client network identity — when present each
+    // must be a bounded string (an IP literal is <= 45 chars incl. IPv6; the
+    // UA cap mirrors common proxy limits). Reject malformed values
+    // fail-closed like every other claim.
+    if (!this.isOptionalBoundedString(candidate.clientIp, 64)) {
+      throw new BadRequestException('Verified user assertion has invalid clientIp');
+    }
+    if (!this.isOptionalBoundedString(candidate.clientUserAgent, 1024)) {
+      throw new BadRequestException('Verified user assertion has invalid clientUserAgent');
+    }
 
     return {
       issuer: candidate.issuer,
@@ -182,6 +192,8 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       assignedSiteIds: candidate.assignedSiteIds,
       mobileFeatures: candidate.mobileFeatures,
       planLevel: candidate.planLevel,
+      clientIp: candidate.clientIp ?? null,
+      clientUserAgent: candidate.clientUserAgent ?? null,
     };
   }
 
@@ -190,6 +202,20 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
    * are all strings. A non-array or a non-string member is a malformed claim
    * and is rejected fail-closed by the caller.
    */
+  /**
+   * An optional scalar claim is valid iff it is undefined, null, or a
+   * non-empty string within the length bound.
+   */
+  private isOptionalBoundedString(
+    value: unknown,
+    maxLength: number,
+  ): value is string | null | undefined {
+    if (value === undefined || value === null) {
+      return true;
+    }
+    return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
+  }
+
   private isOptionalStringArray(value: unknown): value is string[] | undefined {
     if (value === undefined) {
       return true;

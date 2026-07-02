@@ -194,17 +194,6 @@ const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
   // commit. Identical shape to the ORPHAN-MEDIUM-016 sibling-trailer entry
   // above. PHASE-12.1-FIX: re-annotate registry entry; commit stays as-is.
   ['RUST-CVE-001', 'bb777083e'],
-  // INFRA-CRITICAL-029: umbrella finding — "hr (453 cols) AND admin-api (68
-  // cross-schema refs) remain blocked from schema_drift_clean". Both halves were
-  // resolved and closed under the sibling findings that DO carry strict trailers:
-  // the hr drift by INFRA-CRITICAL-031 (5df001792) and the admin-api drift by
-  // INFRA-CRITICAL-032 (39cbfaeff). No merged commit names 029 itself in a Closes:
-  // trailer — the fixes closed its children, not the umbrella — so, identical shape
-  // to the RUST-CVE-001 sibling-trailer entry above, the registry cites the
-  // children's already-merged, main-reachable fix commits.
-  // PHASE-12.1-FIX: re-annotate registry entry; commits stay as-is.
-  ['INFRA-CRITICAL-029', '5df001792'],
-  ['INFRA-CRITICAL-029', '39cbfaeff'],
   // ULTRA-* findings (Stage-N audit cycle): the closing commits group
   // multiple findings under one architectural fix; the strict `Closes:`
   // trailer was either omitted or referenced a single canonical finding

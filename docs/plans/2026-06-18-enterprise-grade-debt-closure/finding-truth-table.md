@@ -32,6 +32,7 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-008`     | OPEN           | 1.1          | infra-expert             | real-open    |
 | `MT-CRITICAL-052`         | IN-PROGRESS    | 1.1          | realtime-sync-auditor    | real-open    |
 | `FARM-CRITICAL-060`       | OPEN           | 1.1          | farm-expert              | real-open    |
+| `FARM-CRITICAL-061`       | OPEN           | 1.1          | farm-expert              | real-open    |
 
 ## Mutation Rules
 

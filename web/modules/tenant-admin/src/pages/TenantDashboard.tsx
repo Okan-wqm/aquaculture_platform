@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, getTenantId } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -210,7 +210,7 @@ const TenantDashboard: React.FC = () => {
   );
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(getTenantId(), 'dashboard') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(getTenantId(), 'dashboard') });
   };
 
   // Calculate stats -- prefer TanStack Query stats if available (PERF-001)

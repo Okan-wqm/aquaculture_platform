@@ -17,6 +17,7 @@ import { UnifiedTagResolver } from './resolvers/unified-tag.resolver';
 import { ProcessService } from './services/process.service';
 import { ScadaPackageService } from './services/scada-package.service';
 import { UnifiedTagService } from './services/unified-tag.service';
+import { TagResolutionService } from './services/tag-resolution.service';
 import { ScadaDeployLogService } from './services/scada-deploy-log.service';
 
 @Module({
@@ -33,11 +34,18 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
     ProcessService,
     ScadaPackageService,
     UnifiedTagService,
+    TagResolutionService,
     ScadaDeployLogService,
     ProcessResolver,
     UnifiedTagResolver,
   ],
-  exports: [ProcessService, ScadaPackageService, UnifiedTagService, ScadaDeployLogService],
+  exports: [
+    ProcessService,
+    ScadaPackageService,
+    UnifiedTagService,
+    TagResolutionService,
+    ScadaDeployLogService,
+  ],
 })
  
 export class ProcessModule {}

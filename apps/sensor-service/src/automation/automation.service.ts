@@ -690,12 +690,10 @@ export class AutomationService {
         throw new NotFoundException(`Program ${input.programId} not found`);
       }
 
-      // ProgramVariable has no tenantId column — scoping is inherited
-      // from the parent AutomationProgram row (validated above via the
-      // programId WHERE clause). See ORPHAN-DIC-001 for the broader
-      // architectural question about adding tenantId to child entities.
-      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
-      const varRepo = manager.getRepository(ProgramVariable);
+      // Tenant scoping is first-class on ProgramVariable (ORPHAN-DIC-001
+      // resolved for this entity): tenant_id is NOT NULL and the scoped
+      // repository injects it into every query and write.
+      const varRepo = tenantManagerRepo(manager, ProgramVariable, tenantId);
 
       // Check for duplicate variable name
       const existing = await varRepo.findOne({
@@ -706,6 +704,7 @@ export class AutomationService {
       }
 
       const variable = varRepo.create({
+        tenantId,
         programId: input.programId,
         varName: input.varName,
         displayName: input.displayName,
@@ -867,12 +866,10 @@ export class AutomationService {
       let updated = 0;
       let unchanged = 0;
 
-      // ProgramVariable has no tenantId column — scoping is inherited
-      // from the parent AutomationProgram row (validated above via the
-      // programId WHERE clause). See ORPHAN-DIC-001 for the broader
-      // architectural question about adding tenantId to child entities.
-      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
-      const varRepo = manager.getRepository(ProgramVariable);
+      // Tenant scoping is first-class on ProgramVariable (ORPHAN-DIC-001
+      // resolved for this entity): tenant_id is NOT NULL and the scoped
+      // repository injects it into every query and write.
+      const varRepo = tenantManagerRepo(manager, ProgramVariable, tenantId);
 
       // Process each incoming variable
       for (let i = 0; i < variables.length; i++) {
@@ -883,6 +880,7 @@ export class AutomationService {
         if (!ex) {
           // Missing: create new variable
           const newVar = varRepo.create({
+            tenantId,
             programId,
             varName: v.varName,
             dataType: v.dataType,
@@ -1200,6 +1198,7 @@ export class AutomationService {
         const newVariables = variables.map(variable => manager.create(ProgramVariable, {
           ...variable,
           id: undefined,
+          tenantId: savedProgram.tenantId,
           programId: savedProgram.id,
           createdAt: undefined,
           updatedAt: undefined,

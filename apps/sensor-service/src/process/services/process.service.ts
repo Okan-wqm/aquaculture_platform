@@ -15,6 +15,7 @@ import {
   ProcessPaginationInput,
 } from '../dto/process.dto';
 import { Process, ProcessStatus } from '../entities/process.entity';
+import { TagResolutionService } from './tag-resolution.service';
 
 @Injectable()
 export class ProcessService {
@@ -29,6 +30,9 @@ export class ProcessService {
     @Optional()
     @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
+    @Optional()
+    @Inject(TagResolutionService)
+    private readonly tagResolutionService: TagResolutionService | null,
   ) {}
 
   /**
@@ -342,7 +346,20 @@ export class ProcessService {
       }
     }
 
-    // 5. MQTT deploy_process komutu publish
+    // 5. Tag SSoT raporu (Faz 1, warn-only): her tag mapping'i
+    // `${deviceCode}/${tagName}` olarak unified_tags registry'sine karşı çöz.
+    // Çözülemeyenler logla — bloklamaz; Faz 4 bunu deploy gate'ine çevirir.
+    if (this.tagResolutionService && tagMappings.length > 0) {
+      const refs = tagMappings.map((tm) => `${device.deviceCode}/${tm.tagName}`);
+      const resolution = await this.tagResolutionService.resolve(tenantId, refs);
+      if (resolution.unresolved.length > 0) {
+        this.logger.warn(
+          `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
+        );
+      }
+    }
+
+    // 6. MQTT deploy_process komutu publish
     const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
     const payload = {
       commandId: randomUUID(),

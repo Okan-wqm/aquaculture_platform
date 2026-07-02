@@ -20,6 +20,7 @@ import { ProcessPaginationInput } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
+import { TagResolutionService } from './tag-resolution.service';
 
 @Injectable()
 export class ScadaPackageService {
@@ -99,7 +100,33 @@ export class ScadaPackageService {
     @Optional()
     @InjectRepository(ProgramVariable)
     private readonly programVariableRepo: Repository<ProgramVariable> | null,
+    @Optional()
+    @Inject(TagResolutionService)
+    private readonly tagResolutionService: TagResolutionService | null,
   ) {}
+
+  /**
+   * Collect the tag-name strings widgets bind to (`config.tagName`, legacy
+   * `config.tag`) from every screen in the package document.
+   */
+  private collectWidgetTagNames(data: Record<string, unknown>): string[] {
+    const names = new Set<string>();
+    const screens = Array.isArray(data.screens) ? data.screens : [];
+    for (const screen of screens) {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      if (!Array.isArray(widgets)) continue;
+      for (const widget of widgets) {
+        const config = (widget as { config?: Record<string, unknown> })?.config;
+        for (const key of ['tagName', 'tag'] as const) {
+          const value = config?.[key];
+          if (typeof value === 'string' && value.length > 0) {
+            names.add(value);
+          }
+        }
+      }
+    }
+    return [...names];
+  }
 
   async createScadaPackage(
     input: CreateScadaPackageInput,
@@ -242,6 +269,22 @@ export class ScadaPackageService {
 
     // Validate automation bindings before deploying (TASK 2)
     await this.validateAutomationBindings(pkg);
+
+    // Tag SSoT raporu (Faz 1, warn-only): widget tag bağlamalarını
+    // `${deviceCode}/${tagName}` olarak registry'ye karşı çöz; çözülemeyenleri
+    // logla. Bloklamaz — Faz 4 bunu deploy gate'ine çevirir.
+    if (this.tagResolutionService) {
+      const tagNames = this.collectWidgetTagNames(pkg.packageData);
+      if (tagNames.length > 0) {
+        const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
+        const resolution = await this.tagResolutionService.resolve(tenantId, refs);
+        if (resolution.unresolved.length > 0) {
+          this.logger.warn(
+            `deploy_scada_package ${packageId}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
+          );
+        }
+      }
+    }
 
     const commandId = randomUUID();
 

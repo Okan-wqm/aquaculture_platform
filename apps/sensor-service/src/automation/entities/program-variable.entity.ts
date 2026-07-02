@@ -69,6 +69,16 @@ export class ProgramVariable {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  /**
+   * First-class tenant scoping (ORPHAN-DIC-001). NOT NULL in the database;
+   * a BEFORE INSERT trigger derives it from the parent program for legacy
+   * writers, but every current write path sets it explicitly.
+   */
+  @Field()
+  @Column({ type: 'uuid', name: 'tenant_id' })
+  @Index()
+  tenantId!: string;
+
   @Field()
   @Column({ name: 'program_id' })
   @Index()

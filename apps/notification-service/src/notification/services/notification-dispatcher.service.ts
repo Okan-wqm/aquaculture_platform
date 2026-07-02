@@ -154,6 +154,8 @@ export interface AlertNotificationData {
   pushTitle?: string;
   pushData?: Record<string, string | number | boolean | null>;
   badge?: number;
+  // MSG-CRITICAL-056: send the FCM push data-only (SW is the sole presenter).
+  dataOnly?: boolean;
 }
 
 /**
@@ -392,6 +394,7 @@ export class NotificationDispatcherService implements OnModuleInit {
     message: string;
     pushData?: Record<string, string | number | boolean | null>;
     badge?: number;
+    dataOnly?: boolean;
   }): Promise<{ externalId?: string; replayed: boolean }> {
     const payloadHash = input.commandPayloadHash ?? this.hashCommandPayload(input);
     const receipt = await this.claimCommandReceipt(input, payloadHash);
@@ -419,6 +422,7 @@ export class NotificationDispatcherService implements OnModuleInit {
           pushTitle: input.subject,
           pushData: input.pushData,
           badge: input.badge,
+          dataOnly: input.dataOnly,
         },
         true,
         input.recipientLogRef,
@@ -881,6 +885,7 @@ export class NotificationDispatcherService implements OnModuleInit {
         data: alertData.pushData,
         badge: alertData.badge,
         sound: 'default',
+        dataOnly: alertData.dataOnly,
       });
     }
 

@@ -206,6 +206,7 @@ jobs:
           import io
           import json
           import os
+          import urllib.error
           import urllib.request
           import zipfile
 
@@ -230,8 +231,27 @@ jobs:
               raise SystemExit(0)
           artifact = live[0]
           print(f"Restoring aria-tools-state artifact {artifact['id']} ({artifact['created_at']})")
-          with api(artifact["archive_download_url"]) as resp:
-              payload = resp.read()
+          # The download endpoint answers 302 to blob storage, and the
+          # storage host REJECTS requests that still carry the GitHub
+          # Authorization header (ORPHAN-LOW-303) — resolve the redirect
+          # manually: authorized first hop, bare second hop.
+          class _NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(_NoRedirect)
+          first = urllib.request.Request(artifact["archive_download_url"])
+          first.add_header("Authorization", f"Bearer {token}")
+          first.add_header("Accept", "application/vnd.github+json")
+          try:
+              with opener.open(first, timeout=60) as resp:
+                  payload = resp.read()
+          except urllib.error.HTTPError as err:
+              if err.code not in (301, 302, 307, 308):
+                  raise
+              location = err.headers["Location"]
+              with urllib.request.urlopen(location, timeout=120) as resp:
+                  payload = resp.read()
           os.makedirs("aria-tools", exist_ok=True)
           with zipfile.ZipFile(io.BytesIO(payload)) as zf:
               zf.extractall("aria-tools")

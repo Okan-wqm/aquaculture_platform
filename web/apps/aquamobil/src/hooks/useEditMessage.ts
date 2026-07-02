@@ -34,6 +34,7 @@ import { useOfflineQueue } from './useOfflineQueue';
 import { EDIT_MESSAGE } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message } from '@/types/messaging';
+import { logger } from '@/utils/logger';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 export interface UseEditMessageResult {
@@ -68,7 +69,14 @@ export function useEditMessage(channelId: string | undefined): UseEditMessageRes
       }
 
       if (!isOnline) {
-        await addToQueue('editMessage', { id: messageId, content: trimmed });
+        try {
+          await addToQueue('editMessage', { id: messageId, content: trimmed });
+        } catch (error) {
+          // Callers rely on editMessage() never throwing on a transient failure
+          // (it degrades to the offline queue) — a queue failure itself must not
+          // propagate as an unhandled rejection from a fire-and-forget caller.
+          logger.error('[useEditMessage] failed to queue offline message edit', error);
+        }
         return;
       }
 
@@ -83,7 +91,11 @@ export function useEditMessage(channelId: string | undefined): UseEditMessageRes
       } catch {
         // Transient network/server error while online — preserve the edit by
         // routing through the offline queue rather than dropping it.
-        await addToQueue('editMessage', { id: messageId, content: trimmed });
+        try {
+          await addToQueue('editMessage', { id: messageId, content: trimmed });
+        } catch (error) {
+          logger.error('[useEditMessage] failed to queue message edit after online attempt failed', error);
+        }
       }
     },
     [channelId, isAuthenticated, isOnline, tenantId, queryClient, addToQueue],

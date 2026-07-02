@@ -35,6 +35,8 @@ import { precacheAndRoute, cleanupOutdatedCaches, PrecacheFallbackPlugin } from 
 import { registerRoute } from 'workbox-routing';
 import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 
+import { logger } from '../utils/logger';
+
 declare const self: ServiceWorkerGlobalScope & typeof globalThis;
 
 // ============================================================================
@@ -280,7 +282,10 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
       void cache.put(request, networkResponse.clone());
     }
     return networkResponse;
-  }).catch(() => undefined);
+  }).catch((error: unknown) => {
+    logger.error('[sw-revalidate] background cache revalidation failed', error);
+    return undefined;
+  });
 
   if (cached) {
     // Serve from cache immediately, revalidate in background

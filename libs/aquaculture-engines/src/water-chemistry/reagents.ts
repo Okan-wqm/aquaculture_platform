@@ -274,8 +274,37 @@ function calcTwoReagentDosing(
 }
 
 /**
+ * A recipe is counter-productive when its two reagents push alkalinity in
+ * OPPOSITE directions — one adds it, the other removes it — so the recipe
+ * overshoots then corrects (e.g. NaHCO₃ to raise ALK, then HCl to trim the
+ * excess). Such recipes are geometrically feasible but waste reagent, and the
+ * reference desktop tool never surfaces them. CO₂ is ALK-neutral (deltaAlk≈0)
+ * so base+CO₂ / acid+CO₂ recipes are never flagged.
+ */
+function isCounterProductiveRecipe(recipe: DosingRecipe): boolean {
+  const hasAlkGain = recipe.steps.some(s => s.deltaAlk > 1e-9);
+  const hasAlkLoss = recipe.steps.some(s => s.deltaAlk < -1e-9);
+  return hasAlkGain && hasAlkLoss;
+}
+
+/**
+ * Rank key: sum of each reagent's position in the curated REAGENTS priority
+ * list (NaHCO₃ first as the default aquaculture buffer). Lower = more practical,
+ * so practical recipes survive the cap instead of being displaced by iteration
+ * order.
+ */
+function recipePriority(recipe: DosingRecipe): number {
+  return recipe.steps.reduce((sum, s) => {
+    const idx = REAGENTS.findIndex(r => r.name === s.reagentName);
+    return sum + (idx < 0 ? 99 : idx);
+  }, 0);
+}
+
+/**
  * Calculate dosing recipes to move from current to target operating point.
- * Enumerates all pairs of selected reagents and finds valid combinations.
+ * Enumerates all pairs of selected reagents, drops counter-productive
+ * (overshoot-then-correct) combinations, ranks the rest by reagent
+ * practicality, then caps the list.
  *
  * @param currentDIC - Current DIC in mmol/L
  * @param currentAlk - Current alkalinity in meq/L
@@ -283,7 +312,7 @@ function calcTwoReagentDosing(
  * @param targetAlk - Target alkalinity in meq/L
  * @param volumeM3 - System volume in m³
  * @param selectedReagents - List of selected reagent names
- * @returns Array of dosing recipes (max 6)
+ * @returns Array of dosing recipes (max 6), practical recipes first
  */
 export function calculateDosingRecipes(
   currentDIC: number,
@@ -295,17 +324,17 @@ export function calculateDosingRecipes(
 ): DosingRecipe[] {
   const deltaAlk = targetAlk - currentAlk;
   const deltaDIC = targetDIC - currentDIC;
-  const recipes: DosingRecipe[] = [];
 
   if (Math.abs(deltaAlk) < 0.001 && Math.abs(deltaDIC) < 0.001) {
-    return recipes; // Already at target
+    return []; // Already at target
   }
 
   const selected = REAGENTS.filter(r => selectedReagents.includes(r.name));
-  if (selected.length === 0) return recipes;
+  if (selected.length === 0) return [];
 
-  // Try all pairs of selected reagents
+  // Enumerate every feasible reagent pair (no early cap), dedup identical recipes
   const seen = new Set<string>();
+  const all: DosingRecipe[] = [];
   for (let i = 0; i < selected.length; i++) {
     for (let j = i + 1; j < selected.length; j++) {
       const r1 = selected[i];
@@ -314,31 +343,30 @@ export function calculateDosingRecipes(
         continue;
       }
 
-      // Skip duplicate slope pairs (e.g., Na₂CO₃ and CaCO₃ both have slope=2)
-      const pairKey = [Math.min(r1.radians, r2.radians), Math.max(r1.radians, r2.radians)].join(',');
-      if (seen.has(pairKey)) {
-        // Still try if different reagents (different MW)
-      }
-
       const recipe = calcTwoReagentDosing(
         currentDIC, currentAlk,
         targetDIC, targetAlk,
         volumeM3,
         r1, r2,
       );
+      if (!recipe) continue;
 
-      if (recipe) {
-        // Create a unique key based on formula names to avoid duplicate recipes
-        const recipeKey = recipe.steps.map(s => s.formula).sort().join('+');
-        if (!seen.has(recipeKey)) {
-          seen.add(recipeKey);
-          recipes.push(recipe);
-        }
-      }
+      const recipeKey = recipe.steps.map(s => s.formula).sort().join('+');
+      if (seen.has(recipeKey)) continue;
+      seen.add(recipeKey);
+      all.push(recipe);
     }
   }
 
-  return recipes.slice(0, 6); // Max 6 recipes
+  // Curate: drop counter-productive recipes so they cannot displace practical
+  // ones under the cap — unless they are the ONLY feasible option (then keep
+  // them so the operator still gets an answer). Then rank by practicality.
+  const productive = all.filter(r => !isCounterProductiveRecipe(r));
+  const ranked = (productive.length > 0 ? productive : all)
+    .slice()
+    .sort((a, b) => recipePriority(a) - recipePriority(b));
+
+  return ranked.slice(0, 6); // Max 6 recipes, practical first
 }
 
 /**

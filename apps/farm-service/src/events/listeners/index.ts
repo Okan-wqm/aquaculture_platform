@@ -12,3 +12,4 @@ export * from './harvest-completed.listener';
 export * from './maintenance-schedule-due.listener';
 export * from './low-stock-alert.listener';
 export * from './feeding-completed.listener';
+export * from './farm-stock-projection.listener';

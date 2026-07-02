@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .cycle_progress import emit_progress
 from .tool_registry import GovernanceError, utc_now
 
 
@@ -71,7 +72,18 @@ def build_repo_snapshot(
         git_tracked_paths = paths
         working_tree_paths = paths
 
-    fates = [_file_fate(root, path, committed=mode == "committed" and git_available) for path in paths]
+    # The per-file fate+content-hash pass is the long part of a cycle (~2 min on
+    # the real repo). Emit a coarse live progress tick every 2000 files so an
+    # operator watching ARIA work sees the scan advancing instead of a 2-minute
+    # silence (gated by ARIA_CYCLE_PROGRESS; a no-op otherwise).
+    _committed = mode == "committed" and git_available
+    _total = len(paths)
+    fates = []
+    for _i, path in enumerate(paths):
+        fates.append(_file_fate(root, path, committed=_committed))
+        if _i % 2000 == 0:
+            emit_progress("discovery_scan", scanned=_i, total=_total)
+    emit_progress("discovery_scan", scanned=_total, total=_total)
     allowed_paths = sorted(row["path"] for row in fates if row.get("fate") == "tracked")
     file_counts = _file_counts(
         git_tracked_paths=git_tracked_paths,

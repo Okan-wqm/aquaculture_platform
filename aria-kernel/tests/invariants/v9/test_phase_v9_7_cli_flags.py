@@ -59,10 +59,10 @@ class TestV9CliAutonomyRun(unittest.TestCase):
         self.assertIn("choices=list(PROFILES)", self.src)
 
     def test_per_cycle_default_canonical(self):
-        """Per-cycle cap default = $1.50 (v3 plan acceptance)."""
+        """Per-cycle cap default = $3.00 (K4 fable re-baseline)."""
         # Test pin: the literal "default=1.50" appears next to the
         # per-cycle add_argument call.
-        self.assertIn("default=1.50", self.src)
+        self.assertIn("default=3.00", self.src)
 
     def test_profile_strict_default(self):
         """V9.7 + V3.1-E — autonomy run --profile default MUST be

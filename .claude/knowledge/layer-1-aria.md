@@ -24,6 +24,7 @@ A continuous-mode, repository-shaped meta-system that:
 - `@docs/aria/SPEC.md` — boundaries (3 laws, 5 engines, 3 mastery levels, claim authority, workspace topology, repo-recognition bootstrap)
 - `@docs/aria/IDENTITY.md` — behavior (daily rhythm, refusals, speech, trajectory, nuance discrimination, visible-problem discipline, event-driven mode)
 - `@docs/aria/CONTRACTS.md` — data + protocol schemas (capsule, spine, evidence chain, finding, observation, debt, critical observation, pressure event, calibration), CLI execution model, Phase-1 PoC
+- `@docs/aria/PIPELINES.md` — lane map: which agent runs when, per pipeline (convergent gate, implementation, authoring, judges, acceptance, maintenance, autonomy ladder)
 
 When SPEC and IDENTITY conflict, SPEC wins. When CONTRACTS specifies a schema, all skills emit conforming JSON.
 

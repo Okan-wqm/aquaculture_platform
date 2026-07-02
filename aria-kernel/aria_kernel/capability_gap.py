@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent_priors import related_agents_for_paths
 from .agent_network import latest_agent_network_hash
+from .agent_routing import ROUTING_TABLE_REL, unowned_projects
 from .fitness import list_fitness_reports
 from .ledger import append_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
@@ -53,6 +54,7 @@ def detect_capability_gaps(
     gaps = []
     if paths is not None:
         gaps.extend(_gaps_from_unowned_pressures(cycle_id, paths, root, index_hash))
+        gaps.extend(_gaps_from_coverage_gaps(cycle_id, paths, root, index_hash, base_dir))
     gaps.extend(_gaps_from_adapter_registry(cycle_id, paths, root, index_hash))
     gaps.extend(_gaps_from_shadow_runs(cycle_id, root, base_dir))
     gaps.extend(_gaps_from_unknowns(cycle_id, base_dir))
@@ -269,6 +271,64 @@ def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_ha
     return gaps
 
 
+def _gaps_from_coverage_gaps(
+    cycle_id: str, paths: Any, root: Path, index_hash: str | None, base_dir: str | Path | None
+) -> list[dict[str, Any]]:
+    """A service ARIA examined this cycle that NO domain agent owns (empty
+    routing-table primary) AND that has an active pressure → an agent-genesis
+    candidate. The routing-derived ``unowned`` signal is stronger than an
+    unowned pressure: it is a structural "this service has no owner at all".
+    Requiring active pressure keeps it high-signal (an inert unowned lib does
+    not file a request). Routes to ``existing_agent_extension`` when a related
+    agent exists (prefer extension), else ``agent_gap``; the genesis policy +
+    human approval gate everything downstream."""
+    try:
+        unowned = unowned_projects(workspace_root=paths.repo_root, base_dir=base_dir)
+    except Exception:
+        return []
+    if not unowned:
+        return []
+    # Which unowned services carry activity this cycle (a pressure's evidence
+    # lands inside them)? Longest root first so a nested project wins.
+    roots = sorted(unowned.items(), key=lambda kv: len(kv[1]), reverse=True)
+    active: dict[str, list[str]] = {}
+    for pressure in effective_workspace_pressures(paths):
+        if pressure.get("effective_state") not in {"active", "faded", "sleeping", None}:
+            continue
+        refs = [str(ref) for ref in pressure.get("evidence_refs", []) if isinstance(ref, str)]
+        for ref in refs:
+            normalized = ref.strip()
+            if normalized.startswith("./"):
+                normalized = normalized[2:]
+            normalized = normalized.lstrip("/")
+            for name, proot in roots:
+                if normalized == proot or normalized.startswith(proot + "/"):
+                    active.setdefault(name, []).extend(refs)
+                    break
+    gaps = []
+    for service in sorted(active):
+        proot = unowned[service]
+        related = related_agents_for_paths(paths=[proot], base_dir=root)
+        evidence = [ROUTING_TABLE_REL, proot] + active[service]
+        gaps.append(
+            _gap(
+                cycle_id=cycle_id,
+                gap_type="existing_agent_extension" if related else "agent_gap",
+                source_id=f"coverage:{service}",
+                title=f"Service has active pressure but no owning review agent: {service}",
+                evidence_refs=evidence[:20],
+                related_agents=related,
+                score=75,
+                blocked_by=[],
+                capability_gap_key=f"coverage:{service}",
+                primary_source="coverage",
+                source_types=["coverage"],
+                index_hash_at_decision=index_hash,
+            ),
+        )
+    return gaps
+
+
 def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
     gaps = []
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
@@ -402,5 +462,5 @@ def _gap(
 
 
 def _source_rank(source: str) -> int:
-    order = {"registry": 0, "pressure": 1, "shadow-run": 2, "unknown": 3, "low-fitness": 4}
+    order = {"registry": 0, "coverage": 1, "pressure": 2, "shadow-run": 3, "unknown": 4, "low-fitness": 5}
     return order.get(source, 99)

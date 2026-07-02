@@ -48,6 +48,35 @@ BASE_EXCLUDED_DIRS: frozenset[str] = frozenset({
 })
 
 
+def is_archived_migration_path(path: str | Path) -> bool:
+    """True when ``path`` is a *superseded* (archived) database migration.
+
+    WHY: services periodically re-baseline their schema — the old per-table
+    migrations are moved under ``apps/<svc>/src/database/migrations/.archive/
+    <timestamp>/`` and replaced by a consolidated active baseline. The archived
+    files remain git-tracked (history is evidence) but they no longer describe
+    the *current* schema.
+
+    WHAT it guards: ARIA's mechanical drift detector compares a current TS
+    entity's value-set against the SQL ``CREATE TYPE ... AS ENUM`` it can find.
+    If an archived migration is in that corpus, the comparison runs against
+    superseded schema and emits a *phantom* drift. Observed concretely: the
+    ``goal`` enum's archived ``partially_completed`` value (dropped at the
+    hr-service re-baseline, absent from the active ``hr.goals_status_enum``)
+    was flagged as a TS-vs-SQL drift even though the TS entity matches the
+    *active* baseline exactly. Excluding archived migrations from the drift
+    corpus makes that whole false-positive class impossible (Tier-1).
+
+    This is intentionally a file-level predicate, NOT a member of
+    ``BASE_EXCLUDED_DIRS``: archived migrations must still be *walked* and
+    *fated* by discovery (they are tracked repo content; skipping the walk
+    would inflate the git↔filesystem reconciliation ``in_git_not_walked``
+    count). Only the value-set drift corpus excludes them.
+    """
+    p = str(path).replace("\\", "/")
+    return "/database/migrations/" in p and "/.archive/" in p
+
+
 def augmented_excluded_paths(repo_root: Path | str) -> frozenset[str]:
     """Return ``BASE_EXCLUDED_DIRS`` augmented with git worktree basenames.
 
@@ -94,4 +123,5 @@ def augmented_excluded_paths(repo_root: Path | str) -> frozenset[str]:
 __all__ = [
     "BASE_EXCLUDED_DIRS",
     "augmented_excluded_paths",
+    "is_archived_migration_path",
 ]

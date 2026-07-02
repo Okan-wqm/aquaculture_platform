@@ -111,16 +111,18 @@ export class GetFeedingSummaryHandler implements IQueryHandler<GetFeedingSummary
       }
 
       // Yem tipi dağılımı
-      const feedMap = new Map<string, { feedId: string; feedName: string; totalKg: number }>();
+      const feedMap = new Map<string, { feedId: string; feedName: string; totalKg: number; cost: number }>();
       for (const record of records) {
         const existing = feedMap.get(record.feedId);
         if (existing) {
           existing.totalKg += Number(record.actualAmount);
+          existing.cost += Number(record.feedCost || 0);
         } else {
           feedMap.set(record.feedId, {
             feedId: record.feedId,
             feedName: '', // Sonra dolduracağız
             totalKg: Number(record.actualAmount),
+            cost: Number(record.feedCost || 0),
           });
         }
       }
@@ -142,6 +144,7 @@ export class GetFeedingSummaryHandler implements IQueryHandler<GetFeedingSummary
           feedName: feedNameMap.get(feedId) || 'Unknown',
           totalKg: data.totalKg,
           percentage: totalActualKg > 0 ? (data.totalKg / totalActualKg) * 100 : 0,
+          cost: data.cost,
         });
       }
 
@@ -175,10 +178,20 @@ export class GetFeedingSummaryHandler implements IQueryHandler<GetFeedingSummary
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
+      // Özetlenen dönem: istenen aralık, yoksa kayıtların kendi tarih aralığı.
+      const feedingDates = records
+        .map((r) => (r.feedingDate instanceof Date ? r.feedingDate : new Date(r.feedingDate)))
+        .filter((d) => !Number.isNaN(d.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime());
+      const startDate = fromDate ?? feedingDates[0] ?? new Date();
+      const endDate = toDate ?? feedingDates[feedingDates.length - 1] ?? new Date();
+
       return {
         entityId,
         entityType,
         entityName,
+        startDate,
+        endDate,
         totalFeedingsCount,
         totalPlannedKg,
         totalActualKg,

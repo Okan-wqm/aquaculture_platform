@@ -160,6 +160,42 @@ def _scan_pii_in_body(body: str) -> list[str]:
     return hits
 
 
+# K6 (ORPHAN-MEDIUM-287) — the drafter's refusal wire format. aria-drafter
+# writes the literal ``DRAFTER_REFUSAL:<reason_code>`` to --output-path when
+# an intent cannot be satisfied (I-V3-00a contract). Before K6 no consumer
+# parsed the sentinel: a deterministic refusal fell through the grammar
+# complaints as required_sections_missing and burned the full retry budget.
+DRAFTER_REFUSAL_PREFIX = "DRAFTER_REFUSAL:"
+DRAFTER_REFUSAL_REASON_CODES: frozenset[str] = frozenset({
+    "intent_underspecified",
+    "evidence_allowlist_empty",
+    "acceptance_tests_uninterpretable",
+    "intent_kind_unrecognized",
+    "target_path_violates_lane",
+})
+# reason_code -> aria/agent-refusal/v1 reason_class mapping (agent_contract).
+DRAFTER_REFUSAL_CLASS_BY_CODE: dict[str, str] = {
+    "intent_underspecified": "evidence",
+    "evidence_allowlist_empty": "evidence",
+    "acceptance_tests_uninterpretable": "evidence",
+    "intent_kind_unrecognized": "law",
+    "target_path_violates_lane": "scope",
+}
+
+
+def parse_drafter_refusal(body: str) -> str | None:
+    """Return the refusal reason_code when ``body`` is a drafter refusal
+    sentinel, else None. Unknown codes return the raw code (callers decide);
+    a refusal is only recognized when the sentinel is the entire non-blank
+    body — an embedded mention inside a real draft is draft content."""
+    stripped = (body or "").strip()
+    if not stripped.startswith(DRAFTER_REFUSAL_PREFIX):
+        return None
+    if "\n" in stripped.strip():
+        return None
+    return stripped[len(DRAFTER_REFUSAL_PREFIX):].strip()
+
+
 def validate_body_against_intent(
     body: str,
     intent: AgentDraftIntent | SkillDraftIntent,
@@ -178,6 +214,22 @@ def validate_body_against_intent(
         return ValidationResult(
             valid=False,
             complaints=("body_empty_or_whitespace_only",),
+        )
+
+    # K6 — a refusal sentinel is a structured outcome, not a malformed
+    # draft: return the distinct complaint so callers can record the
+    # aria/agent-refusal/v1 row and skip the retry budget (a refusal is
+    # deterministic; re-dispatching the same intent refuses again).
+    refusal_code = parse_drafter_refusal(body)
+    if refusal_code is not None:
+        if refusal_code in DRAFTER_REFUSAL_REASON_CODES:
+            return ValidationResult(
+                valid=False,
+                complaints=(f"drafter_refusal:{refusal_code}",),
+            )
+        return ValidationResult(
+            valid=False,
+            complaints=(f"drafter_refusal_unrecognized:{refusal_code}",),
         )
 
     complaints: list[str] = []

@@ -38,6 +38,7 @@ import { Injectable } from '@nestjs/common';
 import * as client from 'prom-client';
 
 const METRIC_PENDING = 'outbox_pending';
+const METRIC_OLDEST_PENDING_AGE = 'outbox_oldest_pending_age_seconds';
 const METRIC_DEAD_LETTER = 'outbox_dead_letter_count';
 const METRIC_PUBLISH_LATENCY = 'outbox_publish_latency_seconds';
 const METRIC_PUBLISH_TOTAL = 'outbox_publish_total';
@@ -55,6 +56,7 @@ const LATENCY_BUCKETS = [
 @Injectable()
 export class OutboxMetricsService {
   private readonly pending: client.Gauge<string>;
+  private readonly oldestPendingAge: client.Gauge<string>;
   private readonly deadLetterCount: client.Gauge<string>;
   private readonly publishLatency: client.Histogram<string>;
   private readonly publishTotal: client.Counter<string>;
@@ -93,6 +95,17 @@ export class OutboxMetricsService {
         registers: [registry],
       });
 
+    this.oldestPendingAge =
+      (registry.getSingleMetric(
+        METRIC_OLDEST_PENDING_AGE,
+      ) as client.Gauge<string>) ??
+      new client.Gauge({
+        name: METRIC_OLDEST_PENDING_AGE,
+        help: 'Age in seconds of the oldest unpublished (non-dead-lettered) outbox row — alert on sustained growth (ORPHAN-HIGH-321)',
+        labelNames: ['service'],
+        registers: [registry],
+      });
+
     this.publishTotal =
       (registry.getSingleMetric(
         METRIC_PUBLISH_TOTAL,
@@ -119,6 +132,16 @@ export class OutboxMetricsService {
   /** Update the pending-count gauge for this service. */
   setPending(service: string, count: number): void {
     this.pending.set({ service }, count);
+  }
+
+  /**
+   * ORPHAN-HIGH-321: age (seconds) of the OLDEST unpublished, non-dead-
+   * lettered row. The one signal that exposes a silently-stalled
+   * dispatcher — alert when it exceeds the OUTBOX_PENDING_AGE_ALARM_MS
+   * threshold. 0 when the queue is empty.
+   */
+  setOldestPendingAge(service: string, seconds: number): void {
+    this.oldestPendingAge.set({ service }, seconds);
   }
 
   /** Update the dead-letter-count gauge for this service. */

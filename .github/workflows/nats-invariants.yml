@@ -1,0 +1,89 @@
+# =============================================================================
+# NATS SSoT Invariants — ADR-015 cert-is-identity + ORPHAN-HIGH-317 subject scheme
+# =============================================================================
+#
+# WHY this workflow exists: CLAUDE.md has advertised
+# e2e/tests/integration/nats-invariants.spec.ts as "the CI invariant" since
+# ADR-015 landed, but NO workflow ever executed it — the spec sat 16/18 red
+# on main for months while every auth-service domain event was silently
+# denied at the broker (ORPHAN-HIGH-317) and three live RPC endpoints
+# (request.billing.tenant.provisionSubscription,
+# request.messaging.getMessageForBroadcast, sensor.lookup.by-topic) were
+# refused with Permissions Violations. An invariant that does not run is a
+# Potemkin gate; this workflow is the wiring.
+#
+# WHAT it runs (all static file analysis — no broker, no database):
+#   - nats-invariants.spec.ts     services.yaml schema + generator fidelity +
+#                                 legacy-scheme ban + publish/RPC coverage
+#                                 against apps/** sources
+#   - nats-subject-contract.spec.ts  publisher↔subscriber subject shape pin
+#                                    (ORPHAN-013 regression guard)
+#
+# Paths: apps/** and libs/event-contracts/** are inputs to the coverage
+# checks (a new createBaseEvent type or @MessagePattern handler must carry
+# its grant), so the job runs on most backend PRs. It is pure static
+# analysis (~1 min after npm ci) — cheap enough to run broadly.
+
+name: NATS SSoT Invariants
+
+on:
+  pull_request:
+    paths:
+      - 'infrastructure/nats/**'
+      - 'infrastructure/docker/nats/**'
+      - 'infrastructure/docker/scripts/generate-internal-certs.sh'
+      - 'scripts/nats/**'
+      - 'apps/**'
+      - 'libs/event-contracts/**'
+      - 'platform/libs/event-bus/**'
+      - 'e2e/tests/integration/nats-invariants.spec.ts'
+      - 'e2e/tests/integration/nats-subject-contract.spec.ts'
+      - '.github/workflows/nats-invariants.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infrastructure/nats/**'
+      - 'infrastructure/docker/nats/**'
+      - 'apps/**'
+      - 'libs/event-contracts/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nats-invariants-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nats-invariants:
+    runs-on: ubuntu-latest
+    # Static analysis only — generous ceiling, no zombie risk.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
+
+      - name: Verify nats.conf is regenerated from services.yaml (generator idempotency)
+        run: |
+          python3 scripts/nats/generate-nats-conf.py
+          if ! git diff --exit-code infrastructure/docker/nats/nats.conf; then
+            echo "::error file=infrastructure/docker/nats/nats.conf::nats.conf is stale — services.yaml changed without regenerating. Run scripts/nats/generate-nats-conf.py and commit the diff (same commit, per ADR-015)."
+            exit 1
+          fi
+
+      - name: Run NATS SSoT invariant specs
+        run: |
+          npx jest --config e2e/jest.config.ts --runInBand \
+            --runTestsByPath \
+            e2e/tests/integration/nats-invariants.spec.ts \
+            e2e/tests/integration/nats-subject-contract.spec.ts

@@ -105,6 +105,107 @@ def environment_unable_payload(
     }
 
 
+def parse_critic_adjudication(response: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Extract the completeness-critic verdict from a response envelope.
+
+    Expected shape (documented in .claude/agents/aria-completeness-critic.md
+    and the canonical-envelope knowledge file):
+
+        details.waiver_adjudication = {
+            "accepted": ["<node_id>", ...],
+            "rejected": [{"node_id": "...", "reason": "..."}, ...],
+        }
+
+    Returns the normalized dict, or None when the response is missing or
+    malformed — the caller treats None as "unadjudicated" (fail-closed:
+    every waived node flips to uncovered).
+    """
+    if not isinstance(response, dict):
+        return None
+    details = response.get("details")
+    if not isinstance(details, dict):
+        return None
+    raw = details.get("waiver_adjudication")
+    if not isinstance(raw, dict):
+        return None
+    accepted_raw = raw.get("accepted")
+    rejected_raw = raw.get("rejected")
+    if not isinstance(accepted_raw, list) or not isinstance(rejected_raw, list):
+        return None
+    accepted = [item for item in accepted_raw if isinstance(item, str) and item]
+    rejected: list[dict[str, str]] = []
+    for item in rejected_raw:
+        if not isinstance(item, dict):
+            return None
+        node_id = item.get("node_id")
+        reason = item.get("reason")
+        if not (isinstance(node_id, str) and node_id and isinstance(reason, str) and reason):
+            return None
+        rejected.append({"node_id": node_id, "reason": reason})
+    return {"accepted": accepted, "rejected": rejected}
+
+
+def adjudicate_waivers(
+    *,
+    payload: dict[str, Any],
+    adjudication: dict[str, Any] | None,
+    round_number: int,
+    critic_request_id: str | None = None,
+) -> dict[str, Any]:
+    """Fold the critic verdict into a covered_with_waivers coverage payload.
+
+    Fail-closed by construction: a waived node covers its closure node ONLY
+    when the critic explicitly accepts it. Rejected nodes flip to uncovered
+    with the critic's reason; nodes the critic never adjudicated (timeout,
+    refusal, malformed response, or simply omitted) flip with
+    ``waiver_unadjudicated`` — PR-1's machine-accepts-any-reason loosening
+    ends here. Flipped nodes get fresh round-scoped synthetic risks so the
+    existing material gate + revision loop carry them.
+    """
+    waived = list(payload.get("waived", []))
+    if not waived:
+        return payload
+    accepted = set((adjudication or {}).get("accepted", []))
+    rejected_reasons = {
+        item["node_id"]: item["reason"]
+        for item in (adjudication or {}).get("rejected", [])
+    }
+    kept: list[dict[str, Any]] = []
+    flipped: list[dict[str, Any]] = []
+    for waiver in waived:
+        node_id = str(waiver.get("node_id"))
+        if node_id in accepted:
+            kept.append(waiver)
+            continue
+        if node_id in rejected_reasons:
+            why = f"waiver_rejected_by_critic: {rejected_reasons[node_id]}"
+        else:
+            why = "waiver_unadjudicated"
+        flipped.append({"node_id": node_id, "kind": "waiver_adjudication", "why": why})
+    result = dict(payload)
+    result["waived"] = kept
+    result["uncovered"] = list(payload.get("uncovered", [])) + flipped
+    manifest_path = str(payload.get("closure_manifest_path"))
+    result["synthetic_risks"] = list(payload.get("synthetic_risks", [])) + [
+        build_synthetic_risk(node, round_number=round_number, closure_manifest_path=manifest_path)
+        for node in flipped
+    ]
+    if result["uncovered"]:
+        result["verdict"] = "gaps"
+    else:
+        result["verdict"] = "covered_with_waivers" if kept else "covered"
+    witness = dict(payload.get("witness") or {})
+    witness["waiver_adjudication"] = {
+        "adjudicated": adjudication is not None,
+        "accepted": len(kept),
+        "rejected": sum(1 for n in flipped if n["why"].startswith("waiver_rejected_by_critic")),
+        "unadjudicated": sum(1 for n in flipped if n["why"] == "waiver_unadjudicated"),
+        "critic_request_id": critic_request_id,
+    }
+    result["witness"] = witness
+    return result
+
+
 def compute_plan_coverage(
     *,
     plan_content: dict[str, Any],

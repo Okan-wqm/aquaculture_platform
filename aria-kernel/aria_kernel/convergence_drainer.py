@@ -38,6 +38,7 @@ mock fakes covering all V5.1 verdict paths.
 
 from __future__ import annotations
 
+import re
 import json
 import os
 import time
@@ -50,9 +51,11 @@ from .convergent_planning_bridge import (
     start_convergent_plan_drafted_by_primary,
 )
 from .cross_review_bridge import (
+    issue_completeness_critic_envelope,
     issue_cross_review_envelope,
     issue_primary_envelope,
 )
+from .ledger import load_declared_jsonl
 from .plan_convergence import (
     TERMINAL_STATES,
     _plan_requires_coverage,
@@ -60,7 +63,12 @@ from .plan_convergence import (
     fold_plan_state,
     record_coverage,
 )
-from .plan_coverage import compute_plan_coverage, environment_unable_payload
+from .plan_coverage import (
+    adjudicate_waivers,
+    compute_plan_coverage,
+    environment_unable_payload,
+    parse_critic_adjudication,
+)
 from .planner_dispatch_hook import dispatch_one_pending_planner_request
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
@@ -79,6 +87,7 @@ _CONVERGENCE_INLINE_DISPATCH_ROLES: tuple[str, ...] = (
     "primary_plan",
     "challenger_plan",
     "cross_review",
+    "completeness_critique",
     "implementation",
 )
 
@@ -444,6 +453,8 @@ def run_convergence_drainer(
     max_rounds: int = 4,
     challenger_timeout_seconds: float = 1800.0,
     coverage_computer: Any | None = None,
+    critic_adjudicator: Any | None = None,
+    critic_timeout_seconds: float = 900.0,
 ) -> ConvergenceResult:
     """Plan ARIA-V5 §2 — default Gate A convergence runner.
 
@@ -789,6 +800,117 @@ def run_convergence_drainer(
 
     resolved_coverage_computer = coverage_computer or compute_plan_coverage
 
+    def _read_critic_adjudication(request_id: str, deadline: float) -> dict[str, Any] | None:
+        """Inline-dispatch the critic and poll the results ledger.
+
+        Returns the parsed adjudication dict, or None on timeout, ARIA_STOP,
+        rejection, or an unparseable output — the caller flips every waived
+        node to uncovered (fail-closed) in that case.
+        """
+        results_path = root / "agent-invocations" / "results.jsonl"
+        while time.monotonic() < deadline:
+            if _check_aria_stop(root):
+                return None
+            try:
+                dispatch_one_pending_planner_request(
+                    base_dir=base_dir,
+                    planner_roles=("completeness_critique",),
+                )
+            except Exception:
+                pass
+            rows = (
+                load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+                if results_path.exists()
+                else []
+            )
+            for row in reversed(rows):
+                if row.get("request_id") != request_id:
+                    continue
+                if row.get("status") == "rejected":
+                    return None
+                output_path = row.get("output_path")
+                if not isinstance(output_path, str) or not Path(output_path).exists():
+                    return None
+                text = Path(output_path).read_text(encoding="utf-8", errors="replace")
+                envelope: dict[str, Any] | None = None
+                try:
+                    parsed = json.loads(text)
+                    envelope = parsed if isinstance(parsed, dict) else None
+                except json.JSONDecodeError:
+                    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+                    for block in reversed(fenced):
+                        try:
+                            candidate = json.loads(block)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(candidate, dict):
+                            envelope = candidate
+                            break
+                return parse_critic_adjudication(envelope)
+            time.sleep(poll_sleep)
+        return None
+
+    def _dispatch_and_adjudicate(payload: dict[str, Any], current_round: int) -> dict[str, Any]:
+        """Production critic gate: mint -> dispatch -> poll -> fold verdict.
+
+        Every failure mode (mint refusal, dispatch crash, timeout, refusal,
+        malformed output) resolves to adjudication=None, which
+        adjudicate_waivers turns into waiver_unadjudicated gaps — PR-1's
+        machine-accepted waivers end here.
+        """
+        manifest_name = Path(str(payload.get("closure_manifest_path"))).name
+        manifest_file = root / "coverage" / manifest_name
+        manifest_text = (
+            manifest_file.read_text(encoding="utf-8", errors="replace")
+            if manifest_file.exists()
+            else "(closure manifest unavailable)"
+        )
+        request_id: str | None = None
+        adjudication: dict[str, Any] | None = None
+        try:
+            critic_request = issue_completeness_critic_envelope(
+                plan_id=plan_id,
+                round_number=current_round,
+                closure_manifest_text=manifest_text,
+                closure_manifest_hash=str(payload.get("closure_manifest_hash")),
+                waivers=list(payload.get("waived", [])),
+                evidence_refs=[str(payload.get("closure_manifest_path")), *evidence_refs],
+                allowed_scope=allowed_scope,
+                base_dir=base_dir,
+            )
+            request_id = critic_request.get("request_id")
+            if request_id:
+                request_ids.append(request_id)
+                adjudication = _read_critic_adjudication(
+                    request_id, time.monotonic() + critic_timeout_seconds,
+                )
+        except GovernanceError:
+            adjudication = None
+        adjudicated = adjudicate_waivers(
+            payload=payload,
+            adjudication=adjudication,
+            round_number=current_round,
+            critic_request_id=request_id,
+        )
+        try:
+            append_tools_governance(
+                root,
+                "coverage_waiver_adjudication",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": current_round,
+                    "critic_request_id": request_id,
+                    **(adjudicated.get("witness") or {}).get("waiver_adjudication", {}),
+                    "verdict_after": adjudicated.get("verdict"),
+                },
+            )
+        except Exception:
+            pass
+        return adjudicated
+
+    resolved_critic_adjudicator = critic_adjudicator or _dispatch_and_adjudicate
+
     def _run_coverage_phase(current_round: int) -> None:
         """Compute + record the deterministic coverage verdict for this round.
 
@@ -840,6 +962,11 @@ def run_convergence_drainer(
                     computed_at_sha="unknown",
                     witness={"tool": "convergence_drainer", "error": "revision_content_not_structured"},
                 )
+            # PR-2 tightening: machine-computed waivers are only claims —
+            # the completeness critic adjudicates each one before the
+            # verdict is recorded. No waivers -> nothing to adjudicate.
+            if payload.get("verdict") == "covered_with_waivers" and payload.get("waived"):
+                payload = resolved_critic_adjudicator(payload, current_round)
             record_coverage(plan_id=plan_id, coverage=payload, base_dir=base_dir)
             append_tools_governance(
                 root,

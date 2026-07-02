@@ -5,6 +5,8 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import type { Server, ServerOptions } from 'socket.io';
 
+import { toError } from '../../common/error-normalization';
+
 /**
  * RedisIoAdapter
  *
@@ -168,7 +170,7 @@ export class RedisIoAdapter extends IoAdapter {
       try {
         await this.pubClient.quit();
       } catch (err) {
-        errors.push(err instanceof Error ? err : new Error(String(err)));
+        errors.push(toError(err));
       } finally {
         this.pubClient = undefined;
       }
@@ -178,7 +180,7 @@ export class RedisIoAdapter extends IoAdapter {
       try {
         await this.subClient.quit();
       } catch (err) {
-        errors.push(err instanceof Error ? err : new Error(String(err)));
+        errors.push(toError(err));
       } finally {
         this.subClient = undefined;
       }

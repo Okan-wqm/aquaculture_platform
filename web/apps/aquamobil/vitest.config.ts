@@ -2,6 +2,10 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
+import { loadVitestResourceProfile } from '../../../tools/testing/vitest-resource-policy';
+
+const resourceProfile = loadVitestResourceProfile('reactDom');
+
 // WHY: Aquamobil has its own node_modules/react (hoisted differently from root).
 // @testing-library/react (in root node_modules) imports react-dom from root,
 // while component code resolves to the local copy. This creates the classic
@@ -37,7 +41,11 @@ export default defineConfig({
     // do real work (e.g. RecordEntityPage's queue-error confirm flow) can exceed
     // the 5000ms default and flake RED even though they pass in isolation. Raising
     // the per-test timeout removes the load-induced flake without masking a real
-    // failure — a genuinely hung test still trips the 15s ceiling.
-    testTimeout: 15_000,
+    // failure — a genuinely hung test still trips the ceiling.
+    //
+    // Sourced from tools/testing/vitest-resource-policy.json's 'reactDom' profile
+    // (the SSoT for vitest worker/timeout budgets) instead of a local literal, so
+    // this and any future jsdom+React project tune the same knob in one place.
+    testTimeout: resourceProfile.testTimeoutMs,
   },
 });

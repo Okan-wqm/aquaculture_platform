@@ -5,11 +5,16 @@
  * persists for every Mattilsynet report type. These hooks replace the
  * mock arrays the report-history tabs used to render.
  *
- * Follows the module data-layer conventions: useAuth() for
- * token/tenantId, graphqlClient.request(), tenant-scoped query keys.
+ * Follows the module data-layer conventions: useTenantQuery (the
+ * tenant-key + auth-gate + keepPreviousData SSoT) over graphqlClient.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useAuth,
+  graphqlClient,
+  useTenantQuery,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 import {
   REGULATORY_REPORTS_QUERY,
   REGULATORY_REPORT_QUERY,
@@ -71,47 +76,42 @@ export function useRegulatoryReports(
   siteId?: string,
   limit = 50,
 ) {
-  const { token, tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'regulatoryReports', reportType, siteId, limit),
-    queryFn: async (): Promise<RegulatoryReportRow[]> => {
+  return useTenantQuery<RegulatoryReportRow[]>(
+    ['regulatoryReports', reportType, siteId, limit],
+    async () => {
       const data = await graphqlClient.request<{ regulatoryReports: RegulatoryReportRow[] }>(
         REGULATORY_REPORTS_QUERY,
         { reportType, siteId, limit, offset: 0 },
       );
       return data.regulatoryReports;
     },
-    enabled: !!token && !!tenantId,
-  });
+  );
 }
 
 export function useRegulatoryReport(id: string | null) {
-  const { token, tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'regulatoryReport', id),
-    queryFn: async (): Promise<RegulatoryReportDetail | null> => {
+  return useTenantQuery<RegulatoryReportDetail | null>(
+    ['regulatoryReport', id],
+    async () => {
       const data = await graphqlClient.request<{ regulatoryReport: RegulatoryReportDetail | null }>(
         REGULATORY_REPORT_QUERY,
         { id },
       );
       return data.regulatoryReport;
     },
-    enabled: !!token && !!tenantId && !!id,
-  });
+    { enabled: !!id },
+  );
 }
 
 export function useRegulatoryReportSummary(siteId?: string) {
-  const { token, tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'regulatoryReportSummary', siteId),
-    queryFn: async (): Promise<RegulatoryReportTypeSummary[]> => {
+  return useTenantQuery<RegulatoryReportTypeSummary[]>(
+    ['regulatoryReportSummary', siteId],
+    async () => {
       const data = await graphqlClient.request<{
         regulatoryReportSummary: RegulatoryReportTypeSummary[];
       }>(REGULATORY_REPORT_SUMMARY_QUERY, { siteId });
       return data.regulatoryReportSummary;
     },
-    enabled: !!token && !!tenantId,
-  });
+  );
 }
 
 /**

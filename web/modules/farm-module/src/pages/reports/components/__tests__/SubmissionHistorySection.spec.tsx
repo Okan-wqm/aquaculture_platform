@@ -18,15 +18,33 @@ const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }));
 vi.mock('@aquaculture/shared-ui', async () => {
   const actual =
     await vi.importActual<typeof import('@aquaculture/shared-ui')>('@aquaculture/shared-ui');
+  // The real useTenantQuery reads shared-ui's INTERNAL useAuth (an AuthContext
+  // consumer), which this federation-free test does not mount — so replicate its
+  // contract (tenant-prefixed key + auth gate + keepPreviousData) on top of the
+  // stub session, keeping the module's hook file itself under test.
+  const rq =
+    await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
+  const TENANT_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
   return {
     ...actual,
     useAuth: () => ({
       token: 'jwt',
-      tenantId: 'aaaaaaaa-1111-4222-8333-444444444444',
+      tenantId: TENANT_ID,
       isAuthenticated: true,
       isLoading: false,
     }),
     graphqlClient: { request: requestMock },
+    useTenantQuery: <TData,>(
+      segments: readonly unknown[],
+      queryFn: () => Promise<TData>,
+      options?: { enabled?: boolean },
+    ) =>
+      rq.useQuery<TData>({
+        queryKey: ['tenant', TENANT_ID, ...segments],
+        queryFn,
+        enabled: options?.enabled ?? true,
+        placeholderData: rq.keepPreviousData,
+      }),
   };
 });
 

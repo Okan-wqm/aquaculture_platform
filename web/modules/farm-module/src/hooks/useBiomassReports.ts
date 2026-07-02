@@ -5,14 +5,14 @@
  * existed (`biomassReports` list query) — the tab previously rendered
  * mock history while the create mutation was real.
  *
- * Follows the module data-layer conventions (useAuth, graphqlClient,
- * tenant-scoped query keys), mirroring hooks/useRegulatoryReports.ts.
+ * Follows the module data-layer conventions (useTenantQuery — the
+ * tenant-key + auth-gate SSoT), mirroring hooks/useRegulatoryReports.ts.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useAuth,
   graphqlClient,
-  createTenantQueryKey,
+  useTenantQuery,
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 import { BIOMASS_REPORTS_QUERY } from '../graphql/regulatory.operations';
@@ -31,18 +31,17 @@ export interface BiomassReportListRow {
 }
 
 export function useBiomassReports(siteId?: string, limit = 24) {
-  const { token, tenantId } = useAuth();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'biomassReports', siteId, limit),
-    queryFn: async (): Promise<BiomassReportListRow[]> => {
+  return useTenantQuery<BiomassReportListRow[]>(
+    ['biomassReports', siteId, limit],
+    async () => {
       const data = await graphqlClient.request<{ biomassReports: BiomassReportListRow[] }>(
         BIOMASS_REPORTS_QUERY,
         { siteId, limit },
       );
       return data.biomassReports;
     },
-    enabled: !!token && !!tenantId && !!siteId,
-  });
+    { enabled: !!siteId },
+  );
 }
 
 /**

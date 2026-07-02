@@ -53,6 +53,14 @@ EVENT_TYPES = {
     "implementation_outcome_recorded",
     "implementation_merged",
     "implementation_rejected",
+    # Plan-coverage gate (ORPHAN-HIGH-310 class: convergence measures
+    # agreement, not coverage — two planners can share a blind spot).
+    # coverage_computed is an ANNOTATION event: it never changes
+    # state["state"], it fills state["coverage_by_round"][N] with the
+    # deterministic impact-closure verdict and folds its synthetic
+    # coverage_gap risks into cross_review_risks_by_round[N]. The
+    # payload shape is a one-way door like every event here.
+    "coverage_computed",
 }
 TERMINAL_STATES = {
     "CONVERGED",
@@ -111,6 +119,13 @@ CROSS_REVIEW_RISK_REQUIRED = (
 # kept SEPARATE from KNOWN_SEVERITIES (the finding-severity vocabulary) so
 # the two vocabularies can evolve independently; the accept-set unions both.
 RISK_SEVERITY_VALUES = frozenset({"blocking", "material", "nice_to_have"})
+# Plan-coverage verdict vocabulary. "gaps" blocks convergence via the
+# round loop; "environment_unable" escalates straight to HUMAN_REQUIRED
+# (the environment will not heal round-over-round); the two covered
+# verdicts pass the gate. The gate applies only to plans whose
+# plan_started content declares schema_version >= 2 — every historical
+# plan and fixture is v1, so replay semantics are untouched.
+COVERAGE_VERDICTS = frozenset({"covered", "covered_with_waivers", "gaps", "environment_unable"})
 MAX_PLAN_BYTES = 1_000_000
 MAX_AFFECTED_PATHS = 200
 MAX_RISKS = 100
@@ -481,6 +496,34 @@ def record_revision(
     )
 
 
+def record_coverage(
+    *,
+    plan_id: str,
+    coverage: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Record the deterministic impact-closure verdict for the current round.
+
+    The coverage payload is produced by ``plan_coverage.compute_plan_coverage``
+    (machine truth — the plan-coverage witness), never by a planner agent.
+    Recording is idempotent on the canonical payload; a recompute against a
+    new revision carries a new ``target_plan_content_hash`` and therefore
+    lands as a new event. Stale coverage (hash not matching the latest
+    revision) is refused before the event is appended — same discipline as
+    the cross-review hash-mismatch rejection.
+    """
+    _validate_id(plan_id, "plan_id")
+    return _mutate(
+        plan_id=plan_id,
+        command_name="record-coverage",
+        canonical_payload=coverage,
+        event_type="coverage_computed",
+        payload=coverage,
+        base_dir=base_dir,
+        validator=_validate_coverage_record,
+    )
+
+
 def evaluate_plan(
     *,
     plan_id: str,
@@ -671,8 +714,9 @@ def request_implementation(
         event_type="implementation_requested",
         payload=payload,
         base_dir=base_dir,
-        validator=lambda state: _require_state(
-            state, {"CONVERGED"}, "request implementation",
+        validator=lambda state: (
+            _require_state(state, {"CONVERGED"}, "request implementation"),
+            _require_coverage_for_implementation(state),
         ),
     )
 
@@ -1275,6 +1319,7 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "cross_reviews": {},
         "cross_review_risks_by_round": {},
         "resolved_review_risk_ids": [],
+        "coverage_by_round": {},
         "terminal_state": None,
     }
 
@@ -1410,6 +1455,34 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         resolved = set(state.get("resolved_review_risk_ids", []))
         resolved.update(str(item) for item in payload.get("addresses_review_risk_ids", []) if isinstance(item, str) and item)
         state["resolved_review_risk_ids"] = sorted(resolved)
+    elif event_type == "coverage_computed":
+        # Annotation event: state["state"] is deliberately NOT changed, so
+        # _derive_state / evaluate_plan preconditions are untouched. The
+        # legal-predecessor set includes the RAW request states because
+        # CRITIQUED / CROSS_REVIEWED are derived only at the END of the
+        # fold (_derive_state) — during replay the stored state at the
+        # moment this event landed is still *_REQUESTED.
+        if state.get("state") not in {
+            "CRITIQUE_REQUESTED",
+            "CRITIQUED",
+            "CROSS_REVIEW_REQUESTED",
+            "CROSS_REVIEWED",
+        }:
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                "event=coverage_computed expected=CRITIQUE_REQUESTED|CRITIQUED|"
+                "CROSS_REVIEW_REQUESTED|CROSS_REVIEWED"
+            )
+        round_number = payload["round_number"]
+        state["coverage_by_round"][round_number] = payload
+        # Synthetic coverage_gap risks ride the EXISTING risk channel so the
+        # material gate, risk rollups, and addresses_review_risk_ids feedback
+        # all work unchanged. Risk ids are round-scoped (COV-R{N}-…) so the
+        # globally-accumulating resolved_review_risk_ids set cannot mask a
+        # re-detected gap in a later round.
+        surfaced = state["cross_review_risks_by_round"].setdefault(round_number, [])
+        for risk in payload.get("synthetic_risks", []):
+            surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
         state["terminal_state"] = payload["terminal_state"]
@@ -1812,6 +1885,72 @@ def _validate_revision(state: dict[str, Any], payload: dict[str, Any]) -> None:
         raise GovernanceError("parent_revision_hash must match the latest revision content hash")
 
 
+def _validate_coverage_record(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    _require_state(state, {"CRITIQUED", "CROSS_REVIEWED"}, "record coverage")
+    round_number = payload.get("round_number")
+    if not isinstance(round_number, int) or round_number <= 0:
+        raise GovernanceError("round_number must be a positive integer")
+    if round_number != state.get("current_round"):
+        raise GovernanceError("coverage round must match the current round")
+    target_revision_id = _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
+    target_hash = _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
+    # The coverage target is the plan content the CURRENT round evaluates:
+    # round 1 evaluates the challenger revision (submit_cross_review_v8
+    # targets it); later rounds evaluate the latest primary revision. Accept
+    # whichever the ledger currently holds as the round's evaluation target —
+    # stale coverage against any OTHER hash is refused (hash-mismatch
+    # discipline, same as cross-review).
+    latest = state["latest_revision"]
+    challenger = state.get("challenger") or {}
+    valid_targets = {
+        (latest["revision_id"], latest["content_hash"]),
+        (challenger.get("challenger_revision_id"), challenger.get("content_hash")),
+    }
+    if (target_revision_id, target_hash) not in valid_targets:
+        raise GovernanceError("coverage must target the latest revision or the challenger revision")
+    verdict = payload.get("verdict")
+    if verdict not in COVERAGE_VERDICTS:
+        raise GovernanceError(f"coverage verdict must be one of {sorted(COVERAGE_VERDICTS)}")
+    if not _valid_repo_path(payload.get("closure_manifest_path")):
+        raise GovernanceError("closure_manifest_path must be a repo-relative POSIX path")
+    _require_hash(payload.get("closure_manifest_hash"), "closure_manifest_hash")
+    if not isinstance(payload.get("closure_summary"), dict):
+        raise GovernanceError("closure_summary must be a JSON object")
+    if not isinstance(payload.get("witness"), dict):
+        raise GovernanceError("witness must be a JSON object")
+    _require_non_empty(payload.get("computed_at_sha"), "computed_at_sha")
+    uncovered = payload.get("uncovered")
+    if not isinstance(uncovered, list):
+        raise GovernanceError("uncovered must be an array")
+    for node in uncovered:
+        if not isinstance(node, dict):
+            raise GovernanceError("uncovered node must be a JSON object")
+        _require_non_empty(node.get("node_id"), "uncovered node_id")
+        _require_non_empty(node.get("kind"), "uncovered kind")
+        _require_non_empty(node.get("why"), "uncovered why")
+    waived = payload.get("waived")
+    if not isinstance(waived, list):
+        raise GovernanceError("waived must be an array")
+    for waiver in waived:
+        if not isinstance(waiver, dict):
+            raise GovernanceError("waived entry must be a JSON object")
+        _require_non_empty(waiver.get("node_id"), "waived node_id")
+        _require_non_empty(waiver.get("reason"), "waived reason")
+    synthetic_risks = payload.get("synthetic_risks")
+    if not isinstance(synthetic_risks, list) or len(synthetic_risks) > MAX_RISKS:
+        raise GovernanceError("synthetic_risks must be an array within the risk limit")
+    for risk in synthetic_risks:
+        _validate_cross_review_risk(risk)
+    # Verdict/content consistency — a "gaps" verdict without named nodes (or
+    # vice versa) is a witness bug and must not enter the ledger.
+    if verdict == "gaps":
+        if not uncovered or not synthetic_risks:
+            raise GovernanceError("gaps verdict requires uncovered nodes and synthetic_risks")
+    else:
+        if uncovered or synthetic_risks:
+            raise GovernanceError(f"{verdict} verdict must carry no uncovered nodes or synthetic_risks")
+
+
 def _validate_task(task: dict[str, Any], target_revision_id: str, target_hash: str) -> None:
     if not isinstance(task, dict):
         raise GovernanceError("each task must be a JSON object")
@@ -1905,6 +2044,24 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
         _validate_validation_command(command)
     if not isinstance(plan["evidence_refs"], list) or not all(_valid_evidence_ref(ref) for ref in plan["evidence_refs"]):
         raise GovernanceError("evidence_refs contains invalid reference")
+    # Optional coverage block (schema_version >= 2 plans). NOT added to
+    # PLAN_CONTENT_REQUIRED — fold_plan_state re-validates every historical
+    # plan_started payload on every fold, so a new required field would break
+    # replay of the entire recorded history. Waivers live in plan_content (not
+    # in the coverage event) because they are PLAN CLAIMS: they must flow
+    # through content_hash, revisions, and cross-review like any other claim.
+    coverage = plan.get("coverage")
+    if coverage is not None:
+        if not isinstance(coverage, dict):
+            raise GovernanceError("coverage must be a JSON object")
+        waivers = coverage.get("waivers", [])
+        if not isinstance(waivers, list) or len(waivers) > MAX_AFFECTED_PATHS:
+            raise GovernanceError("coverage.waivers must be an array within the affected-paths limit")
+        for waiver in waivers:
+            if not isinstance(waiver, dict):
+                raise GovernanceError("coverage waiver must be a JSON object")
+            _require_non_empty(waiver.get("node"), "coverage waiver node")
+            _require_non_empty(waiver.get("reason"), "coverage waiver reason")
 
 
 def _validate_validation_command(command: dict[str, Any]) -> None:
@@ -1990,6 +2147,20 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_non_empty(payload.get("content"), "content")
         if not isinstance(payload.get("addresses_review_risk_ids", []), list):
             raise GovernanceError("addresses_review_risk_ids must be an array")
+    elif event_type == "coverage_computed":
+        # Shape-only (state preconditions live in the reducer + record-time
+        # validator, per the V9 split documented below).
+        if not isinstance(payload.get("round_number"), int):
+            raise GovernanceError("round_number must be an integer")
+        _require_non_empty(payload.get("target_revision_id"), "target_revision_id")
+        _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
+        if payload.get("verdict") not in COVERAGE_VERDICTS:
+            raise GovernanceError("coverage_computed verdict is invalid")
+        _require_non_empty(payload.get("closure_manifest_path"), "closure_manifest_path")
+        _require_hash(payload.get("closure_manifest_hash"), "closure_manifest_hash")
+        for field in ("uncovered", "waived", "synthetic_risks"):
+            if not isinstance(payload.get(field), list):
+                raise GovernanceError(f"coverage_computed {field} must be an array")
     elif event_type == "plan_evaluated":
         if payload.get("terminal_state") not in {"CONVERGED", "HUMAN_REQUIRED"}:
             raise GovernanceError("plan_evaluated terminal_state must be CONVERGED or HUMAN_REQUIRED")
@@ -2154,6 +2325,33 @@ def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, ma
         {"gate": "no_partial_directions", "passed": not summary["partial_directions"] and summary["timeout_aborted_tasks"] == 0},
         {"gate": "max_rounds", "passed": round_number < max_rounds, "max_rounds": max_rounds},
     ]
+    # Plan-coverage gate. Enforcement lives in the VERDICT field, not only
+    # in the synthetic risks: absence of a risk is indistinguishable from
+    # absence of a check, so a missing coverage event on a schema_version>=2
+    # plan fails closed to HUMAN_REQUIRED — and environment_unable escalates
+    # immediately rather than looping NEXT_ROUND until max_rounds (the
+    # environment does not heal round-over-round).
+    applicable = _plan_requires_coverage(state)
+    coverage = state.get("coverage_by_round", {}).get(round_number)
+    coverage_verdict = (coverage or {}).get("verdict")
+    summary["coverage_verdict"] = coverage_verdict if applicable else "not_applicable"
+    gate_decisions.append({
+        "gate": "plan_coverage",
+        "applicable": applicable,
+        "verdict": summary["coverage_verdict"],
+        "passed": (not applicable) or coverage_verdict in {"covered", "covered_with_waivers"},
+    })
+    if applicable:
+        if coverage is None or coverage_verdict == "environment_unable":
+            reason = "coverage_missing" if coverage is None else "coverage_environment_unable"
+            return {
+                "terminal_state": "HUMAN_REQUIRED",
+                "risks_rollup_summary": summary,
+                "gate_decisions": gate_decisions,
+                "reason_codes": sorted(set(blockers + [reason])),
+            }
+        if coverage_verdict == "gaps":
+            blockers.append("coverage_gaps_present")
     if blockers:
         if round_number >= max_rounds:
             return {
@@ -2224,6 +2422,46 @@ def _latest_event(state: dict[str, Any], event_type: str) -> dict[str, Any] | No
         if event.get("event_type") == event_type:
             return event
     return None
+
+
+def _plan_requires_coverage(state: dict[str, Any]) -> bool:
+    """Coverage-gate applicability key: plan_started schema_version >= 2.
+
+    Anchored to plan_started (NOT the latest revision) so a challenger or
+    revision emitting schema_version 1 cannot downgrade the gate mid-plan.
+    Every historical plan and every existing fixture is v1 — the gate is
+    structurally inert for recorded history.
+    """
+    started = state.get("plan_started") or {}
+    content = started.get("plan_content") or {}
+    try:
+        return int(content.get("schema_version", 1)) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _require_coverage_for_implementation(state: dict[str, Any]) -> None:
+    """Defense-in-depth at the CONVERGED -> implementation seam.
+
+    The evaluator gate lives in _evaluate_cross_review_state only; the
+    critique-only path (_evaluate_state) and any future caller that reaches
+    CONVERGED without the drainer would bypass it. A schema_version>=2 plan
+    may not enter implementation without a passing coverage verdict.
+    """
+    if not _plan_requires_coverage(state):
+        return
+    rounds = state.get("coverage_by_round") or {}
+    if not rounds:
+        raise GovernanceError(
+            "implementation_requires_coverage_verdict: no coverage_computed "
+            "event recorded for a schema_version>=2 plan"
+        )
+    latest_round = max(rounds)
+    verdict = (rounds[latest_round] or {}).get("verdict")
+    if verdict not in {"covered", "covered_with_waivers"}:
+        raise GovernanceError(
+            f"implementation_requires_coverage_verdict: latest coverage verdict is {verdict}"
+        )
 
 
 def _require_started(state: dict[str, Any], action: str) -> None:

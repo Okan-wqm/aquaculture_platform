@@ -21,6 +21,7 @@ import { CreateBatchCommand } from '../commands/create-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
+import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
 import { Species } from '../../species/entities/species.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -355,6 +356,12 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             biomassKg: number;
             count: number;
           }> = [];
+          // Initial stocking MUST enter the tank_allocations ledger. Every other
+          // stock inflow (allocate, transfer-in) writes an allocation row; this
+          // path historically did not, so tanks stocked at batch creation had no
+          // ledger origin and the ledger-reconcile could not recompute their true
+          // count (FARM-HIGH-112).
+          const initialAllocations: TankAllocation[] = [];
 
           for (const location of payload.initialLocations) {
             const tankId = location.tankId || location.pondId;
@@ -478,6 +485,27 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
 
             tankBatchesToSave.push(tankBatch);
 
+            // Ledger row for this initial stocking (positive quantity — the
+            // stored sign convention: inflows positive, transfer-out negative).
+            initialAllocations.push(
+              queryRunner.manager.create(TankAllocation, {
+                tenantId,
+                batchId: savedBatch.id,
+                tankId,
+                allocationType: AllocationType.INITIAL_STOCKING,
+                allocationDate: payload.stockedAt || new Date(),
+                quantity: location.quantity,
+                avgWeightG,
+                biomassKg: location.biomass,
+                densityKgM3: capacity.projectedDensityKgM3,
+                batchNumber: savedBatch.batchNumber,
+                tankCode: equipment.code,
+                tankName: equipment.name,
+                allocatedBy: createdBy,
+                isDeleted: false,
+              }),
+            );
+
             // Queue biomass/count update for the originating row.
             // Equipment path: mutate the in-memory entity and bulk-save
             // it with all siblings after the loop. Tank path: queue a
@@ -505,6 +533,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
           // ── Phase 3: Bulk writes ────────────────────────────────────
           if (tankBatchesToSave.length > 0) {
             await queryRunner.manager.save(TankBatch, tankBatchesToSave);
+          }
+          if (initialAllocations.length > 0) {
+            await queryRunner.manager.save(TankAllocation, initialAllocations);
           }
           if (equipmentsToSave.length > 0) {
             await queryRunner.manager.save(Equipment, equipmentsToSave);

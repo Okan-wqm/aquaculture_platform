@@ -259,6 +259,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
       new SiteAuthorizationService(),
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -272,6 +273,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       outboxPublisher,
       auditLogService as never,
       new SiteAuthorizationService(),
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -292,6 +294,10 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       operationRepository,
       tankBatchRepository,
       tankRepository,
+      // TankBatchService SSoT writer — create-harvest routes its tank-batch
+      // decrement through applyBatchDelta (ORPHAN-HIGH-272), same as the
+      // mortality/cull/transfer handlers above.
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new SiteAuthorizationService(),
       // CreateHarvestRecordHandler also defaults farmStockProjection +
       // mobileCommandReceipts to throwing test-only stubs; this isolation e2e
@@ -308,6 +314,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankRepository,
       dataSource,
       outboxPublisher,
+      // TankBatchService SSoT writer — the harvest reversal routes through
+      // applyBatchDelta (ORPHAN-HIGH-272).
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       // DeleteHarvestRecordHandler also defaults farmStockProjection to a
       // throwing test-only stub; supply the working no-op so the delete path
       // reaches the tenant-isolation assertions.

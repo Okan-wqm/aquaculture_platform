@@ -15,6 +15,10 @@ export interface FeedingSummaryResult {
   entityType: 'batch' | 'tank';
   entityName: string;
 
+  // Özetlenen dönem (istenen aralık, yoksa verinin kendi aralığı)
+  startDate: Date;
+  endDate: Date;
+
   // Toplam değerler
   totalFeedingsCount: number;
   totalPlannedKg: number;
@@ -43,6 +47,7 @@ export interface FeedingSummaryResult {
     feedName: string;
     totalKg: number;
     percentage: number;
+    cost: number;
   }[];
 
   // Tarihsel trend (son 7/30 gün)

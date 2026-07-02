@@ -10,6 +10,8 @@ import { Injectable, NestMiddleware, Logger, GatewayTimeoutException } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 
+import { toError } from '../common/error-normalization';
+
 /**
  * Timeout configuration
  */
@@ -270,7 +272,7 @@ export function withTimeout<T>(
       })
       .catch((error: unknown) => {
         clearTimeout(timer);
-        reject(error instanceof Error ? error : new Error(String(error)));
+        reject(toError(error));
       });
   });
 }

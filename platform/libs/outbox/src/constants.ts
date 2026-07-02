@@ -31,7 +31,7 @@ export const OUTBOX_LAST_ERROR_MAX_LENGTH = 2000;
  *
  * 5 minutes is deliberately generous vs. typical publish latency
  * (sub-100ms). A tight window (e.g. 30s) would cause false re-leases
- * during temporary NATS slowdowns — every re-lease becomes a duplicate
+ * during transient NATS slowdowns — every re-lease becomes a duplicate
  * publish that NATS `duplicate_window` must absorb. A longer window
  * trades worst-case stuck-event latency for a quieter dedup cache
  * and is the correct default for at-least-once semantics.
@@ -41,6 +41,23 @@ export const OUTBOX_LAST_ERROR_MAX_LENGTH = 2000;
  * `leasedBy` to identify the crashed worker before manual intervention.
  */
 export const OUTBOX_LEASE_DURATION_MS = 5 * 60 * 1000;
+
+/**
+ * ORPHAN-HIGH-321 — pending-age alarm threshold.
+ *
+ * The transactional-outbox guarantee is "the event WILL eventually
+ * publish". The failure mode that voids it is SILENT: a worker that sees
+ * zero rows (the 2026-07-02 incident: forced tenant RLS hid every row
+ * from the sweeper) logs nothing and errors nothing — only the age of
+ * the oldest unpublished row exposes the stall. When that age exceeds
+ * this threshold the worker logs at ERROR level every poll cycle and the
+ * `outbox_oldest_pending_age_seconds` gauge (alert on it) keeps climbing.
+ *
+ * 10 minutes = 2× the lease window: long enough to never fire on a
+ * healthy backlog burst, short enough that a dead pipeline pages within
+ * one operator coffee break.
+ */
+export const OUTBOX_PENDING_AGE_ALARM_MS = 10 * 60 * 1000;
 
 /**
  * Debounce window applied to incoming `pg_notify` wake signals before

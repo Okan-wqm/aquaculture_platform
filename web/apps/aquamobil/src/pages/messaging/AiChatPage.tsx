@@ -52,6 +52,7 @@ import { useMessageSocket } from '@/hooks/useMessageSocket';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import type { Message } from '@/types/messaging';
+import { runAsyncAction } from '@/utils/async-action';
 import { getDateLabel } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
@@ -406,7 +407,7 @@ export function AiChatPage(): JSX.Element {
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        void handleSend();
+        runAsyncAction(handleSend, 'ai-chat-send');
       }
     },
     [handleSend],
@@ -587,7 +588,7 @@ export function AiChatPage(): JSX.Element {
           {/* WHY: When offline, the send button uses amber styling with a clock
            * icon to indicate "Queue" semantics, matching the MessageInput pattern. */}
           <button
-            onClick={() => { void handleSend(); }}
+            onClick={() => { runAsyncAction(handleSend, 'ai-chat-send'); }}
             disabled={!inputText.trim() || isSending || isAiThinking}
             className={clsx(
               'w-12 h-12 rounded-full flex items-center justify-center touch-feedback flex-shrink-0 transition-all',

@@ -26,7 +26,7 @@ Cross-cutting knowledge lives in SSoT files; the generic OWASP / ASVS / NIST bod
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-External standards referenced (not restated): OWASP Top 10 (2021), OWASP ASVS 5.0, NIST SP 800-63, RFC 8725 (JWT best practices), IEC 62443 (industrial security). Chapter-by-chapter reference sits in `docs/research/security-reviewer/` (7 research files, linked per section below).
+External standards referenced (not restated): OWASP Top 10 (2021), OWASP ASVS 5.0, NIST SP 800-63, RFC 8725 (JWT best practices), IEC 62443 (industrial security). Chapter-by-chapter reference sits in `docs/research/security-reviewer/` (linked per section below).
 
 **Severity:** CRITICAL blocks deployment (no exceptions) · HIGH blocks unless risk-accepted · MEDIUM tracked · LOW fix when touching file.
 

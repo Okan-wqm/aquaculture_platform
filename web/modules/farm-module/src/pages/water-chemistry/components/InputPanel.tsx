@@ -17,8 +17,7 @@ export interface WaterChemistryInputs {
   tan: number;
   unIonizedNH3: number;
   co2Toxic: number;
-  h2sUgL: number;       // Measured H₂S in µg/L
-  h2sMeasuredAtPH?: number; // pH at which measured H₂S was sampled
+  h2sUgL: number;       // Measured H₂S in µg/L (at the single realtime pH)
   h2sLimitUgL: number;  // Toxic H₂S limit in µg/L
   caMgL: number;
   volume: number;
@@ -68,7 +67,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
 
   const updateNumeric = (field: NumericInputField, rawValue: string): void => {
     if (rawValue.trim() === '') {
-      update(field, field === 'h2sMeasuredAtPH' ? undefined : 0);
+      update(field, 0);
       return;
     }
 
@@ -178,7 +177,6 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
             {numField('Salinity', 'salinity', 0, 40, 0.5, 'ppt')}
             {numField('Alkalinity', 'alkalinityMg', 20, 800, 5, 'mg/L CaCO₃')}
             {numField('H₂S', 'h2sUgL', 0.1, 500, 0.5, 'µg/L')}
-            {numField('H₂S pH', 'h2sMeasuredAtPH', 4, 12.5, 0.05, 'NBS')}
           </div>
         )}
 

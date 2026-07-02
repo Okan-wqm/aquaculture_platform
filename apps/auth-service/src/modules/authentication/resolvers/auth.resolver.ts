@@ -1,4 +1,5 @@
 import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
+import { resolveClientNetworkContext } from '@aquaculture/backend-common/http';
 import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import { UnauthorizedException, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -120,9 +121,12 @@ export class AuthResolver {
     const stop = this.authMetrics?.startOperation('login');
     try {
       const request = context.req;
-      const forwarded = request.headers['x-forwarded-for'];
-      const ipAddress = request.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
-      const userAgent = request.headers['user-agent'];
+      // ORPHAN-MEDIUM-319: behind the gateway, request.ip is ALWAYS the
+      // gateway container; the true actor arrives via the gateway-minted
+      // (service-identity-gated) client network headers. The old
+      // `request.ip || x-forwarded-for` ordering pinned every audit row and
+      // lastLoginIp to ::ffff:172.18.0.x.
+      const { ip: ipAddress, userAgent } = resolveClientNetworkContext(request);
       const result = await this.authService.login(input, ipAddress, userAgent);
       this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
       const payload = this.stripRefreshToken(result);
@@ -168,8 +172,8 @@ export class AuthResolver {
     @Args('input') input: AcceptInvitationInput,
     @Context() context: GqlContext,
   ): Promise<AuthPayload> {
-    const forwarded = context.req?.headers?.['x-forwarded-for'];
-    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    // ORPHAN-MEDIUM-319: gateway-resolved client identity (see login()).
+    const { ip: ipAddress } = resolveClientNetworkContext(context.req);
     const result = await this.authService.acceptInvitation(
       input.token,
       input.password,
@@ -207,8 +211,8 @@ export class AuthResolver {
     @Args('input') input: ForgotPasswordInput,
     @Context() context: GqlContext,
   ): Promise<boolean> {
-    const forwarded = context.req?.headers?.['x-forwarded-for'];
-    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    // ORPHAN-MEDIUM-319: gateway-resolved client identity (see login()).
+    const { ip: ipAddress } = resolveClientNetworkContext(context.req);
     // SECURITY: Always return true to prevent user enumeration
     await this.authService.initiatePasswordReset(input.email, ipAddress);
     return true;
@@ -232,9 +236,8 @@ export class AuthResolver {
     @Args('input') input: ResetPasswordInput,
     @Context() context: GqlContext,
   ): Promise<AuthPayload> {
-    const forwarded = context.req?.headers?.['x-forwarded-for'];
-    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
-    const userAgent = context.req?.headers?.['user-agent'];
+    // ORPHAN-MEDIUM-319: gateway-resolved client identity (see login()).
+    const { ip: ipAddress, userAgent } = resolveClientNetworkContext(context.req);
     const result = await this.authService.resetPassword(
       input.token,
       input.newPassword,

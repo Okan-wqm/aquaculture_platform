@@ -151,6 +151,7 @@ export default {
         '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
         '<rootDir>/stabilization-manifest.spec.ts',
         '<rootDir>/runtime-lifecycle-timer-ssot.spec.ts',
+        '<rootDir>/mobile-csp-headers.spec.ts',
       ],
     },
     {
@@ -172,6 +173,10 @@ export default {
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
         '<rootDir>/farm-service-tenant-isolation.spec.ts',
         '<rootDir>/farm-read-boundary-ssot.spec.ts',
+        '<rootDir>/farm-outbox-publish-ssot.spec.ts',
+        '<rootDir>/farm-count-single-writer.spec.ts',
+        '<rootDir>/farm-stock-mutation-central-only.spec.ts',
+        '<rootDir>/farm-wq-template-nondestructive-ssot.spec.ts',
         '<rootDir>/farm-event-handler-tenant-context-ssot.spec.ts',
         '<rootDir>/farm-no-mock-data-growth-ssot.spec.ts',
         '<rootDir>/farm-identity-ssot.spec.ts',

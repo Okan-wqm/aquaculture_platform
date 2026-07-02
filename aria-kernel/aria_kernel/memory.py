@@ -138,13 +138,24 @@ def update_memory(
             workspace_root=workspace_root,
         )
         beliefs_written += 1
-    if include_discovery_beliefs and int(fingerprint.get("migration_count") or 0) >= 5:
+    # Evidence_refs MUST be concrete, repo-verifiable paths (L1 grounded
+    # evidence): a ``apps/*/.../*.ts`` glob resolves to ``missing`` and fails the
+    # memory phase. Discovery surfaces ``migration_evidence_paths`` (bounded,
+    # concrete, active-migration paths) exactly like ``web_modules_missing_project_json``;
+    # the belief is seeded only when those paths exist.
+    migration_evidence_paths = fingerprint.get("migration_evidence_paths") or []
+    if (
+        include_discovery_beliefs
+        and int(fingerprint.get("migration_count") or 0) >= 5
+        and isinstance(migration_evidence_paths, list)
+        and migration_evidence_paths
+    ):
         _record_belief(
             root,
             cycle_id=cycle_id,
             belief_id="repo-has-recurring-typeorm-migration-surface",
             claim="repository has a recurring TypeORM migration surface that merits drift checks",
-            evidence_refs=["apps/*/src/database/migrations/*.ts"],
+            evidence_refs=list(migration_evidence_paths),
             confidence=0.85,
             workspace_root=workspace_root,
         )

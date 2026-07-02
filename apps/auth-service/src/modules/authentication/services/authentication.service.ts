@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
 import { hashPassword, verifyPassword, enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { BypassRlsService, updateReturningRows } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
 import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
@@ -18,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
+import type { UserAccountLockedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
 
@@ -1192,27 +1193,44 @@ export class AuthenticationService {
     const lockoutUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
 
     // Single atomic query: increment + conditional lockout + return updated values (MED-01)
-    const result: Array<{ failedLoginAttempts: number; lockedUntil: Date | null }> =
-      await this.dataSource.query(
-        // SEC-LOW-001(c) — WHY $3::timestamptz (not ::timestamp): users.lockedUntil
-        // is a TIMESTAMP WITH TIME ZONE column and $3 is bound to a JS Date (an
-        // absolute instant). Casting to ::timestamp (without tz) drops the offset
-        // and reinterprets the lockout deadline under the DB session TimeZone,
-        // drifting the lockout window on any non-UTC session. ::timestamptz
-        // round-trips the instant losslessly.
-        `UPDATE auth.users
-         SET "failedLoginAttempts" = "failedLoginAttempts" + 1,
-             "lockedUntil" = CASE
-               WHEN "failedLoginAttempts" + 1 >= $2 THEN $3::timestamptz
-               ELSE "lockedUntil"
-             END
-         WHERE id = $1
-         RETURNING "failedLoginAttempts", "lockedUntil"`,
-        [user.id, this.maxFailedAttempts, lockoutUntil],
-      );
+    //
+    // ORPHAN-HIGH-318 — WHY updateReturningRows instead of a hand-written
+    // type annotation: the postgres driver returns `[rows, affectedCount]`
+    // for UPDATE statements, NOT the rows array. The previous
+    // `Array<{...}>` annotation asserted the wrong shape, so `result[0]`
+    // was the rows ARRAY: every audit event recorded "attempt 0" and the
+    // CRITICAL ACCOUNT_LOCKED emission below never fired in production
+    // (0 >= maxFailedAttempts is always false). The helper runtime-asserts
+    // the tuple shape before any field access.
+    const raw: unknown = await this.dataSource.query(
+      // SEC-LOW-001(c) — WHY $3::timestamptz (not ::timestamp): users.lockedUntil
+      // is a TIMESTAMP WITH TIME ZONE column and $3 is bound to a JS Date (an
+      // absolute instant). Casting to ::timestamp (without tz) drops the offset
+      // and reinterprets the lockout deadline under the DB session TimeZone,
+      // drifting the lockout window on any non-UTC session. ::timestamptz
+      // round-trips the instant losslessly.
+      `UPDATE auth.users
+       SET "failedLoginAttempts" = "failedLoginAttempts" + 1,
+           "lockedUntil" = CASE
+             WHEN "failedLoginAttempts" + 1 >= $2 THEN $3::timestamptz
+             ELSE "lockedUntil"
+           END
+       WHERE id = $1
+       RETURNING "failedLoginAttempts", "lockedUntil"`,
+      [user.id, this.maxFailedAttempts, lockoutUntil],
+    );
+    // lockedUntil arrives as Date (pg parses timestamptz) — typed as
+    // Date | string | null defensively is WRONG per repo rules; the pg
+    // driver contract is Date | null for timestamptz. `!= null` (not
+    // `!== null`) also rejects undefined, which would indicate a
+    // RETURNING-clause drift rather than an unlocked account.
+    const result = updateReturningRows<{
+      failedLoginAttempts: number;
+      lockedUntil: Date | null;
+    }>(raw);
 
     const updatedAttempts = result[0]?.failedLoginAttempts ?? 0;
-    const isNowLocked = result[0]?.lockedUntil !== null && updatedAttempts >= this.maxFailedAttempts;
+    const isNowLocked = result[0]?.lockedUntil != null && updatedAttempts >= this.maxFailedAttempts;
 
     if (isNowLocked) {
       // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
@@ -1225,6 +1243,27 @@ export class AuthenticationService {
         success: false,
         reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
       }, AuditLogSeverity.CRITICAL);
+
+      // ORPHAN-MEDIUM-320: owner-facing lockout channel. The wire response
+      // stays the generic anti-enumeration message, so this event is the
+      // only signal the LEGITIMATE owner ever gets — notification-service
+      // consumes it and emails "account locked, unlocks at T; wasn't you?
+      // reset your password". Audit-log-backed (the CRITICAL row above is
+      // the durable SoT) → best-effort path. Platform-level users
+      // (tenantId NULL) route to events.system; the notification consumer
+      // only mails tenant-scoped users — operator visibility for platform
+      // accounts comes from the CRITICAL audit event.
+      const lockEvent: UserAccountLockedEvent = {
+        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', user.tenantId ?? 'system', {
+          aggregateId: user.id,
+          aggregateType: 'User',
+          userId: user.id,
+        }),
+        userId: user.id,
+        failedAttempts: updatedAttempts,
+        lockedUntil: lockoutUntil.toISOString(),
+      };
+      await this.bestEffort.publish(lockEvent);
     }
 
     return updatedAttempts;

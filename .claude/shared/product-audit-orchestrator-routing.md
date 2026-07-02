@@ -35,7 +35,7 @@ Also-Notify agents receive cross-cutting context.
 | `sens-api-gateway/**` + `sensorprotocols/**` + PLC/SCADA/Modbus/OPC-UA command paths | `edge-industrial-auditor` | `edge-expert`, `sensor-expert` |
 | `apps/billing-service/**`, `web/modules/tenant-admin/src/billing/**`, Stripe-backed invoice/payment/refund roundtrips | `billing-reconciliation-auditor` | `billing-expert`, `tenant-isolation-auditor` |
 | `apps/*/src/**/webhooks/**`, Stripe/SendGrid/Twilio inbound handler paths | `webhook-ingress-auditor` | `auth-security-expert`, `billing-expert` |
-| `apps/*/src/**/jobs/**`, `libs/backend-common/src/queue/**`, Bull/BullMQ/Nest Scheduler consumers | `job-queue-auditor` | `data-expert`, `observability-expert` |
+| `apps/*/src/**/jobs/**`, `platform/libs/outbox/**`, Bull/BullMQ/Nest Scheduler consumers | `job-queue-auditor` | `data-expert`, `observability-expert` |
 
 ## Dispatch bullets — which auditor for which concern
 

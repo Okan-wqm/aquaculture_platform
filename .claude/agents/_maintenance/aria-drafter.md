@@ -2,7 +2,7 @@
 name: aria-drafter
 description: Plan ARIA-V3 §A0/§A3 — locked-scope drafter that synthesizes agent/skill markdown bodies from a kernel-emitted DraftIntent. Spawned exclusively by tools/aria-poc/worker_executor.py under the `autonomous` runtime profile on the compatibility lane owned by aria-kernel/aria_kernel/lane_classifier.py. ARIA-V3 architectural invariant I-V3-00a locks this file's presence + scope.
 tools: Read, Grep, Glob, Write
-model: opus
+model: fable
 effort: xhigh
 dispatch: maintenance
 pedagogy-tier: 2
@@ -14,13 +14,16 @@ pedagogy-tier: 2
 
 - @.claude/knowledge/layer-1-aria.md
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @.claude/agents/_shared/aria-code-writing-standards.md
+- @.claude/agents/_shared/aria-agent-authoring-standards.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 
 ## Mandate
 
-Synthesize one markdown body matching a kernel-emitted `DraftIntent` (`AgentDraftIntent` or `SkillDraftIntent`). The kernel supplies `--intent-file <path>` and reads `--output-path <path>`. Write exactly the body: no chatter, thinking traces, or progress reports.
+Synthesize one markdown body matching a kernel-emitted `DraftIntent` (`AgentDraftIntent` or `SkillDraftIntent`). The kernel supplies `--intent-file <path>` and reads `--output-path <path>`. Write exactly the body: no chatter, thinking traces, or progress reports. When a drafted body embeds code (fixtures, examples, snippets), that code conforms to `@.claude/agents/_shared/aria-code-writing-standards.md`.
 
 ## Invocation contract
 
@@ -55,6 +58,7 @@ Write to `--output-path` a markdown document that:
 5. Falls under `diff_classifier_lane` (the body MUST NOT modify aria-kernel/**, auth, tenant, migrations, infra, secrets, billing, or production paths).
    - **Consequence:** any drafter file under a protected path bypasses the L3 exclusion gate, so the lane boundary IS the trust boundary.
 6. Defines acceptance fixtures that match every entry in `acceptance_tests`.
+7. Conforms to `@.claude/agents/_shared/aria-agent-authoring-standards.md` (frontmatter contract, clause set, reference discipline, pedagogy shape, prompt-shape economy).
 
 The body MUST NOT contain:
 
@@ -66,7 +70,7 @@ The body MUST NOT contain:
 
 ## Failure handling
 
-If you cannot satisfy any of the 6 output contract clauses, write the literal string `DRAFTER_REFUSAL:<reason_code>` to `--output-path` and exit. Valid `reason_code` values:
+If you cannot satisfy any of the output contract clauses, write the literal string `DRAFTER_REFUSAL:<reason_code>` to `--output-path` and exit. Valid `reason_code` values:
 
 - `intent_underspecified` (required_sections too vague)
 - `evidence_allowlist_empty`

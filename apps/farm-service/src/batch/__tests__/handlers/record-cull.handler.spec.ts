@@ -56,6 +56,8 @@ describe('RecordCullHandler', () => {
       // SEC-HIGH-051: the real fail-closed SSoT; commands below default to
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
+      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new MortalityCullPolicyService(),
       mockProjection(),
       new MobileCommandReceiptService(),

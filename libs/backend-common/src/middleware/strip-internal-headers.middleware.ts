@@ -80,6 +80,12 @@ const INTERNAL_HEADERS_TO_STRIP = [
   'x-tenant-id',
   'x-act-as-tenant',
   'x-verified-user-assertion',
+  // ORPHAN-MEDIUM-319: gateway-minted client network identity. Trusted by
+  // resolveClientNetworkContext ONLY when the request carries a verified
+  // gateway service identity — stripped here so an unsigned sender can
+  // never plant a forged forensic IP/UA on audit rows.
+  'x-client-ip',
+  'x-client-user-agent',
 ] as const;
 
 @Injectable()
@@ -113,7 +119,9 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
             `Stripped spoofed internal header "${header}" from external request ` +
               `(ip=${req.ip ?? 'unknown'}, path=${req.path})`,
           );
-          delete req.headers[header];
+          // Reflect.deleteProperty — same idiom as VerifiedUserAssertionMiddleware;
+          // satisfies @typescript-eslint/no-dynamic-delete for a loop-variable key.
+          Reflect.deleteProperty(req.headers, header);
         }
       }
     }

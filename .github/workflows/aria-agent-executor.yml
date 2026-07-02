@@ -51,7 +51,7 @@ jobs:
     runs-on: [self-hosted, linux, claude]
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: main
           persist-credentials: false
@@ -74,7 +74,7 @@ jobs:
       - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail
-          REQUIRED_CLAUDE_VERSION="2.1.0"
+          REQUIRED_CLAUDE_VERSION="2.1.197"
           CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
           python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
           import sys

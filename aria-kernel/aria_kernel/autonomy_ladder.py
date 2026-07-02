@@ -37,12 +37,15 @@ from .autonomy_unlock import (
     record_acceptance_event,
     verdict_from_rows,
 )
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_jsonl, load_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 MODE_REAL = "real"
 MODE_MOCK = "mock"
 LADDER_MODES: frozenset[str] = frozenset({MODE_REAL, MODE_MOCK})
+# Reason prefix that ties an acceptance event back to a specific burn-in cycle,
+# making the burn-in→ladder bridge idempotent.
+BURN_IN_REASON_PREFIX = "burn_in_observe:"
 
 
 def _mock_ledger_path(base_dir: str | Path | None) -> Path:
@@ -101,6 +104,82 @@ def record_clean_cycle(
         "reason": resolved_reason,
     }
     return append_jsonl(_mock_ledger_path(base_dir), row)
+
+
+def _recorded_observe_reasons(base_dir: str | Path | None) -> set[str]:
+    """The ``reason`` of every ``observe_success`` already in the REAL unlock
+    ledger — used to make the burn-in bridge idempotent."""
+    try:
+        rows = load_declared_jsonl(
+            ensure_tools_dir(base_dir) / "enterprise" / "acceptance-events.jsonl",
+            expected_surface="enterprise_acceptance_events",
+        )
+    except Exception:
+        return set()
+    return {
+        str(row.get("reason"))
+        for row in rows
+        if row.get("event_type") == "observe_success" and row.get("reason")
+    }
+
+
+def record_burn_in_acceptance(
+    *,
+    report: dict[str, Any],
+    mode: str = MODE_REAL,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Bridge a PASSED observe burn-in into the autonomy unlock ladder: record
+    one ``observe_success`` per valid cycle in the report (each valid cycle IS a
+    harness-accepted clean observe).
+
+    Safety posture (Plan 031 burn-in→ladder bridge, slice 6a):
+    - **Fail-closed:** a report whose ``acceptance_verdict`` is not exactly
+      ``"passed"`` records NOTHING.
+    - **Idempotent:** a cycle already recorded (same ``burn_in_observe:<id>``
+      reason) is skipped, so re-running the bridge never double-counts.
+    - **Operator-invoked, not automatic:** this is deliberately NOT called from
+      ``run_observe_burn_in`` — advancing the unlock ladder stays an explicit,
+      reviewed operator step on a passed report. It records ladder *progress*
+      only; it never grants autonomous merge (that needs the full ladder + L3
+      two-stage approval + ``autonomous`` profile).
+    """
+    if mode not in LADDER_MODES:
+        raise GovernanceError(f"autonomy_ladder_mode_unknown:{mode}")
+    verdict = str((report or {}).get("acceptance_verdict") or "")
+    if verdict != "passed":
+        return {"recorded": 0, "skipped": 0, "verdict": verdict, "outcome": "verdict_not_passed"}
+    valid_ids = [
+        str(row["cycle_id"])
+        for row in (report.get("cycles") or [])
+        if isinstance(row, dict) and row.get("valid_cycle") and row.get("cycle_id")
+    ]
+    if not valid_ids:
+        return {"recorded": 0, "skipped": 0, "verdict": verdict, "outcome": "no_valid_cycles"}
+    already = _recorded_observe_reasons(base_dir) if mode == MODE_REAL else set()
+    recorded = 0
+    skipped = 0
+    for cycle_id in valid_ids:
+        reason = f"{BURN_IN_REASON_PREFIX}{cycle_id}"
+        if reason in already:
+            skipped += 1
+            continue
+        record_clean_cycle(
+            cycle_id=cycle_id,
+            mode=mode,
+            harness_accepted=True,
+            base_dir=base_dir,
+            reason=reason,
+        )
+        recorded += 1
+    return {
+        "recorded": recorded,
+        "skipped": skipped,
+        "verdict": verdict,
+        "valid_cycles": len(valid_ids),
+        "mode": mode,
+        "outcome": "recorded",
+    }
 
 
 def evaluate_mock_unlock(

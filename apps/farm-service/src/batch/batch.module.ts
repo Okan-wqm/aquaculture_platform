@@ -56,6 +56,8 @@ import { BatchDomainService } from './services/batch-domain.service';
 import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { TankCountReconcileService } from './services/tank-count-reconcile.service';
+import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 
@@ -93,6 +95,10 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     FishHealthModule,
     BackdatePolicyModule,
     RestoreModule,
+    // The single SSoT writer for tank composition (applyBatchDelta). Shared via
+    // its own module so allocate/mortality/cull/transfer here AND the harvest
+    // handlers in HarvestModule resolve the same instance (never a per-module copy).
+    TankBatchModule,
     FarmStockModule,
     ConfigModule,
     // WHY: CloseBatchHandler + GetBatchPerformanceHandler now inject
@@ -107,6 +113,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
   ],
   providers: [
     BatchService,
+    TankCountReconcileService,
     BatchDomainService,
     BatchLifecyclePolicyService,
     MortalityCullPolicyService,

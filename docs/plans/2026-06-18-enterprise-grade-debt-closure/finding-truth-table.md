@@ -2,11 +2,22 @@
 
 Created: 2026-06-18
 
-Registry tip: `7c3a1e2ef9c2e2e4105240096c84a9d20441a6a083ed117a632a939e4ba9564c`
+Registry tip: `61ff33cc74fd000693c5041866b44bac3f8a5ae47a1df998270726055d2dce84`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
 `real-open` until code, tests, and registry evidence prove a different bucket.
+
+Updated 2026-07-02: the 2026-06-18 snapshot listed 13 active CRITICALs. The
+2026-07-02 registry-closeout reconciliation (216 stale-registry state flips
+re-applied onto main's then-current 587-entry chain — see the registry's own
+`closing_commits` per finding for the merged fix evidence) resolved 11 of the
+13: `COMPLIANCE-CRITICAL-001`, `INFRA-CRITICAL-023/024/026/027/028/030/031/032`,
+`DEPLOY-CRITICAL-008`, `MT-CRITICAL-052`, `FARM-CRITICAL-060`. Only the two rows
+below remain active; `INFRA-CRITICAL-029` itself stayed OPEN because its
+would-be closers (`INFRA-CRITICAL-031`/`032`) close it only via a
+sibling-trailer pattern the automated close ceremony does not certify — that is
+tracked separately, not asserted here as resolved.
 
 Allowed truth buckets:
 
@@ -17,22 +28,10 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
-| ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
-| `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-026`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-027`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-028`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-029`      | OPEN           | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `DEPLOY-CRITICAL-008`     | OPEN           | 1.1          | infra-expert             | real-open    |
-| `MT-CRITICAL-052`         | IN-PROGRESS    | 1.1          | realtime-sync-auditor    | real-open    |
-| `FARM-CRITICAL-060`       | OPEN           | 1.1          | farm-expert              | real-open    |
-| `FARM-CRITICAL-061`       | OPEN           | 1.1          | farm-expert              | real-open    |
+| Finding              | Registry state | First sprint | Owner        | Truth bucket |
+| -------------------- | --------------- | ------------ | ------------ | ------------ |
+| `INFRA-CRITICAL-029` | OPEN            | 1.1          | data-expert  | real-open    |
+| `FARM-CRITICAL-061`  | OPEN            | 1.1          | farm-expert  | real-open    |
 
 ## Mutation Rules
 

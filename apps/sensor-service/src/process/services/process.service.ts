@@ -14,7 +14,14 @@ import {
   ProcessFilterInput,
   ProcessPaginationInput,
 } from '../dto/process.dto';
+import {
+  formatValidationErrors,
+  validateCommandEnvelope,
+  validateDeployProcessParams,
+} from '@platform/sensor-contracts/validators';
+
 import { ArtifactService } from '../../deploy-artifact/artifact.service';
+import { DeploySigningService } from '../../deploy-artifact/deploy-signing.service';
 import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { Process, ProcessStatus } from '../entities/process.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
@@ -42,6 +49,9 @@ export class ProcessService {
     @Optional()
     @Inject(ScadaDeployLogService)
     private readonly scadaDeployLogService: ScadaDeployLogService | null,
+    @Optional()
+    @Inject(DeploySigningService)
+    private readonly deploySigningService: DeploySigningService | null,
   ) {}
 
   /**
@@ -403,14 +413,45 @@ export class ProcessService {
 
     // 7. MQTT deploy_process komutu publish (+ deploy log — process deploys
     // previously wrote NO log at all)
+    //
+    // Faz 4: signature material rides OUTSIDE the snapshotted content (the
+    // sha256 addresses the content; signing the sha into the content would
+    // be circular). Domain tag `process-v1`, verified by the edge against
+    // firmware_signing_pubkey.
+    const signature =
+      artifact && this.deploySigningService
+        ? this.deploySigningService.signDeployArtifact(
+            'process',
+            tenantId,
+            artifact.contentSha256,
+          )
+        : null;
+    const deployParams: Record<string, unknown> = {
+      ...deployContent,
+      ...(artifact ? { artifactSha256: artifact.contentSha256 } : {}),
+      ...(signature ? { signature } : {}),
+    };
+
     const commandId = randomUUID();
     const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
     const payload = {
       commandId,
       command: 'deploy_process',
-      params: deployContent,
+      params: deployParams,
       timestamp: new Date().toISOString(),
     };
+
+    // Publish-boundary contract validation (Faz 4)
+    if (!validateDeployProcessParams(deployParams)) {
+      throw new BadRequestException(
+        `deploy_process payload violates the canonical contract: ${formatValidationErrors(validateDeployProcessParams)}`,
+      );
+    }
+    if (!validateCommandEnvelope(payload)) {
+      throw new BadRequestException(
+        `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
+      );
+    }
 
     if (this.scadaDeployLogService) {
       try {

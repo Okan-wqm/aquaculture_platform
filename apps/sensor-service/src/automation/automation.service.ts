@@ -20,6 +20,12 @@ import {
 } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
+import {
+  formatValidationErrors,
+  validateCommandEnvelope,
+  validateDeployProgramParams,
+} from '@platform/sensor-contracts/validators';
+
 import { ArtifactService } from '../deploy-artifact/artifact.service';
 import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
@@ -1389,6 +1395,22 @@ export class AutomationService {
       }
     }
 
+    // 3b. Publish-boundary contract validation (Faz 4): the RUST_ENGINE
+    // payload must match the canonical ProgramDefinition schema the agent
+    // is parity-tested against (other targets carry raw ST / setpoints).
+    if (deployCommand['command'] === 'deploy_program') {
+      if (!validateDeployProgramParams(deployCommand['params'])) {
+        throw new BadRequestException(
+          `deploy_program payload violates the canonical contract: ${formatValidationErrors(validateDeployProgramParams)}`,
+        );
+      }
+    }
+    if (!validateCommandEnvelope(deployCommand)) {
+      throw new BadRequestException(
+        `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
+      );
+    }
+
     // 4. Content-addressed snapshot (Faz 3) + deployment log entry
     let artifact = null;
     if (this.artifactService) {
@@ -1541,10 +1563,21 @@ export class AutomationService {
    * catches shape errors at compile time.
    */
 
-  /** Mirrors sens-api-gateway FBParams (camelCase via serde rename_all). */
-  private static readonly KNOWN_FB_PARAMS = [
-    'ptMs', 'pv', 'kp', 'ki', 'kd', 'outMin', 'outMax',
-  ] as const;
+  /**
+   * FB parameter key map: SFC editor params (camelCase, left) → the
+   * agent's FBParams serde fields (snake_case, right — FBParams carries
+   * NO rename_all). Pinned by the sensor-contracts fixtures + the Rust
+   * contract_fixtures integration test.
+   */
+  private static readonly FB_PARAM_KEY_MAP: Readonly<Record<string, string>> = {
+    ptMs: 'pt_ms',
+    pv: 'pv',
+    kp: 'kp',
+    ki: 'ki',
+    kd: 'kd',
+    outMin: 'out_min',
+    outMax: 'out_max',
+  };
 
   /** IEC 61131-3 FB types supported by the Rust engine. */
   private static readonly SUPPORTED_FB_TYPES =
@@ -1666,7 +1699,12 @@ export class AutomationService {
         // the top-level conditions array stays empty.
         conditions: [],
         actions:   actions.length   > 0 ? actions   : [{ type: 'noop' }],
-        onError: [
+        // Wire key is snake_case: the agent's nested scripting types
+        // (ScriptDefinition/Trigger/Action/FBDefinition) carry NO serde
+        // rename_all — only the top-level ProgramDefinition is camelCase.
+        // Pinned by libs/sensor-contracts fixtures + the Rust
+        // contract_fixtures integration test.
+        on_error: [
           {
             type: 'alert',
             level: 'error',
@@ -1845,15 +1883,21 @@ export class AutomationService {
       const outputs = this.resolveWiringMap(rawParams['outputs'], varSourceMap);
 
       // Copy only known FB parameters to prevent unexpected keys from
-      // reaching the agent's serde deserialiser.
+      // reaching the agent's serde deserialiser, translating editor
+      // camelCase to the agent's snake_case FBParams fields.
       const fbParams: Record<string, unknown> = {};
-      for (const key of AutomationService.KNOWN_FB_PARAMS) {
-        if (rawParams[key] != null) {
-          fbParams[key] = rawParams[key];
+      for (const [editorKey, wireKey] of Object.entries(
+        AutomationService.FB_PARAM_KEY_MAP,
+      )) {
+        if (rawParams[editorKey] != null) {
+          fbParams[wireKey] = rawParams[editorKey];
         }
       }
 
-      fbMap.set(fbId, { id: fbId, fbType, params: fbParams, inputs, outputs });
+      // `fb_type` is a REQUIRED snake_case field on the agent's
+      // FBDefinition — emitting `fbType` made the whole program parse
+      // fail on the edge for any FB-carrying program.
+      fbMap.set(fbId, { id: fbId, fb_type: fbType, params: fbParams, inputs, outputs });
     }
 
     // --- Strategy 2: Regex fallback from ST code ---
@@ -1912,8 +1956,8 @@ export class AutomationService {
       // Default parameters based on FB type — users should migrate to
       // explicit CALL_FB StepActions for production-quality wiring.
       const defaultParams = fbType.startsWith('CT')
-        ? { pv: 10 }     // Counter preset value
-        : { ptMs: 1000 }; // Timer preset time (1s)
+        ? { pv: 10 }        // Counter preset value
+        : { pt_ms: 1000 };  // Timer preset time (1s) — agent FBParams field
 
       this.logger.debug(
         `Extracted FB "${instanceName}" (type=${fbType}) from ST code — ` +
@@ -1922,7 +1966,7 @@ export class AutomationService {
 
       fbMap.set(instanceName, {
         id: instanceName,
-        fbType,
+        fb_type: fbType,
         params: defaultParams,
         inputs: {},
         outputs: {},
@@ -1954,7 +1998,8 @@ export class AutomationService {
       if (t.conditionType === TransitionConditionType.TIMEOUT && t.timeoutMs) {
         triggers.push({
           type: 'interval',
-          intervalSecs: Math.max(1, Math.round(t.timeoutMs / 1000)),
+          // snake_case: Rust Trigger.interval_secs has no serde rename.
+          interval_secs: Math.max(1, Math.round(t.timeoutMs / 1000)),
         });
         continue;
       }
@@ -2144,7 +2189,8 @@ export class AutomationService {
         return this.translateAlarm(sa);
 
       case StepActionType.TIMER:
-        return { type: 'delay', delayMs: sa.durationMs || sa.delayMs || 1000 };
+        // snake_case: Rust Action.delay_ms has no serde rename.
+        return { type: 'delay', delay_ms: sa.durationMs || sa.delayMs || 1000 };
 
       case StepActionType.CUSTOM_ST:
         return this.translateCustomSt(sa, varSourceMap);

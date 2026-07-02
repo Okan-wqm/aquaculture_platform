@@ -1,0 +1,79 @@
+{
+  "commandId": "3c4d5e6f-7a8b-4c9d-0e1f-2a3b4c5d6e7f",
+  "command": "deploy_scada_package",
+  "params": {
+    "meta": {
+      "schemaVersion": 2,
+      "name": "Fish Tank HMI",
+      "version": 3,
+      "packageVersion": "3.0.0",
+      "deployedBy": "user-1",
+      "deployedAt": "2026-07-02T10:00:00.000Z",
+      "edgeDeviceId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "artifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "signature": "cf5e386d472b0d2af37a04093d670f75e96e46c548df9574c4dabb27ae605573b0e0de262f62fbbe5f947136b4ce300478a8247b9c1cfa9737fac2a16d79be06"
+    },
+    "screens": [
+      {
+        "id": "screen-1",
+        "name": "Overview",
+        "screenType": "dashboard",
+        "isDefault": true,
+        "widgets": [
+          {
+            "id": "widget-1",
+            "widgetType": "gauge",
+            "position": { "col": 0, "row": 0, "w": 4, "h": 3 },
+            "config": {
+              "tagRef": "EDGE-01/water_temp",
+              "tagName": "water_temp",
+              "min": 0,
+              "max": 40,
+              "unit": "C"
+            },
+            "name": "Water Temp",
+            "visible": true,
+            "zIndex": 1,
+            "permissions": { "showRoles": [], "enableRoles": [] },
+            "animations": [],
+            "events": []
+          },
+          {
+            "id": "widget-2",
+            "widgetType": "toggleSwitch",
+            "position": { "col": 4, "row": 0, "w": 2, "h": 2 },
+            "config": {
+              "tagRef": "EDGE-01/aerator_relay",
+              "tagName": "aerator_relay"
+            }
+          }
+        ]
+      }
+    ],
+    "alarmRules": [
+      {
+        "id": "alarm-1",
+        "tag": "water_temp",
+        "condition": "gt",
+        "value": 28,
+        "severity": "high",
+        "message": "Water temperature high",
+        "deadband": 0.5,
+        "delay": 10
+      }
+    ],
+    "controlPermissions": {
+      "securityLevels": {
+        "none": ["widget-1"],
+        "confirm": ["widget-2"],
+        "pin": []
+      }
+    },
+    "trendConfig": {
+      "retentionDays": 7,
+      "sampleIntervalSec": 10,
+      "tags": ["water_temp"]
+    }
+  },
+  "timestamp": "2026-07-02T10:00:00.000Z"
+}

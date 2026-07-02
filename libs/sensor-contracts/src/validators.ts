@@ -8,6 +8,10 @@
 import Ajv, { type ValidateFunction } from 'ajv';
 
 import { SCADA_PACKAGE_DOC_V2_SCHEMA } from './scada-package-doc/scada-package-doc.schema';
+import { COMMAND_ENVELOPE_SCHEMA } from './schemas/command-envelope.schema';
+import { DEPLOY_PROCESS_PARAMS_SCHEMA } from './schemas/deploy-process.schema';
+import { DEPLOY_PROGRAM_PARAMS_SCHEMA } from './schemas/deploy-program.schema';
+import { DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/deploy-scada-package.schema';
 import { TAG_REF_SCHEMA } from './schemas/tag-ref.schema';
 
 const ajv = new Ajv({ strict: false, allErrors: true });
@@ -18,6 +22,18 @@ export const validateTagRef: ValidateFunction = ajv.compile(TAG_REF_SCHEMA);
 /** Compiled validator for the V2 SCADA package document (save-time trust boundary). */
 export const validateScadaPackageDocV2: ValidateFunction = ajv.compile(
   SCADA_PACKAGE_DOC_V2_SCHEMA,
+);
+
+/** Publish-boundary validators for the cloud→edge deploy commands (Faz 4). */
+export const validateCommandEnvelope: ValidateFunction = ajv.compile(COMMAND_ENVELOPE_SCHEMA);
+export const validateDeployProcessParams: ValidateFunction = ajv.compile(
+  DEPLOY_PROCESS_PARAMS_SCHEMA,
+);
+export const validateDeployProgramParams: ValidateFunction = ajv.compile(
+  DEPLOY_PROGRAM_PARAMS_SCHEMA,
+);
+export const validateDeployScadaPackageParams: ValidateFunction = ajv.compile(
+  DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA,
 );
 
 /** Human-readable rendering of the last validation failure. */

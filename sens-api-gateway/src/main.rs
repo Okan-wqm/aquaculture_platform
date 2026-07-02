@@ -55,6 +55,12 @@ mod backup; // v1.2.4: Backup and restore functionality
 mod bounded;
 mod commands;
 mod config;
+// Faz 4 cloud↔edge contract-parity gate: deserializes the shared
+// fixtures in libs/sensor-contracts/fixtures/ into the agent's serde
+// structs. Unit-test module (not tests/) because the crate is
+// [[bin]]-only — external tests can't import internal types.
+#[cfg(test)]
+mod contract_fixtures_tests;
 mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
 mod error;
 mod gpio;

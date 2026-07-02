@@ -23,6 +23,10 @@ export {
 export type { TagRef } from './tag-ref';
 
 export { TAG_REF_SCHEMA } from './schemas/tag-ref.schema';
+export { COMMAND_ENVELOPE_SCHEMA, UUID_PATTERN } from './schemas/command-envelope.schema';
+export { DEPLOY_PROCESS_PARAMS_SCHEMA } from './schemas/deploy-process.schema';
+export { DEPLOY_PROGRAM_PARAMS_SCHEMA } from './schemas/deploy-program.schema';
+export { DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/deploy-scada-package.schema';
 
 export { SCADA_PACKAGE_DOC_SCHEMA_VERSION } from './scada-package-doc/scada-package-doc.types';
 export type {

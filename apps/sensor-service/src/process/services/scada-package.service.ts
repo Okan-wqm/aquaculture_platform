@@ -7,6 +7,8 @@ import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquacu
 import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
 import {
   formatValidationErrors,
+  validateCommandEnvelope,
+  validateDeployScadaPackageParams,
   validateScadaPackageDocV2,
 } from '@platform/sensor-contracts/validators';
 
@@ -14,6 +16,7 @@ import { AutomationService } from '../../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../../automation/entities/program-variable.entity';
 import { ArtifactService } from '../../deploy-artifact/artifact.service';
+import { DeploySigningService } from '../../deploy-artifact/deploy-signing.service';
 import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
@@ -153,6 +156,9 @@ export class ScadaPackageService {
     @Optional()
     @Inject(ArtifactService)
     private readonly artifactService: ArtifactService | null,
+    @Optional()
+    @Inject(DeploySigningService)
+    private readonly deploySigningService: DeploySigningService | null,
   ) {}
 
   /**
@@ -333,11 +339,18 @@ export class ScadaPackageService {
     // Validate automation bindings before deploying (TASK 2)
     await this.validateAutomationBindings(pkg);
 
+    // Deploy always ships the CURRENT document contract: legacy rows that
+    // were saved before Faz 2 upcast here (deploy reads the repo directly,
+    // bypassing getScadaPackage's read-path upcast).
+    const packageDoc = upcastScadaPackageDoc(pkg.packageData, {
+      deviceCode: device.deviceCode,
+    });
+
     // Tag SSoT raporu (Faz 1, warn-only): widget tag bağlamalarını
     // `${deviceCode}/${tagName}` olarak registry'ye karşı çöz; çözülemeyenleri
     // logla. Bloklamaz — Faz 4 bunu deploy gate'ine çevirir.
     if (this.tagResolutionService) {
-      const tagNames = this.collectWidgetTagNames(pkg.packageData);
+      const tagNames = this.collectWidgetTagNames(packageDoc);
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
@@ -360,11 +373,8 @@ export class ScadaPackageService {
       try {
         artifact = await this.artifactService.snapshot(tenantId, {
           artifactType: DeployArtifactType.SCADA_PACKAGE,
-          content: pkg.packageData,
-          schemaVersion:
-            typeof (pkg.packageData.meta as Record<string, unknown> | undefined)?.schemaVersion === 'number'
-              ? ((pkg.packageData.meta as Record<string, unknown>).schemaVersion as number)
-              : undefined,
+          content: packageDoc,
+          schemaVersion: packageDoc.meta.schemaVersion,
           sourceEntityId: pkg.id,
           sourceEntityVersion: pkg.version,
           createdBy: userId,
@@ -376,10 +386,22 @@ export class ScadaPackageService {
       }
     }
 
+    // Faz 4: ed25519 signature over tenant + artifact sha256 under domain
+    // tag `scada-pkg-v1` — verified by the edge against
+    // firmware_signing_pubkey before applying the package.
+    const signature =
+      artifact && this.deploySigningService
+        ? this.deploySigningService.signDeployArtifact(
+            'scada-package',
+            tenantId,
+            artifact.contentSha256,
+          )
+        : null;
+
     const packagePayload = {
-      ...pkg.packageData,
+      ...packageDoc,
       meta: {
-        ...((pkg.packageData.meta ?? {}) as Record<string, unknown>),
+        ...packageDoc.meta,
         // Server-side fields MUST come last to prevent client override
         version: pkg.version,
         packageVersion: `${pkg.version}.0.0`,
@@ -387,6 +409,7 @@ export class ScadaPackageService {
         deployedAt: new Date().toISOString(),
         edgeDeviceId: device.id,
         ...(artifact ? { artifactSha256: artifact.contentSha256 } : {}),
+        ...(signature ? { signature } : {}),
       },
     };
 
@@ -399,6 +422,19 @@ export class ScadaPackageService {
       params: packagePayload,
       timestamp: new Date().toISOString(),
     };
+
+    // Publish-boundary contract validation (Faz 4): the shipped payload must
+    // match the canonical schemas the Rust agent is parity-tested against.
+    if (!validateDeployScadaPackageParams(packagePayload)) {
+      throw new BadRequestException(
+        `deploy_scada_package payload violates the canonical contract: ${formatValidationErrors(validateDeployScadaPackageParams)}`,
+      );
+    }
+    if (!validateCommandEnvelope(payload)) {
+      throw new BadRequestException(
+        `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
+      );
+    }
 
     // Create SCADA deploy log entry before sending MQTT (TASK 1)
     if (this.scadaDeployLogService) {
@@ -472,6 +508,16 @@ export class ScadaPackageService {
 
     const commandId = randomUUID();
     const version = artifact.sourceEntityVersion ?? 0;
+    // Rollback republishes signed content: same artifact sha256, same
+    // domain tag — the edge cannot distinguish (nor needs to) a rollback
+    // from a fresh deploy at the signature layer.
+    const signature = this.deploySigningService
+      ? this.deploySigningService.signDeployArtifact(
+          'scada-package',
+          tenantId,
+          artifact.contentSha256,
+        )
+      : null;
     const payload = {
       commandId,
       command: 'deploy_scada_package',
@@ -486,6 +532,7 @@ export class ScadaPackageService {
           edgeDeviceId: device.id,
           artifactSha256: artifact.contentSha256,
           rollback: true,
+          ...(signature ? { signature } : {}),
         },
       },
       timestamp: new Date().toISOString(),

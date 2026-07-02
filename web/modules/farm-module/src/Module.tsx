@@ -24,6 +24,7 @@ import CompanyPage from './pages/company/CompanyPage';
 import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import BatchDetailPage from './pages/production/BatchDetailPage';
+import MaintenancePage from './pages/maintenance/MaintenancePage';
 
 // ============================================================================
 // Sites Module
@@ -58,7 +59,7 @@ const FarmModule: React.FC = () => {
       <Route path=":siteId/edit" element={<Navigate to="/sites/setup/sites" replace />} />
 
       {/* Sensör izleme sensor-module'ün sorumluluğu — buradaki mock
-          SensorDashboardPage kaldırıldı (FARM-INT-MEDIUM-003). Eski
+          SensorDashboardPage kaldırıldı (FARM-MEDIUM-114). Eski
           linkler canlı sensör modülüne gitsin. */}
       <Route path="sensors/*" element={<Navigate to="/sensor" replace />} />
       <Route path=":siteId/sensors" element={<Navigate to="/sensor" replace />} />
@@ -112,6 +113,9 @@ const FarmModule: React.FC = () => {
 
       {/* Harvest Plans - Planning, scheduling, workflow management */}
       <Route path="harvest/*" element={<HarvestPlansPage />} />
+
+      {/* Maintenance - Work orders, schedules, spare parts (FARM-MEDIUM-113) */}
+      <Route path="maintenance/*" element={<MaintenancePage />} />
 
       {/* Company Information - Top-level company page */}
       <Route path="company" element={<CompanyPage />} />

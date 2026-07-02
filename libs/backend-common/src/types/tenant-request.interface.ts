@@ -34,6 +34,20 @@ export interface VerifiedUserAssertion {
    * cross-service tenant lookup. Absent for platform SUPER_ADMIN tokens.
    */
   planLevel?: number;
+  /**
+   * ORPHAN-MEDIUM-319: the gateway-resolved end-client IP (nginx → gateway
+   * `req.ip` under TRUST_PROXY). Threaded through the HMAC-bound assertion so
+   * subgraph audit rows / lastLoginIp record the ACTUAL actor instead of the
+   * gateway container IP. Integrity-protected by X-Service-Assertion-Hash —
+   * no signing change (same mechanism as assignedSiteIds / planLevel).
+   */
+  clientIp?: string | null;
+  /**
+   * ORPHAN-MEDIUM-319: the end-client User-Agent as received by the gateway.
+   * The subgraph's own `user-agent` header is the gateway's internal fetcher
+   * (minipass-fetch), useless for forensics.
+   */
+  clientUserAgent?: string | null;
 }
 
 export interface VerifiedServiceIdentity {

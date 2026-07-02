@@ -1,0 +1,16 @@
+{
+  "graph": {
+    "nodes": {
+      "farm-service": { "data": { "root": "apps/farm-service" } },
+      "notification-service": { "data": { "root": "apps/notification-service" } },
+      "farm-shared": { "data": { "root": "libs/farm-shared" } },
+      "event-contracts": { "data": { "root": "libs/event-contracts" } }
+    },
+    "dependencies": {
+      "farm-service": [ { "source": "farm-service", "target": "farm-shared" }, { "source": "farm-service", "target": "event-contracts" } ],
+      "notification-service": [ { "source": "notification-service", "target": "farm-shared" }, { "source": "notification-service", "target": "event-contracts" } ],
+      "farm-shared": [],
+      "event-contracts": []
+    }
+  }
+}

@@ -13,7 +13,7 @@ This test asserts the SHARED contract across all three opus-tier
 agents (regardless of physical location):
 
 - the three files exist at their post-V8.1 canonical locations;
-- each frontmatter declares `model: opus` and `tools: Read, Grep, Glob`;
+- each frontmatter declares `model: fable` and `tools: Read, Grep, Glob`;
 - each `name` field matches the ARIA whitelist in agent_contract.py;
 - the body cites the kernel-issued envelope as the only invocation path;
 - the body forbids self-modification outside the Plan 009 PR lane.
@@ -82,7 +82,7 @@ class MaintenanceAgentInvariantTests(unittest.TestCase):
         for name, path in self.files.items():
             text = path.read_text(encoding="utf-8")
             front = _parse_frontmatter(text)
-            self.assertEqual(front.get("model"), "opus", f"{name}: model not opus")
+            self.assertEqual(front.get("model"), "fable", f"{name}: model not fable")
             self.assertEqual(
                 front.get("effort"), EXPECTED_EFFORT[name],
                 f"{name}: effort not {EXPECTED_EFFORT[name]} "

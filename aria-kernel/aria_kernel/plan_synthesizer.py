@@ -116,7 +116,8 @@ def synthesize_plan_content_from_cycle(
       2. If no changes detected, fall back through:
          ``HEAD~10`` → ``HEAD --since="24 hours ago"`` → return ``None``
       3. Build plan_content from real observed deltas:
-         * ``schema_version: 1``
+         * ``schema_version: 2`` (coverage-gated — plan_convergence enforces
+           the deterministic impact-closure verdict before CONVERGED)
          * ``title``: f"Auto-discovered cycle {cycle_id}"
          * ``summary``: f"{N} files changed since {base}"
          * ``affected_surfaces``: deduped + bounded affected paths
@@ -174,7 +175,10 @@ def synthesize_plan_content_from_cycle(
     ]
 
     return {
-        "schema_version": 1,
+        # schema_version 2 opts this plan into the plan-coverage gate:
+        # plan_convergence requires a coverage_computed verdict per round
+        # before CONVERGED (v1 = legacy, gate-inert).
+        "schema_version": 2,
         "title": f"Auto-discovered cycle {cycle_id}",
         "summary": (
             f"{len(affected_paths)} files changed since {git_diff_base}; "
@@ -974,7 +978,8 @@ def convert_candidate_to_plan_content(
         affected_surfaces = [f"aria-findings/{candidate_id}.json"]
 
     content: dict[str, Any] = {
-        "schema_version": 1,
+        # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).
+        "schema_version": 2,
         "title": title_hint,
         "summary": summary,
         "affected_surfaces": affected_surfaces,

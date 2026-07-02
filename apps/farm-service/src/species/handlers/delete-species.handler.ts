@@ -2,9 +2,12 @@
  * Delete Species Command Handler
  * @module Species/Handlers
  */
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { NotFoundException, Logger, ConflictException } from '@nestjs/common';
 import { DeleteSpeciesCommand } from '../commands/delete-species.command';
 import { Species } from '../entities/species.entity';
@@ -19,10 +22,7 @@ export class DeleteSpeciesHandler
   private readonly logger = new Logger(DeleteSpeciesHandler.name);
 
   constructor(
-    @InjectRepository(Species)
-    private readonly speciesRepository: Repository<Species>,
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
+    private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -31,58 +31,63 @@ export class DeleteSpeciesHandler
 
     this.logger.log(`Deleting species: ${id} for tenant: ${tenantId}`);
 
-    // Find existing
-    const existing = await this.speciesRepository.findOne({
-      where: { id, tenantId },
-    });
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const speciesRepo = tenantManagerRepo(queryRunner.manager, Species, tenantId);
+      const batchRepo = tenantManagerRepo(queryRunner.manager, Batch, tenantId);
 
-    if (!existing) {
-      throw new NotFoundException(`Species with id "${id}" not found`);
-    }
+      // Find existing
+      const existing = await speciesRepo.findOne({
+        where: { id, tenantId },
+      });
 
-    // Check for active batches referencing this species
-    const batchCount = await this.batchRepository.count({
-      where: { tenantId, speciesId: id },
-    });
+      if (!existing) {
+        throw new NotFoundException(`Species with id "${id}" not found`);
+      }
 
-    if (batchCount > 0) {
-      throw new ConflictException(
-        `Cannot delete species "${existing.scientificName}". It has ${batchCount} associated batch(es).`,
-      );
-    }
+      // Check for active batches referencing this species
+      const batchCount = await batchRepo.count({
+        where: { tenantId, speciesId: id },
+      });
 
-    // Soft delete - mark as deleted AND inactive
-    existing.isDeleted = true;
-    existing.deletedAt = new Date();
-    existing.deletedBy = userId;
-    existing.isActive = false;
-    existing.updatedBy = userId;
+      if (batchCount > 0) {
+        throw new ConflictException(
+          `Cannot delete species "${existing.scientificName}". It has ${batchCount} associated batch(es).`,
+        );
+      }
 
-    await this.speciesRepository.save(existing);
+      // Soft delete - mark as deleted AND inactive
+      existing.isDeleted = true;
+      existing.deletedAt = new Date();
+      existing.deletedBy = userId;
+      existing.isActive = false;
+      existing.updatedBy = userId;
 
-    // Audit log
-    await this.auditLogService.log({
-      tenantId,
-      entityType: 'Species',
-      entityId: id,
-      action: AuditAction.SOFT_DELETE,
-      userId,
-      changes: {
-        before: {
-          scientificName: existing.scientificName,
-          code: existing.code,
-          isActive: true,
-          isDeleted: false,
+      await speciesRepo.save(existing);
+
+      // Audit log
+      await this.auditLogService.log({
+        tenantId,
+        entityType: 'Species',
+        entityId: id,
+        action: AuditAction.SOFT_DELETE,
+        userId,
+        changes: {
+          before: {
+            scientificName: existing.scientificName,
+            code: existing.code,
+            isActive: true,
+            isDeleted: false,
+          },
+          after: {
+            isActive: false,
+            isDeleted: true,
+          },
         },
-        after: {
-          isActive: false,
-          isDeleted: true,
-        },
-      },
+      });
+
+      this.logger.log(`Species soft-deleted: ${id}`);
+
+      return true;
     });
-
-    this.logger.log(`Species soft-deleted: ${id}`);
-
-    return true;
   }
 }

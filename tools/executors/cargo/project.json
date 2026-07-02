@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "@aqua/cargo",
+  "projectType": "library",
+  "root": "tools/executors/cargo",
+  "sourceRoot": "tools/executors/cargo/src",
+  "tags": ["scope:tooling", "type:executor"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-script",
+      "options": {
+        "script": "build"
+      },
+      "outputs": ["{workspaceRoot}/tools/executors/cargo/dist"],
+      "cache": true
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["tools/executors/cargo/src/**/*.ts"]
+      },
+      "cache": true
+    }
+  }
+}

@@ -19,7 +19,8 @@ import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-co
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Species } from '../entities/species.entity';
 import { CreateSpeciesInput } from '../dto/create-species.dto';
 import { UpdateSpeciesInput } from '../dto/update-species.dto';
@@ -78,6 +79,7 @@ export class SpeciesResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly dataSource: DataSource,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly restoreService: RestoreService,
@@ -153,11 +155,15 @@ export class SpeciesResolver {
   ): Promise<string[]> {
     this.logger.debug(`Getting species tags for tenant: ${tenantId}`);
 
-    // Get all species with tags
-    const speciesWithTags = await this.speciesRepository.find({
-      where: { tenantId, isDeleted: false },
-      select: ['tags'],
-    });
+    // Get all species with tags through the fail-closed tenant boundary (was a raw
+    // injected-repository read resolved via the ambient pooled search_path).
+    const speciesWithTags = await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      // tenantId auto-injected by the tenant-scoped repo
+      tenantManagerRepo(queryRunner.manager, Species, tenantId).find({
+        where: { isDeleted: false },
+        select: ['tags'],
+      }),
+    );
 
     // Collect unique tags from all species
     const usedTags = new Set<string>();

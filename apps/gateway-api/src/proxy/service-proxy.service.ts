@@ -34,6 +34,11 @@ const BLOCKED_FORWARDED_HEADERS = [
   'x-http-method-override',
   'x-method-override',
   // Identity and service-proof headers are minted by this gateway only.
+  // ORPHAN-MEDIUM-319: client network identity is minted by extractHeaders
+  // from the gateway's own trusted view (req.ip / inbound user-agent) —
+  // an inbound copy is a forgery attempt.
+  'x-client-ip',
+  'x-client-user-agent',
   'x-user-payload',
   'x-user-id',
   'x-user-roles',
@@ -737,6 +742,20 @@ export class ServiceProxyService {
       }
     }
 
+    // ORPHAN-MEDIUM-319: mint the end-client network identity the gateway
+    // resolved itself (req.ip honours TRUST_PROXY=1 behind nginx; the inbound
+    // user-agent is the browser's). Inbound copies were dropped by the
+    // BLOCKED_FORWARDED_HEADERS filter above, so these assignments cannot be
+    // attacker-controlled. Subgraphs trust them only behind a verified
+    // gateway service identity (resolveClientNetworkContext).
+    if (req.ip) {
+      headers['x-client-ip'] = req.ip;
+    }
+    const inboundUserAgent = req.headers['user-agent'];
+    if (typeof inboundUserAgent === 'string' && inboundUserAgent.length > 0) {
+      headers['x-client-user-agent'] = inboundUserAgent;
+    }
+
     return headers;
   }
 
@@ -779,6 +798,12 @@ export class ServiceProxyService {
         // denied on any farm/hr mutation routed through the REST proxy.
         assignedSiteIds: user.assignedSiteIds,
         mobileFeatures: user.mobileFeatures,
+        // ORPHAN-MEDIUM-319: bind the client network identity into the
+        // HMAC-protected assertion on the REST-proxy path, identical to the
+        // federation/authenticated-data-source build site.
+        clientIp: req.ip ?? null,
+        clientUserAgent:
+          typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
       }),
     };
   }

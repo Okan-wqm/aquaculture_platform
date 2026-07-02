@@ -1,8 +1,7 @@
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
+import { DataSource, EntityManager } from 'typeorm';
+import { Logger } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
@@ -22,28 +21,27 @@ import { StockMovementService, RecordMovementInput } from '../services/stock-mov
  * enlist a CALLER-provided transaction — that is what lets feeding
  * deduction commit atomically with the feeding write (see
  * `StockMovementService` header). This handler keeps the same external
- * contract for manual / GraphQL-driven movements: open a transaction,
- * apply the movement, then emit the post-commit domain events.
+ * contract for manual / GraphQL-driven movements: open a transaction, apply
+ * the movement, and ENQUEUE its domain events to the transactional outbox in
+ * that same transaction.
  *
- * Events are emitted AFTER the transaction commits (Outbox-pattern
- * principle: only publish events for data that is confirmed persisted). If
- * the transaction had rolled back, no events fire — preventing phantom
- * notifications. NATS JetStream handles retry/DLQ for delivery failures.
+ * Events are enqueued via `OutboxPublisher.enqueue(event, manager)` inside the
+ * movement transaction, so the outbox row commits atomically with the
+ * inventory write (at-least-once). A relay worker delivers them afterwards — a
+ * NATS outage can no longer silently drop the StockMovementRecorded record or,
+ * critically, the LowStockDetected reorder alert. (The prior post-commit
+ * `eventBus.publish` in a swallow-catch was at-most-once and lossy.)
  */
 @CommandHandler(RecordStockMovementCommand)
 export class RecordStockMovementHandler implements ICommandHandler<RecordStockMovementCommand, StockMovement> {
   private readonly logger = new Logger(RecordStockMovementHandler.name);
 
   constructor(
-    @InjectRepository(Feed)
-    private readonly feedRepository: Repository<Feed>,
     private readonly dataSource: DataSource,
     private readonly stockMovementService: StockMovementService,
-    // EVENT_BUS is provided globally by EventBusModule (@Global).
-    // @Optional() ensures the handler still works in test environments or
-    // when NATS is unavailable — event emission is best-effort.
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    // OutboxPublisher is provided app-wide by the @Global() FarmOutboxModule,
+    // so no module import is needed here.
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RecordStockMovementCommand): Promise<StockMovement & { warnings?: ConditionWarning[] }> {
@@ -72,8 +70,8 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     // (StockMovementService) asserts assignment to each touched location's site
     // BEFORE any write. This is a DIRECT operator movement, so the check applies
     // (feeding callers omit it — they authorize on the feeding site at their sink).
-    const result = await this.dataSource.transaction((manager) =>
-      this.stockMovementService.recordMovement(manager, movementInput, {
+    const result = await this.dataSource.transaction(async (manager) => {
+      const movementResult = await this.stockMovementService.recordMovement(manager, movementInput, {
         tenantId,
         userId,
         userName,
@@ -82,26 +80,41 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
           roles: command.userRoles,
           assignedSiteIds: command.callerAssignedSiteIds,
         },
-      }),
-    );
+      });
 
-    const { saved, currentTotal, idempotentHit, warnings } = result;
+      // Enqueue the domain events to the outbox INSIDE this transaction so the
+      // outbox rows commit atomically with the movement write (at-least-once).
+      // Idempotent replay returns the existing movement without re-enqueuing —
+      // the original execution already enqueued them.
+      if (!movementResult.idempotentHit) {
+        await this.enqueueMovementEvents(
+          manager,
+          movementResult.saved,
+          movementResult.currentTotal,
+          tenantId,
+          userId,
+          itemType as StorageItemType,
+          movementType,
+        );
+      }
 
-    // Idempotent replay returns the existing movement without re-emitting
-    // events — the original execution already published them.
-    if (!idempotentHit) {
-      await this.emitMovementEvents(saved, currentTotal, tenantId, userId, itemType as StorageItemType, movementType);
-    }
+      return movementResult;
+    });
+
+    const { saved, warnings } = result;
 
     return Object.assign(saved, { warnings: warnings.length > 0 ? warnings : undefined });
   }
 
   /**
-   * Publish the universal StockMovementRecorded event plus, for
-   * stock-reducing movements, a LowStockDetected alert when the post-op
-   * aggregate crosses the item's threshold.
+   * Enqueue the universal StockMovementRecorded event plus, for stock-reducing
+   * movements, a LowStockDetected alert when the post-op aggregate crosses the
+   * item's threshold — both to the outbox, inside the caller's transaction, so
+   * an enqueue failure rolls the movement back rather than silently dropping
+   * the event.
    */
-  private async emitMovementEvents(
+  private async enqueueMovementEvents(
+    manager: EntityManager,
     saved: StockMovement,
     currentTotal: number,
     tenantId: string,
@@ -109,65 +122,48 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     itemType: StorageItemType,
     movementType: MovementType,
   ): Promise<void> {
-    if (!this.eventBus) return;
-
-    try {
-      const movementEvent: StockMovementRecordedEvent = {
-        ...createBaseEvent<StockMovementRecordedEvent>('StockMovementRecorded', tenantId),
-        userId,
-        movementId: saved.id,
-        movementType: saved.movementType,
-        itemType: saved.itemType,
-        itemId: saved.itemId,
-        itemName: saved.itemName,
-        quantity: saved.quantity,
-        unit: saved.unit,
-        fromLocationId: saved.fromLocationId,
-        toLocationId: saved.toLocationId,
-        lotNumber: saved.lotNumber,
-      };
-      await this.eventBus.publish(movementEvent);
-      this.logger.debug(`Published StockMovementRecordedEvent for movement ${saved.id}`);
-    } catch (eventError) {
-      // Best-effort delivery: the movement record is the source of truth.
-      this.logger.warn(
-        `Failed to emit StockMovementRecorded event for movement ${saved.id}: ${(eventError as Error).message}`,
-      );
-    }
+    const movementEvent: StockMovementRecordedEvent = {
+      ...createBaseEvent<StockMovementRecordedEvent>('StockMovementRecorded', tenantId),
+      userId,
+      movementId: saved.id,
+      movementType: saved.movementType,
+      itemType: saved.itemType,
+      itemId: saved.itemId,
+      itemName: saved.itemName,
+      quantity: saved.quantity,
+      unit: saved.unit,
+      fromLocationId: saved.fromLocationId,
+      toLocationId: saved.toLocationId,
+      lotNumber: saved.lotNumber,
+    };
+    await this.outboxPublisher.enqueue(movementEvent, manager);
 
     if (saved.fromLocationId && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
-      try {
-        let severity: 'low_stock' | 'out_of_stock' | null = null;
-        let minimumThreshold: number | undefined;
+      let severity: 'low_stock' | 'out_of_stock' | null = null;
+      let minimumThreshold: number | undefined;
 
-        if (currentTotal <= 0) {
-          severity = 'out_of_stock';
-        } else if (itemType === StorageItemType.FEED) {
-          const feed = await this.feedRepository.findOne({ where: { id: saved.itemId, tenantId } });
-          if (feed && feed.minStock > 0 && currentTotal <= Number(feed.minStock)) {
-            severity = 'low_stock';
-            minimumThreshold = Number(feed.minStock);
-          }
+      if (currentTotal <= 0) {
+        severity = 'out_of_stock';
+      } else if (itemType === StorageItemType.FEED) {
+        const feed = await manager.findOne(Feed, { where: { id: saved.itemId, tenantId } });
+        if (feed && feed.minStock > 0 && currentTotal <= Number(feed.minStock)) {
+          severity = 'low_stock';
+          minimumThreshold = Number(feed.minStock);
         }
+      }
 
-        if (severity) {
-          const lowStockEvent: LowStockDetectedEvent = {
-            ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
-            itemType,
-            itemId: saved.itemId,
-            itemName: saved.itemName,
-            currentQuantity: currentTotal,
-            unit: saved.unit,
-            minimumThreshold,
-            severity,
-          };
-          await this.eventBus.publish(lowStockEvent);
-          this.logger.debug(
-            `Published LowStockDetectedEvent for ${itemType} ${saved.itemId}: ${severity} (current: ${currentTotal})`,
-          );
-        }
-      } catch (lowStockError) {
-        this.logger.warn(`Failed to check/emit low stock event: ${(lowStockError as Error).message}`);
+      if (severity) {
+        const lowStockEvent: LowStockDetectedEvent = {
+          ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
+          itemType,
+          itemId: saved.itemId,
+          itemName: saved.itemName,
+          currentQuantity: currentTotal,
+          unit: saved.unit,
+          minimumThreshold,
+          severity,
+        };
+        await this.outboxPublisher.enqueue(lowStockEvent, manager);
       }
     }
   }

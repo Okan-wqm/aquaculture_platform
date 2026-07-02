@@ -126,6 +126,17 @@ function isFederationScript(src: string): boolean {
 }
 
 /**
+ * Test seam for the two pure classification predicates above. Exported
+ * separately from installRemoteIntegrityGuard() so unit tests can exercise
+ * the classification logic without triggering the DOM-prototype patching
+ * side effects (which are only meaningful once, at real app bootstrap).
+ */
+export const remoteIntegrityPolicy = {
+  isFederationScript,
+  isAllowedRemoteUrl,
+};
+
+/**
  * Validates a script src value against the allowlist and applies SRI hash
  * pins when available. Returns the (possibly cleared) src value.
  *

@@ -15,21 +15,23 @@
     "auto_downgrade_to": "strict"
   },
   "convergent_authoring": {
-    "_doc": "Plan ARIA-V6 §2d v2 — convergent adapter authoring loop config. Operator opt-in via skill-genesis request --convergent.",
+    "_doc": "Plan ARIA-V6 \u00a72d v2 \u2014 convergent adapter authoring loop config. Operator opt-in via skill-genesis request --convergent.",
     "max_authoring_rounds": 6,
     "sandbox_min_fixtures": 10,
-    "recall_floor": 0.90,
+    "recall_floor": 0.9,
     "max_rounds_override_enabled": false
   },
   "auto_promote": {
-    "_doc": "Plan ARIA-V6 §2e v2 — narrow auto-promotion exception. Default disabled; operator MUST opt-in via override. Even when enabled, the operator_approval path is UNCHANGED — auto-promote is a parallel admission, not a replacement.",
+    "_doc": "Plan ARIA-V6 \u00a72e v2 \u2014 narrow auto-promotion exception. Default disabled; operator MUST opt-in via override. Even when enabled, the operator_approval path is UNCHANGED \u2014 auto-promote is a parallel admission, not a replacement.",
     "enabled": false,
     "min_precision": 0.95,
     "min_clean_cycles": 5,
-    "profiles": ["autonomous"]
+    "profiles": [
+      "autonomous"
+    ]
   },
   "skill_genesis_drainer": {
-    "_doc": "Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer per-cycle config. Default enabled (drainer fires every cycle to consume convergent=True requests); operator sets enabled=false to disable drainer entirely.",
+    "_doc": "Plan ARIA-V7 \u00a72h v2 \u2014 V7.4 skill_genesis_drainer per-cycle config. Default enabled (drainer fires every cycle to consume convergent=True requests); operator sets enabled=false to disable drainer entirely.",
     "enabled": true,
     "max_authorings_per_cycle": 3,
     "max_tokens_per_cycle": 50000,
@@ -42,7 +44,11 @@
     "existing_capability_coverage_threshold": 0.8,
     "request_requires_signed_operator_feedback": true,
     "real_sandbox_min_fixture_results": 3,
-    "real_sandbox_required_lanes": ["real_repo_baseline", "semantic_regression", "scope_violation_guard"],
+    "real_sandbox_required_lanes": [
+      "real_repo_baseline",
+      "semantic_regression",
+      "scope_violation_guard"
+    ],
     "shadow_min_days": 14,
     "shadow_min_clean_cycles": 5,
     "shadow_min_eval_runs": 10,
@@ -52,5 +58,16 @@
     "max_noncritical_false_positives_30d": 3,
     "max_result_rejection_rate": 0.05,
     "max_bridge_permanent_failures": 0
+  },
+  "drift_class_weights": {
+    "_doc": "Plan S4 (ORPHAN-MEDIUM-298) - per-drift-class pressure score multipliers. 1.0 = neutral (default behaviour is bit-identical); >1.0 biases cycles toward that class, <1.0 deprioritizes. Applied in pressure.run_pressure AFTER base scoring, re-capped at 100. Override via <repo>/aria-config/genesis_policy.json.",
+    "tool_governance": 1.0,
+    "runtime_signal": 1.0,
+    "evidence_decay": 1.0,
+    "discovery": 1.0,
+    "contradiction": 1.0,
+    "belief_decay": 1.0,
+    "adapter_shadow": 1.0,
+    "schema_drift": 1.0
   }
 }

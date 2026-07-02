@@ -43,6 +43,10 @@ import { SparePart } from '../maintenance/entities/spare-part.entity';
 // Feed entity
 import { Feed } from '../feed/entities/feed.entity';
 
+// FarmStockModule exports the shared FarmStockProjectionService (the SSoT
+// refreshContainers) that FarmStockProjectionListener drives event-driven.
+import { FarmStockModule } from '../farm-stock/farm-stock.module';
+
 // ============================================================================
 // LISTENERS
 // ============================================================================
@@ -54,6 +58,7 @@ import {
   MaintenanceScheduleDueListener,
   LowStockAlertListener,
   FeedingCompletedListener,
+  FarmStockProjectionListener,
 } from './listeners';
 
 /**
@@ -66,6 +71,7 @@ const EventListeners = [
   MaintenanceScheduleDueListener,
   LowStockAlertListener,
   FeedingCompletedListener,
+  FarmStockProjectionListener,
 ];
 
 @Module({
@@ -87,6 +93,8 @@ const EventListeners = [
       // Feed
       Feed,
     ]),
+    // Shared FarmStockProjectionService for the event-driven read-model listener.
+    FarmStockModule,
   ],
   providers: [...EventListeners],
   exports: [...EventListeners],

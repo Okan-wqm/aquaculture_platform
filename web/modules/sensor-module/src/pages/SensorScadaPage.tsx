@@ -239,7 +239,7 @@ const SensorScadaPage: React.FC = () => {
             <LayoutGrid className="w-4 h-4" />
           </Link>
           <Link
-            to="/sensor/process/new"
+            to="/sensor/unified-editor/new"
             className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs bg-cyan-600 hover:bg-cyan-700 rounded-md transition-colors"
           >
             <PlusCircle className="w-3.5 h-3.5" />
@@ -288,7 +288,7 @@ const SensorScadaPage: React.FC = () => {
                 {/* BUG-005: ProcessSelector already in header toolbar — only show the "new process" link here */}
                 <div className="flex items-center justify-center gap-3">
                   <Link
-                    to="/sensor/process/new"
+                    to="/sensor/unified-editor/new"
                     className="flex items-center gap-2 px-4 py-2 text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
                   >
                     <PlusCircle className="w-4 h-4" />

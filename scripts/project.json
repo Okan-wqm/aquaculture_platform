@@ -1,0 +1,17 @@
+{
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "name": "aqua-scripts",
+  "projectType": "library",
+  "root": "scripts",
+  "sourceRoot": "scripts",
+  "tags": ["scope:tooling", "type:scripts"],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["scripts/**/*.{ts,tsx,js,mjs,cjs}"]
+      },
+      "cache": true
+    }
+  }
+}

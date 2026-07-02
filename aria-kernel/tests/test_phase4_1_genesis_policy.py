@@ -95,6 +95,9 @@ class GenesisPolicyTests(unittest.TestCase):
         #   * V7 §2h — skill_genesis_drainer (V7.4 drainer config:
         #     enabled + max_authorings_per_cycle + max_tokens_per_cycle +
         #     estimated_tokens_per_authoring). Closes V6 CONCERN #19.
+        #   * Plan S4 (ORPHAN-MEDIUM-298) — drift_class_weights
+        #     (operator targeting lever: per-class pressure score
+        #     multipliers consumed by pressure.run_pressure).
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -109,6 +112,7 @@ class GenesisPolicyTests(unittest.TestCase):
                 "auto_promote",
                 "skill_genesis_drainer",
                 "genesis_lifecycle",
+                "drift_class_weights",
             },
         )
 

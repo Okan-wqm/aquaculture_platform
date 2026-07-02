@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CommandBus } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
+import { SCHEMA_MIGRATION_SUBJECT_PREFIX } from '@platform/event-contracts';
 import type {
   SchemaMigrationAppliedEvent,
   SchemaMigrationEvent,
@@ -11,14 +12,16 @@ import type {
 
 import { RecordMigrationEventCommand } from '../commands/record-migration-event.command';
 
-const SUBSCRIBE_SUBJECT = 'events.platform.schema-migration.>';
+// ORPHAN-MEDIUM-326: derived from the SAME constant the publisher
+// (NatsMigrationEventSink) uses — publisher and consumer cannot drift.
+const SUBSCRIBE_SUBJECT = `${SCHEMA_MIGRATION_SUBJECT_PREFIX}.>`;
 const GROUP_ID = 'observability-schema-migration';
 
 /**
  * SchemaMigrationEventsConsumer — Phase 6 Step 6 NATS subscriber.
  * ============================================================================
  *
- * Subscribes to `platform.schema-migration.>` on NATS. Every published
+ * Subscribes to `events.platform.schema-migration.>` on NATS. Every published
  * SchemaMigrationEvent (started / applied / failed / skipped) translates
  * into a RecordMigrationEventCommand dispatched via the CQRS bus.
  *
@@ -65,7 +68,7 @@ export class SchemaMigrationEventsConsumer
           handle: async (event) => {
             await this.handle(event as unknown as SchemaMigrationEvent);
           },
-          getEventType: () => 'platform.schema-migration.>',
+          getEventType: () => `${SCHEMA_MIGRATION_SUBJECT_PREFIX}.>`,
         },
         {
           durable: true,

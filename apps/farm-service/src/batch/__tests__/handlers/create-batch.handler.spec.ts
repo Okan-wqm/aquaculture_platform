@@ -8,6 +8,8 @@ import { BadRequestException } from '@nestjs/common';
 import { Batch, BatchInputType, BatchStatus } from '../../entities/batch.entity';
 import { CreateBatchCommand, CreateBatchPayload } from '../../commands/create-batch.command';
 import { CreateBatchHandler } from '../../handlers/create-batch.handler';
+import { TankAllocation, AllocationType } from '../../entities/tank-allocation.entity';
+import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../../database/services/code-generator.service';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
@@ -178,5 +180,51 @@ describe('CreateBatchHandler', () => {
     ).rejects.toThrow('Initial average weight must be positive');
 
     expect(mockSpeciesRepository.findOne).not.toHaveBeenCalled();
+  });
+
+  it('writes an initial_stocking tank_allocations ledger row per initial location (FARM-HIGH-112)', async () => {
+    const equipment: Partial<Equipment> = {
+      id: 'tank-001',
+      tenantId,
+      code: 'TNK-2024-00001',
+      name: 'Tank 1',
+      currentBiomass: 0,
+      currentCount: 0,
+    };
+    (mockManager.find as jest.Mock).mockImplementation((entity: unknown) =>
+      Promise.resolve(entity === Equipment ? [equipment] : []),
+    );
+
+    await handler.execute(
+      new CreateBatchCommand(
+        tenantId,
+        {
+          ...payload,
+          initialLocations: [
+            { locationType: 'tank', tankId: 'tank-001', quantity: 1000, biomass: 50 },
+          ],
+        },
+        createdBy,
+      ),
+    );
+
+    // The stocking must enter the allocation ledger — the ledger-reconcile
+    // recomputes true counts from it, so a createBatch stocking with no
+    // allocation row leaves an incomplete (unreconcilable) history.
+    const allocationSave = mockManager.save.mock.calls.find(
+      ([entity]) => entity === TankAllocation,
+    );
+    expect(allocationSave).toBeDefined();
+    const savedRows = allocationSave![1] as TankAllocation[];
+    expect(savedRows).toHaveLength(1);
+    expect(savedRows[0]).toMatchObject({
+      tenantId,
+      tankId: 'tank-001',
+      allocationType: AllocationType.INITIAL_STOCKING,
+      quantity: 1000, // inflows are stored positive (signed convention)
+      biomassKg: 50,
+      allocatedBy: createdBy,
+      isDeleted: false,
+    });
   });
 });

@@ -1,28 +1,38 @@
 /**
- * TankCountReconcileService — one-time reconciliation of tank fish-COUNT drift.
+ * TankCountReconcileService — reconciliation of tank fish-COUNT drift.
  *
  * WHY: before the single-writer fix (FARM-HIGH-104) each handler maintained
  * equipment/tank.currentCount independently of tank_batches.totalQuantity, so the
  * two drifted (the operator saw 900 on mobile vs 719 on web for one tank). Going
- * forward applyBatchDelta keeps them in lock-step, but EXISTING rows are still
- * off. This service recomputes each tank-batch's TRUE count from the operation
- * ledger — the auditable source, not either drifted denormalization — and (only
- * when applied) routes the correction through applyBatchDelta, the single writer,
- * so batchDetails[] + totalQuantity + currentCount all land on the ledger truth.
+ * forward applyBatchDelta keeps them in lock-step, but EXISTING rows can still be
+ * off in two ways: (a) a wrong count, and (b) a stale pre-fix mirror — pre-SSoT
+ * rows carry batchDetails=NULL and a stale currentQuantity (the column mobile's
+ * batchMetrics.pieces prefers) while totalQuantity has already converged. This
+ * service recomputes each tank-batch's TRUE count from the operation ledger and
+ * (only when applied) routes every correction — including the zero-delta
+ * self-heal for stale mirrors — through applyBatchDelta, the single writer.
  *
- * LEDGER (no double-count — verified against the write paths):
+ * LEDGER (verified against the write paths AND live data — FARM-HIGH-112):
  *   trueQty(tank,batch) =
- *       Σ tank_allocations.quantity  [initial_stocking | split | transfer_in]
- *     − Σ tank_allocations.quantity  [transfer_out]
- *     − Σ tank_operations.quantity   [mortality | cull | harvest], isDeleted=false
- *   Transfers live in tank_allocations (in/out); mortality/cull/harvest live only
- *   in tank_operations — so summing allocations for transfers and operations for
- *   removals counts every event exactly once.
+ *       Σ tank_allocations.quantity  [initial_stocking | split | transfer_in | transfer_out]
+ *     − Σ tank_operations.quantity   [mortality | cull | harvest], not deleted
+ *   Allocation quantities are stored SIGNED — transfer-batch.handler writes the
+ *   source row as `quantity: -payload.quantity` — so the allocation side is a
+ *   plain SUM. (The first version re-negated transfer_out and double-counted;
+ *   caught by the dry-run before any write.) Transfers live only in
+ *   tank_allocations for this formula; mortality/cull/harvest only in
+ *   tank_operations — every event counts exactly once.
+ *
+ * COMPLETENESS (fail-closed): a (tank,batch) whose ledger has NO inflow rows, or
+ * whose net comes out negative, has an incomplete history (initial stocking via
+ * createBatch predates the allocation-ledger write, FARM-HIGH-112). Such rows are
+ * REPORTED with ledgerComplete=false and are NEVER auto-applied — a reconcile
+ * from an incomplete ledger would corrupt a correct count.
  *
  * SAFETY: dryRun (default true) computes + returns the per-tank-batch diff WITHOUT
  * writing, so the operator reviews the recomputed values before applying. Apply
- * routes every non-zero delta through applyBatchDelta inside the tenant
- * transaction (fail-closed search_path + RLS).
+ * routes corrections through applyBatchDelta inside the tenant transaction
+ * (fail-closed search_path + RLS).
  */
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
@@ -43,11 +53,15 @@ export class TankCountReconcileRow {
   @Field()
   batchNumber!: string;
 
-  /** Current tank_batches.batchDetails[batch].quantity. */
+  /** Baseline count: batchDetails[batch].quantity, or totalQuantity for a pre-SSoT primary-batch row. */
   @Field(() => Int)
   currentQuantity!: number;
 
-  /** The count recomputed from the operation ledger (allocations − removals). */
+  /** The stale pre-fix mirror (tank_batches.currentQuantity) mobile surfaces — null when unset. */
+  @Field(() => Int, { nullable: true })
+  mirrorQuantity!: number | null;
+
+  /** The count recomputed from the operation ledger (signed allocations − removals). */
   @Field(() => Int)
   ledgerQuantity!: number;
 
@@ -55,26 +69,37 @@ export class TankCountReconcileRow {
   @Field(() => Int)
   delta!: number;
 
-  /** True when this row's correction was written (apply mode + delta != 0). */
+  /** False when the ledger history is incomplete (no inflow rows / negative net) — such rows are never auto-applied. */
+  @Field()
+  ledgerComplete!: boolean;
+
+  /** True when this row's count correction was written (apply mode, complete ledger, delta != 0). */
   @Field()
   applied!: boolean;
+
+  /** True when a zero-delta self-heal was written (apply mode, delta 0, stale mirror or missing batchDetails). */
+  @Field()
+  healed!: boolean;
 }
 
 interface LedgerRow {
   tankId: string;
   batchId: string;
   trueQty: string; // numeric → string from pg
+  inflowRows: string; // bigint → string from pg
 }
 
 const LEDGER_SQL = `
   WITH alloc AS (
     SELECT "tankId", "batchId",
-      SUM(CASE
-        WHEN "allocationType" IN ('initial_stocking', 'split', 'transfer_in') THEN quantity
-        WHEN "allocationType" = 'transfer_out' THEN -quantity
-        ELSE 0 END) AS alloc_net
+      SUM(quantity) AS alloc_net,
+      COUNT(*) FILTER (
+        WHERE "allocationType" IN ('initial_stocking', 'split', 'transfer_in')
+      ) AS inflow_rows
     FROM tank_allocations
     WHERE "tenantId" = $1
+      AND ("isDeleted" IS NULL OR "isDeleted" = false)
+      AND "allocationType" IN ('initial_stocking', 'split', 'transfer_in', 'transfer_out')
     GROUP BY "tankId", "batchId"
   ),
   ops AS (
@@ -86,7 +111,8 @@ const LEDGER_SQL = `
     GROUP BY "tankId", "batchId"
   )
   SELECT a."tankId" AS "tankId", a."batchId" AS "batchId",
-    GREATEST(0, a.alloc_net - COALESCE(o.removed, 0)) AS "trueQty"
+    a.alloc_net - COALESCE(o.removed, 0) AS "trueQty",
+    a.inflow_rows AS "inflowRows"
   FROM alloc a
   LEFT JOIN ops o ON o."tankId" = a."tankId" AND o."batchId" = a."batchId"
 `;
@@ -102,8 +128,8 @@ export class TankCountReconcileService {
 
   /**
    * Recompute every tank-batch's true count from the ledger and (when
-   * dryRun=false) correct the drift through applyBatchDelta. Returns the per
-   * tank-batch diff either way.
+   * dryRun=false) correct drift / heal stale pre-SSoT mirrors through
+   * applyBatchDelta. Returns the per tank-batch diff either way.
    */
   async reconcile(
     tenantId: string,
@@ -125,37 +151,71 @@ export class TankCountReconcileService {
         const tankBatch = await manager.findOne(TankBatch, {
           where: { tenantId, tankId: entry.tankId },
         });
-        const detail = tankBatch?.batchDetails?.find((d) => d.batchId === entry.batchId);
-        const currentQuantity = detail?.quantity ?? 0;
+        const details = tankBatch?.batchDetails ?? [];
+        const detail = details.find((d) => d.batchId === entry.batchId);
+        const isPrimary = tankBatch?.primaryBatchId === entry.batchId;
+        // Pre-SSoT rows carry batchDetails=NULL but a converged totalQuantity —
+        // for the primary batch that total IS the baseline; reading 0 here made
+        // the first version report phantom deltas on already-correct tanks.
+        const currentQuantity =
+          detail?.quantity ??
+          (details.length === 0 && isPrimary ? Math.trunc(Number(tankBatch?.totalQuantity ?? 0)) : 0);
+        const mirrorRaw = tankBatch?.currentQuantity;
+        const mirrorQuantity = mirrorRaw == null ? null : Math.trunc(Number(mirrorRaw));
         const delta = ledgerQuantity - currentQuantity;
+        // Fail-closed: no inflow history or a negative net = incomplete ledger
+        // (e.g. initial stocking predates the createBatch allocation write).
+        const ledgerComplete = Number(entry.inflowRows) > 0 && ledgerQuantity >= 0;
+        // A pre-SSoT row needs a self-heal even at delta 0: batchDetails missing
+        // and/or the currentQuantity mirror (mobile's preferred source) is stale.
+        const needsHeal =
+          tankBatch != null &&
+          (details.length === 0 || mirrorQuantity !== Math.trunc(Number(tankBatch.totalQuantity)));
 
         let applied = false;
-        if (!dryRun && delta !== 0) {
-          await this.applyCorrection(manager, tenantId, entry.tankId, {
-            batchId: entry.batchId,
-            batchNumber: detail?.batchNumber ?? tankBatch?.primaryBatchNumber ?? '',
-            delta,
-            avgWeightG: detail?.avgWeightG ?? 0,
-          });
-          applied = true;
+        let healed = false;
+        if (!dryRun && ledgerComplete && tankBatch) {
+          if (delta !== 0) {
+            await this.applyCorrection(manager, tenantId, entry.tankId, {
+              batchId: entry.batchId,
+              batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
+              delta,
+              avgWeightG: detail?.avgWeightG ?? Number(tankBatch.avgWeightG ?? 0),
+            });
+            applied = true;
+          } else if (needsHeal) {
+            // Zero-delta write through the single writer: seeds batchDetails from
+            // the (correct) totals and re-derives currentQuantity + currentCount.
+            await this.tankBatchService.applyBatchDelta(manager, tenantId, entry.tankId, {
+              batchId: entry.batchId,
+              batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
+              quantityDelta: 0,
+              biomassDelta: 0,
+            });
+            healed = true;
+          }
         }
 
         rows.push({
           tankId: entry.tankId,
           batchId: entry.batchId,
-          batchNumber: detail?.batchNumber ?? '',
+          batchNumber: detail?.batchNumber ?? tankBatch?.primaryBatchNumber ?? '',
           currentQuantity,
+          mirrorQuantity,
           ledgerQuantity,
           delta,
+          ledgerComplete,
           applied,
+          healed,
         });
       }
 
       const drifted = rows.filter((r) => r.delta !== 0);
+      const incomplete = rows.filter((r) => !r.ledgerComplete);
       this.logger.log(
         `[TankCountReconcile] tenant=${tenantId.substring(0, 8)} dryRun=${dryRun} ` +
-          `scanned=${rows.length} drifted=${drifted.length} ` +
-          `applied=${rows.filter((r) => r.applied).length}`,
+          `scanned=${rows.length} drifted=${drifted.length} incomplete=${incomplete.length} ` +
+          `applied=${rows.filter((r) => r.applied).length} healed=${rows.filter((r) => r.healed).length}`,
       );
       return rows;
     });

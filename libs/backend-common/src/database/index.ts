@@ -417,3 +417,10 @@ export * from './db-migrate-authority.util';
 // Connection-bootstrap services import this instead of casting
 // dataSource.driver inline.
 export * from './pg-pool-from-data-source.util';
+
+// ORPHAN-HIGH-318 cure: runtime-asserted reader for raw
+// `UPDATE … RETURNING` results through dataSource.query() — the postgres
+// driver returns [rows, affectedCount], not the rows array; hand-typed
+// annotations of that shape have already shipped one silent security-signal
+// outage (ACCOUNT_LOCKED never fired).
+export * from './update-returning.util';

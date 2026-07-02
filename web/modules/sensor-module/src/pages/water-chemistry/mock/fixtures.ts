@@ -165,3 +165,72 @@ export const ALL_PARAMS: ParamKey[] = [
   'co2',
   'h2s',
 ];
+
+// ============================================================================
+// CARD CANVAS mock catalog (P2): connected sensors + species→limit templates
+// ============================================================================
+
+/** A connected sensor channel available to bind as a card parameter source. */
+export interface SensorCatalogEntry {
+  id: string;
+  label: string;
+  parameter: ParamKey;
+  channelId: string; // READINGS key suffix
+  tankId?: string;
+  loopId?: string;
+  siteId?: string;
+}
+
+/** Mirrors the existing sensors; scope binding = tank / loop / site (denormalized like sensor.entity). */
+export const SENSOR_CATALOG: SensorCatalogEntry[] = [
+  { id: 'TMP-A', label: 'Loop-A Temp', parameter: 'temperature', channelId: 'temperature', loopId: 'loop-a' },
+  { id: 'SAL-A', label: 'Loop-A Salinity', parameter: 'salinity', channelId: 'salinity', loopId: 'loop-a' },
+  { id: 'NO3-A', label: 'Loop-A Nitrate', parameter: 'nitrate', channelId: 'nitrate', loopId: 'loop-a' },
+  { id: 'PH-T1', label: 'Tank A-1 pH', parameter: 'ph', channelId: 'ph', tankId: 't1' },
+  { id: 'PH-T2', label: 'Tank A-2 pH', parameter: 'ph', channelId: 'ph', tankId: 't2' },
+  { id: 'PH-T3', label: 'Tank A-3 pH', parameter: 'ph', channelId: 'ph', tankId: 't3' },
+  { id: 'PH-T5', label: 'Tank A-5 pH', parameter: 'ph', channelId: 'ph', tankId: 't5' },
+  { id: 'DO-T1', label: 'Tank A-1 DO', parameter: 'dissolvedOxygen', channelId: 'do', tankId: 't1' },
+  { id: 'DO-T2', label: 'Tank A-2 DO', parameter: 'dissolvedOxygen', channelId: 'do', tankId: 't2' },
+  { id: 'DO-T3', label: 'Tank A-3 DO', parameter: 'dissolvedOxygen', channelId: 'do', tankId: 't3' },
+  { id: 'DO-T5', label: 'Tank A-5 DO', parameter: 'dissolvedOxygen', channelId: 'do', tankId: 't5' },
+  { id: 'SAL-T3', label: 'Tank A-3 Salinity', parameter: 'salinity', channelId: 'salinity', tankId: 't3' },
+  { id: 'TMP-T7', label: 'Tank B-1 Temp', parameter: 'temperature', channelId: 'temperature', tankId: 't7' },
+  { id: 'SAL-T7', label: 'Tank B-1 Salinity', parameter: 'salinity', channelId: 'salinity', tankId: 't7' },
+  { id: 'PH-T7', label: 'Tank B-1 pH', parameter: 'ph', channelId: 'ph', tankId: 't7' },
+  { id: 'DO-T7', label: 'Tank B-1 DO', parameter: 'dissolvedOxygen', channelId: 'do', tankId: 't7' },
+];
+
+/** Sensors available to a card scope for a given parameter (tank sees its loop + site too). */
+export function sensorsForScope(
+  scope: { kind: 'tank' | 'biofilter'; id: string },
+  parameter: ParamKey,
+): SensorCatalogEntry[] {
+  const loopId = scope.kind === 'biofilter' ? scope.id : TANKS.find((t) => t.id === scope.id)?.loopId ?? undefined;
+  const tankId = scope.kind === 'tank' ? scope.id : undefined;
+  return SENSOR_CATALOG.filter(
+    (s) => s.parameter === parameter && (
+      (tankId && s.tankId === tankId) || (loopId && s.loopId === loopId) || s.siteId != null
+    ),
+  );
+}
+
+export interface SpeciesTemplate {
+  id: string;
+  name: string;
+  limits: {
+    tan: number; nh3Limit: number; co2Toxic: number; h2sLimitUgL: number;
+    caMgL: number; targetPh: number; targetAlk: number;
+  };
+}
+
+/** Mirrors farm-service parameter-templates.data.ts (subset) — default limits per species, editable. */
+export const SPECIES_TEMPLATES: SpeciesTemplate[] = [
+  { id: 'salmon_freshwater', name: 'Salmon Freshwater', limits: { tan: 0.5, nh3Limit: 0.0125, co2Toxic: 15, h2sLimitUgL: 5, caMgL: 40, targetPh: 7.0, targetAlk: 80 } },
+  { id: 'salmon_seawater', name: 'Salmon Seawater', limits: { tan: 0.5, nh3Limit: 0.02, co2Toxic: 20, h2sLimitUgL: 5, caMgL: 400, targetPh: 7.8, targetAlk: 120 } },
+  { id: 'sea_bass', name: 'Sea Bass / Sea Bream', limits: { tan: 0.6, nh3Limit: 0.025, co2Toxic: 25, h2sLimitUgL: 8, caMgL: 400, targetPh: 7.9, targetAlk: 130 } },
+  { id: 'shrimp', name: 'Shrimp', limits: { tan: 1.0, nh3Limit: 0.05, co2Toxic: 30, h2sLimitUgL: 2, caMgL: 350, targetPh: 7.8, targetAlk: 140 } },
+  { id: 'tilapia', name: 'Tilapia', limits: { tan: 2.0, nh3Limit: 0.1, co2Toxic: 40, h2sLimitUgL: 10, caMgL: 60, targetPh: 7.0, targetAlk: 100 } },
+];
+
+export const SAMPLING_PRESETS = ['Inlet', 'Outlet', 'Before biofilter', 'After biofilter', 'Sump'] as const;

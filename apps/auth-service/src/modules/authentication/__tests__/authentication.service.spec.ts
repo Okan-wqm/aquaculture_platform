@@ -277,11 +277,13 @@ const mockDataSource = {
     };
     return cb(manager);
   }),
-  // WHAT: handleFailedLogin() runs an atomic UPDATE ... RETURNING and reads
-  // result[0].failedLoginAttempts — the default reply mirrors one failed
-  // attempt on an unlocked account so negative-path login tests exercise the
-  // real post-update branch instead of crashing on undefined.
-  query: jest.fn().mockResolvedValue([{ failedLoginAttempts: 1, lockedUntil: null }]),
+  // WHAT: handleFailedLogin() runs an atomic UPDATE ... RETURNING. The
+  // postgres driver returns the TUPLE `[rows, affectedCount]` for UPDATE
+  // statements (ORPHAN-HIGH-318 — the old mock mirrored the WRONG plain-rows
+  // shape, exactly the misread that shipped). The default reply mirrors one
+  // failed attempt on an unlocked account so negative-path login tests
+  // exercise the real post-update branch.
+  query: jest.fn().mockResolvedValue([[{ failedLoginAttempts: 1, lockedUntil: null }], 1]),
 };
 
 const mockTransactionManager = {
@@ -341,8 +343,10 @@ describe('AuthenticationService', () => {
       async (callback: (manager: typeof mockTransactionManager) => Promise<unknown>) =>
         callback(mockTransactionManager),
     );
+    // Postgres UPDATE…RETURNING tuple shape [rows, affected] (ORPHAN-HIGH-318).
     mockDataSource.query.mockResolvedValue([
-      { failedLoginAttempts: 3, lockedUntil: null },
+      [{ failedLoginAttempts: 3, lockedUntil: null }],
+      1,
     ]);
     mockSessionManager.countActiveSessions.mockResolvedValue(0);
     mockSessionManager.revokeAllSessions.mockResolvedValue(undefined);
@@ -444,6 +448,95 @@ describe('AuthenticationService', () => {
         ['user-uuid-123', 5, expect.any(Date)],
       );
     });
+
+    it('ORPHAN-HIGH-318: audit reason carries the REAL attempt count from the driver tuple (regression: misread reported "attempt 0")', async () => {
+      const user = createMockUser({ failedLoginAttempts: 2 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      // Below threshold: attempts 3 of 5, no lock set.
+      mockDataSource.query.mockResolvedValue([
+        [{ failedLoginAttempts: 3, lockedUntil: null }],
+        1,
+      ]);
+
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+
+      // The failed-password audit event must report the count RETURNING gave
+      // us — the shipped bug read the tuple as a row and always logged 0.
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'LOGIN_FAILED_INVALID_PASSWORD',
+          details: expect.objectContaining({
+            reason: 'Invalid password (attempt 3)',
+          }),
+        }),
+      );
+      // Below the threshold no lockout event may fire.
+      expect(mockAuditLogService.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'ACCOUNT_LOCKED' }),
+      );
+    });
+
+    it('ORPHAN-HIGH-318: emits the CRITICAL ACCOUNT_LOCKED audit event on the threshold-crossing attempt (regression: never fired)', async () => {
+      const user = createMockUser({ failedLoginAttempts: 4 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      // Threshold crossed: attempts 5 of 5, lockedUntil set by the CASE arm.
+      mockDataSource.query.mockResolvedValue([
+        [{ failedLoginAttempts: 5, lockedUntil: new Date(Date.now() + 30 * 60 * 1000) }],
+        1,
+      ]);
+
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+
+      // The brute-force detection signal: CRITICAL severity, lockout reason.
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ACCOUNT_LOCKED',
+          severity: 'critical',
+          details: expect.objectContaining({
+            reason: expect.stringContaining('Account locked after 5 failed attempts'),
+          }),
+        }),
+      );
+      // And the failed-password event carries the real terminal count.
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'LOGIN_FAILED_INVALID_PASSWORD',
+          details: expect.objectContaining({
+            reason: 'Invalid password (attempt 5)',
+          }),
+        }),
+      );
+      // ORPHAN-MEDIUM-320: the owner-facing lockout event rides the
+      // best-effort path (mockEventBus backs BestEffortEventPublisher).
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'UserAccountLocked',
+          userId: 'user-uuid-123',
+          failedAttempts: 5,
+          lockedUntil: expect.any(String),
+        }),
+      );
+    });
+
+    it('ORPHAN-MEDIUM-320: does NOT emit UserAccountLocked below the threshold', async () => {
+      const user = createMockUser({ failedLoginAttempts: 1 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      mockDataSource.query.mockResolvedValue([
+        [{ failedLoginAttempts: 2, lockedUntil: null }],
+        1,
+      ]);
+
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+
+      expect(mockEventBus.publish).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'UserAccountLocked' }),
+      );    });
 
     it('SEC-LOW-001(c): casts the lockout deadline to timestamptz (not tz-stripping timestamp)', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });

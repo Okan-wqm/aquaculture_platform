@@ -75,3 +75,61 @@ export interface ResolvedParameterSet {
    */
   engineReady: boolean;
 }
+
+// ============================================================================
+// CARD CANVAS MODEL (P2 redesign)
+// ============================================================================
+
+/** Which chart a card renders (switchable via the card header dropdown). */
+export type ChartType = 'deffeyes' | 'nh3' | 'h2s' | 'co2';
+
+/** A card's scope is a tank OR a biofilter loop. */
+export type CardScopeKind = 'tank' | 'biofilter';
+export interface CardScope {
+  kind: CardScopeKind;
+  id: string;
+}
+
+/** Per-parameter source: bound to a sensor channel, or a manual value. */
+export interface ParamSourceConfig {
+  mode: 'sensor' | 'manual';
+  sensorId?: string;
+  channelId?: string;
+  value?: number;
+}
+
+/** Editable toxicity/target limits (seeded from a species template). */
+export interface CardLimits {
+  tan: number;
+  nh3Limit: number;
+  co2Toxic: number;
+  h2sLimitUgL: number;
+  caMgL: number;
+  targetPh: number;
+  targetAlk: number;
+}
+
+/** GridStack geometry. */
+export interface CardLayout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * One configurable water-chemistry card = an explicitly-configured measurement point.
+ * No cascade inheritance: each card picks its own per-parameter sources.
+ */
+export interface WcCard {
+  id: string;
+  title: string;
+  scope: CardScope;
+  samplingLabel: string;
+  speciesTemplateId: string;
+  limits: CardLimits;
+  volumeM3: number;
+  paramSources: Record<ParamKey, ParamSourceConfig>;
+  chartType: ChartType;
+  layout: CardLayout;
+}

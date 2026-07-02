@@ -1,0 +1,465 @@
+name: aria-auto-cycle
+
+# ARIA Operationalization S1+S2 (operator-approved plan 2026-07-02,
+# ORPHAN-MEDIUM-296) — the scheduled PRODUCER lane. aria-agent-executor
+# (02:00 UTC) only drains an already-minted queue; this workflow runs the
+# full `aria-kernel autonomy run` orchestration (discovery → pressure →
+# triage → planner/bridge/worker drains) nightly under the STANDARD
+# profile: no auto-merge, no implementation phase, $3.00 per-cycle hard
+# cap (K4 re-baseline).
+#
+# Two dispatch modes:
+#   mode=cycle           — one standard-profile cycle (the nightly default)
+#   mode=burn-in-observe — REAL-mode observe burn-in (30 cycles, LLM-free)
+#                          + the operator bridge that records
+#                          observe_success acceptance events toward the
+#                          L1 autonomy unlock (Plan 031c ladder).
+#
+# State model: unlike the executor (per-run evidence artifacts only),
+# this lane carries `aria-tools/` runtime state ACROSS runs via the
+# aria-tools-state artifact (download-latest → run → upload). The
+# enterprise acceptance/unlock ledgers and monthly cost-attribution
+# shards must accumulate between nights; a missing artifact falls back
+# to a fresh bootstrap (fail-open on state, fail-closed on auth/policy).
+#
+# Brakes (all pre-existing kernel mechanisms):
+#   - vars.ARIA_MOCK_KILL_SWITCH (read AHEAD of dispatch input/default)
+#   - aria-tools/ARIA_STOP file → orchestrator exits cleanly
+#   - cross-host autonomous-loop lease (refuses when a local daemon runs)
+#   - per-cycle $3.00 + per-run $20.00 budget caps
+#   - concurrency group, cancel-in-progress: false
+
+on:
+  schedule:
+    # 01:00 UTC nightly — one hour BEFORE aria-agent-executor's 02:00
+    # drain so any queue rows this cycle leaves behind get a same-night
+    # second drain pass.
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'cycle = one standard-profile cycle; burn-in-observe = REAL observe burn-in + L1 ladder bridge'
+        required: false
+        default: 'cycle'
+        type: choice
+        options:
+          - 'cycle'
+          - 'burn-in-observe'
+      max_cycles:
+        description: 'Cycles per invocation (mode=cycle only)'
+        required: false
+        default: '1'
+        type: string
+      mock:
+        description: 'Run in mock mode (no real Claude Code CLI invocation)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: aria-auto-cycle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # actions:read is required to locate + download the previous run's
+  # aria-tools-state artifact (cross-run state carry-over).
+  actions: read
+
+jobs:
+  cycle:
+    runs-on: [self-hosted, linux, claude]
+    # Mode-aware sizing: a REAL observe burn-in is 30 kernel-guarded cycles at
+    # ~2.5 min/cycle ≈ 80-90 min (run 28577469404 was cancelled mid-burn-in by
+    # the previous flat 50-minute limit, producing ZERO ladder evidence because
+    # the acceptance verdict is all-or-nothing). Schedule/cycle runs keep 50.
+    # The 150/120 floor is enforced by the workflow contract
+    # (burn_in_timeout_floor_minutes in workflow_contract_registry.py).
+    timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}
+    env:
+      # Kernel-workflow parity: no .pyc litter in the checkout — the
+      # burn-in pre-clean guard treats any untracked path as dirty.
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      # Same dependency step as aria-operational-proof — the fresh
+      # tool-cache Python on the self-hosted runner ships without the
+      # kernel's deps (first live run failed importing yaml inside
+      # verify_workflow_preflight, ORPHAN-LOW-302).
+      - name: Install aria-kernel dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+          if dependencies:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
+
+      - name: Pre-flight - Claude Code CLI present
+        run: |
+          set -euo pipefail
+          REQUIRED_CLAUDE_VERSION="2.1.197"
+          CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
+          python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
+          import sys
+          def parse(value):
+              return tuple(int(part) for part in value.split('.'))
+          required = parse(sys.argv[1])
+          current = parse(sys.argv[2])
+          if current < required:
+              raise SystemExit(f"claude-code {sys.argv[2]} is below required {sys.argv[1]}")
+          print(f"claude-code {sys.argv[2]} satisfies required {sys.argv[1]}")
+          PY
+
+      - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
+        id: preflight
+        env:
+          KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
+          INPUT_MOCK: ${{ github.event.inputs.mock }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KILL_SWITCH:-}" ]; then
+            EFFECTIVE_MOCK="${KILL_SWITCH}"
+            MOCK_SOURCE="kill_switch"
+          elif [ -n "${INPUT_MOCK:-}" ]; then
+            EFFECTIVE_MOCK="${INPUT_MOCK}"
+            MOCK_SOURCE="workflow_dispatch_input"
+          else
+            EFFECTIVE_MOCK="false"
+            MOCK_SOURCE="workflow_default_claude"
+          fi
+          echo "effective_mock=${EFFECTIVE_MOCK}" >> "$GITHUB_OUTPUT"
+          echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
+          if [ "${EFFECTIVE_MOCK}" = "false" ]; then
+            if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
+              echo "::error::API-key Claude mode is disallowed for ARIA; use a managed Claude Code login on the trusted runner." >&2
+              exit 1
+            fi
+            claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
+              || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
+            CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+            if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
+              echo "::error::Claude Code managed-auth session not found on the trusted runner" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          # The producer cycle writes across the whole aria-tools state
+          # tree (cycles, autonomy_state, pressure, budget, cost
+          # attribution, governance, handoffs, locks, burn-in evidence,
+          # agent-invocations) — the allowed root is the tree itself;
+          # everything outside it stays read-only.
+          allowed = ["aria-tools", "aria-findings"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-auto-cycle",
+              job_id="cycle",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="artifact restore/upload limited to the aria-tools-state artifact via the Actions artifact API",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="nightly standard-profile producer cycle over the persistent aria-tools state tree",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-auto-cycle-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Restore aria-tools state from previous run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Latest non-expired aria-tools-state artifact (endpoint sorts
+          # newest-first). Missing/expired → fresh bootstrap (fail-open
+          # on state; every safety gate below stays fail-closed).
+          # curl + python zipfile only — no gh/unzip runner dependency.
+          python3 - <<'PY'
+          import io
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          import zipfile
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+
+          def api(url):
+              req = urllib.request.Request(url)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              return urllib.request.urlopen(req, timeout=60)
+
+          listing_url = (
+              f"https://api.github.com/repos/{repo}/actions/artifacts"
+              "?name=aria-tools-state&per_page=5"
+          )
+          with api(listing_url) as resp:
+              artifacts = json.load(resp).get("artifacts", [])
+          live = [a for a in artifacts if not a.get("expired")]
+          if not live:
+              print("No prior aria-tools-state artifact; starting from bootstrap.")
+              raise SystemExit(0)
+          artifact = live[0]
+          print(f"Restoring aria-tools-state artifact {artifact['id']} ({artifact['created_at']})")
+          # The download endpoint answers 302 to blob storage, and the
+          # storage host REJECTS requests that still carry the GitHub
+          # Authorization header (ORPHAN-LOW-303) — resolve the redirect
+          # manually: authorized first hop, bare second hop.
+          class _NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(_NoRedirect)
+          first = urllib.request.Request(artifact["archive_download_url"])
+          first.add_header("Authorization", f"Bearer {token}")
+          first.add_header("Accept", "application/vnd.github+json")
+          try:
+              with opener.open(first, timeout=60) as resp:
+                  payload = resp.read()
+          except urllib.error.HTTPError as err:
+              if err.code not in (301, 302, 307, 308):
+                  raise
+              location = err.headers["Location"]
+              with urllib.request.urlopen(location, timeout=120) as resp:
+                  payload = resp.read()
+          os.makedirs("aria-tools", exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+              zf.extractall("aria-tools")
+          print("aria-tools state restored.")
+          PY
+
+      - name: Pre-flight - cross-host autonomous-loop lease check
+        id: lease_check
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
+          import json
+          import os
+          import sys
+
+          from aria_kernel.autonomous_host_lease import lease_state
+
+          state = lease_state('aria-tools')
+          print(json.dumps(state))
+          if state['state'] == 'fresh':
+              host = state.get('host_id', '')
+              if not host.startswith('gha-runner:'):
+                  print(f'::warning::autonomous_host_lease_blocked: held by {host}', file=sys.stderr)
+                  with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                      f.write('blocked=true\n')
+                      f.write(f'blocked_host={host}\n')
+                  sys.exit(0)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write('blocked=false\n')
+          PY
+
+      - name: Skip when local lease is fresh
+        if: steps.lease_check.outputs.blocked == 'true'
+        run: |
+          echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
+          exit 0
+
+      - name: Bootstrap aria-tools contract (idempotent)
+        if: steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel \
+            integrity migrate-tools-bootstrap \
+            --tools-dir aria-tools \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --acknowledge \
+            --reason "aria-auto-cycle scheduled bootstrap"
+
+      - name: Handoff snapshot - session_start
+        if: steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "auto-cycle-${GITHUB_RUN_ID}" \
+            --tools-dir aria-tools \
+            --trigger session_start
+
+      - name: Seed drift findings from fresh scan
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        run: |
+          set -euo pipefail
+          # aria-findings/ is gitignored BY DESIGN (runtime cycle writes
+          # must not dirty the discovery tree), so seeds cannot ride the
+          # repo — each night re-derives them from repo truth instead: a
+          # fresh PoC mechanical scan at HEAD feeds the empty-cycle
+          # guard and the pressure pipeline with real, never-stale drift
+          # findings (ORPHAN-MEDIUM-297).
+          python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" | tail -12
+
+      - name: Cycle guard (advisory)
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel cycle-guard evaluate \
+            --cycle-id "auto-cycle-${GITHUB_RUN_ID}" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --tools-dir aria-tools | tee /tmp/cycle-guard.json || true
+          {
+            echo '### Cycle guard (advisory)'
+            echo '```json'
+            cat /tmp/cycle-guard.json 2>/dev/null || echo '{}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run nightly standard-profile cycle
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        env:
+          CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
+          CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
+          ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          MAX_TURNS_PER_RUN: '12'
+          MAX_REQUESTS_PER_RUN: '30'
+          MAX_TIMEOUT_SECONDS: '1800'
+          MAX_CYCLES_INPUT: ${{ github.event.inputs.max_cycles }}
+        run: |
+          set -euo pipefail
+          MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
+          if ! [[ "$MAX_CYCLES" =~ ^[0-9]{1,2}$ ]]; then
+            echo "::error::invalid max_cycles: ${MAX_CYCLES}" >&2
+            exit 1
+          fi
+          PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --tools-dir aria-tools \
+            --profile standard \
+            --max-cycles "$MAX_CYCLES" \
+            --max-budget-usd-per-run 20.00 \
+            --max-budget-usd-per-cycle 3.00 \
+            --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
+          {
+            echo '### Nightly cycle summary'
+            echo '```'
+            tail -40 /tmp/cycle-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run REAL observe burn-in + L1 ladder bridge
+        if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.mode == 'burn-in-observe'
+        env:
+          # REAL mode by design: no ARIA_DRY_RUN / CLAUDE_CODE_MOCK here
+          # (the mock variant lives in aria-operational-proof.yml).
+          # Observe cycles are LLM-free (NoOp cost hook) — near-zero cost.
+          CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
+        run: |
+          set -euo pipefail
+          # The kernel guards observe burn-in with
+          # observe_burn_in_tools_dir_must_be_outside_workspace_root
+          # (ORPHAN-LOW-304): the burn-in gets its own RUNNER_TEMP tools
+          # root, while the LADDER BRIDGE below writes acceptance events
+          # into the workspace aria-tools/ tree that the artifact
+          # round-trip persists across nights.
+          # Visibility for the kernel's clean-tree guard: any dirty path
+          # here is the exact refusal reason (ORPHAN-LOW-306).
+          echo "pre-burn-in worktree status:"; git status --porcelain | head -10
+          BURN_TOOLS="$(mktemp -d "${RUNNER_TEMP}/aria-burn-tools.XXXXXX")"
+          # Second kernel guard (ORPHAN-LOW-305): the output dir must
+          # live UNDER the burn-in tools root's burn-in/ subtree.
+          BURN_IN_DIR="${BURN_TOOLS}/burn-in/run-${GITHUB_RUN_ID}"
+          WORKSPACE_BASE="$(mktemp -d "${RUNNER_TEMP}/aria-workspaces.XXXXXX")"
+          mkdir -p "$BURN_IN_DIR"
+          PYTHONPATH=aria-kernel:. python3 -m aria_kernel \
+            autonomy burn-in observe \
+            --tools-dir "$BURN_TOOLS" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --workspace-base "$WORKSPACE_BASE" \
+            --target-ref "$GITHUB_SHA" \
+            --cycles 30 \
+            --min-valid-cycles 20 \
+            --output-dir "$BURN_IN_DIR"
+          # Persist the burn-in evidence bundle alongside the ladder
+          # ledger so the artifact carries proof + events together.
+          mkdir -p "aria-tools/burn-in/run-${GITHUB_RUN_ID}"
+          cp "$BURN_IN_DIR"/autonomy-burn-in-report.json "aria-tools/burn-in/run-${GITHUB_RUN_ID}/"
+          PYTHONPATH=aria-kernel:. python3 - "$BURN_IN_DIR" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from aria_kernel.autonomy_ladder import record_burn_in_acceptance
+          from aria_kernel.autonomy_unlock import evaluate_autonomy_unlock
+
+          burn_in_dir = Path(sys.argv[1])
+          report = json.loads((burn_in_dir / "autonomy-burn-in-report.json").read_text())
+          verdict = report.get("acceptance_verdict")
+          print(f"burn-in acceptance_verdict={verdict}")
+          if verdict != "passed":
+              raise SystemExit(f"burn-in did not pass ({verdict}); ladder bridge refused (fail-closed)")
+          bridged = record_burn_in_acceptance(report=report, mode="real", base_dir="aria-tools")
+          print(f"ladder bridge: recorded={bridged.get('recorded')} skipped={bridged.get('skipped')}")
+          unlock = evaluate_autonomy_unlock(lane="L1", base_dir="aria-tools")
+          print(f"L1 unlocked: {unlock.valid}")
+          print(f"counts: {unlock.counts}")
+          if not unlock.valid:
+              for reason in unlock.reasons:
+                  print(f"  reason: {reason}")
+          PY
+          {
+            echo '### Burn-in observe + L1 ladder bridge'
+            echo '```json'
+            cat "$BURN_IN_DIR/autonomy-burn-in-report.json" | head -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Handoff snapshot - session_stop
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "auto-cycle-${GITHUB_RUN_ID}" \
+            --tools-dir aria-tools \
+            --trigger session_stop || true
+
+      - name: Persist aria-tools state
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-tools-state
+          path: aria-tools/
+          retention-days: 30
+          if-no-files-found: error
+          overwrite: true

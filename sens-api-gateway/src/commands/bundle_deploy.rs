@@ -131,8 +131,9 @@ pub(crate) fn verify_bundle(
     }
 
     // Gate 2: signature is REQUIRED and must verify.
-    let sig = parse_signature_hex(&params.signature)
-        .ok_or_else(|| "bundle signature malformed: expected 128 lowercase hex chars".to_string())?;
+    let sig = parse_signature_hex(&params.signature).ok_or_else(|| {
+        "bundle signature malformed: expected 128 lowercase hex chars".to_string()
+    })?;
     let body = DeploySigBody {
         kind: DeployArtifactKind::Bundle,
         tenant_id,
@@ -174,8 +175,12 @@ pub(crate) fn verify_bundle(
                 &actual_sha.get(..12).unwrap_or(""),
             ));
         }
-        let value: Value = serde_json::from_str(content)
-            .map_err(|e| format!("artifact {} does not parse as JSON: {}", artifact.artifact_id, e))?;
+        let value: Value = serde_json::from_str(content).map_err(|e| {
+            format!(
+                "artifact {} does not parse as JSON: {}",
+                artifact.artifact_id, e
+            )
+        })?;
 
         match artifact.kind.as_str() {
             "automation_program" => {
@@ -205,11 +210,11 @@ pub(crate) fn verify_bundle(
             "scada_package" => {
                 let mut package: crate::scada_types::ScadaPackage = serde_json::from_value(value)
                     .map_err(|e| {
-                        format!(
-                            "artifact {} is not a valid ScadaPackage: {}",
-                            artifact.artifact_id, e
-                        )
-                    })?;
+                    format!(
+                        "artifact {} is not a valid ScadaPackage: {}",
+                        artifact.artifact_id, e
+                    )
+                })?;
                 if package.screens.is_empty() {
                     return Err(format!(
                         "artifact {} package must have at least one screen",
@@ -362,18 +367,16 @@ impl CommandHandler {
                         Err(error.unwrap_or_else(|| "program apply failed".to_string()))
                     }
                 }
-                StagedArtifact::Process { process } => {
-                    match scada_state.as_ref() {
-                        Some(s) => match s.deploy_process(process).await {
-                            Ok(()) => {
-                                applied_processes += 1;
-                                Ok(())
-                            }
-                            Err(e) => Err(e),
-                        },
-                        None => Err("SCADA display feature not initialized".to_string()),
-                    }
-                }
+                StagedArtifact::Process { process } => match scada_state.as_ref() {
+                    Some(s) => match s.deploy_process(process).await {
+                        Ok(()) => {
+                            applied_processes += 1;
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
+                    },
+                    None => Err("SCADA display feature not initialized".to_string()),
+                },
                 StagedArtifact::ScadaPackage { mut package } => {
                     package.meta.deployed_by = Some(format!("bundle:{}", bundle_id));
                     package.meta.deployed_at = Some(applied_at.clone());
@@ -507,10 +510,11 @@ mod tests {
         let params = make_params(|p| {
             // Tamper one byte of the content — sha no longer matches.
             let (sha, content) = p.contents.drain().next().expect("one artifact");
-            p.contents.insert(sha, content.replace("scan_cycle", "event_drive"));
+            p.contents
+                .insert(sha, content.replace("scan_cycle", "event_drive"));
         });
-        let err = verify_bundle(&params, Some(TENANT.to_string()), verifier())
-            .expect_err("must reject");
+        let err =
+            verify_bundle(&params, Some(TENANT.to_string()), verifier()).expect_err("must reject");
         assert!(err.contains("checksum mismatch"), "got: {}", err);
         assert!(err.contains("nothing staged"), "got: {}", err);
     }
@@ -518,10 +522,12 @@ mod tests {
     #[test]
     fn tampered_manifest_fails_hash_gate_before_signature() {
         let params = make_params(|p| {
-            p.manifest = p.manifest.replace("automation_program", "automation_programX");
+            p.manifest = p
+                .manifest
+                .replace("automation_program", "automation_programX");
         });
-        let err = verify_bundle(&params, Some(TENANT.to_string()), verifier())
-            .expect_err("must reject");
+        let err =
+            verify_bundle(&params, Some(TENANT.to_string()), verifier()).expect_err("must reject");
         assert!(err.contains("manifest sha256 mismatch"), "got: {}", err);
     }
 
@@ -530,7 +536,11 @@ mod tests {
         let params = make_params(|_| {});
         let err = verify_bundle(&params, Some("tenant-99".to_string()), verifier())
             .expect_err("must reject");
-        assert!(err.contains("signature verification failed"), "got: {}", err);
+        assert!(
+            err.contains("signature verification failed"),
+            "got: {}",
+            err
+        );
     }
 
     #[test]
@@ -538,8 +548,8 @@ mod tests {
         let params = make_params(|p| {
             p.signature = "zz".to_string();
         });
-        let err = verify_bundle(&params, Some(TENANT.to_string()), verifier())
-            .expect_err("must reject");
+        let err =
+            verify_bundle(&params, Some(TENANT.to_string()), verifier()).expect_err("must reject");
         assert!(err.contains("signature malformed"), "got: {}", err);
     }
 
@@ -548,8 +558,8 @@ mod tests {
         let params = make_params(|p| {
             p.contents.clear();
         });
-        let err = verify_bundle(&params, Some(TENANT.to_string()), verifier())
-            .expect_err("must reject");
+        let err =
+            verify_bundle(&params, Some(TENANT.to_string()), verifier()).expect_err("must reject");
         assert!(err.contains("missing from bundle"), "got: {}", err);
     }
 
@@ -571,8 +581,8 @@ mod tests {
             signature,
             contents,
         };
-        let err = verify_bundle(&params, Some(TENANT.to_string()), verifier())
-            .expect_err("must reject");
+        let err =
+            verify_bundle(&params, Some(TENANT.to_string()), verifier()).expect_err("must reject");
         assert!(err.contains("unsupported kind"), "got: {}", err);
     }
 
@@ -581,8 +591,12 @@ mod tests {
         let params = make_params(|p| {
             p.bundle_id = "33333333-3333-4333-8333-333333333333".to_string();
         });
-        let err = verify_bundle(&params, Some(TENANT.to_string()), verifier())
-            .expect_err("must reject");
-        assert!(err.contains("does not match params bundleId"), "got: {}", err);
+        let err =
+            verify_bundle(&params, Some(TENANT.to_string()), verifier()).expect_err("must reject");
+        assert!(
+            err.contains("does not match params bundleId"),
+            "got: {}",
+            err
+        );
     }
 }

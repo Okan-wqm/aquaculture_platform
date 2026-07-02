@@ -192,7 +192,11 @@ pub fn canonical_bytes(body: &DeploySigBody) -> Result<Vec<u8>, DeploySigError> 
     }
 
     // artifact sha256 (validated fixed-width hex above)
-    write_str(&mut out, &body.artifact_sha256_hex, "artifact_sha256_too_long")?;
+    write_str(
+        &mut out,
+        &body.artifact_sha256_hex,
+        "artifact_sha256_too_long",
+    )?;
 
     // Trailing per-kind domain tag (no length prefix — binds the
     // schema version + artifact kind into the signed transcript).

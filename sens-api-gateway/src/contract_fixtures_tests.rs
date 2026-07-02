@@ -62,7 +62,11 @@ fn all_fixtures_parse_as_command_envelope() {
         assert!(!envelope.command_id.is_empty(), "{}: commandId empty", name);
         assert!(!envelope.command.is_empty(), "{}: command empty", name);
         assert!(!envelope.timestamp.is_empty(), "{}: timestamp empty", name);
-        assert!(envelope.params.is_object(), "{}: params not an object", name);
+        assert!(
+            envelope.params.is_object(),
+            "{}: params not an object",
+            name
+        );
     }
 }
 
@@ -86,7 +90,10 @@ fn deploy_program_fixture_deserializes_with_nested_snake_case_populated() {
     let ton = &program.function_blocks[0];
     assert_eq!(ton.fb_type, "TON");
     assert_eq!(ton.params.pt_ms, Some(5000));
-    assert_eq!(ton.inputs.get("IN").map(String::as_str), Some("sensor:dissolved_oxygen"));
+    assert_eq!(
+        ton.inputs.get("IN").map(String::as_str),
+        Some("sensor:dissolved_oxygen")
+    );
     let ctu = &program.function_blocks[1];
     assert_eq!(ctu.fb_type, "CTU");
     assert_eq!(ctu.params.pv, Some(10));
@@ -145,7 +152,10 @@ fn deploy_scada_package_fixture_deserializes_as_scada_package() {
 
     assert_eq!(package.meta.version, 3);
     assert_eq!(package.meta.package_version, "3.0.0");
-    assert_eq!(package.meta.edge_device_id.as_deref(), Some("9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"));
+    assert_eq!(
+        package.meta.edge_device_id.as_deref(),
+        Some("9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d")
+    );
     assert_eq!(package.screens.len(), 1);
     assert_eq!(package.screens[0].widgets.len(), 2);
     assert_eq!(package.alarm_rules.len(), 1);
@@ -187,10 +197,10 @@ fn deploy_bundle_fixture_clears_full_edge_verification() {
     .expect("fixture bundle must verify end-to-end");
 
     assert_eq!(verified.staged.len(), 2);
-    assert!(verified
-        .staged
-        .iter()
-        .any(|a| matches!(a, crate::commands::bundle_deploy::StagedArtifact::Program { .. })));
+    assert!(verified.staged.iter().any(|a| matches!(
+        a,
+        crate::commands::bundle_deploy::StagedArtifact::Program { .. }
+    )));
     assert!(verified.staged.iter().any(|a| matches!(
         a,
         crate::commands::bundle_deploy::StagedArtifact::ScadaPackage { .. }
@@ -199,8 +209,7 @@ fn deploy_bundle_fixture_clears_full_edge_verification() {
     // Version truth flows from the SIGNED manifest into the staged
     // package meta (the content-addressed body is version-free).
     for artifact in &verified.staged {
-        if let crate::commands::bundle_deploy::StagedArtifact::ScadaPackage { package } = artifact
-        {
+        if let crate::commands::bundle_deploy::StagedArtifact::ScadaPackage { package } = artifact {
             assert_eq!(package.meta.version, 3);
         }
     }
@@ -230,11 +239,22 @@ fn signature_material_positions_match_the_deploy_gate() {
     let package = read_fixture("deploy-scada-package.json");
     let meta = &package["params"]["meta"];
     let sig = meta["signature"].as_str().expect("package meta.signature");
-    assert!(parse_signature_hex(sig).is_some(), "package signature must be 128-char hex");
+    assert!(
+        parse_signature_hex(sig).is_some(),
+        "package signature must be 128-char hex"
+    );
     assert_eq!(meta["artifactSha256"].as_str().map(str::len), Some(64));
 
     let process = read_fixture("deploy-process.json");
-    let sig = process["params"]["signature"].as_str().expect("process params.signature");
-    assert!(parse_signature_hex(sig).is_some(), "process signature must be 128-char hex");
-    assert_eq!(process["params"]["artifactSha256"].as_str().map(str::len), Some(64));
+    let sig = process["params"]["signature"]
+        .as_str()
+        .expect("process params.signature");
+    assert!(
+        parse_signature_hex(sig).is_some(),
+        "process signature must be 128-char hex"
+    );
+    assert_eq!(
+        process["params"]["artifactSha256"].as_str().map(str::len),
+        Some(64)
+    );
 }

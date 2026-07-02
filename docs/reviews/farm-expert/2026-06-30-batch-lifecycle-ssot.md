@@ -132,3 +132,18 @@ Biomass is not user-facing broken (growth-tracked, capacity-safe today). Owner: 
 
 
 ## FARM-MEDIUM-108 — snapshot count from tank_batches SSoT (Phase 3). tsc0/proj10/inv1686.
+
+## FARM-HIGH-112 — reconcile ledger correctness: signed allocations, createBatch stocking gap, stale-mirror heal (dry-run caught it)
+The first reconcile (FARM-HIGH-106, #794) had three defects, ALL caught by the mandatory dry-run before any write
+(it would have set a correct 719-tank to 1211): (1) tank_allocations quantities are stored SIGNED
+(transfer-batch.handler:265 writes the source row as -payload.quantity) — the SQL re-negated transfer_out and
+double-counted; alloc side is a plain SUM (also: the isDeleted filter was missing). (2) createBatch wrote NO
+TankAllocation for initial stocking, so batch-creation-stocked tanks have no ledger origin — fixed forward:
+create-batch now writes an initial_stocking allocation row per location; historical gaps are detected fail-closed:
+rows with no inflow allocations or a negative net report ledgerComplete=false and are NEVER auto-applied.
+(3) pre-SSoT rows (batchDetails=NULL, stale currentQuantity=900 — the LIVE remaining mobile-vs-web divergence;
+totalQuantity already converged to 719) read baseline 0 → phantom deltas; now baseline falls back to totalQuantity
+for the primary batch, the stale mirror is surfaced as mirrorQuantity, and apply runs a ZERO-DELTA applyBatchDelta
+self-heal (seeds batchDetails from totals, re-derives currentQuantity + currentCount) reported as healed=true.
+Verified against live data: TNK-3 995−246−30=719 ✓, TNK-2 183−100=83 ✓, TNK-1 flagged incomplete (missing initial
+1000) ✓. Specs 15/15 (reconcile 8 incl heal + 2×fail-closed; create-batch 7 incl ledger-row); invariants 1701.

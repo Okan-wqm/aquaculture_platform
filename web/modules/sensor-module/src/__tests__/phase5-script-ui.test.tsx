@@ -53,13 +53,6 @@ vi.mock('../store/scada', () => ({
         { id: 'screen-2', name: 'Detail', screenType: 'process' },
       ],
     }),
-  useScadaPackageStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      screens: [
-        { id: 'screen-1', name: 'Main', screenType: 'dashboard' },
-        { id: 'screen-2', name: 'Detail', screenType: 'process' },
-      ],
-    }),
 }));
 
 /* ------------------------------------------------------------------ */

@@ -40,7 +40,12 @@ import { argv, exit, stderr, stdout } from "node:process";
 // changed-files gate compiles it under tsconfig.base.json, which forbids
 // import.meta (TS1343). This script is always the process entry, so argv[1] is
 // its own path: tools/scripts/<this>.ts → ../../ is the repo root.
-const REPO_ROOT = resolve(dirname(argv[1]), "..", "..");
+const entryScript = argv[1];
+if (!entryScript) {
+    stderr.write("[parity] cannot determine entry-script path (argv[1] missing)\n");
+    exit(2);
+}
+const REPO_ROOT = resolve(dirname(entryScript), "..", "..");
 const FIXTURES_DIR = join(REPO_ROOT, "libs", "sensor-contracts", "fixtures");
 const EDGE_CRATE_DIR = join(REPO_ROOT, "sens-api-gateway");
 

@@ -46,6 +46,14 @@ Recursive Impact, Plan Steps, Risks) is admitted as additional
 plan_content keys for operator-readable forensic detail; the kernel
 ignores extras.
 
+Coverage gate (`schema_version >= 2`): your plan's `affected_surfaces`
+are machine-diffed against the computed impact closure (nx reverse
+dependents, NATS event consumers, entity→migration coupling). Address
+every closure node with paths or an explicit `coverage.waivers` entry
+`{node, reason}` — the round-1 coverage verdict is computed against
+YOUR revision, so an under-scoped challenger blocks convergence even
+when the primary was thorough.
+
 ## Independence Discipline
 
 - You read evidence in a different order than the primary planner.

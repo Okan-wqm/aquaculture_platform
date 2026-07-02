@@ -34,6 +34,8 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Settings,
+  Paperclip,
 } from 'lucide-react';
 
 import { useEditorModeStore, type EditorMode } from '../../store/editorModeStore';
@@ -54,6 +56,7 @@ import { EquipmentPanel } from '../../components/process-editor/panels/Equipment
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
 import ModeTabBar from '../../components/unified-editor/ModeTabBar';
 import { UnifiedPropertiesPanel } from '../../components/unified-editor/UnifiedPropertiesPanel';
+import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
 import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
@@ -217,6 +220,8 @@ const UnifiedEditorPage: React.FC = () => {
   const [deployTarget, setDeployTarget] = useState<'process' | 'scada' | null>(null);
   // Automation-program deploy modal (6c parity with ProcessEditorPage)
   const [isAutomationDeployOpen, setIsAutomationDeployOpen] = useState(false);
+  // Right-panel mode in P&ID: properties vs equipment attachments (6c parity)
+  const [rightPanelMode, setRightPanelMode] = useState<'properties' | 'attachments'>('properties');
 
   // SCADA package identity for this process (dual-target save + deploy, 6b)
   const [scadaPackageId, setScadaPackageId] = useState<string | null>(null);
@@ -783,10 +788,48 @@ const UnifiedEditorPage: React.FC = () => {
           )}
         </div>
 
-        {/* Right Panel */}
+        {/* Right Panel — P&ID adds a Properties/Equipment toggle (6c parity with
+            ProcessEditorPage); other modes show the mode-aware properties panel. */}
         {rightPanelVisible && (
           <div className="w-72 flex flex-col border-l border-gray-200 bg-white overflow-hidden">
-            <UnifiedPropertiesPanel />
+            {mode === 'pid' ? (
+              <>
+                <div className="flex border-b border-gray-200">
+                  <button
+                    onClick={() => setRightPanelMode('properties')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                      rightPanelMode === 'properties'
+                        ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Settings className="w-4 h-4" />
+                    Properties
+                    {selectedNodeId && <span className="w-2 h-2 rounded-full bg-cyan-500" />}
+                  </button>
+                  <button
+                    onClick={() => setRightPanelMode('attachments')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                      rightPanelMode === 'attachments'
+                        ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Paperclip className="w-4 h-4" />
+                    Equipment
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  {rightPanelMode === 'attachments' ? (
+                    <AttachmentsPanel className="h-full" />
+                  ) : (
+                    <UnifiedPropertiesPanel />
+                  )}
+                </div>
+              </>
+            ) : (
+              <UnifiedPropertiesPanel />
+            )}
           </div>
         )}
       </div>

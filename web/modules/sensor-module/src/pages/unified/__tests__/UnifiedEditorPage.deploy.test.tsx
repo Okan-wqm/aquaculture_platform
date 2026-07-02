@@ -79,6 +79,9 @@ vi.mock('../../../components/unified-editor/ModeTabBar', () => ({
 vi.mock('../../../components/unified-editor/UnifiedPropertiesPanel', () => ({
   UnifiedPropertiesPanel: () => <div data-testid="properties-panel" />,
 }));
+vi.mock('../../../components/process-editor/panels/AttachmentsPanel', () => ({
+  AttachmentsPanel: () => <div data-testid="attachments-panel" />,
+}));
 vi.mock('../../../components/unified-editor/ScreenManager', () => ({
   default: () => <div data-testid="screen-manager" />,
 }));
@@ -250,6 +253,21 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     fireEvent.click(screen.getByText(/Otomasyon Program/));
 
     await screen.findByTestId('automation-deploy-modal');
+  });
+
+  it('(6c) P&ID right panel toggles between properties and equipment attachments', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    // Default: properties. Attachments panel not mounted yet.
+    expect(screen.getByTestId('properties-panel')).toBeTruthy();
+    expect(screen.queryByTestId('attachments-panel')).toBeNull();
+
+    fireEvent.click(screen.getByText('Equipment'));
+    expect(screen.getByTestId('attachments-panel')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Properties'));
+    expect(screen.getByTestId('properties-panel')).toBeTruthy();
   });
 
   it('(c) Save persists BOTH the process and the SCADA package (dual-target)', async () => {

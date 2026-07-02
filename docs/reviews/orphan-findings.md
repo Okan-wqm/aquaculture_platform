@@ -5852,3 +5852,24 @@ Found 2026-07-02 (fifth live run): `observe_burn_in_pre_worktree_not_clean: 2 pa
 
 ## ORPHAN-MEDIUM-307 — kernel debt-index refresh clobbers the committed audit index when the uncommitted events ledger is absent — IN-PROGRESS
 Found 2026-07-02 (sixth live run of the burn-in lane; pre-existing kernel defect the fresh CI checkout exposed): `aria-debts/_index.json` is COMMITTED audit content (6 real debts), but `_refresh_index` derives it from the UNCOMMITTED `debt-events.jsonl` — on a fresh checkout the ledger is absent, so any kernel command touching the debt surface (here: `handoff snapshot`) silently truncated the committed index to `[]`, mutating a tracked file and tripping the burn-in clean-tree guard (`1 path(s)`). **Remediation (same PR):** absent-ledger + existing-index is now read-only (returns the committed truth, writes nothing); empty-fresh repos still derive; present-ledger rebuild unchanged. Proven by 3 pinned tests + an end-to-end fresh-clone sim (handoff no longer dirties the tree).
+
+## ORPHAN-HIGH-308 — pre-auth security events lost: auth.audit_logs INSERT violates RLS on locked-account login
+
+**Discovered:** 2026-07-02, live prod (while diagnosing a test-account lockout during the tank-count reconcile verification).
+**Evidence:** `aqua-auth` logs — `AuthenticationService.logSecurityEvent(LOGIN_BLOCKED_ACCOUNT_LOCKED)` →
+`QueryFailedError: new row violates row-level security policy for table "audit_logs"` (stack:
+`AuditLogService.log` → `AuthenticationService.logSecurityEvent` → `login`, auth.resolver). The login itself
+fails closed correctly; the SECURITY AUDIT ROW is silently dropped (error swallowed as
+"Failed to log security event").
+**Root cause:** the lockout branch of `login` runs BEFORE an authenticated tenant context exists, so the
+RLS tenant GUC is unset/mismatched while the audit row carries the user's `tenantId` — the auth.audit_logs
+RLS policy rejects the INSERT. Every pre-auth security event on this branch (account-locked, likely also
+other pre-auth denials writing tenant-scoped audit rows) is lost.
+**Why it matters:** lockout/brute-force events are exactly the rows a SOC-2 / forensic review needs
+(audit-trail completeness, CC4); the failure is silent, so coverage gaps are invisible.
+**How to fix (architectural):** pre-auth security events must be written through a path that satisfies RLS
+by construction — either run the audit INSERT with the system/audit-writer role that auth-service already
+uses for cross-tenant audit writes, or set the tenant GUC for the audit transaction from the resolved user
+row before the INSERT (the user row IS resolved — its tenantId is in the payload). No swallow-and-continue:
+the audit write failing should surface as an ERROR metric, not a debug log.
+**Owner:** auth-security-expert. **Deadline:** 2026-07-24.

@@ -24,6 +24,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useScadaViewerStore, type ScadaProcess } from '../store/scadaViewerStore';
+import { isLegacyScadaViewerEnabled } from '../config/featureFlags';
 import { useSensorList } from '../hooks/useSensorList';
 import { useActiveProcesses } from '../hooks/useProcess';
 import { ScadaViewer } from '../components/scada/ScadaViewer';
@@ -251,7 +252,27 @@ const SensorScadaPage: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* SCADA Viewer */}
         <div className="flex-1 relative">
-          {selectedProcess ? (
+          {!isLegacyScadaViewerEnabled() ? (
+            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+              <div className="text-center max-w-md">
+                <Layers className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-700 mb-2">
+                  Bu görünüm emekliye ayrıldı
+                </h2>
+                <p className="text-gray-500 mb-6">
+                  Eski iframe SCADA görüntüleyici kaldırılıyor. HMI tasarımı ve canlı
+                  çalışma için SCADA Paketleri&apos;ni kullanın.
+                </p>
+                <Link
+                  to="/sensor/scada-packages"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  SCADA Paketleri
+                </Link>
+              </div>
+            </div>
+          ) : selectedProcess ? (
             <ScadaViewer className="w-full h-full" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-50">

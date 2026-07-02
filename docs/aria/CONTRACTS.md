@@ -876,7 +876,7 @@ ARIA does not call the Anthropic API directly. ARIA runs inside Claude Code. Cla
 @dataclass(frozen=True)
 class LLMTaskSpec:
     purpose: str                       # e.g. "summarize-capsule-content"
-    suggested_tier: Literal["haiku", "sonnet", "opus"]   # advisory only
+    suggested_tier: Literal["haiku", "sonnet", "opus", "fable"]   # advisory only
     redaction_passes_required: list[str]  # ["secret", "customer_data", ...]
     skill_attribution: str             # which sub-agent is doing this work
     expected_input_tokens_max: int     # for budget observation

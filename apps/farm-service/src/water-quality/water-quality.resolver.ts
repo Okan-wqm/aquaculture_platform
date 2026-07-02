@@ -12,7 +12,16 @@ import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/gua
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
 import { Throttle } from '@aquaculture/backend-common/security';
+import { QueryBus } from '@platform/cqrs';
 import { WaterQualityService } from './water-quality.service';
+import { GetWaterQualityQuery } from './queries/get-water-quality.query';
+import { ListWaterQualityQuery } from './queries/list-water-quality.query';
+import { GetLatestWaterQualityQuery } from './queries/get-latest-water-quality.query';
+import { ListCriticalWaterQualityQuery } from './queries/list-critical-water-quality.query';
+import { GetWaterQualityChartQuery } from './queries/get-water-quality-chart.query';
+import { GetTankWaterQualityStatisticsQuery } from './queries/get-tank-water-quality-statistics.query';
+import { GetSystemWaterQualityChartQuery } from './queries/get-system-water-quality-chart.query';
+import { GetSystemWaterQualityStatisticsQuery } from './queries/get-system-water-quality-statistics.query';
 import { CreateWaterQualityInput } from './dto/create-water-quality.input';
 import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
 import { UpdateWaterQualityInput } from './dto/update-water-quality.input';
@@ -66,7 +75,10 @@ export class WaterQualityStatistics {
 export class WaterQualityResolver {
   private readonly logger = new Logger(WaterQualityResolver.name);
 
-  constructor(private readonly waterQualityService: WaterQualityService) {}
+  constructor(
+    private readonly waterQualityService: WaterQualityService,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   // -------------------------------------------------------------------------
   // QUERIES
@@ -82,7 +94,7 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement> {
     this.logger.debug(`Getting water quality measurement: ${id}`);
-    return this.waterQualityService.findById(tenantId, id);
+    return this.queryBus.execute(new GetWaterQualityQuery(tenantId, id));
   }
 
   /**
@@ -96,7 +108,7 @@ export class WaterQualityResolver {
     filter?: WaterQualityFilterInput,
   ): Promise<IStandardPaginatedResult<WaterQualityMeasurement>> {
     this.logger.debug(`Listing water quality measurements for tenant: ${tenantId}`);
-    return this.waterQualityService.findAll(tenantId, filter);
+    return this.queryBus.execute(new ListWaterQualityQuery(tenantId, filter));
   }
 
   /**
@@ -109,7 +121,7 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement | null> {
     this.logger.debug(`Getting latest water quality for tank: ${tankId}`);
-    return this.waterQualityService.findLatestByTank(tenantId, tankId);
+    return this.queryBus.execute(new GetLatestWaterQualityQuery(tenantId, tankId));
   }
 
   /**
@@ -121,7 +133,7 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement[]> {
     this.logger.debug(`Getting critical water quality measurements for tenant: ${tenantId}`);
-    return this.waterQualityService.findCriticalTanks(tenantId);
+    return this.queryBus.execute(new ListCriticalWaterQualityQuery(tenantId));
   }
 
   /**
@@ -136,7 +148,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement[]> {
     this.logger.debug(`Getting water quality chart data for tank: ${tankId}`);
-    return this.waterQualityService.findByTankForChart(tenantId, tankId, fromDate, toDate);
+    return this.queryBus.execute(
+      new GetWaterQualityChartQuery(tenantId, tankId, fromDate, toDate),
+    );
   }
 
   /**
@@ -150,7 +164,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityStatistics> {
     this.logger.debug(`Getting water quality statistics for tank: ${tankId}, days: ${days}`);
-    return this.waterQualityService.getTankStatistics(tenantId, tankId, days);
+    return this.queryBus.execute(
+      new GetTankWaterQualityStatisticsQuery(tenantId, tankId, days),
+    );
   }
 
   /**
@@ -165,7 +181,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement[]> {
     this.logger.debug(`Getting water quality chart data for system: ${systemId}`);
-    return this.waterQualityService.findBySystemForChart(tenantId, systemId, fromDate, toDate);
+    return this.queryBus.execute(
+      new GetSystemWaterQualityChartQuery(tenantId, systemId, fromDate, toDate),
+    );
   }
 
   /**
@@ -179,7 +197,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityStatistics> {
     this.logger.debug(`Getting water quality statistics for system: ${systemId}, days: ${days}`);
-    return this.waterQualityService.getSystemStatistics(tenantId, systemId, days);
+    return this.queryBus.execute(
+      new GetSystemWaterQualityStatisticsQuery(tenantId, systemId, days),
+    );
   }
 
   // -------------------------------------------------------------------------

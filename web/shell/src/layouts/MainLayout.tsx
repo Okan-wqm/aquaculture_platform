@@ -247,6 +247,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sensor-devices', label: 'Devices', path: '/sensor/devices' },
       { id: 'sensor-readings', label: 'Readings', path: '/sensor/readings' },
       { id: 'sensor-alerts', label: 'Alerts', path: '/sensor/alerts' },
+      { id: 'sensor-water-chemistry', label: 'Water Chemistry', path: '/sensor/water-chemistry' },
       { id: 'sensor-automation', label: 'Automation', path: '/sensor/automation', icon: 'cpu' },
       { id: 'sensor-plc', label: 'PLC Control', path: '/sensor/plc', icon: 'server' },
       { id: 'sensor-plc-connections', label: 'PLC Connections', path: '/sensor/plc/connections', icon: 'wifi' },

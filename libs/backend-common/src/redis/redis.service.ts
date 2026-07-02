@@ -21,7 +21,7 @@ export class RedisService implements OnModuleDestroy {
   private readonly keyPrefix: string;
 
   constructor(options: RedisModuleOptions) {
-    this.keyPrefix = options.keyPrefix || 'aqua:';
+    this.keyPrefix = options.keyPrefix ?? 'aqua:';
 
     if (options.url) {
       // IP-1: ioredis handles rediss:// URLs for TLS. For internal Docker

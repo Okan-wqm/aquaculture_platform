@@ -60,6 +60,14 @@ class WorkflowJobContract:
     dlp_artifact: str
     clean_worktree_policy: str
     external_root_allowlist: tuple[str, ...] = ()
+    # Minimum effective ``timeout-minutes`` for a job whose steps run
+    # ``autonomy burn-in observe``. A burn-in is all-or-nothing (the kernel
+    # pins 30 cycle attempts; a partial run yields ZERO ladder evidence), so a
+    # timeout sized below the measured workload silently destroys the whole
+    # run — run 28577469404 died this way under a flat 50-minute limit.
+    # ``None`` means the job runs no burn-in step (and the verifier rejects a
+    # burn-in step appearing in such a job — both directions are enforced).
+    burn_in_timeout_floor_minutes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +127,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="workflow-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
+                # MOCK-mode burn-in (dry-run cycles, minutes-scale); the live
+                # YAML's 35-minute job timeout satisfies this floor.
+                burn_in_timeout_floor_minutes=30,
             ),
         ),
     ),
@@ -151,6 +162,41 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+    "aria-auto-cycle": WorkflowContract(
+        workflow_id="aria-auto-cycle",
+        workflow_file=".github/workflows/aria-auto-cycle.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="cycle",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Restore aria-tools state from previous run",
+                # The producer cycle owns the whole aria-tools state tree
+                # (cycles, autonomy_state, pressure, budget shards,
+                # cost-attribution, governance, handoffs, locks, burn-in
+                # evidence, agent-invocations) — the state carries across
+                # nights via the aria-tools-state artifact round-trip —
+                # plus the gitignored aria-findings/ seed surface the
+                # nightly fresh-scan seeder re-derives from repo truth.
+                allowed_write_path_patterns=(
+                    r"^aria-tools(/.*)?$",
+                    r"^aria-findings(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight\.json$",
+                upload_artifact_name_pattern=r"^aria-tools-state$",
+                upload_artifact_path_patterns=(r"^aria-tools$",),
+                retention_days=30,
+                required_permissions=(("contents", "read"), ("actions", "read")),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_artifact",),
+                dlp_artifact="aria-auto-cycle-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                # Measured REAL burn-in wall time ≈ 80-90 min (30 cycles ×
+                # ~2.5 min); the live YAML sets 150 for burn-in mode.
+                burn_in_timeout_floor_minutes=120,
             ),
         ),
     ),

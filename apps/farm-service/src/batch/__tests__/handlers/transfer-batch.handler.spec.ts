@@ -65,6 +65,8 @@ describe('TransferBatchHandler', () => {
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
+      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
+      { applyBatchDelta: jest.fn().mockImplementation(() => Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 })) } as never,
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
       new MobileCommandReceiptService(),
     );

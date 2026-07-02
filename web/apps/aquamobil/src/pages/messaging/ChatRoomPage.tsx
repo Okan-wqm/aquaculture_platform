@@ -41,6 +41,7 @@ import { useSendMessage } from '@/hooks/useSendMessage';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { putPendingBlob } from '@/pwa/offline-queue';
 import type { Message } from '@/types/messaging';
+import { runAsyncAction } from '@/utils/async-action';
 import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -672,12 +673,21 @@ export function ChatRoomPage(): JSX.Element {
             return;
           }
           setReplyingTo(null);
-          void sendMessage({
-            content: text,
-            // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
-            contentType: 'TEXT',
-            parentId: replyingTo?.id,
-          });
+          // WHY runAsyncAction (not plain void): a send failure is already
+          // surfaced in the UI via the optimistic message's _status: 'failed'
+          // (useSendMessage's onError) — this only closes the separate gap
+          // that mutateAsync()'s own promise rejection would otherwise become
+          // an unhandled rejection on top of that.
+          runAsyncAction(
+            () =>
+              sendMessage({
+                content: text,
+                // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+                contentType: 'TEXT',
+                parentId: replyingTo?.id,
+              }),
+            'chat-send-message',
+          );
         }}
         onAttachmentPress={() => {
           // MSG-MEDIUM-055: attachments are now supported offline via the binary

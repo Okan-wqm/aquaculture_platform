@@ -135,8 +135,8 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // consensus decider and every writer stay on opus/xhigh. Runtime SSoT:
   // aria-kernel/aria_kernel/agent_runtime_profile.py; rationale:
   // docs/aria/plans/023-cost-tiering-and-consensus-escalation.md.
-  const ARIA_VALID_MODELS = new Set<string>(['opus', 'sonnet']);
-  const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh']);
+  const ARIA_VALID_MODELS = new Set<string>(['opus', 'fable']);
+  const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh', 'max']);
   // Writers (Edit/Write/Bash) + governance-artifact authors must stay opus/xhigh.
   const ARIA_WRITE_TIER = new Set<string>([
     'aria-implementer',
@@ -145,6 +145,9 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
     // Plan 030 — the acceptance lane's fixer holds Edit/Write/Bash and opens PRs;
     // pin it to opus/xhigh so a write-capable auditor can never be downgraded.
     'aria-acceptance-gap-fixer',
+    // K3 (ORPHAN-HIGH-285) — the promoted-plan assignment executor holds the
+    // full write toolset; mirrored in python WRITE_TIER_AGENTS.
+    'aria-worker',
   ]);
   const isAriaAgent = (file: AgentFile): boolean => file.filenameStem.startsWith('aria-');
 
@@ -169,7 +172,8 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
         valid: true,
       });
       if (ARIA_WRITE_TIER.has(file.filenameStem)) {
-        expect(model).toBe('opus');
+        // K5 tier flip — the write tier runs on the most capable model.
+        expect(model).toBe('fable');
         expect(effort).toBe('xhigh');
       }
     },

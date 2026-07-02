@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 // classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
 // These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
+import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -40,6 +41,12 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
   const { canAccess } = useMobilePermissions();
   const { unreadCount } = useNotifications();
+
+  // Cross-surface real-time sync: subscribe to the `/farms` gateway so a
+  // mortality/feeding/transfer recorded elsewhere (another mobile user or the
+  // web tenant panel) invalidates this app's tank/ops caches within ~1s,
+  // instead of waiting for the 1-min staleTime (the 719-vs-900 divergence).
+  useFarmRealtimeSync();
 
   // ADR-012: Unread message count for the Messages tab badge.
   // WHY useUnreadCount hook: Replaces manual fetch + polling with the shared

@@ -115,11 +115,20 @@ def run_discovery(
 def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict[str, int]) -> dict[str, Any]:
     language_histogram = Counter(str(fate.get("suffix") or "<none>") for fate in fates)
     legacy_tracked_file_count = len(fates)
-    migration_ts_count = sum(
-        1
+    migration_ts_paths = sorted(
+        str(fate.get("path", ""))
         for fate in fates
         if _is_migration_ts_path(str(fate.get("path", "")))
     )
+    migration_ts_count = len(migration_ts_paths)
+    # Plan ARIA-V2 §3.5 — a bounded list of CONCRETE migration file paths so
+    # memory.py can seed the migration-surface belief with repo-verifiable
+    # evidence_refs (a ``apps/*/.../*.ts`` glob is not a resolvable evidence
+    # ref and fails L1 grounded-evidence verification). Active (non-archived)
+    # migrations are preferred so the evidence describes the live schema.
+    migration_evidence_paths = [
+        p for p in migration_ts_paths if "/.archive/" not in p
+    ][:5]
     migration_sql_count = sum(
         1
         for fate in fates
@@ -163,6 +172,7 @@ def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict
             for child in web_modules_children
             if not (child / "project.json").exists()
         ],
+        "migration_evidence_paths": migration_evidence_paths,
     }
 
 

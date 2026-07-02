@@ -185,8 +185,12 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
-    // Cleaner batch mortality güncelle
+    // Cleaner batch mortality güncelle. currentQuantity MUST drop alongside
+    // totalMortality (mirrors record-mortality.handler) — previously only
+    // totalMortality was bumped, so the live cleaner-fish count never decreased
+    // and drifted permanently above the true stock (FARM-HIGH-102).
     cleanerBatch.totalMortality += payload.quantity;
+    cleanerBatch.currentQuantity = Math.max(0, cleanerBatch.currentQuantity - payload.quantity);
     cleanerBatch.mortalitySummary = {
       ...cleanerBatch.mortalitySummary,
       totalMortality: cleanerBatch.totalMortality,

@@ -1,6 +1,8 @@
 import { Download, X, Smartphone } from 'lucide-react';
 import { useState, useEffect, type ReactElement } from 'react';
 
+import { runAsyncAction } from '@/utils/async-action';
+
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
@@ -122,7 +124,7 @@ export function InstallPrompt(): ReactElement | null {
         {!isIOS && deferredPrompt && (
           <button
             onClick={() => {
-              void handleInstall();
+              runAsyncAction(handleInstall, 'pwa-install-prompt');
             }}
             className="w-full mt-3 py-2.5 bg-ocean-600 hover:bg-ocean-700 text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2 touch-feedback transition-colors"
           >

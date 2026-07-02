@@ -15,10 +15,13 @@ from .learning import run_learning_pass, run_learning_post_evidence_closure, run
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
+from .cycle_progress import emit_progress
+from .impact_graph import cycle_service_examination
 from .memory import decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
+from .genesis_policy import load_policy
 from .reflection import run_reflection
 from .human_required import sweep_consensus_uncertainties_for_human_required
 from .judge_calibration import compute_judge_calibration
@@ -303,9 +306,14 @@ def run_enterprise_cycle(
         "post_evidence_closure": {},
         "hooks": list(learning_pre.get("hooks", [])),
     }
+    emit_progress("cycle_started", cycle_id=cycle_id, shadow_only=shadow_only, discovery_only=discovery_only)
+    emit_progress("discovery", cycle_id=cycle_id, phase="started")
     discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
+    emit_progress("discovery", cycle_id=cycle_id, phase="completed",
+                  fated_file_count=(discovery.get("completion_proof") or {}).get("fated_file_count"))
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
     if discovery_only:
+        emit_progress("cycle_completed", cycle_id=cycle_id, status="completed", discovery_only=True)
         event = _complete_event(root, cycle_id, 0, git_head_sha_at_cycle=git_head_sha_at_cycle)
         state = {
             "schema_version": 2,
@@ -377,6 +385,7 @@ def run_enterprise_cycle(
     decisions = []
     run_summary = []
     pressure_summary: dict[str, Any] = {}
+    emit_progress("tools", cycle_id=cycle_id, phase="started")
     for tool in list_tools(base_dir=root):
         if shadow_only and tool.get("status") not in ("SHADOW", "ACTIVE", "CALIBRATE"):
             continue
@@ -425,6 +434,7 @@ def run_enterprise_cycle(
     proactive_priorities: dict[str, Any] = {}
     belief_decay: dict[str, Any] = {}
     post_tool_failure = None
+    emit_progress("memory", cycle_id=cycle_id, phase="started")
     try:
         memory = update_memory(
             cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
@@ -440,8 +450,17 @@ def run_enterprise_cycle(
         except Exception as exc:
             post_tool_failure = {"phase": "belief_decay", "status": "failed", "error": str(exc)}
     if post_tool_failure is None:
+        emit_progress("pressure", cycle_id=cycle_id, phase="started")
         try:
-            pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
+            # Plan S4 (ORPHAN-MEDIUM-298) — operator drift-class targeting:
+            # genesis-policy weights bias pressure scores per class. The
+            # loader is fail-soft (defaults on any error), and _doc keys are
+            # not classes, so passing the block through unfiltered is safe.
+            drift_weights = load_policy(workspace_root).get("drift_class_weights")
+            pressure = run_pressure(
+                cycle_id=cycle_id, base_dir=root,
+                drift_class_weights=drift_weights,
+            )
         except Exception as exc:
             post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
     # Plan 023 §B — drain consensus disagreements / low-confidence verdicts into
@@ -470,6 +489,7 @@ def run_enterprise_cycle(
         except Exception as exc:
             post_tool_failure = {"phase": "proactive_priority", "status": "failed", "error": str(exc)}
     if post_tool_failure is None and not defer_reflection:
+        emit_progress("reflection", cycle_id=cycle_id, phase="started")
         try:
             reflection = run_reflection(
                 cycle_id=cycle_id, base_dir=root, repo_root=workspace_root,
@@ -478,6 +498,26 @@ def run_enterprise_cycle(
             )
         except Exception as exc:
             post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
+    # Per-service examination plan (ORPHAN-MEDIUM-258/259): surface the changed
+    # services + their downstream ripple in DEPENDENCY (topological) order, and
+    # scope this cycle's pressures to the service(s) their evidence touches —
+    # grouped per-service in that same order (ORPHAN-MEDIUM-259). Cached by graph
+    # fingerprint (no re-scan when the project graph is unchanged); skipped when
+    # there is neither a change nor a pressure. Never fails the cycle.
+    service_examination: dict[str, Any] = {}
+    if not discovery_only:
+        try:
+            changed_paths = (diff.get("changed_paths") if isinstance(diff, dict) else None) or []
+            cycle_pressures = pressure.get("pressures") if isinstance(pressure, dict) else None
+            if changed_paths or cycle_pressures:
+                emit_progress("service_examination", cycle_id=cycle_id, phase="started",
+                              changed_paths=len(changed_paths), pressures=len(cycle_pressures or []))
+                service_examination = cycle_service_examination(
+                    workspace_root=workspace_root, base_dir=root,
+                    changed_files=changed_paths, pressures=cycle_pressures,
+                )
+        except Exception:
+            service_examination = {}
     try:
         learning_post = run_learning_post_evidence_closure(workspace, cycle_id=cycle_id, tools_root=root)
     except Exception as exc:
@@ -576,6 +616,8 @@ def run_enterprise_cycle(
         )
         update_tools_index(root)
         state_status = "completed"
+    emit_progress("cycle_completed", cycle_id=cycle_id, status=state_status,
+                  runtime_status=runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
@@ -588,6 +630,7 @@ def run_enterprise_cycle(
         "learning": learning,
         "discovery": discovery,
         "cycle_diff": diff,
+        "service_examination": service_examination,
         "memory": memory,
         "belief_decay": belief_decay,
         "pressure": pressure,

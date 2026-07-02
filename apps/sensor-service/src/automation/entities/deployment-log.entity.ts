@@ -65,6 +65,16 @@ export class DeploymentLog {
   @Column({ name: 'edge_script', type: 'jsonb', nullable: true })
   edgeScript?: Record<string, unknown>;
 
+  /** Content-addressed snapshot this deploy shipped (deploy_artifacts.id). */
+  @Field(() => ID, { nullable: true })
+  @Column({ name: 'artifact_id', type: 'uuid', nullable: true })
+  artifactId?: string;
+
+  /** sha256 of the shipped payload's canonical JSON. */
+  @Field({ nullable: true })
+  @Column({ name: 'checksum_sha256', type: 'char', length: 64, nullable: true })
+  checksumSha256?: string;
+
   @Field({ nullable: true })
   @Column({ name: 'deployed_by', nullable: true })
   deployedBy?: string;

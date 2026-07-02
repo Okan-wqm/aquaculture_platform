@@ -45,9 +45,15 @@ export class ScadaDeployLog {
   @Column({ type: 'uuid', name: 'tenant_id' })
   tenantId!: string;
 
-  @Field()
-  @Column({ type: 'uuid', name: 'package_id' })
-  packageId!: string;
+  /** Nullable since Faz 3: a log row targets a package OR a process (DB CHECK enforces at least one). */
+  @Field(() => ID, { nullable: true })
+  @Column({ type: 'uuid', name: 'package_id', nullable: true })
+  packageId?: string;
+
+  /** Process-diagram deploys log here too (Faz 3 — they previously logged nothing). */
+  @Field(() => ID, { nullable: true })
+  @Column({ type: 'uuid', name: 'process_id', nullable: true })
+  processId?: string;
 
   @Field()
   @Column({ type: 'uuid', name: 'device_id' })
@@ -92,6 +98,16 @@ export class ScadaDeployLog {
   @Field(() => Int, { nullable: true })
   @Column({ name: 'rolled_back_to', type: 'int', nullable: true })
   rolledBackTo?: number;
+
+  /** Content-addressed snapshot this deploy shipped (deploy_artifacts.id). */
+  @Field(() => ID, { nullable: true })
+  @Column({ name: 'artifact_id', type: 'uuid', nullable: true })
+  artifactId?: string;
+
+  /** sha256 of the shipped payload's canonical JSON. */
+  @Field({ nullable: true })
+  @Column({ name: 'checksum_sha256', type: 'char', length: 64, nullable: true })
+  checksumSha256?: string;
 
   @Field({ nullable: true })
   @Column({ name: 'deployed_by', nullable: true })

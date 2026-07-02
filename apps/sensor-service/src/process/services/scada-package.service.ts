@@ -13,6 +13,8 @@ import {
 import { AutomationService } from '../../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../../automation/entities/program-variable.entity';
+import { ArtifactService } from '../../deploy-artifact/artifact.service';
+import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 
@@ -148,6 +150,9 @@ export class ScadaPackageService {
     @Optional()
     @Inject(TagResolutionService)
     private readonly tagResolutionService: TagResolutionService | null,
+    @Optional()
+    @Inject(ArtifactService)
+    private readonly artifactService: ArtifactService | null,
   ) {}
 
   /**
@@ -346,6 +351,31 @@ export class ScadaPackageService {
 
     const commandId = randomUUID();
 
+    // Content-addressed snapshot (Faz 3): the CANONICAL package content is
+    // archived (volatile envelope fields like deployedAt stay out so
+    // identical content dedupes to one artifact). Rollback = republish by
+    // artifact id with a fresh envelope.
+    let artifact = null;
+    if (this.artifactService) {
+      try {
+        artifact = await this.artifactService.snapshot(tenantId, {
+          artifactType: DeployArtifactType.SCADA_PACKAGE,
+          content: pkg.packageData,
+          schemaVersion:
+            typeof (pkg.packageData.meta as Record<string, unknown> | undefined)?.schemaVersion === 'number'
+              ? ((pkg.packageData.meta as Record<string, unknown>).schemaVersion as number)
+              : undefined,
+          sourceEntityId: pkg.id,
+          sourceEntityVersion: pkg.version,
+          createdBy: userId,
+        });
+      } catch (snapshotError) {
+        this.logger.error(
+          `Failed to snapshot SCADA package artifact: ${(snapshotError as Error).message}`,
+        );
+      }
+    }
+
     const packagePayload = {
       ...pkg.packageData,
       meta: {
@@ -356,6 +386,7 @@ export class ScadaPackageService {
         deployedBy: userId || 'system',
         deployedAt: new Date().toISOString(),
         edgeDeviceId: device.id,
+        ...(artifact ? { artifactSha256: artifact.contentSha256 } : {}),
       },
     };
 
@@ -379,6 +410,8 @@ export class ScadaPackageService {
           commandId,
           version: pkg.version,
           deployedBy: userId,
+          artifactId: artifact?.id,
+          checksumSha256: artifact?.contentSha256,
         });
       } catch (logError) {
         this.logger.error(`Failed to create SCADA deploy log: ${(logError as Error).message}`);
@@ -399,6 +432,98 @@ export class ScadaPackageService {
       const msg = (error as Error).message;
       this.logger.error(`Failed to deploy SCADA package: ${msg}`);
       return { success: false, message: `Failed to deploy: ${msg}` };
+    }
+  }
+
+  /**
+   * REAL rollback (Faz 3): republish a previously-shipped artifact snapshot
+   * verbatim. Unlike the edge's single previous-version slot, any retained
+   * artifact can be restored, any number of times.
+   */
+  async rollbackScadaPackageDeploy(
+    artifactId: string,
+    deviceId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.artifactService) {
+      throw new BadRequestException('Artifact service not available');
+    }
+    const artifact = await this.artifactService.getById(tenantId, artifactId);
+    if (artifact.artifactType !== DeployArtifactType.SCADA_PACKAGE) {
+      throw new BadRequestException(
+        `Artifact ${artifactId} is a ${artifact.artifactType}, not a SCADA package`,
+      );
+    }
+
+    if (!this.edgeDeviceService) {
+      throw new BadRequestException('Edge device service not available');
+    }
+    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    if (!device.isOnline) {
+      return { success: false, message: 'Device is offline — cannot roll back' };
+    }
+    if (!this.mqttClient) {
+      throw new BadRequestException('MQTT service not available');
+    }
+    if (!this.mqttClient.isConnectedToBroker()) {
+      throw new BadRequestException('Not connected to MQTT broker');
+    }
+
+    const commandId = randomUUID();
+    const version = artifact.sourceEntityVersion ?? 0;
+    const payload = {
+      commandId,
+      command: 'deploy_scada_package',
+      params: {
+        ...artifact.content,
+        meta: {
+          ...((artifact.content.meta ?? {}) as Record<string, unknown>),
+          version,
+          packageVersion: `${version}.0.0`,
+          deployedBy: userId || 'system',
+          deployedAt: new Date().toISOString(),
+          edgeDeviceId: device.id,
+          artifactSha256: artifact.contentSha256,
+          rollback: true,
+        },
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          packageId: artifact.sourceEntityId,
+          deviceId: device.id,
+          commandId,
+          version,
+          deployedBy: userId,
+          artifactId: artifact.id,
+          checksumSha256: artifact.contentSha256,
+          rolledBackTo: artifact.sourceEntityVersion,
+        });
+      } catch (logError) {
+        this.logger.error(
+          `Failed to create rollback deploy log: ${(logError as Error).message}`,
+        );
+      }
+    }
+
+    try {
+      await this.mqttClient.publish(
+        `tenants/${tenantId}/devices/${device.id}/commands`,
+        payload,
+      );
+      this.logger.log(
+        `Rolled back device ${device.deviceCode} to SCADA artifact ${artifact.id} (v${version}, command: ${commandId})`,
+      );
+      return { success: true, message: `Rollback to artifact v${version} sent` };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to publish rollback: ${msg}`);
+      return { success: false, message: `Failed to roll back: ${msg}` };
     }
   }
 

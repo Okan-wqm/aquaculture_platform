@@ -375,6 +375,36 @@ export class ProcessResolver {
   }
 
   /**
+   * Roll a device back to a previously-shipped SCADA artifact snapshot
+   * (real rollback, Faz 3 — republishes the archived content verbatim).
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER.
+   */
+  @Mutation(() => DeployScadaPackageResultType, { name: 'rollbackScadaPackageDeploy' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async rollbackScadaPackageDeploy(
+    @Args('artifactId', { type: () => ID }) artifactId: string,
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<DeployScadaPackageResultType> {
+    try {
+      const result = await this.scadaPackageService.rollbackScadaPackageDeploy(
+        artifactId,
+        deviceId,
+        tenantId,
+        user.sub,
+      );
+      return {
+        success: result.success,
+        message: result.message,
+        deviceId: result.success ? deviceId : undefined,
+      };
+    } catch (error) {
+      return { success: false, message: (error as Error).message };
+    }
+  }
+
+  /**
    * Deploy SCADA package together with its bound automation programs.
    * Deploys automation programs first, then the SCADA package.
    * If any automation deployment fails, SCADA deployment is aborted.

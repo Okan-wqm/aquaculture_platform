@@ -20,6 +20,8 @@ import {
 } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
+import { ArtifactService } from '../deploy-artifact/artifact.service';
+import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
@@ -93,6 +95,8 @@ export class AutomationService {
     private readonly deploymentLogService: DeploymentLogService,
     @Optional()
     private readonly eventsPublisher: AutomationEventsPublisher,
+    @Optional()
+    private readonly artifactService: ArtifactService,
   ) {}
 
   // ============================================
@@ -1385,7 +1389,24 @@ export class AutomationService {
       }
     }
 
-    // 4. Create deployment log entry
+    // 4. Content-addressed snapshot (Faz 3) + deployment log entry
+    let artifact = null;
+    if (this.artifactService) {
+      try {
+        artifact = await this.artifactService.snapshot(tenantId, {
+          artifactType: DeployArtifactType.AUTOMATION_PROGRAM,
+          content: deployCommand['params'] as Record<string, unknown>,
+          sourceEntityId: programId,
+          sourceEntityVersion: program.version,
+          createdBy: deployedBy,
+        });
+      } catch (snapshotError) {
+        this.logger.error(
+          `Failed to snapshot program artifact: ${(snapshotError as Error).message}`,
+        );
+      }
+    }
+
     if (this.deploymentLogService) {
       await this.deploymentLogService.createLog({
         tenantId,
@@ -1395,6 +1416,8 @@ export class AutomationService {
         version: program.version,
         edgeScript: deployCommand['params'] as Record<string, unknown>,
         deployedBy,
+        artifactId: artifact?.id,
+        checksumSha256: artifact?.contentSha256,
       });
     }
 

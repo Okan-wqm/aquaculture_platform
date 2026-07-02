@@ -14,7 +14,10 @@ import {
   ProcessFilterInput,
   ProcessPaginationInput,
 } from '../dto/process.dto';
+import { ArtifactService } from '../../deploy-artifact/artifact.service';
+import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { Process, ProcessStatus } from '../entities/process.entity';
+import { ScadaDeployLogService } from './scada-deploy-log.service';
 import { TagResolutionService } from './tag-resolution.service';
 
 @Injectable()
@@ -33,6 +36,12 @@ export class ProcessService {
     @Optional()
     @Inject(TagResolutionService)
     private readonly tagResolutionService: TagResolutionService | null,
+    @Optional()
+    @Inject(ArtifactService)
+    private readonly artifactService: ArtifactService | null,
+    @Optional()
+    @Inject(ScadaDeployLogService)
+    private readonly scadaDeployLogService: ScadaDeployLogService | null,
   ) {}
 
   /**
@@ -99,6 +108,9 @@ export class ProcessService {
     if (input.templateName !== undefined) process.templateName = input.templateName;
 
     process.updatedBy = userId;
+    // Monotonic version counter — carried into deploy payloads and artifact
+    // snapshots (Faz 3; replaces the hardcoded `version: 1`).
+    process.version = (process.version ?? 1) + 1;
 
     const saved = await this.processRepository.save(process);
     this.logger.log(`Process ${saved.id} updated successfully`);
@@ -359,26 +371,70 @@ export class ProcessService {
       }
     }
 
-    // 6. MQTT deploy_process komutu publish
+    // 6. Content-addressed snapshot (Faz 3) — the exact process graph +
+    // resolved tag mappings that ship to the edge. Real version replaces
+    // the historical hardcoded `1`.
+    const version = process.version ?? 1;
+    const deployContent: Record<string, unknown> = {
+      processId,
+      name: process.name,
+      nodes: process.nodes,
+      edges: process.edges,
+      tagMappings,
+      version,
+    };
+
+    let artifact = null;
+    if (this.artifactService) {
+      try {
+        artifact = await this.artifactService.snapshot(tenantId, {
+          artifactType: DeployArtifactType.PROCESS,
+          content: deployContent,
+          sourceEntityId: processId,
+          sourceEntityVersion: version,
+          createdBy: userId,
+        });
+      } catch (snapshotError) {
+        this.logger.error(
+          `Failed to snapshot process artifact: ${(snapshotError as Error).message}`,
+        );
+      }
+    }
+
+    // 7. MQTT deploy_process komutu publish (+ deploy log — process deploys
+    // previously wrote NO log at all)
+    const commandId = randomUUID();
     const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
     const payload = {
-      commandId: randomUUID(),
+      commandId,
       command: 'deploy_process',
-      params: {
-        processId,
-        name: process.name,
-        nodes: process.nodes,
-        edges: process.edges,
-        tagMappings,
-        version: 1,
-      },
+      params: deployContent,
       timestamp: new Date().toISOString(),
     };
+
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          processId,
+          deviceId: device.id,
+          commandId,
+          version,
+          deployedBy: userId,
+          artifactId: artifact?.id,
+          checksumSha256: artifact?.contentSha256,
+        });
+      } catch (logError) {
+        this.logger.error(
+          `Failed to create process deploy log: ${(logError as Error).message}`,
+        );
+      }
+    }
 
     try {
       await this.mqttClient.publish(topic, payload);
       this.logger.log(
-        `Process "${process.name}" deployed to device ${device.deviceCode} (process: ${processId}, user: ${userId || 'system'})`,
+        `Process "${process.name}" v${version} deployed to device ${device.deviceCode} (process: ${processId}, command: ${commandId}, user: ${userId || 'system'})`,
       );
       return { success: true, message: 'Process deployed to edge device successfully' };
     } catch (error) {

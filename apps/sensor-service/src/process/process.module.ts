@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AutomationModule } from '../automation/automation.module';
 import { AutomationProgram } from '../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../automation/entities/program-variable.entity';
+import { DeployArtifactModule } from '../deploy-artifact/deploy-artifact.module';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
@@ -27,6 +28,7 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
       DeviceIoConfig, EdgeDevice,
       AutomationProgram, ProgramVariable,
     ]),
+    DeployArtifactModule,
     forwardRef(() => EdgeDeviceModule),
     forwardRef(() => AutomationModule), // For AutomationService in unified deploy
   ],

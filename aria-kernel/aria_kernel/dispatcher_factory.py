@@ -94,10 +94,10 @@ def default_dispatcher_config() -> DispatcherConfig:
         "poll_timeout_seconds": _DEFAULT_POLL_TIMEOUT_SECONDS,
         "poll_interval_seconds": _DEFAULT_POLL_INTERVAL_SECONDS,
         "max_concurrent_subprocesses": 3,
-        "subprocess_timeout_seconds": 600.0,
+        "subprocess_timeout_seconds": 1800.0,
         "claude_auth_mode": "managed_session",
         "claude_cli_binary": "claude",
-        "claude_model": "opus",
+        "claude_model": "fable",
         "api_key_mode_allowed": False,
     })
     for key, env_var, cast in (

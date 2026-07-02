@@ -117,6 +117,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   reactivateTankInProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recalculateDailyPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   receiveDelivery: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  reconcileTankCounts: [Role.TENANT_ADMIN],
   recordBulkFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordCleanerMortality: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordCull: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

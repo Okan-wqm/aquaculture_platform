@@ -19,7 +19,9 @@ ci_executor:
     - stream-json
     - --verbose
     - --model
-    - opus
+    - fable
+    - --effort
+    - xhigh
     - --dangerously-skip-permissions
   stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
   persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
@@ -38,7 +40,9 @@ worker_executor:
     - stream-json
     - --verbose
     - --model
-    - opus
+    - fable
+    - --effort
+    - xhigh
     - --dangerously-skip-permissions
   stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
   cwd: "<assigned worktree path>"
@@ -48,11 +52,12 @@ worker_executor:
     - CLAUDE_CLI_MOCK
 ```
 
-The per-agent `--model` value is resolved from the dispatched agent's
-frontmatter `model:` tier by `aria_kernel.agent_runtime_profile.resolve_claude_model`
-(fail-safe: `opus`). The `opus` alias above is the default/most-capable tier;
-scout-tier agents may resolve to `sonnet`/`haiku`. The Claude Code CLI selects
-capability by model alias — there is no separate reasoning-effort flag.
+The per-agent `--model` and `--effort` values are resolved from the dispatched
+agent's frontmatter `model:`/`effort:` tiers by
+`aria_kernel.agent_runtime_profile.read_agent_runtime_profile` (fail-safe: the
+most expensive tier). The `fable`/`xhigh` values above are the fail-safe
+defaults; scout-tier agents may resolve to cheaper aliases/levels, and the CLI
+accepts `--effort low|medium|high|xhigh|max` since 2.1.x.
 
 `--dangerously-skip-permissions` is required because the autonomous executor
 runs on a trusted/private runner and must edit its assigned worktree without a
@@ -83,7 +88,7 @@ human approving each tool call (the autonomy `codex exec` previously provided).
 ```yaml
 verification_mode: runtime-preflight
 verified_at_commit: PENDING-OPERATOR-LIVE-INVOCATION
-claude_cli_version_minimum: claude-code 2.1.0
+claude_cli_version_minimum: claude-code 2.1.197
 verified_by_operator_handle: github-actions:self-hosted-claude-runner
 verified_at_iso8601: workflow-run-time
 finding_closed: DEBT-2026-06-29-CLAUDE-CLI-MIGRATION

@@ -148,3 +148,30 @@ boundary and keeps the kernel domain core strict.
 - I-V8.2-CR-01..05 — submit_cross_review_v8 state transition
 - I-V8.3-CONTENT-01..03 — drainer envelope content from kernel state
 - I-V8.4-NORM-01..07 — ci_executor canonical normalizer
+
+## Ad-hoc / interactive dispatch profile (K6)
+
+Agents whose frontmatter declares `dispatch: ad-hoc` (the acceptance lane:
+`aria-acceptance-lead`, `aria-acceptance-output-validator`,
+`aria-acceptance-gap-hunter`, `aria-acceptance-gap-fixer`) are dispatched
+through the interactive Agent tool, NOT the kernel queue: they are outside
+`agent_surface.DEFAULT_TARGET_AGENT_WHITELIST` and `ROLE_TARGET_PAIRING` by
+design, and no kernel module mints envelopes for them.
+
+The output contract still binds. Interactive-lane results MUST be shaped as
+`aria/agent-response/v1` (satisfaction entries use the closed verdict set
+`satisfied | blocked | contradicted`, with `note` + `evidence_refs` on
+`blocked`/`contradicted`), and refusals as `aria/agent-refusal/v1`
+(`reason_class ∈ law | scope | evidence | safety`). Identity fields the
+kernel would normally mint (`request_id`, `claim_id`) are synthesized by the
+dispatching lead and recorded in its decision log, so acceptance-lane
+outputs can be validated with `agent_contract.validate_response` and read on
+the same schema as every kernel-queued result.
+
+The maintenance genesis lane has one additional wire format:
+`aria-drafter` refusals are the literal `DRAFTER_REFUSAL:<reason_code>`
+sentinel at `--output-path` (I-V3-00a contract). The kernel parses the
+sentinel (`draft_validator.parse_drafter_refusal`) and renders the
+corresponding `aria/agent-refusal/v1` row into the governance ledger
+(`drafter_refusal_recorded`), so drafter refusals are queryable on the same
+refusal surface without changing the locked CLI-args contract.

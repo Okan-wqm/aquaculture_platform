@@ -48,6 +48,16 @@ def make_local_git_repo(
     _git(["init", "-q"], cwd=repo)
     _git(["config", "user.email", "fixture@aria.test"], cwd=repo)
     _git(["config", "user.name", "Aria Fixture"], cwd=repo)
+    # ORPHAN-LOW-301 — fixture repos must never spawn background git
+    # maintenance: a detached `git gc --auto` kept writing
+    # .git/objects/pack while TemporaryDirectory.cleanup() ran rmtree,
+    # producing a flaky "Directory not empty" teardown error in CI
+    # (burn-in suite, run 28558877068). Disabling auto-gc and the
+    # detached maintenance worker makes the race structurally
+    # impossible for every fixture consumer.
+    _git(["config", "gc.auto", "0"], cwd=repo)
+    _git(["config", "gc.autoDetach", "false"], cwd=repo)
+    _git(["config", "maintenance.auto", "false"], cwd=repo)
     if remote_url is not None:
         _git(["config", "remote.origin.url", remote_url], cwd=repo)
     if initial_commit:

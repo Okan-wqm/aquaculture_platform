@@ -94,6 +94,12 @@ jobs:
         env:
           ARIA_DRY_RUN: 'true'
           CLAUDE_CODE_MOCK: 'true'
+          # Step-wide so the bare python3 heredocs (proof summary at the end
+          # of this step) import aria_kernel exactly like the prefixed CLI
+          # invocations do — the first live run failed only in the summary
+          # wrapper because the prefix was per-invocation.
+          PYTHONPATH: 'aria-kernel:.'
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
 

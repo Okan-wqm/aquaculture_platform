@@ -631,7 +631,7 @@ def _max_budget_usd() -> float:
 
 
 def _max_budget_usd_per_cycle() -> float:
-    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "1.50"))
+    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "3.00"))
 
 
 _TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
@@ -722,10 +722,24 @@ def _estimate_envelope_cost_usd(*, request: dict[str, Any]) -> float:
     """
     refs = len(request.get("evidence_refs") or [])
     if refs >= 8:
-        return 0.30  # Opus-heavy
-    if refs >= 3:
-        return 0.18
-    return 0.10
+        base = 0.30  # heavy decision-node envelope
+    elif refs >= 3:
+        base = 0.18
+    else:
+        base = 0.10
+    # K4 (ORPHAN-MEDIUM-286) — model-aware reservation. Fable prices at 2x
+    # opus on both input and output; an opus-calibrated estimate under-
+    # reserves and trips the per-cycle cap mid-cycle. Resolution is
+    # fail-safe (unknown agent -> most expensive tier -> conservative 2x).
+    target_agent = str(request.get("target_agent") or "")
+    if target_agent:
+        try:
+            from aria_kernel.agent_runtime_profile import resolve_claude_model
+            if resolve_claude_model(target_agent) == "fable":
+                return base * 2.0
+        except Exception:
+            return base * 2.0
+    return base
 
 
 def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, tools_dir: Path) -> None:
@@ -903,17 +917,98 @@ def invoke_claude_cli(
             _at_gov(_ens_tools(tools_dir), "claude_subprocess_env_audit", _env_audit_payload)
         except Exception:
             pass
-    # Plan 023 §A — per-agent model tiering. The model is resolved from the
-    # dispatched agent's frontmatter (scout tier runs cheaper; the
-    # decider/writer tier stays opus). Fail-safe: unknown agent → opus.
-    from aria_kernel.agent_runtime_profile import resolve_claude_model
-    agent_model = resolve_claude_model(subagent_type)
+    # Plan 023 §A — per-agent model/effort tiering. Both levers resolve from
+    # the dispatched agent's frontmatter (scout tier runs cheaper; the
+    # decider/writer tier stays on the most expensive model). Fail-safe:
+    # unknown agent → most expensive tier.
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    agent_profile = read_agent_runtime_profile(subagent_type)
     try:
         completed = run_claude_exec(
             prompt_text=prompt_text,
             timeout_seconds=timeout_seconds,
-            model=agent_model,
+            model=agent_profile.model,
+            effort=agent_profile.effort,
         )
+        # K2 (ORPHAN-HIGH-284) — model-safety refusal policy. A classifier
+        # refusal is deterministic, not transient: never route it through the
+        # EXTERNAL_OUTAGE requeue path (the reaper would refuse again N times).
+        # Policy: exactly ONE audited fallback retry on the opus tier when the
+        # refusing model was fable; a second refusal (or a refusal already on
+        # opus) escalates to HUMAN_REQUIRED via the caller's refusal branch.
+        # Every path leaves a governance row — no silent downgrade.
+        if completed.refusal is not None and agent_profile.model == "fable":
+            _refusal_payload = {
+                "request_id": request_id,
+                "subagent_type": subagent_type,
+                "from_model": agent_profile.model,
+                "to_model": "opus",
+                "refusal": completed.refusal,
+            }
+            if tools_dir is not None:
+                try:
+                    from aria_kernel.tool_registry import (
+                        append_tools_governance as _rf_gov,
+                        ensure_tools_dir as _rf_ens,
+                    )
+                    _rf_gov(_rf_ens(tools_dir), "model_refusal_fallback_attempted", _refusal_payload)
+                except Exception:
+                    pass
+            _stage(
+                f"model_refusal_fallback request_id={request_id} "
+                f"category={completed.refusal.get('category')!r} fable->opus"
+            )
+            completed = run_claude_exec(
+                prompt_text=prompt_text,
+                timeout_seconds=timeout_seconds,
+                model="opus",
+                effort=agent_profile.effort,
+            )
+        if completed.refusal is not None:
+            _unresolved_payload = {
+                "request_id": request_id,
+                "subagent_type": subagent_type,
+                "model": agent_profile.model,
+                "refusal": completed.refusal,
+            }
+            if tools_dir is not None:
+                try:
+                    from aria_kernel.tool_registry import (
+                        append_tools_governance as _ru_gov,
+                        ensure_tools_dir as _ru_ens,
+                    )
+                    _ru_gov(_ru_ens(tools_dir), "model_refusal_unresolved", _unresolved_payload)
+                except Exception:
+                    pass
+                try:
+                    _hr_refusal = subprocess.run(
+                        [
+                            "python3", "-m", "aria_kernel", "human-required", "record",
+                            "--request-id", request_id,
+                            "--severity", "HIGH",
+                            "--reason", (
+                                "model_safety_refusal:"
+                                f"{completed.refusal.get('category') or 'uncategorized'}"
+                            ),
+                            "--tools-dir", str(tools_dir),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "aria-kernel")},
+                        timeout=30,
+                    )
+                    if _hr_refusal.returncode != 0:
+                        sys.stderr.write(
+                            f"human-required record (refusal) exit={_hr_refusal.returncode}\n"
+                        )
+                except (subprocess.TimeoutExpired, OSError) as _hr_exc:
+                    sys.stderr.write(f"human-required record (refusal) failed: {_hr_exc}\n")
+            raise ClaudeCliUnavailable(
+                "model_safety_refusal_unresolved: request "
+                f"{request_id} refused by {agent_profile.model} "
+                f"(category={completed.refusal.get('category')!r}); "
+                "escalated to HUMAN_REQUIRED"
+            )
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
         contract = "tools/aria-poc/ci_executor_contract_proven.md"
         raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc

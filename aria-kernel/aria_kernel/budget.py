@@ -162,7 +162,7 @@ from .file_lock import with_exclusive_lock  # noqa: E402
 
 PER_RUN_BUDGET_LEDGER_FILENAME = "budget-ledger.jsonl"
 DEFAULT_MAX_BUDGET_USD_PER_RUN = 20.00
-DEFAULT_MAX_BUDGET_USD_PER_CYCLE = 1.50
+DEFAULT_MAX_BUDGET_USD_PER_CYCLE = 3.00
 
 
 class BudgetReservationMissing(GovernanceError):

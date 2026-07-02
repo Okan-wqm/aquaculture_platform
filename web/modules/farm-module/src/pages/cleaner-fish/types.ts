@@ -18,18 +18,11 @@ export type {
   RemoveCleanerFishInput,
 } from '../../hooks/useCleanerFish';
 
-// Additional local types
-export interface Tank {
-  id: string;
-  code: string;
-  name: string;
-  volume?: number;
-  status?: string;
-  siteId?: string;
-  siteName?: string;
-  departmentId?: string;
-  departmentName?: string;
-}
+// Narrow tank shape the cleaner-fish modals receive as props. Derived from
+// the module-wide Tank SSoT (hooks/useTanks) instead of redeclaring the
+// fields — FARM-MEDIUM-116 consolidated four independent Tank type
+// definitions down to that single source.
+export type TankOption = Pick<HookTank, 'id' | 'code' | 'name'>;
 
 export interface CleanerBatchWithSpecies extends CleanerFishBatch {
   speciesName?: string;
@@ -38,9 +31,7 @@ export interface CleanerBatchWithSpecies extends CleanerFishBatch {
 
 // Import CleanerFishBatch from hooks
 import { CleanerFishBatch } from '../../hooks/useCleanerFish';
-
-// Tabs
-export type CleanerFishTab = 'batches' | 'tank-overview';
+import type { Tank as HookTank } from '../../hooks/useTanks';
 
 // Labels
 export const SourceTypeLabels: Record<string, string> = {

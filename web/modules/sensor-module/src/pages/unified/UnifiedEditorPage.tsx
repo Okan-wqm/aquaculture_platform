@@ -43,12 +43,22 @@ import { useScadaPackageStore } from '../../store/scada';
 import { useProcess } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useUnifiedTags } from '../../hooks/useUnifiedTags';
+import {
+  useScadaPackages,
+  useCreateScadaPackage,
+  useUpdateScadaPackage,
+  useDeployScadaPackage,
+} from '../../hooks/useScadaPackage';
+import { useDeployProcessToEdge } from '../../hooks/useDeployProcess';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
 import ModeTabBar from '../../components/unified-editor/ModeTabBar';
 import { UnifiedPropertiesPanel } from '../../components/unified-editor/UnifiedPropertiesPanel';
 import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
-import { parseWidgetDropData, createScadaWidgetNode } from '../../components/unified-editor/WidgetDropHandler';
+import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
+import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
+import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
+import { ScadaPackagePreview } from '../../components/deploy/ScadaPackagePreview';
 import ScreenManager from '../../components/unified-editor/ScreenManager';
 import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 
@@ -187,8 +197,15 @@ const UnifiedEditorPage: React.FC = () => {
     [devices, targetDeviceId],
   );
 
-  // Deploy dropdown
+  // Deploy dropdown + canonical deploy dialog target (6b)
   const [showDeployMenu, setShowDeployMenu] = useState(false);
+  const [deployTarget, setDeployTarget] = useState<'process' | 'scada' | null>(null);
+
+  // SCADA package identity for this process (dual-target save + deploy, 6b)
+  const [scadaPackageId, setScadaPackageId] = useState<string | null>(null);
+
+  // Save error surfaced to the user (no silent console.error — project no-console)
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Store
   const {
@@ -207,14 +224,25 @@ const UnifiedEditorPage: React.FC = () => {
 
   const { createProcess, updateProcess, getProcess } = useProcess();
 
-  // SCADA package store — for overlay widget management
-  const scadaSetSelectedWidget = useScadaPackageStore((s) => s.setSelectedWidget);
-  const scadaActiveScreenId = useScadaPackageStore((s) => s.activeScreenId);
-  const scadaAddWidget = useScadaPackageStore((s) => s.addWidget);
-  const scadaRemoveWidget = useScadaPackageStore((s) => s.removeWidget);
-  const scadaUpdateWidgetPosition = useScadaPackageStore((s) => s.updateWidgetPosition);
-  const scadaUpdateWidget = useScadaPackageStore((s) => s.updateWidget);
-  const scadaScreens = useScadaPackageStore((s) => s.screens);
+  // Canonical package persist + deploy mutations (6b)
+  const createPkg = useCreateScadaPackage();
+  const updatePkg = useUpdateScadaPackage();
+  const deployPkg = useDeployScadaPackage();
+  const deployProc = useDeployProcessToEdge();
+  // Existing SCADA package for THIS process (filter by processId) — used to
+  // hydrate the HMI canvas on load and to pick create-vs-update on save.
+  const { packages: linkedPackages } = useScadaPackages(
+    id && id !== 'new' ? { processId: id } : undefined,
+  );
+
+  // SCADA package store — serialize / hydrate / identity for dual-target
+  // save + deploy (6b). The HMI canvas is now the real <ScreenCanvas>, which
+  // mutates the store directly; the unified shell no longer needs the
+  // per-widget overlay selectors the retired iframe-overlay path used.
+  const scadaToJSON = useScadaPackageStore((s) => s.toScadaPackageJSON);
+  const scadaLoadFromJSON = useScadaPackageStore((s) => s.loadFromJSON);
+  const scadaSetPackageId = useScadaPackageStore((s) => s.setPackageId);
+  const scadaPackageName = useScadaPackageStore((s) => s.packageName);
 
   // Send message to iframe
   const sendToCanvas = useCallback((type: string, data?: unknown) => {
@@ -261,90 +289,7 @@ const UnifiedEditorPage: React.FC = () => {
           setSelectedNodeId(null);
           selectNode(null);
           selectEdge(null);
-          scadaSetSelectedWidget(null);
           break;
-
-        // ============================================
-        // SCADA Overlay Messages (iframe -> Parent)
-        // ============================================
-        case 'overlayNodeSelected': {
-          const overlayData = data as { nodeId: string; nodeData: Record<string, unknown> };
-          if (overlayData?.nodeId) {
-            scadaSetSelectedWidget(overlayData.nodeId);
-          }
-          break;
-        }
-        case 'overlayNodeMoved': {
-          const moveData = data as { nodeId: string; position: { x: number; y: number } };
-          if (moveData?.nodeId && scadaActiveScreenId) {
-            // Preserve existing widget dimensions from store
-            const activeScreen = scadaScreens.find((s) => s.id === scadaActiveScreenId);
-            const existingWidget = activeScreen?.widgets.find((w) => w.id === moveData.nodeId);
-            scadaUpdateWidgetPosition(scadaActiveScreenId, moveData.nodeId, {
-              col: Math.round(moveData.position.x / 15),
-              row: Math.round(moveData.position.y / 15),
-              w: existingWidget?.position?.w ?? 4,
-              h: existingWidget?.position?.h ?? 3,
-            });
-          }
-          break;
-        }
-        case 'overlayNodeResized': {
-          const resizeData = data as { nodeId: string; width: number; height: number };
-          if (resizeData?.nodeId && scadaActiveScreenId) {
-            // Preserve existing widget position from store
-            const activeScreen = scadaScreens.find((s) => s.id === scadaActiveScreenId);
-            const existingWidget = activeScreen?.widgets.find((w) => w.id === resizeData.nodeId);
-            scadaUpdateWidget(scadaActiveScreenId, resizeData.nodeId, {
-              position: {
-                col: existingWidget?.position?.col ?? 0,
-                row: existingWidget?.position?.row ?? 0,
-                w: Math.round(resizeData.width / 15),
-                h: Math.round(resizeData.height / 15),
-              },
-            });
-          }
-          break;
-        }
-        case 'overlayNodeDropped': {
-          const dropData = data as { widgetType: string; position: { x: number; y: number }; widgetData?: Record<string, unknown> };
-          if (dropData?.widgetType && scadaActiveScreenId) {
-            const widgetId = `sw-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-            scadaAddWidget(scadaActiveScreenId, {
-              id: widgetId,
-              widgetType: dropData.widgetType,
-              position: {
-                col: Math.round(dropData.position.x / 15),
-                row: Math.round(dropData.position.y / 15),
-                w: 4,
-                h: 3,
-              },
-              config: dropData.widgetData || {},
-            });
-            sendToCanvas('addOverlayNode', {
-              node: {
-                id: widgetId,
-                type: 'scadaWidget',
-                position: dropData.position,
-                data: {
-                  widgetType: dropData.widgetType,
-                  config: dropData.widgetData || {},
-                  screenId: scadaActiveScreenId,
-                  width: 240,
-                  height: 200,
-                },
-              },
-            });
-          }
-          break;
-        }
-        case 'overlayNodeDeleted': {
-          const deleteData = data as { nodeId: string };
-          if (deleteData?.nodeId && scadaActiveScreenId) {
-            scadaRemoveWidget(scadaActiveScreenId, deleteData.nodeId);
-          }
-          break;
-        }
         default:
           break;
       }
@@ -352,7 +297,7 @@ const UnifiedEditorPage: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [sendToCanvas, selectNode, selectEdge, scadaSetSelectedWidget, scadaActiveScreenId, scadaScreens, scadaAddWidget, scadaRemoveWidget, scadaUpdateWidgetPosition, scadaUpdateWidget]);
+  }, [sendToCanvas, selectNode, selectEdge]);
 
   // Load process on mount
   useEffect(() => {
@@ -380,6 +325,17 @@ const UnifiedEditorPage: React.FC = () => {
     loadProcess();
   }, [id, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
 
+  // Hydrate the HMI canvas from the SCADA package linked to this process —
+  // once, on first arrival, so it doesn't clobber unsaved edits (6b).
+  useEffect(() => {
+    if (scadaPackageId) return;
+    const pkg = linkedPackages[0];
+    if (!pkg) return;
+    setScadaPackageId(pkg.id);
+    scadaSetPackageId(pkg.id);
+    scadaLoadFromJSON(pkg.packageData);
+  }, [linkedPackages, scadaPackageId, scadaSetPackageId, scadaLoadFromJSON]);
+
   // Sync editor mode to iframe canvas — when mode changes, send setEditorMode
   useEffect(() => {
     if (isCanvasReady) {
@@ -396,45 +352,9 @@ const UnifiedEditorPage: React.FC = () => {
     [],
   );
 
-  // Widget drop handler (HMI mode)
-  const handleWidgetDragOver = useCallback((e: React.DragEvent) => {
-    if (mode !== 'hmi') return;
-    if (!e.dataTransfer.types.includes('application/reactflow-widget')) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  }, [mode]);
-
-  const handleWidgetDrop = useCallback((e: React.DragEvent) => {
-    if (mode !== 'hmi') return;
-    const payload = parseWidgetDropData(e);
-    if (!payload) return;
-    e.preventDefault();
-
-    // Calculate position relative to the canvas container
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const node = createScadaWidgetNode(payload, x, y, scadaActiveScreenId ?? undefined);
-
-    // Register in SCADA store
-    if (scadaActiveScreenId) {
-      scadaAddWidget(scadaActiveScreenId, {
-        id: node.id,
-        widgetType: payload.widgetType || 'unknown',
-        position: {
-          col: Math.round(x / 15),
-          row: Math.round(y / 15),
-          w: 4,
-          h: 3,
-        },
-        config: payload as unknown as Record<string, unknown>,
-      });
-    }
-
-    // Send to iframe canvas as overlay node
-    sendToCanvas('addOverlayNode', { node });
-  }, [mode, sendToCanvas, scadaActiveScreenId, scadaAddWidget]);
+  // HMI widget drops are handled natively by the real <ScreenCanvas> (6b) —
+  // the legacy iframe-overlay drop path (parseWidgetDropData / addOverlayNode)
+  // is retired.
 
   // Zoom & delete
   const handleZoomIn = () => sendToCanvas('zoomIn');
@@ -452,6 +372,7 @@ const UnifiedEditorPage: React.FC = () => {
   // Save
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveError(null);
     try {
       const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve) => {
         const controller = new AbortController();
@@ -474,6 +395,8 @@ const UnifiedEditorPage: React.FC = () => {
 
       const isNewProcess = !storeProcessId || storeProcessId === 'new' || id === 'new';
 
+      // 1. Persist the P&ID process (unchanged).
+      let resolvedProcessId: string | null = storeProcessId ?? null;
       if (isNewProcess) {
         const result = await createProcess({
           name: processName,
@@ -481,6 +404,7 @@ const UnifiedEditorPage: React.FC = () => {
           edges: currentState.edges,
         });
         if (result.success && result.process) {
+          resolvedProcessId = result.process.id;
           setProcessId(result.process.id);
           markClean();
           window.history.replaceState(null, '', `/sensor/unified-editor/${result.process.id}`);
@@ -496,8 +420,29 @@ const UnifiedEditorPage: React.FC = () => {
           markClean();
         }
       }
+
+      // 2. Persist the HMI SCADA package (6b — dual-target save). The unified
+      // editor owns BOTH artifacts; the package is linked to the process so it
+      // reloads with it. Create-vs-update by the tracked packageId.
+      if (resolvedProcessId) {
+        const packageData = scadaToJSON();
+        if (scadaPackageId) {
+          await updatePkg.mutateAsync({
+            id: scadaPackageId,
+            input: { packageData, processId: resolvedProcessId },
+          });
+        } else {
+          const created = await createPkg.mutateAsync({
+            name: `${processName} HMI`,
+            processId: resolvedProcessId,
+            packageData,
+          });
+          setScadaPackageId(created.id);
+          scadaSetPackageId(created.id);
+        }
+      }
     } catch (error) {
-      console.error('Failed to save:', error);
+      setSaveError(error instanceof Error ? error.message : 'Kaydetme başarısız');
     } finally {
       setIsSaving(false);
     }
@@ -663,6 +608,15 @@ const UnifiedEditorPage: React.FC = () => {
 
         {/* Right Section */}
         <div className="flex items-center gap-2">
+          {saveError && (
+            <span
+              role="alert"
+              className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded max-w-[220px] truncate"
+              title={saveError}
+            >
+              {saveError}
+            </span>
+          )}
           {/* Deploy dropdown */}
           <div className="relative">
             <button
@@ -675,12 +629,18 @@ const UnifiedEditorPage: React.FC = () => {
             {showDeployMenu && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setShowDeployMenu(false)} />
-                <div className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
-                  <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShowDeployMenu(false)}>
-                    Edge Device
+                <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
+                  <button
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => { setShowDeployMenu(false); setDeployTarget('process'); }}
+                  >
+                    Proses (P&amp;ID) → Edge
                   </button>
-                  <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShowDeployMenu(false)}>
-                    Cloud Publish
+                  <button
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => { setShowDeployMenu(false); setDeployTarget('scada'); }}
+                  >
+                    SCADA Paketi → Edge
                   </button>
                 </div>
               </>
@@ -736,13 +696,12 @@ const UnifiedEditorPage: React.FC = () => {
           {/* Screen Tab Bar */}
           <ScreenManager iframeRef={iframeRef} isCanvasReady={isCanvasReady} />
 
-          {/* Canvas */}
-          <div
-            className="flex-1 bg-gray-50 relative"
-            onDragOver={handleWidgetDragOver}
-            onDrop={handleWidgetDrop}
-          >
-            {!isCanvasReady && (
+          {/* Canvas — P&ID/PLC/runtime/debug use the ReactFlow iframe; HMI uses
+              the real <ScreenCanvas> on the canonical Layer-B data plane. The
+              iframe stays mounted but hidden in HMI so its P&ID state survives
+              mode switches; HMI widget drops are handled natively by ScreenCanvas. */}
+          <div className="flex-1 bg-gray-50 relative">
+            {!isCanvasReady && mode !== 'hmi' && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
@@ -753,10 +712,17 @@ const UnifiedEditorPage: React.FC = () => {
             <iframe
               ref={iframeRef}
               src={getCanvasUrl()}
-              className="w-full h-full border-0"
+              className={`w-full h-full border-0 ${mode === 'hmi' ? 'hidden' : ''}`}
               title="Process Editor Canvas"
               sandbox="allow-scripts allow-same-origin"
             />
+            {mode === 'hmi' && (
+              <div className="absolute inset-0 flex flex-col">
+                <StableModeProvider mode="edit">
+                  <ScreenCanvas isPreview={false} />
+                </StableModeProvider>
+              </div>
+            )}
           </div>
 
           {/* Bottom Panel - ST Editor in PLC mode, generic output otherwise */}
@@ -832,6 +798,44 @@ const UnifiedEditorPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Deploy dialogs (6b) — the unified editor owns BOTH artifacts, so one
+          canonical DeployToEdgeDialog is bound per artifact, each with its own
+          mutation. Gated on deployTarget so the SCADA preview only serializes
+          the package when its dialog is actually open. */}
+      {deployTarget === 'process' && (
+        <DeployToEdgeDialog
+          title="Prosesi Edge'e Dağıt"
+          artifactLabel="Proses (P&ID)"
+          artifactName={processName}
+          accent="cyan"
+          isOpen
+          onClose={() => setDeployTarget(null)}
+          onDeploy={async (deviceId) => {
+            if (!storeProcessId || storeProcessId === 'new') {
+              return { success: false, message: 'Önce prosesi kaydedin.' };
+            }
+            return deployProc.mutateAsync({ processId: storeProcessId, deviceId });
+          }}
+        />
+      )}
+      {deployTarget === 'scada' && (
+        <DeployToEdgeDialog
+          title="SCADA Paketini Edge'e Dağıt"
+          artifactLabel="SCADA Package"
+          artifactName={scadaPackageName || `${processName} HMI`}
+          accent="purple"
+          preview={<ScadaPackagePreview packageData={scadaToJSON()} />}
+          isOpen
+          onClose={() => setDeployTarget(null)}
+          onDeploy={async (deviceId) => {
+            if (!scadaPackageId) {
+              return { success: false, message: 'Önce HMI paketini kaydedin.' };
+            }
+            return deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
+          }}
+        />
+      )}
     </div>
   );
 };

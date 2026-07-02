@@ -35,6 +35,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
 import type { ConnectionPointKey } from '../../types/scada-widget.types';
 import { useScadaDataOptional } from '../../context/ScadaDataProvider';
+import { getWidgetTagBinding } from '../../engine/tags';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import type { ScadaWidgetNodeData, ScadaWidgetType } from '../../types/scada-widget.types';
 import type { ScadaEdge, ScadaEdgeType } from '../../types/scada-edge.types';
@@ -252,8 +253,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
     // Widgets with visible === undefined or true are shown.
     return widgets.filter((w) => w.visible !== false).map((w) => {
       const px = gridToPixel(w.position);
-      // Resolve live tag value in preview mode
-      const tagName = (w.config?.tagName || w.config?.tag) as string | undefined;
+      // Resolve live tag value in preview mode — single binding accessor
+      // (config.tagRef → legacy keys) shared with the operator runtime.
+      const tagName = getWidgetTagBinding(w.config);
       let liveValue: number | string | boolean | undefined;
       if (isPreview && scadaData && deviceCode && tagName) {
         const rawValue = scadaData.getTagValue(deviceCode, tagName);

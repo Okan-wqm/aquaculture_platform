@@ -28,6 +28,9 @@
       ],
       "@platform/sensor-automation-types": [
         "../../../libs/sensor-automation-types/src/index.ts"
+      ],
+      "@platform/sensor-contracts": [
+        "../../../libs/sensor-contracts/src/index.ts"
       ]
     }
   },

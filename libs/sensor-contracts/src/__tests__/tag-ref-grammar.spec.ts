@@ -5,8 +5,8 @@ import {
   parseTagRef,
   splitTagRef,
   tagRefFromUnifiedTag,
-  validateTagRef,
 } from '../index';
+import { validateTagRef } from '../validators';
 
 describe('TagRef grammar', () => {
   describe('parseTagRef — valid forms', () => {

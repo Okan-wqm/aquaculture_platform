@@ -4,6 +4,11 @@ import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Opt
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
+import {
+  formatValidationErrors,
+  validateScadaPackageDocV2,
+} from '@platform/sensor-contracts/validators';
 
 import { AutomationService } from '../../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
@@ -52,6 +57,46 @@ export class ScadaPackageService {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Save-time trust boundary (ScadaPackageDocV2): upcast whatever the
+   * client sent to the current document contract, then validate it against
+   * the canonical JSON Schema. Returns the upcasted document — the stored
+   * row is always V2, so read paths only upcast legacy pre-Faz2 rows.
+   */
+  private async upcastAndValidatePackageData(
+    data: Record<string, unknown>,
+    tenantId: string,
+  ): Promise<Record<string, unknown>> {
+    const deviceCode = await this.resolveDeviceCode(
+      (data.meta as Record<string, unknown> | undefined)?.edgeDeviceId,
+      tenantId,
+    );
+    const doc = upcastScadaPackageDoc(data, deviceCode ? { deviceCode } : undefined);
+    if (!validateScadaPackageDocV2(doc)) {
+      throw new BadRequestException(
+        `packageData failed ScadaPackageDocV2 validation: ${formatValidationErrors(validateScadaPackageDocV2)}`,
+      );
+    }
+    return doc;
+  }
+
+  /** Best-effort edgeDeviceId → deviceCode lookup for TagRef promotion. */
+  private async resolveDeviceCode(
+    edgeDeviceId: unknown,
+    tenantId: string,
+  ): Promise<string | undefined> {
+    if (typeof edgeDeviceId !== 'string' || !edgeDeviceId || !this.edgeDeviceService) {
+      return undefined;
+    }
+    try {
+      const device = await this.edgeDeviceService.findByIdOrFail(edgeDeviceId, tenantId);
+      return device.deviceCode;
+    } catch {
+      // Unknown/foreign device: legacy local names simply stay unpromoted.
+      return undefined;
     }
   }
 
@@ -137,6 +182,7 @@ export class ScadaPackageService {
 
     this.validatePackageDataSize(input.packageData);
     this.validatePackageDataStructure(input.packageData);
+    const packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
 
     if (input.processId) {
       const process = await this.processRepository.findOne({
@@ -151,6 +197,7 @@ export class ScadaPackageService {
 
     const pkg = this.scadaPackageRepository.create({
       ...input,
+      packageData,
       tenantId,
       status: ScadaPackageStatus.DRAFT,
       version: 1,
@@ -182,12 +229,12 @@ export class ScadaPackageService {
     if (input.packageData !== undefined) {
       this.validatePackageDataSize(input.packageData);
       this.validatePackageDataStructure(input.packageData);
+      pkg.packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
     }
 
     if (input.name !== undefined) pkg.name = input.name;
     if (input.description !== undefined) pkg.description = input.description;
     if (input.processId !== undefined) pkg.processId = input.processId;
-    if (input.packageData !== undefined) pkg.packageData = input.packageData;
     if (input.status !== undefined) pkg.status = input.status;
 
     pkg.version = pkg.version + 1;
@@ -198,7 +245,18 @@ export class ScadaPackageService {
 
   async getScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
-    return pkg ? this.sanitizePackageData(pkg) : null;
+    if (!pkg) return null;
+    // Upcast-on-read: legacy pre-Faz2 rows come back as V2 documents (no
+    // validation throw on read — reads must never break on old data).
+    const deviceCode = await this.resolveDeviceCode(
+      (pkg.packageData?.meta as Record<string, unknown> | undefined)?.edgeDeviceId,
+      tenantId,
+    );
+    pkg.packageData = upcastScadaPackageDoc(
+      pkg.packageData,
+      deviceCode ? { deviceCode } : undefined,
+    );
+    return this.sanitizePackageData(pkg);
   }
 
   async listScadaPackages(

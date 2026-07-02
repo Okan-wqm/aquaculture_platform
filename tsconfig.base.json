@@ -144,6 +144,9 @@
         "libs/sensor-automation-types/src/index.ts"
       ],
       "@platform/sensor-contracts": ["libs/sensor-contracts/src/index.ts"],
+      "@platform/sensor-contracts/validators": [
+        "libs/sensor-contracts/src/validators.ts"
+      ],
       "@platform/storage": ["libs/storage/src/index.ts"],
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],
       "@platform/testing": ["libs/testing/src/index.ts"],

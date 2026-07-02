@@ -1,0 +1,155 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+
+import { ScadaPackage } from '../../entities/scada-package.entity';
+import { Process } from '../../entities/process.entity';
+import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
+import { ScadaPackageService } from '../scada-package.service';
+
+/**
+ * 6d — V2 `packageData` backfill.
+ *
+ * `backfillPackageDocsToV2` rewrites legacy (pre-Faz2, schemaVersion ≠ 2) rows
+ * to the canonical ScadaPackageDocV2 using the SAME upcaster + deviceCode
+ * resolution the save/read boundaries use, so the read-path upcast eventually
+ * becomes a no-op. These pin the properties an ops-run depends on: idempotency,
+ * dry-run safety, deviceCode-driven tagRef promotion, and that a malformed row
+ * is left untouched (never partially written) without aborting the batch.
+ */
+
+const TENANT = 'tenant-uuid-1';
+
+/** A representative legacy (V1) document as the pre-Faz2 serializer wrote it. */
+function legacyV1Doc(): Record<string, unknown> {
+  return {
+    meta: {
+      version: 1,
+      packageName: 'RAS Ana Ekran',
+      processId: 'proc-1',
+      edgeDeviceId: 'device-uuid-1',
+    },
+    screens: [
+      {
+        id: 'scr-1',
+        name: 'Main',
+        isDefault: true,
+        widgets: [
+          { id: 'w1', widgetType: 'gauge', position: { col: 0, row: 0, w: 4, h: 3 }, config: { tagName: 'tank1.do' } },
+          { id: 'w2', widgetType: 'numeric', position: { col: 4, row: 0, w: 2, h: 2 }, config: { tagId: 'tank1.temp' } },
+        ],
+      },
+    ],
+    alarmRules: [],
+    controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: null, emergencyStop: null },
+    trendConfig: { retentionDays: 7, sampleIntervalSec: 60, tags: [] },
+  };
+}
+
+/** An already-migrated (V2) document — the backfill must leave it alone. */
+function v2Doc(): Record<string, unknown> {
+  const doc = legacyV1Doc();
+  (doc.meta as Record<string, unknown>).schemaVersion = 2;
+  return doc;
+}
+
+/** A malformed legacy row: a widget missing the required `position`. */
+function malformedDoc(): Record<string, unknown> {
+  return {
+    meta: { version: 1 },
+    screens: [{ id: 's', widgets: [{ id: 'bad', widgetType: 'gauge', config: {} }] }],
+  };
+}
+
+// The backfill only reads id/packageData and writes packageData/updatedBy, so a
+// partial row is the honest fixture — the repo mock returns `any`, so no cast
+// is needed to hand these to the service.
+function pkgRow(id: string, packageData: Record<string, unknown>): Partial<ScadaPackage> {
+  return { id, tenantId: TENANT, packageData };
+}
+
+describe('ScadaPackageService — 6d V2 packageData backfill', () => {
+  let service: ScadaPackageService;
+  let repo: { find: jest.Mock; save: jest.Mock };
+  let edgeDeviceService: { findByIdOrFail: jest.Mock };
+
+  beforeEach(async () => {
+    repo = {
+      find: jest.fn(),
+      save: jest.fn().mockImplementation((entity) => Promise.resolve(entity)),
+    };
+    edgeDeviceService = {
+      findByIdOrFail: jest.fn().mockResolvedValue({ id: 'device-uuid-1', deviceCode: 'EDGE-AABB1122' }),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ScadaPackageService,
+        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
+        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+        { provide: EdgeDeviceService, useValue: edgeDeviceService },
+      ],
+    }).compile();
+
+    service = module.get(ScadaPackageService);
+  });
+
+  it('migrates legacy rows and skips ones already at V2', async () => {
+    repo.find.mockResolvedValue([
+      pkgRow('legacy-1', legacyV1Doc()),
+      pkgRow('already-v2', v2Doc()),
+    ]);
+
+    const result = await service.backfillPackageDocsToV2(TENANT);
+
+    expect(result).toMatchObject({ scanned: 2, migrated: 1, skipped: 1, failed: 0, dryRun: false });
+    expect(repo.save).toHaveBeenCalledTimes(1);
+    const saved = repo.save.mock.calls[0][0] as ScadaPackage;
+    expect(saved.id).toBe('legacy-1');
+    expect((saved.packageData.meta as Record<string, unknown>).schemaVersion).toBe(2);
+    expect(saved.updatedBy).toBe('system-backfill');
+  });
+
+  it('promotes legacy tagName/tagId to full tagRefs via the resolved deviceCode', async () => {
+    repo.find.mockResolvedValue([pkgRow('legacy-1', legacyV1Doc())]);
+
+    await service.backfillPackageDocsToV2(TENANT);
+
+    const saved = repo.save.mock.calls[0][0] as ScadaPackage;
+    const screens = saved.packageData.screens as Array<{ widgets: Array<{ config: Record<string, unknown> }> }>;
+    const widgets = screens[0]?.widgets ?? [];
+    expect(widgets[0]?.config.tagRef).toBe('EDGE-AABB1122/tank1.do');
+    expect(widgets[1]?.config.tagRef).toBe('EDGE-AABB1122/tank1.temp');
+  });
+
+  it('is idempotent: a re-run over all-V2 rows migrates nothing', async () => {
+    repo.find.mockResolvedValue([pkgRow('a', v2Doc()), pkgRow('b', v2Doc())]);
+
+    const result = await service.backfillPackageDocsToV2(TENANT);
+
+    expect(result).toMatchObject({ scanned: 2, migrated: 0, skipped: 2, failed: 0 });
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('dryRun previews the migration count without writing any row', async () => {
+    repo.find.mockResolvedValue([pkgRow('legacy-1', legacyV1Doc())]);
+
+    const result = await service.backfillPackageDocsToV2(TENANT, { dryRun: true });
+
+    expect(result).toMatchObject({ scanned: 1, migrated: 1, skipped: 0, failed: 0, dryRun: true });
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('leaves a malformed row untouched and continues the batch', async () => {
+    repo.find.mockResolvedValue([
+      pkgRow('bad', malformedDoc()),
+      pkgRow('legacy-1', legacyV1Doc()),
+    ]);
+
+    const result = await service.backfillPackageDocsToV2(TENANT);
+
+    expect(result).toMatchObject({ scanned: 2, migrated: 1, skipped: 0, failed: 1 });
+    // Only the good row was written; the malformed one was never saved.
+    expect(repo.save).toHaveBeenCalledTimes(1);
+    expect((repo.save.mock.calls[0][0] as ScadaPackage).id).toBe('legacy-1');
+  });
+});

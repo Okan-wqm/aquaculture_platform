@@ -19,6 +19,7 @@ import {
   ScadaPackageType,
   ScadaPackageListType,
   DeployScadaPackageResultType,
+  ScadaBackfillResultType,
   DeployScadaWithAutomationInput,
   UnifiedDeployResultType,
 } from '../dto/scada-package.dto';
@@ -342,6 +343,20 @@ export class ProcessResolver {
   ): Promise<ScadaPackageType> {
     const pkg = await this.scadaPackageService.updateScadaPackage(id, input, tenantId, user.sub);
     return this.mapScadaPackageToType(pkg, tenantId);
+  }
+
+  /**
+   * Backfill this tenant's legacy SCADA package docs to ScadaPackageDocV2
+   * (Faz 6 / 6d). Idempotent; `dryRun` previews without writing. Run per tenant
+   * for a platform-wide migration. SECURITY: TENANT_ADMIN only.
+   */
+  @Mutation(() => ScadaBackfillResultType, { name: 'backfillScadaPackageDocs' })
+  @Roles(Role.TENANT_ADMIN)
+  async backfillScadaPackageDocs(
+    @Tenant() tenantId: string,
+    @Args('dryRun', { type: () => Boolean, nullable: true, defaultValue: false }) dryRun: boolean,
+  ): Promise<ScadaBackfillResultType> {
+    return this.scadaPackageService.backfillPackageDocsToV2(tenantId, { dryRun });
   }
 
   @Mutation(() => DeleteProcessResultType, { name: 'deleteScadaPackage' })

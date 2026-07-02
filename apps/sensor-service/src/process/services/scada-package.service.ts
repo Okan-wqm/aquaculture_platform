@@ -267,6 +267,76 @@ export class ScadaPackageService {
     return this.scadaPackageRepository.save(pkg);
   }
 
+  /**
+   * Backfill legacy (pre-Faz2) SCADA package documents to the canonical
+   * ScadaPackageDocV2 (Faz 6 / 6d). Every row whose `meta.schemaVersion` is not
+   * exactly 2 is upcast — reusing the SAME `upcastScadaPackageDoc` + deviceCode
+   * resolution the save/read boundaries use, so the `tagName → tagRef`
+   * promotion is applied identically — validated against the canonical schema,
+   * then rewritten in place. Idempotent: rows already at V2 are skipped, so a
+   * re-run migrates 0. A row that fails V2 validation is left UNTOUCHED and
+   * counted, never partially written. `dryRun` reports what would change
+   * without writing a single row.
+   *
+   * Scoped to the caller's tenant (the search_path fences the query); run once
+   * per tenant for a platform-wide backfill. The deploy version is deliberately
+   * NOT bumped — a schema migration is not a user edit — and `updatedBy` is
+   * stamped `system-backfill` so the provenance is auditable. The read-path
+   * upcast in `getScadaPackage` stays as a defensive net until this backfill is
+   * verified across production.
+   */
+  async backfillPackageDocsToV2(
+    tenantId: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{ scanned: number; migrated: number; skipped: number; failed: number; dryRun: boolean }> {
+    const dryRun = options?.dryRun ?? false;
+    const packages = await this.scadaPackageRepository.find({ where: { tenantId } });
+
+    let migrated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const pkg of packages) {
+      const meta = pkg.packageData?.meta as Record<string, unknown> | undefined;
+      if (Number(meta?.schemaVersion) === 2) {
+        skipped += 1;
+        continue;
+      }
+
+      // Transform is per-row fenced: a single malformed legacy row is counted
+      // and left untouched, never aborting the rest of the tenant's migration.
+      let doc: Record<string, unknown>;
+      try {
+        const deviceCode = await this.resolveDeviceCode(meta?.edgeDeviceId, tenantId);
+        doc = upcastScadaPackageDoc(pkg.packageData, deviceCode ? { deviceCode } : undefined);
+        if (!validateScadaPackageDocV2(doc)) {
+          failed += 1;
+          this.logger.warn(
+            `Backfill left package ${pkg.id} unchanged: failed ScadaPackageDocV2 validation (${formatValidationErrors(validateScadaPackageDocV2)})`,
+          );
+          continue;
+        }
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`Backfill left package ${pkg.id} unchanged: ${(error as Error).message}`);
+        continue;
+      }
+
+      migrated += 1;
+      if (!dryRun) {
+        pkg.packageData = doc;
+        pkg.updatedBy = 'system-backfill';
+        await this.scadaPackageRepository.save(pkg);
+      }
+    }
+
+    this.logger.log(
+      `SCADA packageData backfill for tenant ${tenantId}: scanned=${packages.length} migrated=${migrated} skipped=${skipped} failed=${failed} dryRun=${dryRun}`,
+    );
+
+    return { scanned: packages.length, migrated, skipped, failed, dryRun };
+  }
+
   async getScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
     if (!pkg) return null;

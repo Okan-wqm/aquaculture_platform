@@ -1,5 +1,5 @@
 /**
- * RegulatoryReportStoreService — persistence lifecycle unit tests (FARM-HIGH-112).
+ * RegulatoryReportStoreService — persistence lifecycle unit tests (FARM-HIGH-125).
  *
  * Locks the record-of-submission contract:
  *   - recordPending creates a PENDING row inside the tenant-pinned

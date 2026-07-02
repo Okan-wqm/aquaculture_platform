@@ -183,7 +183,7 @@ export class RegulatoryVarslingService {
 
   /**
    * Enqueue the varsling event and persist the submission record in ONE
-   * tenant-pinned transaction (FARM-HIGH-112): the `regulatory_reports`
+   * tenant-pinned transaction (FARM-HIGH-125): the `regulatory_reports`
    * row (status QUEUED) exists iff the outbox event that carries the
    * urgent e-mail is committed. runInTenantTransaction pins search_path
    * to the tenant schema so the per-tenant report row routes correctly

@@ -502,7 +502,7 @@ function invalidateAllRegulatoryQueries(queryClient: ReturnType<typeof useQueryC
     predicate: (query) =>
       Array.isArray(query.queryKey) &&
       (query.queryKey[0] === REGULATORY_KEY ||
-        // Tenant-scoped persisted-submission caches (FARM-HIGH-112):
+        // Tenant-scoped persisted-submission caches (FARM-HIGH-125):
         // ['tenant', tenantId, '<key>', ...] — a fresh submission must
         // appear in the history lists without a manual refresh.
         (typeof query.queryKey[2] === 'string' &&

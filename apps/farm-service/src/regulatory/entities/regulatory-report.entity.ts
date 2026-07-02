@@ -1,7 +1,7 @@
 /**
  * RegulatoryReport Entity
  *
- * Persistent record of EVERY regulatory report submission (FARM-HIGH-112).
+ * Persistent record of EVERY regulatory report submission (FARM-HIGH-125).
  * Before this table existed the seven Mattilsynet report types (sea lice,
  * cleaner fish, smolt, planned/executed slaughter, welfare event, escape,
  * disease outbreak) were fired at the regulator without any local record —

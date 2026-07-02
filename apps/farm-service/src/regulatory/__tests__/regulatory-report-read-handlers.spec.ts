@@ -1,6 +1,6 @@
 /**
  * Regulatory-report read query handlers — fail-closed tenant boundary
- * (FARM-HIGH-112). Tenant + type scoping, optional site filter, clamped
+ * (FARM-HIGH-125). Tenant + type scoping, optional site filter, clamped
  * list, and the per-type summary aggregation shape.
  */
 import { createMockDataSource } from '@aquaculture/testing';

@@ -184,7 +184,7 @@ export class RegulatoryResolver {
 
   /**
    * Persist-first submit flow shared by the five Mattilsynet REST report
-   * types (FARM-HIGH-112): record PENDING → call the API → mark
+   * types (FARM-HIGH-125): record PENDING → call the API → mark
    * SUBMITTED/FAILED. A failure to persist fails the submit — an
    * unrecorded report must never reach the regulator.
    */

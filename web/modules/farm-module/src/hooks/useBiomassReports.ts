@@ -1,5 +1,5 @@
 /**
- * Biomass report read hooks (FARM-HIGH-112)
+ * Biomass report read hooks (FARM-HIGH-125)
  *
  * Wires the frontend to the backend biomass persistence that already
  * existed (`biomassReports` list query) — the tab previously rendered

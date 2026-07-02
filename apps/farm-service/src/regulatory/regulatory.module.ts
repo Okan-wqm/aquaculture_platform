@@ -30,7 +30,7 @@ import { RegulatoryReportResolver } from './regulatory-report.resolver';
 import { GetBiomassReportByPeriodHandler } from './handlers/get-biomass-report-by-period.handler';
 import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-reports-for-site.handler';
 
-// Regulatory-report read handlers (FARM-HIGH-112)
+// Regulatory-report read handlers (FARM-HIGH-125)
 import { ListRegulatoryReportsHandler } from './handlers/list-regulatory-reports.handler';
 import { GetRegulatoryReportHandler } from './handlers/get-regulatory-report.handler';
 import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-report-summary.handler';

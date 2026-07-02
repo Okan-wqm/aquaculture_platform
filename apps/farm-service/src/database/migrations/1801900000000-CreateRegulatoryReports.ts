@@ -4,13 +4,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 const TABLE = 'regulatory_reports';
 
 /**
- * FARM-HIGH-112 — persistent record for every Mattilsynet report submission.
+ * FARM-HIGH-125 — persistent record for every Mattilsynet report submission.
  * Before this table the seven non-biomass report types were fired at the
  * regulator with no local row; the frontend report-history tabs rendered
  * mock data because there was nothing real to list.
  */
-export class CreateRegulatoryReports1801800000000 implements MigrationInterface {
-  name = 'CreateRegulatoryReports1801800000000';
+export class CreateRegulatoryReports1801900000000 implements MigrationInterface {
+  name = 'CreateRegulatoryReports1801900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await this.ensureEnums(queryRunner);

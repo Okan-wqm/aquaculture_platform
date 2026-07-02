@@ -1,7 +1,7 @@
 /**
  * RegulatoryReportStoreService
  *
- * Owns the persistence lifecycle of `regulatory_reports` (FARM-HIGH-112) —
+ * Owns the persistence lifecycle of `regulatory_reports` (FARM-HIGH-125) —
  * the record-of-submission for every Mattilsynet report type that is not
  * biomass (which keeps its own draft-capable table).
  *

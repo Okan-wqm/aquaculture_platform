@@ -24,7 +24,7 @@ const FARM_MODULE_SRC = resolve(REPO_ROOT, 'web/modules/farm-module/src');
  * mock data. POSIX-relative to web/modules/farm-module/src. This list MUST ONLY
  * SHRINK — see the file header. Do not add entries.
  */
-// FARM-HIGH-112 closed the burn-down: every Reports surface now reads the
+// FARM-HIGH-125 closed the burn-down: every Reports surface now reads the
 // persisted regulatory_reports / biomass_reports rows and pages/reports/mock/
 // was deleted. The baseline is EMPTY and stays empty — this spec remains as
 // the permanent no-mock gate for farm-module production code.

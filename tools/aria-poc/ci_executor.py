@@ -78,6 +78,7 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "primary_plan",
         "challenger_plan",
         "cross_review",
+        "completeness_critique",
         "implementation",
     })
     _render_invocation_prompt = None
@@ -1079,12 +1080,22 @@ def _record_claude_cli_usage(
     role: str,
     request_id: str,
 ) -> None:
-    """Record Claude account usage without treating it as API-dollar spend.
+    """Record Claude usage with a TRUTHFUL USD attribution.
 
-    Default ARIA Claude mode uses managed-session auth, not API-key
-    billing. The attribution row therefore records token counts and a
-    zero USD estimate. If Claude stream-json omits usage, real mode has already
-    failed closed in ``claude_runtime.run_claude_exec`` before submit.
+    Cost resolution order (ORPHAN-HIGH-311 — the previous hardcoded
+    ``estimated_usd=0.0`` made the operator's USD budget caps toothless
+    and the ROI metric read $0 on real dispatches):
+
+    1. The CLI's own ``total_cost_usd`` from the terminal result event
+       (authoritative when the account bills per call).
+    2. Notional token pricing (``budget.MODEL_PRICING_USD_PER_MTOK``) —
+       managed-session auth has no per-call bill, but subscription
+       capacity is rate-limited, not free; caps bind on economic value.
+    3. Unknown model → 0.0 recorded PLUS a ``cost_pricing_unknown_model``
+       governance event so the zero is visible, never silent.
+
+    If Claude stream-json omits usage, real mode has already failed
+    closed in ``claude_runtime.run_claude_exec`` before submit.
     """
     events = parse_claude_jsonl(raw_stdout)
     usage = extract_usage(events)
@@ -1126,8 +1137,41 @@ def _record_claude_cli_usage(
     if not isinstance(signer_key_fp, str) or not signer_key_fp.startswith("SHA256:"):
         signer_key_fp = "SHA256:no-key"
 
+    # Cost resolution — see the docstring's 3-step order.
+    actual_cost_usd: float | None = None
+    for event in reversed(events):
+        if event.get("type") != "result":
+            continue
+        candidate_cost = event.get("total_cost_usd")
+        if isinstance(candidate_cost, (int, float)) and candidate_cost > 0:
+            actual_cost_usd = float(candidate_cost)
+        break
     try:
-        from aria_kernel.budget import record_cost_attribution
+        from aria_kernel.budget import estimate_tokens_usd, record_cost_attribution
+        estimated_usd = (
+            actual_cost_usd
+            if actual_cost_usd is not None
+            else estimate_tokens_usd(
+                model=model, input_tokens=input_tokens, output_tokens=output_tokens,
+            )
+        )
+        if estimated_usd == 0.0 and (input_tokens or output_tokens):
+            # Tokens were consumed but no price resolved — make the zero
+            # loud instead of silently under-counting the caps.
+            try:
+                from aria_kernel.tool_registry import append_tools_governance
+                append_tools_governance(
+                    tools_dir,
+                    "cost_pricing_unknown_model",
+                    {
+                        "model": model,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "request_id": request_id,
+                    },
+                )
+            except Exception:
+                pass
         record_cost_attribution(
             cycle_id=cycle_id,
             plan_id=plan_id,
@@ -1135,7 +1179,7 @@ def _record_claude_cli_usage(
             model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            estimated_usd=0.0,
+            estimated_usd=estimated_usd,
             pressure_source_type=pressure_source_type,
             signer_key_fp=signer_key_fp,
             base_dir=tools_dir,

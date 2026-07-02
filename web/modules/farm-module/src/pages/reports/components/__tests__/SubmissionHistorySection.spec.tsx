@@ -1,6 +1,6 @@
 /**
  * SubmissionHistorySection — the shared real-data report history block
- * (FARM-HIGH-112). Exercises the REAL useRegulatoryReports hook against a
+ * (FARM-HIGH-125). Exercises the REAL useRegulatoryReports hook against a
  * mocked graphqlClient transport, following the module's federation-free
  * vitest convention.
  */

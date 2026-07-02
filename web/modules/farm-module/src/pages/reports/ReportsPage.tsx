@@ -257,7 +257,7 @@ export const ReportsPage: React.FC = () => {
   const location = useLocation();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
-  // Persisted-submission summary (FARM-HIGH-112) — per-type status counts
+  // Persisted-submission summary (FARM-HIGH-125) — per-type status counts
   // + last submission timestamp from the backend record-of-submission.
   const { data: typeSummaries = [] } = useRegulatoryReportSummary();
 

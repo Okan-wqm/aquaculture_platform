@@ -72,6 +72,16 @@ Steps, etc.) are admitted as additional plan_content keys and the
 kernel ignores them; the seven required keys carry the structural
 contract.
 
+Coverage gate (`schema_version >= 2`): the kernel machine-computes the
+impact closure of your `affected_surfaces` (nx reverse dependents,
+NATS event consumers, entity→migration coupling) and refuses CONVERGED
+while closure nodes stay unaddressed. `must_satisfy` items of kind
+`coverage_gap` (id `coverage:<node_id>`) name exactly those nodes —
+answer each by widening `affected_surfaces` or adding a
+`coverage.waivers` entry `{node, reason}` (schema in the knowledge
+file). Prose never satisfies a coverage item: the witness re-computes
+the closure against your revised paths, not your narrative.
+
 ## Refusal Discipline
 
 You refuse — and emit a `aria/agent-refusal/v1` row instead of a plan — when any of the following hold. Refusal text passes the banned-phrase gate.

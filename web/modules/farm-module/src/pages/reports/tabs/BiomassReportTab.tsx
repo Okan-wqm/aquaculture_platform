@@ -1372,7 +1372,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     effectiveMapping?.siteName ??
     (effectiveMapping ? `Lokalitet ${effectiveMapping.lokalitetsnummer}` : 'Default Site');
 
-  // Persisted report history (FARM-HIGH-112) — real rows, no mock.
+  // Persisted report history (FARM-HIGH-125) — real rows, no mock.
   const {
     data: biomassReports = [],
     isLoading: reportsLoading,
@@ -1649,7 +1649,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         </div>
       </div>
 
-      {/* Report History (FARM-HIGH-112) */}
+      {/* Report History (FARM-HIGH-125) */}
       {!effectiveSiteId ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
           <p className="text-sm text-gray-500">

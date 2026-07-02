@@ -1,6 +1,6 @@
 /**
  * Per-report-type submission summary — feeds the Reports page header
- * stats and tab badges (FARM-HIGH-112).
+ * stats and tab badges (FARM-HIGH-125).
  */
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 

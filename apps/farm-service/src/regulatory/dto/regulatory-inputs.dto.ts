@@ -168,7 +168,7 @@ export class RegulatoryBaseInput {
    * because the Mattilsynet payload itself only needs lokalitetsnummer;
    * when omitted the server reverse-maps lokalitetsnummer through the
    * tenant's siteLocalityMappings so the persisted report row can still be
-   * filtered by site (FARM-HIGH-112).
+   * filtered by site (FARM-HIGH-125).
    */
   @Field({ nullable: true, description: 'Internal site identifier (optional; reverse-mapped from lokalitetsnummer when absent)' })
   @IsOptional()
@@ -908,7 +908,7 @@ export class ReportSubmissionResult {
 
   /**
    * Id of the persisted regulatory_reports row recording this submission
-   * (FARM-HIGH-112). Lets the frontend link the submit response to the
+   * (FARM-HIGH-125). Lets the frontend link the submit response to the
    * report-history list without a refetch round-trip.
    */
   @Field({ nullable: true, description: 'Persisted submission record id' })

@@ -2,7 +2,7 @@
  * RegulatoryReportResolver
  *
  * Read surface over the persisted Mattilsynet submissions in
- * `regulatory_reports` (FARM-HIGH-112). Isolated from
+ * `regulatory_reports` (FARM-HIGH-125). Isolated from
  * `regulatory.resolver.ts` (settings + submissions) and
  * `biomass-report.resolver.ts` (biomass drafts) following the same
  * file-per-concern split.

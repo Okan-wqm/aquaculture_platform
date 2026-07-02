@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'crypto';
 
+import { toError } from '../common/error-normalization';
 import {
   Controller,
   Post,
@@ -310,7 +311,7 @@ export class UploadController {
         throw error;
       }
       this.logger.error(
-        `Failed to upload document for chemical ${body.chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to upload document for chemical ${body.chemicalId}: ${toError(error).message}`,
       );
       throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
@@ -389,7 +390,7 @@ export class UploadController {
       }
 
       this.logger.error(
-        `Failed to delete document ${documentId} from chemical ${chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to delete document ${documentId} from chemical ${chemicalId}: ${toError(error).message}`,
       );
       throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
@@ -555,7 +556,7 @@ export class UploadController {
         throw error;
       }
       this.logger.error(
-        `Failed to upload batch document: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to upload batch document: ${toError(error).message}`,
       );
       throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
@@ -634,7 +635,7 @@ export class UploadController {
       }
 
       this.logger.error(
-        `Failed to delete batch document ${documentId}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to delete batch document ${documentId}: ${toError(error).message}`,
       );
       throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
@@ -738,7 +739,7 @@ export class UploadController {
 
       return { url, expiresAt };
     } catch (error) {
-      this.logger.error(`Failed to generate presigned URL: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(`Failed to generate presigned URL: ${toError(error).message}`);
       throw new InternalServerErrorException('Failed to generate download URL');
     }
   }

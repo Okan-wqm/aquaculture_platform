@@ -3,7 +3,7 @@
  *
  * One grouped aggregate per report type: status counts + the most recent
  * submission timestamp. Feeds the Reports page header stats and tab badges
- * that previously rendered mock numbers (FARM-HIGH-112).
+ * that previously rendered mock numbers (FARM-HIGH-125).
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { InjectDataSource } from '@nestjs/typeorm';

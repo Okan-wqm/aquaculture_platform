@@ -1,12 +1,8 @@
 import * as os from 'os';
-import {
-  Injectable,
-  Inject,
-  Logger,
-  OnApplicationBootstrap,
-  Type,
-} from '@nestjs/common';
+
+import { Injectable, Inject, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import type { IEventBus, IEvent } from '@platform/event-bus';
 import {
   DataSource,
   EntityManager,
@@ -16,17 +12,18 @@ import {
   MoreThanOrEqual,
   In,
 } from 'typeorm';
-import type { IEventBus, IEvent } from '@platform/event-bus';
-import { OutboxEntityBase } from './outbox-entity.base';
-import { OutboxMetricsService } from './outbox-metrics.service';
+
 import {
   OUTBOX_ENTITY_CLASS,
   OUTBOX_BATCH_SIZE,
   OUTBOX_MAX_RETRIES,
   OUTBOX_LAST_ERROR_MAX_LENGTH,
   OUTBOX_LEASE_DURATION_MS,
+  OUTBOX_PENDING_AGE_ALARM_MS,
   OUTBOX_PUBLISH_CONCURRENCY,
 } from './constants';
+import { OutboxEntityBase } from './outbox-entity.base';
+import { OutboxMetricsService } from './outbox-metrics.service';
 
 /**
  * OutboxWorkerService
@@ -180,25 +177,57 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     this.processing = true;
 
     try {
-      // Refresh gauges. Counting is cheap — a partial index on
+      // Refresh gauges IN SYSTEM CONTEXT (ORPHAN-HIGH-321): under tenant
+      // RLS these counts read 0, which both lied to Prometheus AND took
+      // the `pendingCount === 0` early exit below — the dispatcher never
+      // even attempted a lease. Counting is cheap — a partial index on
       // `(createdAt) WHERE publishedAt IS NULL` makes the pending count
       // fast even when the table is large.
-      const [pendingCount, deadLetterCount] = await Promise.all([
-        this.repo.count({
-          where: {
-            publishedAt: IsNull(),
-            retryCount: LessThan(OUTBOX_MAX_RETRIES),
-          },
-        }),
-        this.repo.count({
-          where: {
-            publishedAt: IsNull(),
-            retryCount: MoreThanOrEqual(OUTBOX_MAX_RETRIES),
-          },
-        }),
-      ]);
+      const tableName = this.repo.metadata.tableName;
+      const { pendingCount, deadLetterCount, oldestPendingAgeSeconds } =
+        await this.runAsOutboxSystem(async (manager) => {
+          const [pending, deadLettered] = await Promise.all([
+            manager.count(this.entityClass, {
+              where: {
+                publishedAt: IsNull(),
+                retryCount: LessThan(OUTBOX_MAX_RETRIES),
+              },
+            }),
+            manager.count(this.entityClass, {
+              where: {
+                publishedAt: IsNull(),
+                retryCount: MoreThanOrEqual(OUTBOX_MAX_RETRIES),
+              },
+            }),
+          ]);
+          const oldestRows: Array<{ age_seconds: string | number | null }> =
+            await manager.query(
+              `SELECT EXTRACT(EPOCH FROM (NOW() - MIN("createdAt"))) AS age_seconds
+               FROM "${tableName}"
+               WHERE "publishedAt" IS NULL AND "isDeadLettered" = false`,
+            );
+          const rawAge = oldestRows[0]?.age_seconds;
+          return {
+            pendingCount: pending,
+            deadLetterCount: deadLettered,
+            oldestPendingAgeSeconds: rawAge == null ? 0 : Number(rawAge),
+          };
+        });
       this.metrics.setPending(this.metricsLabel, pendingCount);
       this.metrics.setDeadLetterCount(this.metricsLabel, deadLetterCount);
+      this.metrics.setOldestPendingAge(this.metricsLabel, oldestPendingAgeSeconds);
+
+      // ORPHAN-HIGH-321: the silent-stall alarm. A healthy dispatcher
+      // never lets a row age past the threshold; sustained firing means
+      // rows are visible but not draining (NATS down, permissions, ...)
+      // — or were invisible until now (the RLS class this cures).
+      if (oldestPendingAgeSeconds * 1000 > OUTBOX_PENDING_AGE_ALARM_MS) {
+        this.logger.error(
+          `Outbox pending-age alarm: oldest unpublished ${this.metricsLabel} row is ` +
+            `${Math.round(oldestPendingAgeSeconds)}s old (threshold ` +
+            `${OUTBOX_PENDING_AGE_ALARM_MS / 1000}s) — the dispatch pipeline is stalled`,
+        );
+      }
 
       if (pendingCount === 0) return;
 
@@ -254,12 +283,38 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    * `publishedAt IS NULL`, and the remaining predicate is evaluated
    * row-by-row on the narrowed set.
    */
+  /**
+   * ORPHAN-HIGH-321 — run outbox table access in SYSTEM context.
+   *
+   * Every service's outbox table carries the forced `tenant_isolation_policy`
+   * (bypass GUC OR tenantId = app.current_tenant). The dispatcher is BY
+   * DESIGN a cross-tenant infrastructure sweeper (see the ADR-006 note in
+   * onApplicationBootstrap) and polls with NO tenant context — under the
+   * policy its SELECT silently saw ZERO rows, its UPDATEs matched nothing,
+   * and the transactional-outbox guarantee was void with no error anywhere
+   * (2026-07-02: 28 farm rows, newest hours old, zero dispatch attempts).
+   *
+   * `set_config('app.bypass_rls', 'on', true)` is the same audited system
+   * primitive BypassRlsService uses — `is_local = true` scopes it to THIS
+   * transaction, so it can never leak through the connection pool. Every
+   * table access in this worker MUST go through this helper; a new raw
+   * `this.repo.*` call is a regression back to the silent-stall class.
+   */
+  private async runAsOutboxSystem<T>(
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      await manager.query(`SELECT set_config('app.bypass_rls', 'on', true)`);
+      return work(manager);
+    });
+  }
+
   private async acquireLease(): Promise<OutboxEntityBase[]> {
     const tableName = this.repo.metadata.tableName;
     const leaseCutoff = new Date(Date.now() - OUTBOX_LEASE_DURATION_MS);
     const now = new Date();
 
-    return this.dataSource.transaction(async (manager: EntityManager) => {
+    return this.runAsOutboxSystem(async (manager: EntityManager) => {
       // Raw query — TypeORM's QueryBuilder support for SKIP LOCKED with
       // parameterized WHERE clauses has been inconsistent across driver
       // versions. A parameterized raw query is the simplest correct form.
@@ -324,9 +379,8 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       async (row) => {
         try {
           // The payload was validated at enqueue time
-          // (OutboxPublisher.enqueue); the cast is safe because only
-          // validated BaseEvent objects can reach this column.
-          const event = row.payload as IEvent;
+          // (OutboxPublisher.enqueue) and the column is typed IEvent.
+          const event: IEvent = row.payload;
           await this.eventBus.publish(event);
 
           successIds.push(row.id);
@@ -368,13 +422,19 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
    */
   private async markPublished(ids: string[]): Promise<void> {
     const publishedAt = new Date();
-    await this.repo.update(
-      { id: In(ids) },
-      {
-        publishedAt,
-        leasedAt: null,
-        leasedBy: null,
-      },
+    // ORPHAN-HIGH-321: system context — under tenant RLS this UPDATE
+    // matched zero rows silently, so a published row would have been
+    // re-leased and re-published forever.
+    await this.runAsOutboxSystem((manager) =>
+      manager.update(
+        this.entityClass,
+        { id: In(ids) },
+        {
+          publishedAt,
+          leasedAt: null,
+          leasedBy: null,
+        },
+      ),
     );
   }
 
@@ -400,13 +460,15 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       this.logger.error(
         `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED after ${newRetryCount} attempts: ${message}`,
       );
-      await this.repo.update(row.id, {
-        retryCount: newRetryCount,
-        lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
-        isDeadLettered: true,
-        leasedAt: null,
-        leasedBy: null,
-      });
+      await this.runAsOutboxSystem((manager) =>
+        manager.update(this.entityClass, row.id, {
+          retryCount: newRetryCount,
+          lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
+          isDeadLettered: true,
+          leasedAt: null,
+          leasedBy: null,
+        }),
+      );
     } else {
       this.logger.warn(
         `Outbox row ${row.id} (${row.eventType}) publish failed (attempt ${newRetryCount}/${OUTBOX_MAX_RETRIES}): ${message}`,
@@ -415,14 +477,16 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       // Prevents thundering herd when multiple workers retry simultaneously.
       const backoffMs = 2000 * Math.pow(2, row.retryCount) + Math.floor(Math.random() * 1000);
       const nextAttemptAt = new Date(Date.now() + backoffMs);
-      await this.repo.update(row.id, {
-        retryCount: newRetryCount,
-        lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
-        nextAttemptAt,
-        // Release the lease so a subsequent cycle can retry after backoff.
-        leasedAt: null,
-        leasedBy: null,
-      });
+      await this.runAsOutboxSystem((manager) =>
+        manager.update(this.entityClass, row.id, {
+          retryCount: newRetryCount,
+          lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
+          nextAttemptAt,
+          // Release the lease so a subsequent cycle can retry after backoff.
+          leasedAt: null,
+          leasedBy: null,
+        }),
+      );
     }
   }
 
@@ -438,9 +502,13 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      const result = await this.repo.delete({
-        publishedAt: LessThan(sevenDaysAgo),
-      });
+      // ORPHAN-HIGH-321: system context — tenant RLS hid every row from
+      // the cleanup DELETE too (published rows would accumulate forever).
+      const result = await this.runAsOutboxSystem((manager) =>
+        manager.delete(this.entityClass, {
+          publishedAt: LessThan(sevenDaysAgo),
+        }),
+      );
 
       if (result.affected && result.affected > 0) {
         this.logger.log(

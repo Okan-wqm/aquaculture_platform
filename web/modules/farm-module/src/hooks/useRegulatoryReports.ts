@@ -1,5 +1,5 @@
 /**
- * Persisted regulatory report submission hooks (FARM-HIGH-112)
+ * Persisted regulatory report submission hooks (FARM-HIGH-125)
  *
  * Reads the `regulatory_reports` record-of-submission the backend now
  * persists for every Mattilsynet report type. These hooks replace the

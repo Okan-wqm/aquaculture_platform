@@ -6,7 +6,7 @@ Status legend: OPEN → IN-PROGRESS → RESOLVED (merged commit carries `Closes:
 
 ---
 
-## FARM-HIGH-112 — Regulatory report submissions are not persisted; FE lists are mock
+## FARM-HIGH-125 — Regulatory report submissions are not persisted; FE lists are mock
 
 Seven regulatory report types (sea lice, cleaner fish, smolt, planned slaughter, executed slaughter, welfare event, escape, disease outbreak) are submitted to Mattilsynet through `apps/farm-service/src/regulatory/regulatory.resolver.ts` (+ `mattilsynet-api.service.ts`, `regulatory-varsling.service.ts`) but never persisted locally. Only biomass has an entity (`regulatory/entities/biomass-report.entity.ts`) and list query.
 
@@ -24,7 +24,7 @@ Required remediation:
 - CQRS read side: `regulatoryReports`, `regulatoryReport`, `regulatoryReportSummary` + permission-matrix entries.
 - FE tabs, summary, and deadlines wired to the real queries; `pages/reports/mock/` deleted; `MOCK_IMPORT_BASELINE` in `tests/invariants/farm-no-mock-data-growth-ssot.spec.ts` reaches empty.
 
-Closure criteria: all report tabs render persisted rows; mock dir deleted; invariants green (`farm-graphql-fe-be-parity`, `farm-no-mock-data-growth-ssot`, `farm-service-migration-array-completeness`, `tenant-fanout-entity-parity`). Closing commits carry `Closes: docs/reviews/farm-integration/2026-07-02-farm-full-integration.md#FARM-HIGH-112`.
+Closure criteria: all report tabs render persisted rows; mock dir deleted; invariants green (`farm-graphql-fe-be-parity`, `farm-no-mock-data-growth-ssot`, `farm-service-migration-array-completeness`, `tenant-fanout-entity-parity`). Closing commits carry `Closes: docs/reviews/farm-integration/2026-07-02-farm-full-integration.md#FARM-HIGH-125`.
 
 ## FARM-MEDIUM-113 — Maintenance pages built but never routed
 

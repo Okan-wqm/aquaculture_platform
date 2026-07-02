@@ -126,7 +126,7 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
       expect(event.tenantId).toBe(TENANT_ID);
       expect(event.userId).toBe(USER_ID);
 
-      // FARM-HIGH-112: the submission record persists atomically with the
+      // FARM-HIGH-125: the submission record persists atomically with the
       // outbox enqueue — the QUEUED row is saved through the SAME manager.
       expect(mocks.mockManager.save).toHaveBeenCalledWith(
         RegulatoryReport,

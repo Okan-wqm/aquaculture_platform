@@ -16,7 +16,8 @@ import { AddSiteContractFields1801400000000 } from './1801400000000-AddSiteContr
 import { EnsureFarmTenantErasureProofLedger1801500000000 } from './1801500000000-EnsureFarmTenantErasureProofLedger';
 import { DropAuditLedgerSourceWriteGuard1801600000000 } from './1801600000000-DropAuditLedgerSourceWriteGuard';
 import { BackfillStaleTankBatchDetails1801700000000 } from './1801700000000-BackfillStaleTankBatchDetails';
-import { CreateRegulatoryReports1801800000000 } from './1801800000000-CreateRegulatoryReports';
+import { BackfillTankBatchCurrentQuantityMirror1801800000000 } from './1801800000000-BackfillTankBatchCurrentQuantityMirror';
+import { CreateRegulatoryReports1801900000000 } from './1801900000000-CreateRegulatoryReports';
 
 /**
  * Canonical farm-service migration class list.
@@ -45,5 +46,6 @@ export const FARM_MIGRATIONS = [
   EnsureFarmTenantErasureProofLedger1801500000000,
   DropAuditLedgerSourceWriteGuard1801600000000,
   BackfillStaleTankBatchDetails1801700000000,
-  CreateRegulatoryReports1801800000000,
+  BackfillTankBatchCurrentQuantityMirror1801800000000,
+  CreateRegulatoryReports1801900000000,
 ] as const;

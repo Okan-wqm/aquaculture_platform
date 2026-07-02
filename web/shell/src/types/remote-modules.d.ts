@@ -36,11 +36,9 @@ declare module 'farmModule/Module' {
 // The remote no longer exposes these paths — see web/modules/farm-module/
 // vite.config.ts.
 
-declare module 'farmModule/SensorDashboard' {
-  import { FC } from 'react';
-  const SensorDashboard: FC;
-  export default SensorDashboard;
-}
+// `farmModule/SensorDashboard` declaration removed with its mock-only source
+// page (FARM-INT-MEDIUM-003). Live sensor monitoring is exposed by the
+// sensor-module remote (`sensorModule/Module`), not farm-module.
 
 // `processEditor/*` declarations removed in C1 PR-1b: there is no
 // `process-editor` federation remote — no Nx project, no vite.config remote

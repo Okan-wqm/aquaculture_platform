@@ -9,7 +9,6 @@ import './styles.css';
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import SensorDashboardPage from './pages/SensorDashboardPage';
 import MapViewPage from './pages/MapViewPage';
 import SetupPage from './pages/setup/SetupPage';
 import ReportsPage from './pages/reports/ReportsPage';
@@ -58,9 +57,11 @@ const FarmModule: React.FC = () => {
       {/* Site Düzenleme — same cleanup as above */}
       <Route path=":siteId/edit" element={<Navigate to="/sites/setup/sites" replace />} />
 
-      {/* Sensör Dashboard */}
-      <Route path="sensors" element={<SensorDashboardPage />} />
-      <Route path=":siteId/sensors" element={<SensorDashboardPage />} />
+      {/* Sensör izleme sensor-module'ün sorumluluğu — buradaki mock
+          SensorDashboardPage kaldırıldı (FARM-INT-MEDIUM-003). Eski
+          linkler canlı sensör modülüne gitsin. */}
+      <Route path="sensors/*" element={<Navigate to="/sensor" replace />} />
+      <Route path=":siteId/sensors" element={<Navigate to="/sensor" replace />} />
 
       {/* Tanks & Ponds Listesi */}
       <Route path="tanks" element={<TanksPage />} />

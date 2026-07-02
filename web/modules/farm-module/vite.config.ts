@@ -38,7 +38,9 @@ export default defineConfig(({ mode }) => {
           // frontend"). The shell no longer imports them — all site surfaces go
           // through SetupPage > SitesTab. Re-adding them would break the build
           // because the source files no longer exist.
-          './SensorDashboard': './src/pages/SensorDashboardPage.tsx',
+          // `./SensorDashboard` was removed with its mock-only page
+          // (FARM-INT-MEDIUM-003) — live sensor monitoring is owned by the
+          // sensor-module remote.
         },
         // FE-HIGH-004: Single source of truth with strictVersion:true
         shared: getCoreSharedConfig(),

@@ -21,6 +21,7 @@ from .memory import decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
+from .genesis_policy import load_policy
 from .reflection import run_reflection
 from .human_required import sweep_consensus_uncertainties_for_human_required
 from .judge_calibration import compute_judge_calibration
@@ -451,7 +452,15 @@ def run_enterprise_cycle(
     if post_tool_failure is None:
         emit_progress("pressure", cycle_id=cycle_id, phase="started")
         try:
-            pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
+            # Plan S4 (ORPHAN-MEDIUM-298) — operator drift-class targeting:
+            # genesis-policy weights bias pressure scores per class. The
+            # loader is fail-soft (defaults on any error), and _doc keys are
+            # not classes, so passing the block through unfiltered is safe.
+            drift_weights = load_policy(workspace_root).get("drift_class_weights")
+            pressure = run_pressure(
+                cycle_id=cycle_id, base_dir=root,
+                drift_class_weights=drift_weights,
+            )
         except Exception as exc:
             post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
     # Plan 023 §B — drain consensus disagreements / low-confidence verdicts into

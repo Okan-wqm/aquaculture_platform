@@ -15,6 +15,7 @@ import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 // FE-MEDIUM-054: cacheData/getCachedData are the tenant-scoped, AES-GCM-encrypted
 // offline cache helpers (same last-known-good pattern used elsewhere in the app).
+import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 
@@ -96,11 +97,15 @@ function useTodaysFeedingPlan(): {
   useEffect(() => {
     let cancelled = false;
     if (!tenantId) return;
-    void getCachedData<FeedingExecution[]>(tenantId, cacheKey).then((cached) => {
-      if (!cancelled && cached) {
-        setCachedSeed(cached);
-      }
-    });
+    getCachedData<FeedingExecution[]>(tenantId, cacheKey)
+      .then((cached) => {
+        if (!cancelled && cached) {
+          setCachedSeed(cached);
+        }
+      })
+      .catch((error: unknown) => {
+        logger.error('[RecordFeedingPage] failed to load cached feeding plan seed', error);
+      });
     return () => {
       cancelled = true;
     };

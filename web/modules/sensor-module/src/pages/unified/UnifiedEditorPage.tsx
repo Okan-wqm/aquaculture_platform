@@ -63,6 +63,7 @@ import { StableModeProvider } from '../../components/scada-builder/StableModePro
 import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
 import { DeployAutomationModal } from '../../components/deploy/DeployAutomationModal';
 import { ScadaPackagePreview } from '../../components/deploy/ScadaPackagePreview';
+import { WidgetConfigModal } from '../../components/process-editor/WidgetConfigModal';
 import ScreenManager from '../../components/unified-editor/ScreenManager';
 import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 
@@ -222,6 +223,12 @@ const UnifiedEditorPage: React.FC = () => {
   const [isAutomationDeployOpen, setIsAutomationDeployOpen] = useState(false);
   // Right-panel mode in P&ID: properties vs equipment attachments (6c parity)
   const [rightPanelMode, setRightPanelMode] = useState<'properties' | 'attachments'>('properties');
+  // Data-channel widget config modal, opened by the canvas (6c parity)
+  const [widgetConfigModal, setWidgetConfigModal] = useState<{
+    isOpen: boolean;
+    nodeId: string | null;
+    data: Record<string, unknown> | null;
+  }>({ isOpen: false, nodeId: null, data: null });
 
   // SCADA package identity for this process (dual-target save + deploy, 6b)
   const [scadaPackageId, setScadaPackageId] = useState<string | null>(null);
@@ -282,6 +289,8 @@ const UnifiedEditorPage: React.FC = () => {
       if (event.origin !== window.location.origin) return;
       if (!isCanvasMessage(event.data)) return;
       const { type, data, source } = event.data;
+      // `nodeId` rides at the top level of the openWidgetConfig message.
+      const nodeId = (event.data as { nodeId?: string }).nodeId;
       if (source !== 'process-editor-canvas') return;
 
       switch (type) {
@@ -311,6 +320,13 @@ const UnifiedEditorPage: React.FC = () => {
           setSelectedNodeId(null);
           selectNode(null);
           selectEdge(null);
+          break;
+        case 'openWidgetConfig':
+          setWidgetConfigModal({
+            isOpen: true,
+            nodeId: typeof nodeId === 'string' ? nodeId : null,
+            data: data as Record<string, unknown>,
+          });
           break;
         default:
           break;
@@ -469,6 +485,22 @@ const UnifiedEditorPage: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  // Data-channel widget config modal handlers (6c parity). Save pushes the
+  // updated widget data back to the canvas node; no console (no-console).
+  const handleWidgetConfigClose = useCallback(() => {
+    setWidgetConfigModal({ isOpen: false, nodeId: null, data: null });
+  }, []);
+
+  const handleWidgetConfigSave = useCallback(
+    (updatedData: Record<string, unknown>) => {
+      if (widgetConfigModal.nodeId) {
+        sendToCanvas('updateNodeData', { nodeId: widgetConfigModal.nodeId, data: updatedData });
+      }
+      setWidgetConfigModal({ isOpen: false, nodeId: null, data: null });
+    },
+    [widgetConfigModal.nodeId, sendToCanvas],
+  );
 
   // Canvas URL
   const getCanvasUrl = () => {
@@ -910,6 +942,16 @@ const UnifiedEditorPage: React.FC = () => {
         onClose={() => setIsAutomationDeployOpen(false)}
         boundDevices={boundDevices}
       />
+
+      {/* Data-channel widget config (6c parity) — opened by the P&ID canvas. */}
+      {widgetConfigModal.isOpen && (
+        <WidgetConfigModal
+          nodeId={widgetConfigModal.nodeId}
+          data={widgetConfigModal.data}
+          onClose={handleWidgetConfigClose}
+          onSave={handleWidgetConfigSave}
+        />
+      )}
     </div>
   );
 };

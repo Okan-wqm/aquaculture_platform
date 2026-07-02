@@ -82,6 +82,11 @@ vi.mock('../../../components/unified-editor/UnifiedPropertiesPanel', () => ({
 vi.mock('../../../components/process-editor/panels/AttachmentsPanel', () => ({
   AttachmentsPanel: () => <div data-testid="attachments-panel" />,
 }));
+vi.mock('../../../components/process-editor/WidgetConfigModal', () => ({
+  WidgetConfigModal: ({ nodeId }: { nodeId: string | null }) => (
+    <div data-testid="widget-config-modal" data-node={nodeId ?? ''} />
+  ),
+}));
 vi.mock('../../../components/unified-editor/ScreenManager', () => ({
   default: () => <div data-testid="screen-manager" />,
 }));
@@ -268,6 +273,24 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
 
     fireEvent.click(screen.getByText('Properties'));
     expect(screen.getByTestId('properties-panel')).toBeTruthy();
+  });
+
+  it('(6c) an openWidgetConfig canvas message opens the widget-config modal', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    expect(screen.queryByTestId('widget-config-modal')).toBeNull();
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          data: { type: 'openWidgetConfig', source: 'process-editor-canvas', nodeId: 'node-1', data: {} },
+        }),
+      );
+    });
+
+    const modal = await screen.findByTestId('widget-config-modal');
+    expect(modal.getAttribute('data-node')).toBe('node-1');
   });
 
   it('(c) Save persists BOTH the process and the SCADA package (dual-target)', async () => {

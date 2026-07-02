@@ -105,5 +105,9 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
     useToast: () => ({ toast: toastMock }),
     useTenantQuery,
     useTenantMutation,
+    // Reads shared-ui's internal AuthContext in production — the stub session
+    // is a TENANT_ADMIN, so mutations are visible (per-spec overrides can
+    // re-mock this to exercise the hidden state).
+    useCanMutate: () => true,
   };
 }

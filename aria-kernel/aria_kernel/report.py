@@ -138,6 +138,63 @@ def _workspace_governance_tail(workspace_root: Path) -> str | None:
     return None
 
 
+def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
+    """Plan S6 (ORPHAN-MEDIUM-299) — merged-value-per-dollar metrics.
+
+    Joins the two ledgers the runtime already writes: cost-attribution
+    monthly shards (per-LLM-invocation estimated_usd, V10.4) and
+    pr-lifecycle.jsonl (event=="merged" rows, Plan 025 §E). Day scope =
+    recorded_at prefix match on ``date``; month-to-date scope = the
+    date's YYYY-MM shard / prefix. Read-only and fail-soft: missing
+    ledgers yield zeros, matching the anchor's best-effort contract.
+    """
+    month = date[:7]
+    shard = tools_root / "cost-attribution" / f"{month}.jsonl"
+    day_cost = mtd_cost = 0.0
+    day_calls = 0
+    day_cycles: set[str] = set()
+    for line in _safe_read_lines(shard):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        recorded = str(row.get("recorded_at") or "")
+        if not recorded.startswith(month):
+            continue
+        try:
+            usd = float(row.get("estimated_usd") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        mtd_cost += usd
+        if recorded.startswith(date):
+            day_cost += usd
+            day_calls += 1
+            if row.get("cycle_id"):
+                day_cycles.add(str(row["cycle_id"]))
+    day_merged = mtd_merged = 0
+    for line in _safe_read_lines(tools_root / "pr-lifecycle.jsonl"):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("event") != "merged":
+            continue
+        recorded = str(row.get("recorded_at") or "")
+        if recorded.startswith(month):
+            mtd_merged += 1
+        if recorded.startswith(date):
+            day_merged += 1
+    return {
+        "day_cost_usd": round(day_cost, 4),
+        "day_llm_calls": day_calls,
+        "day_cycles_with_spend": len(day_cycles),
+        "day_merged_prs": day_merged,
+        "usd_per_merge": round(day_cost / day_merged, 4) if day_merged else None,
+        "mtd_cost_usd": round(mtd_cost, 4),
+        "mtd_merged_prs": mtd_merged,
+    }
+
+
 def build_daily_anchor(
     *,
     date: str,
@@ -166,6 +223,9 @@ def build_daily_anchor(
         "events_emitted_count": _count_events(governance_path),
         "cycle_ids_sealed": _read_sealed_cycle_ids(cycles_path),
         "integrity_index_chain_root": _integrity_index_chain_root(integrity_index_path),
+        # Plan S6 (ORPHAN-MEDIUM-299) — additive key; the I-26 invariant
+        # only constrains the pre-existing fields.
+        "roi": _roi_metrics(tools_root, date),
     }
 
 
@@ -195,6 +255,14 @@ def render_anchor_markdown(anchor: dict[str, Any]) -> str:
         + "Plan ARIA-V2 §3.9 — committed daily chain-tip anchor replacing\n"
         + "git history as the audit-trust source for per-clone runtime\n"
         + "ledgers (gitignored per §3.4).\n"
+        + "\n"
+        + "## Merged value per dollar\n"
+        + "\n"
+        + "The `roi` frontmatter block joins the cost-attribution shard\n"
+        + "with pr-lifecycle merged events for this date: cycle spend,\n"
+        + "merged-PR count, and usd_per_merge (null until the first\n"
+        + "merged PR of the day). Month-to-date fields accumulate over\n"
+        + "the calendar month's shard.\n"
         + "\n"
         + "## Governance ledger\n"
         + "\n"

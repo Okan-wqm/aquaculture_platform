@@ -394,20 +394,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
           {/* Canvas — single stable instance, data provider switches internally
                to prevent unmount/remount that would destroy ReactFlow drag positions */}
           <div className="flex-1 flex flex-col">
-            <StableModeProvider
-              mode={mode}
-              deviceCode={selectedDevice?.deviceCode ?? null}
-            >
-              <ScreenCanvas
-                isPreview={mode !== 'edit'}
-                deviceCode={
-                  mode === 'simulation'
-                    ? '__sim__'
-                    : mode === 'preview' && selectedDevice?.deviceCode
-                      ? selectedDevice.deviceCode
-                      : undefined
-                }
-              />
+            <StableModeProvider mode={mode}>
+              <ScreenCanvas isPreview={mode !== 'edit'} />
             </StableModeProvider>
           </div>
         </div>

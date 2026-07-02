@@ -5,41 +5,26 @@ import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Live-data-plane consolidation guard (enterprise plan Faz 6).
+ * Single-live-data-plane guard (enterprise plan Faz 6, SENSOR-HIGH-006).
  *
- * The sensor module has TWO live-data generations:
- *   - Legacy "Layer A": the `/sensors` device-code path — `useScadaLiveData`
- *     + `ScadaDataContext` (`context/ScadaDataProvider.tsx`).
- *   - Canonical "Layer B": the `/scada` tag path — `IDataProvider` /
- *     `useDataProvider` / `useRealtimeData` (tenant-fenced, registry-gated
- *     server side).
+ * The legacy "Layer A" live-data path — the `/sensors` device-code
+ * `useScadaLiveData` + `ScadaDataContext` (`context/ScadaDataProvider.tsx`)
+ * — is now FULLY RETIRED. The sensor module has ONE live-data plane:
+ * "Layer B", the `/scada` tag path (`IDataProvider` / `useDataProvider` /
+ * `useRealtimeData`, tenant-fenced + registry-gated server side). The
+ * builder preview canvas (`ScreenCanvas` via `StableModeProvider`) now
+ * runs on Layer B like the operator.
  *
- * Layer B is the single data plane going forward. Layer A survives ONLY
- * as the builder-preview canvas dependency (`ScreenCanvas` via
- * `StableModeProvider`) pending its migration (tracked:
- * SENSOR-HIGH-006). This guard freezes the blast radius: the set of files
- * importing the legacy context/hook may only SHRINK. Any NEW importer
- * fails this test — so the retirement cannot silently regrow, and the
- * next migration PR deletes entries here as it removes them.
+ * The allowlist is EMPTY: no file may import or use the legacy path. Any
+ * reintroduction fails this test by construction, so the second data plane
+ * cannot grow back.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, '..');
 
-/**
- * The COMPLETE allowlist of files still coupled to Layer A. Every path is
- * relative to `src/`. Removing a coupling means deleting its line here;
- * adding a new Layer-A importer is a test failure by construction.
- */
-const LEGACY_LAYER_A_ALLOWLIST = new Set<string>([
-  // The legacy provider + hook themselves (definition sites).
-  'context/ScadaDataProvider.tsx',
-  'hooks/useScadaLiveData.ts',
-  'hooks/__tests__/useScadaLiveData.tenant-isolation.test.ts',
-  // The one remaining live consumer chain — the builder preview canvas.
-  'components/scada-builder/StableModeProvider.tsx',
-  'components/scada-builder/ScreenCanvas.tsx',
-]);
+/** No file may couple to Layer A — the path is retired. */
+const LEGACY_LAYER_A_ALLOWLIST = new Set<string>([]);
 
 /**
  * Real couplings only — an `import` from the legacy modules, or an actual

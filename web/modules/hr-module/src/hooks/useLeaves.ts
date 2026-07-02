@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_LEAVE_TYPES,
@@ -366,7 +366,7 @@ export function useApproveLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
       // BUG-014: use prefix invalidation so all pendingApprovals(approverId) keys are invalidated
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, ...leaveKeys.all, 'pendingApprovals'),
+        queryKey: createTenantInvalidationKey(tenantId, ...leaveKeys.all, 'pendingApprovals'),
         exact: false,
       });
       queryClient.invalidateQueries({
@@ -396,7 +396,7 @@ export function useRejectLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
       // BUG-014: use prefix invalidation so all pendingApprovals(approverId) keys are invalidated
       queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, ...leaveKeys.all, 'pendingApprovals'),
+        queryKey: createTenantInvalidationKey(tenantId, ...leaveKeys.all, 'pendingApprovals'),
         exact: false,
       });
       queryClient.invalidateQueries({

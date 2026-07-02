@@ -46,7 +46,11 @@ export class FarmStockProjectionService {
           t."status"::text,
           t."volume",
           t."maxBiomass",
-          COALESCE(tb."totalQuantity", t."currentCount"),
+          -- Count derives from tank_batches (the SSoT) only. currentCount is now a
+          -- derived mirror (single writer), so the old fallback to t."currentCount"
+          -- could only ever re-surface pre-fix drift; an absent tank_batches row is
+          -- an empty tank (0). Biomass keeps its fallback until its SSoT unification.
+          COALESCE(tb."totalQuantity", 0),
           COALESCE(tb."totalBiomassKg", t."currentBiomass"),
           tb."capacityUsedPercent",
           COALESCE(tb."isOverCapacity", false),
@@ -106,16 +110,17 @@ export class FarmStockProjectionService {
               THEN NULLIF(trim(e."specifications" ->> 'maxBiomass'), '')::numeric
             ELSE NULL
           END,
-          e."currentCount",
+          COALESCE(tb."totalQuantity", 0),
           e."currentBiomass",
           false,
-          COALESCE(e."currentCount", 0) > 0,
+          COALESCE(tb."totalQuantity", 0) > 0,
           e."isActive" AND NOT e."isDeleted",
           e."updatedAt",
           now(),
           now()
         FROM equipment e
         LEFT JOIN departments d ON d."id" = e."departmentId" AND d."tenantId" = e."tenantId"
+        LEFT JOIN tank_batches tb ON tb."tenantId" = e."tenantId" AND tb."tankId" = e."id"
         WHERE e."tenantId" = $1 AND e."id" = ANY($2::uuid[]) AND e."isTank" = true
         ON CONFLICT ("tenantId", "containerId") DO UPDATE SET
           "name" = EXCLUDED."name",

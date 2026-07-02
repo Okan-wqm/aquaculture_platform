@@ -23,6 +23,10 @@ import { BiomassReportResolver } from './biomass-report.resolver';
 import { RegulatorySettingsSeederService } from './services/regulatory-settings-seeder.service';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
 
+// Biomass-report read handlers (fail-closed tenant boundary — FARM-HIGH-060)
+import { GetBiomassReportByPeriodHandler } from './handlers/get-biomass-report-by-period.handler';
+import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-reports-for-site.handler';
+
 @Module({
   imports: [
     ConfigModule,
@@ -35,6 +39,8 @@ import { RegulatoryVarslingService } from './services/regulatory-varsling.servic
     RegulatorySettingsService,
     BiomassReportService,
     BiomassReportResolver,
+    GetBiomassReportByPeriodHandler,
+    ListBiomassReportsForSiteHandler,
     RegulatorySettingsSeederService,
     RegulatoryVarslingService,
   ],

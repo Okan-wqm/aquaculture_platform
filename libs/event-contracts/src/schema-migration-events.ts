@@ -94,9 +94,15 @@ export type SchemaMigrationEvent =
 
 /**
  * NATS subject prefix for schema-migration events. Consumers subscribe
- * to `platform.schema-migration.>` to receive all four event types.
- * Subject routing matches the `platform.<domain>.<event-type>` pattern
- * used across the event bus (see ADR-015 NATS identity + subject
- * conventions).
+ * to `events.platform.schema-migration.>` to receive all four event types
+ * (observability-service derives its subscribe subject from THIS constant
+ * so publisher and consumer cannot drift).
+ *
+ * ORPHAN-MEDIUM-326 — WHY the `events.` prefix is part of the constant:
+ * NatsEventBus.normalizeSubject REJECTS (throws on) any subject outside
+ * the `events.`/`commands.`/`queries.` spaces, and the JetStream stream
+ * only captures those. The previous value (`platform.schema-migration`)
+ * made every sink publish die client-side — swallowed as best-effort —
+ * while observability consumed a subject nothing could ever produce.
  */
-export const SCHEMA_MIGRATION_SUBJECT_PREFIX = 'platform.schema-migration';
+export const SCHEMA_MIGRATION_SUBJECT_PREFIX = 'events.platform.schema-migration';

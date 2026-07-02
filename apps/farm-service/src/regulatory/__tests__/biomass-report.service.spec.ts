@@ -212,52 +212,8 @@ describe('BiomassReportService', () => {
     });
   });
 
-  describe('findByPeriod', () => {
-    it('delegates to repo.findOne with the composite key', async () => {
-      const repo = makeRepoDouble();
-      repo.findOne.mockResolvedValue(null);
-      const service = new BiomassReportService(
-        repo as unknown as Repository<BiomassReport>,
-      );
-
-      await service.findByPeriod(
-        tenantId,
-        'site-1',
-        4,
-        2026,
-      );
-
-      expect(repo.findOne).toHaveBeenCalledWith({
-        where: { tenantId, siteId: 'site-1', reportMonth: 4, reportYear: 2026 },
-      });
-    });
-  });
-
-  describe('listForSite', () => {
-    it('clamps the limit to 120', async () => {
-      const repo = makeRepoDouble();
-      const service = new BiomassReportService(
-        repo as unknown as Repository<BiomassReport>,
-      );
-
-      await service.listForSite(tenantId, 'site-1', 999);
-
-      expect(repo.find).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 120 }),
-      );
-    });
-
-    it('clamps a non-positive limit to 1', async () => {
-      const repo = makeRepoDouble();
-      const service = new BiomassReportService(
-        repo as unknown as Repository<BiomassReport>,
-      );
-
-      await service.listForSite(tenantId, 'site-1', -5);
-
-      expect(repo.find).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 1 }),
-      );
-    });
-  });
+  // findByPeriod + listForSite were migrated out of BiomassReportService to the
+  // fail-closed read handlers (FARM-HIGH-060, #741). Their coverage — tenant
+  // scoping, the composite-key lookup, and the [1,120] limit clamp — now lives
+  // in biomass-report-read-handlers.spec.ts. createOrUpdate (the write) stays here.
 });

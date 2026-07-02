@@ -15,6 +15,12 @@ REQUEST_ROLES: tuple[str, ...] = (
     "primary_plan",
     "challenger_plan",
     "cross_review",
+    # Coverage-waiver adjudicator (plan-coverage gate PR-2). Deliberately
+    # NOT in PLANNER_BRIDGE_ROLES: its result is annotation-only — the
+    # drainer reads it from the invocation results ledger and folds the
+    # verdict into the coverage_computed payload; no plan-state mutation
+    # happens on submit.
+    "completeness_critique",
     "implementation",
     "implementation_review",
     "verification",
@@ -48,6 +54,7 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     "primary_plan",
     "challenger_plan",
     "cross_review",
+    "completeness_critique",
     "implementation",
 })
 
@@ -84,6 +91,7 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-prompt-writer",
     "aria-primary-planner",
     "aria-challenger-planner",
+    "aria-completeness-critic",
     "aria-primary-drafter",
     "aria-challenger-drafter",
     "aria-implementer",
@@ -103,6 +111,7 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
 ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     "primary_authoring": ("aria-primary-drafter",),
     "challenger_authoring": ("aria-challenger-drafter",),
+    "completeness_critique": ("aria-completeness-critic",),
     "implementation": ("aria-implementer",),
     "evidence_judgment": ("aria-evidence-judge",),
     "adversarial_judgment": ("aria-adversarial-judge",),

@@ -1,6 +1,6 @@
 ---
 name: protocol-reference-writer
-description: Produces normative per-protocol reference documentation for every wire protocol implemented by sens-api-gateway (Modbus-TCP/RTU, OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN, MQTT, I2C, SPI, PWM, GPIO, Atlas EZO). Output is AsyncAPI/NodeSet/GSDML-grade contract documentation — the doc a third-party integrator uses to certify interoperability. Owns sens-api-gateway/docs/protocols/**.
+description: Produces normative per-protocol reference documentation for every wire protocol implemented by sens-api-gateway (Modbus-TCP/RTU, OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN, MQTT, I2C, SPI, PWM, GPIO, Atlas EZO). Output is AsyncAPI/NodeSet/GSDML-grade contract documentation — the doc a third-party integrator uses to certify interoperability. Owns sens-api-gateway/docs/protocols/**. Invoked by edge-docs-orchestrator.
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash

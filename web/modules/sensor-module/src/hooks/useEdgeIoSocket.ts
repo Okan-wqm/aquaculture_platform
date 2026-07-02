@@ -248,8 +248,9 @@ export function useEdgeIoSocket(deviceCode?: string | null) {
       }
       subscribedRef.current = null;
 
-      // Release our reference so the pool can clean up when no consumers remain
-      releaseSocket(WS_URL);
+      // Release our reference (by socket identity) so the pool can clean up when no
+      // consumers remain — immune to a tenant switch between acquire and release.
+      releaseSocket(socket);
       edgeListenersAttached = false;
     };
   }, [deviceCode, currentTenantId, updateTags, addAlarms, setConnected]);

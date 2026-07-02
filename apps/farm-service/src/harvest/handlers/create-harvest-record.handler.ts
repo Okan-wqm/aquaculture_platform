@@ -34,6 +34,7 @@ import { CloseBatchCommand, BatchCloseReason } from '../../batch/commands/close-
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
+import { TankBatchService } from '../../batch/services/tank-batch.service';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
@@ -73,6 +74,9 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    // Single SSoT writer for tank composition — harvest decrements the tank's
+    // batchDetails[] through this, never by hand (see the applyBatchDelta call).
+    private readonly tankBatchService: TankBatchService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     // Required param placed before the default-valued ones below.
     private readonly siteAuth: SiteAuthorizationService =
@@ -348,30 +352,38 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
 
       await queryRunner.manager.save(Batch, batch);
 
-      // TankBatch güncelle (Math.max to prevent negatives from concurrent operations)
+      // TankBatch: route the harvest decrement through the single SSoT writer
+      // (TankBatchService.applyBatchDelta) so batchDetails[] — the per-batch
+      // truth the web + mobile read models render — is decremented in lock-step
+      // with the aggregates, instead of being left stale (the class of drift that
+      // made the web panel show 900 while mobile showed 719). Derives every
+      // aggregate + removes the batch from the composition when it reaches zero.
+      // Mirrors the mortality/cull/transfer write paths (one writer, no drift).
       if (tankBatch) {
-        // Ensure numeric operations (decimal columns may come as strings)
-        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - input.quantityHarvested);
-        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
-        tankBatch.currentQuantity = tankBatch.totalQuantity;
-        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-        if (tankBatch.totalQuantity > 0) {
-          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-          const effectiveVolume = tank.waterVolume || tank.volume;
-          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-        } else {
-          tankBatch.avgWeightG = 0;
-          tankBatch.densityKgM3 = 0;
-        }
-
-        await queryRunner.manager.save(TankBatch, tankBatch);
+        await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          tenantId,
+          input.tankId,
+          {
+            batchId: batch.id,
+            batchNumber: batch.batchNumber,
+            quantityDelta: -input.quantityHarvested,
+            biomassDelta: -biomassKg,
+          },
+          { volumeM3: Number(tank.waterVolume || tank.volume) || 0 },
+        );
       }
 
-      // Tank güncelle (Math.max to prevent negatives)
-      tank.currentBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      tank.currentCount = Math.max(0, (tank.currentCount || 0) - input.quantityHarvested);
-      await queryRunner.manager.save(Tank, tank);
+      // Tank biomass update. currentCount is derived + written by
+      // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
+      // independent count write here (that drifted from tank_batches). biomass-ONLY
+      // UPDATE so it can't clobber the derived currentCount.
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update(Tank)
+        .set({ currentBiomass: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg) })
+        .where('id = :id', { id: tank.id })
+        .execute();
       await this.farmStockProjection.refreshContainers(
         queryRunner.manager,
         tenantId,

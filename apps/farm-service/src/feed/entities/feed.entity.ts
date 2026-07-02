@@ -13,6 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import { registerEnumType } from '@nestjs/graphql';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Supplier is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
@@ -42,6 +43,16 @@ export enum FeedStatus {
   EXPIRED = 'expired',
   DISCONTINUED = 'discontinued',
 }
+
+// WHY: these enums were registered ONLY in feed.response.ts, but create-feed.input.ts
+// imports them from THIS entity file. Co-locating registerEnumType here (matching
+// consumable/supplier/chemical) ensures the GraphQL enum is registered as soon as the
+// enum is imported by the INPUT type, so input coercion maps the GraphQL key (e.g.
+// STARTER) to the value ('starter') before @IsEnum runs. Without it the raw key
+// reached @IsEnum and every createFeed was rejected with a masked "Bad Request".
+registerEnumType(FeedType, { name: 'FeedType', description: 'Type of feed' });
+registerEnumType(FloatingType, { name: 'FloatingType', description: 'Feed floating behavior' });
+registerEnumType(FeedStatus, { name: 'FeedStatus', description: 'Feed stock status' });
 
 export interface NutritionalContent {
   crudeProtein?: number;     // %

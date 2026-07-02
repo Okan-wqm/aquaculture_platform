@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_CERTIFICATION_TYPES,
@@ -420,7 +420,7 @@ export function useRenewCertification() {
       queryClient.invalidateQueries({
         queryKey: certificationKeys.employee(data.renewCertification.employeeId),
       });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, ...certificationKeys.all, 'expiring') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, ...certificationKeys.all, 'expiring') });
     },
   });
 }

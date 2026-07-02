@@ -13,8 +13,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual, MoreThan, Like } from 'typeorm';
+import { Repository, In, Like } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
+import { QueryBus } from '@platform/cqrs';
+import { GetMaintenanceComplianceReportQuery } from '../queries/get-maintenance-compliance-report.query';
 import {
   MaintenanceSchedule,
   MaintenanceScheduleStatus,
@@ -26,14 +28,12 @@ import {
   ScheduleMetrics,
 } from '../entities/maintenance-schedule.entity';
 import { WorkOrder, WorkOrderType, WorkOrderPriority, WorkOrderStatus } from '../entities/work-order.entity';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { CreateMaintenanceScheduleInput } from '../dto/create-maintenance-schedule.dto';
 import {
   UpdateMaintenanceScheduleInput,
   UpdateMeterReadingInput,
   CompleteMaintenanceInput,
 } from '../dto/update-maintenance-schedule.dto';
-import { MaintenanceScheduleFilterInput } from '../dto/maintenance-schedule-filter.dto';
 
 /**
  * Uyarı gerektiren bakım planları
@@ -71,6 +71,7 @@ export class MaintenanceScheduleService {
     private readonly scheduleRepository: Repository<MaintenanceSchedule>,
     @InjectRepository(WorkOrder)
     private readonly workOrderRepository: Repository<WorkOrder>,
+    private readonly queryBus: QueryBus,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -309,192 +310,6 @@ export class MaintenanceScheduleService {
     }
 
     return schedule;
-  }
-
-  /**
-   * Kod ile bakım planı bulur
-   */
-  async findByCode(tenantId: string, code: string): Promise<MaintenanceSchedule> {
-    const schedule = await this.scheduleRepository.findOne({
-      where: { scheduleCode: code, tenantId },
-    });
-
-    if (!schedule) {
-      throw new NotFoundException(`Bakım planı bulunamadı: ${code}`);
-    }
-
-    return schedule;
-  }
-
-  /**
-   * Filtrelenmiş bakım planlarını listeler
-   */
-  async findAll(
-    tenantId: string,
-    filter?: MaintenanceScheduleFilterInput,
-    page = 1,
-    limit = 20,
-    sortBy = 'nextDueDate',
-    sortOrder: 'ASC' | 'DESC' = 'ASC',
-  ): Promise<IStandardPaginatedResult<MaintenanceSchedule>> {
-    const query = this.scheduleRepository
-      .createQueryBuilder('ms')
-      .where('ms.tenantId = :tenantId', { tenantId });
-
-    // Apply filters
-    if (filter?.status?.length) {
-      query.andWhere('ms.status IN (:...statuses)', { statuses: filter.status });
-    }
-    if (filter?.category?.length) {
-      query.andWhere('ms.category IN (:...categories)', {
-        categories: filter.category,
-      });
-    }
-    if (filter?.recurrenceType?.length) {
-      query.andWhere("ms.recurrenceRule->>'type' IN (:...types)", {
-        types: filter.recurrenceType,
-      });
-    }
-    if (filter?.assetType) {
-      query.andWhere('ms.assetType = :assetType', { assetType: filter.assetType });
-    }
-    if (filter?.assetId) {
-      query.andWhere('ms.assetId = :assetId', { assetId: filter.assetId });
-    }
-    if (filter?.defaultAssigneeId) {
-      query.andWhere('ms.defaultAssigneeId = :assigneeId', {
-        assigneeId: filter.defaultAssigneeId,
-      });
-    }
-    if (filter?.defaultTeamId) {
-      query.andWhere('ms.defaultTeamId = :teamId', {
-        teamId: filter.defaultTeamId,
-      });
-    }
-    if (filter?.nextDueDateFrom) {
-      query.andWhere('ms.nextDueDate >= :dueDateFrom', {
-        dueDateFrom: new Date(filter.nextDueDateFrom),
-      });
-    }
-    if (filter?.nextDueDateTo) {
-      query.andWhere('ms.nextDueDate <= :dueDateTo', {
-        dueDateTo: new Date(filter.nextDueDateTo),
-      });
-    }
-    if (filter?.isOverdue) {
-      query.andWhere('ms.nextDueDate < :now', { now: new Date() });
-      query.andWhere('ms.status = :activeStatus', {
-        activeStatus: MaintenanceScheduleStatus.ACTIVE,
-      });
-    }
-    if (filter?.autoGenerateWorkOrder !== undefined) {
-      query.andWhere('ms.autoGenerateWorkOrder = :autoGenerate', {
-        autoGenerate: filter.autoGenerateWorkOrder,
-      });
-    }
-    if (filter?.searchTerm) {
-      query.andWhere(
-        '(ms.name ILIKE :search OR ms.scheduleCode ILIKE :search OR ms.description ILIKE :search)',
-        { search: `%${filter.searchTerm}%` },
-      );
-    }
-
-    // Count total
-    const total = await query.getCount();
-
-    // Apply sorting and pagination
-    const validSortFields = [
-      'createdAt',
-      'nextDueDate',
-      'name',
-      'category',
-      'status',
-      'scheduleCode',
-    ];
-    const finalSortBy = validSortFields.includes(sortBy) ? sortBy : 'nextDueDate';
-
-    query
-      .orderBy(`ms.${finalSortBy}`, sortOrder)
-      .skip((page - 1) * limit)
-      .take(limit);
-
-    const items = await query.getMany();
-
-    return createStandardPaginatedResult(items, total, page, limit);
-  }
-
-  /**
-   * Yaklaşan bakım planlarını getirir
-   */
-  async findUpcoming(tenantId: string, days = 7): Promise<MaintenanceSchedule[]> {
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + days);
-
-    return this.scheduleRepository.find({
-      where: {
-        tenantId,
-        status: MaintenanceScheduleStatus.ACTIVE,
-        nextDueDate: LessThanOrEqual(endDate),
-      },
-      order: { nextDueDate: 'ASC' },
-    });
-  }
-
-  /**
-   * Gecikmiş bakım planlarını getirir
-   */
-  async findOverdue(tenantId: string): Promise<MaintenanceSchedule[]> {
-    return this.scheduleRepository.find({
-      where: {
-        tenantId,
-        status: MaintenanceScheduleStatus.ACTIVE,
-        nextDueDate: LessThanOrEqual(new Date()),
-      },
-      order: { nextDueDate: 'ASC' },
-    });
-  }
-
-  /**
-   * Uyarı gerektiren bakım planlarını getirir
-   */
-  async findSchedulesRequiringAlert(tenantId: string): Promise<ScheduleAlert[]> {
-    const schedules = await this.scheduleRepository.find({
-      where: {
-        tenantId,
-        status: MaintenanceScheduleStatus.ACTIVE,
-      },
-    });
-
-    const alerts: ScheduleAlert[] = [];
-    const now = new Date();
-
-    for (const schedule of schedules) {
-      if (!schedule.nextDueDate) continue;
-
-      const daysUntilDue = schedule.getDaysUntilDue();
-
-      if (daysUntilDue < 0) {
-        alerts.push({
-          schedule,
-          daysUntilDue,
-          alertType: 'overdue',
-        });
-      } else if (daysUntilDue === 0) {
-        alerts.push({
-          schedule,
-          daysUntilDue,
-          alertType: 'due_today',
-        });
-      } else if (schedule.shouldAlert()) {
-        alerts.push({
-          schedule,
-          daysUntilDue,
-          alertType: 'upcoming',
-        });
-      }
-    }
-
-    return alerts.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
   }
 
   // -------------------------------------------------------------------------
@@ -738,91 +553,14 @@ export class MaintenanceScheduleService {
     return generatedWorkOrders;
   }
 
-  // -------------------------------------------------------------------------
-  // STATISTICS & REPORTS
-  // -------------------------------------------------------------------------
-
   /**
-   * Compliance raporu oluşturur
+   * Compliance report — delegates to the fail-closed GetMaintenanceComplianceReport
+   * query handler (single SSoT, FARM-HIGH-060). Retained because the cron
+   * scheduler (cron-jobs.service) consumes it; the GraphQL read path uses the
+   * handler directly via queryBus.
    */
   async getComplianceReport(tenantId: string): Promise<ComplianceReport> {
-    const schedules = await this.scheduleRepository.find({
-      where: { tenantId },
-    });
-
-    const report: ComplianceReport = {
-      totalSchedules: schedules.length,
-      activeSchedules: 0,
-      overdueSchedules: 0,
-      avgComplianceRate: 0,
-      byCategory: {} as Record<MaintenanceCategory, { total: number; complianceRate: number }>,
-      byAssetType: {} as Record<string, { total: number; complianceRate: number }>,
-    };
-
-    // Initialize category stats
-    Object.values(MaintenanceCategory).forEach((cat) => {
-      report.byCategory[cat] = { total: 0, complianceRate: 0 };
-    });
-
-    let totalComplianceRate = 0;
-    let schedulesWithMetrics = 0;
-
-    for (const schedule of schedules) {
-      // Count by status
-      if (schedule.status === MaintenanceScheduleStatus.ACTIVE) {
-        report.activeSchedules++;
-        if (schedule.isOverdue()) {
-          report.overdueSchedules++;
-        }
-      }
-
-      // Category stats
-      report.byCategory[schedule.category].total++;
-      if (schedule.metrics?.complianceRate) {
-        report.byCategory[schedule.category].complianceRate +=
-          schedule.metrics.complianceRate;
-      }
-
-      // Asset type stats
-      if (schedule.assetType) {
-        if (!report.byAssetType[schedule.assetType]) {
-          report.byAssetType[schedule.assetType] = { total: 0, complianceRate: 0 };
-        }
-        const assetTypeData = report.byAssetType[schedule.assetType];
-        if (assetTypeData) {
-          assetTypeData.total++;
-          if (schedule.metrics?.complianceRate) {
-            assetTypeData.complianceRate += schedule.metrics.complianceRate;
-          }
-        }
-      }
-
-      // Average compliance
-      if (schedule.metrics?.complianceRate) {
-        totalComplianceRate += schedule.metrics.complianceRate;
-        schedulesWithMetrics++;
-      }
-    }
-
-    // Calculate averages
-    if (schedulesWithMetrics > 0) {
-      report.avgComplianceRate = totalComplianceRate / schedulesWithMetrics;
-    }
-
-    for (const cat of Object.values(MaintenanceCategory)) {
-      if (report.byCategory[cat].total > 0) {
-        report.byCategory[cat].complianceRate /= report.byCategory[cat].total;
-      }
-    }
-
-    for (const assetType of Object.keys(report.byAssetType)) {
-      const assetData = report.byAssetType[assetType];
-      if (assetData && assetData.total > 0) {
-        assetData.complianceRate /= assetData.total;
-      }
-    }
-
-    return report;
+    return this.queryBus.execute(new GetMaintenanceComplianceReportQuery(tenantId));
   }
 
   // -------------------------------------------------------------------------

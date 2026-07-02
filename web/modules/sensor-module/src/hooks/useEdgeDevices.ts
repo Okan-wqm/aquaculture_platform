@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   EDGE_DEVICES_QUERY,
@@ -375,8 +375,8 @@ export function useRegisterEdgeDevice() {
       return data.registerEdgeDevice;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -398,8 +398,8 @@ export function useUpdateEdgeDevice() {
       return data.updateEdgeDevice;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', data.id) });
     },
   });
 }
@@ -421,9 +421,9 @@ export function useApproveEdgeDevice() {
       return data.approveEdgeDevice;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -445,9 +445,9 @@ export function useSetDeviceMaintenanceMode() {
       return data.setDeviceMaintenanceMode;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -469,9 +469,9 @@ export function useDecommissionEdgeDevice() {
       return data.decommissionEdgeDevice;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -511,7 +511,7 @@ export function useAddDeviceIoConfig() {
       return data.addDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -541,7 +541,7 @@ export function useUpdateDeviceIoConfig() {
       return data.updateDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -563,7 +563,7 @@ export function useRemoveDeviceIoConfig() {
       return data.removeDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -584,7 +584,7 @@ export function usePushIoConfig() {
       return data.pushIoConfigToDevice;
     },
     onSuccess: (_, deviceId) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -746,7 +746,7 @@ export function useBulkAddIoConfig() {
       return data.bulkAddDeviceIoConfigs;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -795,8 +795,8 @@ export function useCreateProvisionedDevice() {
       return data.createProvisionedDevice;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -819,7 +819,7 @@ export function useRegenerateDeviceToken() {
       return data.regenerateDeviceToken;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.deviceId) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', data.deviceId) });
     },
   });
 }
@@ -876,8 +876,8 @@ export function useUpdateEdgeDeviceFirmware() {
       return data.updateEdgeDeviceFirmware;
     },
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevice', id) });
     },
   });
 }
@@ -899,7 +899,7 @@ export function useBulkUpdateEdgeDeviceFirmware() {
       return data.bulkUpdateEdgeDeviceFirmware;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'edgeDevices') });
     },
   });
 }

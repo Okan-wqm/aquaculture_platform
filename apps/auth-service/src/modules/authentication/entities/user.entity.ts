@@ -271,6 +271,11 @@ export class User {
   @Column({ type: 'int', default: 0 })
   failedLoginAttempts!: number;
 
+  // ORPHAN-MEDIUM-320: exposed to GraphQL so tenant-admin user management
+  // can SHOW the lock state and offer the unlock action. Non-sensitive: a
+  // future instant, visible only through the already-role-guarded tenant
+  // user queries.
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lockedUntil?: Date | null;
 

@@ -30,17 +30,8 @@ export class AutoRuleService {
   // -------------------------------------------------------------------------
 
   /**
-   * Tüm otomatik kuralları listeler
-   */
-  async findAll(tenantId: string): Promise<AutoRule[]> {
-    return this.autoRuleRepository.find({
-      where: { tenantId },
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  /**
-   * ID ile otomatik kural bulur
+   * ID ile otomatik kural bulur (internal write-path helper; the GraphQL
+   * autoRule(id) read goes through GetAutoRuleHandler).
    */
   async findById(tenantId: string, id: string): Promise<AutoRule> {
     const rule = await this.autoRuleRepository.findOne({

@@ -8,7 +8,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   // Connection queries
@@ -482,9 +482,9 @@ export function usePlcConnectionMutations() {
   const { tenantId } = useAuth();
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcConnections') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcConnectionCountByStatus') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'onlinePlcConnections') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'plcConnections') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'plcConnectionCountByStatus') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'onlinePlcConnections') });
   }, [queryClient]);
 
   const createMutation = useMutation({
@@ -670,10 +670,10 @@ export function useFeedingParameterMutations() {
   const { tenantId } = useAuth();
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameters') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameter') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'activeFeedingParameter') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameterHistory') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingParameters') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingParameter') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'activeFeedingParameter') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingParameterHistory') });
   }, [queryClient]);
 
   const createMutation = useMutation({
@@ -832,10 +832,10 @@ export function usePlcAlarmMutations() {
   const { tenantId } = useAuth();
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcAlarms') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'activePlcAlarms') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'unacknowledgedPlcAlarms') });
-    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcAlarmStats') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'plcAlarms') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'activePlcAlarms') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'unacknowledgedPlcAlarms') });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'plcAlarmStats') });
   }, [queryClient]);
 
   const acknowledgeMutation = useMutation({

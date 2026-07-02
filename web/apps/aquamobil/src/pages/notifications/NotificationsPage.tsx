@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useNotifications } from '@/hooks/useNotifications';
 import type { InAppNotification } from '@/types';
+import { runAsyncAction } from '@/utils/async-action';
 
 /**
  * Notification deep-link payload. The backend serializes a JSON blob into
@@ -81,7 +82,7 @@ export function NotificationsPage(): JSX.Element {
           {unreadCount > 0 && (
             <button
               onClick={() => {
-                void markAllAsRead();
+                runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
               }}
               className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
             >
@@ -128,7 +129,7 @@ export function NotificationsPage(): JSX.Element {
             <button
               key={notification.id}
               onClick={() => {
-                void handleNotificationPress(notification);
+                runAsyncAction(() => handleNotificationPress(notification), 'notifications-press');
               }}
               className={clsx(
                 'w-full bg-white dark:bg-gray-900 rounded-xl p-4 border text-left touch-feedback transition-all',

@@ -19,6 +19,7 @@ import { Repository, DataSource } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { TankBatchService } from '../../batch/services/tank-batch.service';
 import {
   defaultFarmStockProjectionForDirectHandlerConstruction,
 } from '../../common/services/direct-handler-dependency-defaults';
@@ -41,6 +42,9 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
     private readonly tankRepository: Repository<Tank>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    // Single SSoT writer for tank composition — the harvest reversal restores
+    // batchDetails[] through this, never by hand (see the applyBatchDelta call).
+    private readonly tankBatchService: TankBatchService,
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
@@ -80,33 +84,40 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
 
       // Reverse the tank batch changes
       if (harvestRecord.tankId) {
-        const tankBatch = await queryRunner.manager.findOne(TankBatch, {
-          where: { tenantId, tankId: harvestRecord.tankId },
-        });
-
-        if (tankBatch) {
-          const biomassKg = Number(harvestRecord.totalBiomass);
-          tankBatch.totalQuantity = Number(tankBatch.totalQuantity) + harvestRecord.quantityHarvested;
-          tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + biomassKg;
-          tankBatch.currentQuantity = tankBatch.totalQuantity;
-          tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-          if (tankBatch.totalQuantity > 0) {
-            tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-          }
-
-          await queryRunner.manager.save(TankBatch, tankBatch);
-        }
-
-        // Reverse tank changes
         const tank = await queryRunner.manager.findOne(Tank, {
           where: { id: harvestRecord.tankId, tenantId },
         });
 
+        // Reverse the harvest decrement through the single SSoT writer so
+        // batchDetails[] (the per-batch truth the web + mobile read models
+        // render) is restored in lock-step with the aggregates — never by hand.
+        // A positive delta re-adds the harvested fish; if the tank-batch was
+        // emptied by the harvest, applyBatchDelta re-creates it. Mirrors the
+        // forward path (one writer, no drift).
+        const biomassKg = Number(harvestRecord.totalBiomass);
+        await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          tenantId,
+          harvestRecord.tankId,
+          {
+            batchId: harvestRecord.batchId,
+            batchNumber: batch?.batchNumber ?? '',
+            quantityDelta: harvestRecord.quantityHarvested,
+            biomassDelta: biomassKg,
+          },
+          { volumeM3: Number(tank?.waterVolume || tank?.volume) || 0 },
+        );
+
+        // Reverse tank biomass. currentCount is derived + written by
+        // TankBatchService.applyBatchDelta (the SINGLE count writer) above — the
+        // harvest-reversal delta already went through it. biomass-ONLY UPDATE.
         if (tank) {
-          tank.currentBiomass = Number(tank.currentBiomass || 0) + Number(harvestRecord.totalBiomass);
-          tank.currentCount = (tank.currentCount || 0) + harvestRecord.quantityHarvested;
-          await queryRunner.manager.save(Tank, tank);
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update(Tank)
+            .set({ currentBiomass: Number(tank.currentBiomass || 0) + Number(harvestRecord.totalBiomass) })
+            .where('id = :id', { id: tank.id })
+            .execute();
         }
 
         await this.farmStockProjection.refreshContainers(

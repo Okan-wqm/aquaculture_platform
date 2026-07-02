@@ -662,9 +662,15 @@ export class CreateHealthEventInput {
   // USER INFORMATION
   // -------------------------------------------------------------------------
 
-  @Field(() => ID, { description: 'User ID who reported the event' })
-  @IsUUID()
-  reportedBy: string;
+  // WHY: reportedBy is the AUTHENTICATED reporter — HealthEventService authoritatively
+  // sets it from the JWT subject (req user.sub), so any client value is overridden.
+  // A required @IsUUID rejected the frontend's placeholder ('current-user') at the
+  // ValidationPipe before the service could run. WHAT: make it optional and drop the
+  // format constraint; the server is the source of truth.
+  @Field(() => ID, { nullable: true, description: 'Deprecated: server sets the reporter from the JWT subject' })
+  @IsOptional()
+  @IsString()
+  reportedBy?: string;
 
   @Field({ nullable: true, description: 'Observation date/time (if different from event date)' })
   @IsOptional()

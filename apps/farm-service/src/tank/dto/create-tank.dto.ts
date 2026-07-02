@@ -197,17 +197,25 @@ export class CreateTankInput {
   // TİP VE MALZEME
   // -------------------------------------------------------------------------
 
-  @Field(() => TankType, { defaultValue: TankType.CIRCULAR })
+  // WHY: a GraphQL `defaultValue` on an enum input field breaks @nestjs/graphql's
+  // enum key→value coercion (the raw uppercase KEY reaches @IsEnum, which validates
+  // the lowercase VALUE) → every client-supplied tankType is rejected with a masked
+  // "Bad Request". WHAT: drop the defaultValue, make the field optional, and apply
+  // the default in CreateTankHandler instead (see tankType/material/waterType defaults).
+  @Field(() => TankType, { nullable: true })
+  @IsOptional()
   @IsEnum(TankType)
-  tankType: TankType;
+  tankType?: TankType;
 
-  @Field(() => TankMaterial, { defaultValue: TankMaterial.FIBERGLASS })
+  @Field(() => TankMaterial, { nullable: true })
+  @IsOptional()
   @IsEnum(TankMaterial)
-  material: TankMaterial;
+  material?: TankMaterial;
 
-  @Field(() => WaterType, { defaultValue: WaterType.SALTWATER })
+  @Field(() => WaterType, { nullable: true })
+  @IsOptional()
   @IsEnum(WaterType)
-  waterType: WaterType;
+  waterType?: WaterType;
 
   // -------------------------------------------------------------------------
   // BOYUTLAR
@@ -331,7 +339,10 @@ export class CreateTankInput {
   // DURUM VE EK BİLGİLER
   // -------------------------------------------------------------------------
 
-  @Field(() => TankStatus, { defaultValue: TankStatus.PREPARING })
+  // WHY: same enum `defaultValue` coercion bug as tankType/material/waterType — a
+  // client-supplied status would reach @IsEnum as the uppercase KEY and be rejected.
+  // WHAT: drop defaultValue; CreateTankHandler applies TankStatus.PREPARING when omitted.
+  @Field(() => TankStatus, { nullable: true })
   @IsOptional()
   @IsEnum(TankStatus)
   status?: TankStatus;

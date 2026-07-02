@@ -5,7 +5,7 @@ import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import type { PasswordResetRequestedEvent, UserInvitedEvent } from '@platform/event-contracts';
+import type { PasswordResetRequestedEvent, UserAccountLockedEvent, UserInvitedEvent } from '@platform/event-contracts';
 
 import { EmailService } from '../services/email.service';
 
@@ -49,7 +49,7 @@ interface ResolvedActionInfo {
  */
 @Injectable()
 export class AuthEventHandler
-  implements IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent>, OnModuleInit
+  implements IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent>, OnModuleInit
 {
   private readonly logger = new Logger(AuthEventHandler.name);
   private readonly authServiceUrl: string;
@@ -73,8 +73,10 @@ export class AuthEventHandler
     // publisher↔subscriber subject contract (3 segments).
     await this.eventBus.subscribeWildcard('PasswordResetRequested', this);
     await this.eventBus.subscribeWildcard('UserInvited', this);
+    // ORPHAN-MEDIUM-320: owner-facing lockout notification.
+    await this.eventBus.subscribeWildcard('UserAccountLocked', this);
     this.logger.log(
-      'Subscribed to PasswordResetRequested and UserInvited events (cross-tenant wildcard)',
+      'Subscribed to PasswordResetRequested, UserInvited and UserAccountLocked events (cross-tenant wildcard)',
     );
   }
 
@@ -82,7 +84,7 @@ export class AuthEventHandler
     return 'AuthEvent';
   }
 
-  async handle(event: PasswordResetRequestedEvent | UserInvitedEvent): Promise<void> {
+  async handle(event: PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent): Promise<void> {
     // SECURITY: Validate tenantId format to ensure data isolation
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
@@ -102,6 +104,9 @@ export class AuthEventHandler
           break;
         case 'UserInvited':
           await this.handleUserInvited(event as UserInvitedEvent);
+          break;
+        case 'UserAccountLocked':
+          await this.handleUserAccountLocked(event as UserAccountLockedEvent);
           break;
         default:
           this.logger.warn(`Unknown auth event type: ${eventType}`);
@@ -228,6 +233,82 @@ export class AuthEventHandler
   /**
    * Handle PasswordResetRequested — resolve PII at delivery time, then send email
    */
+  /**
+   * ORPHAN-MEDIUM-320: the account-locked owner notification.
+   *
+   * The login wire response is deliberately the generic anti-enumeration
+   * message, so this email is the ONLY signal the legitimate owner receives
+   * that their account was locked (and when it unlocks, and what to do if
+   * the failed attempts were not theirs). No PII rides the event — the
+   * address is resolved at delivery time via the authenticated internal
+   * PII endpoint, identical to the password-reset flow.
+   */
+  private async handleUserAccountLocked(event: UserAccountLockedEvent): Promise<void> {
+    if (!event.userId || !event.lockedUntil) {
+      this.logger.error('UserAccountLocked event missing userId or lockedUntil. Skipping.');
+      return;
+    }
+
+    const userPII = await this.resolveUserPII(event.userId, event.tenantId);
+    if (!userPII) {
+      this.logger.error(
+        `Cannot send account-locked email — failed to resolve user PII for userId=${event.userId}`,
+      );
+      return;
+    }
+
+    const displayName = userPII.firstName || 'there';
+    const unlockAt = new Date(event.lockedUntil);
+    const unlockDisplay = Number.isNaN(unlockAt.getTime())
+      ? 'shortly'
+      : unlockAt.toUTCString();
+
+    const subject = 'Your account was temporarily locked - Aquaculture Platform';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+            .header { background-color: #cc3300; color: white; padding: 32px; text-align: center; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .content { padding: 32px; }
+            .warning { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 20px 0; font-size: 14px; }
+            .footer { padding: 24px 32px; font-size: 12px; color: #666; border-top: 1px solid #eee; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Account Temporarily Locked</h1>
+            </div>
+            <div class="content">
+              <p>Hello ${displayName},</p>
+              <p>Your account was locked after ${event.failedAttempts} failed sign-in attempts.</p>
+              <p>It will unlock automatically at <strong>${unlockDisplay}</strong>. You can also regain access immediately by resetting your password — a successful password reset clears the lock.</p>
+              <div class="warning">
+                <strong>Wasn't you?</strong> If you did not attempt to sign in, someone may be
+                trying to guess your password. We recommend resetting your password now and
+                contacting your administrator.
+              </div>
+            </div>
+            <div class="footer">
+              <p>This is an automated security notification from the Aquaculture Platform.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await this.emailService.sendEmail(userPII.email, subject, html);
+    this.logger.log(
+      `Account-locked notification dispatched for userId=${event.userId} (unlocks ${unlockDisplay})`,
+    );
+  }
+
   private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
     // SECURITY: Reject stale v1 events that carry raw tokens or PII
     if ('resetToken' in event) {

@@ -58,6 +58,7 @@ import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
 import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
+import { DeployAutomationModal } from '../../components/deploy/DeployAutomationModal';
 import { ScadaPackagePreview } from '../../components/deploy/ScadaPackagePreview';
 import ScreenManager from '../../components/unified-editor/ScreenManager';
 import StEditorPanel from '../../components/unified-editor/StEditorPanel';
@@ -197,9 +198,25 @@ const UnifiedEditorPage: React.FC = () => {
     [devices, targetDeviceId],
   );
 
+  // Edge devices bound to this process via P&ID equipment nodes — the target
+  // set for automation-program deploy (6c parity with ProcessEditorPage).
+  const boundDevices = useMemo(() => {
+    const byId = new Map<string, { id: string; code: string; name?: string }>();
+    for (const n of canvasNodes) {
+      const deviceId = n.data?.edgeDeviceId;
+      if (typeof deviceId === 'string' && deviceId) {
+        const code = n.data?.edgeDeviceCode || deviceId;
+        byId.set(deviceId, { id: deviceId, code, name: code });
+      }
+    }
+    return Array.from(byId.values());
+  }, [canvasNodes]);
+
   // Deploy dropdown + canonical deploy dialog target (6b)
   const [showDeployMenu, setShowDeployMenu] = useState(false);
   const [deployTarget, setDeployTarget] = useState<'process' | 'scada' | null>(null);
+  // Automation-program deploy modal (6c parity with ProcessEditorPage)
+  const [isAutomationDeployOpen, setIsAutomationDeployOpen] = useState(false);
 
   // SCADA package identity for this process (dual-target save + deploy, 6b)
   const [scadaPackageId, setScadaPackageId] = useState<string | null>(null);
@@ -642,6 +659,12 @@ const UnifiedEditorPage: React.FC = () => {
                   >
                     SCADA Paketi → Edge
                   </button>
+                  <button
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => { setShowDeployMenu(false); setIsAutomationDeployOpen(true); }}
+                  >
+                    Otomasyon Programı → Edge
+                  </button>
                 </div>
               </>
             )}
@@ -836,6 +859,14 @@ const UnifiedEditorPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* Automation-program deploy (6c parity) — targets the edge devices bound
+          to this process's equipment nodes. */}
+      <DeployAutomationModal
+        isOpen={isAutomationDeployOpen}
+        onClose={() => setIsAutomationDeployOpen(false)}
+        boundDevices={boundDevices}
+      />
     </div>
   );
 };

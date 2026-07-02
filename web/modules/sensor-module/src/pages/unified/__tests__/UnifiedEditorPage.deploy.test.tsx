@@ -99,6 +99,10 @@ vi.mock('../../../components/scada-builder/StableModeProvider', () => ({
 vi.mock('../../../components/deploy/ScadaPackagePreview', () => ({
   ScadaPackagePreview: () => <div data-testid="scada-preview" />,
 }));
+vi.mock('../../../components/deploy/DeployAutomationModal', () => ({
+  DeployAutomationModal: ({ isOpen }: { isOpen: boolean }) =>
+    isOpen ? <div data-testid="automation-deploy-modal" /> : null,
+}));
 
 // Stub the deploy dialog: expose title/accent + a confirm button that drives
 // onDeploy and renders its result so wiring + guards can be asserted directly.
@@ -235,6 +239,17 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
       expect(screen.getByTestId('deploy-result-purple').textContent).toMatch(/kaydedin/),
     );
     expect(spies.deployScada).not.toHaveBeenCalled();
+  });
+
+  it('(b) Deploy menu opens the automation-program modal (6c parity)', async () => {
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    expect(screen.queryByTestId('automation-deploy-modal')).toBeNull();
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/Otomasyon Program/));
+
+    await screen.findByTestId('automation-deploy-modal');
   });
 
   it('(c) Save persists BOTH the process and the SCADA package (dual-target)', async () => {

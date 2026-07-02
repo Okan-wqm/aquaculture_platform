@@ -37,7 +37,7 @@ declare module 'farmModule/Module' {
 // vite.config.ts.
 
 // `farmModule/SensorDashboard` declaration removed with its mock-only source
-// page (FARM-INT-MEDIUM-003). Live sensor monitoring is exposed by the
+// page (FARM-MEDIUM-114). Live sensor monitoring is exposed by the
 // sensor-module remote (`sensorModule/Module`), not farm-module.
 
 // `processEditor/*` declarations removed in C1 PR-1b: there is no

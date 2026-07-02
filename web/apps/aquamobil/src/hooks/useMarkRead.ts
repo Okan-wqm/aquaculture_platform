@@ -39,6 +39,7 @@ import { useOfflineQueue } from './useOfflineQueue';
 
 import { MARK_MESSAGES_READ } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import { logger } from '@/utils/logger';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 export interface UseMarkReadResult {
@@ -72,7 +73,14 @@ export function useMarkRead(channelId: string | undefined): UseMarkReadResult {
       // `string` for the rest of this scope — no assertion needed.
 
       if (!isOnline) {
-        await addToQueue('markMessagesRead', { channelId, messageId });
+        try {
+          await addToQueue('markMessagesRead', { channelId, messageId });
+        } catch (error) {
+          // Callers rely on markRead() never throwing (it degrades to the
+          // offline queue) — a queue failure (e.g. no active tenant) must not
+          // propagate as an unhandled rejection from a fire-and-forget caller.
+          logger.error('[useMarkRead] failed to queue offline read-cursor advance', error);
+        }
         return;
       }
 
@@ -86,7 +94,11 @@ export function useMarkRead(channelId: string | undefined): UseMarkReadResult {
       } catch {
         // Transient network/server error while online — preserve the read
         // advance by routing through the offline queue rather than dropping it.
-        await addToQueue('markMessagesRead', { channelId, messageId });
+        try {
+          await addToQueue('markMessagesRead', { channelId, messageId });
+        } catch (error) {
+          logger.error('[useMarkRead] failed to queue read-cursor advance after online attempt failed', error);
+        }
       }
     },
     [channelId, isAuthenticated, isOnline, tenantId, queryClient, addToQueue],

@@ -25,6 +25,7 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
 import type { Role } from '@/types';
+import { runAsyncAction } from '@/utils/async-action';
 
 // ============================================================================
 // Constants
@@ -474,11 +475,21 @@ export function AccountPage(): JSX.Element {
     }
   }, []);
 
+  const [clearQueueError, setClearQueueError] = useState<string | null>(null);
   const handleClearQueue = useCallback(async () => {
-    // SECURITY (C11): Clear only the current tenant's queue, not other tenants' ops
-    await clearAllOperations(authTenantId ?? undefined);
-    setShowClearQueueDialog(false);
-    // The OfflineProvider will refresh the pending count on next tick
+    setClearQueueError(null);
+    try {
+      // SECURITY (C11): Clear only the current tenant's queue, not other tenants' ops
+      await clearAllOperations(authTenantId ?? undefined);
+      setShowClearQueueDialog(false);
+      // The OfflineProvider will refresh the pending count on next tick
+    } catch (err) {
+      setClearQueueError(
+        err instanceof Error
+          ? `Queue could not be cleared: ${err.message}. Please retry.`
+          : 'Queue could not be cleared. Please retry.',
+      );
+    }
   }, [authTenantId]);
 
   // MT-MEDIUM-050: logout() AWAITS the full on-device wipe and REJECTS if it
@@ -662,10 +673,11 @@ export function AccountPage(): JSX.Element {
               destructive={pendingCount > 0}
               onClick={() => {
                 if (pendingCount > 0) {
+                  setClearQueueError(null);
                   setShowClearQueueDialog(true);
                 } else {
                   // No pending operations — nothing to clear, no confirmation needed
-                  void handleClearQueue();
+                  runAsyncAction(handleClearQueue, 'account-clear-empty-queue');
                 }
               }}
             />
@@ -762,7 +774,11 @@ export function AccountPage(): JSX.Element {
           confirmLabel="Clear Queue"
           confirmColor="bg-red-600"
           onConfirm={handleClearQueue}
-          onCancel={() => setShowClearQueueDialog(false)}
+          onCancel={() => {
+            setClearQueueError(null);
+            setShowClearQueueDialog(false);
+          }}
+          errorMessage={clearQueueError}
         />
       )}
     </div>

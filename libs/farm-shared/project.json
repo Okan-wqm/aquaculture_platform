@@ -1,0 +1,15 @@
+{
+  "name": "@aquaculture/farm-shared",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/farm-shared/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:lib"],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["libs/farm-shared/src/**/*.{ts,tsx}"]
+      }
+    }
+  }
+}

@@ -186,7 +186,7 @@ export class RegulatoryReport {
    * Typed `| null` because a successful resubmit must actively CLEAR a
    * previous failure message (TypeORM skips undefined on save).
    */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column('text', { nullable: true })
   feilmelding?: string | null;
 

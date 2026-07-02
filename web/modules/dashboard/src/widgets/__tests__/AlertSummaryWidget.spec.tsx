@@ -9,6 +9,10 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+// Carries the jest-dom matcher TYPE augmentation into this file so it
+// type-checks standalone (CI's changed-files tsc pass) — the runtime
+// registration also comes from the vitest setup file.
+import '@testing-library/jest-dom/vitest';
 import AlertSummaryWidget, {
   AlertItem,
   AlertSeverity,

@@ -5997,3 +5997,40 @@ Found 2026-07-02 from PR #830's own CI run. `tests/invariants/aria-doc-runtime-s
 **Root cause:** #830 committed the previously-untracked jest support mocks under `apps/alert-engine/src/__tests__/support/` (`*.mock.ts` — deliberately not `*.spec.ts`). `tsconfig.app.json` excludes only `*.spec.ts`/`*.test.ts`, so the strict release-verification type-check compiled the mocks WITHOUT jest types → `TS2503/TS2304 Cannot find namespace/name 'jest'`. Silent-severity mismatch: the PR's own CI was green (per-PR jobs don't run release-verification), so the breakage only manifests on main pushes.
 **Remediation (this PR):** exclude `src/**/__tests__/**` from the app tsconfig; the spec tsconfig (`types: ["jest","node"]`) keeps the mocks in the strict-tsc test gate. Verified: `tsc --noEmit` clean for both alert-engine tsconfigs.
 **Owner:** infra-expert. **Deadline:** 2026-07-09.
+
+---
+
+# Sensor domain enterprise plan (Faz 1–6) — SENSOR-HIGH-001 … SENSOR-HIGH-006
+
+Deep read of the sensor domain (backend + frontend + Rust edge) surfaced six HIGH structural findings, closed across the six-phase enterprise plan on PR #811 (branch `claude/sense-sensor-module-arch-oguq01`). Registry entries carry the authoritative state; this section is the human-readable cross-reference the review-anchor invariant requires. Registry close ceremony runs post-merge.
+
+## SENSOR-HIGH-001 — `program_variables` has no `tenant_id` column (ORPHAN-DIC-001 class) — RESOLVED (Faz 1)
+**Evidence:** automation `program_variables` rows were tenant-scoped only transitively through their parent program, so RLS and scoped repositories could not act on variables directly.
+**Rule:** per-tenant rows must carry a first-class `tenantId` so isolation is enforceable without joining through the parent.
+**Remediation:** blue-green-safe migration (nullable → backfill from parent program → NOT NULL); `ProgramVariable` entity + scoped queries updated. Owner: sensor-expert.
+
+## SENSOR-HIGH-002 — SCADA package serializer data loss + builder/operator tag-binding key mismatch — RESOLVED (Faz 2)
+**Evidence:** `toScadaPackageJSON` dropped widget-level `name/visible/zIndex/permissions`; the builder read `config.tagName` while the operator read `config.tagId`, so one widget bound different tags in the two runtimes.
+**Rule:** persistence roundtrip must be lossless and one widget must resolve one tag binding in every runtime.
+**Remediation:** serializer fix + 54-widget roundtrip spec; single `getWidgetTagBinding` accessor (canonical `tagRef` → legacy keys); `ScadaPackageDocV2` schema + V1→V2 upcaster + save-time validation + upcast-on-read. Owner: sensor-expert.
+
+## SENSOR-HIGH-003 — deploys retain no artifact snapshot; rollback is a label; process deploys unlogged + hardcoded version 1 — RESOLVED (Faz 3)
+**Evidence:** rollback flipped a status with nothing to restore; process deploys wrote no log and shipped `version: 1`.
+**Rule:** deploy pipeline must be auditable and reversible — every payload retained as an immutable checksummed snapshot; rollback restores a concrete artifact.
+**Remediation:** content-addressed `deploy_artifacts` per-tenant table (sha256, append-only, dedupe); all deploy paths snapshot; deploy logs carry `artifact_id` + `checksum`; `rollbackScadaPackageDeploy` republishes a retained artifact. Owner: sensor-expert.
+
+## SENSOR-HIGH-004 — cloud→edge deploy contract unpinned (TS↔Rust drift; SCADA/process shipped unsigned) — RESOLVED (Faz 4)
+**Evidence:** no publish-boundary validation; hand-mirrored TS↔Rust shapes drifted (camelCase `fbType/onError/intervalSecs/ptMs/delayMs` silently dropped or parse-failed on the edge); SCADA/process deploys unsigned while ST bytecode required ed25519.
+**Rule:** trust-boundary payloads need a canonical machine-enforced contract on both sides + integrity protection matching the platform signing posture.
+**Remediation:** canonical JSON Schemas AJV-enforced at every MQTT publish boundary; shared fixtures consumed by both a TS spec and a Rust in-crate test + parity CI script; ed25519 deploy signatures (`deploy_sig.rs`, domain tags `scada-pkg-v1`/`process-v1`, tenant-bound canonical bytes, cross-language pinned vector). Owner: sensor-expert / edge-expert.
+
+## SENSOR-HIGH-005 — unified SCADA+automation deploy is N+1 fire-and-forget MQTT with no atomicity/staging/confirmation — RESOLVED (Faz 5)
+**Evidence:** a crash or broker outage mid-sequence left a device half-deployed with no record.
+**Rule:** multi-artifact industrial deploys must be transactional end-to-end — transactional dispatch (outbox), edge verify-before-apply staging, atomic apply, operator-visible confirmed/failed lifecycle.
+**Remediation:** `release_bundles` per-tenant table + guarded `PENDING→STAGED→CONFIRMED(→ROLLED_BACK)/FAILED` machine; `deployScadaWithAutomation` → bundle builder with signed manifest (ed25519 `bundle-v1`, signature required) committed transactionally with a `DeployBundleRequested` outbox event; edge `cmd_deploy_bundle` pure verify → staged ack → atomic apply → confirmed/failed. Owner: sensor-expert / edge-expert.
+
+## SENSOR-HIGH-006 — two parallel live-data generations + skeleton unified editor — IN-PROGRESS (Faz 6, PR #811)
+**Evidence:** the builder preview canvas ran the legacy `/sensors` device-code path while operator/runtime ran the canonical `/scada` tag path; `UnifiedEditorPage` HMI mode was an iframe-overlay skeleton whose layout never persisted and whose Deploy menu was a no-op; the `/scada` gateway accepted any subscribe key un-tenant-scoped.
+**Rule:** a product surface must have ONE live-data plane and ONE canvas — builder, operator and unified editor share the registry-gated `/scada` path and the real ScreenCanvas, and the unified shell persists HMI layout + deploys through the canonical dialog.
+**Remediation (landed):** tenant-fenced `/scada` subscribe gate (registry-validated TagRefs); builder preview migrated to Layer-B and Layer A deleted (empty guard); unified HMI mounts the real ScreenCanvas with dual-target save + canonical deploy; idempotent V2 backfill; builder⇄operator binding-parity spec.
+**Remaining (deferred, gated):** make Unified the default editor after it reaches ProcessEditor feature parity (attachments, data-channel widgets, automation-deploy); delete the flag-gated iframe viewer after one release bake; unify the scada-builder URL; simplify upcast-on-read post-backfill. Owner: sensor-expert. Deadline: 2026-07-22.

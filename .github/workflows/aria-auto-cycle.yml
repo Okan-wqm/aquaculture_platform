@@ -384,7 +384,9 @@ jobs:
           # into the workspace aria-tools/ tree that the artifact
           # round-trip persists across nights.
           BURN_TOOLS="$(mktemp -d "${RUNNER_TEMP}/aria-burn-tools.XXXXXX")"
-          BURN_IN_DIR="${RUNNER_TEMP}/aria-burn-in-out-${GITHUB_RUN_ID}"
+          # Second kernel guard (ORPHAN-LOW-305): the output dir must
+          # live UNDER the burn-in tools root's burn-in/ subtree.
+          BURN_IN_DIR="${BURN_TOOLS}/burn-in/run-${GITHUB_RUN_ID}"
           WORKSPACE_BASE="$(mktemp -d "${RUNNER_TEMP}/aria-workspaces.XXXXXX")"
           mkdir -p "$BURN_IN_DIR"
           PYTHONPATH=aria-kernel:. python3 -m aria_kernel \

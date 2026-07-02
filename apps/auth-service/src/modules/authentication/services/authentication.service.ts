@@ -18,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
+import type { UserAccountLockedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
 
@@ -1242,6 +1243,27 @@ export class AuthenticationService {
         success: false,
         reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
       }, AuditLogSeverity.CRITICAL);
+
+      // ORPHAN-MEDIUM-320: owner-facing lockout channel. The wire response
+      // stays the generic anti-enumeration message, so this event is the
+      // only signal the LEGITIMATE owner ever gets — notification-service
+      // consumes it and emails "account locked, unlocks at T; wasn't you?
+      // reset your password". Audit-log-backed (the CRITICAL row above is
+      // the durable SoT) → best-effort path. Platform-level users
+      // (tenantId NULL) route to events.system; the notification consumer
+      // only mails tenant-scoped users — operator visibility for platform
+      // accounts comes from the CRITICAL audit event.
+      const lockEvent: UserAccountLockedEvent = {
+        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', user.tenantId ?? 'system', {
+          aggregateId: user.id,
+          aggregateType: 'User',
+          userId: user.id,
+        }),
+        userId: user.id,
+        failedAttempts: updatedAttempts,
+        lockedUntil: lockoutUntil.toISOString(),
+      };
+      await this.bestEffort.publish(lockEvent);
     }
 
     return updatedAttempts;

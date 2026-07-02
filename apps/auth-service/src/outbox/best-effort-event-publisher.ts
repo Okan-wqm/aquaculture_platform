@@ -50,6 +50,10 @@ export class BestEffortEventPublisher {
    */
   private static readonly ALLOWLIST: ReadonlySet<string> = new Set<string>([
     'UserLoggedIn', // pure login telemetry; auth.audit_logs is the SoT
+    'UserAccountLocked', // ORPHAN-MEDIUM-320 owner-notification trigger; the
+    // CRITICAL ACCOUNT_LOCKED audit row is the durable SoT, the actor can be
+    // platform-level (tenantId NULL → 'system'), and the lock expires on its
+    // own — a lost email degrades UX, never correctness.
     'UserProfileUpdated', // profile sync; audit log is the SoT
     'UserPasswordChanged', // security signal; audit log is the SoT
     'PasswordResetRequested', // email-delivery trigger; user can re-request

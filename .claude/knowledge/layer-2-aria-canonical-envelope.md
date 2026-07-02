@@ -56,6 +56,15 @@ and as round-scoped `COV-R{N}-*` material risks — respond by widening
 Waivers live in plan_content (not the event) so they flow through
 `content_hash`, revisions, and cross-review like any other plan claim.
 
+Waivers are adjudicated: when a round's computed verdict is
+`covered_with_waivers`, the drainer dispatches `aria-completeness-critic`
+(role `completeness_critique`), whose envelope answer at
+`details.waiver_adjudication` (`{"accepted": [node_id...], "rejected":
+[{node_id, reason}...]}`) is folded into the `coverage_computed` event.
+Any waived node the critic does not explicitly accept flips to uncovered
+(`waiver_rejected_by_critic` / `waiver_unadjudicated`) — critic timeout
+fails closed to `gaps`.
+
 ## Envelope skeleton
 
 ```json

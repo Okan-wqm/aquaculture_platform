@@ -78,6 +78,7 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "primary_plan",
         "challenger_plan",
         "cross_review",
+        "completeness_critique",
         "implementation",
     })
     _render_invocation_prompt = None

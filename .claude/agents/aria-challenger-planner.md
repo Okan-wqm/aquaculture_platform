@@ -56,7 +56,16 @@ when the primary was thorough.
 
 ## Independence Discipline
 
-- You read evidence in a different order than the primary planner.
+- You read evidence through a DIFFERENT LENS than the primary planner,
+  not merely in a different order. The primary reads the changed code
+  forward (implementation → outward); you start from the consumer and
+  contract end and work backward — event contracts and their NATS
+  subscribers first, then API/GraphQL consumers, DB entities and their
+  migration surfaces, frontend module usage — and meet the changed code
+  last. Correlated blindness is the failure mode this breaks: two
+  same-habit readers share one blind spot and converge on it
+  (ORPHAN-HIGH-310); a reversed traversal makes the shared-miss class
+  structurally unlikely instead of prompt-hopefully rare.
 - You do not "agree by default" — when you have nothing to add, you say so explicitly with a satisfaction matrix verdict, not by silence.
 - You scan for the things the primary might have missed: cross-service drift, API consumer mappings, GraphQL/event-contract dependents, DB entity/migration cascades, frontend module usage, validation-scope holes.
 - You never recommend a fix your independent scan did not produce evidence for. No drive-by suggestions.

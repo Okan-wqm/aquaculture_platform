@@ -33,10 +33,14 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { exit, stderr, stdout } from "node:process";
+import { argv, exit, stderr, stdout } from "node:process";
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+// Derive the repo root from the entry-script path (argv[1]) rather than
+// `import.meta.url` so the file type-checks under any `module` setting — the
+// changed-files gate compiles it under tsconfig.base.json, which forbids
+// import.meta (TS1343). This script is always the process entry, so argv[1] is
+// its own path: tools/scripts/<this>.ts → ../../ is the repo root.
+const REPO_ROOT = resolve(dirname(argv[1]), "..", "..");
 const FIXTURES_DIR = join(REPO_ROOT, "libs", "sensor-contracts", "fixtures");
 const EDGE_CRATE_DIR = join(REPO_ROOT, "sens-api-gateway");
 

@@ -38,6 +38,7 @@ mock fakes covering all V5.1 verdict paths.
 
 from __future__ import annotations
 
+import re
 import json
 import os
 import time
@@ -50,12 +51,26 @@ from .convergent_planning_bridge import (
     start_convergent_plan_drafted_by_primary,
 )
 from .cross_review_bridge import (
+    issue_completeness_critic_envelope,
     issue_cross_review_envelope,
     issue_primary_envelope,
 )
-from .plan_convergence import TERMINAL_STATES, evaluate_plan, fold_plan_state
+from .ledger import load_declared_jsonl
+from .plan_convergence import (
+    TERMINAL_STATES,
+    _plan_requires_coverage,
+    evaluate_plan,
+    fold_plan_state,
+    record_coverage,
+)
+from .plan_coverage import (
+    adjudicate_waivers,
+    compute_plan_coverage,
+    environment_unable_payload,
+    parse_critic_adjudication,
+)
 from .planner_dispatch_hook import dispatch_one_pending_planner_request
-from .tool_registry import append_tools_governance, ensure_tools_dir
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
 # envelopes for FOUR roles across its rounds (primary_plan revisions,
@@ -72,6 +87,7 @@ _CONVERGENCE_INLINE_DISPATCH_ROLES: tuple[str, ...] = (
     "primary_plan",
     "challenger_plan",
     "cross_review",
+    "completeness_critique",
     "implementation",
 )
 
@@ -221,6 +237,13 @@ def _derive_arbiter_verdict(
         _verdict, _branch = "cross_review_unavailable", "HUMAN_REQUIRED+partial"
     elif terminal_state == "HUMAN_REQUIRED" and _REASON_PENDING in reasons:
         _verdict, _branch = "challenger_unavailable", "HUMAN_REQUIRED+pending"
+    elif terminal_state == "HUMAN_REQUIRED" and any(r.startswith("coverage_") for r in reasons):
+        # Plan-coverage gate escalations (coverage_missing /
+        # coverage_environment_unable / coverage_gaps_present at
+        # max_rounds without the max_rounds reason). "split" = human
+        # escalation; the branch tag keeps the provenance distinct so
+        # the operator sees WHICH gate fired without grepping.
+        _verdict, _branch = "split", "HUMAN_REQUIRED+coverage_gate"
     else:
         _verdict, _branch = "split", "defensive_default"
     # Plan ARIA-V10.4 Phase 1 — branch name is now structurally tied
@@ -393,6 +416,30 @@ def _poll_for_state(
     return None
 
 
+def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Latest revision's content as a structured plan dict, or None.
+
+    The kernel treats revision content as opaque hash-chained text; the
+    coverage computer needs the structured plan (affected_surfaces +
+    coverage.waivers). V8 primaries submit revised plans as JSON — when
+    they don't, the coverage phase records environment_unable (fail-closed)
+    rather than analyzing nothing and passing.
+    """
+    for event in reversed(state.get("events", [])):
+        if event.get("event_type") == "revision_recorded":
+            content = event.get("payload", {}).get("content")
+            if isinstance(content, dict):
+                return content
+            if isinstance(content, str):
+                try:
+                    parsed = json.loads(content)
+                except json.JSONDecodeError:
+                    return None
+                return parsed if isinstance(parsed, dict) else None
+            return None
+    return None
+
+
 def run_convergence_drainer(
     *,
     cycle_id: str,
@@ -405,6 +452,9 @@ def run_convergence_drainer(
     allowed_scope: list[str],
     max_rounds: int = 4,
     challenger_timeout_seconds: float = 1800.0,
+    coverage_computer: Any | None = None,
+    critic_adjudicator: Any | None = None,
+    critic_timeout_seconds: float = 900.0,
 ) -> ConvergenceResult:
     """Plan ARIA-V5 §2 — default Gate A convergence runner.
 
@@ -441,14 +491,22 @@ def run_convergence_drainer(
 
     resumed = False
     starting_round = 1
+    # Coverage gaps from round N ride the round-persistence JSON into round
+    # N+1's must_satisfy (crash-resume safe) — the primary planner sees each
+    # uncovered node as a named obligation in its prompt.
+    coverage_carry: list[dict[str, Any]] = []
     if persistence.exists():
         try:
             saved = json.loads(persistence.read_text(encoding="utf-8"))
             if saved.get("plan_id") == plan_id:
                 starting_round = int(saved.get("round", 1))
+                carried = saved.get("coverage_must_satisfy")
+                if isinstance(carried, list):
+                    coverage_carry = [item for item in carried if isinstance(item, dict)]
                 resumed = True
         except (OSError, json.JSONDecodeError, ValueError):
             resumed = False
+    effective_must_satisfy: list[dict[str, Any]] = [*must_satisfy, *coverage_carry]
 
     request_ids: list[str] = []
     rounds_executed = 0
@@ -494,7 +552,7 @@ def run_convergence_drainer(
         challenger_request = issue_challenger_envelope(
             plan_id=plan_id,
             round_number=current_round,
-            must_satisfy=must_satisfy,
+            must_satisfy=effective_must_satisfy,
             evidence_refs=evidence_refs,
             allowed_scope=allowed_scope,
             base_dir=base_dir,
@@ -668,7 +726,7 @@ def run_convergence_drainer(
                 primary_plan_text=primary_plan_text,
                 challenger_revision_id=challenger_revision_id,
                 challenger_plan_text=challenger_plan_text,
-                must_satisfy=must_satisfy,
+                must_satisfy=effective_must_satisfy,
                 evidence_refs=evidence_refs,
                 allowed_scope=allowed_scope,
                 base_dir=base_dir,
@@ -740,8 +798,206 @@ def run_convergence_drainer(
             )
         return challenger_revision_id, None
 
+    resolved_coverage_computer = coverage_computer or compute_plan_coverage
+
+    def _read_critic_adjudication(request_id: str, deadline: float) -> dict[str, Any] | None:
+        """Inline-dispatch the critic and poll the results ledger.
+
+        Returns the parsed adjudication dict, or None on timeout, ARIA_STOP,
+        rejection, or an unparseable output — the caller flips every waived
+        node to uncovered (fail-closed) in that case.
+        """
+        results_path = root / "agent-invocations" / "results.jsonl"
+        while time.monotonic() < deadline:
+            if _check_aria_stop(root):
+                return None
+            try:
+                dispatch_one_pending_planner_request(
+                    base_dir=base_dir,
+                    planner_roles=("completeness_critique",),
+                )
+            except Exception:
+                pass
+            rows = (
+                load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+                if results_path.exists()
+                else []
+            )
+            for row in reversed(rows):
+                if row.get("request_id") != request_id:
+                    continue
+                if row.get("status") == "rejected":
+                    return None
+                output_path = row.get("output_path")
+                if not isinstance(output_path, str) or not Path(output_path).exists():
+                    return None
+                text = Path(output_path).read_text(encoding="utf-8", errors="replace")
+                envelope: dict[str, Any] | None = None
+                try:
+                    parsed = json.loads(text)
+                    envelope = parsed if isinstance(parsed, dict) else None
+                except json.JSONDecodeError:
+                    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+                    for block in reversed(fenced):
+                        try:
+                            candidate = json.loads(block)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(candidate, dict):
+                            envelope = candidate
+                            break
+                return parse_critic_adjudication(envelope)
+            time.sleep(poll_sleep)
+        return None
+
+    def _dispatch_and_adjudicate(payload: dict[str, Any], current_round: int) -> dict[str, Any]:
+        """Production critic gate: mint -> dispatch -> poll -> fold verdict.
+
+        Every failure mode (mint refusal, dispatch crash, timeout, refusal,
+        malformed output) resolves to adjudication=None, which
+        adjudicate_waivers turns into waiver_unadjudicated gaps — PR-1's
+        machine-accepted waivers end here.
+        """
+        manifest_name = Path(str(payload.get("closure_manifest_path"))).name
+        manifest_file = root / "coverage" / manifest_name
+        manifest_text = (
+            manifest_file.read_text(encoding="utf-8", errors="replace")
+            if manifest_file.exists()
+            else "(closure manifest unavailable)"
+        )
+        request_id: str | None = None
+        adjudication: dict[str, Any] | None = None
+        try:
+            critic_request = issue_completeness_critic_envelope(
+                plan_id=plan_id,
+                round_number=current_round,
+                closure_manifest_text=manifest_text,
+                closure_manifest_hash=str(payload.get("closure_manifest_hash")),
+                waivers=list(payload.get("waived", [])),
+                evidence_refs=[str(payload.get("closure_manifest_path")), *evidence_refs],
+                allowed_scope=allowed_scope,
+                base_dir=base_dir,
+            )
+            request_id = critic_request.get("request_id")
+            if request_id:
+                request_ids.append(request_id)
+                adjudication = _read_critic_adjudication(
+                    request_id, time.monotonic() + critic_timeout_seconds,
+                )
+        except GovernanceError:
+            adjudication = None
+        adjudicated = adjudicate_waivers(
+            payload=payload,
+            adjudication=adjudication,
+            round_number=current_round,
+            critic_request_id=request_id,
+        )
+        try:
+            append_tools_governance(
+                root,
+                "coverage_waiver_adjudication",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": current_round,
+                    "critic_request_id": request_id,
+                    **(adjudicated.get("witness") or {}).get("waiver_adjudication", {}),
+                    "verdict_after": adjudicated.get("verdict"),
+                },
+            )
+        except Exception:
+            pass
+        return adjudicated
+
+    resolved_critic_adjudicator = critic_adjudicator or _dispatch_and_adjudicate
+
+    def _run_coverage_phase(current_round: int) -> None:
+        """Compute + record the deterministic coverage verdict for this round.
+
+        Runs OUTSIDE the kernel's plan lock (evaluate_plan must stay
+        deterministic-fast; the witness subprocess can take tens of
+        seconds). Fail-closed by construction: any failure to record
+        leaves the round WITHOUT a coverage event, which the evaluator
+        escalates to HUMAN_REQUIRED (coverage_missing) for
+        schema_version>=2 plans — a crash here can never silently pass.
+        """
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if not _plan_requires_coverage(state):
+            return
+        challenger = state.get("challenger") or {}
+        latest = state.get("latest_revision") or {}
+        if current_round == 1 and challenger.get("challenger_revision_id"):
+            # Round 1 evaluates the challenger revision (submit_cross_review_v8
+            # targets it); the challenger's plan_content is kernel-validated.
+            target_revision_id = challenger["challenger_revision_id"]
+            target_hash = challenger["content_hash"]
+            plan_content: Any = challenger.get("plan_content") or {}
+        else:
+            target_revision_id = latest.get("revision_id")
+            target_hash = latest.get("content_hash")
+            plan_content = _structured_revision_content(state)
+        try:
+            if isinstance(plan_content, dict) and plan_content.get("affected_surfaces") is not None:
+                payload = resolved_coverage_computer(
+                    plan_content=plan_content,
+                    plan_id=plan_id,
+                    round_number=current_round,
+                    target_revision_id=target_revision_id,
+                    target_plan_content_hash=target_hash,
+                    workspace_root=workspace_root or Path.cwd(),
+                    base_dir=base_dir,
+                )
+            else:
+                # A v2 plan whose round target is not a structured plan object
+                # (opaque revision content) — coverage cannot be computed from
+                # it. environment_unable escalates to HUMAN_REQUIRED; silently
+                # passing an unanalyzable plan is exactly the defect class
+                # this gate exists to kill.
+                payload = environment_unable_payload(
+                    round_number=current_round,
+                    target_revision_id=str(target_revision_id),
+                    target_plan_content_hash=str(target_hash),
+                    manifest_relpath=f"{root.name}/coverage/{plan_id}-r{current_round}.json",
+                    manifest_hash="sha256:" + ("0" * 64),
+                    computed_at_sha="unknown",
+                    witness={"tool": "convergence_drainer", "error": "revision_content_not_structured"},
+                )
+            # PR-2 tightening: machine-computed waivers are only claims —
+            # the completeness critic adjudicates each one before the
+            # verdict is recorded. No waivers -> nothing to adjudicate.
+            if payload.get("verdict") == "covered_with_waivers" and payload.get("waived"):
+                payload = resolved_critic_adjudicator(payload, current_round)
+            record_coverage(plan_id=plan_id, coverage=payload, base_dir=base_dir)
+            append_tools_governance(
+                root,
+                "coverage_phase_completed",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": current_round,
+                    "verdict": payload.get("verdict"),
+                    "uncovered_count": len(payload.get("uncovered", [])),
+                    "waived_count": len(payload.get("waived", [])),
+                },
+            )
+        except GovernanceError as exc:
+            # Recording refused (e.g. a concurrent revision made the target
+            # stale). No event lands -> evaluator fails closed with
+            # coverage_missing. The governance row keeps the WHY auditable.
+            append_tools_governance(
+                root,
+                "coverage_phase_failed",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": current_round,
+                    "error": str(exc),
+                },
+            )
+
     for round_n in range(starting_round, max_rounds + 1):
         rounds_executed = round_n
+        effective_must_satisfy = [*must_satisfy, *coverage_carry]
 
         if _check_aria_stop(root):
             return _aria_stop_return()
@@ -767,7 +1023,7 @@ def run_convergence_drainer(
                 primary_revision_request = issue_primary_envelope(
                     plan_id=plan_id,
                     round_number=round_n,
-                    must_satisfy=must_satisfy,
+                    must_satisfy=effective_must_satisfy,
                     evidence_refs=evidence_refs,
                     allowed_scope=allowed_scope,
                     base_dir=base_dir,
@@ -824,6 +1080,10 @@ def run_convergence_drainer(
         )
         if early_terminal is not None:
             return early_terminal
+
+        # Coverage phase sits between cross-review success and evaluation:
+        # the evaluator's plan_coverage gate reads the event this records.
+        _run_coverage_phase(round_n)
 
         # Plan ARIA-V10.5 Phase 4 — F-024 closure. Forward the drainer's
         # max_rounds into the kernel evaluator so plan_convergence and
@@ -962,9 +1222,26 @@ def run_convergence_drainer(
                 convergence_id=convergence_id,
             )
 
-        # NEXT_ROUND_REQUIRED — persist round bump and iterate
+        # NEXT_ROUND_REQUIRED — persist round bump and iterate. Uncovered
+        # closure nodes become named must_satisfy obligations for the next
+        # round's primary (and challenger) prompts; persisting them keeps the
+        # feed-forward crash-resume safe.
+        state_after_eval = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        coverage_after = (state_after_eval.get("coverage_by_round") or {}).get(round_n) or {}
+        coverage_carry = [
+            {
+                "id": f"coverage:{node.get('node_id')}",
+                "kind": "coverage_gap",
+                "description": (
+                    f"{node.get('node_id')}: {node.get('why')} — widen affected_surfaces "
+                    "to address this impact-closure node or add a coverage.waivers entry {node, reason}"
+                ),
+                "source": "plan-coverage-witness",
+            }
+            for node in coverage_after.get("uncovered", [])
+        ]
         persistence.write_text(
-            json.dumps({"plan_id": plan_id, "round": round_n + 1}),
+            json.dumps({"plan_id": plan_id, "round": round_n + 1, "coverage_must_satisfy": coverage_carry}),
             encoding="utf-8",
         )
 

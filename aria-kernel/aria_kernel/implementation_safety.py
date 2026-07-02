@@ -653,6 +653,22 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("aria-031e-expert-consensus",),
     ),
+    # Plan-coverage gate (ORPHAN-HIGH-310) — the 17th check. Enforcement
+    # lives in plan_convergence._require_coverage_for_implementation
+    # (request_implementation validator): a schema_version>=2 plan may not
+    # enter implementation without a covered / covered_with_waivers verdict
+    # from the deterministic plan-coverage witness, with waivers adjudicated
+    # by the completeness critic (fail-closed to gaps on timeout).
+    HardFailCheck(
+        name="plan_coverage_witness_verified",
+        description=(
+            "_require_coverage_for_implementation: schema_version>=2 plans "
+            "need a covered/covered_with_waivers coverage_computed verdict "
+            "(deterministic impact closure; critic-adjudicated waivers) "
+            "before implementation_requested"
+        ),
+        closes_findings=("ORPHAN-HIGH-310",),
+    ),
 )
 
 

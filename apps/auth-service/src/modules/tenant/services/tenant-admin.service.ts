@@ -710,6 +710,68 @@ export class TenantAdminService {
     return saved;
   }
 
+  /**
+   * ORPHAN-MEDIUM-320: clear a failed-login lockout for a user in this tenant.
+   *
+   * WHY a first-class action instead of waiting out the window: before this
+   * existed the only remediation was raw SQL against auth.users — the
+   * 2026-07-02 incident had an operator locked out for 30 minutes with a
+   * CORRECT password and no self-service path.
+   *
+   * Targeting a TENANT_ADMIN is deliberately ALLOWED (unlike deactivateUser):
+   * a lockout is an availability incident, not a privilege change — a locked
+   * admin cannot authenticate to unlock themselves, so recovery REQUIRES a
+   * peer admin (or SUPER_ADMIN). No tokens are minted and no permissions
+   * change; the audit row records who unlocked whom.
+   */
+  async unlockUser(tenantAdminId: string, userId: string): Promise<User> {
+    const admin = await this.userRepository.findOne({
+      where: { id: tenantAdminId },
+    });
+
+    if (!admin || !admin.tenantId) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId, tenantId: admin.tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const wasLockedUntil = user.lockedUntil ?? null;
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    const saved = await this.userRepository.save(user);
+
+    this.logger.log(`Cleared login lockout for userId=${userId}`);
+
+    // SECURITY AUDIT: who restored access to whom, and what the lock was.
+    try {
+      await this.auditLogService.log({
+        tenantId: admin.tenantId,
+        performedBy: tenantAdminId,
+        performedByEmail: admin.email,
+        action: 'USER_UNLOCKED',
+        entityType: 'User',
+        entityId: userId,
+        details: {
+          targetEmail: user.email,
+          targetRole: user.role,
+          previousLockedUntil: wasLockedUntil ? wasLockedUntil.toISOString() : null,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.WARNING,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event USER_UNLOCKED: ${(error as Error).message}`);
+    }
+
+    return saved;
+  }
+
   // =========================================================
   // Database Viewer Methods (Read-Only)
   // =========================================================

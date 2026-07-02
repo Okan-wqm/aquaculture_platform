@@ -28,6 +28,12 @@ export interface RequestWithUser {
   user?: JwtPayload;
   cookies?: Record<string, string>;
   /**
+   * ORPHAN-MEDIUM-319: Express-resolved client IP. Under TRUST_PROXY=1 this
+   * is the true end-client address from the nginx X-Forwarded-For chain —
+   * the LAST point in the platform where it is known first-hand.
+   */
+  ip?: string;
+  /**
    * The single resolved, authority-validated effective tenant for this request,
    * set by EffectiveTenantMiddleware (tenant-context SSoT). For a regular user
    * this equals the JWT tenantId; for a SUPER_ADMIN it is the validated act-as
@@ -230,6 +236,27 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
       httpRequest.headers.set('x-parent-span-id', parentSpanId);
     }
 
+    // ORPHAN-MEDIUM-319: the gateway is the LAST hop that knows the true
+    // end-client network identity (req.ip resolves the nginx X-Forwarded-For
+    // chain under TRUST_PROXY=1; the inbound user-agent is the browser's).
+    // Mint it onto EVERY subgraph request — including pre-auth login/refresh
+    // where no user assertion exists — so subgraph audit rows record the
+    // actor, not this container. set() OVERWRITES: an inbound x-client-ip
+    // from a malicious client can never pass through. Subgraphs trust these
+    // only behind a verified gateway service identity
+    // (resolveClientNetworkContext + StripInternalHeadersMiddleware).
+    const clientIp = req.ip;
+    if (clientIp) {
+      httpRequest.headers.set('x-client-ip', clientIp);
+    }
+    const clientUserAgentRaw = req.headers['user-agent'];
+    const clientUserAgent = Array.isArray(clientUserAgentRaw)
+      ? clientUserAgentRaw[0]
+      : clientUserAgentRaw;
+    if (clientUserAgent) {
+      httpRequest.headers.set('x-client-user-agent', clientUserAgent);
+    }
+
     const user = req.user;
     if (user) {
       httpRequest.headers.set(
@@ -253,6 +280,11 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           // SSOT-C-13: thread the plan tier ordinal so farm/sensor resolvers can
           // enforce per-plan resource quotas on the production gateway path.
           planLevel: (user as JwtPayload & { planLevel?: number }).planLevel,
+          // ORPHAN-MEDIUM-319: bind the client network identity into the
+          // HMAC-protected assertion (X-Service-Assertion-Hash) so the
+          // authenticated path carries it tamper-proof end to end.
+          clientIp,
+          clientUserAgent,
         }),
       );
     }

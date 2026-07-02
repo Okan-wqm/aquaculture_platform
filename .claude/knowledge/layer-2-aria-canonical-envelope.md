@@ -20,7 +20,7 @@ The kernel requires seven fields with the rules below.
 
 | Field | Type | Rule |
 |---|---|---|
-| `schema_version` | int | Current value: `1` |
+| `schema_version` | int | Current value: `2`. Version semantics: `1` = legacy (coverage gate inert — all recorded history); `2`+ = the plan-coverage gate applies: the kernel refuses CONVERGED until the deterministic impact-closure verdict (`coverage_computed`, produced by `tools/gates/plan-coverage-witness.ts` via `aria_kernel/plan_coverage.py`) is `covered` or `covered_with_waivers`. Applicability is anchored to the `plan_started` content — a later revision cannot downgrade it. |
 | `title` | string | Non-empty; one-line summary of the plan |
 | `summary` | string | Non-empty; 2–5 sentence narrative |
 | `affected_surfaces` | array | Each entry is `{paths: [<repo-relative POSIX>...]}` — no leading `/`, no `\`, no `..` |
@@ -32,6 +32,38 @@ Extra plan_content keys are passed through and ignored by the kernel
 validator (operator-readable narrative survives). Recommended extras
 for forensic detail: `recursive_impact`, `architectural_approach`,
 `plan_steps_detailed`, `rollback`, `risks`.
+
+### Optional `coverage` block (schema_version >= 2)
+
+```json
+"coverage": {
+  "waivers": [
+    {"node": "project:notification-service", "reason": "type-only change; consumer rebuild has no behavior delta"},
+    {"node": "dependents-of:farm-shared", "reason": "verified via tsc closure — no runtime surface touched"}
+  ]
+}
+```
+
+The machine computes the impact closure of your `affected_surfaces`
+(nx reverse dependents at `project:<name>`, NATS consumers at
+`event-consumer:<svc>:<EventType>` when `libs/event-contracts/**` is
+touched, `migration:<svc>` when an `*.entity.ts` is touched). Every
+closure node must either be REACHED by your paths or WAIVED here with
+a reason a reviewer can audit. Unwaived nodes come back as
+`must_satisfy` items of kind `coverage_gap` (id `coverage:<node_id>`)
+and as round-scoped `COV-R{N}-*` material risks — respond by widening
+`affected_surfaces` or adding the waiver, never by restating prose.
+Waivers live in plan_content (not the event) so they flow through
+`content_hash`, revisions, and cross-review like any other plan claim.
+
+Waivers are adjudicated: when a round's computed verdict is
+`covered_with_waivers`, the drainer dispatches `aria-completeness-critic`
+(role `completeness_critique`), whose envelope answer at
+`details.waiver_adjudication` (`{"accepted": [node_id...], "rejected":
+[{node_id, reason}...]}`) is folded into the `coverage_computed` event.
+Any waived node the critic does not explicitly accept flips to uncovered
+(`waiver_rejected_by_critic` / `waiver_unadjudicated`) — critic timeout
+fails closed to `gaps`.
 
 ## Envelope skeleton
 
@@ -53,7 +85,7 @@ for forensic detail: `recursive_impact`, `architectural_approach`,
   ],
   "evidence_refs": ["..."],
   "plan_content": {
-    "schema_version": 1,
+    "schema_version": 2,
     "title": "<one line>",
     "summary": "<2-5 sentences>",
     "affected_surfaces": [{"paths": ["..."]}],

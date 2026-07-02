@@ -239,6 +239,53 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.verifiedUserAssertion?.mobileFeatures).toEqual(['mortality', 'harvest']);
   });
 
+  it('ORPHAN-MEDIUM-319: round-trips clientIp + clientUserAgent onto the parsed assertion', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({
+          clientIp: '193.212.164.37',
+          clientUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.verifiedUserAssertion).toEqual(
+      expect.objectContaining({
+        clientIp: '193.212.164.37',
+        clientUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      }),
+    );
+  });
+
+  it('ORPHAN-MEDIUM-319: rejects a malformed clientIp claim fail-closed', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({ clientIp: 42 }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(BadRequestException));
+    expect(req.verifiedUserAssertion).toBeUndefined();
+  });
+
+  it('ORPHAN-MEDIUM-319: rejects an oversized clientUserAgent claim fail-closed', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({ clientUserAgent: 'x'.repeat(1025) }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(BadRequestException));
+    expect(req.verifiedUserAssertion).toBeUndefined();
+  });
+
   it('omits the claims on req.user when the assertion does not carry them', () => {
     const req = createRequest({
       headers: { 'x-verified-user-assertion': encodeAssertion() },

@@ -44,6 +44,28 @@ export interface InvitationAcceptedEvent extends BaseEvent {
  * BREAKING CHANGE: email, actionUrl, firstName fields removed.
  * Consumers must resolve user details via userId and actionTokenId.
  */
+/**
+ * ORPHAN-MEDIUM-320: emitted when the failed-login threshold locks an
+ * account. Consumed by notification-service to send the owner-facing
+ * "your account was locked" email — the wire login response stays the
+ * generic anti-enumeration message, so this event is the ONLY channel
+ * that tells the legitimate owner what happened.
+ *
+ * No PII: the consumer resolves the email address at delivery time via
+ * the authenticated internal PII endpoint (CRITICAL-001/002 discipline).
+ * Audit-log-backed (the CRITICAL ACCOUNT_LOCKED row is the durable SoT),
+ * so it rides the best-effort path.
+ */
+export interface UserAccountLockedEvent extends BaseEvent {
+  eventType: 'UserAccountLocked';
+  /** Locked user — opaque reference, NOT PII */
+  userId: string;
+  /** Failed attempts that triggered the lock (the configured threshold). */
+  failedAttempts: number;
+  /** ISO-8601 instant at which the lock expires. */
+  lockedUntil: string;
+}
+
 export interface PasswordResetRequestedEvent extends BaseEvent {
   eventType: 'PasswordResetRequested';
   /** User requesting the password reset — opaque reference, NOT PII */
@@ -190,6 +212,7 @@ export interface ConsentWithdrawnEvent extends BaseEvent {
  */
 export type AuthEvent =
   | UserLoggedInEvent
+  | UserAccountLockedEvent
   | InvitationAcceptedEvent
   | PasswordResetRequestedEvent
   | PasswordResetCompletedEvent

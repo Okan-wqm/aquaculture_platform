@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 import { AuditLogService } from './audit-log.service';
@@ -23,21 +24,28 @@ import { AuditLogService } from './audit-log.service';
  *
  * The specs below pin:
  *   1. `log(dto, manager)` writes via the PASSED manager, not the injected one.
- *   2. `log(dto)` (manager omitted) falls back to the injected repository's own
- *      manager — behaviour identical to the pre-overload implementation.
+ *   2. `log(dto)` (manager omitted) runs a SYSTEM-CONTEXT transaction whose
+ *      FIRST statement is `set_config('app.bypass_rls','on', true)` —
+ *      ORPHAN-HIGH-308 completion: TypeORM save() emits INSERT … RETURNING
+ *      and PostgreSQL applies the SELECT policy to RETURNING rows, so a
+ *      pre-auth/SUPER_ADMIN session (no tenant GUC) failed even after the
+ *      audit_append_system INSERT policy landed.
  *   3. The default-severity behaviour (undefined → INFO) is preserved on both
  *      paths.
  */
-type ManagerMock = { create: jest.Mock; save: jest.Mock };
+type ManagerMock = { create: jest.Mock; save: jest.Mock; query: jest.Mock };
 
 const makeManagerMock = (): ManagerMock => ({
   create: jest.fn((_target: unknown, shape: unknown) => shape),
   save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+  query: jest.fn(() => Promise.resolve([])),
 });
 
 describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
   let service: AuditLogService;
   let injectedManager: ManagerMock;
+  let txnManager: ManagerMock;
+  let txnStatements: string[];
 
   const dto = {
     tenantId: 'tenant-1',
@@ -47,8 +55,19 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
   };
 
   beforeEach(async () => {
-    // The repository's OWN manager (fallback path when no manager is passed).
+    // The repository's OWN manager (must never be used for writes anymore).
     injectedManager = makeManagerMock();
+    // The system-context transaction manager the standalone path runs on.
+    txnStatements = [];
+    txnManager = makeManagerMock();
+    txnManager.query.mockImplementation((sql: string) => {
+      txnStatements.push(sql);
+      return Promise.resolve([]);
+    });
+    txnManager.save.mockImplementation((entity: unknown) => {
+      txnStatements.push('save');
+      return Promise.resolve(entity);
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -57,6 +76,14 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
         // enough; the service only reaches auditLogRepository.manager.
         { provide: getRepositoryToken(AuditLog), useValue: { manager: injectedManager } },
         { provide: ConfigService, useValue: { get: jest.fn() } },
+        {
+          provide: DataSource,
+          useValue: {
+            transaction: jest.fn(
+              (cb: (m: ManagerMock) => Promise<unknown>): Promise<unknown> => cb(txnManager),
+            ),
+          },
+        },
       ],
     }).compile();
 
@@ -77,16 +104,25 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
     expect(injectedManager.save).not.toHaveBeenCalled();
   });
 
-  it('falls back to the injected repository manager when no manager is passed (unchanged behaviour)', async () => {
+  it('ORPHAN-HIGH-308: standalone writes run a SYSTEM-CONTEXT transaction — bypass set_config BEFORE the save', async () => {
     await service.log(dto);
 
-    expect(injectedManager.create).toHaveBeenCalledWith(AuditLog, expect.objectContaining({ action: dto.action }));
-    expect(injectedManager.save).toHaveBeenCalledTimes(1);
+    // The write happens on the transaction manager, in the right order:
+    // set_config first, then the save (whose RETURNING now passes RLS).
+    expect(txnStatements[0]).toContain("set_config('app.bypass_rls', 'on', true)");
+    expect(txnStatements).toContain('save');
+    expect(txnManager.create).toHaveBeenCalledWith(
+      AuditLog,
+      expect.objectContaining({ action: dto.action }),
+    );
+    // The injected repository manager must never write (no un-scoped path).
+    expect(injectedManager.create).not.toHaveBeenCalled();
+    expect(injectedManager.save).not.toHaveBeenCalled();
   });
 
   it('defaults severity to INFO when the DTO omits it (both paths)', async () => {
     await service.log(dto);
-    expect(injectedManager.create).toHaveBeenCalledWith(
+    expect(txnManager.create).toHaveBeenCalledWith(
       AuditLog,
       expect.objectContaining({ severity: AuditLogSeverity.INFO }),
     );
@@ -101,7 +137,7 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
 
   it('preserves an explicitly-supplied severity', async () => {
     await service.log({ ...dto, severity: AuditLogSeverity.CRITICAL });
-    expect(injectedManager.create).toHaveBeenCalledWith(
+    expect(txnManager.create).toHaveBeenCalledWith(
       AuditLog,
       expect.objectContaining({ severity: AuditLogSeverity.CRITICAL }),
     );

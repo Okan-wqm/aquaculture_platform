@@ -1,8 +1,7 @@
+import type { IEventBus } from '@platform/event-bus';
 import { SecurityEventType } from '@platform/event-contracts';
 
 import { SecurityEventService } from '../security-event.service';
-
-import type { IEventBus } from '@platform/event-bus';
 
 /**
  * ORPHAN-MEDIUM-322 — security-event WIRE subject contract.

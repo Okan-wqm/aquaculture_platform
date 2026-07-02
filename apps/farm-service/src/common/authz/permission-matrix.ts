@@ -121,6 +121,8 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   recordBulkFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordCleanerMortality: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordCull: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // FARM-MEDIUM-117: grading moves stock across tanks — manager-class like transferBatch.
+  recordGrading: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordDailyFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordGrowthSample: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordMortality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

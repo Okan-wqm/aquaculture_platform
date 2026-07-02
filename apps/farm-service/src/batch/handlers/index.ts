@@ -10,6 +10,7 @@ import { DeleteBatchHandler } from './delete-batch.handler';
 import { DeployCleanerFishHandler } from './deploy-cleaner-fish.handler';
 import { RecordCleanerMortalityHandler } from './record-cleaner-mortality.handler';
 import { RecordCullHandler } from './record-cull.handler';
+import { RecordGradingHandler } from './record-grading.handler';
 import { RecordMortalityHandler } from './record-mortality.handler';
 import { RemoveCleanerFishHandler } from './remove-cleaner-fish.handler';
 import { TransferBatchHandler } from './transfer-batch.handler';
@@ -23,6 +24,7 @@ export * from './delete-batch.handler';
 export * from './deploy-cleaner-fish.handler';
 export * from './record-cleaner-mortality.handler';
 export * from './record-cull.handler';
+export * from './record-grading.handler';
 export * from './record-mortality.handler';
 export * from './remove-cleaner-fish.handler';
 export * from './transfer-batch.handler';
@@ -41,6 +43,7 @@ export const BatchCommandHandlers = [
   UpdateBatchStatusHandler,
   RecordMortalityHandler,
   RecordCullHandler,
+  RecordGradingHandler,
   CloseBatchHandler,
   AllocateToTankHandler,
   TransferBatchHandler,

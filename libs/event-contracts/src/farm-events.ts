@@ -414,6 +414,34 @@ export interface BatchTransferredEvent extends BaseEvent {
 }
 
 /**
+ * Batch Graded Event (FARM-MEDIUM-117)
+ *
+ * Summary record of a first-class grading operation: fish from one
+ * source tank sorted into size classes and distributed across
+ * destination tanks. Each individual movement is also recorded as a
+ * `BatchTransferred` event with reason 'grading' — this event carries
+ * the operation-level view (all outputs together).
+ */
+export interface BatchGradedOutput {
+  destinationTankId: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  sizeClass?: string;
+}
+
+export interface BatchGradedEvent extends BaseEvent {
+  eventType: 'BatchGraded';
+  batchId: string;
+  sourceTankId: string;
+  totalQuantity: number;
+  totalBiomassKg: number;
+  gradedDate: string;
+  outputs: BatchGradedOutput[];
+  notes?: string;
+}
+
+/**
  * Batch Allocated to Tank Event
  *
  * Represents the resultant allocation state after a batch movement.
@@ -1337,6 +1365,7 @@ export type FarmEvent =
   | SupplierApprovedSitesChangedEvent
   | SiteContactsChangedEvent
   | BatchTransferredEvent
+  | BatchGradedEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent
   | FeedingRecordedEvent

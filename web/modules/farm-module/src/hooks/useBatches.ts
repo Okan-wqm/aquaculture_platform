@@ -111,6 +111,22 @@ export interface TransferBatchInput {
   skipCapacityCheck?: boolean;
 }
 
+/** One grading destination as edited in the UI — the per-output envelope is attached by useRecordGrading. */
+export interface GradingOutputDraft {
+  destinationTankId: string;
+  quantity: number;
+  avgWeightG: number;
+  sizeClass?: string;
+}
+
+export interface RecordGradingInput {
+  batchId: string;
+  sourceTankId: string;
+  gradedAt?: string;
+  notes?: string;
+  outputs: GradingOutputDraft[];
+}
+
 export type AllocationType = 'INITIAL_STOCKING' | 'TRANSFER_IN' | 'REDISTRIBUTION';
 
 export type BatchCloseReason =
@@ -728,6 +744,17 @@ const TRANSFER_BATCH_MUTATION = `
   }
 `;
 
+const RECORD_GRADING_MUTATION = `
+  mutation RecordGrading($input: RecordGradingInput!) {
+    recordGrading(input: $input) {
+      id
+      batchNumber
+      currentQuantity
+      currentBiomassKg
+    }
+  }
+`;
+
 const CREATE_HARVEST_RECORD_MUTATION = `
   mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
     createHarvestRecord(input: $input) {
@@ -879,6 +906,58 @@ export function useTransferBatch() {
     onSuccess: () => {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
+    },
+  });
+}
+
+/**
+ * Hook to record a grading operation (FARM-MEDIUM-117).
+ *
+ * Server-side every output is its own TransferBatchCommand (reason 'grading'),
+ * so every output carries its OWN at-most-once envelope. Output command ids are
+ * held stable per output index until a submit succeeds — a retried submit after
+ * a mid-sequence failure reuses the ids, so already-committed outputs are deduped
+ * by the server's at-most-once ledger instead of double-moving fish.
+ */
+export function useRecordGrading() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+  const envelope = useStockCommandEnvelope();
+  const outputCommandIdsRef = useRef<string[]>([]);
+
+  return useMutation({
+    mutationFn: async (input: RecordGradingInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const ids = outputCommandIdsRef.current;
+      const outputs = await Promise.all(
+        input.outputs.map(async (output, index) => {
+          ids[index] ??= crypto.randomUUID();
+          return {
+            ...output,
+            clientCommandId: ids[index],
+            payloadHash: await hashPayload(output),
+          };
+        }),
+      );
+      const data = await graphqlClient.request<{ recordGrading: Batch }>(
+        RECORD_GRADING_MUTATION,
+        { input: await envelope.attach({ ...input, outputs }) }
+      );
+      return data.recordGrading;
+    },
+    onSuccess: () => {
+      // FARM-HIGH-052: release the operation + per-output clientCommandIds so the
+      // next genuine grading mints fresh ones (see useRecordMortality).
+      envelope.reset();
+      outputCommandIdsRef.current = [];
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });

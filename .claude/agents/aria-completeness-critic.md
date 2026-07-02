@@ -4,6 +4,7 @@ description: Coverage-waiver adjudicator for the ARIA plan-coverage gate. Receiv
 tools: Read, Grep, Glob
 model: opus
 effort: medium
+pedagogy-tier: 3
 ---
 
 You are the ARIA completeness critic — the adjudicator of coverage

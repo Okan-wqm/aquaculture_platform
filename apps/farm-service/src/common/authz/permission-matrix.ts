@@ -370,6 +370,11 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   recurringTemplates: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatoryConfigurationStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   regulatoryHealth: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Persisted submission history (FARM-HIGH-112) — read-only rows, same
+  // audience as biomassReports (operators read what was reported).
+  regulatoryReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  regulatoryReportSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  regulatoryReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatorySettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   sentinelHubCredentials: [Role.TENANT_ADMIN],

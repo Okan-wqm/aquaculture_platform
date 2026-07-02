@@ -16,6 +16,8 @@ import { OutboxPublisher } from '@platform/outbox';
 import type { BaseEvent } from '@platform/event-contracts';
 import { createMockDataSource } from '@aquaculture/testing';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
+import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import { RegulatoryReport } from '../entities/regulatory-report.entity';
 import { RegulatoryResolver } from '../regulatory.resolver';
 import { MattilsynetApiService } from '../mattilsynet-api.service';
 import { MaskinportenService } from '../maskinporten.service';
@@ -94,14 +96,19 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
     mocks = createMockDataSource();
     outboxEnqueue = jest.fn().mockResolvedValue(undefined);
     const outbox: Pick<OutboxPublisher, 'enqueue'> = { enqueue: outboxEnqueue };
-    const service = new RegulatoryVarslingService(mocks.mockDataSource, outbox as OutboxPublisher);
+    const reportStore = new RegulatoryReportStoreService(mocks.mockDataSource);
+    const service = new RegulatoryVarslingService(
+      mocks.mockDataSource,
+      outbox as OutboxPublisher,
+      reportStore,
+    );
 
     // The three settings/API collaborators are unused by the varsling
     // mutations; empty stubs keep the resolver constructable without them.
     const mattilsynet = {} as MattilsynetApiService;
     const maskinporten = {} as MaskinportenService;
     const settings = {} as RegulatorySettingsService;
-    resolver = new RegulatoryResolver(mattilsynet, maskinporten, settings, service);
+    resolver = new RegulatoryResolver(mattilsynet, maskinporten, settings, service, reportStore);
   });
 
   describe('submitWelfareEvent', () => {
@@ -118,6 +125,17 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
       expect(event.eventType).toBe('WelfareEventReported');
       expect(event.tenantId).toBe(TENANT_ID);
       expect(event.userId).toBe(USER_ID);
+
+      // FARM-HIGH-112: the submission record persists atomically with the
+      // outbox enqueue — the QUEUED row is saved through the SAME manager.
+      expect(mocks.mockManager.save).toHaveBeenCalledWith(
+        RegulatoryReport,
+        expect.objectContaining({
+          reportType: 'WELFARE_EVENT',
+          klientReferanse: 'ref-123',
+          status: 'QUEUED',
+        }),
+      );
     });
 
     it('rolls back and surfaces the error on outbox failure (no fake-success)', async () => {

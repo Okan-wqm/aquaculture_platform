@@ -25,6 +25,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import {
   createBaseEvent,
   WelfareEventReportedEvent,
@@ -37,6 +38,8 @@ import {
   SubmitDiseaseOutbreakInput,
 } from '../dto/regulatory-varsling-inputs.dto';
 import { ReportSubmissionResult } from '../dto/regulatory-inputs.dto';
+import { RegulatoryReportType } from '../entities/regulatory-report.entity';
+import { RegulatoryReportStoreService } from './regulatory-report-store.service';
 
 @Injectable()
 export class RegulatoryVarslingService {
@@ -45,6 +48,7 @@ export class RegulatoryVarslingService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly reportStore: RegulatoryReportStoreService,
   ) {}
 
   /**
@@ -87,7 +91,7 @@ export class RegulatoryVarslingService {
       immediateActions: input.immediateActions,
     };
 
-    return this.enqueue(input.klientReferanse, event, input.siteId, 'Welfare Event');
+    return this.enqueue(tenantId, userId, RegulatoryReportType.WELFARE_EVENT, input, event, 'Welfare Event');
   }
 
   /**
@@ -130,7 +134,7 @@ export class RegulatoryVarslingService {
       recoveryOngoing: input.recoveryOngoing,
     };
 
-    return this.enqueue(input.klientReferanse, event, input.siteId, 'Escape Report');
+    return this.enqueue(tenantId, userId, RegulatoryReportType.ESCAPE, input, event, 'Escape Report');
   }
 
   /**
@@ -174,43 +178,66 @@ export class RegulatoryVarslingService {
       veterinarianName: input.veterinarianName,
     };
 
-    return this.enqueue(input.klientReferanse, event, input.siteId, 'Disease Outbreak');
+    return this.enqueue(tenantId, userId, RegulatoryReportType.DISEASE_OUTBREAK, input, event, 'Disease Outbreak');
   }
 
   /**
-   * Enqueue the varsling event in its own transaction so the outbox INSERT
-   * commits atomically. The dedicated transaction (rather than piggy-backing
-   * on a domain write) is correct here because the report has no separate
-   * domain-row write — the event IS the submission record. Idempotency on
-   * `klientReferanse` prevents a double-submit (e.g. retry / double-click)
-   * from generating a duplicate urgent email.
+   * Enqueue the varsling event and persist the submission record in ONE
+   * tenant-pinned transaction (FARM-HIGH-112): the `regulatory_reports`
+   * row (status QUEUED) exists iff the outbox event that carries the
+   * urgent e-mail is committed. runInTenantTransaction pins search_path
+   * to the tenant schema so the per-tenant report row routes correctly
+   * (outbox_events keeps its pinned `farm` schema and is unaffected).
+   * Idempotency on `klientReferanse` prevents a double-submit (retry /
+   * double-click) from generating a duplicate urgent email — the report
+   * row upserts on the same key.
    */
   private async enqueue(
-    klientReferanse: string,
+    tenantId: string,
+    userId: string,
+    reportType: RegulatoryReportType,
+    input: SubmitWelfareEventInput | SubmitEscapeReportInput | SubmitDiseaseOutbreakInput,
     event: WelfareEventReportedEvent | EscapeReportedEvent | DiseaseOutbreakReportedEvent,
-    aggregateId: string,
     reportLabel: string,
   ): Promise<ReportSubmissionResult> {
+    const { klientReferanse } = input;
     this.logger.log(`Submitting ${reportLabel} varsling report: ${klientReferanse}`);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
     try {
-      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
-        idempotencyKey: `varsling:${event.eventType}:${klientReferanse}`,
-        aggregateId,
-      });
-      await queryRunner.commitTransaction();
+      const row = await runInTenantTransaction(
+        this.dataSource,
+        'farm',
+        tenantId,
+        async (queryRunner) => {
+          const persisted = await this.reportStore.recordQueued(
+            queryRunner.manager,
+            tenantId,
+            {
+              reportType,
+              klientReferanse,
+              siteId: input.siteId,
+              lokalitetsnummer: input.lokalitetsnummer,
+              payload: input,
+              submittedBy: userId,
+            },
+            event.eventId,
+          );
+          await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+            idempotencyKey: `varsling:${event.eventType}:${klientReferanse}`,
+            aggregateId: input.siteId,
+          });
+          return persisted;
+        },
+      );
 
       this.logger.log(`${reportLabel} varsling report queued for dispatch: ${klientReferanse}`);
       return {
         success: true,
+        reportId: row.id,
         referanse: event.eventId,
         klientReferanse,
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
       this.logger.error(
         `Failed to submit ${reportLabel} varsling report: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -219,8 +246,6 @@ export class RegulatoryVarslingService {
         klientReferanse,
         feilmelding: error instanceof Error ? error.message : 'Unknown error',
       };
-    } finally {
-      await queryRunner.release();
     }
   }
 }

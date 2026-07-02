@@ -163,6 +163,18 @@ export class RegulatoryBaseInput {
   @IsString()
   klientReferanse: string;
 
+  /**
+   * Internal site identifier for the locality being reported on. Optional
+   * because the Mattilsynet payload itself only needs lokalitetsnummer;
+   * when omitted the server reverse-maps lokalitetsnummer through the
+   * tenant's siteLocalityMappings so the persisted report row can still be
+   * filtered by site (FARM-HIGH-112).
+   */
+  @Field({ nullable: true, description: 'Internal site identifier (optional; reverse-mapped from lokalitetsnummer when absent)' })
+  @IsOptional()
+  @IsString()
+  siteId?: string;
+
   @Field({ description: 'Norwegian organization number (9 digits)' })
   @IsNotEmpty()
   @IsString()
@@ -893,6 +905,14 @@ export class ReportValidationError {
 export class ReportSubmissionResult {
   @Field({ description: 'Whether the submission was successful' })
   success: boolean;
+
+  /**
+   * Id of the persisted regulatory_reports row recording this submission
+   * (FARM-HIGH-112). Lets the frontend link the submit response to the
+   * report-history list without a refetch round-trip.
+   */
+  @Field({ nullable: true, description: 'Persisted submission record id' })
+  reportId?: string;
 
   @Field({ nullable: true, description: 'Mattilsynet reference number (if successful)' })
   referanse?: string;

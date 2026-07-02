@@ -22,15 +22,23 @@ import { BiomassReportService } from './services/biomass-report.service';
 import { BiomassReportResolver } from './biomass-report.resolver';
 import { RegulatorySettingsSeederService } from './services/regulatory-settings-seeder.service';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
+import { RegulatoryReport } from './entities/regulatory-report.entity';
+import { RegulatoryReportStoreService } from './services/regulatory-report-store.service';
+import { RegulatoryReportResolver } from './regulatory-report.resolver';
 
 // Biomass-report read handlers (fail-closed tenant boundary — FARM-HIGH-060)
 import { GetBiomassReportByPeriodHandler } from './handlers/get-biomass-report-by-period.handler';
 import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-reports-for-site.handler';
 
+// Regulatory-report read handlers (FARM-HIGH-112)
+import { ListRegulatoryReportsHandler } from './handlers/list-regulatory-reports.handler';
+import { GetRegulatoryReportHandler } from './handlers/get-regulatory-report.handler';
+import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-report-summary.handler';
+
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([RegulatorySettings, BiomassReport]),
+    TypeOrmModule.forFeature([RegulatorySettings, BiomassReport, RegulatoryReport]),
   ],
   providers: [
     MaskinportenService,
@@ -43,6 +51,11 @@ import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-report
     ListBiomassReportsForSiteHandler,
     RegulatorySettingsSeederService,
     RegulatoryVarslingService,
+    RegulatoryReportStoreService,
+    RegulatoryReportResolver,
+    ListRegulatoryReportsHandler,
+    GetRegulatoryReportHandler,
+    GetRegulatoryReportSummaryHandler,
   ],
   exports: [
     MaskinportenService,

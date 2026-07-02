@@ -47,6 +47,13 @@ import {
 } from './dto/regulatory-varsling-inputs.dto';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
 import {
+  RegulatoryReportStoreService,
+} from './services/regulatory-report-store.service';
+import {
+  RegulatoryReportPayload,
+  RegulatoryReportType,
+} from './entities/regulatory-report.entity';
+import {
   RegulatorySettingsOutput,
   UpdateRegulatorySettingsInput,
   MaskinportenConnectionTestResult,
@@ -125,6 +132,7 @@ export class RegulatoryResolver {
     private readonly maskinporten: MaskinportenService,
     private readonly settingsService: RegulatorySettingsService,
     private readonly varslingService: RegulatoryVarslingService,
+    private readonly reportStore: RegulatoryReportStoreService,
   ) {}
 
   // ==========================================================================
@@ -152,6 +160,84 @@ export class RegulatoryResolver {
       throw new UnauthorizedException('User context required');
     }
     return userId;
+  }
+
+  /**
+   * Resolve the internal siteId for a locality. The Mattilsynet payload
+   * only carries lokalitetsnummer; when the client did not supply an
+   * explicit siteId we reverse-map through the tenant's
+   * siteLocalityMappings so the persisted row stays site-filterable.
+   */
+  private async resolveSiteId(
+    tenantId: string,
+    explicitSiteId: string | undefined,
+    lokalitetsnummer: number,
+  ): Promise<string | undefined> {
+    if (explicitSiteId) return explicitSiteId;
+    const settings = await this.settingsService.getSettings(tenantId);
+    const mappings = settings?.siteLocalityMappings || {};
+    for (const [siteId, mappedLokalitet] of Object.entries(mappings)) {
+      if (mappedLokalitet === lokalitetsnummer) return siteId;
+    }
+    return undefined;
+  }
+
+  /**
+   * Persist-first submit flow shared by the five Mattilsynet REST report
+   * types (FARM-HIGH-112): record PENDING → call the API → mark
+   * SUBMITTED/FAILED. A failure to persist fails the submit — an
+   * unrecorded report must never reach the regulator.
+   */
+  private async submitWithRecord(
+    tenantId: string,
+    userId: string,
+    reportType: RegulatoryReportType,
+    input: {
+      klientReferanse: string;
+      siteId?: string;
+      lokalitetsnummer: number;
+    },
+    period: { year?: number; week?: number; month?: number },
+    payload: RegulatoryReportPayload,
+    submit: () => Promise<ReportSubmissionResult>,
+  ): Promise<ReportSubmissionResult> {
+    const siteId = await this.resolveSiteId(tenantId, input.siteId, input.lokalitetsnummer);
+    const row = await this.reportStore.recordPending(tenantId, {
+      reportType,
+      klientReferanse: input.klientReferanse,
+      siteId,
+      lokalitetsnummer: input.lokalitetsnummer,
+      reportYear: period.year,
+      reportWeek: period.week,
+      reportMonth: period.month,
+      payload,
+      submittedBy: userId,
+    });
+
+    try {
+      const result = await submit();
+      if (result.success) {
+        await this.reportStore.markSubmitted(tenantId, row.id, result.referanse);
+      } else {
+        await this.reportStore.markFailed(
+          tenantId,
+          row.id,
+          result.feilmelding ??
+            (result.valideringsfeil?.map((v) => `${v.felt}: ${v.melding}`).join('; ') ||
+              'Submission rejected'),
+        );
+      }
+      return { ...result, reportId: row.id };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      await this.reportStore.markFailed(tenantId, row.id, message);
+      return {
+        success: false,
+        reportId: row.id,
+        klientReferanse: input.klientReferanse,
+        feilmelding: message,
+      };
+    }
   }
 
   /**
@@ -404,9 +490,17 @@ export class RegulatoryResolver {
     @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Sea Lice report: ${input.klientReferanse}`);
 
-    try {
+    return this.submitWithRecord(
+      tenantId,
+      userId,
+      RegulatoryReportType.SEA_LICE,
+      input,
+      { year: input.rapporteringsaar, week: input.rapporteringsuke },
+      input,
+      async () => {
       // Transform GraphQL input to API payload
       const payload: SeaLicePayload = {
         klientReferanse: input.klientReferanse,
@@ -495,16 +589,9 @@ export class RegulatoryResolver {
         })),
       };
 
-      const result = await this.mattilsynetApi.submitSeaLiceReport(tenantId, payload);
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to submit Sea Lice report: ${error}`);
-      return {
-        success: false,
-        klientReferanse: input.klientReferanse,
-        feilmelding: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+      return this.mattilsynetApi.submitSeaLiceReport(tenantId, payload);
+      },
+    );
   }
 
   /**
@@ -518,9 +605,17 @@ export class RegulatoryResolver {
     @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Cleaner Fish report: ${input.klientReferanse}`);
 
-    try {
+    return this.submitWithRecord(
+      tenantId,
+      userId,
+      RegulatoryReportType.CLEANER_FISH,
+      input,
+      { year: input.rapporteringsaar, month: input.rapporteringsmaaned },
+      input,
+      async () => {
       // Transform GraphQL input to API payload
       const payload: CleanerFishPayload = {
         klientReferanse: input.klientReferanse,
@@ -562,16 +657,9 @@ export class RegulatoryResolver {
         })),
       };
 
-      const result = await this.mattilsynetApi.submitCleanerFishReport(tenantId, payload);
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to submit Cleaner Fish report: ${error}`);
-      return {
-        success: false,
-        klientReferanse: input.klientReferanse,
-        feilmelding: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+      return this.mattilsynetApi.submitCleanerFishReport(tenantId, payload);
+      },
+    );
   }
 
   /**
@@ -585,9 +673,17 @@ export class RegulatoryResolver {
     @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Smolt report: ${input.klientReferanse}`);
 
-    try {
+    return this.submitWithRecord(
+      tenantId,
+      userId,
+      RegulatoryReportType.SMOLT,
+      input,
+      { year: input.rapporteringsaar, month: input.rapporteringsmaaned },
+      input,
+      async () => {
       // Transform GraphQL input to API payload
       const payload: SmoltPayload = {
         klientReferanse: input.klientReferanse,
@@ -611,16 +707,9 @@ export class RegulatoryResolver {
         })),
       };
 
-      const result = await this.mattilsynetApi.submitSmoltReport(tenantId, payload);
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to submit Smolt report: ${error}`);
-      return {
-        success: false,
-        klientReferanse: input.klientReferanse,
-        feilmelding: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+      return this.mattilsynetApi.submitSmoltReport(tenantId, payload);
+      },
+    );
   }
 
   /**
@@ -634,9 +723,17 @@ export class RegulatoryResolver {
     @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Planned Slaughter report: ${input.klientReferanse}`);
 
-    try {
+    return this.submitWithRecord(
+      tenantId,
+      userId,
+      RegulatoryReportType.SLAUGHTER_PLANNED,
+      input,
+      { year: input.aar, week: input.uke },
+      input,
+      async () => {
       // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
       const payload: PlannedSlaughterPayload = {
         klientReferanse: input.klientReferanse,
@@ -666,16 +763,9 @@ export class RegulatoryResolver {
         })),
       };
 
-      const result = await this.mattilsynetApi.submitPlannedSlaughterReport(tenantId, payload);
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to submit Planned Slaughter report: ${error}`);
-      return {
-        success: false,
-        klientReferanse: input.klientReferanse,
-        feilmelding: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+      return this.mattilsynetApi.submitPlannedSlaughterReport(tenantId, payload);
+      },
+    );
   }
 
   /**
@@ -689,9 +779,17 @@ export class RegulatoryResolver {
     @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Executed Slaughter report: ${input.klientReferanse}`);
 
-    try {
+    return this.submitWithRecord(
+      tenantId,
+      userId,
+      RegulatoryReportType.SLAUGHTER_EXECUTED,
+      input,
+      { year: input.slakteaar, week: input.slakteuke },
+      input,
+      async () => {
       // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
       const payload: ExecutedSlaughterPayload = {
         klientReferanse: input.klientReferanse,
@@ -718,16 +816,9 @@ export class RegulatoryResolver {
         })),
       };
 
-      const result = await this.mattilsynetApi.submitExecutedSlaughterReport(tenantId, payload);
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to submit Executed Slaughter report: ${error}`);
-      return {
-        success: false,
-        klientReferanse: input.klientReferanse,
-        feilmelding: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+      return this.mattilsynetApi.submitExecutedSlaughterReport(tenantId, payload);
+      },
+    );
   }
 
   // ==========================================================================

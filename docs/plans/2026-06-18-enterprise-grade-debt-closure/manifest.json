@@ -11,8 +11,8 @@
   "active_critical_count": 2,
   "worktree_dirty_at_creation": true,
   "active_critical_ids": [
-    "FARM-CRITICAL-061",
-    "INFRA-CRITICAL-029"
+    "INFRA-CRITICAL-029",
+    "FARM-CRITICAL-061"
   ],
   "agent_roster": [
     "architectural-arbiter",

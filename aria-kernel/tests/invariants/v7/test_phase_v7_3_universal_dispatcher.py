@@ -29,7 +29,8 @@ if str(_KERNEL_ROOT) not in sys.path:
 
 
 class PhaseV7_3UniversalDispatcher(unittest.TestCase):
-    # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 9).
+    # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 10; the
+    # plan-coverage gate PR-2 added completeness_critique).
     def test_i_v7_3_01_supported_roles_closed_enum(self) -> None:
         """Plan ARIA-V7 §2g v2 — closed role enum."""
         from aria_kernel.dispatcher_factory import SUPPORTED_ROLES
@@ -38,13 +39,14 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
             "primary_authoring", "challenger_authoring",
             "evidence_judgment", "adversarial_judgment",
             "primary_plan", "challenger_plan", "cross_review",
+            "completeness_critique",
             "implementation",
         }
         self.assertEqual(
             set(SUPPORTED_ROLES), expected,
             msg=(
                 "Plan ARIA-V7 §2g v2 — SUPPORTED_ROLES MUST match the "
-                "9-role closed enum exactly. Adding a role requires "
+                "10-role closed enum exactly. Adding a role requires "
                 "updating BOTH kernel + ci_executor in the same commit."
             ),
         )

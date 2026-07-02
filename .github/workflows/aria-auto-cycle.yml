@@ -87,6 +87,25 @@ jobs:
         with:
           node-version: '20'
 
+      # Same dependency step as aria-operational-proof — the fresh
+      # tool-cache Python on the self-hosted runner ships without the
+      # kernel's deps (first live run failed importing yaml inside
+      # verify_workflow_preflight, ORPHAN-LOW-302).
+      - name: Install aria-kernel dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+          if dependencies:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
+
       - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail

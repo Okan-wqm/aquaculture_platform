@@ -74,7 +74,7 @@ jobs:
       - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail
-          REQUIRED_CLAUDE_VERSION="2.1.0"
+          REQUIRED_CLAUDE_VERSION="2.1.197"
           CLAUDE_VERSION="$(claude --version | awk '{print $1}')"
           python3 - "$REQUIRED_CLAUDE_VERSION" "$CLAUDE_VERSION" <<'PY'
           import sys

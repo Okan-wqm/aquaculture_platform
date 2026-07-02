@@ -1,10 +1,10 @@
 {
   "$schema": "aria/pedagogy-registry/v1",
-  "comment": "Plan ARIA-V4 \u00a72a \u2014 per-agent pedagogy tier declaration. Single source of truth for which agents stay imperative (Tier-1) vs hybrid (Tier-2) vs full-narrative (Tier-3). Each agent's frontmatter MUST declare a `pedagogy-tier:` field matching this registry; invariant I-V4-02 enforces co-equality. Adding or modifying an entry requires operator review per the V4 conservative-tier-1 scope decision.",
+  "comment": "Plan ARIA-V4 §2a — per-agent pedagogy tier declaration. Single source of truth for which agents stay imperative (Tier-1) vs hybrid (Tier-2) vs full-narrative (Tier-3). Each agent's frontmatter MUST declare a `pedagogy-tier:` field matching this registry; invariant I-V4-02 enforces co-equality. Adding or modifying an entry requires operator review per the V4 conservative-tier-1 scope decision.",
   "consequence_leak_allowlist": [
     {
       "agent_name": "aria-drafter",
-      "rationale": "Describing how a recursive Agent() spawn or aria-kernel/** mutation would propagate IS the attack-surface manual. Tier-2 hybrid for this agent OMITS the consequence section on these specific rules \u2014 the invariant lock is non-negotiable; reasoning latitude is the failure mode.",
+      "rationale": "Describing how a recursive Agent() spawn or aria-kernel/** mutation would propagate IS the attack-surface manual. Tier-2 hybrid for this agent OMITS the consequence section on these specific rules — the invariant lock is non-negotiable; reasoning latitude is the failure mode.",
       "rule_class": "kernel-self-modification"
     },
     {
@@ -61,6 +61,16 @@
       "pedagogy_tier": 3,
       "rationale": "Style/quality/docs agent; full narrative for extrapolation; operator 'orneklerle' plural-mandatory enforced."
     },
+    "aria-acceptance-gap-fixer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 write-tier gap fixer; hybrid imperative+narrative; consequence-chain teaches why a fix is root-cause + tested and opens a draft PR, never auto-merges."
+    },
+    "aria-acceptance-gap-hunter": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 2,
+      "rationale": "Plan 030 read-only gap hunter; hybrid imperative+narrative; consequence-chain teaches why every gap claim must cite file:line evidence."
+    },
     "aria-acceptance-lead": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 2,
@@ -71,20 +81,15 @@
       "pedagogy_tier": 2,
       "rationale": "Plan 030 read-only output validator; hybrid imperative+narrative; consequence-chain teaches why a borderline drift verdict is a lead, not the gate."
     },
-    "aria-acceptance-gap-hunter": {
-      "consequence_leak_protections": [],
-      "pedagogy_tier": 2,
-      "rationale": "Plan 030 read-only gap hunter; hybrid imperative+narrative; consequence-chain teaches why every gap claim must cite file:line evidence."
-    },
-    "aria-acceptance-gap-fixer": {
-      "consequence_leak_protections": [],
-      "pedagogy_tier": 2,
-      "rationale": "Plan 030 write-tier gap fixer; hybrid imperative+narrative; consequence-chain teaches why a fix is root-cause + tested and opens a draft PR, never auto-merges."
-    },
     "aria-adversarial-judge": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Read-only adversarial judge. Style prohibitions about falsification methodology + silence-vs-explicit-disagreement benefit from narrative. No safety rules."
+    },
+    "aria-autonomy-planner": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Queue-projection utility; machine-parsed envelope contract; bare imperatives only."
     },
     "aria-challenger-drafter": {
       "consequence_leak_protections": [],
@@ -101,10 +106,20 @@
       "pedagogy_tier": 3,
       "rationale": "Read-only impact analyzer. Style prohibitions about self-output-as-evidence + remediation-proposal separation benefit from narrative."
     },
+    "aria-completeness-critic": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only coverage-waiver adjudicator (plan-coverage gate PR-2). Narrative form lets the agent reason about the accept-only-what-you-verified discipline and untrusted-tag DATA handling; fail-closed kernel folding means no self-modification surface (tools: Read, Grep, Glob)."
+    },
     "aria-consensus-arbiter": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 1,
-      "rationale": "Consensus-gate math (Plan ARIA-V2). Aggregation arithmetic over independent judge verdicts is parameterized by literal threshold constants (mean confidence \u2265 0.80, \u22652 unique judge_ids). Adding narrative would degrade grep-stability + signal-to-noise of the arithmetic gates."
+      "rationale": "Consensus-gate math (Plan ARIA-V2). Aggregation arithmetic over independent judge verdicts is parameterized by literal threshold constants (mean confidence ≥ 0.80, ≥2 unique judge_ids). Adding narrative would degrade grep-stability + signal-to-noise of the arithmetic gates."
+    },
+    "aria-cross-reviewer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Read-only ARIA-V8 bidirectional plan cross-reviewer. Narrative form lets the agent reason about prompt-injection defense (untrusted-tag DATA discipline) and content-hash verification — both are narrative-extrapolation-friendly. No self-modification surface (tools: Read, Grep, Glob)."
     },
     "aria-drafter": {
       "consequence_leak_protections": [
@@ -114,25 +129,20 @@
       "pedagogy_tier": 2,
       "rationale": "Maintenance-bound genesis drafter. Hybrid form REQUIRED because the agent runs under autonomous profile + writes to disk. Tier-1 safety rules (kernel-immutability, secret-exfiltration, recursive Agent() spawn) MUST stay imperative-only with consequence-leak protections; architectural rules (DraftIntent shape, banned-phrase compliance, evidence-ref allowlist) get narrative bodies."
     },
-    "aria-cross-reviewer": {
-      "consequence_leak_protections": [],
-      "pedagogy_tier": 3,
-      "rationale": "Read-only ARIA-V8 bidirectional plan cross-reviewer. Narrative form lets the agent reason about prompt-injection defense (untrusted-tag DATA discipline) and content-hash verification — both are narrative-extrapolation-friendly. No self-modification surface (tools: Read, Grep, Glob)."
-    },
     "aria-evidence-judge": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Read-only judge. Style/quality prohibitions about evidence grounding + verdict shape benefit from narrative extrapolation. No safety or self-modification rules."
     },
-    "aria-implementer": {
-      "consequence_leak_protections": [],
-      "pedagogy_tier": 3,
-      "rationale": "Plan ARIA-V9.1 — first WRITER agent (Edit+Write+Bash). High-prohibition density: SECURITY CONTRACT + Self-Modification + Network Egress + Safety Disable + Canonical Validation + Tool Discipline. Tier-3 narrative form lets each prohibition carry an Example block so the LLM sees the canonical refusal pattern in-context. Safety rules pinned by V9.0-D HARD_FAIL_CHECKS registry + V9.0-D READONLY_PATHS frozenset; the agent's narrative complements the kernel-side Tier-1 anchors."
-    },
     "aria-goldset-curator": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Read-only fixture curator. Style prohibitions about TP/FP threshold + operator-review-only-write-path benefit from narrative."
+    },
+    "aria-implementer": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 3,
+      "rationale": "Plan ARIA-V9.1 — first WRITER agent (Edit+Write+Bash). High-prohibition density: SECURITY CONTRACT + Self-Modification + Network Egress + Safety Disable + Canonical Validation + Tool Discipline. Tier-3 narrative form lets each prohibition carry an Example block so the LLM sees the canonical refusal pattern in-context. Safety rules pinned by V9.0-D HARD_FAIL_CHECKS registry + V9.0-D READONLY_PATHS frozenset; the agent's narrative complements the kernel-side Tier-1 anchors."
     },
     "aria-primary-drafter": {
       "consequence_leak_protections": [],
@@ -148,6 +158,11 @@
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Maintenance-bound prompt renderer. The agent that AUTHORS narrative pedagogy must itself BE narrative (recursive coherence). No safety or self-modification rules in scope; renders other agents' prompts but does not execute them."
+    },
+    "aria-worker": {
+      "consequence_leak_protections": [],
+      "pedagogy_tier": 1,
+      "rationale": "Kernel-leased assignment executor; machine-parsed contract + write tools; bare imperatives only (safety/identity class)."
     },
     "audit-trail-completeness-auditor": {
       "consequence_leak_protections": [],
@@ -476,7 +491,7 @@
       "applies_to": "architectural principles where reasoning aids extrapolation but the rule remains non-negotiable",
       "label": "hybrid",
       "rationale": "Anthropic + OpenAI cookbook show ~15-25% reduction in policy-edge-case failures for architectural rules when narrative explains the WHY. The imperative headline preserves grep-stability + scanner compatibility.",
-      "shape": "imperative headline (grep-stable, \u2264140 chars) + narrative body (Temptation / Why-looks-correct / Downstream-consequence / Correct-path-with-invariant)"
+      "shape": "imperative headline (grep-stable, ≤140 chars) + narrative body (Temptation / Why-looks-correct / Downstream-consequence / Correct-path-with-invariant)"
     },
     "3": {
       "applies_to": "style/quality guidance where extrapolation matters and consequence is recoverable",

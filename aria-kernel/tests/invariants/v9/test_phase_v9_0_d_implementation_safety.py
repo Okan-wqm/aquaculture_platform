@@ -21,12 +21,13 @@ from aria_kernel import implementation_safety as _is
 class TestV9HardFailRegistry(unittest.TestCase):
 
     def test_i_v9_safety_15_hard_fail_checks(self):
-        """HARD_FAIL_CHECKS MUST contain exactly 16 entries. v1 plan had
+        """HARD_FAIL_CHECKS MUST contain exactly 17 entries. v1 plan had
         6; v3 audit grew to 15; Plan 031 §031e added the 16th
-        (expert_consensus_evidence_verified)."""
+        (expert_consensus_evidence_verified); the plan-coverage gate
+        (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified)."""
         self.assertEqual(
-            len(_is.HARD_FAIL_CHECKS), 16,
-            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 16)",
+            len(_is.HARD_FAIL_CHECKS), 17,
+            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 17)",
         )
 
     def test_i_v9_safety_check_names_unique(self):
@@ -46,6 +47,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
             "operator_feedback_signature", "pr_body_templating",
             "cycle_and_turn_budget_cap", "content_hash_recheck",
             "expert_consensus_evidence_verified",
+            "plan_coverage_witness_verified",
         }
         actual = {c.name for c in _is.HARD_FAIL_CHECKS}
         self.assertEqual(

@@ -1,10 +1,9 @@
+import { GLOBAL_TENANT_UUID } from '../../tenant/constants';
+import type { MigrationSinkEvent } from '../migration-event-sink';
 import {
   NatsMigrationEventSink,
   type MigrationEventPublisher,
 } from '../nats-migration-event-sink';
-import type { MigrationSinkEvent } from '../migration-event-sink';
-
-import { GLOBAL_TENANT_UUID } from '../../tenant/constants';
 
 function makePublisher(
   behavior: 'resolve' | 'reject' = 'resolve',
@@ -14,14 +13,13 @@ function makePublisher(
 } {
   const calls: Array<{ subject: string; event: unknown }> = [];
   const publisher = {
-    publishTo: jest.fn(
-      async (subject: string, event: unknown) => {
-        calls.push({ subject, event });
-        if (behavior === 'reject') {
-          throw new Error('NATS publish failed');
-        }
-      },
-    ),
+    publishTo: jest.fn((subject: string, event: unknown): Promise<void> => {
+      calls.push({ subject, event });
+      if (behavior === 'reject') {
+        return Promise.reject(new Error('NATS publish failed'));
+      }
+      return Promise.resolve();
+    }),
   } as unknown as jest.Mocked<MigrationEventPublisher>;
   return { publisher, calls };
 }
@@ -38,14 +36,26 @@ function makeSinkEvent(
   };
 }
 
+/** Narrow the first captured publish call without non-null assertions. */
+function firstCall(calls: Array<{ subject: string; event: unknown }>): {
+  subject: string;
+  event: unknown;
+} {
+  const call = calls[0];
+  if (!call) throw new Error('expected at least one publish call');
+  return call;
+}
+
 describe('NatsMigrationEventSink', () => {
   it('publishes SchemaMigrationStartedEvent under the started subject', async () => {
     const { publisher, calls } = makePublisher();
     const sink = new NatsMigrationEventSink(publisher, { environment: 'staging' });
     await sink.emit(makeSinkEvent({ eventType: 'start' }));
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.subject).toBe('platform.schema-migration.started');
-    const ev = calls[0]!.event as {
+    const call = calls[0];
+    if (!call) throw new Error('expected a publish call');
+    expect(call.subject).toBe('events.platform.schema-migration.started');
+    const ev = call.event as {
       eventType: string;
       serviceName: string;
       environment: string;
@@ -59,8 +69,8 @@ describe('NatsMigrationEventSink', () => {
     const { publisher, calls } = makePublisher();
     const sink = new NatsMigrationEventSink(publisher);
     await sink.emit(makeSinkEvent({ eventType: 'applied', durationMs: 321 }));
-    expect(calls[0]!.subject).toBe('platform.schema-migration.applied');
-    const ev = calls[0]!.event as { durationMs: number };
+    expect(firstCall(calls).subject).toBe('events.platform.schema-migration.applied');
+    const ev = firstCall(calls).event as { durationMs: number };
     expect(ev.durationMs).toBe(321);
   });
 
@@ -76,8 +86,8 @@ describe('NatsMigrationEventSink', () => {
     await sink.emit(
       makeSinkEvent({ eventType: 'failed', durationMs: 50, error: pgError }),
     );
-    expect(calls[0]!.subject).toBe('platform.schema-migration.failed');
-    const ev = calls[0]!.event as {
+    expect(firstCall(calls).subject).toBe('events.platform.schema-migration.failed');
+    const ev = firstCall(calls).event as {
       sqlState: string | null;
       errorTemplate: string;
       constraintName: string | null;
@@ -85,7 +95,7 @@ describe('NatsMigrationEventSink', () => {
     expect(ev.sqlState).toBe('23505');
     expect(ev.constraintName).toBe('pk_employees');
     // CRITICAL: raw SSN must NEVER travel on the wire.
-    const serialized = JSON.stringify(calls[0]!.event);
+    const serialized = JSON.stringify(firstCall(calls).event);
     expect(serialized).not.toContain('123-45-6789');
     expect(serialized).not.toMatch(/Key \([^)]+\)=\([^)]+\)/);
   });
@@ -100,7 +110,7 @@ describe('NatsMigrationEventSink', () => {
         tenantSchema: 'tenant_1234567890abcdef',
       }),
     );
-    const ev = calls[0]!.event as {
+    const ev = firstCall(calls).event as {
       tenantId: string;
       targetSchema: string;
     };
@@ -112,7 +122,7 @@ describe('NatsMigrationEventSink', () => {
     const { publisher, calls } = makePublisher();
     const sink = new NatsMigrationEventSink(publisher);
     await sink.emit(makeSinkEvent({ eventType: 'applied', durationMs: 100 }));
-    const ev = calls[0]!.event as { tenantId: string };
+    const ev = firstCall(calls).event as { tenantId: string };
     expect(ev.tenantId).toBe(GLOBAL_TENANT_UUID);
   });
 
@@ -133,8 +143,8 @@ describe('NatsMigrationEventSink', () => {
     const { publisher, calls } = makePublisher();
     const sink = new NatsMigrationEventSink(publisher);
     await sink.emit(makeSinkEvent({ eventType: 'skipped' }));
-    expect(calls[0]!.subject).toBe('platform.schema-migration.skipped');
-    const ev = calls[0]!.event as { reason: string };
+    expect(firstCall(calls).subject).toBe('events.platform.schema-migration.skipped');
+    const ev = firstCall(calls).event as { reason: string };
     expect(ev.reason).toContain('skipped');
   });
 
@@ -144,7 +154,7 @@ describe('NatsMigrationEventSink', () => {
       environment: 'production',
     });
     await sink.emit(makeSinkEvent({ eventType: 'start' }));
-    const ev = calls[0]!.event as { environment: string };
+    const ev = firstCall(calls).event as { environment: string };
     expect(ev.environment).toBe('production');
   });
 
@@ -152,7 +162,7 @@ describe('NatsMigrationEventSink', () => {
     const { publisher, calls } = makePublisher();
     const sink = new NatsMigrationEventSink(publisher);
     await sink.emit(makeSinkEvent({ eventType: 'start' }));
-    const ev = calls[0]!.event as {
+    const ev = firstCall(calls).event as {
       eventId: string;
       aggregateId: string;
       aggregateType: string;

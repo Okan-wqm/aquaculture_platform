@@ -445,12 +445,7 @@ describe('Site tenant isolation on real Postgres', () => {
         tankEquipmentAdapter,
       ),
       getEquipment: new GetEquipmentHandler(dataSource, tankEquipmentAdapter),
-      listEquipment: new ListEquipmentHandler(
-        equipmentRepository,
-        tankRepository,
-        equipmentTypeRepository,
-        dataSource,
-      ),
+      listEquipment: new ListEquipmentHandler(dataSource),
       updateEquipment: new UpdateEquipmentHandler(
         dataSource,
         auditLogService,
@@ -479,16 +474,11 @@ describe('Site tenant isolation on real Postgres', () => {
         farmStockProjection,
       ),
       deleteTank: deleteTankHandler,
-      createFeed: new CreateFeedHandler(
-        feedRepository,
-        unusedRepository<Supplier>(),
-        siteRepository,
-        unusedRepository<Species>(),
-      ),
+      createFeed: new CreateFeedHandler(dataSource),
       getFeed: new GetFeedHandler(dataSource),
       listFeeds: new ListFeedsHandler(dataSource),
-      updateFeed: new UpdateFeedHandler(feedRepository, unusedRepository<Supplier>()),
-      deleteFeed: new DeleteFeedHandler(feedRepository),
+      updateFeed: new UpdateFeedHandler(dataSource),
+      deleteFeed: new DeleteFeedHandler(dataSource),
       addFeedInventory: new AddFeedInventoryHandler(
         inventoryRepository,
         feedRepository,

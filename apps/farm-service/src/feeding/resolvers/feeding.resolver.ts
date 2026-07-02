@@ -24,8 +24,9 @@ import {
 import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate, IsEnum, IsNotEmpty, IsString } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Roles, Role, CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -47,7 +48,7 @@ import { AdjustFeedInventoryCommand, AdjustmentType } from '../commands/adjust-f
 import { GetFeedingRecordsQuery } from '../queries/get-feeding-records.query';
 import { GetDailyFeedingPlanQuery } from '../queries/get-daily-feeding-plan.query';
 import { GetFeedInventoryQuery } from '../queries/get-feed-inventory.query';
-import { GetFeedingSummaryQuery } from '../queries/get-feeding-summary.query';
+import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-feeding-summary.query';
 
 // Services
 import { GrowthSimulatorService, GrowthSimulationResult } from '../services/growth-simulator.service';
@@ -916,8 +917,8 @@ export class FeedingResolver {
     private readonly queryBus: QueryBus,
     private readonly growthSimulator: GrowthSimulatorService,
     private readonly feedForecastService: FeedConsumptionForecastService,
-    @InjectRepository(FeedingRecord)
-    private readonly feedingRecordRepository: Repository<FeedingRecord>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   // ==========================================================================
@@ -933,10 +934,14 @@ export class FeedingResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
   ): Promise<FeedingRecord | null> {
-    return this.feedingRecordRepository.findOne({
-      where: { id, tenantId },
-      relations: ['batch', 'feed', 'tank'],
-    });
+    // Fail-closed tenant boundary: a lost pooled-connection search_path must
+    // raise, not silently resolve the wrong schema for a single-record read.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+      queryRunner.manager.findOne(FeedingRecord, {
+        where: { id, tenantId },
+        relations: ['batch', 'feed', 'tank'],
+      }),
+    );
   }
 
   /**
@@ -1003,9 +1008,39 @@ export class FeedingResolver {
     @Args('startDate', { nullable: true }) startDate?: Date,
     @Args('endDate', { nullable: true }) endDate?: Date,
   ): Promise<FeedingSummaryResponse> {
-    return this.queryBus.execute(
+    // Map the flat handler Result onto the GraphQL Response shape. Returning the
+    // handler result unmapped left every non-nullable @Field (startDate/endDate,
+    // totalFeedGivenKg, byFeedType…) absent → "Cannot return null for
+    // non-nullable field" and a dead feeding-summary tab.
+    const result: FeedingSummaryResult = await this.queryBus.execute(
       new GetFeedingSummaryQuery(tenantId, entityType, entityId, startDate, endDate),
     );
+    return this.toFeedingSummaryResponse(result);
+  }
+
+  private toFeedingSummaryResponse(result: FeedingSummaryResult): FeedingSummaryResponse {
+    return {
+      batchId: result.entityType === 'batch' ? result.entityId : undefined,
+      // The summary is entity-scoped (batch|tank); the result carries no siteId.
+      siteId: undefined,
+      startDate: result.startDate,
+      endDate: result.endDate,
+      totalFeedGivenKg: result.totalActualKg,
+      totalPlannedKg: result.totalPlannedKg,
+      varianceKg: result.totalVarianceKg,
+      variancePercent: result.avgVariancePercent,
+      totalFeedings: result.totalFeedingsCount,
+      avgFeedingKg: result.avgDailyFeedingKg,
+      totalCost: result.totalFeedCost,
+      currency: undefined,
+      byFeedType: result.feedTypeDistribution.map((feedType) => ({
+        feedId: feedType.feedId,
+        feedName: feedType.feedName,
+        totalKg: feedType.totalKg,
+        percentage: feedType.percentage,
+        cost: feedType.cost,
+      })),
+    };
   }
 
   /**

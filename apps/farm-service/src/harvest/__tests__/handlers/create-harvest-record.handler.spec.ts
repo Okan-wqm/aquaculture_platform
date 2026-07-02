@@ -66,11 +66,34 @@ function makeHarness(opts: HarnessOpts = {}) {
     orderBy: jest.fn().mockReturnThis(),
     setLock: jest.fn().mockReturnThis(),
     getOne: jest.fn().mockResolvedValue(null),
+    // Also serves the handler's biomass-only UPDATE (.update().set().where()
+    // .execute()) — currentCount is now written by applyBatchDelta (single
+    // writer) and biomass uses a column-scoped update that must not clobber it.
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
+
+  // A stocked tank-batch so the handler's tank-composition path executes; the
+  // real fields are derived by applyBatchDelta (mocked), so only identity +
+  // the post-read aggregates the handler echoes into postOperationState matter.
+  const tankBatch = {
+    tankId: 'tank-1',
+    primaryBatchId: 'batch-1',
+    totalQuantity: 1000,
+    totalBiomassKg: 400,
+    currentQuantity: 1000,
+    currentBiomassKg: 400,
+    densityKgM3: 4,
+    batchDetails: [
+      { batchId: 'batch-1', batchNumber: 'B-1', quantity: 1000, biomassKg: 400, avgWeightG: 400, percentageOfTank: 100 },
+    ],
   };
 
   const managerFindOne = jest.fn((entity: unknown) => {
     if (entity === Batch) return Promise.resolve(batch);
     if (entity === Tank) return Promise.resolve(tank);
+    if (entity === TankBatch) return Promise.resolve(tankBatch);
     return Promise.resolve(null);
   });
   const createdHarvestRecords: Array<Record<string, unknown>> = [];
@@ -125,6 +148,11 @@ function makeHarness(opts: HarnessOpts = {}) {
   const farmStockProjection = {
     refreshContainers: jest.fn().mockResolvedValue(undefined),
   };
+  // The single SSoT writer for tank composition — the handler routes the harvest
+  // decrement through this so batchDetails[] stays consistent (no direct mutation).
+  const tankBatchService = {
+    applyBatchDelta: jest.fn().mockResolvedValue(undefined),
+  };
 
   const handler = new CreateHarvestRecordHandler(
     dataSource,
@@ -138,6 +166,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     createMockRepository<TankOperation>(),
     createMockRepository<TankBatch>(),
     createMockRepository<Tank>(),
+    tankBatchService as never,
     // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),
@@ -145,7 +174,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     mobileCommandReceipts as never,
   );
 
-  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords };
+  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, tankBatchService };
 }
 
 function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
@@ -180,6 +209,25 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     expect(event?.isFinal).toBe(false);
     expect(event?.version).toBe(2);
     expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  it('routes the tank-batch decrement through the SSoT writer with a signed delta (batchDetails stays consistent)', async () => {
+    const { handler, tankBatchService } = makeHarness({ currentQuantity: 1000 });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400, totalBiomass: 160 }));
+
+    // Harvest must NOT mutate TankBatch.totalQuantity by hand (that left
+    // batchDetails[] stale — the 719-vs-900 divergence). It routes the removal
+    // through applyBatchDelta so the per-batch SSoT decrements in lock-step.
+    expect(tankBatchService.applyBatchDelta).toHaveBeenCalledTimes(1);
+    const call = tankBatchService.applyBatchDelta.mock.calls[0];
+    const tenantIdArg = call[1];
+    const tankIdArg = call[2];
+    const delta = call[3];
+    expect(tenantIdArg).toBe(TENANT_ID);
+    expect(tankIdArg).toBe('tank-1');
+    expect(delta.quantityDelta).toBe(-400);
+    expect(delta.biomassDelta).toBe(-160);
   });
 
   it('final harvest: isFinal=true and CloseBatchCommand(HARVEST_COMPLETED) dispatched after commit', async () => {

@@ -1,7 +1,7 @@
 """Empty-cycle guard (Plan 016 Faz D8).
 
 Why: Plan 016's convergent planning loop is expensive (5 rounds x 2
-opus-xhigh planners). Issuing it for an empty cycle — no fresh
+decision-tier planners). Issuing it for an empty cycle — no fresh
 pressure above threshold, no operator-facing findings to act on, no
 queued plans — burns budget without producing operator value. The
 guard is a pure read-only check the kernel CLI exposes so an

@@ -33,6 +33,20 @@ export function createMockDataSource(): MockDataSourceResult {
     ),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    // Chainable no-op query builder — handlers use `.createQueryBuilder().update()
+    // .set().where().execute()` for column-scoped writes (e.g. biomass-only updates
+    // that must not clobber a sibling column). Returns a self-referencing chain so
+    // any `.update/.set/.where/...` sequence resolves.
+    createQueryBuilder: jest.fn(() => {
+      const qb: Record<string, jest.Mock> = {};
+      for (const method of ['update', 'set', 'where', 'andWhere', 'from', 'values', 'returning', 'select', 'leftJoin', 'orderBy']) {
+        qb[method] = jest.fn(() => qb);
+      }
+      qb.execute = jest.fn().mockResolvedValue({ affected: 1, raw: [] });
+      qb.getMany = jest.fn().mockResolvedValue([]);
+      qb.getOne = jest.fn().mockResolvedValue(null);
+      return qb;
+    }),
     getRepository: jest.fn().mockReturnValue({
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),

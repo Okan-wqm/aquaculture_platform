@@ -17,6 +17,10 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly mobileFeatures?: readonly string[];
   /** SSOT-C-13: tenant plan tier ordinal for per-plan quota enforcement. */
   readonly planLevel?: number;
+  /** ORPHAN-MEDIUM-319: gateway-resolved end-client IP (req.ip under TRUST_PROXY). */
+  readonly clientIp?: string | null;
+  /** ORPHAN-MEDIUM-319: end-client User-Agent as received by the gateway. */
+  readonly clientUserAgent?: string | null;
 }
 
 /**
@@ -57,6 +61,11 @@ export function buildGatewayVerifiedUserAssertion(
     ...(typeof input.planLevel === 'number'
       ? { planLevel: input.planLevel }
       : {}),
+    // ORPHAN-MEDIUM-319: carry the gateway-resolved client network identity
+    // into the HMAC-protected blob only when present. Integrity-protected by
+    // the assertionHash with no signing change, same as the claims above.
+    ...(input.clientIp ? { clientIp: input.clientIp } : {}),
+    ...(input.clientUserAgent ? { clientUserAgent: input.clientUserAgent } : {}),
   };
 
   return Buffer.from(JSON.stringify(assertion), 'utf8').toString('base64url');

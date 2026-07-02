@@ -28,6 +28,23 @@ SOURCE_WEIGHTS = {
     "runtime_signal": 85,
 }
 
+# Plan S4 (ORPHAN-MEDIUM-298) — every pressure source maps to exactly one
+# drift class so the operator's genesis-policy `drift_class_weights` block
+# can bias cycle targeting without touching the hardcoded SOURCE_WEIGHTS
+# base. Adding a source REQUIRES adding its class here (pinned by
+# test_drift_class_weights.test_every_source_has_a_drift_class).
+DRIFT_CLASS_BY_SOURCE = {
+    "tool_quarantine": "tool_governance",
+    "runtime_signal": "runtime_signal",
+    "evidence_gone": "evidence_decay",
+    "discovery_incomplete": "discovery",
+    "contradiction": "contradiction",
+    "belief_stale": "belief_decay",
+    "belief_revalidation": "belief_decay",
+    "shadow_raw_delta": "adapter_shadow",
+    "migration_surface_repeat": "schema_drift",
+}
+
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
 TERMINAL_STATES = {"closed", "satisfied"}
 DECAY_BUCKETS = (
@@ -74,6 +91,7 @@ def run_pressure(
     *,
     cycle_id: str,
     base_dir: str | Path | None = None,
+    drift_class_weights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     discovery_dir = root / "discovery" / cycle_id
@@ -96,7 +114,10 @@ def run_pressure(
             ),
         )
     migration_count = int(fingerprint.get("migration_ts_count") or fingerprint.get("migration_count") or 0)
-    if migration_count >= 5:
+    # Concrete, repo-verifiable evidence (L1) — discovery surfaces bounded real
+    # migration paths in ``migration_evidence_paths``; a glob is not resolvable.
+    migration_evidence_paths = fingerprint.get("migration_evidence_paths") or []
+    if migration_count >= 5 and isinstance(migration_evidence_paths, list) and migration_evidence_paths:
         pressures.append(
             _pressure(
                 cycle_id=cycle_id,
@@ -104,7 +125,7 @@ def run_pressure(
                 pressure_type="REPETITION",
                 severity="medium",
                 reason="repository has repeated TypeORM migration surfaces",
-                evidence=["apps/*/src/database/migrations/*.ts"],
+                evidence=list(migration_evidence_paths),
                 occurrence_count=migration_count,
                 candidate_tools=["typeorm-entity-schema-adapter"],
                 recommended_action="continue TypeORM schema drift checks",
@@ -229,6 +250,7 @@ def run_pressure(
                 ),
             )
 
+    _apply_drift_class_weights(pressures, drift_class_weights)
     _filter_candidate_tools(root, pressures)
     pressures.sort(key=lambda item: (-float(item["score"]), str(item["pressure_id"])))
     payload = {
@@ -249,6 +271,34 @@ def run_pressure(
         handle.write("\n")
     append_jsonl(root / "pressure" / "pressure-log.jsonl", payload)
     return payload
+
+
+def _apply_drift_class_weights(
+    pressures: list[dict[str, Any]],
+    weights: dict[str, Any] | None,
+) -> None:
+    """Annotate each pressure with its drift class and, when the operator
+    supplied a non-neutral weight for that class, rescale the score.
+
+    Neutral (weights None / 1.0 / unknown class) leaves scores untouched, so
+    default behaviour stays bit-identical. Rescaled scores re-cap at 100 to
+    preserve the Plan 007 scoring invariant; the applied multiplier is
+    recorded on the row for audit."""
+    for pressure in pressures:
+        drift_class = DRIFT_CLASS_BY_SOURCE.get(str(pressure.get("source")))
+        if drift_class is not None:
+            pressure["drift_class"] = drift_class
+        if not weights or drift_class is None:
+            continue
+        raw = weights.get(drift_class, 1.0)
+        try:
+            multiplier = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if multiplier <= 0 or multiplier == 1.0:
+            continue
+        pressure["drift_class_weight_applied"] = multiplier
+        pressure["score"] = round(min(100.0, float(pressure["score"]) * multiplier), 3)
 
 
 def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None:

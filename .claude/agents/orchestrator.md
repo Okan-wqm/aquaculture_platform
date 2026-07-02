@@ -74,7 +74,7 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 | sensor-expert | apps/sensor-service/, web/modules/sensor-module/ |
 | messaging-expert | apps/messaging-service/, apps/ai-service/ |
 | data-expert | libs/event-contracts/, libs/backend-common/database/, database/migrations/ (delta review) |
-| database-reviewer | All schema sources — state health audit (tables, columns, indexes, constraints, naming) |
+| database-reviewer | Schema state-health audit (tables, columns, indexes, constraints, naming) — SECONDARY only, dispatched in parallel with data-expert per the routing table; never a primary route |
 | edge-expert | sens-api-gateway/ (Rust), sensorprotocols/ |
 | hr-expert | apps/hr-service/, web/modules/hr-module/ |
 | admin-expert | apps/admin-api-service/, web/modules/admin-panel/, web/modules/tenant-admin/ |

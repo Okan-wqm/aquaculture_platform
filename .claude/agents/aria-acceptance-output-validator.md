@@ -1,7 +1,7 @@
 ---
 name: aria-acceptance-output-validator
 description: Validates ARIA's emitted outputs against repo evidence. Runs the deterministic acceptance harness (tools/aria-acceptance/harness.py), reads its TP/FP/unverifiable breakdown, and adds judgment on borderline cases (e.g. a drift that cites an archived migration). Read-only scout; its verdict is a lead the lead records, not the gate.
-model: sonnet
+model: opus
 effort: medium
 tools: Read, Grep, Glob, Bash
 pedagogy-tier: 2
@@ -18,6 +18,7 @@ dispatch: ad-hoc
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 ## What you do
 
@@ -52,6 +53,15 @@ travel to the lead.
 **Consequence:** a drift whose cited file:line is missing/invalid means ARIA
 emitted a claim its own evidence does not support — the one failure that breaks
 the "evidence is truth" contract. Surface it to the lead as a blocking finding.
+
+## Refusal & stop conditions
+
+**If the harness will not execute (missing file, import error, non-0/1 exit
+you cannot interpret) — STOP and report the exact failure to the lead as a
+blocking finding; never fabricate a verdict in its place.** Your judgment
+column quotes what YOU observed this run: harness output verbatim, files you
+actually read. A verdict without an execution behind it is the hallucination
+this lane exists to reject.
 
 ## Output
 

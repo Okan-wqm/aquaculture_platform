@@ -23,7 +23,7 @@ import { Department } from '../../department/entities/department.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { System } from '../../system/entities/system.entity';
 import { CreateTankCommand } from '../commands/create-tank.command';
-import { Tank, TankType } from '../entities/tank.entity';
+import { Tank, TankType, TankMaterial, WaterType, TankStatus } from '../entities/tank.entity';
 
 import { tankAuditSnapshot } from './tank-audit.util';
 
@@ -43,6 +43,14 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
     const { tenantId, userId, input, planLevel } = command;
 
     this.logger.log(`Creating tank: ${input.name} for tenant: ${tenantId}`);
+
+    // WHY: tankType/material/waterType/status lost their GraphQL `defaultValue` (it
+    // broke enum coercion). WHAT: apply the same defaults server-side when the client
+    // omits them, so optional input keeps its previous behaviour.
+    const tankType = input.tankType ?? TankType.CIRCULAR;
+    const material = input.material ?? TankMaterial.FIBERGLASS;
+    const waterType = input.waterType ?? WaterType.SALTWATER;
+    const status = input.status ?? TankStatus.PREPARING;
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
@@ -88,7 +96,7 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
         }
       }
 
-      this.validateDimensions(input.tankType, input);
+      this.validateDimensions(tankType, input);
 
       const code = await this.codeGeneratorService.generateTankCodeWithManager(
         queryRunner.manager,
@@ -104,9 +112,9 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
         containerKind: input.containerKind,
         equipmentTypeId: input.equipmentTypeId,
         equipmentTypeCode: input.equipmentTypeCode,
-        tankType: input.tankType,
-        material: input.material,
-        waterType: input.waterType,
+        tankType,
+        material,
+        waterType,
         diameter: input.diameter,
         length: input.length,
         width: input.width,
@@ -120,7 +128,7 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
         waterFlow: input.waterFlow,
         aeration: input.aeration as Tank['aeration'],
         location: input.location,
-        status: input.status,
+        status,
         installationDate: input.installationDate ? new Date(input.installationDate) : undefined,
         notes: input.notes,
         isActive: true,

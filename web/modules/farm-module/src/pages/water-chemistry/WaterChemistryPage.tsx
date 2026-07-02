@@ -109,7 +109,6 @@ const DEFAULT_INPUTS: WaterChemistryInputs = {
   unIonizedNH3: 0.0125,
   co2Toxic: 40,
   h2sUgL: 15,
-  h2sMeasuredAtPH: 7.0,
   h2sLimitUgL: 25,
   caMgL: 400,
   volume: 1,
@@ -159,16 +158,36 @@ export function getVisibleH2SChartZones(
   };
 }
 
-function resolveH2SMeasuredAtPH(inputPH: number | undefined, realtimePH: number): number {
-  if (
-    inputPH != null &&
-    Number.isFinite(inputPH) &&
-    inputPH >= DEFFEYES_CHART_PH_DOMAIN.minPH &&
-    inputPH <= DEFFEYES_CHART_PH_DOMAIN.maxPH
-  ) {
-    return inputPH;
+/**
+ * NH₃ safety bands for the UIA-vs-pH chart, clamped to the chart's visible pH
+ * domain. NH₃ is toxic ABOVE the critical pH (mirror of H₂S), so the danger
+ * band is on the high-pH (right) side. Clamping matters: when the critical pH
+ * falls OUTSIDE the visible domain, Recharts' default `ifOverflow="discard"`
+ * silently drops off-domain `<ReferenceArea>`s, which made the red/yellow/green
+ * shading vanish for high-TAN / low-limit / high-salinity inputs. This helper
+ * returns full-range danger (crit ≤ floor) or full-range safe (crit ≥ ceiling)
+ * so the chart is always shaded.
+ */
+export function getVisibleNH3ChartZones(
+  criticalPH: number,
+  minPH = 6.0,
+  maxPH = 9.5
+): { danger?: VisiblePHZone; alert?: VisiblePHZone; safe?: VisiblePHZone; showCriticalLine: boolean } {
+  // No reachable critical pH, or it sits above the visible chart → all safe
+  if (!isFinite(criticalPH) || criticalPH >= maxPH) {
+    return { safe: { x1: minPH, x2: maxPH }, showCriticalLine: isFinite(criticalPH) && criticalPH === maxPH };
   }
-  return realtimePH;
+  // Critical pH at/below the visible floor → whole chart is in the danger band
+  if (criticalPH <= minPH) {
+    return { danger: { x1: minPH, x2: maxPH }, showCriticalLine: criticalPH === minPH };
+  }
+  const alertStart = Math.max(minPH, criticalPH - 0.2);
+  return {
+    safe: alertStart > minPH ? { x1: minPH, x2: alertStart } : undefined,
+    alert: alertStart < criticalPH ? { x1: alertStart, x2: criticalPH } : undefined,
+    danger: { x1: criticalPH, x2: maxPH },
+    showCriticalLine: true,
+  };
 }
 
 // ============================================================================
@@ -190,7 +209,9 @@ const OverviewContent: React.FC = () => {
   const targetAlkMeq = alkMgToMeq(inputs.targetAlkalinityMg);
   const alkMinMeq = alkMgToMeq(inputs.alkMinMg);
   const alkMaxMeq = alkMgToMeq(inputs.alkMaxMg);
-  const h2sMeasuredAtPH = resolveH2SMeasuredAtPH(inputs.h2sMeasuredAtPH, inputs.pH);
+  // H₂S is measured in-situ, so its measurement pH IS the single realtime pH —
+  // the same pH that drives the CO₂ and NH₃ toxicity calcs. No separate knob.
+  const h2sMeasuredAtPH = inputs.pH;
 
   // Generate Deffeyes chart data
   const deffeyesData = useMemo(
@@ -419,6 +440,12 @@ const OverviewContent: React.FC = () => {
     ),
     [outputs.toxicH2SpH]
   );
+  // UIA chart is drawn over pH 6.0–9.5; clamp the NH₃ bands to that domain so
+  // they never silently vanish when the critical pH falls outside it.
+  const nh3ChartZones = useMemo(
+    () => getVisibleNH3ChartZones(outputs.toxicNH3pH, 6.0, 9.5),
+    [outputs.toxicNH3pH]
+  );
   const currentH2SPercent = outputs.totalSulfide > 0 && Number.isFinite(outputs.totalSulfide)
     ? (outputs.currentH2S / outputs.totalSulfide) * 100
     : NaN;
@@ -437,7 +464,7 @@ const OverviewContent: React.FC = () => {
       ['Salinity', `${inputs.salinity} ppt`, 'Alkalinity', `${inputs.alkalinityMg} mg/L CaCO₃`],
       ['Target pH', `${inputs.targetpH} NBS`, 'Target Alkalinity', `${inputs.targetAlkalinityMg} mg/L CaCO₃`],
       ['TAN', `${inputs.tan} mg/L`, 'NH₃-N Limit', `${inputs.unIonizedNH3} mg/L`],
-      ['CO₂ Toxic', `${inputs.co2Toxic} mg/L`, 'H₂S Measured', `${inputs.h2sUgL} µg/L @ pH ${h2sMeasuredAtPH}`],
+      ['CO₂ Toxic', `${inputs.co2Toxic} mg/L`, 'H₂S Measured', `${inputs.h2sUgL} µg/L`],
       ['H₂S Limit', `${inputs.h2sLimitUgL} µg/L`, 'Current H₂S', `${outputs.currentH2S.toFixed(1)} µg/L`],
       ['Ca²⁺', `${inputs.caMgL} mg/L`, 'Chart', 'ALK/DIC Deffeyes'],
       ['Fish Type', inputs.fishType, 'Fish Size', inputs.fishSize],
@@ -518,15 +545,16 @@ const OverviewContent: React.FC = () => {
           >
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={uiaData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                {/* Safety zones - NH3 is toxic at HIGH pH (right side), always visible */}
-                {!isNaN(outputs.toxicNH3pH) ? (
-                  <>
-                    <ReferenceArea x1={6.0} x2={outputs.toxicNH3pH - 0.2} fill="#22c55e" fillOpacity={0.18} label={{ value: 'Safe', fontSize: 9, fill: '#16a34a', position: 'insideTopLeft' }} />
-                    <ReferenceArea x1={outputs.toxicNH3pH - 0.2} x2={outputs.toxicNH3pH} fill="#eab308" fillOpacity={0.2} label={{ value: 'Alert', fontSize: 9, fill: '#a16207', position: 'insideTopLeft' }} />
-                    <ReferenceArea x1={outputs.toxicNH3pH} x2={9.5} fill="#ef4444" fillOpacity={0.15} label={{ value: 'Danger', fontSize: 9, fill: '#dc2626', position: 'insideTopLeft' }} />
-                  </>
-                ) : (
-                  <ReferenceArea x1={6.0} x2={9.5} fill="#22c55e" fillOpacity={0.18} label={{ value: 'Safe', fontSize: 9, fill: '#16a34a', position: 'insideTopLeft' }} />
+                {/* Safety zones — NH₃ toxic at HIGH pH (right side); clamped to the
+                    [6.0, 9.5] chart domain so shading never silently disappears. */}
+                {nh3ChartZones.safe && (
+                  <ReferenceArea x1={nh3ChartZones.safe.x1} x2={nh3ChartZones.safe.x2} fill="#22c55e" fillOpacity={0.18} label={{ value: 'Safe', fontSize: 9, fill: '#16a34a', position: 'insideTopLeft' }} />
+                )}
+                {nh3ChartZones.alert && (
+                  <ReferenceArea x1={nh3ChartZones.alert.x1} x2={nh3ChartZones.alert.x2} fill="#eab308" fillOpacity={0.2} label={{ value: 'Alert', fontSize: 9, fill: '#a16207', position: 'insideTopLeft' }} />
+                )}
+                {nh3ChartZones.danger && (
+                  <ReferenceArea x1={nh3ChartZones.danger.x1} x2={nh3ChartZones.danger.x2} fill="#ef4444" fillOpacity={0.15} label={{ value: 'Danger', fontSize: 9, fill: '#dc2626', position: 'insideTopLeft' }} />
                 )}
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="pH" tick={{ fontSize: 11 }} type="number" domain={[6.0, 9.5]} />
@@ -541,7 +569,7 @@ const OverviewContent: React.FC = () => {
                 } />
                 <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11 }} />
                 <ReferenceLine x={inputs.pH} stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" label={{ value: `pH ${inputs.pH}`, position: 'top', fontSize: 9, fill: '#3b82f6' }} />
-                {!isNaN(outputs.toxicNH3pH) && (
+                {nh3ChartZones.showCriticalLine && (
                   <ReferenceLine x={outputs.toxicNH3pH} stroke="#ef4444" strokeWidth={2} label={{ value: `Crit ${outputs.toxicNH3pH.toFixed(1)}`, position: 'top', fontSize: 9, fill: '#ef4444' }} />
                 )}
                 <ReferenceLine y={inputs.unIonizedNH3} stroke="#f97316" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: 'Limit', position: 'right', fontSize: 9, fill: '#f97316' }} />
@@ -557,7 +585,7 @@ const OverviewContent: React.FC = () => {
           {/* H2S / HS- percentage distribution vs pH */}
           <ChartCard
             title="H₂S / HS⁻ vs pH"
-            subtitle={`Current H₂S=${outputs.currentH2S.toFixed(1)} µg/L (${Number.isFinite(currentH2SPercent) ? currentH2SPercent.toFixed(1) : 'N/A'}%) | Measured=${inputs.h2sUgL} µg/L @ pH ${h2sMeasuredAtPH} | Limit=${inputs.h2sLimitUgL} µg/L | pH=${inputs.pH} | Crit pH=${isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(2)} | ${
+            subtitle={`Current H₂S=${outputs.currentH2S.toFixed(1)} µg/L (${Number.isFinite(currentH2SPercent) ? currentH2SPercent.toFixed(1) : 'N/A'}%) | Measured=${inputs.h2sUgL} µg/L | Limit=${inputs.h2sLimitUgL} µg/L | pH=${inputs.pH} | Crit pH=${isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(2)} | ${
               outputs.h2sStatusLevel === 'safe' ? '✓ Safe' :
               outputs.h2sStatusLevel === 'alert' ? '⚠ Alert' : '✗ Danger'
             }`}
@@ -657,7 +685,7 @@ const OverviewContent: React.FC = () => {
       </div>
 
       {/* ROW 3: Results - UIA Status | Calculated Values | Dosing Recipes */}
-      <ResultsPanel outputs={outputs} h2sMeasuredAtPH={h2sMeasuredAtPH} />
+      <ResultsPanel outputs={outputs} />
 
 
     </div>

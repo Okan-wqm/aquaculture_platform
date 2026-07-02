@@ -24,6 +24,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Batch } from '../batch/entities/batch.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { TankOperation } from '../batch/entities/tank-operation.entity';
+import { TankBatchModule } from '../batch/tank-batch.module';
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { FishHealthModule } from '../fish-health/fish-health.module';
@@ -66,6 +67,11 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
     BackdatePolicyModule,
     FarmStockModule,
     ConfigModule,
+    // create/delete-harvest route their tank-batch decrement through the SSoT
+    // writer (applyBatchDelta, ORPHAN-HIGH-272). It lives in TankBatchModule so
+    // the handlers resolve it — without this import farm-service crash-loops at
+    // boot ("can't resolve TankBatchService"). Guarded by harvest.module.di.spec.ts.
+    TankBatchModule,
   ],
   providers: [
     // Services

@@ -22,34 +22,44 @@ function tempCToK(tempC: number): number {
 /**
  * K1 - First dissociation constant of carbonic acid (Millero 2010, SWS scale)
  * H2CO3 <-> H+ + HCO3-
+ *
+ * Estuarine √S fit valid S=0-50 (must match @platform/aquaculture-engines
+ * water-quality.ts). Hydroponics runs at S≈0, where the old linear-in-S
+ * seawater fit was ~0.23 pK low — the √S terms are load-bearing.
  */
 export function getK1(tempC: number, S: number): number {
   const T = tempCToK(tempC);
   const lnT = Math.log(T);
+  const sqrtS = Math.sqrt(S);
   const pK1 =
-    -43.6977 -
-    0.0129037 * S +
-    1.364e-4 * S * S +
-    2885.378 / T +
-    7.045159 * lnT;
+    -126.34048 +
+    6320.813 / T +
+    19.568224 * lnT +
+    (13.4191 * sqrtS + 0.0331 * S - 0.0000533 * S * S) +
+    (-530.123 * sqrtS - 6.103 * S) / T +
+    -2.06950 * sqrtS * lnT;
   return Math.pow(10, -pK1);
 }
 
 /**
  * K2 - Second dissociation constant of carbonic acid (Millero 2010, SWS scale)
  * HCO3- <-> H+ + CO3^2-
+ *
+ * Estuarine √S fit valid S=0-50 (must match @platform/aquaculture-engines
+ * water-quality.ts). The old linear-in-S fit was ~0.9 pK low at S=0 (K2 ~8×
+ * too high) — grossly wrong for freshwater hydroponics.
  */
 export function getK2(tempC: number, S: number): number {
   const T = tempCToK(tempC);
   const lnT = Math.log(T);
+  const sqrtS = Math.sqrt(S);
   const pK2 =
-    -452.094 +
-    13.142162 * S -
-    8.101e-4 * S * S +
-    21263.61 / T +
-    68.483143 * lnT +
-    (-581.4428 * S + 0.259601 * S * S) / T +
-    (-1.967035 * S) * lnT;
+    -90.18333 +
+    5143.692 / T +
+    14.613358 * lnT +
+    (21.0894 * sqrtS + 0.1248 * S - 0.0003687 * S * S) +
+    (-772.483 * sqrtS - 20.051 * S) / T +
+    -3.3336 * sqrtS * lnT;
   return Math.pow(10, -pK2);
 }
 

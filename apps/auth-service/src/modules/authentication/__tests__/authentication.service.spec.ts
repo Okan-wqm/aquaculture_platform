@@ -510,7 +510,33 @@ describe('AuthenticationService', () => {
           }),
         }),
       );
+      // ORPHAN-MEDIUM-320: the owner-facing lockout event rides the
+      // best-effort path (mockEventBus backs BestEffortEventPublisher).
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'UserAccountLocked',
+          userId: 'user-uuid-123',
+          failedAttempts: 5,
+          lockedUntil: expect.any(String),
+        }),
+      );
     });
+
+    it('ORPHAN-MEDIUM-320: does NOT emit UserAccountLocked below the threshold', async () => {
+      const user = createMockUser({ failedLoginAttempts: 1 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      mockDataSource.query.mockResolvedValue([
+        [{ failedLoginAttempts: 2, lockedUntil: null }],
+        1,
+      ]);
+
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+
+      expect(mockEventBus.publish).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'UserAccountLocked' }),
+      );    });
 
     it('SEC-LOW-001(c): casts the lockout deadline to timestamptz (not tz-stripping timestamp)', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });

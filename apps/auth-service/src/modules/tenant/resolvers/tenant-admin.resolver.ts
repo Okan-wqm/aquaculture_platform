@@ -168,4 +168,18 @@ export class TenantAdminResolver {
   ): Promise<User> {
     return this.tenantAdminService.activateUser(userId, targetUserId);
   }
+
+  /**
+   * ORPHAN-MEDIUM-320: clear a failed-login lockout for a user in this
+   * tenant. See TenantAdminService.unlockUser for the trust rationale
+   * (admin targets allowed — lockout recovery requires a peer).
+   */
+  @Mutation(() => User)
+  @TenantAdminOrHigher()
+  async unlockTenantUser(
+    @CurrentUser('sub') userId: string,
+    @Args('userId', { type: () => ID }) targetUserId: string,
+  ): Promise<User> {
+    return this.tenantAdminService.unlockUser(userId, targetUserId);
+  }
 }

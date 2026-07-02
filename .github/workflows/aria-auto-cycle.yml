@@ -377,18 +377,29 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
         run: |
           set -euo pipefail
-          BURN_IN_DIR="aria-tools/burn-in/run-${GITHUB_RUN_ID}"
+          # The kernel guards observe burn-in with
+          # observe_burn_in_tools_dir_must_be_outside_workspace_root
+          # (ORPHAN-LOW-304): the burn-in gets its own RUNNER_TEMP tools
+          # root, while the LADDER BRIDGE below writes acceptance events
+          # into the workspace aria-tools/ tree that the artifact
+          # round-trip persists across nights.
+          BURN_TOOLS="$(mktemp -d "${RUNNER_TEMP}/aria-burn-tools.XXXXXX")"
+          BURN_IN_DIR="${RUNNER_TEMP}/aria-burn-in-out-${GITHUB_RUN_ID}"
           WORKSPACE_BASE="$(mktemp -d "${RUNNER_TEMP}/aria-workspaces.XXXXXX")"
           mkdir -p "$BURN_IN_DIR"
           PYTHONPATH=aria-kernel:. python3 -m aria_kernel \
             autonomy burn-in observe \
-            --tools-dir aria-tools \
+            --tools-dir "$BURN_TOOLS" \
             --workspace-root "$GITHUB_WORKSPACE" \
             --workspace-base "$WORKSPACE_BASE" \
             --target-ref "$GITHUB_SHA" \
             --cycles 30 \
             --min-valid-cycles 20 \
             --output-dir "$BURN_IN_DIR"
+          # Persist the burn-in evidence bundle alongside the ladder
+          # ledger so the artifact carries proof + events together.
+          mkdir -p "aria-tools/burn-in/run-${GITHUB_RUN_ID}"
+          cp "$BURN_IN_DIR"/autonomy-burn-in-report.json "aria-tools/burn-in/run-${GITHUB_RUN_ID}/"
           PYTHONPATH=aria-kernel:. python3 - "$BURN_IN_DIR" <<'PY'
           import json
           import sys

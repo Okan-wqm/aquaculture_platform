@@ -6,6 +6,12 @@
 artifacts/
 .full-review/
 aria-kernel/aria-tools/
+# ARIA runtime state trees — created at runtime by the kernel/workflows
+# (cycle ledgers, artifact-restored state, fresh-scan seed findings);
+# runtime writes must never dirty the discovery/burn-in worktree
+# (ORPHAN-LOW-306).
+aria-tools/
+aria-findings/
 aria-tools/.archive/
 aria-tools/.backups/
 # Plan 019 Phase 0.3 — recursive_impact runtime artifacts (live evidence

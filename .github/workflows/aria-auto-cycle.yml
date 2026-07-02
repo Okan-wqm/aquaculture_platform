@@ -73,6 +73,10 @@ jobs:
   cycle:
     runs-on: [self-hosted, linux, claude]
     timeout-minutes: 50
+    env:
+      # Kernel-workflow parity: no .pyc litter in the checkout — the
+      # burn-in pre-clean guard treats any untracked path as dirty.
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -383,6 +387,9 @@ jobs:
           # root, while the LADDER BRIDGE below writes acceptance events
           # into the workspace aria-tools/ tree that the artifact
           # round-trip persists across nights.
+          # Visibility for the kernel's clean-tree guard: any dirty path
+          # here is the exact refusal reason (ORPHAN-LOW-306).
+          echo "pre-burn-in worktree status:"; git status --porcelain | head -10
           BURN_TOOLS="$(mktemp -d "${RUNNER_TEMP}/aria-burn-tools.XXXXXX")"
           # Second kernel guard (ORPHAN-LOW-305): the output dir must
           # live UNDER the burn-in tools root's burn-in/ subtree.

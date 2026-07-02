@@ -84,6 +84,14 @@ function assertionHash(headers: RequestInit['headers']): string | undefined {
   return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
 }
 
+function willSendRequestOptions(
+  request: { query: string; http: { method: string; url: string; headers: { set: (k: string, v: string) => void } } },
+  context: GatewayContext,
+): Parameters<AuthenticatedDataSource['willSendRequest']>[0] {
+  const options = { request, context };
+  return options as Parameters<AuthenticatedDataSource['willSendRequest']>[0];
+}
+
 describe('AuthenticatedDataSource service identity signing', () => {
   it('preserves Apollo default fetcher when no custom fetcher is supplied', async () => {
     const dataSource = new AuthenticatedDataSource({
@@ -178,6 +186,57 @@ describe('AuthenticatedDataSource service identity signing', () => {
         expectedTenantId: TENANT_ID,
       }),
     ).toMatchObject({ valid: true, version: 'v2' });
+  });
+
+  it('ORPHAN-MEDIUM-319: mints x-client-ip/x-client-user-agent on EVERY subgraph request (pre-auth included)', () => {
+    const { dataSource } = createCapturingDataSource();
+    const { headers, record } = createHeaderCollector();
+    const context = createContext(); // NO user — the pre-auth login path
+    (context.req as { ip?: string }).ip = '193.212.164.37';
+    context.req.headers['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0)';
+
+    dataSource.willSendRequest(
+      willSendRequestOptions(
+        {
+          query: 'mutation Login { login { accessToken } }',
+          http: { method: 'POST', url: 'http://auth-service:3000/graphql', headers },
+        },
+        context,
+      ),
+    );
+
+    expect(record['x-client-ip']).toBe('193.212.164.37');
+    expect(record['x-client-user-agent']).toBe('Mozilla/5.0 (Windows NT 10.0)');
+    // No user → no assertion header on the pre-auth path.
+    expect(record['x-verified-user-assertion']).toBeUndefined();
+  });
+
+  it('ORPHAN-MEDIUM-319: binds clientIp/clientUserAgent into the HMAC-protected assertion for authenticated requests', () => {
+    const { dataSource } = createCapturingDataSource();
+    const { headers, record } = createHeaderCollector();
+    const context = createContext(TENANT_ID);
+    (context.req as { ip?: string }).ip = '193.212.164.37';
+    context.req.headers['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0)';
+
+    dataSource.willSendRequest(
+      willSendRequestOptions(
+        {
+          query: 'query Batches { batches { id } }',
+          http: { method: 'POST', url: 'http://farm-service:3000/graphql', headers },
+        },
+        context,
+      ),
+    );
+
+    const assertionHeader = record['x-verified-user-assertion'];
+    if (!assertionHeader) {
+      throw new Error('expected an x-verified-user-assertion header for the authenticated path');
+    }
+    const assertion = JSON.parse(
+      Buffer.from(assertionHeader, 'base64url').toString('utf8'),
+    ) as { clientIp?: string; clientUserAgent?: string };
+    expect(assertion.clientIp).toBe('193.212.164.37');
+    expect(assertion.clientUserAgent).toBe('Mozilla/5.0 (Windows NT 10.0)');
   });
 
   it('captures the old pre-fetch-body signing bug as a failing verifier contract', async () => {

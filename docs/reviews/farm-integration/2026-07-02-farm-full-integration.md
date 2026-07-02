@@ -114,6 +114,14 @@ Required remediation: pin a deterministic system time (fake timers) at an instan
 
 Closure criteria: spec passes at any wall-clock time.
 
+## FARM-HIGH-124 — alert-engine unit-test suite is pre-existing red (10 suites)
+
+Found while landing the FARM-MEDIUM-118 consumer: `nx run alert-engine:test` fails on this branch's base WITHOUT any farm-integration change (verified by stashing the working tree and re-running). Failing suites include `alert/event-handlers/__tests__/sensor-reading.handler.spec.ts` (assertion drift: readings payload + context expectations), `__tests__/alert-engine.{integration,security,performance}.spec.ts` (Nest DI: `EscalationManagerService` now requires `RedisService`, test modules never updated), `rules-engine/__tests__/*` (specs for dead code explicitly unregistered from `AlertModule`, see D10-F3 note), `notification/__tests__/*` and `database/entities/__tests__/alert-incident.entity.spec.ts`. Because no prior commit in this cycle touched alert-engine, `nx affected` never surfaced it; the FARM-MEDIUM-118 commit makes alert-engine affected, so this red baseline becomes visible in CI.
+
+Required remediation: repair or delete-with-code the dead rules-engine specs (D10-F3), update DI test modules for the `RedisService` dependency, and re-align the sensor-reading handler spec with the handler's current contract. The new `water-quality-critical` specs (8/8) and `mortality-alert.service.spec.ts` pass standalone and are unaffected.
+
+Closure criteria: `nx run alert-engine:test` green.
+
 ## FARM-LOW-121 — Exploration correction: mobile-command is live (no action)
 
 Initial exploration flagged `apps/farm-service/src/mobile-command/` as dead. Verified false: `feeding.module.ts:22,87` and `harvest.module.ts:31,64` register `FarmMobileCommandReceipt` via `TypeOrmModule.forFeature`, `MobileCommandReceiptService` (from `@aquaculture/backend-common/mobile-command`) consumes it across feeding/harvest/task/batch/water-quality write paths for offline-sync idempotency, and its table is created by `1800600000000-ExtendFarmStockReadModelFanout.ts`. Recorded so future audits do not re-flag it. No action.

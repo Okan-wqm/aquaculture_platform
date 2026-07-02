@@ -6,7 +6,7 @@
  * one of the four SchemaMigrationEvent variants from
  * @platform/event-contracts + publishes via an IEventPublisher
  * (typically a NATS-backed bus). The observability-service consumer
- * subscribes to `platform.schema-migration.>` and dispatches
+ * subscribes to `events.platform.schema-migration.>` and dispatches
  * RecordMigrationEventCommand per event.
  *
  * # Why this sink lives in backend-common (not in each service)

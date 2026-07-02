@@ -119,7 +119,10 @@ describe('SchemaMigrationEvent contract', () => {
   });
 
   it('SCHEMA_MIGRATION_SUBJECT_PREFIX has the expected shape', () => {
-    expect(SCHEMA_MIGRATION_SUBJECT_PREFIX).toBe('platform.schema-migration');
+    // ORPHAN-MEDIUM-322: the prefix MUST live in the canonical `events.`
+    // space — normalizeSubject rejects anything else and the JetStream
+    // stream only captures events./commands./queries.
+    expect(SCHEMA_MIGRATION_SUBJECT_PREFIX).toBe('events.platform.schema-migration');
   });
 
   it('platform-level events use GLOBAL_TENANT_UUID; tenant fan-out uses cleartext schema', () => {

@@ -236,8 +236,13 @@ export class SecurityEventService {
         version: 1,
       };
 
-      // Publish directly to the security subject for targeted routing
-      await this.eventBus.publishTo(securityEventType, event);
+      // ORPHAN-MEDIUM-322: the enum values are the SEMANTIC identifiers
+      // (`security.events.<...>`) carried in payloads and metrics labels;
+      // the WIRE subject must live in the canonical `events.` space —
+      // NatsEventBus.normalizeSubject rejects anything else (the previous
+      // bare-enum publish died client-side on every call), and
+      // observability-service consumes `events.security.events.>`.
+      await this.eventBus.publishTo(`events.${securityEventType}`, event);
 
       this.logger.debug(`Published security event: ${securityEventType}`);
     } catch (error) {

@@ -536,8 +536,7 @@ describe('AuthenticationService', () => {
 
       expect(mockEventBus.publish).not.toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'UserAccountLocked' }),
-      );
-    });
+      );    });
 
     it('SEC-LOW-001(c): casts the lockout deadline to timestamptz (not tz-stripping timestamp)', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });

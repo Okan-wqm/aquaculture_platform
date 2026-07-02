@@ -652,8 +652,15 @@ export class MessagingNatsHandler {
    * Validates both tenantId (UUID) and schemaName (canonical tenant schema) from the
    * NATS payload before processing. Rejects payloads with invalid formats to prevent
    * SQL injection via crafted NATS messages from compromised containers.
+   *
+   * Subject shape (ORPHAN-HIGH-317 remediation): the publisher emits the
+   * canonical 3-segment `events.{tenantId}.TenantProvisioned`
+   * (NatsEventBus.deriveSubject). The previous 2-segment literal
+   * `events.TenantProvisioned` could never match a 3-segment publish (NATS
+   * matching is segment-exact — the ORPHAN-013 drift class), so this handler
+   * had NEVER received a TenantProvisioned event.
    */
-  @EventPattern('events.TenantProvisioned')
+  @EventPattern('events.*.TenantProvisioned')
   async handleTenantProvisioned(
     @Payload() data: TenantProvisionedPayload,
   ): Promise<void> {

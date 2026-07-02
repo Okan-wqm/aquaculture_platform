@@ -4,7 +4,7 @@ import { SecurityEventType } from '@platform/event-contracts';
 import { SecurityEventService } from '../security-event.service';
 
 /**
- * ORPHAN-MEDIUM-322 — security-event WIRE subject contract.
+ * ORPHAN-MEDIUM-326 — security-event WIRE subject contract.
  *
  * The SecurityEventType enum values (`security.events.<...>`) are SEMANTIC
  * identifiers carried in payloads and metrics labels. The wire subject must
@@ -17,7 +17,7 @@ import { SecurityEventService } from '../security-event.service';
  * This spec pins the publisher side of that pair. A future refactor that
  * publishes the bare enum again flips these red.
  */
-describe('SecurityEventService wire subject (ORPHAN-MEDIUM-322)', () => {
+describe('SecurityEventService wire subject (ORPHAN-MEDIUM-326)', () => {
   const published: Array<{ subject: string }> = [];
 
   const eventBus: Pick<IEventBus, 'publishTo' | 'isConnected'> = {

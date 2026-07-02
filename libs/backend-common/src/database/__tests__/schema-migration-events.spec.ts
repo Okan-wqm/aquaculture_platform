@@ -119,7 +119,7 @@ describe('SchemaMigrationEvent contract', () => {
   });
 
   it('SCHEMA_MIGRATION_SUBJECT_PREFIX has the expected shape', () => {
-    // ORPHAN-MEDIUM-322: the prefix MUST live in the canonical `events.`
+    // ORPHAN-MEDIUM-326: the prefix MUST live in the canonical `events.`
     // space — normalizeSubject rejects anything else and the JetStream
     // stream only captures events./commands./queries.
     expect(SCHEMA_MIGRATION_SUBJECT_PREFIX).toBe('events.platform.schema-migration');

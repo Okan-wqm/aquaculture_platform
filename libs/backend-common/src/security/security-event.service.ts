@@ -236,7 +236,7 @@ export class SecurityEventService {
         version: 1,
       };
 
-      // ORPHAN-MEDIUM-322: the enum values are the SEMANTIC identifiers
+      // ORPHAN-MEDIUM-326: the enum values are the SEMANTIC identifiers
       // (`security.events.<...>`) carried in payloads and metrics labels;
       // the WIRE subject must live in the canonical `events.` space —
       // NatsEventBus.normalizeSubject rejects anything else (the previous

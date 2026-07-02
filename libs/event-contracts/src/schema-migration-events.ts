@@ -98,7 +98,7 @@ export type SchemaMigrationEvent =
  * (observability-service derives its subscribe subject from THIS constant
  * so publisher and consumer cannot drift).
  *
- * ORPHAN-MEDIUM-322 — WHY the `events.` prefix is part of the constant:
+ * ORPHAN-MEDIUM-326 — WHY the `events.` prefix is part of the constant:
  * NatsEventBus.normalizeSubject REJECTS (throws on) any subject outside
  * the `events.`/`commands.`/`queries.` spaces, and the JetStream stream
  * only captures those. The previous value (`platform.schema-migration`)

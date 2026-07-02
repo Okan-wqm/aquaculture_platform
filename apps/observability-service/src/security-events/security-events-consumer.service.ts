@@ -23,7 +23,7 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
   async onModuleInit(): Promise<void> {
     try {
       // Subscribe to ALL security events using NATS wildcard.
-      // ORPHAN-MEDIUM-322: normalizeSubject REJECTS (throws on) subjects
+      // ORPHAN-MEDIUM-326: normalizeSubject REJECTS (throws on) subjects
       // outside events./commands./queries. — it never prepends. The
       // publisher (SecurityEventService) forms `events.${enumValue}`, so
       // this literal matches events.security.events.<...> exactly.

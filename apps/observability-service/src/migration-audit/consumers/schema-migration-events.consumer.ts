@@ -12,7 +12,7 @@ import type {
 
 import { RecordMigrationEventCommand } from '../commands/record-migration-event.command';
 
-// ORPHAN-MEDIUM-322: derived from the SAME constant the publisher
+// ORPHAN-MEDIUM-326: derived from the SAME constant the publisher
 // (NatsMigrationEventSink) uses — publisher and consumer cannot drift.
 const SUBSCRIBE_SUBJECT = `${SCHEMA_MIGRATION_SUBJECT_PREFIX}.>`;
 const GROUP_ID = 'observability-schema-migration';

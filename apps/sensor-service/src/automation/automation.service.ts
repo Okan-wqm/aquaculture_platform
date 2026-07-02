@@ -76,6 +76,19 @@ import {
  * Automation Service
  * Manages IEC 61131-3 compliant automation programs (SFC, ST, FBD, LD)
  */
+/**
+ * One program's contribution to a release bundle (Faz 5): the
+ * content-addressed artifact reference plus the deployment-log
+ * correlation id the bundle-ack fan-out resolves on CONFIRMED/FAILED.
+ */
+export interface ProgramBundleArtifact {
+  programId: string;
+  version: number;
+  logCommandId: string;
+  artifactId: string;
+  sha256: string;
+}
+
 @Injectable()
 export class AutomationService {
   private readonly logger = new Logger(AutomationService.name);
@@ -1490,6 +1503,97 @@ export class AutomationService {
         `Failed to send deployment command: ${(error as Error).message}`,
       );
     }
+  }
+
+  /**
+   * Prepare a RUST_ENGINE program for a release bundle (enterprise plan
+   * Faz 5): everything `deployProgram` does EXCEPT the MQTT publish —
+   * the bundle command carries the artifact instead. Guards, atomic
+   * version increment, contract validation, content-addressed snapshot,
+   * deployment log (own correlation id) and the DEPLOYING status
+   * transition are identical, so bundle-borne and single-command deploys
+   * stay indistinguishable to every downstream consumer.
+   */
+  async prepareProgramBundleArtifact(
+    programId: string,
+    deviceId: string,
+    tenantId: string,
+    deployedBy: string,
+  ): Promise<ProgramBundleArtifact> {
+    if (!this.artifactService) {
+      throw new BadRequestException(
+        'Artifact service not available — bundle deploys require the content-addressed store',
+      );
+    }
+
+    const program = await this.findByIdOrFail(programId, tenantId);
+    if (program.status !== ProgramStatus.APPROVED) {
+      throw new BadRequestException(
+        `Program must be APPROVED before deployment. Current status: ${program.status}`,
+      );
+    }
+    if (program.deployTarget && program.deployTarget !== DeployTarget.RUST_ENGINE) {
+      throw new BadRequestException(
+        `Program "${program.programName}" targets ${program.deployTarget} — only RUST_ENGINE programs can ride a release bundle`,
+      );
+    }
+
+    // Atomic version increment — same race guard as deployProgram.
+    await this.programRepo
+      .createQueryBuilder()
+      .update(AutomationProgram)
+      .set({ version: () => 'version + 1' })
+      .where('id = :id AND tenant_id = :tenantId', { id: programId, tenantId })
+      .execute();
+    const refreshedProgram = await this.findByIdOrFail(programId, tenantId);
+    program.version = refreshedProgram.version;
+
+    const edgeScript = await this.translateProgramToEdgeScript(program);
+    if (!validateDeployProgramParams(edgeScript)) {
+      throw new BadRequestException(
+        `deploy_program payload violates the canonical contract: ${formatValidationErrors(validateDeployProgramParams)}`,
+      );
+    }
+
+    const artifact = await this.artifactService.snapshot(tenantId, {
+      artifactType: DeployArtifactType.AUTOMATION_PROGRAM,
+      content: edgeScript,
+      sourceEntityId: programId,
+      sourceEntityVersion: program.version,
+      createdBy: deployedBy,
+    });
+
+    const logCommandId = randomUUID();
+    if (this.deploymentLogService) {
+      await this.deploymentLogService.createLog({
+        tenantId,
+        programId,
+        deviceId,
+        commandId: logCommandId,
+        version: program.version,
+        edgeScript,
+        deployedBy,
+        artifactId: artifact.id,
+        checksumSha256: artifact.contentSha256,
+      });
+      await this.deploymentLogService.markDeploying(logCommandId);
+    }
+
+    await this.programRepo.update(program.id, {
+      status: ProgramStatus.DEPLOYING,
+      deployedVersion: program.version,
+      deployedAt: new Date(),
+      deployedBy: deployedBy,
+      deviceId: deviceId,
+    });
+
+    return {
+      programId,
+      version: program.version,
+      logCommandId,
+      artifactId: artifact.id,
+      sha256: artifact.contentSha256,
+    };
   }
 
   /**

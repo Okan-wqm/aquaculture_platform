@@ -45,6 +45,7 @@ const EDGE_CRATE_DIR = join(REPO_ROOT, "sens-api-gateway");
 // BOTH places plus a deserialization test in contract_fixtures_tests.rs.
 const EXPECTED_FIXTURES = [
     "command-envelope.json",
+    "deploy-bundle.json",
     "deploy-process.json",
     "deploy-program.json",
     "deploy-scada-package.json",

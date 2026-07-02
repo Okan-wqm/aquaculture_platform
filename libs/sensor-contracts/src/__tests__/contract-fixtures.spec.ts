@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
@@ -5,7 +6,9 @@ import type { ValidateFunction } from 'ajv';
 
 import {
   formatValidationErrors,
+  validateBundleManifest,
   validateCommandEnvelope,
+  validateDeployBundleParams,
   validateDeployProcessParams,
   validateDeployProgramParams,
   validateDeployScadaPackageParams,
@@ -57,6 +60,7 @@ describe('sensor-contracts fixtures — cloud-side schema parity', () => {
     'deploy-process.json',
     'deploy-program.json',
     'deploy-scada-package.json',
+    'deploy-bundle.json',
   ] as const;
 
   it('every fixture file is covered by this spec (no orphan fixtures)', () => {
@@ -81,6 +85,30 @@ describe('sensor-contracts fixtures — cloud-side schema parity', () => {
       validateDeployScadaPackageParams,
       paramsOf(readFixture('deploy-scada-package.json')),
     );
+  });
+
+  it('deploy-bundle params satisfy DEPLOY_BUNDLE_PARAMS_SCHEMA and are self-consistent', () => {
+    const params = paramsOf(readFixture('deploy-bundle.json'));
+    expectValid(validateDeployBundleParams, params);
+
+    // The manifest string's bytes hash to the signed value...
+    const manifest = params.manifest as string;
+    const manifestSha = createHash('sha256').update(manifest).digest('hex');
+    expect(manifestSha).toBe(params.manifestSha256);
+
+    // ...the parsed manifest satisfies its own schema...
+    const parsedManifest: unknown = JSON.parse(manifest);
+    expectValid(validateBundleManifest, parsedManifest);
+
+    // ...and every content string hashes to its manifest-pinned key.
+    const contents = params.contents as Record<string, string>;
+    for (const [sha, content] of Object.entries(contents)) {
+      expect(createHash('sha256').update(content).digest('hex')).toBe(sha);
+    }
+    const artifacts = (parsedManifest as { artifacts: Array<{ sha256: string }> }).artifacts;
+    for (const artifact of artifacts) {
+      expect(contents).toHaveProperty(artifact.sha256);
+    }
   });
 
   it('nested scripting keys stay snake_case (the agent has no serde rename on them)', () => {

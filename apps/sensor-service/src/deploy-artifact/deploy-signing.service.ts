@@ -23,8 +23,13 @@ import { ConfigService } from '@nestjs/config';
  * the boot instead of silently downgrading to unsigned.
  */
 
-/** Artifact kind under signature — selects the trailing domain tag. */
-export type DeploySignatureKind = 'scada-package' | 'process';
+/**
+ * Artifact kind under signature — selects the trailing domain tag.
+ * `bundle` (Faz 5) signs a release-bundle manifest sha256; the manifest
+ * pins each member artifact's content sha256, so one signature
+ * transitively covers the whole bundle.
+ */
+export type DeploySignatureKind = 'scada-package' | 'process' | 'bundle';
 
 /**
  * The one slice of ConfigService this signer consumes. Narrow structural
@@ -41,6 +46,7 @@ const WIRE_VERSION_V1 = 1;
 const DOMAIN_TAGS: Record<DeploySignatureKind, Buffer> = {
   'scada-package': Buffer.from('scada-pkg-v1', 'ascii'),
   process: Buffer.from('process-v1', 'ascii'),
+  bundle: Buffer.from('bundle-v1', 'ascii'),
 };
 
 /**

@@ -6,6 +6,7 @@ import { AutomationProgram } from '../automation/entities/automation-program.ent
 import { ProgramVariable } from '../automation/entities/program-variable.entity';
 import { DeployArtifactModule } from '../deploy-artifact/deploy-artifact.module';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 
@@ -29,6 +30,7 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
       AutomationProgram, ProgramVariable,
     ]),
     DeployArtifactModule,
+    ReleaseBundleModule,
     forwardRef(() => EdgeDeviceModule),
     forwardRef(() => AutomationModule), // For AutomationService in unified deploy
   ],

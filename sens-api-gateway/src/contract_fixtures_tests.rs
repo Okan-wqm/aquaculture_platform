@@ -56,6 +56,7 @@ fn all_fixtures_parse_as_command_envelope() {
         "deploy-process.json",
         "deploy-program.json",
         "deploy-scada-package.json",
+        "deploy-bundle.json",
     ] {
         let envelope = envelope_of(name);
         assert!(!envelope.command_id.is_empty(), "{}: commandId empty", name);
@@ -153,6 +154,69 @@ fn deploy_scada_package_fixture_deserializes_as_scada_package() {
         vec!["widget-2".to_string()]
     );
     assert_eq!(package.trend_config.retention_days, Some(7));
+}
+
+/// Faz 5: the deploy-bundle fixture must clear the FULL edge
+/// verification pipeline — manifest hash, ed25519 signature (seed
+/// 0x01×32, tenant "tenant-42", domain tag bundle-v1), per-artifact
+/// checksums, and typed parsing of every member artifact. This is the
+/// strongest cross-language pin in the suite: the fixture was signed
+/// by the cloud signer implementation, verified here by the edge.
+#[cfg(feature = "scada-display")]
+#[test]
+fn deploy_bundle_fixture_clears_full_edge_verification() {
+    use ed25519_dalek::{SigningKey, Verifier};
+
+    let envelope = envelope_of("deploy-bundle.json");
+    assert_eq!(envelope.command, "deploy_bundle");
+
+    let params: crate::commands::bundle_deploy::DeployBundleParams =
+        serde_json::from_value(envelope.params)
+            .expect("deploy-bundle params must parse as DeployBundleParams");
+
+    let verifying_key = SigningKey::from_bytes(&[1u8; 32]).verifying_key();
+    let verified = crate::commands::bundle_deploy::verify_bundle(
+        &params,
+        Some("tenant-42".to_string()),
+        |msg, sig| {
+            verifying_key
+                .verify(msg, &ed25519_dalek::Signature::from_bytes(sig))
+                .is_ok()
+        },
+    )
+    .expect("fixture bundle must verify end-to-end");
+
+    assert_eq!(verified.staged.len(), 2);
+    assert!(verified
+        .staged
+        .iter()
+        .any(|a| matches!(a, crate::commands::bundle_deploy::StagedArtifact::Program { .. })));
+    assert!(verified.staged.iter().any(|a| matches!(
+        a,
+        crate::commands::bundle_deploy::StagedArtifact::ScadaPackage { .. }
+    )));
+
+    // Version truth flows from the SIGNED manifest into the staged
+    // package meta (the content-addressed body is version-free).
+    for artifact in &verified.staged {
+        if let crate::commands::bundle_deploy::StagedArtifact::ScadaPackage { package } = artifact
+        {
+            assert_eq!(package.meta.version, 3);
+        }
+    }
+
+    // A signature minted for another tenant must NOT verify.
+    let err = crate::commands::bundle_deploy::verify_bundle(
+        &params,
+        Some("tenant-99".to_string()),
+        |msg, sig| {
+            verifying_key
+                .verify(msg, &ed25519_dalek::Signature::from_bytes(sig))
+                .is_ok()
+        },
+    )
+    .expect_err("wrong tenant must fail");
+    assert!(err.contains("signature verification failed"));
 }
 
 /// The signature material rides in the SAME positions the Faz 4 edge

@@ -68,6 +68,12 @@ const DOMAIN_TAG_SCADA_PKG_V1: &[u8] = b"scada-pkg-v1";
 /// Domain-separation tag for process deploy signatures.
 const DOMAIN_TAG_PROCESS_V1: &[u8] = b"process-v1";
 
+/// Domain-separation tag for release-bundle manifest signatures
+/// (Faz 5 two-phase apply). Signs `tenant + manifestSha256`; the
+/// manifest in turn pins each member artifact's content sha256, so
+/// one signature transitively covers the whole bundle.
+const DOMAIN_TAG_BUNDLE_V1: &[u8] = b"bundle-v1";
+
 /// Artifact kind under signature. Selects the trailing domain tag —
 /// the ONLY encoding difference between kinds, which is exactly the
 /// cross-kind confusion mitigation.
@@ -79,6 +85,9 @@ pub enum DeployArtifactKind {
     /// A `deploy_process` params document (process graph + resolved
     /// tag mappings) snapshotted in `deploy_artifacts`.
     Process,
+    /// A `deploy_bundle` release manifest (Faz 5): the sha256 under
+    /// signature is the manifest's hash, not a single artifact's.
+    Bundle,
 }
 
 impl DeployArtifactKind {
@@ -86,6 +95,7 @@ impl DeployArtifactKind {
         match self {
             Self::ScadaPackage => DOMAIN_TAG_SCADA_PKG_V1,
             Self::Process => DOMAIN_TAG_PROCESS_V1,
+            Self::Bundle => DOMAIN_TAG_BUNDLE_V1,
         }
     }
 }
@@ -314,14 +324,26 @@ mod tests {
     fn kind_change_changes_canonical_bytes() {
         let scada = canonical_bytes(&make_body(DeployArtifactKind::ScadaPackage)).unwrap();
         let process = canonical_bytes(&make_body(DeployArtifactKind::Process)).unwrap();
+        let bundle = canonical_bytes(&make_body(DeployArtifactKind::Bundle)).unwrap();
         assert_ne!(scada, process);
+        assert_ne!(scada, bundle);
+        assert_ne!(process, bundle);
 
         assert_ne!(DOMAIN_TAG_SCADA_PKG_V1, DOMAIN_TAG_PROCESS_V1);
+        assert_ne!(DOMAIN_TAG_SCADA_PKG_V1, DOMAIN_TAG_BUNDLE_V1);
+        assert_ne!(DOMAIN_TAG_PROCESS_V1, DOMAIN_TAG_BUNDLE_V1);
         assert_ne!(DOMAIN_TAG_SCADA_PKG_V1, b"st-source-v1" as &[u8]);
         assert_ne!(DOMAIN_TAG_PROCESS_V1, b"st-source-v1" as &[u8]);
+        assert_ne!(DOMAIN_TAG_BUNDLE_V1, b"st-source-v1" as &[u8]);
         assert_eq!(MAGIC, b"SDEP");
         assert_ne!(MAGIC, b"SSRC");
         assert_ne!(MAGIC, b"STBC");
+    }
+
+    #[test]
+    fn canonical_bytes_ends_with_bundle_domain_tag() {
+        let bundle = canonical_bytes(&make_body(DeployArtifactKind::Bundle)).expect("ok");
+        assert!(bundle.ends_with(DOMAIN_TAG_BUNDLE_V1));
     }
 
     /// **Architectural invariant.** Every field participates in the

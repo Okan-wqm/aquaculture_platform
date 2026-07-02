@@ -54,7 +54,16 @@ describe('DeploySigningService — cloud↔edge ed25519 contract', () => {
     const service = new DeploySigningService(configWith(PINNED_SEED_HEX));
     const scada = service.signDeployArtifact('scada-package', PINNED_TENANT, PINNED_SHA);
     const process = service.signDeployArtifact('process', PINNED_TENANT, PINNED_SHA);
+    const bundle = service.signDeployArtifact('bundle', PINNED_TENANT, PINNED_SHA);
     expect(scada).not.toBe(process);
+    expect(scada).not.toBe(bundle);
+    expect(process).not.toBe(bundle);
+  });
+
+  it('bundle canonical bytes end with the bundle-v1 domain tag (Rust parity)', () => {
+    const canonical = canonicalDeploySigBytes('bundle', PINNED_TENANT, PINNED_SHA);
+    const tag = Buffer.from('bundle-v1', 'ascii');
+    expect(canonical.subarray(canonical.length - tag.length).equals(tag)).toBe(true);
   });
 
   it('signatures verify against the raw ed25519 public key derived from the seed', () => {

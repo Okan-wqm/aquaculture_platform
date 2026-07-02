@@ -34,6 +34,18 @@ impl CommandHandler {
         params: &Value,
     ) -> (bool, Value, Option<String>) {
         let _deploy_guard = self.deploy_lock.lock().await;
+        self.deploy_program_locked(params).await
+    }
+
+    /// Deploy body WITHOUT the deploy lock — the caller MUST hold it.
+    /// Split out (Faz 5) so `cmd_deploy_bundle` can apply N programs
+    /// atomically under ONE lock acquisition; the tokio Mutex is not
+    /// reentrant, so delegating to `cmd_deploy_program` from inside the
+    /// bundle apply would deadlock.
+    pub(in crate::commands) async fn deploy_program_locked(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing deploy_program command");
 
         // Batch 142 Faz 7 wire: effective limits are the

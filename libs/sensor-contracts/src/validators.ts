@@ -9,6 +9,10 @@ import Ajv, { type ValidateFunction } from 'ajv';
 
 import { SCADA_PACKAGE_DOC_V2_SCHEMA } from './scada-package-doc/scada-package-doc.schema';
 import { COMMAND_ENVELOPE_SCHEMA } from './schemas/command-envelope.schema';
+import {
+  BUNDLE_MANIFEST_SCHEMA,
+  DEPLOY_BUNDLE_PARAMS_SCHEMA,
+} from './schemas/deploy-bundle.schema';
 import { DEPLOY_PROCESS_PARAMS_SCHEMA } from './schemas/deploy-process.schema';
 import { DEPLOY_PROGRAM_PARAMS_SCHEMA } from './schemas/deploy-program.schema';
 import { DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA } from './schemas/deploy-scada-package.schema';
@@ -35,6 +39,10 @@ export const validateDeployProgramParams: ValidateFunction = ajv.compile(
 export const validateDeployScadaPackageParams: ValidateFunction = ajv.compile(
   DEPLOY_SCADA_PACKAGE_PARAMS_SCHEMA,
 );
+export const validateDeployBundleParams: ValidateFunction = ajv.compile(
+  DEPLOY_BUNDLE_PARAMS_SCHEMA,
+);
+export const validateBundleManifest: ValidateFunction = ajv.compile(BUNDLE_MANIFEST_SCHEMA);
 
 /** Human-readable rendering of the last validation failure. */
 export function formatValidationErrors(validate: ValidateFunction): string {

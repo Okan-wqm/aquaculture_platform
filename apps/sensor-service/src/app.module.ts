@@ -98,6 +98,7 @@ type QueryComplexityOperationContext = {
   schema: GraphQLSchema;
 };
 import { DeployArtifact } from './deploy-artifact/entities/deploy-artifact.entity';
+import { ReleaseBundle } from './release-bundle/entities/release-bundle.entity';
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
 import { UnifiedTag } from './process/entities/unified-tag.entity';
@@ -225,6 +226,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             UnifiedTag,
             ScadaDeployLog,
             DeployArtifact,
+            ReleaseBundle,
             DeviceGroup,
             DeviceGroupMember,
             VfdParameterDefinition,

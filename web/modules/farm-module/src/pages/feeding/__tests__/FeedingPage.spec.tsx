@@ -123,6 +123,16 @@ describe('FeedingPage', () => {
     });
   });
 
+  it('does not render a fake-empty success state when the forecast query fails (FARM-LOW-147)', async () => {
+    routeGraphql([]); // every operation throws
+    renderWithProviders(<FeedingPage />, { route: '/feeding?tab=daily-plan', path: 'feeding' });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.queryByText(/Pellet 3mm/)).not.toBeInTheDocument();
+    });
+  });
+
   it('falls back to the default tab for an unknown ?tab value', async () => {
     renderWithProviders(<FeedingPage />, { route: '/feeding?tab=bogus', path: 'feeding' });
 

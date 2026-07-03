@@ -73,5 +73,12 @@ describe('AnalyticsPage', () => {
         ),
       ).toBe(true);
     });
+
+    // FARM-MEDIUM-132: assert the KPIs the docstring promises are DERIVED from the
+    // fixture, not merely that a query fired — a broken rollup must fail here.
+    expect(await screen.findByText('Total Tanks')).toBeInTheDocument();
+    // Single tank in the fixture with batchMetrics.mortalityRate 2.5.
+    expect(await screen.findByText('2.5%')).toBeInTheDocument();
+    expect(screen.getByText('Mortality Rate')).toBeInTheDocument();
   });
 });

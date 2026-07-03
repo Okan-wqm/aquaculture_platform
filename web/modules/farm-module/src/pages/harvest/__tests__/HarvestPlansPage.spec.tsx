@@ -89,6 +89,8 @@ describe('HarvestPlansPage', () => {
     renderWithProviders(<HarvestPlansPage />, { route: '/harvest', path: 'harvest' });
 
     expect((await screen.findAllByText(/Autumn harvest wave 1/)).length).toBeGreaterThan(0);
+    // FARM-LOW-149: assert a second domain field renders, not just the name.
+    expect((await screen.findAllByText(/HP-2026-001/)).length).toBeGreaterThan(0);
     expect(
       requestMock.mock.calls.some(([query]) => (query as string).includes('query HarvestPlans')),
     ).toBe(true);

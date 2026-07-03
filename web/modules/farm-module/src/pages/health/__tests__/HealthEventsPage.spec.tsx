@@ -6,6 +6,7 @@
  * not render a fake-empty success state.
  */
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
@@ -90,6 +91,21 @@ describe('HealthEventsPage', () => {
     expect(
       requestMock.mock.calls.some(([query]) => (query as string).includes('query HealthEvents')),
     ).toBe(true);
+  });
+
+  it('narrows the list through the client-side search (FARM-LOW-149)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<HealthEventsPage />, { route: '/health', path: 'health' });
+    await screen.findAllByText(/Gill disease outbreak/);
+
+    await user.type(screen.getByPlaceholderText('Search events...'), 'gill');
+    expect(screen.getAllByText(/Gill disease outbreak/).length).toBeGreaterThan(0);
+
+    await user.clear(screen.getByPlaceholderText('Search events...'));
+    await user.type(screen.getByPlaceholderText('Search events...'), 'zzz-no-match');
+    await waitFor(() => {
+      expect(screen.queryByText(/Gill disease outbreak/)).not.toBeInTheDocument();
+    });
   });
 
   it('does not render events as an empty success state when the query fails', async () => {

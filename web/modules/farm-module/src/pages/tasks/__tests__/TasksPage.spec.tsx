@@ -8,7 +8,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('@aquaculture/shared-ui', async () =>
@@ -20,7 +20,11 @@ import { routeGraphql } from '../../../test-utils/mockGraphqlClient';
 import { renderWithProviders } from '../../../test-utils/renderWithProviders';
 import TasksPage from '../TasksPage';
 
-const TODAY_ISO = new Date().toISOString().split('T')[0];
+// FARM-LOW-148: freeze the clock at midday UTC so the fixture's dueDate and
+// TodayTab's local-date bucketing resolve to the same day regardless of the
+// runner's offset or the wall-clock moment (latently flaky at the date boundary).
+const FIXED_NOW = new Date('2026-07-02T12:00:00.000Z');
+const TODAY_ISO = '2026-07-02';
 
 const TASKS = [
   {
@@ -58,7 +62,14 @@ const STATS = {
   avgCompletionMinutes: 12,
 };
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  // Fake ONLY Date so userEvent/waitFor keep real setTimeout (no hang).
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FIXED_NOW);
   requestMock.mockReset();
   routeGraphql([
     { match: 'query Tasks', result: { tasks: { items: TASKS, total: 1 } } },

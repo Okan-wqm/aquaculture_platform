@@ -80,6 +80,16 @@ describe('StoragePage', () => {
     expect((await screen.findAllByText(/Pellet 3mm/)).length).toBeGreaterThan(0);
   });
 
+  it('does not render the overview as a fake-empty success state when the query fails (FARM-LOW-147)', async () => {
+    routeGraphql([]);
+    renderWithProviders(<StoragePage />, { route: '/storage', path: 'storage' });
+
+    await waitFor(() => expect(requestMock).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.queryByText(/Feed Silo 1/)).not.toBeInTheDocument();
+    });
+  });
+
   it('switches to the locations tab and fires its query', async () => {
     const user = userEvent.setup();
     renderWithProviders(<StoragePage />, { route: '/storage', path: 'storage' });

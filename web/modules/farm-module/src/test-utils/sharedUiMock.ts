@@ -73,6 +73,13 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
       ...rest,
       queryKey: ['tenant', TEST_TENANT_ID, ...segments],
       queryFn,
+      // FARM-LOW-151: the real hook additionally gates on token && tenantId, but the
+      // stub session is ALWAYS authenticated so that gate is a constant no-op here —
+      // replicating it would be a `!!'jwt'` constant expression, not real fidelity.
+      // The session-epoch key segment is likewise omitted: production applies it
+      // symmetrically to the query AND invalidation keys, so prefix-matching holds
+      // without it. This mock faithfully replicates the tenant-prefixed key,
+      // keepPreviousData, and caller `enabled` — the parts that affect test behavior.
       enabled: enabled ?? true,
       placeholderData: keep ? rq.keepPreviousData : undefined,
     });

@@ -11,8 +11,9 @@ import { GridStack, type GridStackNode } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 import { type ReactElement, useEffect, useRef } from 'react';
 
-import type { WcCard } from '../types';
+import { isSystemCard, type AnyWcCard, type WcCard, type WcSystemCard } from '../types';
 import WcChartCard from './WcChartCard';
+import WcSystemCardView from './WcSystemCard';
 
 const WcCanvas = ({
   cards,
@@ -20,8 +21,8 @@ const WcCanvas = ({
   onConfigure,
   onRemove,
 }: {
-  cards: WcCard[];
-  onChange: (id: string, patch: Partial<WcCard>) => void;
+  cards: AnyWcCard[];
+  onChange: (id: string, patch: Partial<WcCard> | Partial<WcSystemCard>) => void;
   onConfigure: (id: string) => void;
   onRemove: (id: string) => void;
 }): ReactElement => {
@@ -95,12 +96,21 @@ const WcCanvas = ({
           gs-h={c.layout.h}
         >
           <div className="grid-stack-item-content">
-            <WcChartCard
-              card={c}
-              onChange={(p) => onChange(c.id, p)}
-              onConfigure={() => onConfigure(c.id)}
-              onRemove={() => handleRemove(c.id)}
-            />
+            {isSystemCard(c) ? (
+              <WcSystemCardView
+                card={c}
+                onChange={(p) => onChange(c.id, p)}
+                onConfigure={() => onConfigure(c.id)}
+                onRemove={() => handleRemove(c.id)}
+              />
+            ) : (
+              <WcChartCard
+                card={c}
+                onChange={(p) => onChange(c.id, p)}
+                onConfigure={() => onConfigure(c.id)}
+                onRemove={() => handleRemove(c.id)}
+              />
+            )}
           </div>
         </div>
       ))}

@@ -27,11 +27,11 @@ const RAW_TRANSPORT = /fetch\(\s*[`'"](?:\/graphql|\/api)/;
 /**
  * A7 burn-down — files that STILL use raw fetch. This set may ONLY shrink.
  * The 3 pre-auth forms were migrated to `publicGraphqlClient` (A7 step 1) and removed.
- * Remaining: farm uploads, which need `restClient` multipart support (A7 step 2).
+ * Farm uploads (useChemicals + useFileUpload) and marine-data were migrated to the
+ * shared `restClient` — now with multipart + blob support — under FARM-MEDIUM-091
+ * (A7 step 2), so the list is now empty.
  */
-const KNOWN_OFFENDERS = new Set<string>([
-  'web/modules/farm-module/src/hooks/useChemicals.ts', // 2x /api upload — needs restClient multipart
-]);
+const KNOWN_OFFENDERS = new Set<string>([]);
 
 function walk(dir: string): string[] {
   const out: string[] = [];

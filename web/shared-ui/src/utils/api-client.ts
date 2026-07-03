@@ -765,7 +765,14 @@ class RestClient {
   /**
    * Send an HTTP request
    */
-  async request<T = unknown>(
+  /**
+   * Shared transport: auth + tenant + CSRF header injection, lifecycle barrier,
+   * timeout, and single-shot 401 refresh-and-retry. Returns the raw (ok) Response
+   * so the caller decides how to consume the body (JSON via request(), binary via
+   * getBlob()) — FARM-MEDIUM-091 routes farm uploads/tiles through this instead of
+   * re-implementing headers per call.
+   */
+  private async send(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     options?: {
@@ -775,7 +782,7 @@ class RestClient {
       timeout?: number;
     },
     retryCount = 0
-  ): Promise<T> {
+  ): Promise<Response> {
     const { body, params, headers: customHeaders, timeout } = options || {};
 
     // LIFECYCLE BARRIER: Wait for token to be ready before sending request.
@@ -800,9 +807,14 @@ class RestClient {
       url += `?${searchParams.toString()}`;
     }
 
+    // FARM-MEDIUM-091: a FormData body is a multipart upload. Let the browser set
+    // Content-Type (with its boundary) and pass the FormData through untouched —
+    // forcing application/json + JSON.stringify corrupts the multipart upload.
+    const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData;
+
     // Headers
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isMultipart ? {} : { 'Content-Type': 'application/json' }),
       ...customHeaders,
     };
 
@@ -822,6 +834,13 @@ class RestClient {
     // GET requests are safe methods and are excluded automatically by attachCsrfHeader.
     attachCsrfHeader(headers, method);
 
+    let requestBody: BodyInit | undefined;
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      requestBody = body;
+    } else if (body !== undefined && body !== null) {
+      requestBody = JSON.stringify(body);
+    }
+
     // Timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(
@@ -834,7 +853,7 @@ class RestClient {
         method,
         headers,
         credentials: 'include',
-        body: body ? JSON.stringify(body) : undefined,
+        body: requestBody,
         signal: controller.signal,
       });
 
@@ -850,7 +869,7 @@ class RestClient {
           clearSession();
           throw new RestClientError('Session expired', 401);
         }
-        return this.request(method, path, options, retryCount + 1);
+        return this.send(method, path, options, retryCount + 1);
       }
 
       if (!response.ok) {
@@ -862,16 +881,55 @@ class RestClient {
         );
       }
 
-      // 204 No Content
-      if (response.status === 204) {
-        return undefined as T;
-      }
-
-      return await response.json();
+      return response;
     } catch (error) {
       clearTimeout(timeoutId);
       throw error;
     }
+  }
+
+  /**
+   * Send an HTTP request and parse the JSON body (undefined for 204).
+   */
+  async request<T = unknown>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    options?: {
+      body?: unknown;
+      params?: Record<string, string | number | boolean>;
+      headers?: Record<string, string>;
+      timeout?: number;
+    },
+    retryCount = 0
+  ): Promise<T> {
+    const response = await this.send(method, path, options, retryCount);
+
+    // 204 No Content
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Like request(), but returns the raw Blob instead of parsing JSON — for binary
+   * endpoints (marine map tiles via GET, AOI analysis images via POST) — through
+   * the same shared auth/tenant/CSRF + 401-refresh transport (FARM-MEDIUM-091,
+   * replaces marine-data's hand-rolled fetch).
+   */
+  async requestBlob(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    options?: {
+      body?: unknown;
+      params?: Record<string, string | number | boolean>;
+      headers?: Record<string, string>;
+      timeout?: number;
+    }
+  ): Promise<Blob> {
+    const response = await this.send(method, path, options);
+    return response.blob();
   }
 
   /**

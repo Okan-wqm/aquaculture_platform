@@ -3,7 +3,7 @@
  * Handles file uploads for batch documents via REST API
  */
 import { useMutation } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, restClient } from '@aquaculture/shared-ui';
 
 // Types
 export type BatchDocumentCategory = 'health_certificate' | 'import_document' | 'other';
@@ -32,8 +32,6 @@ export interface DeleteDocumentInput {
   filename: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
-
 /**
  * Hook to upload batch document
  */
@@ -60,21 +58,13 @@ export function useUploadBatchDocument() {
         formData.append('entityId', input.entityId);
       }
 
-      const response = await fetch(`${API_BASE_URL}/upload/batch-document`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'x-tenant-id': tenantId,
-        },
+      // FARM-MEDIUM-091: route through the shared restClient so auth, tenant,
+      // CSRF, the lifecycle barrier and 401-refresh are applied uniformly. The
+      // FormData body is detected and passed through as multipart (the browser
+      // sets the boundary); restClient throws RestClientError on a non-2xx.
+      return restClient.request<UploadedDocument>('POST', '/upload/batch-document', {
         body: formData,
       });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Upload failed' }));
-        throw new Error(error.message || `Upload failed with status ${response.status}`);
-      }
-
-      return response.json();
     },
   });
 }
@@ -94,23 +84,10 @@ export function useDeleteBatchDocument() {
         throw new Error('Tenant context required. Please re-login.');
       }
 
-      const response = await fetch(
-        `${API_BASE_URL}/upload/batch-document/${encodeURIComponent(input.entityId)}/${encodeURIComponent(input.documentId)}/${encodeURIComponent(input.filename)}`,
-        {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'x-tenant-id': tenantId,
-          },
-        }
+      // FARM-MEDIUM-091: shared restClient (auth + tenant + CSRF + 401-refresh).
+      return restClient.delete<{ success: boolean }>(
+        `/upload/batch-document/${encodeURIComponent(input.entityId)}/${encodeURIComponent(input.documentId)}/${encodeURIComponent(input.filename)}`
       );
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Delete failed' }));
-        throw new Error(error.message || `Delete failed with status ${response.status}`);
-      }
-
-      return response.json();
     },
   });
 }

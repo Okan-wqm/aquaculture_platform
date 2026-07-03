@@ -162,6 +162,18 @@ jobs:
             exit 1
           fi
 
+      # ORPHAN-MEDIUM-117: the committed tools/quality/format-scope.json must
+      # match what `format-scope generate` derives from the current tree (the
+      # manifest assigns every formattable file a class + owner). Left unenforced
+      # it drifted ~2000 lines until the gate was red on main and silently
+      # ignored. Enforced here it stays synchronized: a PR that adds or removes an
+      # in-scope file must run `npm run quality:format-scope:generate` and commit
+      # the regenerated manifest. Same committed-artifact↔source contract as the
+      # ESLint-rules dist drift check above.
+      - name: Run format-scope drift gate
+        if: always()
+        run: npm run quality:format-scope:check
+
   # =============================================================================
   # invariants-fast: promote the Jest invariant suite from a developer-
   # only local gate to a CI hard gate. Before A.4 of the cold-audit

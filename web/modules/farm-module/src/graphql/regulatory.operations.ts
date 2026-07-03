@@ -26,6 +26,7 @@
 
 const REPORT_SUBMISSION_RESULT_FIELDS = `
   success
+  reportId
   referanse
   klientReferanse
   feilmelding

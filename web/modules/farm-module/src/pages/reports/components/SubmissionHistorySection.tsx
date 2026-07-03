@@ -14,6 +14,7 @@ import React, { useMemo, useState } from 'react';
 import {
   useRegulatoryReport,
   useRegulatoryReports,
+  useRegulatoryReportSummary,
   RegulatoryReportRow,
   RegulatoryReportStatusValue,
   RegulatoryReportTypeValue,
@@ -121,18 +122,25 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
   title = 'Submission History',
 }) => {
   const { data: rows = [], isLoading, error } = useRegulatoryReports(reportType, siteId);
+  const { data: summary = [] } = useRegulatoryReportSummary(siteId);
   const [statusFilter, setStatusFilter] = useState<RegulatoryReportStatusValue | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const stats = useMemo(
-    () => ({
-      total: rows.length,
-      submitted: rows.filter((r) => r.status === 'SUBMITTED' || r.status === 'QUEUED').length,
-      failed: rows.filter((r) => r.status === 'FAILED').length,
-      pending: rows.filter((r) => r.status === 'PENDING').length,
-    }),
-    [rows],
-  );
+  // FARM-LOW-140: stats come from the purpose-built summary aggregate, not the
+  // 50-row page window (which would under-count once a type exceeds one page —
+  // weekly Sea-Lice reaches 50 in under a year).
+  const stats = useMemo(() => {
+    const s = summary.find((entry) => entry.reportType === reportType);
+    if (!s) {
+      return { total: 0, submitted: 0, failed: 0, pending: 0 };
+    }
+    return {
+      total: s.pendingCount + s.submittedCount + s.queuedCount + s.failedCount,
+      submitted: s.submittedCount + s.queuedCount,
+      failed: s.failedCount,
+      pending: s.pendingCount,
+    };
+  }, [summary, reportType]);
 
   const visibleRows = useMemo(
     () => (statusFilter === 'all' ? rows : rows.filter((r) => r.status === statusFilter)),

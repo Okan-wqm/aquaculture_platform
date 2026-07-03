@@ -8,13 +8,7 @@
  * Follows the module data-layer conventions: useTenantQuery (the
  * tenant-key + auth-gate + keepPreviousData SSoT) over graphqlClient.
  */
-import { useQueryClient } from '@tanstack/react-query';
-import {
-  useAuth,
-  graphqlClient,
-  useTenantQuery,
-  createTenantInvalidationKey,
-} from '@aquaculture/shared-ui';
+import { graphqlClient, useTenantQuery } from '@aquaculture/shared-ui';
 import {
   REGULATORY_REPORTS_QUERY,
   REGULATORY_REPORT_QUERY,
@@ -114,20 +108,3 @@ export function useRegulatoryReportSummary(siteId?: string) {
   );
 }
 
-/**
- * Invalidate the submission-history caches after a submit mutation —
- * called from the useSubmit* onSuccess handlers so a fresh submission
- * appears in the list without a manual refresh.
- */
-export function useInvalidateRegulatoryReports(): () => void {
-  const { tenantId } = useAuth();
-  const queryClient = useQueryClient();
-  return () => {
-    void queryClient.invalidateQueries({
-      queryKey: createTenantInvalidationKey(tenantId, 'regulatoryReports'),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: createTenantInvalidationKey(tenantId, 'regulatoryReportSummary'),
-    });
-  };
-}

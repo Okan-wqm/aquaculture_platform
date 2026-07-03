@@ -27,7 +27,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
@@ -339,6 +339,7 @@ def run_claude_exec(
         refusal=extract_refusal(events),
         credit_exhaustion=extract_credit_exhaustion(
             returncode=proc.returncode, stderr=proc.stderr, events=events,
+            final_message=final_message,
         ),
     )
 
@@ -437,18 +438,31 @@ def extract_refusal(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None
     return None
 
 
-# Credit/quota-exhaustion markers (case-insensitive substrings). This is the
-# SSoT the operator tunes from production: every credit fallback emits a
-# governance row carrying the real matched marker, so the set can be narrowed
-# or widened against actual CLI wording (the exact insufficient-credit format
-# under managed-session auth is the one honest unknown here).
+# Credit/quota exhaustion has TWO distinct wire shapes under managed-session
+# auth — proven live 2026-07-03 when ARIA's Fable pool ran dry:
 #
-# DELIBERATELY credit/quota/billing-SPECIFIC. Transient signals — "overloaded",
-# a bare per-minute rate limit / HTTP 429, network/timeout — are NOT here: they
-# are handled by the EXTERNAL_OUTAGE requeue path (retry on the SAME model
-# clears them), whereas credit exhaustion is deterministic and model-pool
-# specific (only a different tier's pool resolves it), exactly like a refusal.
-CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = (
+# (1) CLI USAGE-LIMIT MESSAGE — the Claude Code CLI returns its OWN limit
+#     notice as ASSISTANT CONTENT on a CLEAN run (returncode 0, zero output
+#     tokens, terminal_reason=completed):
+#       "You've reached your Fable 5 limit. Run /usage-credits to continue or
+#        switch models with /model."
+#     It is NOT a stderr error and NOT a nonzero exit, so it MUST be matched on
+#     the response TEXT regardless of returncode. These markers are specific
+#     enough that content-matching is false-positive-safe (an agent plan does
+#     not naturally contain "/usage-credits" or "switch models with /model").
+USAGE_LIMIT_MARKERS: tuple[str, ...] = (
+    "usage-credits",              # the /usage-credits purchase command
+    "switch models with /model",  # the model-switch hint in the limit notice
+)
+# (2) API CREDIT/QUOTA ERROR — an actual failure (returncode != 0) whose text
+#     names a credit/quota/billing problem.
+#
+# Transient signals ("overloaded", a bare per-minute rate limit / HTTP 429,
+# network/timeout) are in NEITHER set — they stay on the EXTERNAL_OUTAGE
+# requeue path (retry on the SAME model clears them), whereas credit exhaustion
+# is deterministic and model-pool specific (only a different tier's pool
+# resolves it), exactly like a refusal.
+CREDIT_ERROR_MARKERS: tuple[str, ...] = (
     "credit balance",          # "Your credit balance is too low"
     "insufficient credit",
     "insufficient_quota",
@@ -459,11 +473,55 @@ CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = (
     "purchase more credits",
     "billing",
     "payment required",        # HTTP 402 reason phrase (avoids a bare "402" match)
-    "usage limit",
-    "usage_limit",
     "usage limit reached",
-    "monthly limit",
 )
+# Union kept under the original name for external/test references. The operator
+# tunes these from production: every credit fallback emits a governance row
+# carrying the real matched marker.
+CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = USAGE_LIMIT_MARKERS + CREDIT_ERROR_MARKERS
+
+
+def run_with_model_fallback(
+    *,
+    run: Callable[[str, str], ClaudeRunResult],
+    model: str,
+    effort: str,
+    on_credit: Callable[[dict[str, Any]], None] | None = None,
+    on_refusal: Callable[[dict[str, Any]], None] | None = None,
+) -> ClaudeRunResult:
+    """Run one dispatch and apply the fable→opus fallback policy.
+
+    ``run(model, effort)`` executes a single attempt. This is the SSoT for
+    the fallback behaviour both executors share (extracted so it is unit-
+    testable without a full lease/dispatch environment):
+
+    * Fallback fires ONLY when the primary ``model`` is ``fable``.
+    * A credit/quota exhaustion retries once on ``opus`` at ``xhigh``
+      ("ultra code") effort — opus is a separate credit pool.
+    * A refusal retries once on ``opus`` at the ORIGINAL effort (K2).
+    * Total retries are bounded to exactly ONE: each branch returns the
+      opus result directly, so a credit/refusal signal on THAT result
+      escalates at the caller (its unresolved-* branch) instead of
+      re-retrying. Credit takes precedence over refusal.
+    * A failure already on a non-fable model is returned unchanged
+      (fail-closed at the caller).
+
+    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so
+    the caller can emit its own audit (ci_executor: governance rows;
+    worker_executor: stderr). Hooks never alter control flow.
+    """
+    completed = run(model, effort)
+    if model != "fable":
+        return completed
+    if completed.credit_exhaustion is not None:
+        if on_credit is not None:
+            on_credit(completed.credit_exhaustion)
+        return run("opus", "xhigh")
+    if completed.refusal is not None:
+        if on_refusal is not None:
+            on_refusal(completed.refusal)
+        return run("opus", effort)
+    return completed
 
 
 def extract_credit_exhaustion(
@@ -471,33 +529,53 @@ def extract_credit_exhaustion(
     returncode: int,
     stderr: str,
     events: tuple[dict[str, Any], ...],
+    final_message: str = "",
 ) -> dict[str, Any] | None:
     """Detect a credit/quota-exhaustion failure (detection only — sibling of
     :func:`extract_refusal`; the fable→opus fallback policy lives in the
     executors).
 
-    Gated on ``returncode != 0`` so a clean run can never be misread as a
-    credit failure. The error text is drawn from stderr plus the terminal
-    ``result`` event's ``result``/``error``/``subtype`` fields, matched
-    case-insensitively against :data:`CREDIT_EXHAUSTION_MARKERS`. Returns a
-    record naming the matched marker, or ``None``.
+    Two shapes are matched over the FULL response text (stderr + final message
+    + assistant content + the terminal ``result`` event):
+
+    * A CLI **usage-limit message** (``USAGE_LIMIT_MARKERS`` or the
+      "reached your … limit" co-occurrence) fires REGARDLESS of returncode —
+      the CLI returns its limit notice as assistant content on a clean exit,
+      so a ``returncode != 0`` gate would miss it (the 2026-07-03 live case).
+    * An API **credit/quota error** (``CREDIT_ERROR_MARKERS``) fires only on a
+      real failure (``returncode != 0``), so a plan that merely mentions
+      "billing" on a clean run is never misread.
+
+    Returns a record naming the matched marker, or ``None``.
     """
-    if returncode == 0:
-        return None
-    haystacks: list[str] = [stderr or ""]
+    haystacks: list[str] = [stderr or "", final_message or ""]
     for event in events:
+        if event.get("type") == "assistant":
+            haystacks.append(_assistant_text(event.get("message")))
         if event.get("type") == "result":
             haystacks.append(str(event.get("result") or ""))
             haystacks.append(str(event.get("error") or ""))
             haystacks.append(str(event.get("subtype") or ""))
     blob = "\n".join(haystacks).lower()
-    for marker in CREDIT_EXHAUSTION_MARKERS:
-        if marker in blob:
-            return {
-                "source": "cli_error_text",
-                "matched_marker": marker,
-                "returncode": returncode,
-            }
+    # (1) CLI usage-limit MESSAGE — content-based, returncode-independent.
+    limit_marker = next((m for m in USAGE_LIMIT_MARKERS if m in blob), None)
+    if limit_marker is None and "reached your" in blob and "limit" in blob:
+        limit_marker = "reached_your_limit"
+    if limit_marker is not None:
+        return {
+            "source": "cli_usage_limit_message",
+            "matched_marker": limit_marker,
+            "returncode": returncode,
+        }
+    # (2) API credit/quota ERROR — gated on a real (nonzero-exit) failure.
+    if returncode != 0:
+        for marker in CREDIT_ERROR_MARKERS:
+            if marker in blob:
+                return {
+                    "source": "cli_error_text",
+                    "matched_marker": marker,
+                    "returncode": returncode,
+                }
     return None
 
 

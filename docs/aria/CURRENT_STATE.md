@@ -2,7 +2,7 @@
 
 Date: 2026-06-21
 Target ref: `origin/main`
-Last verified ARIA authority hash: `409e05219d3e738e0f5a102d25445c08f9dcddf3f6a7f2bdbaff442b92c27469`
+Last verified ARIA authority hash: `9f7bcec90e94d6823dc5fc36f40103a2ce1e417d51a2335233e2b4d73935de86`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain

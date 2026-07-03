@@ -42,8 +42,10 @@ from claude_runtime import (
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
+    ClaudeRunResult,
     ClaudeUsageUnavailable,
     run_claude_exec,
+    run_with_model_fallback,
 )
 
 
@@ -233,49 +235,37 @@ def main(argv: list[str] | None = None) -> int:
 
     profile = read_agent_runtime_profile(parsed.target_agent, repo_root=repo)
     try:
-        completed = run_claude_exec(
-            prompt_text=prompt_text,
-            timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
-            model=profile.model,
-            effort=profile.effort,
-            cwd=worktree_path,
-        )
-        # Total retries across BOTH fallback triggers bounded to ONE opus
-        # attempt (credit + refusal share the budget).
-        _fell_back_to_opus = False
-        # Credit/quota-exhaustion fallback (sibling of the K2 refusal path):
-        # one audited fable->opus retry at xhigh ("ultra code") effort — opus
-        # is a separate credit pool. Deterministic, never a retryable outage.
-        if completed.credit_exhaustion is not None and profile.model == "fable":
+        # Model dispatch with the fable→opus fallback policy (credit +
+        # refusal), applied by the claude_runtime SSoT helper — identical
+        # policy to ci_executor, stderr as this path's audit channel.
+        def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            return run_claude_exec(
+                prompt_text=prompt_text,
+                timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
+                model=model,
+                effort=effort,
+                cwd=worktree_path,
+            )
+
+        def _on_credit(marker: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_credit_fallback assignment={assignment_id} "
-                f"marker={completed.credit_exhaustion.get('matched_marker')!r} fable->opus@xhigh\n"
+                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh\n"
             )
-            completed = run_claude_exec(
-                prompt_text=prompt_text,
-                timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
-                model="opus",
-                effort="xhigh",
-                cwd=worktree_path,
-            )
-            _fell_back_to_opus = True
-        # K2 (ORPHAN-HIGH-284) — same refusal policy as ci_executor: one
-        # audited fable->opus retry; a second refusal (or a refusal after the
-        # credit fallback already spent the one retry) is a hard, explicit
-        # failure (deterministic — never a retryable outage).
-        if completed.refusal is not None and profile.model == "fable" and not _fell_back_to_opus:
+
+        def _on_refusal(refusal: dict[str, Any]) -> None:
             sys.stderr.write(
                 f"model_refusal_fallback assignment={assignment_id} "
-                f"category={completed.refusal.get('category')!r} fable->opus\n"
+                f"category={refusal.get('category')!r} fable->opus\n"
             )
-            completed = run_claude_exec(
-                prompt_text=prompt_text,
-                timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
-                model="opus",
-                effort=profile.effort,
-                cwd=worktree_path,
-            )
-            _fell_back_to_opus = True
+
+        completed = run_with_model_fallback(
+            run=_dispatch_attempt,
+            model=profile.model,
+            effort=profile.effort,
+            on_credit=_on_credit,
+            on_refusal=_on_refusal,
+        )
         if completed.refusal is not None:
             sys.stderr.write(
                 "model_safety_refusal_unresolved: assignment "

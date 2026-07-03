@@ -45,14 +45,16 @@ import {
 } from 'recharts';
 
 // Component imports
+// DeffeyesChart + ResultsPanel are the SSoT presentation, imported from shared-ui
+// SOURCE (per-remote bundle, not the federation singleton — keeps recharts out of
+// the singleton). The rest are farm-module-local tabs/panels.
+import { DeffeyesChart, ResultsPanel } from '@platform/shared-ui/water-chemistry/components';
 import { BulkRecordTab } from './components/BulkRecordTab';
-import DeffeyesChart from './components/DeffeyesChart';
 import { HistoryTab } from './components/HistoryTab';
 import InputPanel from './components/InputPanel';
 import OnDemandPanel from './components/OnDemandPanel';
 import { ParameterConfigManager } from './components/ParameterConfigManager';
 import { RecordTab } from './components/RecordTab';
-import ResultsPanel from './components/ResultsPanel';
 import { reportWaterChemistryDiagnostic } from './waterChemistryDiagnostics';
 import {
   buildWaterChemistryReportHtml,

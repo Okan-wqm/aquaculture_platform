@@ -51,6 +51,11 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': resolve(__dirname, 'src'),
         '@aquaculture/shared-ui': sharedUiAlias,
+        // Water-chemistry presentation components import from shared-ui SOURCE
+        // (bundled per-remote, NOT via the federation singleton) so recharts is
+        // never forced into the shared-ui singleton. See
+        // web/shared-ui/src/water-chemistry/components/index.ts.
+        '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
         '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
         '@platform/aquaculture-engines': resolve(
           __dirname,

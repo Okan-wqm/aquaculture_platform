@@ -47139,6 +47139,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/__tests__/system-model.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcCanvas.tsx",
       "prettier_managed": true
     },
@@ -47164,6 +47170,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/mock/fixtures.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/systemModel.ts",
       "prettier_managed": true
     },
     {
@@ -49302,10 +49314,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8071,
+  "file_count": 8073,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7896,
-  "managed_file_list_sha256": "a8ca16f4f9e1a9bb1e81e06106f9486d0e18a2ffd5362b001e75b5f57da35f8b",
+  "managed_count": 7898,
+  "managed_file_list_sha256": "626592c52d8f76bf0338e362e1934b0fab1cc75e2ebac06c397cd8d42f6fa2a1",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -85,6 +85,13 @@ export const CullModal: React.FC<CullModalProps> = ({
       return;
     }
 
+    // FARM-LOW-142: programmatic future-date guard (the copy-paste from
+    // MortalityModal dropped it; the browser max attr is a hint, not enforced).
+    if (new Date(culledAt) > new Date()) {
+      toast({ title: 'Validation Error', description: 'Cull date cannot be in the future.', variant: 'error' });
+      return;
+    }
+
     try {
       await recordCull.mutateAsync({
         batchId: tank.primaryBatchId,

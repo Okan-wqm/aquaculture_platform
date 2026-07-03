@@ -370,49 +370,57 @@ interface BatchListResponse {
 }
 
 // GraphQL Queries
+// FARM-LOW-143: the ~40 batch scalar fields, shared by BATCH_LIST_QUERY and
+// BATCH_QUERY so the list and detail selections cannot drift apart (a classic
+// "field on detail but missing on list" source). Detail-only relations
+// (documents, healthCertificates) are appended per-query.
+const BATCH_CORE_FIELDS = `
+  id
+  batchNumber
+  name
+  description
+  speciesId
+  strain
+  inputType
+  initialQuantity
+  currentQuantity
+  totalMortality
+  harvestedQuantity
+  cullCount
+  totalFeedConsumed
+  totalFeedCost
+  retentionRate
+  sgr
+  costPerKg
+  weight
+  fcr
+  stockedAt
+  expectedHarvestDate
+  actualHarvestDate
+  supplierId
+  supplierBatchNumber
+  purchaseCost
+  currency
+  arrivalMethod
+  status
+  statusChangedAt
+  statusReason
+  isActive
+  notes
+  createdAt
+  updatedAt
+  currentBiomassKg
+  currentAvgWeightG
+  mortalityRate
+  survivalRate
+  daysInProduction
+`;
+
 const BATCH_LIST_QUERY = `
   query Batches($filter: BatchFilterInput, $page: Int, $limit: Int, $sortBy: String, $sortOrder: String) {
     batches(filter: $filter, page: $page, limit: $limit, sortBy: $sortBy, sortOrder: $sortOrder) {
       items {
-        id
-        batchNumber
-        name
-        description
-        speciesId
-        strain
-        inputType
-        initialQuantity
-        currentQuantity
-        totalMortality
-        harvestedQuantity
-        cullCount
-        totalFeedConsumed
-        totalFeedCost
-        retentionRate
-        sgr
-        costPerKg
-        weight
-        fcr
-        stockedAt
-        expectedHarvestDate
-        actualHarvestDate
-        supplierId
-        supplierBatchNumber
-        purchaseCost
-        currency
-        arrivalMethod
-        status
-        statusChangedAt
-        statusReason
-        isActive
-        notes
-        createdAt
-        updatedAt
-        currentBiomassKg
-        currentAvgWeightG
-        mortalityRate
-        survivalRate
-        daysInProduction
+        ${BATCH_CORE_FIELDS}
       }
       total
       page
@@ -427,45 +435,7 @@ const BATCH_LIST_QUERY = `
 const BATCH_QUERY = `
   query Batch($id: ID!) {
     batch(id: $id) {
-      id
-      batchNumber
-      name
-      description
-      speciesId
-      strain
-      inputType
-      initialQuantity
-      currentQuantity
-      totalMortality
-      harvestedQuantity
-      cullCount
-      totalFeedConsumed
-      totalFeedCost
-      retentionRate
-      sgr
-      costPerKg
-      weight
-      fcr
-      stockedAt
-      expectedHarvestDate
-      actualHarvestDate
-      supplierId
-      supplierBatchNumber
-      purchaseCost
-      currency
-      arrivalMethod
-      status
-      statusChangedAt
-      statusReason
-      isActive
-      notes
-      createdAt
-      updatedAt
-      currentBiomassKg
-      currentAvgWeightG
-      mortalityRate
-      survivalRate
-      daysInProduction
+      ${BATCH_CORE_FIELDS}
       documents {
         id
         documentType
@@ -784,16 +754,34 @@ const CREATE_HARVEST_RECORD_MUTATION = `
 // AquaMobil offline-queue contract. The desktop web attaches it here so a
 // double-click / retried submit is deduped server-side instead of
 // double-decrementing inventory.
+/**
+ * Deterministic, RECURSIVELY key-sorted stringify — the canonical form the
+ * server's at-most-once payloadHash guard hashes.
+ *
+ * FARM-LOW-141: this MUST stay byte-identical to AquaMobil's stableStringify
+ * (web/apps/aquamobil/src/pwa/offline-queue.ts) so the web and mobile clients
+ * hash one dedup contract the same way. The previous web impl sorted only the
+ * TOP-LEVEL keys, so a nested object would have hashed differently from mobile —
+ * inert while payloads are flat, a silent drift trap the moment one nests.
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 async function hashPayload(payload: object): Promise<string> {
-  // Deterministic SHA-256 over a sorted-key JSON of the flat domain input: the
-  // SAME payload always hashes the same, so the server's payloadHash guard can
-  // detect a clientCommandId reuse that carries a DIFFERENT payload.
-  const sorted = Object.fromEntries(
-    Object.entries(payload).sort(([a], [b]) => a.localeCompare(b)),
-  );
   const digest = await crypto.subtle.digest(
     'SHA-256',
-    new TextEncoder().encode(JSON.stringify(sorted)),
+    new TextEncoder().encode(stableStringify(payload)),
   );
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, '0'))

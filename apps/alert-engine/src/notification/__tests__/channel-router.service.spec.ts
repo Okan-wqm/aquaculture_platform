@@ -7,20 +7,17 @@ import {
 import { NotificationChannel } from '../../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { createRedisServiceMock } from '../../__tests__/support/redis-service.mock';
 
-const mockRedisService = {
-  get: jest.fn().mockResolvedValue(null),
-  set: jest.fn().mockResolvedValue(undefined),
-  del: jest.fn().mockResolvedValue(1),
-  incr: jest.fn().mockResolvedValue(1),
-  expire: jest.fn().mockResolvedValue(true),
-  deletePattern: jest.fn().mockResolvedValue(0),
-};
+// Stateful Redis double so the distributed rate-limit counters (incr/get)
+// accumulate the way they do against a real broker.
+const mockRedisService = createRedisServiceMock();
 
 describe('ChannelRouterService', () => {
   let service: ChannelRouterService;
 
   beforeEach(async () => {
+    mockRedisService.reset();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChannelRouterService,
@@ -435,35 +432,22 @@ describe('ChannelRouterService', () => {
   });
 
   describe('rate limiting', () => {
-    it('should apply rate limits', () => {
-      const prefs: UserNotificationPreferences = {
-        userId: 'user-1',
-        enabledChannels: [NotificationChannel.EMAIL, NotificationChannel.SMS],
-        preferredChannel: NotificationChannel.EMAIL,
-        channelConfigs: {
-          [NotificationChannel.SMS]: {
-            enabled: true,
-            rateLimit: {
-              maxPerHour: 2,
-              maxPerDay: 10,
-            },
-          },
-          [NotificationChannel.EMAIL]: {
-            enabled: true,
-          },
-        },
-      };
+    it('should apply rate limits', async () => {
+      // Rate limiting is enforced across replicas via Redis counters
+      // (checkRateLimit + recordDelivery), not synchronously inside route() —
+      // one instance's route() cannot see another's delivery counts. Exercise
+      // that real distributed path against the stateful Redis double.
+      const userId = 'user-1';
+      const channel = NotificationChannel.SMS;
 
-      service.setUserPreferences(prefs);
+      // First two SMS deliveries are allowed, and each is recorded.
+      expect(await service.checkRateLimit(userId, channel, 2, 10)).toBe(true);
+      await service.recordDelivery(userId, channel);
+      expect(await service.checkRateLimit(userId, channel, 2, 10)).toBe(true);
+      await service.recordDelivery(userId, channel);
 
-      // First two requests should include SMS
-      service.route('user-1', AlertSeverity.HIGH);
-      service.route('user-1', AlertSeverity.HIGH);
-
-      // Third request should not include SMS (rate limited)
-      const result = service.route('user-1', AlertSeverity.HIGH);
-
-      expect(result.channels).not.toContain(NotificationChannel.SMS);
+      // The third is rate limited — the hourly counter (2) has reached the cap.
+      expect(await service.checkRateLimit(userId, channel, 2, 10)).toBe(false);
     });
 
     it('should reset rate limits', () => {

@@ -3894,6 +3894,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/metrics/__tests__/auth-domain-metrics.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/metrics/auth-domain-metrics.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/metrics/metrics.controller.ts",
       "prettier_managed": true
     },
@@ -38484,6 +38496,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -49200,10 +49224,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8054,
+  "file_count": 8058,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7879,
-  "managed_file_list_sha256": "991e6889ae436041c0a44a6a6efb7b202713203335f8f37b6a648951c913213c",
+  "managed_count": 7883,
+  "managed_file_list_sha256": "7afd691ec33a11b93709cd23cd5e67501ee62eb1e5b0cebdfcd0e77cd31beeb9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

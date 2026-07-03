@@ -83,6 +83,23 @@ spec:
               sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le)
             )
 
+        # -- Tier-0 auth latency p99 (PERF-MEDIUM-003) --
+        # login + token validation are GraphQL operations (route="/graphql"), so
+        # the route-blind http_request_duration_seconds histogram cannot isolate
+        # them. They are measured directly by auth_operation_duration_seconds
+        # (auth-service AuthDomainMetricsService), labelled by `operation`.
+        - record: aquaculture:auth_login_latency_p99:5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(auth_operation_duration_seconds_bucket{namespace="aquaculture", operation="login"}[5m])) by (le)
+            )
+
+        - record: aquaculture:auth_token_validation_latency_p99:5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(auth_operation_duration_seconds_bucket{namespace="aquaculture", operation="token_validation"}[5m])) by (le)
+            )
+
         # -- Login success rate --
         - record: aquaculture:login_success_ratio:rate5m
           expr: |
@@ -186,6 +203,43 @@ spec:
               which exceeds the 2000ms SLO target. This indicates severe performance
               degradation affecting tail latency.
             runbook_url: "https://wiki.internal/runbooks/critical-latency"
+
+    # ========================================================================
+    # SLO: Tier-0 auth latency — login p99 < 500ms, token-validation p99 < 200ms
+    # (PERF-MEDIUM-003). The 500ms login budget sits ABOVE the ~200ms constant-
+    # time login floor (the deliberate timing-attack mitigation), so the alert
+    # fires on real regression, not the floor itself.
+    # ========================================================================
+    - name: aquaculture.slo.auth-latency
+      rules:
+        - alert: SloAuthLoginP99High
+          expr: aquaculture:auth_login_latency_p99:5m > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            slo: auth-login-p99
+          annotations:
+            summary: "Auth login p99 latency exceeds 500ms SLO"
+            description: >-
+              The 99th percentile login latency is {{ $value | humanizeDuration }},
+              above the 500ms tier-0 SLO (which already budgets the ~200ms
+              constant-time login floor). Investigate auth-service DB/bcrypt load.
+            runbook_url: "https://wiki.internal/runbooks/high-latency"
+
+        - alert: SloAuthTokenValidationP99High
+          expr: aquaculture:auth_token_validation_latency_p99:5m > 0.2
+          for: 10m
+          labels:
+            severity: warning
+            slo: auth-token-validation-p99
+          annotations:
+            summary: "Auth token-validation p99 latency exceeds 200ms SLO"
+            description: >-
+              The 99th percentile token-validation latency is
+              {{ $value | humanizeDuration }}, above the 200ms tier-0 SLO. Token
+              validation gates every authenticated request — investigate JWKS
+              fetch / signature-verify latency.
+            runbook_url: "https://wiki.internal/runbooks/high-latency"
 
     # ========================================================================
     # SLO 4: Error Rate (5xx) < 0.1%

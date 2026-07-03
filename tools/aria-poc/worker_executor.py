@@ -240,10 +240,30 @@ def main(argv: list[str] | None = None) -> int:
             effort=profile.effort,
             cwd=worktree_path,
         )
+        # Total retries across BOTH fallback triggers bounded to ONE opus
+        # attempt (credit + refusal share the budget).
+        _fell_back_to_opus = False
+        # Credit/quota-exhaustion fallback (sibling of the K2 refusal path):
+        # one audited fable->opus retry at xhigh ("ultra code") effort — opus
+        # is a separate credit pool. Deterministic, never a retryable outage.
+        if completed.credit_exhaustion is not None and profile.model == "fable":
+            sys.stderr.write(
+                f"model_credit_fallback assignment={assignment_id} "
+                f"marker={completed.credit_exhaustion.get('matched_marker')!r} fable->opus@xhigh\n"
+            )
+            completed = run_claude_exec(
+                prompt_text=prompt_text,
+                timeout_seconds=int(assignment.get("timeout_seconds") or 1800),
+                model="opus",
+                effort="xhigh",
+                cwd=worktree_path,
+            )
+            _fell_back_to_opus = True
         # K2 (ORPHAN-HIGH-284) — same refusal policy as ci_executor: one
-        # audited fable->opus retry; a second refusal is a hard, explicit
+        # audited fable->opus retry; a second refusal (or a refusal after the
+        # credit fallback already spent the one retry) is a hard, explicit
         # failure (deterministic — never a retryable outage).
-        if completed.refusal is not None and profile.model == "fable":
+        if completed.refusal is not None and profile.model == "fable" and not _fell_back_to_opus:
             sys.stderr.write(
                 f"model_refusal_fallback assignment={assignment_id} "
                 f"category={completed.refusal.get('category')!r} fable->opus\n"
@@ -255,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
                 effort=profile.effort,
                 cwd=worktree_path,
             )
+            _fell_back_to_opus = True
         if completed.refusal is not None:
             sys.stderr.write(
                 "model_safety_refusal_unresolved: assignment "

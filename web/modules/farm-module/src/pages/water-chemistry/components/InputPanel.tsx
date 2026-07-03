@@ -5,26 +5,10 @@
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
 import React, { useState } from 'react';
 
-export interface WaterChemistryInputs {
-  tempC: number;
-  pH: number;
-  salinity: number;
-  alkalinityMg: number;
-  targetpH: number;
-  targetAlkalinityMg: number;
-  alkMinMg: number;
-  alkMaxMg: number;
-  tan: number;
-  unIonizedNH3: number;
-  co2Toxic: number;
-  h2sUgL: number;       // Measured H₂S in µg/L (at the single realtime pH)
-  h2sLimitUgL: number;  // Toxic H₂S limit in µg/L
-  caMgL: number;
-  volume: number;
-  fishType: FishType;
-  fishSize: FishSize;
-  showTarget: boolean;
-}
+// WaterChemistryInputs is the SSoT shape in shared-ui; re-exported so existing
+// farm-module importers of './components/InputPanel' keep resolving it.
+import type { WaterChemistryInputs } from '@aquaculture/shared-ui';
+export type { WaterChemistryInputs };
 
 interface InputPanelProps {
   inputs: WaterChemistryInputs;

@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ALL_PARAMS, SPECIES_TEMPLATES, sensorsForScope, LOOPS, TANKS } from './mock/fixtures';
-import type { CardScope, ChartType, ParamKey, ParamSourceConfig, WcCard } from './types';
+import { createSystemCard } from './systemModel';
+import type { AnyWcCard, CardScope, ChartType, ParamKey, ParamSourceConfig, WcCard, WcSystemCard } from './types';
 
 const STORAGE_KEY = 'wc-cards-v1';
 
@@ -57,18 +58,18 @@ export function createCard(scope: CardScope, speciesTemplateId = 'salmon_freshwa
   };
 }
 
-function seed(): WcCard[] {
+function seed(): AnyWcCard[] {
   return [
-    createCard({ kind: 'tank', id: 't1' }, 'salmon_freshwater', 'Outlet'),
-    { ...createCard({ kind: 'tank', id: 't3' }, 'salmon_freshwater', 'After biofilter'), chartType: 'co2', layout: { x: 4, y: 0, w: 4, h: 5 } },
+    createSystemCard('loop-a'),
+    { ...createCard({ kind: 'tank', id: 't3' }, 'salmon_freshwater', 'After biofilter'), chartType: 'co2', layout: { x: 6, y: 0, w: 4, h: 5 } },
   ];
 }
 
-function load(): WcCard[] {
+function load(): AnyWcCard[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return seed();
-    const parsed = JSON.parse(raw) as WcCard[];
+    const parsed = JSON.parse(raw) as AnyWcCard[];
     return Array.isArray(parsed) && parsed.length ? parsed : seed();
   } catch {
     return seed();
@@ -76,15 +77,16 @@ function load(): WcCard[] {
 }
 
 export interface UseWcCards {
-  cards: WcCard[];
+  cards: AnyWcCard[];
   addCard: (scope: CardScope) => string;
-  updateCard: (id: string, patch: Partial<WcCard>) => void;
+  addSystemCard: (systemId: string) => string;
+  updateCard: (id: string, patch: Partial<WcCard> | Partial<WcSystemCard>) => void;
   removeCard: (id: string) => void;
   resetDemo: () => void;
 }
 
 export function useWcCards(): UseWcCards {
-  const [cards, setCards] = useState<WcCard[]>(() => load());
+  const [cards, setCards] = useState<AnyWcCard[]>(() => load());
 
   useEffect(() => {
     try {
@@ -99,13 +101,18 @@ export function useWcCards(): UseWcCards {
     setCards((cs) => [...cs, card]);
     return card.id;
   }, []);
-  const updateCard = useCallback((id: string, patch: Partial<WcCard>) => {
-    setCards((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const addSystemCard = useCallback((systemId: string): string => {
+    const card = createSystemCard(systemId);
+    setCards((cs) => [...cs, card]);
+    return card.id;
+  }, []);
+  const updateCard = useCallback((id: string, patch: Partial<WcCard> | Partial<WcSystemCard>) => {
+    setCards((cs) => cs.map((c) => (c.id === id ? ({ ...c, ...patch } as AnyWcCard) : c)));
   }, []);
   const removeCard = useCallback((id: string) => {
     setCards((cs) => cs.filter((c) => c.id !== id));
   }, []);
   const resetDemo = useCallback(() => setCards(seed()), []);
 
-  return { cards, addCard, updateCard, removeCard, resetDemo };
+  return { cards, addCard, addSystemCard, updateCard, removeCard, resetDemo };
 }

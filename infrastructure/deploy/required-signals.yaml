@@ -2,11 +2,22 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: ebeab8fd5710252559a710af7d019d9ca32e5b9991da21edd7d4f2408505a0f2
+# catalogHash: 7366ffef06010e87886550008fcad2ffcfcfdfd648575944e6aad41cce1d298c
 # do not edit by hand
 schema_version: 2
+# window_seconds is the MAX time a service has to emit each required boot signal
+# before the deploy gate declares it missing. assert-service-signals.ts polls and
+# passes the instant every signal appears, so a wide window is free for fast
+# services — it only prevents FALSE failures for healthy-but-slow boots. On a
+# contended single-droplet cold-start (all ~25 containers booting at once +
+# gateway supergraph composition retrying while auth-service warms up), the
+# heaviest backend's schema_drift_clean scan (77 entities × per-tenant schemas)
+# legitimately emitted ~220s in — past the former 120s default, false-failing the
+# gate into a rollback even though every container was healthy. 300s (the value
+# db-migrate already used) gives margin; a genuinely dead service still fails,
+# just later.
 defaults:
-  window_seconds: 120
+  window_seconds: 300
 signal_library:
   schema_drift_clean:
     pattern: "Schema drift scan clean"
@@ -30,7 +41,6 @@ services:
   - name: db-migrate
     signals:
       - db_migrate_complete
-    window_seconds: 300
   - name: auth-service
     signals:
       - nats_auth_mode_mtls

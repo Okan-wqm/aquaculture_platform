@@ -43,10 +43,16 @@ interface StorageLocation {
   code: string;
 }
 
+/**
+ * Mirrors a row of the farm-service `storageInventory` query
+ * (StorageInventoryResponse). `itemName` is a denormalized, nullable field;
+ * `storageInventory` returns a flat array — there is no `itemCode` on stored
+ * inventory (item codes live only on purchase-order lines), so the card shows
+ * the item type instead of a code.
+ */
 interface StockItem {
   id: string;
-  itemName: string;
-  itemCode: string;
+  itemName: string | null;
   itemType: string;
   quantity: number;
   unit: string;
@@ -67,16 +73,21 @@ const STORAGE_LOCATIONS_QUERY = gql`
 `;
 
 /**
- * Fetch stock at a specific location. Returns all items with their current
- * quantity, lot numbers, and expiry dates for the selected location.
+ * Fetch stock at a specific location. Backed by the farm-service
+ * `storageInventory(locationId: ID)` query (StorageResolver), which returns a
+ * flat list of StorageInventoryResponse rows for the location. Each row carries
+ * the current quantity, lot number, and expiry date.
  */
 const STOCK_AT_LOCATION_QUERY = gql`
   query StockAtLocation($locationId: ID!) {
-    stockAtLocation(locationId: $locationId) {
-      items {
-        id itemName itemCode itemType
-        quantity unit lotNumber expiryDate
-      }
+    storageInventory(locationId: $locationId) {
+      id
+      itemName
+      itemType
+      quantity
+      unit
+      lotNumber
+      expiryDate
     }
   }
 `;
@@ -162,11 +173,11 @@ export function StockViewPage(): JSX.Element {
       }
       // Attempt server fetch first
       if (isOnline) {
-        const result = await graphqlRequest<{ stockAtLocation: { items: StockItem[] } }>(
+        const result = await graphqlRequest<{ storageInventory: StockItem[] }>(
           STOCK_AT_LOCATION_QUERY,
           { locationId: selectedLocationId },
         );
-        const items = result.stockAtLocation?.items ?? [];
+        const items = result.storageInventory ?? [];
         // Cache for offline viewing (1-hour TTL, acceptable staleness for stock counts)
         // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
         await cacheData(tenantId, stockCacheKey(selectedLocationId), items, 1000 * 60 * 60);
@@ -354,10 +365,10 @@ export function StockViewPage(): JSX.Element {
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-bold text-gray-900 dark:text-white truncate">
-                          {item.itemName}
+                          {item.itemName ?? item.itemType}
                         </h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {item.itemCode} &middot; {item.itemType}
+                          {item.itemType}
                         </p>
                       </div>
                       <div className="text-right ml-3">

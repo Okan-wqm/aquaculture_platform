@@ -1,18 +1,19 @@
 /**
  * List SubEquipment Query Handler
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ListSubEquipmentQuery } from '../queries/list-sub-equipment.query';
 import { SubEquipment } from '../entities/sub-equipment.entity';
 
 @QueryHandler(ListSubEquipmentQuery)
 export class ListSubEquipmentHandler implements IQueryHandler<ListSubEquipmentQuery> {
   constructor(
-    @InjectRepository(SubEquipment)
-    private readonly subEquipmentRepository: Repository<SubEquipment>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListSubEquipmentQuery): Promise<PaginatedQueryResult<SubEquipment>> {
@@ -23,54 +24,57 @@ export class ListSubEquipmentHandler implements IQueryHandler<ListSubEquipmentQu
     const sortBy = pagination?.sortBy || 'createdAt';
     const sortOrder = pagination?.sortOrder || 'DESC';
 
-    // Build query
-    const queryBuilder = this.subEquipmentRepository.createQueryBuilder('subEquipment');
-    queryBuilder.where('subEquipment.tenantId = :tenantId', { tenantId });
+    // Read through the fail-closed tenant boundary.
+    const [items, total] = await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // Build query
+      const queryBuilder = queryRunner.manager.createQueryBuilder(SubEquipment, 'subEquipment');
+      queryBuilder.where('subEquipment.tenantId = :tenantId', { tenantId });
 
-    // Join related entities
-    queryBuilder.leftJoinAndSelect('subEquipment.subEquipmentType', 'subEquipmentType');
-    queryBuilder.leftJoinAndSelect('subEquipment.parentEquipment', 'parentEquipment');
-    queryBuilder.leftJoinAndSelect('parentEquipment.equipmentType', 'parentEquipmentType');
+      // Join related entities
+      queryBuilder.leftJoinAndSelect('subEquipment.subEquipmentType', 'subEquipmentType');
+      queryBuilder.leftJoinAndSelect('subEquipment.parentEquipment', 'parentEquipment');
+      queryBuilder.leftJoinAndSelect('parentEquipment.equipmentType', 'parentEquipmentType');
 
-    // Apply filters
-    if (filter?.parentEquipmentId) {
-      queryBuilder.andWhere('subEquipment.parentEquipmentId = :parentEquipmentId', {
-        parentEquipmentId: filter.parentEquipmentId,
-      });
-    }
+      // Apply filters
+      if (filter?.parentEquipmentId) {
+        queryBuilder.andWhere('subEquipment.parentEquipmentId = :parentEquipmentId', {
+          parentEquipmentId: filter.parentEquipmentId,
+        });
+      }
 
-    if (filter?.subEquipmentTypeId) {
-      queryBuilder.andWhere('subEquipment.subEquipmentTypeId = :subEquipmentTypeId', {
-        subEquipmentTypeId: filter.subEquipmentTypeId,
-      });
-    }
+      if (filter?.subEquipmentTypeId) {
+        queryBuilder.andWhere('subEquipment.subEquipmentTypeId = :subEquipmentTypeId', {
+          subEquipmentTypeId: filter.subEquipmentTypeId,
+        });
+      }
 
-    if (filter?.status) {
-      queryBuilder.andWhere('subEquipment.status = :status', { status: filter.status });
-    }
+      if (filter?.status) {
+        queryBuilder.andWhere('subEquipment.status = :status', { status: filter.status });
+      }
 
-    if (filter?.isActive !== undefined) {
-      queryBuilder.andWhere('subEquipment.isActive = :isActive', { isActive: filter.isActive });
-    }
+      if (filter?.isActive !== undefined) {
+        queryBuilder.andWhere('subEquipment.isActive = :isActive', { isActive: filter.isActive });
+      }
 
-    if (filter?.search) {
-      queryBuilder.andWhere(
-        '(subEquipment.name ILIKE :search OR subEquipment.code ILIKE :search OR subEquipment.serialNumber ILIKE :search)',
-        { search: `%${filter.search}%` }
-      );
-    }
+      if (filter?.search) {
+        queryBuilder.andWhere(
+          '(subEquipment.name ILIKE :search OR subEquipment.code ILIKE :search OR subEquipment.serialNumber ILIKE :search)',
+          { search: `%${filter.search}%` }
+        );
+      }
 
-    // Apply sorting with allowlist to prevent SQL injection
-    const validSortFields = ['name', 'code', 'status', 'serialNumber', 'createdAt', 'updatedAt'];
-    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
-    queryBuilder.orderBy(`subEquipment.${safeSortBy}`, sortOrder);
+      // Apply sorting with allowlist to prevent SQL injection
+      const validSortFields = ['name', 'code', 'status', 'serialNumber', 'createdAt', 'updatedAt'];
+      const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+      queryBuilder.orderBy(`subEquipment.${safeSortBy}`, sortOrder);
 
-    // Apply pagination
-    queryBuilder.skip((page - 1) * limit);
-    queryBuilder.take(limit);
+      // Apply pagination
+      queryBuilder.skip((page - 1) * limit);
+      queryBuilder.take(limit);
 
-    // Execute query
-    const [items, total] = await queryBuilder.getManyAndCount();
+      // Execute query
+      return queryBuilder.getManyAndCount();
+    });
 
     return createPaginatedQueryResult(items, page, limit, total);
   }

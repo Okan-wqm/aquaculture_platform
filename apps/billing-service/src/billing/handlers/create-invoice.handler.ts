@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Money } from '@aquaculture/backend-common/monetary';
@@ -161,9 +161,9 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
         tax: savedInvoice.tax?.taxAmount || 0,
         total: savedInvoice.total.toNumber(),
         currency: savedInvoice.currency,
-        dueDate: savedInvoice.dueDate,
-        billingPeriodStart: savedInvoice.periodStart,
-        billingPeriodEnd: savedInvoice.periodEnd,
+        dueDate: toEventIso(savedInvoice.dueDate),
+        billingPeriodStart: toEventIso(savedInvoice.periodStart),
+        billingPeriodEnd: toEventIso(savedInvoice.periodEnd),
       };
       await this.outboxPublisher.enqueue(event, manager);
 

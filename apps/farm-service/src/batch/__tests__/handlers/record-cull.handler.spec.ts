@@ -56,13 +56,15 @@ describe('RecordCullHandler', () => {
       // SEC-HIGH-051: the real fail-closed SSoT; commands below default to
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
+      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new MortalityCullPolicyService(),
       mockProjection(),
       new MobileCommandReceiptService(),
     );
   });
 
-  const TENANT = 'tenant-1';
+  const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const USER = 'user-1';
   const CULLED_AT = new Date('2026-04-29T10:00:00.000Z');
 

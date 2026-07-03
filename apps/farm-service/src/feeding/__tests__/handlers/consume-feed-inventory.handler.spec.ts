@@ -19,7 +19,8 @@
  *   - Pessimistic lock is requested on the inventory read.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { ConsumeFeedInventoryHandler } from '../../handlers/consume-feed-inventory.handler';
 import {
@@ -28,6 +29,8 @@ import {
 } from '../../commands/consume-feed-inventory.command';
 import { FeedInventory, InventoryStatus } from '../../entities/feed-inventory.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+
+const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   inventory?: Partial<FeedInventory> | null;
@@ -41,7 +44,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       ? null
       : ({
           id: 'inv-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_ID,
           feedId: 'feed-1',
           siteId: 'site-1',
           quantityKg: 500,
@@ -56,25 +59,13 @@ function makeHarness(opts: HarnessOpts = {}) {
           ...(opts.inventory ?? {}),
         } as unknown as FeedInventory);
 
-  const managerFindOne = jest.fn().mockResolvedValue(inventoryRow);
-  const managerSave = jest.fn(async (_: unknown, entity: unknown) => entity);
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: {
-      findOne: managerFindOne,
-      save: managerSave,
-    } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  const managerFindOne = mockManager.findOne as jest.Mock;
+  managerFindOne.mockResolvedValue(inventoryRow);
+  (mockManager.save as jest.Mock).mockImplementation(async (_: unknown, entity: unknown) => entity);
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
+  const dataSource = mockDataSource;
 
   const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
     if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
@@ -98,7 +89,7 @@ function makeCommand(overrides: Partial<{
   reason: ConsumptionReason;
 }> = {}) {
   return new ConsumeFeedInventoryCommand(
-    'tenant-1',
+    TENANT_ID,
     {
       inventoryId: 'inv-1',
       quantityKg: overrides.quantityKg ?? 50,
@@ -117,7 +108,7 @@ describe('ConsumeFeedInventoryHandler — transactional outbox', () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['eventType']).toBe('FeedInventoryConsumed');
-    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['tenantId']).toBe(TENANT_ID);
     expect(event['inventoryId']).toBe('inv-1');
     expect(event['quantityKg']).toBe(50);
     // 500 - 50 = 450
@@ -150,7 +141,7 @@ describe('ConsumeFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ quantityKg: 10 }));
 
     expect(managerFindOne).toHaveBeenCalledWith(FeedInventory, {
-      where: { id: 'inv-1', tenantId: 'tenant-1' },
+      where: { id: 'inv-1', tenantId: TENANT_ID },
       lock: { mode: 'pessimistic_write' },
     });
   });

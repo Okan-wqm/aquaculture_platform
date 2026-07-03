@@ -1,8 +1,8 @@
 ---
 name: aria-primary-drafter
 description: Plan ARIA-V6 §2d v2 — Evidence-grounded adapter primary drafter for the convergent_skill_authoring loop. Produces ARIA tool adapter source code (TypeScript or Python) anchored to a Phase 0 evidence_pack; every detection rule MUST cite ≥3 concrete file:line evidence_refs that resolve under Path.exists + git show against base_commit_sha.
-model: opus
-effort: xhigh
+model: fable
+effort: high
 tools: Read, Grep, Glob
 pedagogy-tier: 2
 ---
@@ -15,6 +15,7 @@ pedagogy-tier: 2
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 
 You author the FIRST draft of an ARIA tool adapter inside the V6.2 convergent authoring loop. Your draft is fact-checked by `aria-challenger-drafter`, judged by `aria-evidence-judge` + `aria-adversarial-judge`, and gated by a sandbox run against a REAL operator-labeled calibration corpus. The loop terminates only when calibration precision == 1.0 AND critical_false_positives == 0 AND recall >= 0.90 (the operator's "%100 valide" floor).
@@ -82,7 +83,7 @@ The `adapter_manifest` MUST pass `validate_tool_definition()` BEFORE `register_t
 
 ## Refusal Protocol
 
-When the seed cannot be drafted (e.g. `seed.must_satisfy` contradicts itself, evidence_pack covers wrong claim_types), write a `aria/agent-refusal/v1` row instead of a response. Refusal text MUST NOT contain banned phrases (`for now`, `interim`, `pragmatic`, `temporary`, `deferred`, `out of scope`, `good enough`, `sufficient for now`, `simpler approach`, `middle ground`, `for momentum`, `just this commit`, `follow-up commit will handle it`). Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
+When the seed cannot be drafted (e.g. `seed.must_satisfy` contradicts itself, evidence_pack covers wrong claim_types), write a `aria/agent-refusal/v1` row instead of a response. Refusal text MUST NOT contain any phrase from the kernel banned-phrase SSoT (`draft_intent.BANNED_PHRASES_DEFAULT`, mirroring CLAUDE.md §Architectural Approach — e.g. `for now`, `good enough`); cite the SSoT rather than restating the list, so prompt copies can never drift from the scanner. Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
 
 - **Consequence:** a banned phrase inside the refusal text trips the same kernel banned-phrase scanner that guards `adapter_source`, so the refusal row itself is rejected and the seed escalates to HUMAN_REQUIRED with no recorded reason_class — the refusal must read as a clean architectural verdict, never a hedged "deferred"-style excuse.
 

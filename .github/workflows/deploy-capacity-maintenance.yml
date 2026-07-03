@@ -1,6 +1,17 @@
 name: Deploy Capacity Maintenance
 
 on:
+  schedule:
+    # Periodic safe image GC. Each production deploy pulls a fresh image per
+    # service (~1.85GB x 13), leaving the prior generation untagged; without a
+    # regular sweep these accumulate until the deploy capacity-preflight gate
+    # blocks (root cause of the #695 / 28332208818 / 28330781676 capacity
+    # failures). safe_image_gc already targets exactly these untagged +
+    # superseded-rollback generations (pull-only runtime, ADR-033 — every
+    # removed image re-pulls from GHCR; volumes/containers/networks untouched);
+    # it just never ran on a schedule. Every 6h keeps the droplet under
+    # threshold between deploys.
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       operation:
@@ -52,11 +63,14 @@ jobs:
       - name: Run capacity operation through production deploy control plane
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
-          OPERATION: ${{ inputs.operation }}
-          REQUESTED_DEPLOY_SHA: ${{ inputs.deploy_sha }}
-          FULL_DEPLOY: ${{ inputs.full_deploy }}
-          DEPLOY_SERVICES: ${{ inputs.deploy_services }}
-          IMAGE_PREFIX: ${{ inputs.image_prefix }}
+          # schedule events carry no inputs → fall back to the periodic safe
+          # image GC with full-deploy thresholds (workflow_dispatch still uses
+          # its own input defaults, e.g. operation=report).
+          OPERATION: ${{ inputs.operation || 'safe-image-gc' }}
+          REQUESTED_DEPLOY_SHA: ${{ inputs.deploy_sha || '' }}
+          FULL_DEPLOY: ${{ inputs.full_deploy || 'true' }}
+          DEPLOY_SERVICES: ${{ inputs.deploy_services || 'all' }}
+          IMAGE_PREFIX: ${{ inputs.image_prefix || 'ghcr.io/okan-wqm/aquaculture_platform' }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}

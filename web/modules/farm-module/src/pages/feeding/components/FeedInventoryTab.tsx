@@ -23,6 +23,7 @@ import {
   AdjustFeedInventoryInput,
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList } from '../../../hooks/useFeeds';
+import { isBlockingError } from '../../../utils/list-view-state';
 import { useAuth } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -74,7 +75,7 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
   }), [siteId, statusFilter]);
 
   // Data
-  const { data, isLoading, error } = useFeedInventoryList(filter, { page, limit: 20 });
+  const { data, isLoading, error, refetch } = useFeedInventoryList(filter, { page, limit: 20 });
   const { data: feeds } = useFeedList();
   const addMutation = useAddFeedInventory();
   const consumeMutation = useConsumeFeedInventory();
@@ -194,7 +195,10 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
     );
   }
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // inventory. A failed background refetch with cached rows keeps rendering the
+  // table and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-800">Failed to load inventory: {(error as Error).message}</p>
@@ -204,6 +208,22 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Non-blocking refresh error — keeps the last-loaded inventory visible. */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh inventory — showing the last loaded data.{' '}
+            <span className="text-amber-700">{(error as Error).message}</span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">

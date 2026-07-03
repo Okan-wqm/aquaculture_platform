@@ -14,6 +14,7 @@
  *
  * @see FE-CRITICAL-014, FE-CRITICAL-015, FE-CRITICAL-016
  */
+import { sessionEpochSegment } from './session-epoch';
 
 /**
  * Creates a tenant-scoped query key by prepending ['tenant', tenantId] to
@@ -47,5 +48,40 @@ export function createTenantQueryKey(
   // ['tenant', null, ...] never materialises. Accepting the union at the
   // signature level eliminates the Phase-8.4 migration's type-error sprawl
   // at call sites that cannot narrow without refactoring.
+  // Append the session epoch (cache generation) LAST so a tenant (re)entry —
+  // e.g. a SUPER_ADMIN A→B→A impersonation round-trip — gets a FRESH generation
+  // instead of the same tenant's pre-switch (possibly stale) cache. Appended (not
+  // inserted after tenantId) so `domain` stays at index 2 and prefix-based
+  // invalidations (['tenant', tenantId, …]) keep matching across generations.
+  return ['tenant', tenantId, ...segments, sessionEpochSegment()] as const;
+}
+
+/**
+ * Tenant-scoped INVALIDATION prefix — like {@link createTenantQueryKey} but
+ * WITHOUT the trailing session-epoch segment. Use this for
+ * `invalidateQueries` / `removeQueries`, NOT `createTenantQueryKey`.
+ *
+ * WHY: `createTenantQueryKey` appends `{ __sessionEpoch }` LAST. As an
+ * invalidation filter, TanStack does a LEFT-PREFIX match, so that trailing
+ * object lands at the array position a full query key holds its filter/args.
+ * A query stored under `['tenant', t, 'systems', 'list', filter, {epoch}]` is
+ * therefore NOT matched by `['tenant', t, 'systems', 'list', {epoch}]` — the
+ * element at index 4 is `{epoch}` in the filter but `filter` in the stored key.
+ * The invalidation silently misses and the list shows stale data until staleTime
+ * elapses (the "data doesn't refresh" symptom).
+ *
+ * This builder returns a clean domain prefix `['tenant', tenantId, ...segments]`
+ * with no epoch, which left-prefix-matches EVERY stored key under those domain
+ * segments regardless of trailing args or epoch generation. Matching across
+ * generations is safe: stale generations are already orphaned + GC'd.
+ *
+ * RULE:
+ *   - `useQuery` key            → `createTenantQueryKey`        (full, epoch'd)
+ *   - `invalidate/removeQueries`→ `createTenantInvalidationKey` (prefix, no epoch)
+ */
+export function createTenantInvalidationKey(
+  tenantId: string | null | undefined,
+  ...segments: readonly unknown[]
+): readonly unknown[] {
   return ['tenant', tenantId, ...segments] as const;
 }

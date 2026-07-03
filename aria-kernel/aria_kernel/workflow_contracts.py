@@ -294,6 +294,17 @@ def _verify_job_contract(
         for idx, step in enumerate(steps)
         if isinstance(step, dict) and isinstance(step.get("name"), str)
     ]
+    # Timeout sizing is independent of the preflight step's presence — run it
+    # before the missing-preflight early return so one failure cannot mask
+    # the other.
+    _verify_burn_in_timeout(
+        job_id=job_contract.job_id,
+        job=job,
+        steps=steps,
+        floor_minutes=job_contract.burn_in_timeout_floor_minutes,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
     preflight_matches = [
         (idx, step)
         for idx, step in named_steps
@@ -350,6 +361,64 @@ def _verify_job_contract(
         reasons=reasons,
         failure_classes=failure_classes,
     )
+
+
+_BURN_IN_STEP_MARKER = "autonomy burn-in observe"
+# The burn-in branch of a mode-aware timeout expression, e.g.
+# ``${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}`` —
+# the captured integer is the timeout that applies when burn-in actually runs.
+_BURN_IN_TIMEOUT_EXPR = re.compile(r"burn-in-observe'\s*&&\s*(\d+)")
+
+
+def _verify_burn_in_timeout(
+    *,
+    job_id: str,
+    job: dict[str, Any],
+    steps: list[Any],
+    floor_minutes: int | None,
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    """Enforce the workload>timeout defect class for observe burn-ins.
+
+    A burn-in is all-or-nothing (the kernel pins 30 cycle attempts; the
+    acceptance verdict of a truncated run is ``failed`` and yields ZERO
+    ladder evidence), so a job timeout sized below the measured burn-in
+    wall time silently destroys the entire run — run 28577469404 died this
+    way under a flat 50-minute limit. Both directions are enforced: a
+    burn-in step requires a declared contract floor, and a declared floor
+    requires the burn-in step it was sized for.
+    """
+    has_burn_in_step = any(
+        isinstance(step, dict) and _BURN_IN_STEP_MARKER in str(step.get("run") or "")
+        for step in steps
+    )
+    if floor_minutes is None:
+        if has_burn_in_step:
+            reasons.append(f"burn_in_step_without_contract_timeout_floor:{job_id}")
+            failure_classes.append("workflow_contract_burn_in_timeout")
+        return
+    if not has_burn_in_step:
+        reasons.append(f"burn_in_timeout_floor_without_burn_in_step:{job_id}")
+        failure_classes.append("workflow_contract_burn_in_timeout")
+        return
+    raw_timeout = job.get("timeout-minutes")
+    effective: int | None = None
+    if isinstance(raw_timeout, int):
+        effective = raw_timeout
+    elif isinstance(raw_timeout, str):
+        match = _BURN_IN_TIMEOUT_EXPR.search(raw_timeout)
+        if match:
+            effective = int(match.group(1))
+    if effective is None:
+        # Absent is NOT acceptable even though the GitHub default (360 min)
+        # exceeds any current floor: explicit sizing is the contract — the
+        # original defect was an unexamined inherited timeout.
+        reasons.append(f"burn_in_timeout_missing_or_unparseable:{job_id}")
+        failure_classes.append("workflow_contract_burn_in_timeout")
+    elif effective < floor_minutes:
+        reasons.append(f"burn_in_timeout_below_floor:{job_id}:{effective}<{floor_minutes}")
+        failure_classes.append("workflow_contract_burn_in_timeout")
 
 
 def _contains_kwarg_literal(run_block: str, key: str, value: str) -> bool:

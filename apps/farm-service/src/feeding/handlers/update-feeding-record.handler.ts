@@ -5,12 +5,13 @@
  *
  * @module Feeding/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedingRecordUpdatedEvent,
 } from '@platform/event-contracts';
@@ -78,11 +79,7 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
     feedingRecord.calculateVariance();
 
     // Transaction ile hem feeding record hem batch güncellemesi yap
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const saved = await queryRunner.manager.save(feedingRecord);
 
       const newActualAmount = Number(saved.actualAmount);
@@ -115,19 +112,12 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
         previousFeedCost: oldFeedCost,
         newFeedCost: newFeedCost,
         costDiff,
-        updatedAt: new Date(),
+        updatedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   private async updateBatchFeedConsumption(

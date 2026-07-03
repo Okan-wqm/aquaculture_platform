@@ -219,6 +219,10 @@ def add_subparser(
 # flag but treat it as optional (env-var fallback or downstream None).
 _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     ("autonomy", "burn-in", "observe"),
+    ("autonomy", "burn-in", "accept"),
+    ("autonomy", "unlock", "status"),
+    ("policy-approval", "record"),
+    ("policy-approval", "verify"),
     ("integrity", "migrate-tools-v1-to-v2"),
     ("integrity", "rollback-tools-v2-to-v1"),
     # Plan ARIA-V3.3 §2a — bootstrap-class commands MUST name the
@@ -297,6 +301,8 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "skill_genesis_command",
         "autonomy_command",
         "burn_in_command",
+        "unlock_command",
+        "policy_approval_command",
         "worker_result_command",
         "verification_command",
         "cycle_command",
@@ -408,6 +414,13 @@ def _main(argv: list[str] | None = None) -> int:
     cycle_run.add_argument("--cycle-id", required=True)
     cycle_run.add_argument("--discovery-only", action="store_true")
     cycle_run.add_argument("--shadow-only", action="store_true")
+    cycle_run.add_argument(
+        "--progress",
+        action="store_true",
+        help="Stream live per-phase progress to stderr as the cycle runs "
+        "(stdout still carries only the final JSON). Equivalent to "
+        "ARIA_CYCLE_PROGRESS=1.",
+    )
     cycle_legacy = cycle_parser
     add_workspace_args(cycle_legacy)
     cycle_legacy.add_argument("--cycle-id", default=None)
@@ -1241,7 +1254,23 @@ def _main(argv: list[str] | None = None) -> int:
     )
     i_compute.add_argument("--max-depth", type=int, default=None)
 
-    apply_parser = add_subparser(sub, 
+    i_order = add_subparser(impact_sub, "service-order")
+    add_workspace_args(i_order)
+    i_order.add_argument("--cycle-id", default=None)
+    i_order.add_argument(
+        "--nx-graph",
+        default=None,
+        help="Path to an `nx graph --file` JSON for a fast, authoritative dependency graph "
+        "(falls back to a local import scan when omitted).",
+    )
+    i_order.add_argument(
+        "--changed-file",
+        action="append",
+        default=None,
+        help="Repeatable: changed paths to annotate per-service (and surface the downstream ripple).",
+    )
+
+    apply_parser = add_subparser(sub,
         "apply",
         help="Plan 016 Faz D5 — apply gate utilities (suppression scan, etc.).",
     )
@@ -1346,6 +1375,25 @@ def _main(argv: list[str] | None = None) -> int:
     # routes through AutonomyStateReducer.derive_current so manual
     # operator queries and the orchestrator's own transitions share
     # one canonical state surface.
+    policy_approval_parser = add_subparser(
+        sub, "policy-approval",
+        help="L3 two-stage human policy approval (risk_owner + exception_owner, "
+        "separation of duties) gating ARIA merge of an L3-risk change.",
+    )
+    pa_sub = policy_approval_parser.add_subparsers(dest="policy_approval_command", required=True)
+    pa_record = add_subparser(pa_sub, "record", help="Record one approval stage for a PR.")
+    pa_record.add_argument("--approval-id", required=True)
+    pa_record.add_argument("--stage", required=True, choices=["risk_owner", "exception_owner"])
+    pa_record.add_argument("--actor", required=True)
+    pa_record.add_argument("--pr-number", type=int, required=True)
+    pa_record.add_argument("--head-sha", required=True)
+    pa_record.add_argument("--policy-hash", required=True)
+    pa_record.add_argument("--expires-at", required=True)
+    pa_verify = add_subparser(pa_sub, "verify", help="Verify both stages are approved by distinct actors.")
+    pa_verify.add_argument("--pr-number", type=int, required=True)
+    pa_verify.add_argument("--head-sha", required=True)
+    pa_verify.add_argument("--policy-hash", required=True)
+
     autonomy_parser = add_subparser(
         sub, "autonomy",
         help="Plan 026R §F — unified autonomy orchestrator (LOAD-BEARING).",
@@ -1410,12 +1458,13 @@ def _main(argv: list[str] | None = None) -> int:
     # Plan ARIA-V9.7 — per-cycle hard cap kill-switch (ai HIGH-013).
     # Per-cycle reservation; cycle that would exceed kills at next
     # turn boundary, not after the turn completes (so refund/reserve
-    # discipline holds). $1.50 default = 20-cycle target $30 + 50%
-    # headroom.
+    # discipline holds). $3.00 default = the K4 re-baseline for
+    # fable-tier decision nodes at 2x opus pricing; preserves the
+    # original 20-cycle-target headroom ratio.
     auto_run.add_argument(
-        "--max-budget-usd-per-cycle", type=float, default=1.50,
+        "--max-budget-usd-per-cycle", type=float, default=3.00,
         help="Per-cycle LLM hard cap kill-switch in USD (default "
-             "$1.50). Cycle that would exceed: kernel emits "
+             "$3.00). Cycle that would exceed: kernel emits "
              "cycle_budget_exhausted refusal at next turn boundary. "
              "Combined with --max-budget-usd-per-run, the two caps "
              "bound both a single runaway cycle AND a slowly-creeping "
@@ -1504,6 +1553,22 @@ def _main(argv: list[str] | None = None) -> int:
     burn_in_observe.add_argument("--cycles", type=int, default=30)
     burn_in_observe.add_argument("--min-valid-cycles", type=int, default=20)
     burn_in_observe.add_argument("--output-dir", required=True)
+    burn_in_accept = add_subparser(
+        burn_in_sub,
+        "accept",
+        help="Record a PASSED observe burn-in report into the autonomy unlock ladder "
+        "(operator step; fail-closed + idempotent; never grants autonomous merge).",
+    )
+    burn_in_accept.add_argument("--report", required=True, help="Path to autonomy-burn-in-report.json")
+    burn_in_accept.add_argument("--mode", choices=["real", "mock"], default="real")
+    unlock_parser = add_subparser(
+        autonomy_sub, "unlock",
+        help="Inspect the autonomy unlock ladder (acceptance-event thresholds, read-only).",
+    )
+    unlock_sub = unlock_parser.add_subparsers(dest="unlock_command", required=True)
+    # No --lane flag: lane is kernel-derived (Plan ARIA-V3 §2c, invariant
+    # I-V3-00b/29b). `status` reports the whole ladder (L1/L2/L3) read-only.
+    add_subparser(unlock_sub, "status")
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
@@ -1890,6 +1955,10 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "cycle":
         if getattr(args, "cycle_command", None) == "run":
+            if getattr(args, "progress", False):
+                # The cycle's env-gated progress emitter reads this; --progress
+                # is just the operator-facing front door for ARIA_CYCLE_PROGRESS.
+                os.environ["ARIA_CYCLE_PROGRESS"] = "1"
             print(
                 json.dumps(
                     run_cycle(
@@ -3124,6 +3193,19 @@ def _main(argv: list[str] | None = None) -> int:
         }, indent=2, sort_keys=True))
         return 0 if result["summary"]["by_status"].get("unknown", 0) == 0 else 2
 
+    if args.command == "impact" and args.impact_command == "service-order":
+        from aria_kernel.impact_graph import plan_service_analysis_order
+
+        workspace = paths.repo_root if paths is not None else Path(args.workspace_root).resolve()
+        plan = plan_service_analysis_order(
+            workspace_root=workspace,
+            cycle_id=args.cycle_id,
+            nx_graph_file=args.nx_graph,
+            changed_files=args.changed_file,
+        )
+        print(json.dumps(plan, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "apply" and args.apply_command == "scan-diff":
         from aria_kernel.suppression_scanner import scan_unified_diff_text
 
@@ -3998,6 +4080,73 @@ def _main(argv: list[str] | None = None) -> int:
             return 4
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("acceptance_verdict") == "passed" else 1
+
+    if (
+        args.command == "autonomy"
+        and args.autonomy_command == "burn-in"
+        and args.burn_in_command == "accept"
+    ):
+        from .autonomy_ladder import record_burn_in_acceptance
+
+        report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+        result = record_burn_in_acceptance(report=report, mode=args.mode, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # fail-closed signal: non-zero when nothing could be recorded (verdict not passed)
+        return 0 if result.get("verdict") == "passed" else 2
+
+    if args.command == "autonomy" and args.autonomy_command == "unlock":
+        if args.unlock_command == "status":
+            from .autonomy_unlock import evaluate_autonomy_unlock
+
+            lanes = {}
+            for lane in ("L1", "L2", "L3"):
+                verdict = evaluate_autonomy_unlock(lane=lane, base_dir=args.tools_dir)
+                lanes[lane] = {
+                    "unlocked": verdict.valid,
+                    "counts": dict(verdict.counts),
+                    "requirements": dict(verdict.requirements),
+                    "reasons": list(verdict.reasons),
+                }
+            print(json.dumps({"lanes": lanes}, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown autonomy unlock command")
+
+    if args.command == "policy-approval":
+        if args.policy_approval_command == "record":
+            from .policy_approval import record_policy_approval
+
+            try:
+                row = record_policy_approval({
+                    "approval_id": args.approval_id,
+                    "stage": args.stage,
+                    "actor": args.actor,
+                    "pr_number": args.pr_number,
+                    "head_sha": args.head_sha,
+                    "policy_hash": args.policy_hash,
+                    "expires_at": args.expires_at,
+                    "state": "approved",
+                }, base_dir=args.tools_dir)
+            except GovernanceError as exc:
+                print(json.dumps({"recorded": False, "error": str(exc)}, indent=2, sort_keys=True))
+                return 2
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.policy_approval_command == "verify":
+            from .policy_approval import verify_policy_approval
+
+            try:
+                result = verify_policy_approval(
+                    pr_number=args.pr_number,
+                    head_sha=args.head_sha,
+                    policy_hash=args.policy_hash,
+                    base_dir=args.tools_dir,
+                )
+            except GovernanceError as exc:
+                print(json.dumps({"valid": False, "error": str(exc)}, indent=2, sort_keys=True))
+                return 2
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown policy-approval command")
 
     if args.command == "autonomy" and args.autonomy_command == "project-queue":
         from .next_cycle_queue import read_pending

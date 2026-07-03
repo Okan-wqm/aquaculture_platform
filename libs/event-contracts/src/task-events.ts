@@ -47,7 +47,7 @@ export interface TaskCompletedEvent extends BaseEvent {
   taskId: string;
   title: string;
   completedBy: string;
-  completedAt: Date;
+  completedAt: string;
   assignedTo: string;
 }
 

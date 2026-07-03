@@ -10,6 +10,7 @@
  *
  * @module Batch/DataLoaders
  */
+import { createTenantScopedDataLoader } from '@aquaculture/backend-common/dataloader';
 import DataLoader from 'dataloader';
 import { Injectable, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,11 +26,15 @@ export class BatchLocationDataLoader {
     @InjectRepository(BatchLocation)
     private readonly locationRepository: Repository<BatchLocation>,
   ) {
-    this.loader = new DataLoader<string, BatchLocation[]>(
-      async (batchIds: readonly string[]) => {
+    this.loader = createTenantScopedDataLoader<string, BatchLocation[]>(
+      // tenantId is supplied (and guaranteed non-empty) by the factory, which
+      // resolves it from the request context fail-closed. Defense-in-depth on
+      // top of the request-scoped search_path.
+      async (tenantId: string, batchIds: readonly string[]) => {
         const locations = await this.locationRepository.find({
           where: {
             batchId: In([...batchIds]),
+            tenantId,
             isCurrentLocation: true,
           },
           order: { movedAt: 'DESC' },
@@ -48,10 +53,13 @@ export class BatchLocationDataLoader {
         return batchIds.map((id) => grouped.get(id) ?? []);
       },
       {
-        // Cache is per-request (Scope.REQUEST) -- no cross-request leakage
-        cache: true,
-        // Batch all loads within the same tick
-        batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
+        batchFnName: 'BatchLocationDataLoader',
+        dataLoaderOptions: {
+          // Cache is per-request (Scope.REQUEST) -- no cross-request leakage
+          cache: true,
+          // Batch all loads within the same tick
+          batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
+        },
       },
     );
   }

@@ -91,7 +91,7 @@ on:
       - 'apps/*/src/**/migrations/**'
       - 'apps/*/src/**/*.entity.ts'
       - 'infrastructure/docker/init-scripts/**'
-      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
+      - 'apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts'
       - 'e2e/tests/integration/tenant-clone-parity.spec.ts'
       - 'e2e/tests/integration/schema-invariants.spec.ts'
       - '.github/workflows/db-migration-check.yml'
@@ -100,7 +100,7 @@ on:
     paths:
       - 'apps/*/src/**/migrations/**'
       - 'infrastructure/docker/init-scripts/**'
-      - 'e2e/tests/integration/bootstrap-from-scratch.spec.ts'
+      - 'apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts'
       - 'e2e/tests/integration/tenant-clone-parity.spec.ts'
       - 'e2e/tests/integration/schema-invariants.spec.ts'
       - '.github/workflows/db-migration-check.yml'
@@ -126,7 +126,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -256,7 +256,7 @@ jobs:
   # ===================================================================
   # bootstrap-from-scratch — fresh-volume integration check.
   #
-  # Runs the e2e/tests/integration/bootstrap-from-scratch.spec.ts test,
+  # Runs the apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts test,
   # which spins up an empty Postgres testcontainer with the production
   # init-scripts mounted, runs every service's TypeORM migration chain
   # against it, and asserts the resulting schema state is what the
@@ -281,7 +281,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -300,10 +300,10 @@ jobs:
       # so a digest bump invalidates the cache (correct behaviour).
       - name: Restore docker image cache
         id: docker-image-cache
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-image-cache
-          key: db-migration-check-pg16-timescaledb-${{ hashFiles('e2e/tests/integration/bootstrap-from-scratch.spec.ts') }}
+          key: db-migration-check-pg16-timescaledb-${{ hashFiles('apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts') }}
 
       - name: Load cached image (if present)
         if: steps.docker-image-cache.outputs.cache-hit == 'true'
@@ -381,7 +381,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -443,7 +443,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Need the merge-base for git diff name-status.
           fetch-depth: 0
@@ -484,7 +484,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Need the merge-base for git diff name-status.
           fetch-depth: 0
@@ -505,6 +505,48 @@ jobs:
         run: npm run gates:entity-diff-witness -- --diff-base "$BASE_SHA"
 
   # ===================================================================
+  # migration-immutability-witness — shipped-migration in-place-edit guard.
+  #
+  # Catches the silent-drift class where an ALREADY-SHIPPED timestamped
+  # migration file is edited in place instead of being superseded by a new
+  # forward migration. TypeORM records the ledger by migration NAME, so an
+  # edit to an already-applied migration never re-runs — the 2026-06 tenant-
+  # provisioning incident (1800400000000 hand-edited to add lease columns +
+  # an auth.tenants REVOKE that silently never landed; every POST /api/v1/
+  # tenants then 500'd with `column "leaseToken" does not exist`).
+  #
+  # The PR-body waiver `MIGRATION-IMMUTABLE-OK: <filename> — <reason>` is
+  # honoured for genuinely content-neutral edits (comment/lint-only) and
+  # carries CODEOWNERS review from database-reviewer.
+  # ===================================================================
+  migration-immutability-witness:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Need the merge-base for git diff name-status.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run migration-immutability-witness gate
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: npm run gates:migration-immutability-witness -- --diff-base "$BASE_SHA"
+
+  # ===================================================================
   # schema-drift-registration — AST gate.
   #
   # Asserts every canonical service's app.module.ts registers
@@ -519,7 +561,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -546,7 +588,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -572,7 +614,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0

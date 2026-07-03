@@ -3,7 +3,6 @@ import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { RlsModule } from './rls.module';
 import { BypassRlsService } from './bypass-rls.service';
-import { TenantRlsService } from './tenant-rls.service';
 
 /**
  * rls.module.spec.ts
@@ -20,8 +19,8 @@ import { TenantRlsService } from './tenant-rls.service';
  * The refactored API splits into two named methods:
  *
  *   - `forPoolService({ ... })` — requires a DataSource. Registers the pool
- *     patch, `BypassRlsService`, `TenantRlsService`, plus the optional
- *     schema / per-tenant sweep bootstraps.
+ *     patch, `BypassRlsService`, plus the optional schema / per-tenant sweep
+ *     bootstraps.
  *
  *   - `forBypassOnly({ serviceName })` — no DataSource required. Registers
  *     only `BypassRlsService`.
@@ -43,10 +42,6 @@ import { TenantRlsService } from './tenant-rls.service';
  *   4. `forBypassOnly` rejects malformed service names (validation
  *      runs at registration time, BEFORE DI — a caller that fat-
  *      fingers the name sees the error immediately, not at runtime).
- *
- *   5. `forBypassOnly` does NOT export `TenantRlsService` (narrower
- *      API — forces callers that need table-level helpers to use the
- *      pool variant, which is correct).
  */
 
 /**
@@ -129,11 +124,6 @@ describe('RlsModule (typed API)', () => {
       expect(moduleRef.get(BypassRlsService, { strict: false })).toBeInstanceOf(
         BypassRlsService,
       );
-      // TenantRlsService is the table-level helper for admin tooling —
-      // also exported from the pool variant.
-      expect(
-        moduleRef.get(TenantRlsService, { strict: false }),
-      ).toBeInstanceOf(TenantRlsService);
 
       await moduleRef.close();
     });
@@ -208,32 +198,10 @@ describe('RlsModule (typed API)', () => {
       await moduleRef.close();
     });
 
-    it('does NOT expose TenantRlsService (narrower API by design)', async () => {
-      @Module({
-        imports: [
-          RlsModule.forBypassOnly({ serviceName: 'test-bypass-narrow' }),
-        ],
-      })
-      class AppModule {}
-
-      const moduleRef = await Test.createTestingModule({
-        imports: [AppModule],
-      }).compile();
-      await moduleRef.init();
-
-      // TenantRlsService requires a DataSource to do useful work, so the
-      // bypass-only variant deliberately excludes it. Callers that need
-      // table-level helpers must use forPoolService — which enforces the
-      // DataSource requirement at the API level.
-      expect(() => moduleRef.get(TenantRlsService, { strict: true })).toThrow();
-
-      await moduleRef.close();
-    });
-
     it('rejects a malformed serviceName synchronously', () => {
       // Validation runs during DynamicModule construction. A caller that
       // fat-fingers the name sees the error at import-expression time,
-      // not at deferred DI resolution — much easier to localise.
+      // not at lazy DI resolution — much easier to localise.
       expect(() =>
         RlsModule.forBypassOnly({ serviceName: 'NotLowercase' }),
       ).toThrow(/invalid serviceName/);
@@ -266,26 +234,25 @@ describe('RlsModule (typed API)', () => {
     });
 
     it('forPoolService registers optional providers conditionally', () => {
-      // Bare: only the three mandatory providers (bootstrap, bypass,
-      // tenant-rls).
+      // Bare: only the two mandatory providers (bootstrap, bypass).
       const bareModule = RlsModule.forPoolService({
         serviceName: 'doc-bare',
       });
-      expect(bareModule.providers).toHaveLength(3);
+      expect(bareModule.providers).toHaveLength(2);
 
       // With autoApply: RlsSchemaBootstrap added.
       const autoApplyModule = RlsModule.forPoolService({
         serviceName: 'doc-auto',
         autoApply: true,
       });
-      expect(autoApplyModule.providers).toHaveLength(4);
+      expect(autoApplyModule.providers).toHaveLength(3);
 
       // With syncTenantSchemas: TenantRlsSyncService added.
       const syncModule = RlsModule.forPoolService({
         serviceName: 'doc-sync',
         syncTenantSchemas: true,
       });
-      expect(syncModule.providers).toHaveLength(4);
+      expect(syncModule.providers).toHaveLength(3);
 
       // Both together: both bootstraps added.
       const bothModule = RlsModule.forPoolService({
@@ -293,7 +260,7 @@ describe('RlsModule (typed API)', () => {
         autoApply: true,
         syncTenantSchemas: true,
       });
-      expect(bothModule.providers).toHaveLength(5);
+      expect(bothModule.providers).toHaveLength(4);
     });
   });
 });

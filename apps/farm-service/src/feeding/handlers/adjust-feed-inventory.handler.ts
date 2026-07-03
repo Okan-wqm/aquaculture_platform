@@ -16,12 +16,13 @@
  *
  * @module Feeding/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedInventoryAdjustedEvent,
 } from '@platform/event-contracts';
@@ -42,11 +43,7 @@ export class AdjustFeedInventoryHandler implements ICommandHandler<AdjustFeedInv
   async execute(command: AdjustFeedInventoryCommand): Promise<FeedInventory> {
     const { tenantId, payload, userId } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const inventory = await queryRunner.manager.findOne(FeedInventory, {
         where: { id: payload.inventoryId, tenantId },
         lock: { mode: 'pessimistic_write' },
@@ -115,17 +112,11 @@ export class AdjustFeedInventoryHandler implements ICommandHandler<AdjustFeedInv
         newQuantityKg: newQuantity,
         reason: payload.reason,
         notes: payload.notes,
-        adjustedAt,
+        adjustedAt: toEventIso(adjustedAt),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

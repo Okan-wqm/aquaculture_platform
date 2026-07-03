@@ -5,6 +5,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   getMyTenant,
   getTenantStats,
@@ -82,39 +83,44 @@ async function graphqlRequest<T>(
 // Query Keys
 // ============================================================================
 
+// Every key is tenant-scoped through the createTenantQueryKey SSoT
+// (['tenant', tenantId, …]) so cache never leaks across a tenant switch /
+// SUPER_ADMIN impersonation (web/CLAUDE.md FE-CRITICAL-014/015/016). `all` stays
+// the bare ['tenant'] prefix purely for BROAD invalidation — react-query matches
+// by prefix, so it still covers every tenant-scoped key below.
 export const tenantKeys = {
   all: ['tenant'] as const,
-  tenant: () => [...tenantKeys.all, 'info'] as const,
-  stats: () => [...tenantKeys.all, 'stats'] as const,
-  modules: () => [...tenantKeys.all, 'modules'] as const,
-  moduleIds: () => [...tenantKeys.all, 'moduleIds'] as const,
-  moduleUsageStats: () => [...tenantKeys.all, 'moduleUsageStats'] as const,
+  tenant: () => createTenantQueryKey(getTenantId(), 'info'),
+  stats: () => createTenantQueryKey(getTenantId(), 'stats'),
+  modules: () => createTenantQueryKey(getTenantId(), 'modules'),
+  moduleIds: () => createTenantQueryKey(getTenantId(), 'moduleIds'),
+  moduleUsageStats: () => createTenantQueryKey(getTenantId(), 'moduleUsageStats'),
   users: (filters?: Record<string, unknown>) =>
-    [...tenantKeys.all, 'users', filters] as const,
-  database: () => [...tenantKeys.all, 'database'] as const,
+    createTenantQueryKey(getTenantId(), 'users', filters),
+  database: () => createTenantQueryKey(getTenantId(), 'database'),
   tableSchema: (schemaName: string, tableName: string) =>
-    [...tenantKeys.all, 'tableSchema', schemaName, tableName] as const,
+    createTenantQueryKey(getTenantId(), 'tableSchema', schemaName, tableName),
   tableData: (schemaName: string, tableName: string, offset: number, limit: number) =>
-    [...tenantKeys.all, 'tableData', schemaName, tableName, offset, limit] as const,
+    createTenantQueryKey(getTenantId(), 'tableData', schemaName, tableName, offset, limit),
   // Devices
   devices: (filters?: Record<string, unknown>) =>
-    [...tenantKeys.all, 'devices', filters] as const,
+    createTenantQueryKey(getTenantId(), 'devices', filters),
   deviceEvents: (deviceId: string) =>
-    [...tenantKeys.all, 'deviceEvents', deviceId] as const,
+    createTenantQueryKey(getTenantId(), 'deviceEvents', deviceId),
   // Messaging
-  threads: () => [...tenantKeys.all, 'threads'] as const,
+  threads: () => createTenantQueryKey(getTenantId(), 'threads'),
   threadMessages: (threadId: string) =>
-    [...tenantKeys.all, 'threadMessages', threadId] as const,
+    createTenantQueryKey(getTenantId(), 'threadMessages', threadId),
   // Support
-  tickets: () => [...tenantKeys.all, 'tickets'] as const,
+  tickets: () => createTenantQueryKey(getTenantId(), 'tickets'),
   ticketComments: (ticketId: string) =>
-    [...tenantKeys.all, 'ticketComments', ticketId] as const,
+    createTenantQueryKey(getTenantId(), 'ticketComments', ticketId),
   // Announcements
-  announcements: () => [...tenantKeys.all, 'announcements'] as const,
+  announcements: () => createTenantQueryKey(getTenantId(), 'announcements'),
   // Settings
-  notificationPreferences: () => [...tenantKeys.all, 'notifPrefs'] as const,
-  mobileUsersSettings: () => [...tenantKeys.all, 'mobileUsersSettings'] as const,
-  mobileUsers: () => [...tenantKeys.all, 'mobileUsers'] as const,
+  notificationPreferences: () => createTenantQueryKey(getTenantId(), 'notifPrefs'),
+  mobileUsersSettings: () => createTenantQueryKey(getTenantId(), 'mobileUsersSettings'),
+  mobileUsers: () => createTenantQueryKey(getTenantId(), 'mobileUsers'),
 };
 
 // ============================================================================
@@ -329,7 +335,7 @@ export function useDeviceAction() {
     mutationFn: ({ mutation, variables }: { mutation: string; variables: Record<string, unknown> }) =>
       graphqlRequest(mutation, variables),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice'] });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(getTenantId(), 'edgeDevice') });
       queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
     },
   });

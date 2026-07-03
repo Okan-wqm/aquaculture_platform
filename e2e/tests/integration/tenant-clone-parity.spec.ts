@@ -16,7 +16,7 @@
  *      tenant_<uuid> schema at provisioning time.
  *   2. Every cloned table has RLS enabled and at least one
  *      `pg_policies` row whose USING expression references the tenant
- *      context (`current_setting('app.current_tenant_id')` or the
+ *      context (`current_setting('app.current_tenant')` or the
  *      ApplyTenantRls helper's equivalent).
  *
  * Either contract breaking is a tenant-isolation hole: missing tables
@@ -176,7 +176,7 @@ async function provisionTestTenantSchema(
         await db.query(`
           CREATE POLICY tenant_isolation_${tableName}
           ON "${schemaName}"."${tableName}"
-          USING ("tenantId"::text = current_setting('app.current_tenant_id', true))
+          USING ("tenantId"::text = current_setting('app.current_tenant', true))
         `);
       }
       tableNames.push(tableName);
@@ -383,7 +383,7 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
         if (!hasTenantId.rows[0]?.exists) continue;
 
         // pg_policies.qual exposes the USING expression as a string.
-        // The canonical reference is `current_setting('app.current_tenant_id')`
+        // The canonical reference is `current_setting('app.current_tenant')`
         // — accept either the exact literal or the function-form
         // surface to tolerate minor template variations.
         const policies = await db.query<{ polname: string; qual: string | null }>(
@@ -393,12 +393,12 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
           [tenantSchemaName, table],
         );
         const referencesTenantContext = policies.rows.some(
-          (p) => p.qual !== null && /current_setting\(\s*'app\.current_tenant_id'/.test(p.qual),
+          (p) => p.qual !== null && /current_setting\(\s*'app\.current_tenant'/.test(p.qual),
         );
         if (!referencesTenantContext) {
           offenders.push(
             `${tenantSchemaName}.${table}: ${policies.rows.length} policy/policies, ` +
-              `none references current_setting('app.current_tenant_id')`,
+              `none references current_setting('app.current_tenant')`,
           );
         }
       }
@@ -408,7 +408,7 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
         `Tenant-context policy missing on ${offenders.length} tenant-clone table(s):\n  ` +
           offenders.join('\n  ') +
           `\nThe ApplyTenantRls helper attaches a USING clause that references ` +
-          `current_setting('app.current_tenant_id'); without it RLS is enabled ` +
+          `current_setting('app.current_tenant'); without it RLS is enabled ` +
           `but isolates nothing.`,
       );
     }

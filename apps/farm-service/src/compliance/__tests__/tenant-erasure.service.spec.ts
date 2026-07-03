@@ -33,8 +33,8 @@ interface EntityMetadataDouble {
 function dataSourceDouble(dataSource: {
   entityMetadatas: EntityMetadataDouble[];
   createQueryBuilder: jest.Mock;
-  transaction: jest.Mock;
-  getRepository: jest.Mock;
+  createQueryRunner: jest.Mock;
+  query: jest.Mock;
 }): DataSource {
   const instance = new DataSource({
     type: 'postgres',
@@ -47,8 +47,10 @@ function dataSourceDouble(dataSource: {
   jest
     .spyOn(instance, 'createQueryBuilder')
     .mockImplementation(dataSource.createQueryBuilder);
-  jest.spyOn(instance, 'transaction').mockImplementation(dataSource.transaction);
-  jest.spyOn(instance, 'getRepository').mockImplementation(dataSource.getRepository);
+  jest
+    .spyOn(instance, 'createQueryRunner')
+    .mockImplementation(dataSource.createQueryRunner);
+  jest.spyOn(instance, 'query').mockImplementation(dataSource.query);
   return instance;
 }
 
@@ -96,10 +98,10 @@ function makeDs(opts: {
   auditAnonAffected?: number;
   deleteError?: Error;
   /**
-   * COMPLIANCE-MEDIUM-004: when defined, the dataSource's
-   * `getRepository(TenantErasureAuditEntity).findOne(...)` returns
-   * this row, simulating a pre-existing erasure for the
-   * idempotency-replay test paths. Default null = no prior
+   * COMPLIANCE-MEDIUM-004 / TASK-14: when defined, the
+   * schema-qualified `dataSource.query(... farm.tenant_erasure_audit
+   * ...)` lookup returns this row, simulating a pre-existing erasure
+   * for the idempotency-replay test paths. Default null = no prior
    * erasure exists.
    */
   existingErasureAuditRow?: {
@@ -173,10 +175,10 @@ function makeDs(opts: {
     }),
   };
   const createQueryBuilder = jest.fn().mockImplementation(() => qb);
-  // Double the EntityManager surface that the service uses inside
-  // `dataSource.transaction()`. The manager's queryRunner must
-  // expose `isTransactionActive: true` because the real
-  // OutboxPublisher asserts it before calling `.enqueue()`.
+  // Double the EntityManager surface that the service uses inside the
+  // tenant-pinned transaction (queryRunner.manager). The manager's
+  // queryRunner must expose `isTransactionActive: true` because the
+  // real OutboxPublisher asserts it before calling `.enqueue()`.
   // COMPLIANCE-MEDIUM-004: the cascade now calls
   // `mgr.insert(TenantErasureAuditEntity, ...)` to persist the
   // erasure-audit row inside the transaction. Stub the insert
@@ -187,7 +189,7 @@ function makeDs(opts: {
     createQueryBuilder,
     queryRunner: { isTransactionActive: true },
     query: jest.fn().mockImplementation(async (sql: string) => {
-      if (sql.includes('farm.farm_audit_logs')) {
+      if (sql.includes('farm_audit_logs')) {
         return [{ count: String(opts.auditAnonAffected ?? 0) }];
       }
       if (sql.includes('COUNT(*)::text AS count')) {
@@ -202,27 +204,70 @@ function makeDs(opts: {
       },
     ),
   };
-  const transaction = jest
-    .fn()
-    .mockImplementation(
-      async <T>(cb: (mgr: typeof managerDouble) => Promise<T>): Promise<T> =>
-        cb(managerDouble),
-    );
-  // COMPLIANCE-MEDIUM-004: dataSource.getRepository(
-  //   TenantErasureAuditEntity).findOne(...) drives the
-  // idempotency-replay branch in confirm(). Default behavior:
-  // returns null (no prior erasure → first-call path).
-  const repoFindOne = jest
-    .fn()
-    .mockResolvedValue(opts.existingErasureAuditRow ?? null);
-  const getRepository = jest.fn().mockImplementation(() => ({
-    findOne: repoFindOne,
-  }));
+
+  // TASK-14: the cascade now runs through
+  // `runInTenantTransaction(dataSource, 'farm', tenantId, …)`. That
+  // helper drives a real QueryRunner: connect → startTransaction →
+  // pin search_path → assert current_schema()+RLS GUC → fn(qr) →
+  // commit/rollback → release. The queryRunner double honours that
+  // contract. `queryRunner.manager` IS the managerDouble so the
+  // cascade body (createQueryBuilder / insert / enqueue) is unchanged.
+  //
+  // The pin captures the tenant schema from the issued search_path so
+  // the subsequent `current_schema()` readback returns the SAME schema
+  // — modelling a correctly-routed connection. assertTenantTransaction
+  // Context then passes (schema + GUC match), proving the destructive
+  // cascade only runs once the tenant context is verified.
+  let pinnedTenantSchema: string | null = null;
+  let pinnedTenant: string | null = null;
+  const queryRunnerQuery = jest.fn().mockImplementation(
+    async (sql: string, params?: unknown[]) => {
+      if (sql.includes("set_config('search_path'")) {
+        const pinned = String(params?.[0] ?? '');
+        const match = pinned.match(/^"(tenant_[a-f0-9]+)"/);
+        pinnedTenantSchema = match ? match[1]! : null;
+        return undefined;
+      }
+      if (sql.includes('set_config($1, $2, true)')) {
+        // assertTenantTransactionContext OWNS the RLS GUC: params are
+        // [RLS_TENANT_GUC, tenantId].
+        pinnedTenant = String(params?.[1] ?? '');
+        return undefined;
+      }
+      if (sql.includes('current_schema()')) {
+        return [{ schema: pinnedTenantSchema, tenant: pinnedTenant }];
+      }
+      return undefined;
+    },
+  );
+  const queryRunner = {
+    manager: managerDouble,
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    query: queryRunnerQuery,
+    commitTransaction: jest.fn().mockResolvedValue(undefined),
+    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+  };
+  const createQueryRunner = jest.fn().mockImplementation(() => queryRunner);
+
+  // TASK-14: lookupExistingErasure now reads the cross-tenant
+  // `farm.tenant_erasure_audit` table via a schema-qualified raw
+  // `dataSource.query()` (NOT a bare repository handle). Returns the
+  // configured existing-audit row (replay path) or [] (first-call).
+  const existingRow = opts.existingErasureAuditRow ?? null;
+  const dataSourceQuery = jest.fn().mockImplementation(async (sql: string) => {
+    if (sql.includes('tenant_erasure_audit')) {
+      return existingRow ? [existingRow] : [];
+    }
+    return [];
+  });
+
   const dataSource = {
     entityMetadatas: opts.entities,
     createQueryBuilder,
-    transaction,
-    getRepository,
+    createQueryRunner,
+    query: dataSourceQuery,
   };
   return {
     dataSource: dataSourceDouble(dataSource),
@@ -230,9 +275,10 @@ function makeDs(opts: {
     qb,
     auditQb,
     managerDouble,
-    transaction,
+    queryRunner,
+    createQueryRunner,
     insertCalls,
-    repoFindOne,
+    dataSourceQuery,
   };
 }
 
@@ -396,7 +442,7 @@ describe('TenantErasureService DELETE cascade', () => {
 
 describe('TenantErasureService TenantDataErased proof emission', () => {
   it('enqueues a TenantDataErased proof on the outbox inside the same transaction', async () => {
-    const { dataSource, transaction } = makeDs({
+    const { dataSource, createQueryRunner, queryRunner } = makeDs({
       entities: [
         {
           tableName: 'batches_v2',
@@ -420,9 +466,13 @@ describe('TenantErasureService TenantDataErased proof emission', () => {
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
-    // Transaction was opened exactly once and the whole cascade ran
-    // inside it — the outbox row commits atomically with the writes.
-    expect(transaction).toHaveBeenCalledTimes(1);
+    // A single tenant-pinned transaction was opened and committed —
+    // the cascade ran inside it so the outbox row commits atomically
+    // with the writes. The QueryRunner is released exactly once.
+    expect(createQueryRunner).toHaveBeenCalledTimes(1);
+    expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.release).toHaveBeenCalledTimes(1);
     expect(enqueue).toHaveBeenCalledTimes(1);
     const [event, mgrArg] = enqueue.mock.calls[0]!;
     expect(event.eventType).toBe('TenantDataErased');
@@ -443,7 +493,7 @@ describe('TenantErasureService TenantDataErased proof emission', () => {
   });
 
   it('DELETE failure rolls back the transaction and suppresses the event', async () => {
-    const { dataSource } = makeDs({
+    const { dataSource, queryRunner } = makeDs({
       entities: [
         {
           tableName: 'batches_v2',
@@ -465,6 +515,94 @@ describe('TenantErasureService TenantDataErased proof emission', () => {
     // downstream services would cascade a tenant erasure that never
     // actually completed.
     expect(enqueue).not.toHaveBeenCalled();
+    // The tenant-pinned transaction rolled back and released.
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.release).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * TASK-14 — tenant-context correctness of the destructive cascade.
+ *
+ * The erasure DELETEs target per-tenant tables (which OMIT `schema:`),
+ * so they MUST run under a connection whose search_path is pinned to
+ * `tenant_<uuid>`. Running the cascade through `runInTenantTransaction`
+ * (source schema `farm`) gives that guarantee: it pins the
+ * transaction-local search_path AND asserts `current_schema()` + the
+ * RLS GUC resolve to this tenant BEFORE any DELETE runs. A connection
+ * that resolved to the source `farm` schema (or another tenant) yields
+ * a fail-closed `TenantContextError` and the cascade never deletes.
+ */
+describe('TenantErasureService tenant-context routing (TASK-14)', () => {
+  it('pins the tenant search_path to the farm source schema before the cascade runs', async () => {
+    const { dataSource, queryRunner, executed } = makeDs({
+      entities: [
+        {
+          tableName: 'batches_v2',
+          target: class Batch {},
+          columns: [{ propertyName: 'tenantId' }],
+          foreignKeys: [],
+        },
+      ],
+      deleteResults: { batches_v2: 3 },
+    });
+    const service = makeTenantErasureService(dataSource);
+    const ticket = service.initiate(TENANT, USER);
+    await service.confirm(TENANT, ticket.token);
+
+    // search_path was pinned to "tenant_<uuid>", "farm", public —
+    // tenant schema first so the unqualified DELETEs route into it,
+    // farm second so the cross-tenant infra tables still resolve.
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      `SELECT pg_catalog.set_config('search_path', $1, true)`,
+      ['"tenant_1111111111114111", "farm", public'],
+    );
+    // The cascade DID delete after the context was established.
+    expect(executed).toEqual(['batches_v2']);
+  });
+
+  it('aborts the cascade (no DELETE) when the connection resolved to the source schema', async () => {
+    const { dataSource, queryRunner, executed } = makeDs({
+      entities: [
+        {
+          tableName: 'batches_v2',
+          target: class Batch {},
+          columns: [{ propertyName: 'tenantId' }],
+          foreignKeys: [],
+        },
+      ],
+      deleteResults: { batches_v2: 3 },
+    });
+    // Model a mis-routed connection: current_schema() falls back to the
+    // SOURCE `farm` schema instead of the tenant schema (an unprovisioned
+    // / stale-pool failure mode). assertTenantTransactionContext MUST
+    // turn this into a hard error before any destructive DELETE runs.
+    queryRunner.query.mockImplementation(
+      async (sql: string, params?: unknown[]) => {
+        if (sql.includes('current_schema()')) {
+          return [{ schema: 'farm', tenant: TENANT }];
+        }
+        if (sql.includes('set_config')) {
+          return undefined;
+        }
+        // params unused on this path; referenced to satisfy the signature.
+        void params;
+        return undefined;
+      },
+    );
+    const enqueue = jest.fn();
+    const publisher = outboxPublisherDouble({ enqueue });
+    const service = makeTenantErasureService(dataSource, { publisher });
+    const ticket = service.initiate(TENANT, USER);
+
+    await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
+      /SCHEMA_MISMATCH|schema/i,
+    );
+    // CRITICAL: the destructive cascade never ran against the wrong schema.
+    expect(executed).toEqual([]);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -497,7 +635,7 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
   const ORIGINAL_PURGE_DATE = new Date('2026-04-15T12:00:00.000Z');
 
   it('confirm() on an already-purged tenant returns state=ALREADY_PURGED with the original timestamps', async () => {
-    const { dataSource, executed, transaction, insertCalls } = makeDs({
+    const { dataSource, executed, createQueryRunner, insertCalls } = makeDs({
       entities: [],
       existingErasureAuditRow: {
         tenantId: TENANT,
@@ -528,9 +666,9 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
     // Critical invariants of the idempotency contract:
     // 1. No DELETE cascade ran.
     expect(executed).toEqual([]);
-    // 2. No transaction was opened (the lookup runs outside the
-    //    cascade transaction; the cascade itself never starts).
-    expect(transaction).not.toHaveBeenCalled();
+    // 2. No tenant-pinned transaction was opened (the lookup runs
+    //    outside the cascade transaction; the cascade never starts).
+    expect(createQueryRunner).not.toHaveBeenCalled();
     // 3. No audit-row INSERT was attempted.
     expect(insertCalls).toEqual([]);
   });

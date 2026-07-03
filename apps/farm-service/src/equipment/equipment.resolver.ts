@@ -6,9 +6,10 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
@@ -157,9 +158,13 @@ export class EquipmentResolver {
   }
 
   /**
-   * Get all equipment types (global, not tenant-specific)
+   * Get all equipment types for the CURRENT TENANT.
+   * Per-tenant catalog (operator decision): equipment_types is cloned into each
+   * tenant schema, so this runs tenant-scoped (search_path → tenant_<uuid>) instead
+   * of @SkipTenantGuard reading the shared source copy through a tenant-blind cache
+   * that served the first tenant's result to every other tenant. A tenant context is
+   * required (the @Roles are all tenant roles).
    */
-  @SkipTenantGuard()
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [EquipmentTypeResponse])
   async equipmentTypes(
@@ -170,10 +175,10 @@ export class EquipmentResolver {
   }
 
   /**
-   * Get equipment type by ID with specification schema
-   * PERF(F3-001): Query directly by ID instead of fetching all types and filtering in JS
+   * Get equipment type by ID with specification schema (current tenant's catalog).
+   * PERF(F3-001): Query directly by ID instead of fetching all types and filtering in JS.
+   * Tenant-scoped (per-tenant catalog) — see equipmentTypes above.
    */
-  @SkipTenantGuard()
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => EquipmentTypeResponse, { nullable: true })
   async equipmentType(
@@ -203,8 +208,12 @@ export class EquipmentResolver {
 
     try {
       const query = new GetDepartmentQuery(equipment.departmentId, equipment.tenantId);
-      return this.queryBus.execute(query);
+      return await this.queryBus.execute(query);
     } catch (error: unknown) {
+      // A lost/wrong tenant context must surface, not be masked as "no department".
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.debug(`Error resolving department: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
@@ -381,6 +390,10 @@ export class EquipmentResolver {
           }
         }
       } catch (error: unknown) {
+        // A lost/wrong tenant context must surface, not be masked as default feed info.
+        if (error instanceof TenantContextError) {
+          throw error;
+        }
         this.logger.warn(`Error getting feed info for tank ${equipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }

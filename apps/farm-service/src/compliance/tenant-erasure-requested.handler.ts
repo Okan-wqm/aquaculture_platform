@@ -1,3 +1,4 @@
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
@@ -26,6 +27,15 @@ export class TenantErasureRequestedHandler
   }
 
   async handle(event: TenantErasureRequestedEvent): Promise<void> {
-    await this.tenantErasureService.eraseFromTenantErasureRequest(event);
+    // A NATS event handler has no HTTP request context. Erasure is a
+    // tenant-scoped destructive operation, so establish the tenant frame
+    // (search_path + RLS GUC) before the service runs — matching the
+    // harvest-completed / mortality-recorded / onboarding handlers — so the
+    // erasure cannot accidentally execute against the source schema or under a
+    // missing tenant context. withTenantContext fails closed on an invalid
+    // tenantId, which is the correct posture for a destructive op.
+    await withTenantContext(event.tenantId, () =>
+      this.tenantErasureService.eraseFromTenantErasureRequest(event),
+    );
   }
 }

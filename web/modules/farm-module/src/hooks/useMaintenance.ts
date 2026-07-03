@@ -3,7 +3,7 @@
  * Handles CRUD operations for work orders, maintenance schedules, and spare parts via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES - Work Orders
@@ -666,8 +666,8 @@ export function useCreateWorkOrder() {
       return result.createWorkOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -694,9 +694,9 @@ export function useUpdateWorkOrder() {
       return result.updateWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -723,9 +723,9 @@ export function useCompleteWorkOrder() {
       return result.completeWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -753,8 +753,8 @@ export function useDeleteWorkOrder() {
       return result.deleteWorkOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -785,9 +785,9 @@ export function useSubmitWorkOrderForApproval() {
       return result.submitWorkOrderForApproval;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -814,9 +814,9 @@ export function useApproveWorkOrder() {
       return result.approveWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -843,9 +843,9 @@ export function useStartWorkOrder() {
       return result.startWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -872,9 +872,9 @@ export function useVerifyWorkOrder() {
       return result.verifyWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -901,9 +901,9 @@ export function useCancelWorkOrder() {
       return result.cancelWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -930,9 +930,9 @@ export function usePutWorkOrderOnHold() {
       return result.putWorkOrderOnHold;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -959,9 +959,9 @@ export function useResumeWorkOrder() {
       return result.resumeWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -1196,9 +1196,9 @@ export function useCreateMaintenanceSchedule() {
       return result.createMaintenanceSchedule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1225,10 +1225,10 @@ export function useUpdateMaintenanceSchedule() {
       return result.updateMaintenanceSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1256,9 +1256,9 @@ export function useDeleteMaintenanceSchedule() {
       return result.deleteMaintenanceSchedule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1285,8 +1285,8 @@ export function usePauseMaintenanceSchedule() {
       return result.pauseMaintenanceSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedule', data.id) });
     },
   });
 }
@@ -1313,8 +1313,8 @@ export function useResumeMaintenanceSchedule() {
       return result.resumeMaintenanceSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedule', data.id) });
     },
   });
 }
@@ -1358,10 +1358,10 @@ export function useCompleteMaintenance() {
       return result.completeMaintenance;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1409,11 +1409,11 @@ export function useProcessAutoGenerateWorkOrders() {
       // Skip the cache invalidation if the sweep created nothing — no
       // server-side state changed.
       if (data.length === 0) return;
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1452,16 +1452,16 @@ export function useGenerateWorkOrderFromSchedule() {
       return result.generateWorkOrderFromSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
       if (data.maintenanceScheduleId) {
         queryClient.invalidateQueries({
-          queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.maintenanceScheduleId),
+          queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedule', data.maintenanceScheduleId),
         });
       }
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1501,10 +1501,10 @@ export function useUpdateMeterReading() {
       return result.updateMeterReading;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1677,10 +1677,10 @@ export function useRecordStockMovement() {
       return result.recordStockMovement;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sparePart', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sparePart', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'lowStockAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockSummary') });
     },
   });
 }
@@ -1755,8 +1755,8 @@ export function useCreateSparePart() {
       return result.createSparePart;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockSummary') });
     },
   });
 }
@@ -1783,10 +1783,10 @@ export function useUpdateSparePart() {
       return result.updateSparePart;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sparePart', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sparePart', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'lowStockAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockSummary') });
     },
   });
 }
@@ -1814,9 +1814,9 @@ export function useDeleteSparePart() {
       return result.deleteSparePart;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'lowStockAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockSummary') });
     },
   });
 }

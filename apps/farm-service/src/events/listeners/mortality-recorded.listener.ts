@@ -45,7 +45,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import {
+import { toEventIso,
   createBaseEvent,
   type MortalityAlertRaisedEvent,
   type MortalityRecordedEvent,
@@ -426,7 +426,7 @@ export class MortalityRecordedListener
         message: alert.message,
         mortalityRate: event.newMortalityRate,
         reason: event.reason,
-        recordedAt,
+        recordedAt: toEventIso(recordedAt),
       };
       await this.eventBus.publish(raised);
       this.logger.warn(`[${alert.severity.toUpperCase()}] ${alert.message}`);

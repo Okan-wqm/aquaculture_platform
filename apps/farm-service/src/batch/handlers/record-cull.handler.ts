@@ -16,12 +16,14 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { CullRecordedEvent } from '@platform/event-contracts';
+import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
@@ -41,6 +43,7 @@ import { Batch } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
+import { TankBatchService } from '../services/tank-batch.service';
 import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 @Injectable()
@@ -60,6 +63,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
+    // SSoT tank-composition writer (batchDetails[] + derived aggregates + current*).
+    private readonly tankBatchService: TankBatchService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -75,14 +80,10 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     // calls on the same batch previously both read currentQuantity BEFORE either
     // write, allowing both to pass the quantity check even if the sum exceeds
     // the real available count. The lock serialises them at the database level.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      // Declared inside the callback so the saved batch is accessible for return
+      let batch: Batch;
 
-    // Declared outside try so the saved batch is accessible for return
-    let batch: Batch;
-
-    try {
       const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         tenantId,
@@ -99,7 +100,6 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         if (!replayed) {
           throw new ConflictException('Mobile command receipt response is no longer available');
         }
-        await queryRunner.commitTransaction();
         return replayed;
       }
 
@@ -231,44 +231,46 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
 
       await queryRunner.manager.save(Batch, batch);
 
-      // TankBatch güncelle (Math.max prevents negative values, denormalized
-      // currentQuantity/currentBiomassKg fields kept in sync with totals)
+      // TankBatch update via the shared SSoT writer: decrement THIS batch in
+      // batchDetails[], then re-derive totalQuantity/biomass/avg/density/current*.
+      // The writer self-heals pre-SSoT single-batch rows (empty batchDetails) so
+      // the negative cull delta is never a silent no-op on a pre-existing tank.
       if (tankBatch) {
-        // Ensure numeric operations (database may return decimal columns as strings)
-        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - payload.quantity);
-        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
-        tankBatch.currentQuantity = tankBatch.totalQuantity;
-        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-        if (tankBatch.totalQuantity > 0) {
-          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-          const effectiveVolume = tank.volume;
-          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-        } else {
-          tankBatch.avgWeightG = 0;
-          tankBatch.densityKgM3 = 0;
-        }
-
-        await queryRunner.manager.save(TankBatch, tankBatch);
+        await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          tenantId,
+          payload.tankId,
+          {
+            batchId,
+            batchNumber: batch.batchNumber,
+            quantityDelta: -payload.quantity,
+            biomassDelta: -biomassKg,
+          },
+          { volumeM3: Number(tank.volume) || 0 },
+        );
       }
 
-      // Tank biomass güncelle (Math.max prevents negatives). Persist to the
-      // physical table where the tank was found; otherwise legacy tenants with
-      // `tanks` rows would get a successful cull whose visible tank totals never
-      // change in the frontend/mobile read model.
+      // Tank biomass update (Math.max prevents negatives). currentCount is now
+      // derived + written by TankBatchService.applyBatchDelta (the SINGLE count
+      // writer) above — no independent count write here (that drifted from
+      // tank_batches, the SSoT). currentBiomass stays on its growth-tracking path;
+      // biomass-ONLY UPDATE (never a full-entity save, which would clobber the
+      // derived currentCount).
       const newBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      const newCount = Math.max(0, (tank.currentCount || 0) - payload.quantity);
       if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
-          .set({ currentBiomass: newBiomass, currentCount: newCount })
+          .set({ currentBiomass: newBiomass })
           .where('id = :id', { id: tankLookup.originalTank.id })
           .execute();
       } else {
-        tank.currentBiomass = newBiomass;
-        tank.currentCount = newCount;
-        await queryRunner.manager.save(Equipment, tank);
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Equipment)
+          .set({ currentBiomass: newBiomass })
+          .where('id = :id', { id: tank.id })
+          .execute();
       }
 
       await this.farmStockProjection.refreshContainers(
@@ -289,7 +291,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         quantity: payload.quantity,
         reason: toCullReasonCode(payload.reason),
         detail: payload.detail,
-        culledAt: payload.culledAt,
+        culledAt: toEventIso(payload.culledAt),
         newCullCount: batch.cullCount,
         newCurrentQuantity: batch.currentQuantity,
       };
@@ -328,17 +330,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         responsePayload: { id: batch.id },
       });
 
-      // Commit transaction (domain writes + outbox row are atomic)
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      // Rollback transaction on any error
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      // Release query runner
-      await queryRunner.release();
-    }
-
-    return batch;
+      // Domain writes + outbox row are atomic — runInTenantTransaction commits.
+      return batch;
+    });
   }
 }

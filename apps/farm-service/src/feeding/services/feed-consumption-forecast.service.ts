@@ -9,6 +9,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -309,6 +310,9 @@ export class FeedConsumptionForecastService {
       this.logger.log(`Found ${tankBatches.length} tanks with fish`);
       return tankBatches;
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       // Fallback to raw query
       this.logger.warn(`TankBatch query failed, using fallback: ${error}`);
       try {

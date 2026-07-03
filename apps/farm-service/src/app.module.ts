@@ -120,7 +120,6 @@ import { AiInsightsModule } from './ai-insights/ai-insights.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { GraphQLContextFactory } from './common/graphql-context.factory';
 import { GraphQLContextModule } from './common/graphql-context.module';
-import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 
 // Migrations — FARM_MIGRATIONS is the canonical runtime class list. Keep this
 // import path stable; invariants compare it with the on-disk migrations
@@ -273,11 +272,14 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
           // User and tenant context are populated by VerifiedUserAssertionMiddleware.
+          // The equipment loaders resolve tenant + schema fail-closed from the
+          // request context at batch-tick time, so no tenant/schema is passed
+          // eagerly here. Loaders are still created lazily only when a tenant is
+          // present to avoid wiring them for unauthenticated/pre-auth requests.
           const tenantId = req.user?.tenantId ?? req.tenantId;
           let loaders;
           if (tenantId) {
-            const schema = getTenantSchemaName(tenantId);
-            loaders = contextFactory.createLoaders(tenantId, schema);
+            loaders = contextFactory.createLoaders();
           }
 
           return { req, loaders };

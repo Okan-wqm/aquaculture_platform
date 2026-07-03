@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -143,7 +144,7 @@ const TenantDashboard: React.FC = () => {
 
   // Modules query
   const modulesQuery = useQuery({
-    queryKey: ['dashboard', 'modules'],
+    queryKey: createTenantQueryKey(getTenantId(), 'dashboard', 'modules'),
     queryFn: async () => {
       const modules = await getMyModules();
       return (modules || []).map((m: MyModule): ModuleStatus => {
@@ -167,7 +168,7 @@ const TenantDashboard: React.FC = () => {
 
   // Users query
   const usersQuery = useQuery({
-    queryKey: ['dashboard', 'users'],
+    queryKey: createTenantQueryKey(getTenantId(), 'dashboard', 'users'),
     queryFn: async () => {
       const users = await getTenantUsers();
       return users || [];
@@ -177,7 +178,7 @@ const TenantDashboard: React.FC = () => {
 
   // Subscription query
   const subscriptionQuery = useQuery({
-    queryKey: ['dashboard', 'subscription'],
+    queryKey: createTenantQueryKey(getTenantId(), 'dashboard', 'subscription'),
     queryFn: async () => {
       return getMySubscription();
     },
@@ -209,7 +210,7 @@ const TenantDashboard: React.FC = () => {
   );
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(getTenantId(), 'dashboard') });
   };
 
   // Calculate stats -- prefer TanStack Query stats if available (PERF-001)

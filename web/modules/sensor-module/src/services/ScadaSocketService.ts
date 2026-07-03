@@ -11,7 +11,7 @@
  */
 
 import { io, type Socket } from 'socket.io-client';
-import { getAccessToken } from '@aquaculture/shared-ui';
+import { getAccessToken, getTenantId, onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import {
   ScadaSocketEvent,
   type TagValuesPayload,
@@ -115,6 +115,14 @@ export class ScadaSocketService {
       return;
     }
 
+    // Tenant gate: never open the tenant-scoped /scada socket without a tenant
+    // context to bind it to (matches socketFactory + the sibling sensor sockets).
+    // Defer silently — a tenant arrives once AuthContext resolves the session;
+    // onTenantChange/login will re-drive connect().
+    if (!getTenantId()) {
+      return;
+    }
+
     this._setConnectionState('connecting');
 
     if (this.socket) {
@@ -125,10 +133,18 @@ export class ScadaSocketService {
     }
 
     this.socket = io(SCADA_WS_NAMESPACE, {
+      // Dedicated WS path: /scada is a sensor-service namespace, but nginx routes
+      // ALL default /socket.io/ traffic to the gateway (which serves no /scada), so
+      // SCADA real-time never reached sensor-service. A distinct path lets nginx
+      // route SCADA straight to sensor-service:3000 (must match the gateway's path).
+      path: '/scada-ws/',
       transports: ['websocket', 'polling'],
       auth: { token },
       reconnection: true,
-      reconnectionAttempts: Infinity,
+      // Bounded, not Infinity: a full gateway/SCADA outage must not be amplified by
+      // an unbounded reconnect storm against a dead upstream. The backoff already
+      // caps the delay; this caps the count so the storm ends.
+      reconnectionAttempts: 20,
       reconnectionDelay: BACKOFF_BASE_MS,
       reconnectionDelayMax: BACKOFF_MAX_MS,
       randomizationFactor: 0.3,
@@ -329,6 +345,30 @@ export class ScadaSocketService {
     }
   }
 }
+
+// ── Tenant-isolation teardown (module-level, registered once) ──────────────────
+
+/**
+ * SECURITY: the /scada socket is a process-wide singleton bound to the tenant
+ * session it connected with (its JWT handshake). On a tenant switch
+ * (SUPER_ADMIN impersonation) the previous tenant's TAG_VALUES stream would
+ * otherwise keep pushing into a now-different tenant's view, and on logout the
+ * still-open socket could be reused by the next user on the same browser.
+ *
+ * Disconnecting on both events stops the previous tenant's live stream
+ * immediately (fail-safe to no-data, never stale-data). Reconnect for the new
+ * tenant is re-established when a data provider next mounts and calls connect();
+ * session-ready connect gating is layered on top in the socket-lifecycle pass.
+ *
+ * onTenantChange fires only on an actual A→B change (never on first login), so
+ * normal single-tenant users are unaffected.
+ */
+onTenantChange(() => {
+  ScadaSocketService.getInstance().disconnect();
+});
+registerLogoutCleanup(() => {
+  ScadaSocketService.getInstance().disconnect();
+});
 
 // ── Convenience export ────────────────────────────────────────────────────────
 

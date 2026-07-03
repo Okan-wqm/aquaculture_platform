@@ -41,6 +41,7 @@ interface MockManager {
   create: jest.Mock;
   save: jest.Mock;
   query: jest.Mock;
+  createQueryBuilder: jest.Mock;
 }
 
 function createMockManager(): MockManager {
@@ -51,6 +52,13 @@ function createMockManager(): MockManager {
     // MobileCommandReceiptService.begin: with an envelope the INSERT returns a
     // receipt id (started mode). complete() UPDATE returns nothing.
     query: jest.fn().mockResolvedValue([{ id: 'receipt-1' }]),
+    // biomass-only column write: `.createQueryBuilder().update().set().where().execute()`.
+    createQueryBuilder: jest.fn(() => {
+      const qb: Record<string, jest.Mock> = {};
+      for (const m of ['update', 'set', 'where']) qb[m] = jest.fn(() => qb);
+      qb.execute = jest.fn().mockResolvedValue({ affected: 1 });
+      return qb;
+    }),
   };
 }
 
@@ -61,6 +69,10 @@ function createMockQueryRunner(manager: MockManager) {
     commitTransaction: jest.fn().mockResolvedValue(undefined),
     rollbackTransaction: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
+    // runInTenantTransaction pins search_path + asserts the RLS GUC via
+    // queryRunner.query (distinct from the receipt service's manager.query).
+    // Returning [] makes the boundary readback assertion skip (no live DB).
+    query: jest.fn().mockResolvedValue([]),
     manager: manager as unknown as EntityManager,
   };
 }
@@ -80,7 +92,7 @@ function createMockOutboxPublisher(): OutboxPublisher {
 // ============================================================================
 
 describe('RecordMortalityHandler', () => {
-  const tenantId = 'tenant-123';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const batchId = 'batch-456';
   const tankId = 'tank-789';
 
@@ -200,6 +212,9 @@ describe('RecordMortalityHandler', () => {
       auditLogService,
       // SEC-HIGH-051: the real SSoT — fail-closed object-level site authz.
       new SiteAuthorizationService(),
+      // TankBatchService SSoT writer — mocked here (its derivation is covered by
+      // tank-batch.service.spec); the handler does not consume its return.
+      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
       new MortalityCullPolicyService(),
       farmStockProjection,
       mobileCommandReceipts,

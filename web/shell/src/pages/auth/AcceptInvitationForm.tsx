@@ -13,6 +13,7 @@ import {
   minLength,
   validateField,
   clearSession,
+  publicGraphqlClient,
 } from '@aquaculture/shared-ui';
 
 import { AuthFormShell } from './AuthFormShell';
@@ -43,11 +44,18 @@ const AcceptInvitationForm: React.FC = () => {
         return;
       }
       try {
-        const response = await fetch('/graphql', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: `query ValidateInvitation($token: String!) {
+        // Pre-auth: sanctioned barrier-skipping client (no auth/tenant header).
+        const result = await publicGraphqlClient.request<{
+          validateInvitation: {
+            valid: boolean;
+            email: string;
+            role: string;
+            firstName: string;
+            lastName: string;
+            expired: boolean;
+          };
+        }>(
+          `query ValidateInvitation($token: String!) {
               validateInvitation(token: $token) {
                 valid
                 email
@@ -57,14 +65,9 @@ const AcceptInvitationForm: React.FC = () => {
                 expired
               }
             }`,
-            variables: { token },
-          }),
-        });
-        const result = await response.json();
-        if (result.errors) {
-          throw new Error(result.errors[0]?.message || t('common.error'));
-        }
-        const data = result.data.validateInvitation;
+          { token },
+        );
+        const data = result.validateInvitation;
         if (!data.valid) {
           setValidationError(data.expired ? t('invitation.invalid.expired') : t('invitation.invalid.generic'));
           setIsValidating(false);
@@ -111,29 +114,22 @@ const AcceptInvitationForm: React.FC = () => {
 
       setIsSubmitting(true);
       try {
-        const response = await fetch('/graphql', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: `mutation AcceptInvitation($input: AcceptInvitationInput!) {
+        // Pre-auth: sanctioned barrier-skipping client (no auth/tenant header).
+        await publicGraphqlClient.request(
+          `mutation AcceptInvitation($input: AcceptInvitationInput!) {
               acceptInvitation(input: $input) {
                 accessToken
               }
             }`,
-            variables: {
-              input: {
-                token,
-                password: formData.password,
-                firstName: formData.firstName,
-                lastName: formData.lastName,
-              },
+          {
+            input: {
+              token,
+              password: formData.password,
+              firstName: formData.firstName,
+              lastName: formData.lastName,
             },
-          }),
-        });
-        const result = await response.json();
-        if (result.errors) {
-          throw new Error(result.errors[0]?.message || t('common.error'));
-        }
+          },
+        );
         // Clear any existing session so the user authenticates fresh.
         clearSession();
         navigate('/login');

@@ -16,10 +16,9 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
-import type { QueryRunner } from 'typeorm';
 
 import { CloseBatchCommand, BatchCloseReason } from '../../../batch/commands/close-batch.command';
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
@@ -32,6 +31,8 @@ import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input'
 import { HarvestRecord, QualityGrade } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
 
+const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
 interface HarnessOpts {
   /** Fish currently in the batch (default 1000). */
   currentQuantity?: number;
@@ -42,7 +43,7 @@ interface HarnessOpts {
 function makeHarness(opts: HarnessOpts = {}) {
   const batch = {
     id: 'batch-1',
-    tenantId: 'tenant-1',
+    tenantId: TENANT_ID,
     currentQuantity: opts.currentQuantity ?? 1000,
     harvestedQuantity: 0,
     status: BatchStatus.HARVESTING,
@@ -52,7 +53,7 @@ function makeHarness(opts: HarnessOpts = {}) {
 
   const tank = {
     id: 'tank-1',
-    tenantId: 'tenant-1',
+    tenantId: TENANT_ID,
     isActive: true,
     currentBiomass: 500,
     currentCount: batch.currentQuantity,
@@ -65,11 +66,34 @@ function makeHarness(opts: HarnessOpts = {}) {
     orderBy: jest.fn().mockReturnThis(),
     setLock: jest.fn().mockReturnThis(),
     getOne: jest.fn().mockResolvedValue(null),
+    // Also serves the handler's biomass-only UPDATE (.update().set().where()
+    // .execute()) — currentCount is now written by applyBatchDelta (single
+    // writer) and biomass uses a column-scoped update that must not clobber it.
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
+
+  // A stocked tank-batch so the handler's tank-composition path executes; the
+  // real fields are derived by applyBatchDelta (mocked), so only identity +
+  // the post-read aggregates the handler echoes into postOperationState matter.
+  const tankBatch = {
+    tankId: 'tank-1',
+    primaryBatchId: 'batch-1',
+    totalQuantity: 1000,
+    totalBiomassKg: 400,
+    currentQuantity: 1000,
+    currentBiomassKg: 400,
+    densityKgM3: 4,
+    batchDetails: [
+      { batchId: 'batch-1', batchNumber: 'B-1', quantity: 1000, biomassKg: 400, avgWeightG: 400, percentageOfTank: 100 },
+    ],
   };
 
   const managerFindOne = jest.fn((entity: unknown) => {
     if (entity === Batch) return Promise.resolve(batch);
     if (entity === Tank) return Promise.resolve(tank);
+    if (entity === TankBatch) return Promise.resolve(tankBatch);
     return Promise.resolve(null);
   });
   const createdHarvestRecords: Array<Record<string, unknown>> = [];
@@ -79,26 +103,21 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
   const managerSave = jest.fn((_entity: unknown, value: unknown) => Promise.resolve(value));
 
-  const manager = {
-    findOne: managerFindOne,
-    create: managerCreate,
-    save: managerSave,
-    createQueryBuilder: jest.fn().mockReturnValue(codeQueryBuilder),
-  } as never;
-
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release: jest.fn().mockResolvedValue(undefined),
-    manager,
-  };
-  const dataSource = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  } as never;
+  // createMockDataSource models the fail-closed runInTenantTransaction
+  // boundary: queryRunner.query returns [] so the search_path/GUC readback
+  // assertion is skipped under the mock (no live connection). The factory's
+  // manager is reconfigured below with the entity-identity-aware findOne /
+  // create / save plus the createQueryBuilder generateCode() relies on.
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  (mockManager.findOne as jest.Mock).mockImplementation(managerFindOne);
+  (mockManager.create as jest.Mock).mockImplementation(managerCreate);
+  (mockManager.save as jest.Mock).mockImplementation(managerSave);
+  mockManager.createQueryBuilder = jest
+    .fn()
+    .mockReturnValue(codeQueryBuilder) as typeof mockManager.createQueryBuilder;
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
+  const dataSource = mockDataSource;
 
   const enqueuedEvents: BatchHarvestedEvent[] = [];
   const outboxPublisher = {
@@ -129,6 +148,11 @@ function makeHarness(opts: HarnessOpts = {}) {
   const farmStockProjection = {
     refreshContainers: jest.fn().mockResolvedValue(undefined),
   };
+  // The single SSoT writer for tank composition — the handler routes the harvest
+  // decrement through this so batchDetails[] stays consistent (no direct mutation).
+  const tankBatchService = {
+    applyBatchDelta: jest.fn().mockResolvedValue(undefined),
+  };
 
   const handler = new CreateHarvestRecordHandler(
     dataSource,
@@ -142,6 +166,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     createMockRepository<TankOperation>(),
     createMockRepository<TankBatch>(),
     createMockRepository<Tank>(),
+    tankBatchService as never,
     // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),
@@ -149,7 +174,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     mobileCommandReceipts as never,
   );
 
-  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords };
+  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, tankBatchService };
 }
 
 function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
@@ -165,7 +190,7 @@ function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
   };
   // MODULE_MANAGER so SEC-HIGH-051 site authz bypasses (createHarvestRecord's
   // @Roles floor is MODULE_MANAGER+ anyway — see SEC-MEDIUM-050).
-  return new CreateHarvestRecordCommand('tenant-1', input, 'user-1', [Role.MODULE_MANAGER], []);
+  return new CreateHarvestRecordCommand(TENANT_ID, input, 'user-1', [Role.MODULE_MANAGER], []);
 }
 
 describe('CreateHarvestRecordHandler — final-harvest chain', () => {
@@ -186,6 +211,25 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     expect(executeCommand).not.toHaveBeenCalled();
   });
 
+  it('routes the tank-batch decrement through the SSoT writer with a signed delta (batchDetails stays consistent)', async () => {
+    const { handler, tankBatchService } = makeHarness({ currentQuantity: 1000 });
+
+    await handler.execute(makeCommand({ quantityHarvested: 400, totalBiomass: 160 }));
+
+    // Harvest must NOT mutate TankBatch.totalQuantity by hand (that left
+    // batchDetails[] stale — the 719-vs-900 divergence). It routes the removal
+    // through applyBatchDelta so the per-batch SSoT decrements in lock-step.
+    expect(tankBatchService.applyBatchDelta).toHaveBeenCalledTimes(1);
+    const call = tankBatchService.applyBatchDelta.mock.calls[0];
+    const tenantIdArg = call[1];
+    const tankIdArg = call[2];
+    const delta = call[3];
+    expect(tenantIdArg).toBe(TENANT_ID);
+    expect(tankIdArg).toBe('tank-1');
+    expect(delta.quantityDelta).toBe(-400);
+    expect(delta.biomassDelta).toBe(-160);
+  });
+
   it('final harvest: isFinal=true and CloseBatchCommand(HARVEST_COMPLETED) dispatched after commit', async () => {
     const { handler, batch, commit, enqueuedEvents, executeCommand } = makeHarness({
       currentQuantity: 400,
@@ -201,7 +245,7 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     expect(executeCommand).toHaveBeenCalledTimes(1);
     const dispatched = executeCommand.mock.calls[0]?.[0];
     expect(dispatched).toBeInstanceOf(CloseBatchCommand);
-    expect(dispatched?.tenantId).toBe('tenant-1');
+    expect(dispatched?.tenantId).toBe(TENANT_ID);
     expect(dispatched?.batchId).toBe('batch-1');
     expect(dispatched?.reason).toBe(BatchCloseReason.HARVEST_COMPLETED);
     expect(dispatched?.closedBy).toBe('user-1');
@@ -325,7 +369,7 @@ describe('CreateHarvestRecordHandler — server-derived harvest identity (FARM-H
     };
 
     await handler.execute(
-      new CreateHarvestRecordCommand('tenant-1', input, principal, [Role.MODULE_MANAGER], []),
+      new CreateHarvestRecordCommand(TENANT_ID, input, principal, [Role.MODULE_MANAGER], []),
     );
 
     expect(createdHarvestRecords).toHaveLength(1);

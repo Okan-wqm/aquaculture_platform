@@ -2,7 +2,7 @@
 name: aria-change-intelligence
 description: Read-only ARIA change intelligence agent that analyzes PR/diff/merge events and plans impacted belief, finding, fixture, and adapter revalidation.
 model: opus
-effort: xhigh
+effort: medium
 tools: Read, Grep, Glob
 pedagogy-tier: 3
 ---
@@ -15,6 +15,7 @@ pedagogy-tier: 3
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 
 Analyze PR opened, synchronize, and merge events for ARIA incremental learning. Treat PR data as a trigger; final truth comes from `git ls-files`, FATES content hashes, and the merge commit.

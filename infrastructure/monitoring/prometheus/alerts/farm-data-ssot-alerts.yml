@@ -1,0 +1,178 @@
+# =============================================================================
+# Aquaculture Platform - Farm Data SSOT / Tenant Boundary Alert Rules
+# =============================================================================
+# Alerts for the farm-service Farm Data SSOT signals:
+#   - farm GraphQL mutation error rate (farm_mutation_* histogram + counter)
+#   - transactional outbox backlog depth + dead letters (outbox_pending /
+#     outbox_dead_letter_count) and enqueue->publish latency (outbox_publish_
+#     latency_seconds, used as the backlog "age" proxy)
+#
+# Applied as a PrometheusRule CRD alongside aquaculture-rules.yaml and
+# alerts/slo-alerts.yml (same metadata/labels conventions).
+#
+# Label conventions (mirrors slo-alerts.yml):
+#   severity: critical  -> PagerDuty page (on-call)
+#   severity: warning   -> Ticket creation (Jira/Linear)
+#
+# The platform enforces a runbook_url annotation on every alert.
+#
+# Metric provenance (all confirmed emitted, NOT invented):
+#   farm_mutation_duration_seconds (histogram, _count + _bucket) and
+#   farm_mutation_errors_total (counter) — emitted by
+#     apps/farm-service/src/common/metrics/farm-domain-metrics.service.ts
+#     (initializeMetrics) and contributed to the platform /metrics endpoint
+#     via FarmMetricsModule. Scrape labels app="farm-service",
+#     namespace="aquaculture" are attached by Prometheus file_sd
+#     (infrastructure/monitoring/droplet/file_sd/aqua-services.json).
+#   outbox_pending / outbox_dead_letter_count (gauges),
+#   outbox_publish_latency_seconds (histogram) — emitted by
+#     platform/libs/outbox/src/outbox-metrics.service.ts. The farm-service
+#     OutboxWorker derives its `service` label from the entity class name
+#     `FarmOutbox` -> "farm_outbox"
+#     (platform/libs/outbox/src/outbox-worker.service.ts metricsLabel).
+#
+# NOT YET EMITTED (finding): the tenant read boundary throws
+#   TenantContextError (libs/backend-common/src/database/tenant-transaction.ts)
+#   but emits NO Prometheus series, so NO tenant-context-error alert can be
+#   written here. Add a Counter farm_tenant_context_error_total{state} in the
+#   boundary catch path first, then a FarmTenantContextErrorElevated alert.
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aquaculture-farm-data-ssot-alerts
+  namespace: aquaculture
+  labels:
+    app: aquaculture
+    prometheus: kube-prometheus
+    purpose: farm-data-ssot
+spec:
+  groups:
+    # ========================================================================
+    # Farm mutation error rate
+    # ========================================================================
+    - name: aquaculture.farm.mutations
+      rules:
+        - alert: FarmMutationErrorRateHigh
+          # farm_mutation_duration_seconds_count is the total mutation count
+          # (success + error outcomes); farm_mutation_errors_total is the
+          # failure counter. The traffic guard (> 0.1 rps) rules out
+          # low-traffic false positives, mirroring ARCH-NM-007.
+          expr: |
+            (
+              sum(rate(farm_mutation_errors_total{namespace="aquaculture",app="farm-service"}[5m]))
+              /
+              sum(rate(farm_mutation_duration_seconds_count{namespace="aquaculture",app="farm-service"}[5m]))
+              > 0.05
+            ) and (
+              sum(rate(farm_mutation_duration_seconds_count{namespace="aquaculture",app="farm-service"}[5m])) > 0.1
+            )
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Farm mutation error rate above 5%"
+            description: >-
+              farm-service GraphQL mutation error ratio is
+              {{ $value | humanizePercentage }} over the last 5 minutes,
+              above the 5% threshold. The traffic guard (>0.1 rps) rules out
+              low-traffic false positives. Check farm_mutation_errors_total by
+              error_class and the Farm Data SSOT dashboard.
+            runbook_url: "https://wiki.internal/runbooks/farm-mutation-errors"
+
+        - alert: FarmMutationErrorRateCritical
+          expr: |
+            (
+              sum(rate(farm_mutation_errors_total{namespace="aquaculture",app="farm-service"}[5m]))
+              /
+              sum(rate(farm_mutation_duration_seconds_count{namespace="aquaculture",app="farm-service"}[5m]))
+              > 0.10
+            ) and (
+              sum(rate(farm_mutation_duration_seconds_count{namespace="aquaculture",app="farm-service"}[5m])) > 0.1
+            )
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Farm mutation error rate above 10%"
+            description: >-
+              farm-service GraphQL mutation error ratio is
+              {{ $value | humanizePercentage }} over the last 5 minutes,
+              above the 10% critical threshold. A large fraction of farm
+              writes are failing — investigate immediately.
+            runbook_url: "https://wiki.internal/runbooks/farm-mutation-errors"
+
+    # ========================================================================
+    # Farm transactional outbox backlog (depth + age)
+    # ========================================================================
+    - name: aquaculture.farm.outbox
+      rules:
+        - alert: FarmOutboxBacklogHigh
+          # outbox_pending is a gauge of unpublished rows. A sustained backlog
+          # is the earliest signal of a NATS outage or a stuck worker.
+          expr: |
+            sum(outbox_pending{namespace="aquaculture",app="farm-service",service="farm_outbox"}) > 100
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Farm outbox backlog above 100 pending events"
+            description: >-
+              The farm-service transactional outbox has
+              {{ $value }} unpublished events pending for more than 5 minutes.
+              The worker is falling behind. Check NATS connectivity and the
+              outbox worker logs.
+            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+
+        - alert: FarmOutboxBacklogCritical
+          expr: |
+            sum(outbox_pending{namespace="aquaculture",app="farm-service",service="farm_outbox"}) > 1000
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Farm outbox backlog above 1000 pending events"
+            description: >-
+              The farm-service transactional outbox backlog is
+              {{ $value }} unpublished events — the worker is severely behind
+              or NATS publishing is down. Domain events are not reaching
+              downstream services. Investigate immediately.
+            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+
+        - alert: FarmOutboxPublishLatencyHigh
+          # No "oldest pending row age" gauge is emitted; the enqueue->publish
+          # latency histogram (outbox_publish_latency_seconds) is the available
+          # age signal. A sustained p99 above 30s means rows sit far too long
+          # between enqueue and NATS publish.
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(outbox_publish_latency_seconds_bucket{namespace="aquaculture",app="farm-service",service="farm_outbox"}[5m])) by (le)
+            ) > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Farm outbox enqueue-to-publish latency p99 above 30s"
+            description: >-
+              The 99th percentile time from outbox enqueue to successful NATS
+              publish for farm-service is {{ $value | humanizeDuration }},
+              above the 30s threshold. Events are aging in the outbox; check
+              worker throughput and NATS health.
+            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+
+        - alert: FarmOutboxDeadLetters
+          # Any dead-lettered row means an event exceeded OUTBOX_MAX_RETRIES and
+          # will never publish without manual replay.
+          expr: |
+            sum(outbox_dead_letter_count{namespace="aquaculture",app="farm-service",service="farm_outbox"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Farm outbox has dead-lettered events"
+            description: >-
+              {{ $value }} farm-service outbox event(s) exceeded
+              OUTBOX_MAX_RETRIES and were dead-lettered. They will not publish
+              without operator replay. Inspect the lastError on the dead
+              outbox rows and the downstream NATS subject.
+            runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"

@@ -5,12 +5,13 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type CleanerFishTransferredEvent,
 } from '@platform/event-contracts';
@@ -297,10 +298,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     // rely on both source/destination snapshots landing together —
     // splitting would produce a moment where source-minus-transfer
     // and destination-without-transfer are observable simultaneously.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       await queryRunner.manager.save(TankBatch, sourceTankBatch);
       await queryRunner.manager.save(TankBatch, destTankBatch);
       await queryRunner.manager.save(TankOperation, transferOutOp);
@@ -320,7 +318,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
         avgWeightG,
         biomassKg,
         reason: payload.reason,
-        transferredAt: payload.transferredAt,
+        transferredAt: toEventIso(payload.transferredAt),
         newSourceTankCleanerFishQuantity: sourceTankBatch.cleanerFishQuantity ?? 0,
         newSourceTankCleanerFishBiomassKg: Number(sourceTankBatch.cleanerFishBiomassKg ?? 0),
         newDestinationTankCleanerFishQuantity: destTankBatch.cleanerFishQuantity ?? 0,
@@ -329,14 +327,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-
-    return cleanerBatch;
+      return cleanerBatch;
+    });
   }
 }

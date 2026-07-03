@@ -22,7 +22,8 @@
 import { io, type Socket } from 'socket.io-client';
 import {
   getAccessToken,
-  getTenantId,
+  getSessionSnapshot,
+  onTenantChange,
   registerLogoutCleanup,
 } from '@aquaculture/shared-ui';
 
@@ -64,11 +65,11 @@ export function getSocket(
   url: string,
   options?: Record<string, unknown>,
 ): Socket | null {
-  const token = getAccessToken();
-  if (!token) return null;
-
-  const tenantId = getTenantId();
-  if (!tenantId) return null;
+  // SSoT: one read of the session (getSessionSnapshot) instead of scattered
+  // getAccessToken()/getTenantId() checks. We still need both VALUES — the token for
+  // the socket auth, the tenantId for the tenant-scoped pool key.
+  const { accessToken: token, effectiveTenantId: tenantId } = getSessionSnapshot();
+  if (!token || !tenantId) return null;
 
   const key = poolKey(url, tenantId);
   const existing = pool.get(key);
@@ -106,24 +107,33 @@ export function getSocket(
 }
 
 /**
- * Decrement the reference count for the given URL in the current tenant scope.
- * When the count reaches 0 the socket is disconnected and removed from the pool.
+ * Release ONE reference to the pooled socket the caller acquired via getSocket().
+ *
+ * The caller passes the Socket it holds (or null, if getSocket returned null). The
+ * pool entry is found by socket IDENTITY — NOT by re-deriving the current tenant's
+ * pool key. That matters because a release must be matched to its ACQUIRE even when
+ * the active tenant changed in between (e.g. an A-bound hook unmounting after an
+ * A→B switch): re-deriving `getTenantId()` here would compute tenant B's key and
+ * decrement — and prematurely tear down — tenant B's still-live socket
+ * (ORPHAN-MEDIUM-213). When the count reaches 0 the socket is disconnected + evicted.
  */
-export function releaseSocket(url: string): void {
-  const tenantId = getTenantId();
-  if (!tenantId) return;
+export function releaseSocket(socket: Socket | null): void {
+  if (!socket) return; // getSocket returned null → nothing was acquired
 
-  const key = poolKey(url, tenantId);
-  const entry = pool.get(key);
-  if (!entry) return;
+  for (const [key, entry] of pool) {
+    if (entry.socket === socket) {
+      entry.refCount--;
 
-  entry.refCount--;
-
-  if (entry.refCount <= 0) {
-    entry.socket.removeAllListeners();
-    entry.socket.disconnect();
-    pool.delete(key);
+      if (entry.refCount <= 0) {
+        entry.socket.removeAllListeners();
+        entry.socket.disconnect();
+        pool.delete(key);
+      }
+      return;
+    }
   }
+  // Not found → the entry was already evicted by the onTenantChange / logout
+  // teardown. No-op (the refcount for an evicted entry is moot).
 }
 
 /**
@@ -141,10 +151,34 @@ function teardownAllSockets(): void {
   pool.clear();
 }
 
-// Register the logout teardown exactly once at module load. The guard prevents a
-// double-registration if this module is ever re-evaluated (HMR / federation).
-let logoutCleanupRegistered = false;
-if (!logoutCleanupRegistered) {
-  logoutCleanupRegistered = true;
+/**
+ * Disconnect + evict every pooled socket bound to a SPECIFIC tenant.
+ *
+ * SECURITY: Runs on a tenant switch (onTenantChange) so tenant A's realtime sockets
+ * are severed the instant the active tenant changes — they must NOT linger
+ * (refcounted) in the pool until the next logout, where they would keep delivering
+ * tenant-A events (sensor readings, alarms, edge I/O) into the tenant-B session that
+ * reuses the same browser. Mirrors the logout teardown, scoped to one tenant. The
+ * `::${tenantId}` suffix is the tenant half of poolKey(), so endsWith targets exactly
+ * the leaving tenant's entries.
+ */
+function teardownTenantSockets(oldTenantId: string): void {
+  const suffix = `::${oldTenantId}`;
+  for (const [key, entry] of pool) {
+    if (key.endsWith(suffix)) {
+      entry.socket.removeAllListeners();
+      entry.socket.disconnect();
+      pool.delete(key);
+    }
+  }
+}
+
+// Register the logout + tenant-switch teardowns exactly once at module load. The
+// guard prevents a double-registration if this module is ever re-evaluated
+// (HMR / federation).
+let teardownRegistered = false;
+if (!teardownRegistered) {
+  teardownRegistered = true;
   registerLogoutCleanup(teardownAllSockets);
+  onTenantChange(teardownTenantSockets);
 }

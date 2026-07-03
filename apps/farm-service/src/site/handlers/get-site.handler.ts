@@ -1,35 +1,33 @@
 /**
  * Get Site Query Handler
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { NotFoundException } from '@nestjs/common';
-import { GetSiteQuery } from '../queries/get-site.query';
+import { DataSource } from 'typeorm';
+
 import { Site } from '../entities/site.entity';
+import { GetSiteQuery } from '../queries/get-site.query';
 
 @QueryHandler(GetSiteQuery)
 export class GetSiteHandler implements IQueryHandler<GetSiteQuery> {
   constructor(
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetSiteQuery): Promise<Site | null> {
-    const { siteId, tenantId, includeRelations } = query;
+    const { siteId, tenantId } = query;
 
-    const site = await this.siteRepository.findOne({
-      where: { id: siteId, tenantId },
-      // relations: includeRelations ? ['departments'] : [],
+    // Read through the fail-closed tenant boundary. A lost tenant context or a
+    // wrong/un-provisioned tenant schema now throws TenantContextError at the
+    // boundary instead of silently resolving zero rows, so the `null` below is
+    // an honest "no such site" — not a masked connection/search_path failure.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const site = await queryRunner.manager.findOne(Site, {
+        where: { id: siteId, tenantId },
+      });
+      return site ?? null;
     });
-
-    // Return null instead of throwing - allows partial data in GraphQL responses
-    // The site field is nullable, so this is a valid response
-    // This handles connection pool race conditions where search_path might be reset
-    if (!site) {
-      return null;
-    }
-
-    return site;
   }
 }

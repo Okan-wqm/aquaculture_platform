@@ -9,6 +9,7 @@
  * - Search/filter
  */
 
+import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -32,6 +33,11 @@ vi.mock('@aquaculture/shared-ui', () => ({
   }),
   getAccessToken: vi.fn(() => 'test-access-token'),
   getTenantId: vi.fn(() => 'tenant-1'),
+  createTenantQueryKey: (tenantId: string | null | undefined, ...segments: readonly unknown[]) => [
+    'tenant',
+    tenantId,
+    ...segments,
+  ],
 }));
 
 const {

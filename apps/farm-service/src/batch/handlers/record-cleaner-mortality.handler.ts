@@ -5,12 +5,13 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   MORTALITY_REASONS,
   type CleanerFishMortalityRecordedEvent,
@@ -184,8 +185,12 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
-    // Cleaner batch mortality güncelle
+    // Cleaner batch mortality güncelle. currentQuantity MUST drop alongside
+    // totalMortality (mirrors record-mortality.handler) — previously only
+    // totalMortality was bumped, so the live cleaner-fish count never decreased
+    // and drifted permanently above the true stock (FARM-HIGH-102).
     cleanerBatch.totalMortality += payload.quantity;
+    cleanerBatch.currentQuantity = Math.max(0, cleanerBatch.currentQuantity - payload.quantity);
     cleanerBatch.mortalitySummary = {
       ...cleanerBatch.mortalitySummary,
       totalMortality: cleanerBatch.totalMortality,
@@ -254,10 +259,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     // alerting (species-specific mortality-rate thresholds) + Mattilsynet
     // compliance tooling consume this event; skipping it on a successful
     // write would leave ops blind to rate-of-loss trends.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       await queryRunner.manager.save(TankBatch, tankBatch);
       await queryRunner.manager.save(Batch, cleanerBatch);
       await queryRunner.manager.save(MortalityRecord, mortalityRecord);
@@ -280,7 +282,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
         biomassKg,
         reason: toMortalityReasonCode(payload.reason),
         detail: payload.detail,
-        observedAt: payload.observedAt,
+        observedAt: toEventIso(payload.observedAt),
         newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
         newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
         newCleanerBatchTotalMortality: cleanerBatch.totalMortality,
@@ -288,14 +290,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-
-    return cleanerBatch;
+      return cleanerBatch;
+    });
   }
 }

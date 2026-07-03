@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
 from tools.shared.excluded_paths import (
     BASE_EXCLUDED_DIRS as EXCLUDED_DIRS,
     augmented_excluded_paths,
+    is_archived_migration_path,
 )
 
 LANGUAGE_BY_EXT: dict[str, str] = {
@@ -76,6 +77,15 @@ GRAPHQL_ENUM_PATTERN = re.compile(
 SQL_ENUM_PATTERN = re.compile(
     r"CREATE\s+TYPE\s+(\w+)\s+AS\s+ENUM\s*\(([^)]+)\)",
     re.IGNORECASE | re.DOTALL,
+)
+# Rust enum declaration head: `pub enum Foo {` / `enum Foo<T> {`. The body is
+# brace-matched in code (struct variants nest braces, so a flat `[^}]+` like the
+# TS pattern would truncate). Brings ~210k LOC of edge/Rust enums into the same
+# cross-language drift net as TS/SQL/GraphQL (ADR-025 sidecar, event contracts
+# shared across the Rust↔TS boundary).
+RUST_ENUM_HEAD_PATTERN = re.compile(
+    r"(?:pub(?:\s*\([^)]*\))?\s+)?enum\s+([A-Za-z_]\w*)\s*(?:<[^>{]*>)?\s*\{",
+    re.MULTILINE,
 )
 UI_SAFE_CONCEPT_TOKENS: tuple[str, ...] = (
     "status", "type", "state", "phase", "category", "priority",
@@ -211,6 +221,10 @@ def surface_of_path(path: str) -> str:
         return "backend_app"
     if path.startswith(("platform/libs/", "libs/")):
         return "shared_lib"
+    # Rust edge gateway + workspace crates (ADR-025). Previously "unknown",
+    # which hid the edge surface from drift triage.
+    if path.startswith(("sens-api-gateway/", "crates/")) or path.endswith(".rs"):
+        return "edge_source"
     return "unknown"
 
 
@@ -507,6 +521,83 @@ def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     return enums
 
 
+# ─── detect_rust_enums ───────────────────────────────────────────────────
+# Rust variant names from an enum body. Unit (`A`), tuple (`A(x)`), struct
+# (`A { x: u8 }`), and discriminant (`A = 1`) variants all reduce to the
+# leading identifier of each top-level (comma-separated) segment. Depth is
+# tracked on ()[]{} only — NOT <> (shift `<<` in a discriminant would miscount;
+# generics inside variants live within paren/brace depth and are unaffected).
+def _rust_variant_names(body: str) -> list[str]:
+    body = re.sub(r"//[^\n]*", "", body)
+    body = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+    segments: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in body:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            segments.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        segments.append("".join(buf))
+    names: list[str] = []
+    for seg in segments:
+        seg = re.sub(r"#\[[^\]]*\]", "", seg).strip()  # strip variant attributes
+        m = re.match(r"([A-Za-z_]\w*)", seg)
+        if m:
+            names.append(m.group(1))
+    return names
+
+
+def detect_rust_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
+    enums: list[dict] = []
+    for f in fates:
+        if not f.path.endswith(".rs"):
+            continue
+        if is_test_source_path(f.path) or any(
+            seg in f.path for seg in ("/target/", "/fuzz/", "/benches/")
+        ):
+            continue
+        full = repo_root / f.path
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in RUST_ENUM_HEAD_PATTERN.finditer(text):
+            name = m.group(1)
+            open_idx = m.end() - 1  # the '{'
+            depth = 0
+            body = None
+            for i in range(open_idx, len(text)):
+                c = text[i]
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        body = text[open_idx + 1:i]
+                        break
+            if body is None:
+                continue
+            values = sorted(set(_rust_variant_names(body)))
+            if not values:
+                continue
+            line = text[: m.start()].count("\n") + 1
+            enums.append({
+                "name": name,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "rust_enum",
+                "surface": surface_of_path(f.path),
+            })
+    return enums
+
+
 # ─── detect_ts_union_types ───────────────────────────────────────────────
 # Pattern manifest: `type FooStatus = 'a' | 'b' | 'c'`. Modern TS code
 # often uses literal unions instead of enum. The detector only accepts pure
@@ -740,6 +831,13 @@ def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     enums: list[dict] = []
     for f in fates:
         if "/database/migrations/" not in f.path:
+            continue
+        # WHY: archived (superseded) migrations under ``migrations/.archive/``
+        # describe a schema that has since been re-baselined. Comparing a
+        # current TS entity against them emits phantom drift (e.g. the
+        # ``goal`` enum's dropped ``partially_completed``). They stay walked
+        # + fated by discovery; only the drift value-set corpus skips them.
+        if is_archived_migration_path(f.path):
             continue
         full = repo_root / f.path
         try:
@@ -1524,13 +1622,14 @@ def main() -> int:
     ts_const_arrays = detect_ts_const_arrays(repo_root, fates)
     zod_enums = detect_zod_enums(repo_root, fates)
     graphql_enums = detect_graphql_enums(repo_root, fates)
-    ts_value_sets = [*ts_enums, *ts_unions, *ts_const_arrays, *zod_enums, *graphql_enums]
+    rust_enums = detect_rust_enums(repo_root, fates)
+    ts_value_sets = [*ts_enums, *ts_unions, *ts_const_arrays, *zod_enums, *graphql_enums, *rust_enums]
     sql_enums = detect_sql_enums(repo_root, fates)
     ui_option_groups = detect_ui_option_groups(repo_root, fates)
     print(f"[aria-poc]   ts enums: {len(ts_enums)}; ts unions: {len(ts_unions)}; "
           f"const arrays: {len(ts_const_arrays)}; zod enums: {len(zod_enums)}; "
-          f"graphql enums: {len(graphql_enums)}; sql enums: {len(sql_enums)}; "
-          f"ui option groups: {len(ui_option_groups)}")
+          f"graphql enums: {len(graphql_enums)}; rust enums: {len(rust_enums)}; "
+          f"sql enums: {len(sql_enums)}; ui option groups: {len(ui_option_groups)}")
     drifts_above, drifts_filtered = find_drifts(ts_value_sets, sql_enums, args.jaccard_threshold)
     ui_option_groups, frontend_dropdown_drifts = annotate_ui_option_groups(
         ts_value_sets, sql_enums, ui_option_groups, max(args.jaccard_threshold, 0.5),

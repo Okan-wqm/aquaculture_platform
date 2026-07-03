@@ -116,7 +116,7 @@
     "aria:docs:ssot": "jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts",
     "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",
     "aria:ci:all": "npm run aria:compile && npm run aria:test:unit && npm run invariants:fast",
-    "test:bootstrap": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns bootstrap-from-scratch",
+    "test:bootstrap": "jest --config apps/db-migrate/jest.config.cts --runInBand --testPathPatterns bootstrap-from-scratch",
     "test:tenant-clone": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-clone-parity",
     "test:schema-invariants": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns schema-invariants",
     "gates:banned-phrase": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts",
@@ -131,6 +131,7 @@
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
+    "gates:plan-coverage:test": "ts-node --project tools/gates/tsconfig.json tools/gates/plan-coverage-witness.spec.ts",
     "gates:banned-phrase:test": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.spec.ts",
     "gates:lint-baseline:test": "ts-node --project tools/gates/tsconfig.json tools/lint-gates/lint-gates.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/custom-rules.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/eslintrc-flat-parity.spec.ts",
     "toolchain:check": "node tools/toolchain/check-versions.mjs",
@@ -143,6 +144,7 @@
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:migration-deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-deletion-witness.ts",
     "gates:entity-diff-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/entity-diff-witness.ts",
+    "gates:migration-immutability-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-immutability-witness.ts",
     "gates:type-check-spec": "ts-node --project tools/gates/tsconfig.json tools/gates/type-check-spec.ts",
     "gates:signals-manifest": "node scripts/ci/validate-signals-manifest.ts",
     "gates:criticality-manifest": "node scripts/ci/validate-criticality-manifest.ts",
@@ -223,6 +225,7 @@
     "helmet": "^7.2.0",
     "immer": "^11.1.4",
     "ioredis": "^5.8.2",
+    "js-yaml": "^4.1.1",
     "minio": "^8.0.7",
     "modbus-serial": "^8.0.23",
     "motion": "^12.38.0",
@@ -356,6 +359,6 @@
     "vite": "^7.3.5"
   },
   "optionalDependencies": {
-    "@swc/core-linux-x64-gnu": "1.15.10"
+    "@swc/core-linux-x64-gnu": "1.15.41"
   }
 }

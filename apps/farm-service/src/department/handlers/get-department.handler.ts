@@ -1,18 +1,19 @@
 /**
  * Get Department Query Handler
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { NotFoundException } from '@nestjs/common';
-import { GetDepartmentQuery } from '../queries/get-department.query';
+import { DataSource } from 'typeorm';
+
 import { Department } from '../entities/department.entity';
+import { GetDepartmentQuery } from '../queries/get-department.query';
 
 @QueryHandler(GetDepartmentQuery)
 export class GetDepartmentHandler implements IQueryHandler<GetDepartmentQuery> {
   constructor(
-    @InjectRepository(Department)
-    private readonly departmentRepository: Repository<Department>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetDepartmentQuery): Promise<Department | null> {
@@ -21,21 +22,18 @@ export class GetDepartmentHandler implements IQueryHandler<GetDepartmentQuery> {
     const relations: string[] = [];
     if (includeRelations) {
       relations.push('site');
-      // relations.push('equipment');
     }
 
-    const department = await this.departmentRepository.findOne({
-      where: { id: departmentId, tenantId },
-      relations,
+    // Read through the fail-closed tenant boundary. A lost tenant context or a
+    // wrong/un-provisioned tenant schema now throws TenantContextError at the
+    // boundary instead of silently resolving zero rows, so the `null` below is
+    // an honest "no such department" — not a masked search_path failure.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const department = await queryRunner.manager.findOne(Department, {
+        where: { id: departmentId, tenantId },
+        relations,
+      });
+      return department ?? null;
     });
-
-    // Return null instead of throwing - allows partial data in GraphQL responses
-    // The department field is nullable, so this is a valid response
-    // This handles connection pool race conditions where search_path might be reset
-    if (!department) {
-      return null;
-    }
-
-    return department;
   }
 }

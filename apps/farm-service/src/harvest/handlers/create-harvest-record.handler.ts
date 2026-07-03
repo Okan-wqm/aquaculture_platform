@@ -19,12 +19,13 @@
  *
  * @module Harvest/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
@@ -33,6 +34,7 @@ import { CloseBatchCommand, BatchCloseReason } from '../../batch/commands/close-
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
+import { TankBatchService } from '../../batch/services/tank-batch.service';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
@@ -72,6 +74,9 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    // Single SSoT writer for tank composition — harvest decrements the tank's
+    // batchDetails[] through this, never by hand (see the applyBatchDelta call).
+    private readonly tankBatchService: TankBatchService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     // Required param placed before the default-valued ones below.
     private readonly siteAuth: SiteAuthorizationService =
@@ -105,12 +110,10 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     // Parse qualityGrade early (no DB needed)
     const qualityGrade = this.parseQualityGrade(input.qualityGrade);
 
-    // All reads and writes inside a single transaction with pessimistic locks
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    // All reads and writes inside a single transaction with pessimistic locks.
+    // The fail-closed tenant boundary pins search_path + the RLS GUC and
+    // commits / rolls back / releases around the callback.
+    const result = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         tenantId,
@@ -127,8 +130,9 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         if (!replayed) {
           throw new ConflictException('Mobile command receipt response is no longer available');
         }
-        await queryRunner.commitTransaction();
-        return replayed;
+        // Replay short-circuits the write path: no final-harvest close
+        // chain re-runs (the original harvest already dispatched it).
+        return { harvestRecord: replayed, isFinalHarvest: false, recordCode: null };
       }
 
       // Batch bul with pessimistic lock
@@ -348,30 +352,38 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
 
       await queryRunner.manager.save(Batch, batch);
 
-      // TankBatch güncelle (Math.max to prevent negatives from concurrent operations)
+      // TankBatch: route the harvest decrement through the single SSoT writer
+      // (TankBatchService.applyBatchDelta) so batchDetails[] — the per-batch
+      // truth the web + mobile read models render — is decremented in lock-step
+      // with the aggregates, instead of being left stale (the class of drift that
+      // made the web panel show 900 while mobile showed 719). Derives every
+      // aggregate + removes the batch from the composition when it reaches zero.
+      // Mirrors the mortality/cull/transfer write paths (one writer, no drift).
       if (tankBatch) {
-        // Ensure numeric operations (decimal columns may come as strings)
-        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - input.quantityHarvested);
-        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
-        tankBatch.currentQuantity = tankBatch.totalQuantity;
-        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-        if (tankBatch.totalQuantity > 0) {
-          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-          const effectiveVolume = tank.waterVolume || tank.volume;
-          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-        } else {
-          tankBatch.avgWeightG = 0;
-          tankBatch.densityKgM3 = 0;
-        }
-
-        await queryRunner.manager.save(TankBatch, tankBatch);
+        await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          tenantId,
+          input.tankId,
+          {
+            batchId: batch.id,
+            batchNumber: batch.batchNumber,
+            quantityDelta: -input.quantityHarvested,
+            biomassDelta: -biomassKg,
+          },
+          { volumeM3: Number(tank.waterVolume || tank.volume) || 0 },
+        );
       }
 
-      // Tank güncelle (Math.max to prevent negatives)
-      tank.currentBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      tank.currentCount = Math.max(0, (tank.currentCount || 0) - input.quantityHarvested);
-      await queryRunner.manager.save(Tank, tank);
+      // Tank biomass update. currentCount is derived + written by
+      // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
+      // independent count write here (that drifted from tank_batches). biomass-ONLY
+      // UPDATE so it can't clobber the derived currentCount.
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update(Tank)
+        .set({ currentBiomass: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg) })
+        .where('id = :id', { id: tank.id })
+        .execute();
       await this.farmStockProjection.refreshContainers(
         queryRunner.manager,
         tenantId,
@@ -403,7 +415,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         userId: recordedBy,
         batchId: harvestRecord.batchId,
         harvestedQuantity: harvestRecord.quantityHarvested,
-        harvestedAt: harvestRecord.harvestDate,
+        harvestedAt: toEventIso(harvestRecord.harvestDate),
         averageWeight: harvestRecord.averageWeight,
         totalWeight: harvestRecord.totalBiomass,
         isFinal: isFinalHarvest,
@@ -417,86 +429,83 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         responsePayload: { id: harvestRecord.id },
       });
 
-      // Commit transaction (domain writes + outbox row are atomic)
-      await queryRunner.commitTransaction();
+      // Domain writes + outbox row commit atomically when the boundary
+      // commits the callback. The final-harvest close chain runs AFTER the
+      // commit (below), never inside this transaction.
+      return { harvestRecord, isFinalHarvest, recordCode };
+    });
 
-      // ── FINAL-HARVEST → BATCH-CLOSURE CHAIN ─────────────────────────
-      //
-      // A batch whose stock reached 0 must not linger in HARVESTED with no
-      // frozen final metrics: CloseBatchHandler is the single owner of the
-      // CLOSED transition and of freezing finalFCR / mortality /
-      // daysInProduction into the BatchClosed event. Dispatch runs AFTER
-      // commit — CloseBatchHandler opens its own transaction and takes its
-      // own pessimistic_write lock on the batch row, so nesting it inside
-      // this transaction would self-deadlock on the same row.
-      //
-      // Failure policy: the harvest is already committed, so a closure
-      // failure must NOT fail the request. The batch stays in HARVESTED
-      // (the manual-close entry state) and the BatchHarvested event above
-      // carries isFinal=true, so monitoring can detect a final harvest with
-      // no matching BatchClosed.
-      if (isFinalHarvest) {
-        try {
-          await this.commandBus.execute(
-            new CloseBatchCommand({
-              tenantId,
-              batchId: input.batchId,
-              reason: BatchCloseReason.HARVEST_COMPLETED,
-              closedBy: recordedBy,
-              // Empty roles is safe by construction: the OTHER-reason admin
-              // gate in CloseBatchHandler is never reached because the
-              // reason is HARVEST_COMPLETED, not OTHER.
-              userRoles: [],
-              notes: `Auto-close on final harvest ${recordCode}`,
-            }),
+    const { harvestRecord, isFinalHarvest, recordCode } = result;
+
+    // ── FINAL-HARVEST → BATCH-CLOSURE CHAIN ─────────────────────────
+    //
+    // A batch whose stock reached 0 must not linger in HARVESTED with no
+    // frozen final metrics: CloseBatchHandler is the single owner of the
+    // CLOSED transition and of freezing finalFCR / mortality /
+    // daysInProduction into the BatchClosed event. Dispatch runs AFTER
+    // commit — CloseBatchHandler opens its own transaction and takes its
+    // own pessimistic_write lock on the batch row, so nesting it inside
+    // this transaction would self-deadlock on the same row.
+    //
+    // Failure policy: the harvest is already committed, so a closure
+    // failure must NOT fail the request. The batch stays in HARVESTED
+    // (the manual-close entry state) and the BatchHarvested event above
+    // carries isFinal=true, so monitoring can detect a final harvest with
+    // no matching BatchClosed.
+    if (isFinalHarvest) {
+      try {
+        await this.commandBus.execute(
+          new CloseBatchCommand({
+            tenantId,
+            batchId: input.batchId,
+            reason: BatchCloseReason.HARVEST_COMPLETED,
+            closedBy: recordedBy,
+            // Empty roles is safe by construction: the OTHER-reason admin
+            // gate in CloseBatchHandler is never reached because the
+            // reason is HARVEST_COMPLETED, not OTHER.
+            userRoles: [],
+            notes: `Auto-close on final harvest ${recordCode}`,
+          }),
+        );
+      } catch (closeError) {
+        if (closeError instanceof BatchWithdrawalBlockedError) {
+          // Expected compliance gate, NOT a system failure: the batch has
+          // an open medicine-withdrawal period, so CloseBatchHandler
+          // correctly refuses to auto-close (food-safety — Mattilsynet /
+          // EU Reg 37/2010; closing would hide the open treatment). The
+          // operator must close manually with acknowledgeActiveTreatments.
+          // WARN (actionable) not ERROR — no on-call page for correct
+          // behaviour.
+          this.logger.warn(
+            `Final harvest ${recordCode}: batch ${input.batchId} not ` +
+              `auto-closed — open withdrawal period requires a manual ` +
+              `close with acknowledgeActiveTreatments.`,
           );
-        } catch (closeError) {
-          if (closeError instanceof BatchWithdrawalBlockedError) {
-            // Expected compliance gate, NOT a system failure: the batch has
-            // an open medicine-withdrawal period, so CloseBatchHandler
-            // correctly refuses to auto-close (food-safety — Mattilsynet /
-            // EU Reg 37/2010; closing would hide the open treatment). The
-            // operator must close manually with acknowledgeActiveTreatments.
-            // WARN (actionable) not ERROR — no on-call page for correct
-            // behaviour.
-            this.logger.warn(
-              `Final harvest ${recordCode}: batch ${input.batchId} not ` +
-                `auto-closed — open withdrawal period requires a manual ` +
-                `close with acknowledgeActiveTreatments.`,
-            );
-          } else if (
-            closeError instanceof BadRequestException &&
-            (closeError as Error).message.includes('zaten kapatılmış')
-          ) {
-            // Idempotent double-final-harvest race: a concurrent close
-            // already moved the batch to CLOSED. Benign — DEBUG not ERROR.
-            this.logger.debug(
-              `Final harvest ${recordCode}: batch ${input.batchId} already ` +
-                `CLOSED (idempotent no-op).`,
-            );
-          } else {
-            // Genuine closure failure: harvest committed but batch stuck in
-            // HARVESTED. ERROR for on-call; manual closeBatch is the remedy.
-            this.logger.error(
-              `Final harvest ${recordCode} committed but auto-close of batch ` +
-                `${input.batchId} failed — batch remains HARVESTED; close ` +
-                `manually via closeBatch. Reason: ${(closeError as Error).message}`,
-              (closeError as Error).stack,
-            );
-          }
+        } else if (
+          closeError instanceof BadRequestException &&
+          (closeError as Error).message.includes('zaten kapatılmış')
+        ) {
+          // Idempotent double-final-harvest race: a concurrent close
+          // already moved the batch to CLOSED. Benign — DEBUG not ERROR.
+          this.logger.debug(
+            `Final harvest ${recordCode}: batch ${input.batchId} already ` +
+              `CLOSED (idempotent no-op).`,
+          );
+        } else {
+          // Genuine closure failure: harvest committed but batch stuck in
+          // HARVESTED. ERROR for on-call; manual closeBatch is the remedy.
+          this.logger.error(
+            `Final harvest ${recordCode} committed but auto-close of batch ` +
+              `${input.batchId} failed — batch remains HARVESTED; close ` +
+              `manually via closeBatch. Reason: ${(closeError as Error).message}`,
+            (closeError as Error).stack,
+          );
         }
       }
-
-      // Return the created harvest record so clients get harvest-specific fields
-      return harvestRecord;
-    } catch (error) {
-      // Rollback transaction on any error
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      // Release query runner
-      await queryRunner.release();
     }
+
+    // Return the created harvest record so clients get harvest-specific fields
+    return harvestRecord;
   }
 
   /**

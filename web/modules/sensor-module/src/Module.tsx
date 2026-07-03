@@ -48,6 +48,11 @@ const PlcAlarmsPage = lazy(() => import('./pages/plc/PlcAlarmsPage'));
 // VFD Programming Page (lazy loaded)
 const VfdProgrammingPage = lazy(() => import('./pages/VfdProgrammingPage'));
 
+// Water Chemistry Monitoring (lazy — recharts drill-down arrives in P1)
+const WaterChemistryMonitoringPage = lazy(
+  () => import('./pages/water-chemistry/WaterChemistryMonitoringPage'),
+);
+
 // Loading fallback
 function PageLoader() {
   return (
@@ -77,6 +82,11 @@ const SensorModule: React.FC = () => {
 
         {/* Widget Dashboard - Customizable widgets */}
         <Route path="widgets" element={<WidgetDashboardPage />} />
+
+        {/* Water Chemistry Monitoring (per-scope resolved parameters + provenance) */}
+        <Route path="water-chemistry" element={<WaterChemistryMonitoringPage />} />
+        <Route path="water-chemistry/:scopeKind/:scopeId" element={<WaterChemistryMonitoringPage />} />
+
 
         {/* Devices */}
         <Route path="devices" element={<DevicesPage />} />

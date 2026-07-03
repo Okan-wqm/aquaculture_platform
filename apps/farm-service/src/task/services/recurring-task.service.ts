@@ -47,17 +47,8 @@ export class RecurringTaskService {
   // -------------------------------------------------------------------------
 
   /**
-   * Tüm tekrarlayan şablonları listeler
-   */
-  async findAll(tenantId: string): Promise<RecurringTemplate[]> {
-    return this.templateRepository.find({
-      where: { tenantId },
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  /**
-   * ID ile şablon bulur
+   * ID ile şablon bulur (internal write-path helper; the GraphQL
+   * recurringTemplate(id) read goes through GetRecurringTemplateHandler).
    */
   async findById(tenantId: string, id: string): Promise<RecurringTemplate> {
     const template = await this.templateRepository.findOne({

@@ -9,3 +9,7 @@ export * from './get-employee-kpis.query';
 export * from './get-team-goals.query';
 export * from './get-overdue-goals.query';
 export * from './get-performance-summary.query';
+export * from './get-team-performance-overview.query';
+export * from './get-department-kpis.query';
+export * from './get-review-cycle-status.query';
+export * from './get-goal-progress-trend.query';

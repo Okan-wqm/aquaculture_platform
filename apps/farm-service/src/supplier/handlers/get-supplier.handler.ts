@@ -1,9 +1,10 @@
 /**
  * Get Supplier Query Handler
  */
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { GetSupplierQuery } from '../queries/get-supplier.query';
 import { Supplier } from '../entities/supplier.entity';
@@ -11,21 +12,24 @@ import { Supplier } from '../entities/supplier.entity';
 @QueryHandler(GetSupplierQuery)
 export class GetSupplierHandler implements IQueryHandler<GetSupplierQuery> {
   constructor(
-    @InjectRepository(Supplier)
-    private readonly supplierRepository: Repository<Supplier>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetSupplierQuery): Promise<Supplier> {
     const { supplierId, tenantId } = query;
 
-    const supplier = await this.supplierRepository.findOne({
-      where: { id: supplierId, tenantId },
+    // Read through the fail-closed tenant boundary.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const supplier = await queryRunner.manager.findOne(Supplier, {
+        where: { id: supplierId, tenantId },
+      });
+
+      if (!supplier) {
+        throw new NotFoundException(`Supplier with ID "${supplierId}" not found`);
+      }
+
+      return supplier;
     });
-
-    if (!supplier) {
-      throw new NotFoundException(`Supplier with ID "${supplierId}" not found`);
-    }
-
-    return supplier;
   }
 }

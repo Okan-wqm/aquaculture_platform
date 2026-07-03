@@ -34,6 +34,7 @@ import {
   WorkOrderFilter,
   CreateWorkOrderInput,
 } from '../../hooks/useMaintenance';
+import { isBlockingError } from '../../utils/list-view-state';
 
 // ============================================================================
 // CONSTANTS
@@ -567,7 +568,10 @@ export const WorkOrdersPage: React.FC = () => {
   // RENDER
   // -------------------------------------------------------------------------
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // data. A failed background refetch with cached data keeps rendering the list
+  // and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="p-6">
         <Alert type="error">İş emirleri yüklenirken bir hata oluştu.</Alert>
@@ -577,6 +581,16 @@ export const WorkOrdersPage: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
+      {error && (
+        <Alert
+          type="warning"
+          action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
+        >
+          İş emirleri yenilenemedi — son yüklenen veriler gösteriliyor.
+        </Alert>
+      )}
+
       {/* Feedback Alert */}
       {feedback && (
         <Alert type={feedback.type}>

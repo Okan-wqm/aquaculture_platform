@@ -1,4 +1,5 @@
 export * from './create-performance-review.command';
+export * from './bulk-create-reviews.command';
 export * from './submit-self-assessment.command';
 export * from './submit-manager-assessment.command';
 export * from './finalize-review.command';

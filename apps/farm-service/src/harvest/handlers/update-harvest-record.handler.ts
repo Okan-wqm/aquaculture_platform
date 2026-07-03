@@ -17,12 +17,13 @@
  *
  * @module Harvest/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type HarvestRecordUpdatedEvent,
 } from '@platform/event-contracts';
@@ -60,11 +61,7 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
   async execute(command: UpdateHarvestRecordCommand): Promise<HarvestRecord> {
     const { tenantId, harvestRecordId, data, updatedBy } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Pessimistic write lock: concurrent updates produce last-write-wins without
       // conflict detection — lock serialises concurrent callers at the DB level.
       const harvestRecord = await queryRunner.manager.findOne(HarvestRecord, {
@@ -103,17 +100,11 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
         newQuantityHarvested: saved.quantityHarvested,
         newTotalBiomass: Number(saved.totalBiomass),
         newStatus: saved.status,
-        updatedAt: new Date(),
+        updatedAt: toEventIso(new Date()),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

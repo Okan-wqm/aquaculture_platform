@@ -10,7 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -190,8 +190,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       return graphqlClient.request(UPDATE_REGULATORY_SETTINGS, { input });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'regulatorySettings') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'regulatoryConfigurationStatus') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'regulatorySettings') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'regulatoryConfigurationStatus') });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     },

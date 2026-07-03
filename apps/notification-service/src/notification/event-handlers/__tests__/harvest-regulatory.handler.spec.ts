@@ -34,7 +34,7 @@ function makeEvent(
     harvestedQuantity: 200,
     totalWeight: 90,
     averageWeight: 450,
-    harvestedAt: new Date('2026-06-10T08:00:00.000Z'),
+    harvestedAt: '2026-06-10T08:00:00.000Z',
     harvestedBy: OPERATOR,
     isFinal: false,
     ...overrides,

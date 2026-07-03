@@ -64,6 +64,9 @@
       "@aquaculture/backend-common/database": [
         "libs/backend-common/src/database/index.ts"
       ],
+      "@aquaculture/backend-common/dataloader": [
+        "libs/backend-common/src/dataloader/index.ts"
+      ],
       "@aquaculture/backend-common/decorators": [
         "libs/backend-common/src/decorators/index.ts"
       ],

@@ -254,10 +254,7 @@ describe('Site tenant isolation on real Postgres', () => {
   let pg: HarnessContext | undefined;
   let dataSource: DataSource | undefined;
   let siteRepository: Repository<Site>;
-  let systemRepository: Repository<System>;
-  let departmentRepository: Repository<Department>;
   let equipmentRepository: Repository<Equipment>;
-  let equipmentSystemRepository: Repository<EquipmentSystem>;
   let equipmentTypeRepository: Repository<EquipmentType>;
   let sentinelSettingsRepository: Repository<SentinelHubSettings>;
   let tankRepository: Repository<Tank>;
@@ -345,10 +342,7 @@ describe('Site tenant isolation on real Postgres', () => {
     );
 
     siteRepository = dataSource.getRepository(Site);
-    systemRepository = dataSource.getRepository(System);
-    departmentRepository = dataSource.getRepository(Department);
     equipmentRepository = dataSource.getRepository(Equipment);
-    equipmentSystemRepository = dataSource.getRepository(EquipmentSystem);
     sentinelSettingsRepository = dataSource.getRepository(SentinelHubSettings);
     tankRepository = dataSource.getRepository(Tank);
     feedRepository = dataSource.getRepository(Feed);
@@ -396,8 +390,8 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getSite: new GetSiteHandler(siteRepository),
-      listSites: new ListSitesHandler(siteRepository),
+      getSite: new GetSiteHandler(dataSource),
+      listSites: new ListSitesHandler(dataSource),
       updateSite: new UpdateSiteHandler(
         dataSource,
         auditLogService,
@@ -413,8 +407,8 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getSystem: new GetSystemHandler(systemRepository),
-      listSystems: new ListSystemsHandler(systemRepository),
+      getSystem: new GetSystemHandler(dataSource),
+      listSystems: new ListSystemsHandler(dataSource),
       updateSystem: new UpdateSystemHandler(
         dataSource,
         auditLogService,
@@ -425,18 +419,14 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getSystemDeletePreview: new GetSystemDeletePreviewHandler(
-        systemRepository,
-        equipmentRepository,
-        equipmentSystemRepository,
-      ),
+      getSystemDeletePreview: new GetSystemDeletePreviewHandler(dataSource),
       createDepartment: new CreateDepartmentHandler(
         dataSource,
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getDepartment: new GetDepartmentHandler(departmentRepository),
-      listDepartments: new ListDepartmentsHandler(departmentRepository),
+      getDepartment: new GetDepartmentHandler(dataSource),
+      listDepartments: new ListDepartmentsHandler(dataSource),
       updateDepartment: new UpdateDepartmentHandler(
         dataSource,
         auditLogService,
@@ -447,11 +437,7 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getDepartmentDeletePreview: new GetDepartmentDeletePreviewHandler(
-        departmentRepository,
-        equipmentRepository,
-        tankRepository,
-      ),
+      getDepartmentDeletePreview: new GetDepartmentDeletePreviewHandler(dataSource),
       createEquipment: new CreateEquipmentHandler(
         dataSource,
         auditLogService,
@@ -459,12 +445,7 @@ describe('Site tenant isolation on real Postgres', () => {
         tankEquipmentAdapter,
       ),
       getEquipment: new GetEquipmentHandler(dataSource, tankEquipmentAdapter),
-      listEquipment: new ListEquipmentHandler(
-        equipmentRepository,
-        tankRepository,
-        equipmentTypeRepository,
-        dataSource,
-      ),
+      listEquipment: new ListEquipmentHandler(dataSource),
       updateEquipment: new UpdateEquipmentHandler(
         dataSource,
         auditLogService,
@@ -483,8 +464,8 @@ describe('Site tenant isolation on real Postgres', () => {
         new OutboxPublisher(FarmOutbox),
       ),
       createTank: createTankHandler,
-      getTank: new GetTankHandler(tankRepository),
-      listTanks: new ListTanksHandler(tankRepository),
+      getTank: new GetTankHandler(dataSource),
+      listTanks: new ListTanksHandler(dataSource),
       updateTank: updateTankHandler,
       updateTankStatus: new UpdateTankStatusHandler(
         dataSource,
@@ -493,16 +474,11 @@ describe('Site tenant isolation on real Postgres', () => {
         farmStockProjection,
       ),
       deleteTank: deleteTankHandler,
-      createFeed: new CreateFeedHandler(
-        feedRepository,
-        unusedRepository<Supplier>(),
-        siteRepository,
-        unusedRepository<Species>(),
-      ),
-      getFeed: new GetFeedHandler(feedRepository),
-      listFeeds: new ListFeedsHandler(feedRepository),
-      updateFeed: new UpdateFeedHandler(feedRepository, unusedRepository<Supplier>()),
-      deleteFeed: new DeleteFeedHandler(feedRepository),
+      createFeed: new CreateFeedHandler(dataSource),
+      getFeed: new GetFeedHandler(dataSource),
+      listFeeds: new ListFeedsHandler(dataSource),
+      updateFeed: new UpdateFeedHandler(dataSource),
+      deleteFeed: new DeleteFeedHandler(dataSource),
       addFeedInventory: new AddFeedInventoryHandler(
         inventoryRepository,
         feedRepository,
@@ -515,14 +491,14 @@ describe('Site tenant isolation on real Postgres', () => {
         dataSource,
         new OutboxPublisher(FarmOutbox),
       ),
-      getFeedInventory: new GetFeedInventoryHandler(inventoryRepository),
+      getFeedInventory: new GetFeedInventoryHandler(dataSource),
       parameterConfigCache,
       createParameterConfig: new CreateParameterConfigHandler(
         parameterConfigRepository,
         parameterConfigCache,
       ),
-      getParameterConfig: new GetParameterConfigHandler(parameterConfigRepository),
-      listParameterConfigs: new ListParameterConfigsHandler(parameterConfigRepository),
+      getParameterConfig: new GetParameterConfigHandler(dataSource),
+      listParameterConfigs: new ListParameterConfigsHandler(dataSource),
       updateParameterConfig: new UpdateParameterConfigHandler(
         parameterConfigRepository,
         parameterConfigCache,
@@ -534,7 +510,7 @@ describe('Site tenant isolation on real Postgres', () => {
       // SentinelHubService no longer holds an encryption key: the entity's
       // AES-256-GCM column transformer reads SENTINEL_HUB_ENCRYPTION_KEY from
       // process.env (set in beforeAll) and encrypts/decrypts transparently.
-      sentinelHub: new SentinelHubService(sentinelSettingsRepository),
+      sentinelHub: new SentinelHubService(sentinelSettingsRepository, dataSource),
       setSupplierApprovedSites: new SetSupplierApprovedSitesHandler(
         dataSource,
         new OutboxPublisher(FarmOutbox),

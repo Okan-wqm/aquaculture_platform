@@ -1,15 +1,14 @@
 /**
  * GetSiteDeletePreviewHandler — Unit Tests
  *
- * Closes a long-standing preview bug: the per-system `equipmentCount`
- * was hard-coded to 0 with a `// TODO: Query EquipmentSystem junction
- * table` comment, which meant the delete confirmation modal reported
- * every system as empty even when it had active equipment attached
- * through the `equipment_systems` junction. An operator could
- * accept the delete believing nothing would be affected.
+ * Reads now flow through the fail-closed tenant boundary
+ * (`runInTenantRead`): every domain query runs inside an explicit
+ * read-only transaction whose `current_schema()` + RLS GUC are asserted
+ * before the first row is read, so a lost tenant context throws a typed
+ * error instead of silently resolving against the source `farm` schema.
  *
- * The handler now joins through `EquipmentSystem` to aggregate per
- * (tenantId, systemId). Tests pin:
+ * These tests pin the same behaviour the repository-based handler used
+ * to guarantee:
  *
  *   1. Systems with equipment get the correct count (per junction).
  *   2. Systems without equipment get 0 — no ghost count.
@@ -17,11 +16,13 @@
  *      BOTH — reflects the real many-to-many relationship.
  *   4. Only the target tenant's junction rows are considered.
  *   5. NotFoundException is still thrown for a missing site (existing
- *      contract preserved).
+ *      contract preserved, raised INSIDE the boundary).
  *   6. Biomass blocker still triggers `canDelete = false`.
  */
 import { NotFoundException } from '@nestjs/common';
-import type { Repository } from 'typeorm';
+import { EntityTarget, ObjectLiteral } from 'typeorm';
+
+import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetSiteDeletePreviewHandler } from '../handlers/get-site-delete-preview.handler';
 import { GetSiteDeletePreviewQuery } from '../queries/get-site-delete-preview.query';
@@ -32,18 +33,21 @@ import { Equipment } from '../../equipment/entities/equipment.entity';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 
-interface RepoMock {
-  findOne: jest.Mock;
-  find: jest.Mock;
-  createQueryBuilder: jest.Mock;
+const SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+interface Qb {
+  where: jest.Mock;
+  andWhere: jest.Mock;
+  getMany: jest.Mock;
 }
 
-function makeQb(rows: unknown[]): { getMany: jest.Mock; andWhere: jest.Mock; where: jest.Mock } {
-  const qb: any = {
+function makeQb(rows: unknown[]): Qb {
+  const qb: Qb = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
     getMany: jest.fn().mockResolvedValue(rows),
   };
-  qb.where = jest.fn().mockReturnValue(qb);
-  qb.andWhere = jest.fn().mockReturnValue(qb);
   return qb;
 }
 
@@ -58,51 +62,46 @@ function makeHandler(opts: {
   handler: GetSiteDeletePreviewHandler;
   equipmentSystemFind: jest.Mock;
 } {
-  const siteRepo: RepoMock = {
-    findOne: jest.fn().mockResolvedValue(opts.site),
-    find: jest.fn(),
-    createQueryBuilder: jest.fn(),
-  };
-  const departmentRepo: RepoMock = {
-    findOne: jest.fn(),
-    find: jest.fn().mockResolvedValue(opts.departments),
-    createQueryBuilder: jest.fn(),
-  };
-  const systemRepo: RepoMock = {
-    findOne: jest.fn(),
-    find: jest.fn().mockResolvedValue(opts.systems),
-    createQueryBuilder: jest.fn(),
-  };
-  const tankRepo: RepoMock = {
-    findOne: jest.fn(),
-    find: jest.fn(),
-    createQueryBuilder: jest.fn().mockReturnValue(makeQb(opts.tanks)),
-  };
-  const equipmentRepo: RepoMock = {
-    findOne: jest.fn(),
-    find: jest.fn(),
-    createQueryBuilder: jest.fn().mockReturnValue(makeQb(opts.equipment)),
-  };
-  const equipmentSystemFind = jest.fn().mockResolvedValue(opts.equipmentSystemLinks);
-  const equipmentSystemRepo: RepoMock = {
-    findOne: jest.fn(),
-    find: equipmentSystemFind,
-    createQueryBuilder: jest.fn(),
-  };
+  const { mockDataSource, mockManager } = createMockDataSource();
 
-  const handler = new GetSiteDeletePreviewHandler(
-    siteRepo as unknown as Repository<Site>,
-    departmentRepo as unknown as Repository<Department>,
-    systemRepo as unknown as Repository<System>,
-    equipmentRepo as unknown as Repository<Equipment>,
-    equipmentSystemRepo as unknown as Repository<EquipmentSystem>,
-    tankRepo as unknown as Repository<Tank>,
+  // findOne(Site) → site; find(Department/System/EquipmentSystem) keyed
+  // by entity so call-order independence holds.
+  (mockManager.findOne as jest.Mock).mockResolvedValue(opts.site);
+
+  const equipmentSystemFind = jest
+    .fn()
+    .mockResolvedValue(opts.equipmentSystemLinks);
+
+  (mockManager.find as jest.Mock).mockImplementation(
+    (entity: EntityTarget<ObjectLiteral>, options?: unknown) => {
+      if (entity === Department) {
+        return Promise.resolve(opts.departments);
+      }
+      if (entity === System) {
+        return Promise.resolve(opts.systems);
+      }
+      if (entity === EquipmentSystem) {
+        return equipmentSystemFind(options);
+      }
+      return Promise.resolve([]);
+    },
   );
+
+  mockManager.createQueryBuilder = jest
+    .fn()
+    .mockImplementation((entity: EntityTarget<ObjectLiteral>) => {
+      if (entity === Tank) {
+        return makeQb(opts.tanks);
+      }
+      if (entity === Equipment) {
+        return makeQb(opts.equipment);
+      }
+      return makeQb([]);
+    }) as typeof mockManager.createQueryBuilder;
+
+  const handler = new GetSiteDeletePreviewHandler(mockDataSource);
   return { handler, equipmentSystemFind };
 }
-
-const SITE_ID = 'site-1';
-const TENANT = 'tenant-1';
 
 describe('GetSiteDeletePreviewHandler', () => {
   it('throws NotFoundException when the site does not exist', async () => {
@@ -218,20 +217,19 @@ describe('GetSiteDeletePreviewHandler', () => {
   });
 
   it('reports a blocker when tanks contain active biomass', async () => {
+    const tank: Partial<Tank> = {
+      id: 't1',
+      tenantId: TENANT,
+      departmentId: 'dept-1',
+      name: 'T1',
+      code: 'T1',
+      currentBiomass: 450,
+    };
     const { handler } = makeHandler({
       site: { id: SITE_ID, tenantId: TENANT, name: 'Site-1' },
       departments: [{ id: 'dept-1', tenantId: TENANT, name: 'D1', code: 'D1' }],
       systems: [],
-      tanks: [
-        {
-          id: 't1',
-          tenantId: TENANT,
-          departmentId: 'dept-1',
-          name: 'T1',
-          code: 'T1',
-          currentBiomass: '450',
-        } as unknown as Tank,
-      ],
+      tanks: [tank],
       equipment: [],
       equipmentSystemLinks: [],
     });

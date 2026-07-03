@@ -40,7 +40,7 @@ export interface SubscriptionCreatedEvent extends BaseEvent {
   tier: PlanTier;
   monthlyPrice: number;
   currency: string;
-  startDate: Date;
+  startDate: string;
   /** Typed feature flags — replaces Record<string, unknown> for compile-time safety. */
   features: SubscriptionFeatures;
 }
@@ -54,7 +54,7 @@ export interface SubscriptionUpdatedEvent extends BaseEvent {
   tier?: PlanTier;
   monthlyPrice?: number;
   currency?: string;
-  startDate?: Date;
+  startDate?: string;
   /** Whether this update is a downgrade from a higher tier. */
   isDowngrade?: boolean;
   /** The plan tier before this update (e.g., 'professional' before downgrade to 'starter'). */
@@ -69,8 +69,8 @@ export interface SubscriptionUpdatedEvent extends BaseEvent {
 export interface SubscriptionCancelledEvent extends BaseEvent {
   eventType: 'SubscriptionCancelled';
   subscriptionId: string;
-  cancellationDate: Date;
-  effectiveEndDate: Date;
+  cancellationDate: string;
+  effectiveEndDate: string;
   reason?: string;
 }
 
@@ -101,7 +101,7 @@ export interface SubscriptionPlanChangedEvent extends BaseEvent {
   proRataCredit: number;
   currency: string;
   isUpgrade: boolean;
-  effectiveDate: Date;
+  effectiveDate: string;
 }
 
 /**
@@ -116,9 +116,9 @@ export interface InvoiceGeneratedEvent extends BaseEvent {
   tax: number;
   total: number;
   currency: string;
-  dueDate: Date;
-  billingPeriodStart: Date;
-  billingPeriodEnd: Date;
+  dueDate: string;
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
 }
 
 /**
@@ -132,7 +132,7 @@ export interface PaymentReceivedEvent extends BaseEvent {
   currency: string;
   paymentMethod: string;
   transactionId?: string;
-  paidAt: Date;
+  paidAt: string;
 }
 
 /**
@@ -163,7 +163,7 @@ export interface PaymentRefundedEvent extends BaseEvent {
   reason: string;
   refundId?: string;
   isFullRefund: boolean;
-  refundedAt: Date;
+  refundedAt: string;
 }
 
 /**
@@ -175,7 +175,7 @@ export interface InvoiceOverdueEvent extends BaseEvent {
   invoiceNumber: string;
   amount: number;
   currency: string;
-  dueDate: Date;
+  dueDate: string;
   daysOverdue: number;
 }
 

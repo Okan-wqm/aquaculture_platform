@@ -8,7 +8,7 @@
  * Workflow: Start Count -> Enter Quantities -> Submit -> Approve -> Auto-adjust inventory
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types — mirror the backend GraphQL schema for inventory counts
@@ -280,8 +280,8 @@ export function useCreateInventoryCount() {
       return data.createInventoryCount;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'inventoryCounts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'inventoryCounts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
     },
   });
 }
@@ -305,8 +305,8 @@ export function useUpdateInventoryCountItems() {
       return data.updateInventoryCountItems;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'inventoryCounts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'inventoryCounts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
     },
   });
 }
@@ -330,8 +330,8 @@ export function useSubmitInventoryCount() {
       return data.submitInventoryCount;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'inventoryCounts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'inventoryCounts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
     },
   });
 }
@@ -355,10 +355,10 @@ export function useApproveInventoryCount() {
       return data.approveInventoryCount;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'inventoryCounts') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockMovements') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'inventoryCounts') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
     },
   });
 }

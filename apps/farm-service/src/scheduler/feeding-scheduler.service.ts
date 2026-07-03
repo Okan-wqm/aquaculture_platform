@@ -33,6 +33,7 @@ import {
 import {
   listTenantSchemas,
   tenantManagerRepo,
+  TenantContextError,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
 import {
@@ -552,6 +553,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
         feedCost,
       };
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.error(`Failed to execute feeding schedule ${scheduleId}: ${error}`);
       return {
         success: false,

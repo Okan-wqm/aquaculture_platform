@@ -66,8 +66,11 @@ FROM nginx:1.27.3-alpine
 # Install curl for health checks
 RUN apk add --no-cache curl
 
-# Copy nginx config
+# Copy nginx config + the security-headers snippet it includes (SEC-MEDIUM-052).
+# The include path (/etc/nginx/snippets/security-headers.conf) must match the
+# `include` directives in aquamobil.conf, or nginx fails to start.
 COPY infrastructure/docker/nginx/aquamobil.conf /etc/nginx/conf.d/default.conf
+COPY infrastructure/docker/nginx/snippets/security-headers.conf /etc/nginx/snippets/security-headers.conf
 
 # Copy built files
 COPY --from=builder /monorepo/web/apps/aquamobil/dist /usr/share/nginx/html

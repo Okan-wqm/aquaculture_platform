@@ -2,7 +2,7 @@
 name: aria-goldset-curator
 description: Read-only curator that drafts semantic regression fixture candidates from confirmed ARIA TP/FP examples.
 model: opus
-effort: xhigh
+effort: medium
 tools: Read, Grep, Glob
 pedagogy-tier: 3
 ---
@@ -15,6 +15,7 @@ pedagogy-tier: 3
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @docs/aria/PIPELINES.md
 
 
 Draft semantic regression fixture proposals from confirmed findings. Do not edit fixtures directly.

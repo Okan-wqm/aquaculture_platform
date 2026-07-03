@@ -163,7 +163,20 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _refresh_index(repo_root: Path) -> dict[str, Any]:
-    event_rows = load_declared_jsonl(_events_path(repo_root), expected_surface="repo_debt_events")
+    # ORPHAN-MEDIUM-307 — the index is DERIVED from the (uncommitted)
+    # debt-events ledger, but the index itself is COMMITTED audit
+    # content. On a fresh checkout the ledger is absent; deriving from
+    # nothing must never clobber the committed truth — an absent source
+    # ledger with an existing index is a read-only situation, not an
+    # empty-derivation write.
+    events_path = _events_path(repo_root)
+    index_path = _index_path(repo_root)
+    if not events_path.exists() and index_path.exists():
+        try:
+            return json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    event_rows = load_declared_jsonl(events_path, expected_surface="repo_debt_events")
     source_tip = event_rows[-1].get("ledger_hash") if event_rows else None
     index: dict[str, Any] = {
         "schema_version": 2,

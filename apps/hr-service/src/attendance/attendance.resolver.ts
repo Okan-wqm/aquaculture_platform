@@ -25,6 +25,7 @@ import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from './entities/a
 import { Shift, ShiftType } from './entities/shift.entity';
 import {
   GetShiftsQuery,
+  GetShiftQuery,
   GetAttendanceRecordsQuery,
   GetAttendanceSummaryQuery,
   GetPendingAttendanceApprovalsQuery,
@@ -131,6 +132,15 @@ export class AttendanceResolver {
       new GetShiftsQuery(tenantId, isActive, shiftType, limit, page),
     );
     return fromCqrsPaginated(result);
+  }
+
+  @Query(() => Shift, { name: 'shift' })
+  async getShift(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<Shift> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute<GetShiftQuery, Shift>(new GetShiftQuery(tenantId, id));
   }
 
   // =====================

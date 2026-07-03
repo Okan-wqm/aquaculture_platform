@@ -196,13 +196,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       batchDomainService,
       stockMovementService,
     );
-    getFeedingRecords = new GetFeedingRecordsHandler(feedingRecordRepository);
-    getFeedingSummary = new GetFeedingSummaryHandler(
-      feedingRecordRepository,
-      batchRepository,
-      tankRepository,
-      feedRepository,
-    );
+    getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
+    getFeedingSummary = new GetFeedingSummaryHandler(dataSource);
   });
 
   afterAll(async () => {

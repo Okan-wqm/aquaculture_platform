@@ -1,12 +1,35 @@
 import { DataSource } from 'typeorm';
 
+import { TenantContextError } from '../tenant-context-error';
 import {
+  assertSourceReadContext,
+  assertTenantTransactionContext,
   pinTenantTransactionSearchPath,
   runInTenantTransaction,
+  TenantContextQueryExecutor,
 } from '../tenant-transaction';
 
 describe('tenant transaction helpers', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const tenantSchema = 'tenant_aaaaaaaaaaaa4aaa';
+
+  /**
+   * Build a minimal `Pick<QueryRunner, 'query'>` whose `current_schema()`
+   * readback returns `assertRow` (and `undefined` for every other statement).
+   * When `assertRow` is undefined the assertion treats it as "no live
+   * connection" and skips. Returns both the narrowed runner and the raw mock
+   * so tests can assert on the issued SQL without a cast.
+   */
+  const makeQueryRunner = (
+    assertRow?: { schema: string | null; tenant: string | null },
+  ): { runner: TenantContextQueryExecutor; query: jest.Mock } => {
+    const query = jest.fn((sql: string) =>
+      sql.includes('current_schema()')
+        ? Promise.resolve(assertRow ? [assertRow] : undefined)
+        : Promise.resolve(undefined),
+    );
+    return { runner: { query }, query };
+  };
 
   it('pins transaction-local search_path to tenant schema before work runs', async () => {
     const queryRunner = {
@@ -74,5 +97,76 @@ describe('tenant transaction helpers', () => {
     ).rejects.toThrow('invalid tenantId');
 
     expect(queryRunner.query).not.toHaveBeenCalled();
+  });
+
+  describe('assertTenantTransactionContext', () => {
+    it('sets the RLS GUC transaction-locally and passes when schema + tenant match', async () => {
+      const { runner, query } = makeQueryRunner({ schema: tenantSchema, tenant: tenantId });
+
+      await expect(
+        assertTenantTransactionContext(runner, 'farm', tenantId),
+      ).resolves.toBeUndefined();
+
+      expect(query).toHaveBeenCalledWith(`SELECT set_config($1, $2, true)`, [
+        'app.current_tenant',
+        tenantId,
+      ]);
+    });
+
+    it('throws SCHEMA_MISMATCH when current_schema fell back to the source schema', async () => {
+      const { runner } = makeQueryRunner({ schema: 'farm', tenant: tenantId });
+
+      await expect(
+        assertTenantTransactionContext(runner, 'farm', tenantId),
+      ).rejects.toMatchObject({ state: 'SCHEMA_MISMATCH', resolvedSchema: 'farm' });
+    });
+
+    it('throws RLS_MISMATCH (TenantContextError) when the RLS GUC resolves empty', async () => {
+      const { runner } = makeQueryRunner({ schema: tenantSchema, tenant: '' });
+
+      await expect(
+        assertTenantTransactionContext(runner, 'farm', tenantId),
+      ).rejects.toBeInstanceOf(TenantContextError);
+    });
+
+    it('skips assertion (no live connection) when readback returns no row', async () => {
+      const { runner } = makeQueryRunner(undefined);
+
+      await expect(
+        assertTenantTransactionContext(runner, 'farm', tenantId),
+      ).resolves.toBeUndefined();
+    });
+  });
+});
+
+describe('assertSourceReadContext', () => {
+  it('passes when current_schema resolves to the source schema', async () => {
+    const executor: TenantContextQueryExecutor = {
+      query: jest.fn().mockResolvedValue([{ schema: 'farm' }]),
+    };
+    await expect(assertSourceReadContext(executor, 'farm')).resolves.toBeUndefined();
+  });
+
+  it('throws SCHEMA_MISMATCH when current_schema resolves to a tenant schema', async () => {
+    const executor: TenantContextQueryExecutor = {
+      query: jest.fn().mockResolvedValue([{ schema: 'tenant_abc' }]),
+    };
+    await expect(assertSourceReadContext(executor, 'farm')).rejects.toBeInstanceOf(
+      TenantContextError,
+    );
+  });
+
+  it('skips the assertion when the connection returns no row (unit-test mock)', async () => {
+    const executor: TenantContextQueryExecutor = {
+      query: jest.fn().mockResolvedValue([]),
+    };
+    await expect(assertSourceReadContext(executor, 'farm')).resolves.toBeUndefined();
+  });
+
+  it('rejects an invalid source schema name before querying', async () => {
+    const query = jest.fn();
+    const executor: TenantContextQueryExecutor = { query };
+    await expect(assertSourceReadContext(executor, 'Farm; DROP')).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
   });
 });

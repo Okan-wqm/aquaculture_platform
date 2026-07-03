@@ -22,8 +22,9 @@ import {
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -396,8 +397,8 @@ export class GrowthResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
-    @InjectRepository(GrowthMeasurement)
-    private readonly measurementRepository: Repository<GrowthMeasurement>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   // ==========================================================================
@@ -413,10 +414,14 @@ export class GrowthResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
   ): Promise<GrowthMeasurement | null> {
-    return this.measurementRepository.findOne({
-      where: { id, tenantId },
-      relations: ['batch'],
-    });
+    // Fail-closed tenant boundary: a lost pooled-connection search_path must
+    // raise, not silently resolve the wrong schema for a single-record read.
+    return runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+      queryRunner.manager.findOne(GrowthMeasurement, {
+        where: { id, tenantId },
+        relations: ['batch'],
+      }),
+    );
   }
 
   /**

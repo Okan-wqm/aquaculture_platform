@@ -15,12 +15,13 @@
  *
  * @module Feeding/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import {
+import { toEventIso,
   createBaseEvent,
   type FeedInventoryReceivedEvent,
 } from '@platform/event-contracts';
@@ -64,10 +65,7 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
       throw new NotFoundException(`Site ${payload.siteId} bulunamadı`);
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Mevcut inventory var mı kontrol et (aynı lot numarası ile)
       let inventory: FeedInventory | null = null;
       if (payload.lotNumber) {
@@ -134,22 +132,16 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
         lotNumber: saved.lotNumber,
         quantityKg: payload.quantityKg,
         newTotalQuantityKg: Number(saved.quantityKg),
-        manufacturingDate: saved.manufacturingDate,
-        expiryDate: saved.expiryDate,
-        receivedDate: saved.receivedDate ?? new Date(),
+        manufacturingDate: toEventIso(saved.manufacturingDate),
+        expiryDate: toEventIso(saved.expiryDate),
+        receivedDate: toEventIso(saved.receivedDate ?? new Date()),
         unitPricePerKg: payload.unitPricePerKg,
         currency: saved.currency,
         isNewLotRow,
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

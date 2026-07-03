@@ -96,7 +96,7 @@ export interface BatchCreatedEvent extends BaseEvent {
   name: string;
   species: string;
   quantity: number;
-  stockedAt: Date;
+  stockedAt: string;
 }
 
 /**
@@ -109,7 +109,7 @@ export interface BatchHarvestedEvent extends BaseEvent {
   pondId?: string;
   siteId?: string;
   harvestedQuantity: number;
-  harvestedAt: Date;
+  harvestedAt: string;
   averageWeight?: number;
   totalWeight?: number;
   /**
@@ -152,7 +152,7 @@ export interface MortalityRecordedEvent extends BaseEvent {
   tankId?: string;
   quantity: number;
   reason: MortalityReasonCode;
-  mortalityDate: Date;
+  mortalityDate: string;
   newTotalMortality: number;
   newMortalityRate: number;
 }
@@ -177,7 +177,7 @@ export interface CullRecordedEvent extends BaseEvent {
   quantity: number;
   reason: CullReasonCode;
   detail?: string;
-  culledAt: Date;
+  culledAt: string;
   newCullCount: number;
   newCurrentQuantity: number;
 }
@@ -208,9 +208,9 @@ export interface FeedInventoryReceivedEvent extends BaseEvent {
   quantityKg: number;
   /** Running total AFTER this receipt (for lot-roll-up projections). */
   newTotalQuantityKg: number;
-  manufacturingDate?: Date;
-  expiryDate?: Date;
-  receivedDate: Date;
+  manufacturingDate?: string;
+  expiryDate?: string;
+  receivedDate: string;
   unitPricePerKg?: number;
   currency?: string;
   /** True when a new row was created; false when an existing row absorbed the receipt. */
@@ -245,7 +245,7 @@ export interface CleanerFishBatchCreatedEvent extends BaseEvent {
   initialQuantity: number;
   initialAvgWeightG: number;
   initialBiomassKg: number;
-  stockedAt: Date;
+  stockedAt: string;
 }
 
 /**
@@ -272,7 +272,7 @@ export interface CleanerFishTransferredEvent extends BaseEvent {
   avgWeightG: number;
   biomassKg: number;
   reason?: string;
-  transferredAt: Date;
+  transferredAt: string;
   /** Source tank-batch cleaner-fish stock AFTER the transfer. */
   newSourceTankCleanerFishQuantity: number;
   newSourceTankCleanerFishBiomassKg: number;
@@ -309,7 +309,7 @@ export interface CleanerFishMortalityRecordedEvent extends BaseEvent {
   /** Uppercase normalised reason — matches `MortalityReasonCode`. */
   reason: MortalityReasonCode;
   detail?: string;
-  observedAt: Date;
+  observedAt: string;
   /** Tank-batch cleaner-fish stock AFTER the mortality is applied. */
   newTankCleanerFishQuantity: number;
   newTankCleanerFishBiomassKg: number;
@@ -344,7 +344,7 @@ export interface CleanerFishDeployedEvent extends BaseEvent {
   quantity: number;
   avgWeightG: number;
   biomassKg: number;
-  deployedAt: Date;
+  deployedAt: string;
   /** Tank-batch cleaner-fish stock AFTER the deploy is applied. */
   newTankCleanerFishQuantity: number;
   newTankCleanerFishBiomassKg: number;
@@ -385,7 +385,7 @@ export interface CleanerFishRemovedEvent extends BaseEvent {
   biomassKg: number;
   reason: CleanerFishRemovalReasonCode;
   detail?: string;
-  removedAt: Date;
+  removedAt: string;
   /** Tank-batch cleaner-fish stock AFTER the removal is applied. */
   newTankCleanerFishQuantity: number;
   newTankCleanerFishBiomassKg: number;
@@ -409,7 +409,7 @@ export interface BatchTransferredEvent extends BaseEvent {
   destinationTankId: string;
   quantity: number;
   biomassKg: number;
-  transferDate: Date;
+  transferDate: string;
   reason?: string;
 }
 
@@ -428,7 +428,7 @@ export interface BatchAllocatedToTankEvent extends BaseEvent {
   quantity: number;
   biomassKg: number;
   allocationType: 'initial' | 'transfer_in' | 'split';
-  allocationDate: Date;
+  allocationDate: string;
 }
 
 /**
@@ -448,7 +448,7 @@ export interface GrowthSampleRecordedEvent extends BaseEvent {
   sampleSize: number;
   averageWeightG: number;
   weightCV: number;
-  measurementDate: Date;
+  measurementDate: string;
   performance?: 'excellent' | 'good' | 'average' | 'below_average' | 'poor';
 }
 
@@ -462,7 +462,7 @@ export interface FeedingRecordedEvent extends BaseEvent {
   feedId: string;
   plannedAmountKg: number;
   actualAmountKg: number;
-  feedingDate: Date;
+  feedingDate: string;
   feedingTime: string;
   variance: number;
 }
@@ -508,7 +508,7 @@ export interface BatchClosedEvent extends BaseEvent {
   totalMortality: number;
   mortalityRate: number;
   daysInProduction: number;
-  closedAt: Date;
+  closedAt: string;
 }
 
 // ==================== Site Events ====================
@@ -545,7 +545,7 @@ export interface SiteDeletedEvent extends BaseEvent {
   siteId: string;
   name: string;
   code: string;
-  deletedAt: Date;
+  deletedAt: string;
 }
 
 // ==================== Department Events ====================
@@ -581,7 +581,7 @@ export interface DepartmentDeletedEvent extends BaseEvent {
   siteId: string;
   name: string;
   code: string;
-  deletedAt: Date;
+  deletedAt: string;
 }
 
 // ==================== System Events ====================
@@ -620,7 +620,7 @@ export interface SystemDeletedEvent extends BaseEvent {
   siteId: string;
   name: string;
   code: string;
-  deletedAt: Date;
+  deletedAt: string;
 }
 
 // ==================== Tank Events ====================
@@ -656,7 +656,7 @@ export interface TankStatusChangedEvent extends BaseEvent {
   previousStatus: string;
   newStatus: string;
   reason?: string;
-  changedAt: Date;
+  changedAt: string;
 }
 
 export interface TankDeletedEvent extends BaseEvent {
@@ -665,7 +665,7 @@ export interface TankDeletedEvent extends BaseEvent {
   departmentId: string;
   name: string;
   code: string;
-  deletedAt: Date;
+  deletedAt: string;
 }
 
 // ==================== Equipment Events ====================
@@ -706,7 +706,7 @@ export interface EquipmentDeletedEvent extends BaseEvent {
   siteId?: string;
   name: string;
   code: string;
-  deletedAt: Date;
+  deletedAt: string;
 }
 
 export interface SubEquipmentCreatedEvent extends BaseEvent {
@@ -732,7 +732,7 @@ export interface SubEquipmentDeletedEvent extends BaseEvent {
   parentEquipmentId: string;
   name: string;
   code: string;
-  deletedAt: Date;
+  deletedAt: string;
 }
 
 /**
@@ -773,8 +773,8 @@ export interface BatchMetadataUpdatedEvent extends BaseEvent {
   changedFields: string[];
   /** Carried for convenience on the hottest consumer path (FCR projections). */
   newTargetFCR?: number;
-  newExpectedHarvestDate?: Date;
-  updatedAt: Date;
+  newExpectedHarvestDate?: string;
+  updatedAt: string;
 }
 
 /**
@@ -803,7 +803,7 @@ export interface HarvestRecordCancelledEvent extends BaseEvent {
   reversedQuantity: number;
   /** Biomass (kg) that was reversed on the tank + tank-batch. */
   reversedBiomassKg: number;
-  cancelledAt: Date;
+  cancelledAt: string;
 }
 
 /**
@@ -829,7 +829,7 @@ export interface HarvestRecordUpdatedEvent extends BaseEvent {
   newQuantityHarvested: number;
   newTotalBiomass: number;
   newStatus: string;
-  updatedAt: Date;
+  updatedAt: string;
 }
 
 /**
@@ -858,7 +858,7 @@ export interface FeedingRecordUpdatedEvent extends BaseEvent {
   previousFeedCost: number;
   newFeedCost: number;
   costDiff: number;
-  updatedAt: Date;
+  updatedAt: string;
 }
 
 /**
@@ -895,7 +895,7 @@ export interface FeedInventoryAdjustedEvent extends BaseEvent {
   /** Operator-supplied reason for the adjustment (free text, audit-grade). */
   reason: string;
   notes?: string;
-  adjustedAt: Date;
+  adjustedAt: string;
 }
 
 /**
@@ -926,7 +926,7 @@ export interface FeedInventoryConsumedEvent extends BaseEvent {
   /** Running stock AFTER this consumption (for lot-depletion projections). */
   newQuantityKg: number;
   newStatus: string;
-  consumedAt: Date;
+  consumedAt: string;
 }
 
 /**
@@ -978,9 +978,9 @@ export interface LegacyFarmDataMigratedEvent extends BaseEvent {
   /** Identity of the operator who ran the CLI (from --operator-id flag). */
   operatorId: string;
   /** When the CLI started, ISO-8601. */
-  migrationStartedAt: Date;
+  migrationStartedAt: string;
   /** When the CLI finished for THIS tenant, ISO-8601. */
-  migrationCompletedAt: Date;
+  migrationCompletedAt: string;
 }
 
 /**
@@ -1017,7 +1017,7 @@ export interface LegacyFarmTableConvertedEvent extends BaseEvent {
    */
   rowCount: number;
   /** When the conversion ran, ISO-8601. */
-  convertedAt: Date;
+  convertedAt: string;
 }
 
 /**
@@ -1244,7 +1244,7 @@ export interface MortalityAlertRaisedEvent extends BaseEvent {
   message: string;
   mortalityRate: number;
   reason: MortalityReasonCode;
-  recordedAt: Date;
+  recordedAt: string;
 }
 
 /**
@@ -1259,7 +1259,7 @@ export interface HarvestRegulatoryRecordedEvent extends BaseEvent {
   harvestedQuantity: number;
   totalWeight?: number;
   averageWeight?: number;
-  harvestedAt: Date;
+  harvestedAt: string;
   /** Operator who performed the harvest (BaseEvent.userId on the trigger). */
   harvestedBy?: string;
   /** True when this harvest emptied the batch (mirrors BatchHarvested.isFinal). */
@@ -1277,7 +1277,7 @@ export interface TankClearedEvent extends BaseEvent {
   tankId: string;
   tankCode?: string;
   previousBatchId: string;
-  clearedAt: Date;
+  clearedAt: string;
 }
 
 /**
@@ -1303,7 +1303,7 @@ export interface BatchProductionCompletedEvent extends BaseEvent {
   fcr: number;
   sgr: number;
   totalFeedConsumedKg: number;
-  completedAt: Date;
+  completedAt: string;
 }
 
 // ==================== Type Union ====================

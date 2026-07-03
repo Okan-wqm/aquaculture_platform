@@ -18,7 +18,7 @@ function baseHarvest(extra: Record<string, unknown>): Record<string, unknown> {
     }),
     batchId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     harvestedQuantity: 1000,
-    harvestedAt: new Date('2026-06-12T00:00:00.000Z'),
+    harvestedAt: '2026-06-12T00:00:00.000Z',
   };
   // The wire payload serialises harvestedAt as an ISO string, so we
   // spread the typed domain event (Date) and override that one field.

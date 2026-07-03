@@ -20,6 +20,7 @@ import {
   type DailyFeedingExecution,
   type FeedingStatus,
 } from '../../../hooks/useDailyFeedingExecution';
+import { isBlockingError } from '../../../utils/list-view-state';
 import { RecordFeedingModal } from './RecordFeedingModal';
 
 // ============================================================================
@@ -88,7 +89,10 @@ export const PlannedVsActualSection: React.FC<PlannedVsActualSectionProps> = ({ 
     }
   };
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // data. A failed background refetch with cached executions keeps rendering the
+  // table and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, executions.length > 0)) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-800 font-medium">Failed to load feeding data</p>
@@ -101,6 +105,21 @@ export const PlannedVsActualSection: React.FC<PlannedVsActualSectionProps> = ({ 
 
   return (
     <div className="space-y-4">
+      {/* Non-blocking refresh error — keeps the last-loaded executions visible. */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh feeding data — showing the last loaded data.
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Header + Date Picker */}
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center justify-between">

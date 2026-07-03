@@ -202,9 +202,9 @@ export interface SensorRegisteredEvent extends BaseEvent {
 export interface SensorCalibratedEvent extends BaseEvent {
   eventType: 'SensorCalibrated';
   sensorId: string;
-  calibrationDate: Date;
+  calibrationDate: string;
   calibrationValuesJson: string;
-  nextCalibrationDate?: Date;
+  nextCalibrationDate?: string;
 }
 
 /**
@@ -215,7 +215,7 @@ export interface SensorOfflineEvent extends BaseEvent {
   sensorId: string;
   farmId?: string;
   pondId?: string;
-  lastReadingAt: Date;
+  lastReadingAt: string;
   reason?: string;
 }
 
@@ -227,7 +227,7 @@ export interface SensorOnlineEvent extends BaseEvent {
   sensorId: string;
   farmId?: string;
   pondId?: string;
-  reconnectedAt: Date;
+  reconnectedAt: string;
 }
 
 /**

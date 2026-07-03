@@ -192,15 +192,21 @@ export class FarmSeedService implements OnApplicationBootstrap {
     }
 
     await queryRunner.query(
+      // WHY: "version" is a NOT-NULL @VersionColumn with no DB default. Omitting it made
+      // this INSERT fail ("null value in column version") which ROLLED BACK the entire
+      // reference-data transaction (equipment_types/chemical_types/supplier_types seeded
+      // just before it), leaving every reference catalog empty in production — so the
+      // equipment-type dropdown was empty and equipment could not be created. WHAT: set
+      // version=1 explicitly on each seeded row.
       `INSERT INTO "species" (
          "id", "tenantId", "scientificName", "commonName", "localName", "code",
          "category", "waterType", "isCleanerFish", "cleanerFishType", "status", "isActive",
-         "createdAt", "updatedAt", "isDeleted"
+         "createdAt", "updatedAt", "isDeleted", "version"
        ) VALUES
-       (gen_random_uuid(), $1, 'Cyclopterus lumpus',   'Lumpfish',         'Rognkjeks', 'LUMPFISH',  'fish', 'saltwater', true, 'lumpfish', 'active', true, NOW(), NOW(), false),
-       (gen_random_uuid(), $1, 'Labrus bergylta',      'Ballan Wrasse',    'Berggylt',  'BALLAN',    'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false),
-       (gen_random_uuid(), $1, 'Symphodus melops',     'Corkwing Wrasse',  'Grønngylt', 'CORKWING',  'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false),
-       (gen_random_uuid(), $1, 'Ctenolabrus rupestris','Goldsinny Wrasse', 'Bergnebb',  'GOLDSINNY', 'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false)
+       (gen_random_uuid(), $1, 'Cyclopterus lumpus',   'Lumpfish',         'Rognkjeks', 'LUMPFISH',  'fish', 'saltwater', true, 'lumpfish', 'active', true, NOW(), NOW(), false, 1),
+       (gen_random_uuid(), $1, 'Labrus bergylta',      'Ballan Wrasse',    'Berggylt',  'BALLAN',    'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false, 1),
+       (gen_random_uuid(), $1, 'Symphodus melops',     'Corkwing Wrasse',  'Grønngylt', 'CORKWING',  'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false, 1),
+       (gen_random_uuid(), $1, 'Ctenolabrus rupestris','Goldsinny Wrasse', 'Bergnebb',  'GOLDSINNY', 'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false, 1)
        ON CONFLICT DO NOTHING`,
       [GLOBAL_TENANT_UUID],
     );

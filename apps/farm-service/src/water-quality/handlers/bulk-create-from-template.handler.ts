@@ -6,6 +6,7 @@
  *
  * @module WaterQuality/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -46,59 +47,56 @@ export class BulkCreateFromTemplateHandler
       throw new NotFoundException(`Parameter template with ID '${templateId}' not found`);
     }
 
-    let existingCodes = new Set<string>();
+    // Additive mode skips template codes that already exist. Overwrite mode
+    // UPSERTS every template parameter by code inside the transaction below —
+    // it never deletes, so a tenant's custom (non-template) parameters and any
+    // tuning on rows whose code is absent from the template are preserved.
+    let skippedCount = 0;
+    const additiveEntities: WaterQualityParameterConfig[] = [];
 
     if (!overwrite) {
-      // Find existing codes to skip
       const existingConfigs = await this.configRepository.find({
         where: { tenantId },
         select: ['code'],
       });
-      existingCodes = new Set(existingConfigs.map((c) => c.code));
-    }
-
-    // Map template parameters to entity instances, skipping existing if not overwriting
-    const entitiesToCreate: WaterQualityParameterConfig[] = [];
-    let skippedCount = 0;
-
-    for (const param of template.parameters) {
-      if (!overwrite && existingCodes.has(param.code)) {
-        skippedCount++;
-        continue;
-      }
-
-      const entity = this.configRepository.create(
-        this.mapTemplateEntryToEntity(param, tenantId, templateId),
-      );
-      entitiesToCreate.push(entity);
-    }
-
-    // Wrap delete (if overwrite) + bulk insert in a transaction
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let created: WaterQualityParameterConfig[] = [];
-
-    try {
-      if (overwrite) {
-        const deleted = await queryRunner.manager.delete(WaterQualityParameterConfig, { tenantId });
-        this.logger.log(
-          `Overwrite mode: removed ${deleted.affected ?? 0} existing configs for tenant ${tenantId}`,
+      const existingCodes = new Set(existingConfigs.map((c) => c.code));
+      for (const param of template.parameters) {
+        if (existingCodes.has(param.code)) {
+          skippedCount++;
+          continue;
+        }
+        additiveEntities.push(
+          this.configRepository.create(this.mapTemplateEntryToEntity(param, tenantId, templateId)),
         );
       }
-
-      if (entitiesToCreate.length > 0) {
-        created = await queryRunner.manager.save(entitiesToCreate);
-      }
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
     }
+
+    const created = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        if (overwrite) {
+          // Non-destructive re-apply: upsert each template parameter BY CODE.
+          // An existing row is updated in place (id preserved); a missing one is
+          // inserted. Rows whose code is not in the template (custom params) are
+          // left untouched — the prior delete-all silently destroyed them along
+          // with tuned thresholds (ORPHAN-MEDIUM-267).
+          const existing = await queryRunner.manager.find(WaterQualityParameterConfig, {
+            where: { tenantId },
+          });
+          const byCode = new Map(existing.map((config) => [config.code, config]));
+          const toSave = template.parameters.map((param) => {
+            const mapped = this.mapTemplateEntryToEntity(param, tenantId, templateId);
+            const current = byCode.get(param.code);
+            return this.configRepository.create(current ? { ...current, ...mapped } : mapped);
+          });
+          return toSave.length > 0 ? queryRunner.manager.save(toSave) : [];
+        }
+
+        return additiveEntities.length > 0 ? queryRunner.manager.save(additiveEntities) : [];
+      },
+    );
 
     this.configCache.invalidate(tenantId);
 

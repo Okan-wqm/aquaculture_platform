@@ -7,6 +7,8 @@ import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 import { markAuthReady, resetAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
 import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
+import { runAsyncAction } from '@/utils/async-action';
+import { logger } from '@/utils/logger';
 import { normalizeRole } from '@/utils/normalize-role';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -169,18 +171,39 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
   // so the next user on a shared device cannot use or see prior user's biometric data.
   clearBiometricData();
 
+  // SEC: Clear the two UNSCOPED localStorage keys that otherwise persist across
+  // users on a shared field device — the water-quality MRU equipment list and the
+  // last-sync timestamp. Neither is tenant/user-namespaced, so without this the
+  // next user sees the prior user's MRU + sync time. Mirrors the biometric wipe.
+  try {
+    localStorage.removeItem('aquamobil-wq-mru');
+    localStorage.removeItem('aquamobil_last_sync_at');
+  } catch {
+    // localStorage unavailable (private mode / SSR) — non-fatal.
+  }
+
   await Promise.all([
     clearAllOperations(),
     clearCache(), // No tenantId = clear ALL tenants' cache entries
     // SECURITY: Clear tenant-scoped, per-user, and legacy permission cache keys.
     // The tenant-scoped key is the current format; the others are legacy fallbacks.
     ...(userId && tenantId
-      ? [del(`mobile_permissions_${tenantId}_${userId}`).catch(() => undefined)]
+      ? [
+          del(`mobile_permissions_${tenantId}_${userId}`).catch((error: unknown) => {
+            logger.error('[auth-logout] failed to clear tenant-scoped permissions cache', error);
+          }),
+        ]
       : []),
-    del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch(() => undefined),
-    del('mobile_permissions').catch(() => undefined),
+    del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch((error: unknown) => {
+      logger.error('[auth-logout] failed to clear user-scoped permissions cache', error);
+    }),
+    del('mobile_permissions').catch((error: unknown) => {
+      logger.error('[auth-logout] failed to clear legacy permissions cache', error);
+    }),
     // Clear service worker Cache Storage (CRIT-2 / SEC-02)
-    caches.delete('api-cache').catch(() => undefined),
+    caches.delete('api-cache').catch((error: unknown) => {
+      logger.error('[auth-logout] failed to clear api-cache Cache Storage', error);
+    }),
   ]);
 }
 
@@ -394,24 +417,28 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     // failure: the local deleteToken in the teardown's `finally` plus the SW
     // userId backstop already prevent prior-tenant push from surfacing, so a
     // network hiccup deregistering the token must not strand the user logged in.
-    await runPushTeardown().catch(() => undefined);
+    await runPushTeardown().catch((error: unknown) => {
+      logger.error('[auth-logout] push teardown failed', error);
+    });
 
     // Call logout mutation to clear httpOnly cookie server-side. This is the only
     // step that may legitimately fail without compromising local-data safety
     // (the server cookie expiry is independent of on-device residue), so it stays
     // fire-and-forget and does not gate the local wipe.
-    fetch('/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(state.accessToken ? { Authorization: `Bearer ${state.accessToken}` } : {}),
-        ...CSRF_HEADER,
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        query: `mutation { logout { success } }`,
-      }),
-    }).catch(() => undefined);
+    runAsyncAction(async () => {
+      await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(state.accessToken ? { Authorization: `Bearer ${state.accessToken}` } : {}),
+          ...CSRF_HEADER,
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query: `mutation { logout { success } }`,
+        }),
+      });
+    }, 'auth-logout-server-notify');
 
     // MT-CRITICAL-050: abort in-flight fetches BEFORE clearing. React Query
     // clear() does NOT cancel running requests, so a query dispatched before

@@ -2,16 +2,20 @@
  * Create Species Command Handler
  * @module Species/Handlers
  */
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+  TenantScopedRepository,
+} from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import {
   ConflictException,
   Logger,
   BadRequestException,
 } from '@nestjs/common';
 import { CreateSpeciesCommand } from '../commands/create-species.command';
-import { Species } from '../entities/species.entity';
+import { Species, SpeciesCategory, SpeciesWaterType } from '../entities/species.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { AuditAction } from '../../database/entities/audit-log.entity';
@@ -23,8 +27,7 @@ export class CreateSpeciesHandler
   private readonly logger = new Logger(CreateSpeciesHandler.name);
 
   constructor(
-    @InjectRepository(Species)
-    private readonly speciesRepository: Repository<Species>,
+    private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly codeGeneratorService: CodeGeneratorService,
   ) {}
@@ -36,82 +39,92 @@ export class CreateSpeciesHandler
       `Creating species: ${input.scientificName} for tenant: ${tenantId}`,
     );
 
-    // Validate unique constraints
-    await this.validateUniqueness(tenantId, input.scientificName, input.code);
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const speciesRepo = tenantManagerRepo(queryRunner.manager, Species, tenantId);
 
-    // Validate growth stages if provided
-    if (input.growthStages?.length) {
-      this.validateGrowthStages(input.growthStages);
-    }
+      // Validate unique constraints
+      await this.validateUniqueness(
+        speciesRepo,
+        tenantId,
+        input.scientificName,
+        input.code,
+      );
 
-    // Validate optimal conditions
-    if (input.optimalConditions) {
-      this.validateOptimalConditions(input.optimalConditions);
-    }
+      // Validate growth stages if provided
+      if (input.growthStages?.length) {
+        this.validateGrowthStages(input.growthStages);
+      }
 
-    // Create entity
-    const species = this.speciesRepository.create({
-      tenantId,
-      scientificName: input.scientificName,
-      commonName: input.commonName,
-      localName: input.localName,
-      code: input.code.toUpperCase(),
-      description: input.description,
-      category: input.category,
-      waterType: input.waterType,
-      family: input.family,
-      genus: input.genus,
-      optimalConditions: input.optimalConditions as Species['optimalConditions'],
-      growthParameters: input.growthParameters as Species['growthParameters'],
-      growthStages: input.growthStages,
-      marketInfo: input.marketInfo,
-      breedingInfo: input.breedingInfo,
-      status: input.status,
-      imageUrl: input.imageUrl,
-      notes: input.notes,
-      supplierId: input.supplierId,
-      tags: input.tags || [],
-      isActive: true,
-      createdBy: userId,
-      updatedBy: userId,
-    });
+      // Validate optimal conditions
+      if (input.optimalConditions) {
+        this.validateOptimalConditions(input.optimalConditions);
+      }
 
-    // Save
-    const saved = await this.speciesRepository.save(species);
+      // Create entity
+      const species = speciesRepo.create({
+        tenantId,
+        scientificName: input.scientificName,
+        commonName: input.commonName,
+        localName: input.localName,
+        code: input.code.toUpperCase(),
+        description: input.description,
+        category: input.category ?? SpeciesCategory.FISH,
+        waterType: input.waterType ?? SpeciesWaterType.SALTWATER,
+        family: input.family,
+        genus: input.genus,
+        optimalConditions: input.optimalConditions as Species['optimalConditions'],
+        growthParameters: input.growthParameters as Species['growthParameters'],
+        growthStages: input.growthStages,
+        marketInfo: input.marketInfo,
+        breedingInfo: input.breedingInfo,
+        status: input.status,
+        imageUrl: input.imageUrl,
+        notes: input.notes,
+        supplierId: input.supplierId,
+        tags: input.tags || [],
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      });
 
-    // Audit log
-    await this.auditLogService.log({
-      tenantId,
-      entityType: 'Species',
-      entityId: saved.id,
-      action: AuditAction.CREATE,
-      userId,
-      changes: {
-        after: {
-          scientificName: saved.scientificName,
-          commonName: saved.commonName,
-          code: saved.code,
-          category: saved.category,
-          waterType: saved.waterType,
+      // Save
+      const saved = await speciesRepo.save(species);
+
+      // Audit log
+      await this.auditLogService.log({
+        tenantId,
+        entityType: 'Species',
+        entityId: saved.id,
+        action: AuditAction.CREATE,
+        userId,
+        changes: {
+          after: {
+            scientificName: saved.scientificName,
+            commonName: saved.commonName,
+            code: saved.code,
+            category: saved.category,
+            waterType: saved.waterType,
+          },
         },
-      },
+      });
+
+      this.logger.log(`Species created: ${saved.id} - ${saved.scientificName}`);
+
+      return saved;
     });
-
-    this.logger.log(`Species created: ${saved.id} - ${saved.scientificName}`);
-
-    return saved;
   }
 
   /**
    * Validates uniqueness of scientific name and code within tenant
    */
   private async validateUniqueness(
+    speciesRepo: TenantScopedRepository<Species>,
     tenantId: string,
     scientificName: string,
     code: string,
   ): Promise<void> {
     // Check scientific name uniqueness
-    const existingByName = await this.speciesRepository.findOne({
+    const existingByName = await speciesRepo.findOne({
       where: { tenantId, scientificName },
     });
 
@@ -122,7 +135,7 @@ export class CreateSpeciesHandler
     }
 
     // Check code uniqueness
-    const existingByCode = await this.speciesRepository.findOne({
+    const existingByCode = await speciesRepo.findOne({
       where: { tenantId, code: code.toUpperCase() },
     });
 

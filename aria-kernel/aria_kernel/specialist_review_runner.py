@@ -18,7 +18,7 @@ Gate C in the SPECIALIST-DOMAIN tier — the 60+ domain experts under
 cycles. V6.1 makes them autonomous per-cycle reviewers.
 
 Default behaviour when no specialist claims any envelope (typical
-autonomous-run without external Codex/Claude Code dispatchers):
+autonomous-run without external Claude Code dispatchers):
 
   * `standard` profile (default) — verdict ``specialists_unavailable``;
     orchestrator PROCEEDS to worker_drainer (fail-open degraded mode).
@@ -358,7 +358,7 @@ def run_specialist_review_runner(
     ``specialist_timeout_seconds`` elapses per specialist.
 
     Defensive default when NO specialist claims any envelope (typical
-    autonomous-run mode without external Codex/Claude Code dispatchers):
+    autonomous-run mode without external Claude Code dispatchers):
     returns ``consolidated_verdict == "specialists_unavailable"``.
     Orchestrator decides whether to fail-open or fail-closed based on
     profile.

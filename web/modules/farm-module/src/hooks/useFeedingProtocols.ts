@@ -6,7 +6,7 @@
  * temperature ranges, weight ranges, and growth stages.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   FEEDING_PROTOCOL_QUERY,
   FEEDING_PROTOCOLS_QUERY,
@@ -258,7 +258,7 @@ export function useCreateFeedingProtocol() {
       return data.createFeedingProtocol;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols') });
     },
   });
 }
@@ -284,10 +284,10 @@ export function useUpdateFeedingProtocol() {
       return data.updateFeedingProtocol;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'detail', variables.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'by-species') });
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'default') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols', 'by-species') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols', 'default') });
     },
   });
 }
@@ -313,7 +313,7 @@ export function useDeleteFeedingProtocol() {
       return data.deleteFeedingProtocol;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols') });
     },
   });
 }
@@ -339,7 +339,7 @@ export function useSetDefaultFeedingProtocol() {
       return data.setDefaultFeedingProtocol;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-protocols') });
     },
   });
 }

@@ -53,6 +53,53 @@ class AriaPocTests(unittest.TestCase):
         self.assertEqual(unions[0]["name"], "FarmStatus")
         self.assertEqual(unions[0]["values"], ["active", "archived", "inactive"])
 
+    def test_detect_rust_enums_extracts_all_variant_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "sens-api-gateway" / "src" / "protocol.rs"
+            src.parent.mkdir(parents=True)
+            src.write_text(
+                "pub enum ProtocolState {\n"
+                "    Idle,\n"
+                "    Connected(SocketAddr),\n"
+                "    #[serde(rename = \"err\")]\n"
+                "    Failed { code: u8, msg: String },\n"
+                "    Retrying = 3,\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            fates = [aria_poc.FileFate(str(src.relative_to(root)), "read_deeply")]
+
+            enums = aria_poc.detect_rust_enums(root, fates)
+
+        self.assertEqual(len(enums), 1)
+        self.assertEqual(enums[0]["name"], "ProtocolState")
+        self.assertEqual(enums[0]["kind"], "rust_enum")
+        self.assertEqual(enums[0]["values"], ["Connected", "Failed", "Idle", "Retrying"])
+        self.assertEqual(enums[0]["surface"], "edge_source")
+
+    def test_detect_rust_enums_skips_tests_and_handles_generics(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            gen = root / "crates" / "codec" / "src" / "msg.rs"
+            gen.parent.mkdir(parents=True)
+            gen.write_text("enum Wrap<T> { One(Vec<T>), Two }\n", encoding="utf-8")
+            test = root / "crates" / "codec" / "tests" / "it.rs"
+            test.parent.mkdir(parents=True)
+            test.write_text("enum Helper { A, B }\n", encoding="utf-8")
+            fates = [
+                aria_poc.FileFate(str(gen.relative_to(root)), "read_deeply"),
+                aria_poc.FileFate(str(test.relative_to(root)), "read_deeply"),
+            ]
+
+            enums = aria_poc.detect_rust_enums(root, fates)
+
+        names = {e["name"] for e in enums}
+        self.assertIn("Wrap", names)
+        self.assertNotIn("Helper", names)  # /tests/ path is skipped
+        wrap = next(e for e in enums if e["name"] == "Wrap")
+        self.assertEqual(wrap["values"], ["One", "Two"])
+
     def test_detect_ui_option_groups_records_status_select(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -219,6 +266,57 @@ export function StatusPanel() {
             groups = aria_poc.detect_ui_option_groups(root, fates)
 
         self.assertEqual(groups, [])
+
+    def test_detect_sql_enums_skips_archived_migrations(self) -> None:
+        """Archived (re-baselined) migrations must not enter the drift corpus.
+
+        Regression for the ``goal`` phantom drift: the active baseline dropped
+        ``partially_completed`` but the archived migration still declares it.
+        Comparing a TS entity against the archived enum produced a false drift.
+        ``detect_sql_enums`` must return only the ACTIVE migration's enum.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            active = (root / "apps" / "hr-service" / "src" / "database"
+                      / "migrations" / "1800000000000-Baseline.ts")
+            archived = (root / "apps" / "hr-service" / "src" / "database"
+                        / "migrations" / ".archive" / "2026-05-18T09-43-29-900Z"
+                        / "1736000000000-CreateHRModuleSchema.ts")
+            active.parent.mkdir(parents=True)
+            archived.parent.mkdir(parents=True)
+            active.write_text(
+                "CREATE TYPE goal_status AS ENUM "
+                "('not_started', 'in_progress', 'completed', 'cancelled', 'on_hold');\n",
+                encoding="utf-8",
+            )
+            archived.write_text(
+                "CREATE TYPE goal_status AS ENUM "
+                "('not_started', 'in_progress', 'completed', "
+                "'partially_completed', 'on_hold', 'cancelled');\n",
+                encoding="utf-8",
+            )
+            fates = [
+                aria_poc.FileFate(str(active.relative_to(root)), "read_deeply"),
+                aria_poc.FileFate(str(archived.relative_to(root)), "read_deeply"),
+            ]
+
+            enums = aria_poc.detect_sql_enums(root, fates)
+
+        self.assertEqual(len(enums), 1, "archived migration enum must be skipped")
+        self.assertEqual(enums[0]["name"], "goal_status")
+        self.assertNotIn("partially_completed", enums[0]["values"])
+        self.assertTrue(enums[0]["ref"].startswith("apps/hr-service/src/database/migrations/1800000000000"))
+
+    def test_is_archived_migration_path_predicate(self) -> None:
+        from tools.shared.excluded_paths import is_archived_migration_path
+
+        self.assertTrue(is_archived_migration_path(
+            "apps/hr-service/src/database/migrations/.archive/2026-05-18T0/x.ts"))
+        # active migration — not archived
+        self.assertFalse(is_archived_migration_path(
+            "apps/hr-service/src/database/migrations/1800000000000-Baseline.ts"))
+        # ARIA's own runtime archive under aria-tools must NOT be mistaken for one
+        self.assertFalse(is_archived_migration_path("aria-tools/.archive/runtime/x.json"))
 
     def test_const_array_zod_and_graphql_extractors(self) -> None:
         with tempfile.TemporaryDirectory() as td:

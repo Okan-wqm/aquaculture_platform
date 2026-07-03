@@ -1,0 +1,639 @@
+# Farm Data SSOT & Tenant Read Boundary — 2026-06-28
+
+Review cycle backing the Farm Data SSOT remediation (plan: `farm-data-ssot-sequential-sifakis`).
+Validated against the codebase with adversarial multi-agent review; the "data
+appears/disappears" symptom traces to a fail-open tenant read path, mock data in
+production report tabs, and farm-module operating off the GraphQL contract SSOT.
+
+## FARM-HIGH-060 — Tenant DB boundary does not set/assert the RLS GUC or resolved schema
+
+`runInTenantRead` / `runInTenantTransaction` pinned `search_path` transaction-locally
+but never set or verified `app.current_tenant` and never read back `current_schema()`.
+The RLS GUC is set only on pool checkout (`rls-connection-bootstrap.service.ts`), so a
+lost tenant context (unset GUC → RLS denies all rows) or a missing tenant schema
+(search_path silently falls back to the `farm` source schema) produced an empty result
+indistinguishable from a legitimately-empty table — the platform's "data disappears"
+failure mode.
+
+Evidence:
+- `libs/backend-common/src/database/tenant-transaction.ts:93`
+- `libs/backend-common/src/database/rls/rls-connection-bootstrap.service.ts:94`
+- `apps/farm-service/src/site/handlers/get-site.handler.ts:26`
+
+Fix: the boundary now owns `app.current_tenant` transaction-locally and asserts
+`current_schema()` + the GUC against the expected `tenant_<uuid>` before any domain
+query runs, throwing a typed `TenantContextError` (`SCHEMA_MISMATCH` / `RLS_MISMATCH`)
+instead of returning a silent empty result. See `tenant-transaction.ts` +
+`tenant-context-error.ts`.
+
+## FARM-HIGH-061 — get-site / get-department mask lost tenant context as not-found
+
+`GetSiteHandler` and `GetDepartmentHandler` read via raw `@InjectRepository` and
+returned `null` with the comment *"This handles connection pool race conditions
+where search_path might be reset"* — conflating a lost tenant context with a
+legitimate not-found, the literal "data disappears" path.
+
+Evidence:
+- `apps/farm-service/src/site/handlers/get-site.handler.ts`
+- `apps/farm-service/src/department/handlers/get-department.handler.ts`
+
+Fix: both now read through `runInTenantRead` (which asserts schema + RLS GUC), so
+a context failure throws `TenantContextError` and `null` means an honest
+not-found. The masking comments are removed.
+
+## FARM-HIGH-062 — list-farms / get-pond / list-sites read outside the tenant boundary
+
+`ListFarmsQueryHandler`, `GetPondQueryHandler`, and `ListSitesHandler` read via
+raw `@InjectRepository` (find/findAndCount/createQueryBuilder), relying only on
+pool-checkout search_path + RLS — no boundary assertion.
+
+Evidence:
+- `apps/farm-service/src/farm/query-handlers/list-farms.handler.ts`
+- `apps/farm-service/src/farm/query-handlers/get-pond.handler.ts`
+- `apps/farm-service/src/site/handlers/list-sites.handler.ts`
+
+Fix: all three now read through `runInTenantRead` (asserts schema + RLS GUC) via
+`queryRunner.manager`. `get-farm` is deliberately deferred — its federation
+`__resolveReference` path is tenant-less by design and needs the explicit
+source-read API (FARM-* / plan §8.3) rather than the tenant boundary.
+
+## FARM-CRITICAL-060 — onboarding seeders run without a tenant context (NATS handler)
+
+`TenantOnboardingEventHandler.handle()` invoked five per-tenant seeders directly.
+The seeders write via `@InjectRepository`, which resolves the tenant schema + RLS
+GUC from AsyncLocalStorage — but a NATS event handler has no HTTP request
+context, so the seed writes routed to the source `farm` schema (or were
+RLS-denied) instead of `tenant_<uuid>`. A freshly-provisioned tenant could end up
+with its default data in the wrong schema.
+
+Evidence:
+- `apps/farm-service/src/water-quality/event-handlers/tenant-onboarding.event-handler.ts`
+
+Fix: the five-seeder run is wrapped in `withTenantContext(event.tenantId, ...)`
+(matching `harvest-completed.listener.ts` / `mortality-recorded.listener.ts`); the
+ack/fail publish stays outside the frame (cross-tenant outbox infra). A new test
+asserts `getRequestContext().tenantId` is set during seeding.
+
+## FARM-HIGH-063 — list-available-tanks hand-rolled QueryRunner + SET search_path
+
+`ListAvailableTanksHandler` opened its own `createQueryRunner()` and issued
+`SET search_path TO "tenant_…", farm, public` (session-level, no RLS GUC, no
+assertion, manual RESET) to run two raw SELECTs.
+
+Evidence:
+- `apps/farm-service/src/batch/query-handlers/list-available-tanks.handler.ts`
+
+Fix: replaced with `runInTenantRead` — the raw SELECTs now run on a boundary
+connection whose search_path + RLS GUC are pinned and asserted; the hand-rolled
+SET/RESET and the duplicated schema-name derivation are removed.
+
+## FARM-HIGH-064 — TanksPage blanks the whole page on a background-refetch error
+
+`TanksPage` returned an error-only view on `if (error)` with no `&& !data` guard,
+so a failed background refetch blanked the entire table even though TanStack
+Query still held the previously-loaded tanks in cache — the "data appears then
+disappears" UX bug.
+
+Evidence:
+- `web/modules/farm-module/src/pages/tanks/TanksPage.tsx`
+
+Fix: a shared `isBlockingError(error, hasData)` helper (`utils/list-view-state.ts`)
+now gates the blocking error view to the initial-load-failure case only; on a
+refetch error with cached data, the table keeps rendering and a non-blocking
+amber banner with Retry is shown. Helper unit-tested.
+
+## FARM-HIGH-065 — invalidateQueries used the full (epoch'd) key builder → silent misses
+
+`createTenantQueryKey` appends `{__sessionEpoch}` LAST. Used as an
+`invalidateQueries` filter, that trailing object lands at the array index a full
+query key holds its filter/args, so a query stored under
+`['tenant',t,'systems','list',filter,{epoch}]` is NOT matched by
+`['tenant',t,'systems','list',{epoch}]` (index 4 mismatch). The list shows stale
+data until `staleTime` elapses — the "data doesn't refresh after a mutation" bug.
+
+Evidence:
+- `web/shared-ui/src/utils/tenant-query-keys.ts`
+- `web/modules/farm-module/src/hooks/useSystems.ts`
+
+Fix: new `createTenantInvalidationKey(tenantId, ...segments)` returns a clean
+epoch-less domain prefix that left-prefix-matches every stored key under those
+segments. Proven with a real `QueryClient` match test (buggy full-key filter
+misses; the prefix matches). `useSystems` invalidations migrated. FOLLOW-UP:
+sweep the remaining farm-module invalidate/remove sites + add an invariant
+banning the full-key builder in invalidation calls.
+
+## FARM-HIGH-066 — realtime invalidation used the full (epoch'd) key builder
+
+`useFarmRealtimeStream.ts:238` wrapped each INVALIDATION_MAP prefix with
+`createTenantQueryKey` (epoch trailing), so socket-driven invalidations missed
+any args-bearing list query across session-epoch generations — realtime updates
+silently failed to refresh args-keyed lists.
+
+Evidence:
+- `web/modules/farm-module/src/hooks/useFarmRealtimeStream.ts:238`
+
+Fix: switched to `createTenantInvalidationKey` (epoch-less prefix).
+
+## FARM-HIGH-067 — tenant erasure event handler ran without a tenant context
+
+`TenantErasureRequestedHandler.handle()` called `TenantErasureService` directly.
+As a NATS handler it has no request context, so the destructive erasure could run
+against the source schema / a missing tenant context.
+
+Evidence:
+- `apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts`
+
+Fix: wrapped the delegate in `withTenantContext(event.tenantId, ...)` (matches
+the harvest/onboarding listeners); fails closed on an invalid tenantId.
+
+## FARM-MEDIUM-075 — AquaMobil leaves unscoped localStorage keys across logout
+
+`clearAllUserData()` wiped biometric PII + IndexedDB caches but left two UNSCOPED
+localStorage keys behind: `aquamobil-wq-mru` (water-quality MRU equipment list)
+and `aquamobil_last_sync_at` (last-sync timestamp). On a shared field device the
+next user saw the prior user's MRU + sync time.
+
+Evidence:
+- `web/apps/aquamobil/src/hooks/useAuth.tsx:167`
+- `web/apps/aquamobil/src/pages/water-quality/WaterQualityRecordPage.tsx:81`
+- `web/apps/aquamobil/src/pages/account/AccountPage.tsx:34`
+
+Fix: `clearAllUserData()` now `localStorage.removeItem`s both keys (try/catch for
+private-mode safety), mirroring the biometric wipe.
+
+## FARM-MEDIUM-076 — batch DataLoaders batched by batchId with no explicit tenant filter
+
+`batch-feed-assignment`, `batch-location`, and `batch-document` DataLoaders
+batched `batchId IN (...)` with NO `tenantId` in the WHERE, relying solely on the
+request-scoped search_path. A misrouted pooled connection could batch-leak
+another tenant's rows.
+
+Evidence:
+- `apps/farm-service/src/batch/dataloaders/batch-feed-assignment.dataloader.ts`
+- `apps/farm-service/src/batch/dataloaders/batch-location.dataloader.ts`
+- `apps/farm-service/src/batch/dataloaders/batch-document.dataloader.ts`
+
+Fix: each batch fn now reads `getRequestContext().tenantId` (the request's
+AsyncLocalStorage frame propagates through the loader's batch tick) and adds it to
+the WHERE — defense-in-depth on top of search_path. (`batch-species` /
+`tank-batch` loaders already filtered explicitly.)
+
+## FARM-HIGH-068 — batch read handlers (get-batch, list-batches) read outside the boundary
+
+`GetBatchHandler` and `ListBatchesHandler` read via raw `@InjectRepository`
+query builders (no boundary). `ListBatchesHandler` also injected an unused
+`TankBatch` repository (the tank/site/department filters use raw SQL subqueries).
+
+Evidence:
+- `apps/farm-service/src/batch/query-handlers/get-batch.handler.ts`
+- `apps/farm-service/src/batch/query-handlers/list-batches.handler.ts`
+
+Fix: both migrated to `runInTenantRead` via `queryRunner.manager.createQueryBuilder`;
+dropped the dead `TankBatch` injection. Specs added.
+
+## FARM-HIGH-069 — remaining batch read handlers read outside the boundary
+
+`GenerateBatchNumberHandler` and `GetBatchHistoryHandler` read via raw
+`@InjectRepository`. `GetBatchHistoryHandler` also injected an unused
+`MortalityRecord` repository.
+
+Evidence:
+- `apps/farm-service/src/batch/query-handlers/generate-batch-number.handler.ts`
+- `apps/farm-service/src/batch/query-handlers/get-batch-history.handler.ts`
+
+Fix: both migrated to `runInTenantRead` via `queryRunner.manager`; dropped the
+dead `MortalityRecord` injection. Specs added. (`get-batch-performance` is
+deferred — it delegates to cost/FCR services that do their own DB access and need
+boundary-awareness first.)
+
+## FARM-HIGH-070 — feeding read handlers (get-feeding-records, get-feed-inventory) outside the boundary
+
+Both read via raw `@InjectRepository` query builders (no boundary).
+
+Evidence:
+- `apps/farm-service/src/feeding/query-handlers/get-feeding-records.handler.ts`
+- `apps/farm-service/src/feeding/query-handlers/get-feed-inventory.handler.ts`
+
+Fix: both migrated to `runInTenantRead` via `queryRunner.manager.createQueryBuilder`
+(dropped the unused `LessThanOrEqual` import in get-feed-inventory). Specs added.
+Remaining feeding reads (`get-daily-feeding-plan`, `get-feeding-summary`) tracked.
+
+## FARM-HIGH-071 — growth + feeding-summary read handlers outside the boundary
+
+`GetGrowthMeasurementsHandler`, `GetLatestMeasurementHandler`, and
+`GetFeedingSummaryHandler` read via raw `@InjectRepository` (query builder + two
+`findOne`s + a multi-entity aggregation), relying only on pool-checkout
+search_path + RLS — no boundary assertion.
+
+Evidence:
+- `apps/farm-service/src/growth/query-handlers/get-growth-measurements.handler.ts`
+- `apps/farm-service/src/growth/query-handlers/get-latest-measurement.handler.ts`
+- `apps/farm-service/src/feeding/query-handlers/get-feeding-summary.handler.ts`
+
+Fix: all three now read through `runInTenantRead` via `queryRunner.manager`
+(query builder / `findOne` / `find`); the `NotFoundException` paths are kept (the
+boundary asserts context, so `null` / not-found is honest). Dropped the unused
+`Between` / `MoreThanOrEqual` / `LessThanOrEqual` imports in `get-feeding-summary`
+(the date filters use raw SQL). Specs added for all three. Remaining reads
+(`get-daily-feeding-plan`, `get-growth-analysis`, water-quality configs) tracked
+under plan Task #9.
+
+## FARM-HIGH-073 — chemical / consumable / department / equipment / feed / feeding read handlers outside the boundary
+
+First batch of the domain-by-domain read-handler migration (plan Task #9). 14
+read handlers across six domains read via raw `@InjectRepository`
+(findOne / find / query builder), relying only on pool-checkout search_path +
+RLS — no boundary assertion.
+
+Evidence:
+- `apps/farm-service/src/chemical/handlers/get-chemical.handler.ts`, `list-chemicals.handler.ts`
+- `apps/farm-service/src/consumable/handlers/get-consumable.handler.ts`, `list-consumables.handler.ts`
+- `apps/farm-service/src/department/handlers/get-department-delete-preview.handler.ts`, `list-departments.handler.ts`
+- `apps/farm-service/src/equipment/handlers/get-sub-equipment.handler.ts`, `list-feeder-calibrations.handler.ts`, `list-sub-equipment.handler.ts`
+- `apps/farm-service/src/feed/handlers/get-feed.handler.ts`, `get-feeding-protocol.handler.ts`, `list-feeding-protocols.handler.ts`, `list-feeds.handler.ts`
+- `apps/farm-service/src/feeding/query-handlers/get-daily-feeding-plan.handler.ts`
+
+Fix: all 14 now read through `runInTenantRead` via `queryRunner.manager`
+(asserts schema + RLS GUC); `NotFoundException` paths preserved inside the
+callback. Specs added (33 tests). `equipment/get-equipment-types` and
+`get-sub-equipment-types` were deliberately **deferred** — they read seeded
+reference data from the `farm` source schema, which needs the explicit
+`runInSourceRead` API (Task #23) rather than the tenant boundary (wrapping them
+would make the schema assertion fail). Remaining domains (harvest, site,
+species, storage, supplier, system, tank, worker) follow as the second batch.
+
+## FARM-HIGH-074 — growth / harvest / site read handlers outside the boundary
+
+Second batch of the domain-by-domain read-handler migration (plan Task #9). 6
+read handlers across three domains read via raw `@InjectRepository`.
+
+Evidence:
+- `apps/farm-service/src/growth/query-handlers/get-growth-analysis.handler.ts`
+- `apps/farm-service/src/harvest/handlers/get-harvest-statistics.handler.ts`, `get-harvest.handler.ts`, `list-harvests.handler.ts`
+- `apps/farm-service/src/site/handlers/get-site-delete-preview.handler.ts`, `list-site-contacts.handler.ts`
+
+Fix: all 6 now read through `runInTenantRead` via `queryRunner.manager`
+(asserts schema + RLS GUC); `NotFoundException` paths preserved. Specs added
+(17 tests). Remaining domains (species, storage, supplier, system, tank,
+worker) follow as the third batch.
+
+## FARM-HIGH-075 — species / storage / supplier / system / tank / worker read handlers outside the boundary
+
+Third and final batch of the GraphQL read-handler migration (plan Task #9). 26
+read handlers across six domains read via raw `@InjectRepository`.
+
+Evidence (domains, handler counts): species (3), storage (11), supplier (3),
+system (3), tank (5), worker (1) — full file list in the registry entry.
+
+Fix: all 26 now read through `runInTenantRead` via `queryRunner.manager`
+(asserts schema + RLS GUC); `NotFoundException` paths preserved. Specs added
+(64 tests; the full farm-service handler/resolver suite is 344 tests green —
+no regression).
+
+Deferred (tracked):
+- `storage/list-storage-inventory-by-cursor` — delegates to the shared
+  `paginateCursor(repository, …)` primitive; routing it through the boundary
+  needs `paginateCursor` to accept a boundary-scoped manager first (Task #9
+  tail).
+- Reference-data reads (`equipment/get-equipment-types`,
+  `get-sub-equipment-types`, `list-equipment`), federation `farm/get-farm`, and
+  service-delegating `batch/get-batch-performance` remain under Task #23
+  (explicit `runInSourceRead` API).
+
+With this batch, every tenant-owned GraphQL read query-handler in farm-service
+that can use the tenant boundary today now does; the residue is the explicit
+source-read set (Task #23) and the cursor primitive.
+
+## FARM-HIGH-076 — water-quality + trace-lot reads, and tenant-isolation postgres-spec realignment
+
+Final read-handler batch (plan Task #9). The 5 water-quality query-handlers
+(`get-parameter-config`, `get-parameter-config-by-code`, `get-equipment-params`,
+`list-param-equipment`, `list-parameter-configs`) and `storage/trace-lot` read
+via raw `@InjectRepository`.
+
+`trace-lot` delegates its mix resolution to `LotMixService.findMixesForLot`,
+which took a `Repository`. To run it on the boundary connection (rather than a
+banned `manager.getRepository(...)`), `findMixesForLot` now takes the caller's
+`EntityManager` and uses `manager.createQueryBuilder(StorageLotMix, 'mix')`.
+
+This batch also **repairs a latent type-check break**: four tenant-isolation
+postgres specs (`site-…`, `batch-allocation-…`, `feeding-record-…`,
+`mortality-cull-harvest-…`) still constructed migrated read handlers with their
+old `@InjectRepository` signatures (`new GetSiteHandler(siteRepository)`, …) —
+left behind by the earlier read-migration commits (FARM-HIGH-061/062/068/070/
+073/074/075). All such constructions are realigned to `new XHandler(dataSource)`
+and the now-dead repository locals removed.
+
+Evidence: see the registry entry for the full file list.
+
+Fix: all 6 handlers migrated to `runInTenantRead` via `queryRunner.manager`;
+`NotFoundException` paths preserved. Specs added (19 tests). farm-service
+`tsconfig.spec` type-check is green. With this batch, every tenant-owned GraphQL
+read query-handler in farm-service that can use the boundary today does.
+
+## FARM-MEDIUM-077 — build-time gate locking in the fail-closed read boundary
+
+The read-handler migration (FARM-HIGH-061..076) removed every avoidable raw
+`@InjectRepository` read, but nothing stopped a new handler from reintroducing
+one — a silent regression of the fail-closed boundary (tier-3 "make it
+detectable" was missing).
+
+Evidence:
+- `tests/invariants/farm-read-boundary-ssot.spec.ts` (new), registered in
+  `tests/invariants/jest.config.ts` (layer-3 shard, always-on every PR).
+
+Fix: a new invariant fails the build if any farm-service `*.handler.ts`
+implementing `IQueryHandler` uses `@InjectRepository`, outside a tracked 6-entry
+allowlist (reference-data / federation / service-delegating reads under Task #23
++ the storage cursor primitive under Task #9 tail). A second test keeps the
+allowlist honest — it fails if an allowlisted file is migrated but left in the
+list, forcing the allowlist to shrink as Task #23 lands.
+
+## FARM-HIGH-078 — farm write handlers ran transactions outside the tenant boundary
+
+Write side of plan Task #9. 21 write/command handlers across batch, feeding,
+harvest, water-quality and worker ran their transactions via bare
+`this.dataSource.createQueryRunner()` + manual `connect/startTransaction/commit/
+rollback/release` — pinning no search_path and asserting no RLS GUC, relying
+purely on pool-checkout state. A lost or wrong tenant context could write to the
+source `farm` schema or be RLS-denied.
+
+Evidence: see the registry entry for the full 21-file list.
+
+Fix: all 21 migrated to `runInTenantTransaction(this.dataSource, 'farm',
+command.tenantId, async (queryRunner) => { … })`, mirroring the already-migrated
+`close-batch`/`delete-batch` handlers. Constructors unchanged. Critically,
+transactional-outbox `enqueue(event, queryRunner.manager)` calls and
+`auditLog.logWithManager(...)` stay INSIDE the callback (atomic with the
+writes); the one post-commit `logger.log` in `transfer-batch` moved to after the
+wrapper resolves; mobile-command replay early-returns converted (the wrapper
+commits the read-only tx). Specs converted to `createMockDataSource` (removing
+hand-rolled `as unknown as` casts). farm-service `tsconfig.spec` type-check
+clean; full handler/resolver suite 362 tests green.
+
+## FARM-HIGH-079 — allocate-to-tank SERIALIZABLE path not yet on the boundary
+
+`allocate-to-tank` was deliberately **not** migrated in FARM-HIGH-078: it uses
+`startTransaction('SERIALIZABLE')` (its "SECURITY FIX" header) to prevent races
+when multiple requests allocate to the same tank. `runInTenantTransaction` always
+uses the connection default (READ COMMITTED), so migrating as-is would silently
+downgrade isolation — a forbidden behavior change on a critical write path.
+
+Evidence:
+- `apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts`
+- `libs/backend-common/src/database/tenant-transaction.ts`
+
+Remediation (tracked): extend `runInTenantTransaction` with an optional
+isolation-level parameter (or add a `runInTenantSerializableTransaction`
+variant) that pins search_path + asserts the RLS GUC AND honors SERIALIZABLE,
+then migrate this handler. Until then the path retains its bare boundary and is
+not search_path-pinned / GUC-asserted.
+
+## FARM-MEDIUM-078 — dead TenantRlsService with a non-canonical COALESCE RLS form
+
+Plan §8.4 / Task #21. `TenantRlsService` generated its tenant policy as
+`USING ("tenantId" = COALESCE(current_setting('app.current_tenant',true),'')::uuid)`
+— which throws `invalid input syntax for uuid ""` on an empty GUC (vs the
+canonical `NULLIF(...)` form that yields NULL → deny-by-default), and had no
+bypass clause or `WITH CHECK`. It was registered in `RlsModule.forPoolService`
+providers/exports across 12 services yet had **zero runtime injectors** —
+live-registered dead code that would break RLS if anyone ever wired it.
+
+Evidence:
+- `libs/backend-common/src/database/rls/tenant-rls.service.ts` (deleted)
+- `libs/backend-common/src/database/rls/rls.module.ts`
+
+Fix: deleted `tenant-rls.service.ts` + its spec; removed it from
+`RlsModule.forPoolService` providers/exports, the `rls/index.ts` barrel, and the
+doc comments; updated a stale reference comment in
+`rls-connection-bootstrap.service.ts`. The `rls.module.spec` provider-count
+assertions were decremented and the TenantRlsService-specific cases removed. The
+canonical RLS form remains in `apply-tenant-rls.helper.ts` (`NULLIF(...)`); the
+runtime GUC is owned by `RlsConnectionBootstrap` + the tenant read/write
+boundary. (Two pre-existing `rls.module.spec` DI failures — DataSource
+resolution in the test harness — are unrelated and present on HEAD.)
+
+## FARM-HIGH-080 — sanctioned source-read API + get-farm federation + resolver masking removal
+
+Plan §8.3 / Task #23. There was no sanctioned API for reads that are
+cross-tenant BY DESIGN (seeded reference tables, federation
+`__resolveReference`); they were done via ad-hoc raw SQL or a tenant-less
+repository read. And `system.resolver` (`parentSystem`, `childSystemsField`) +
+`farm.resolver` (`resolveReference`) caught ALL errors and returned `null`/`[]`,
+masking a lost tenant context as a legitimate empty — the literal "data
+disappears" path (§3-A).
+
+Evidence:
+- `libs/backend-common/src/database/tenant-transaction.ts`
+- `apps/farm-service/src/farm/query-handlers/get-farm.handler.ts`
+- `apps/farm-service/src/system/system.resolver.ts`
+- `apps/farm-service/src/farm/resolvers/farm.resolver.ts`
+
+Fix: added `runInSourceRead(dataSource, sourceSchema, fn)` + `assertSourceReadContext`
+to the boundary SSoT — a READ ONLY transaction that pins `search_path` to the
+source schema, sets `app.bypass_rls='on'` transaction-locally (cross-tenant by
+design), and asserts `current_schema()` actually resolved to the source schema
+(a stray tenant schema → `SCHEMA_MISMATCH`). `get-farm` is now hybrid: tenant
+path → `runInTenantRead`, federation `__resolveReference` (no tenantId) →
+`runInSourceRead`. The resolver masking is removed: `parentSystem` /
+`resolveReference` catch ONLY `NotFoundException` (a genuine missing
+parent/reference is a legitimate null) and rethrow everything else;
+`childSystemsField` drops its try/catch entirely (ListSystems returns `[]`
+naturally). So a `TenantContextError` now surfaces instead of becoming a silent
+null/empty. `get-farm` is removed from the read-boundary arch-test allowlist.
+
+Specs added (`assertSourceReadContext`, `get-farm` hybrid); the full
+farm-service handler/resolver suite is 365 tests green; type-check clean.
+
+## FARM-MEDIUM-079 — readiness tenant-schema completeness (Task #19)
+
+`/health/ready` ran only `SELECT 1`; a broken/un-provisioned tenant schema gave
+no production signal. Added `TenantSchemaReadinessService` + a
+`getAdditionalChecks()` override: O(1)-in-tenants (one aggregate
+`information_schema.tables` check of the `farm` source schema's core tables —
+expected set intersected with `MODULE_SCHEMAS`, not hardcoded — plus a single
+sampled `tenant_<uuid>` schema). Fails closed to `error` (never an opaque 500);
+routing-broken + DB-ok → degraded(200), both down → 503. 17 tests.
+
+## FARM-MEDIUM-080 — DataLoader tenant factory (Task #12)
+
+Nothing prevented a new DataLoader from omitting the tenant filter. Added
+`createTenantScopedDataLoader` (`@aquaculture/backend-common/dataloader`): it
+resolves `getRequestContext().tenantId`, fails closed if absent, and hands the
+batch fn a guaranteed tenantId — the type signature makes a tenant-unfiltered
+loader unconstructible (tier-1). Migrated the 6 farm DataLoaders; the GraphQL
+context no longer eagerly passes tenant/schema (loaders resolve fail-closed at
+batch tick). 8 factory tests + farm regression green.
+
+## FARM-HIGH-081 — erasure cascade off the tenant boundary (Task #14)
+
+`TenantErasureService` ran its destructive per-tenant cascade via a bare
+`dataSource.transaction()` — no search_path pin, no RLS assertion — so a stale
+pooled connection could delete against the source `farm` schema or another
+tenant. Routed it through `runInTenantTransaction(dataSource,'farm',tenantId)`:
+per-tenant DELETE/COUNT run unqualified (search_path → `tenant_<uuid>`, asserted
+before any DELETE), while cross-tenant infra rows (`farm_audit_logs`,
+`tenant_erasure_audit`, proof ledger, outbox) stay schema-qualified to `farm`. A
+lost context now fails closed, rolls back the cascade, and withholds the
+`TenantDataErased` proof. 27 compliance tests green.
+
+## FARM-HIGH-082 — invalidation-key sweep (Task #10)
+
+Swept ~40 farm-module hooks (+3 pages): every
+`invalidateQueries`/`removeQueries`/`cancelQueries`/`getQueriesData`/`setQueriesData`
+FILTER that used the epoch'd `createTenantQueryKey` now uses the epoch-less
+`createTenantInvalidationKey` (left-prefix-matches args-bearing list keys);
+`useQuery`/`useInfiniteQuery` queryKeys keep `createTenantQueryKey` (epoch is
+correct there). Completes the FARM-HIGH-065/066 fix module-wide — a grep
+confirms zero invalidate/remove filters remain on the epoch'd builder;
+farm-module type-check clean.
+
+## FARM-HIGH-083 — outbox WORKER DISPATCH fail-open on tenantId (Task #13, TRACKED)
+
+The outbox **enqueue** path is already fail-closed (`OutboxPublisher.enqueue`
+rejects missing/blank/non-UUID tenantId; every farm handler uses it — so a
+tenant-less event cannot ENTER the outbox). The **dispatch** path, however, is
+fail-open and lives in the shared `@platform/outbox` worker:
+`OutboxWorkerService.publishLeasedBatch` publishes `row.payload` and
+`NatsEventBus.deriveSubject` routes a tenant-less payload to
+`events.system.{eventType}` rather than dead-lettering it. A blanket reject
+would break legitimate tenant-less SYSTEM events, so the correct fix needs a
+tenant-scoped-vs-system distinction in `@platform/outbox` (a platform-team
+change) — NOT a farm-layer workaround. Recommended: assert tenant-scoped events
+carry a UUID tenantId before `eventBus.publish` and route failures through the
+existing `markFailed`/dead-letter path. Left as a tracked finding (no code
+change this cycle). Scope-adjacent: several farm direct `eventBus.publish()`
+callsites bypass the outbox without a tenantId guard (separate concern).
+
+## FARM-MEDIUM-081..086 — invariants, observability & E2E tail (Tasks #11, #16, #18, #20, #21, #17)
+
+- **FARM-MEDIUM-081 (#11)** event-handler tenant-context invariant: new always-on
+  `tests/invariants/farm-event-handler-tenant-context-ssot.spec.ts` requires
+  every farm NATS event handler that touches the DB to establish a tenant
+  context (`withTenantContext` / `runInTenant*` / explicit search_path pin). 5
+  handlers found, all compliant; allowlist empty + honesty test; wired into the
+  layer-3 shard.
+- **FARM-MEDIUM-082 (#16)** semantic deploy canary: `post-deploy-verify.sh` now issues a
+  named farm GraphQL read through the public edge and asserts the supergraph
+  composed the `farms` field AND an anonymous caller gets no data + an
+  `UNAUTHENTICATED`/`FORBIDDEN` error (data-without-auth → fail). `bash -n` clean.
+- **FARM-MEDIUM-083 (#18)** correlation-id: `nginx.conf` / `nginx.prod.conf` preserve/generate
+  `x-correlation-id` (the exact header gateway-api reads), propagate it upstream,
+  and log it in the json access log. TRACKED: the droplet edge `droplet.conf`
+  still needs the same block.
+- **FARM-MEDIUM-084 (#20)** Grafana: a "Farm Data SSOT / Tenant Boundary" dashboard
+  (`farm_mutation_*` + outbox depth/age) + Prometheus alerts (mutation error
+  rate, outbox backlog) with `runbook_url`. JSON/YAML validated.
+- **FARM-MEDIUM-085 (#21)** RLS GUC test-drift: corrected `app.current_tenant_id` →
+  `app.current_tenant` in `tenant-clone-parity.spec` + `platform-bootstrap.integration.spec`
+  so they assert the canonical runtime GUC (runtime was already canonical).
+  TRACKED: an archived observability migration still uses `app.platform_role`
+  (dead code, outside the active chain).
+- **FARM-MEDIUM-086 (#17)** tenant-swap E2E: `e2e/tests/tenant-swap-attack.e2e.spec.ts`
+  proves forged-`x-tenant-id` / swapped-reference reads yield isolation (not a
+  200-empty) and the HMAC→tenant binding is enforced. Env-gated like sibling e2e
+  specs — skips clean (3 skipped / 5 control pass) without a live stack.
+
+## FARM-MEDIUM-087 — tenant boundary structured trace (Task #15)
+
+The tenant DB boundary (the single read/write chokepoint, §8.7) emitted no
+per-execution trace, so a read's tenant routing + resultState was not observable
+unless it threw. `runInTenantRead` / `runInTenantTransaction` / `runInSourceRead`
+now emit one structured `TenantBoundaryTrace` per execution:
+`{ operation, resultState (SUCCESS|SCHEMA_MISMATCH|RLS_MISMATCH|ERROR),
+sourceSchema, expectedSchema, resolvedSchema, tenantHash (sha256/12 — raw tenant
+id never logged), correlationId, traceId, durationMs, rowCount }`. SUCCESS is
+debug-level (off in prod by default); a context mismatch is warn-level. The emit
+is fully wrapped so observability can never break a read. 11 boundary + 25
+handler tests green.
+
+## FARM-MEDIUM-088 — no-grow gate for production mock-data imports (Task #7, tier-3)
+
+`tests/invariants/farm-no-mock-data-growth-ssot.spec.ts` freezes the set of
+non-test farm-module files that import a mock module (10, all under
+`pages/reports/`) as a shrink-only baseline: a NEW mock import fails the build,
+and removing one requires deleting its baseline entry. This is the tier-3 half
+of §5-5; the tier-1 removal is FARM-HIGH-084.
+
+## Remaining tracked work (large / blocked — NOT completed this cycle)
+
+These plan items are documented as OPEN findings with scope + owner rather than
+shipped partially:
+
+- **FARM-HIGH-084 (Task #7 removal)** — 10 report files render `pages/reports/mock/*`
+  synchronously with no backend call (the §3-C producer). Removal needs real
+  backend report aggregations for 8 report types (not all exist server-side).
+  Mitigated by the FARM-MEDIUM-088 no-grow gate; burn its baseline to empty as
+  each tab is wired.
+- **FARM-MEDIUM-089 (Task #5)** — farm-module typed codegen is BLOCKED by
+  hr-module fragment drift (`codegen.ts:38-43`); unblock hr-module first, then
+  add farm-module to the codegen chain + extend the parity invariant.
+- **FARM-MEDIUM-090 (Task #24)** — `BatchController` (643 lines) duplicates the
+  GraphQL mutation surface; consolidation is a deliberate API change.
+- **FARM-MEDIUM-091 (Task #25)** — `marineDataService` / `useFileUpload` /
+  `useChemicals` use raw `fetch()`; migrate to the typed/traced client.
+
+## FARM-HIGH-085 — completion-audit remediation
+
+The completion-audit workflow (adversarial verifiers + a gate-runner) caught
+three real gaps, now fixed:
+
+1. **feeding-program.resolver masking** — `handleError()` (used by 6 query
+   resolvers) and the `tanksByProgram` field resolver swallowed ALL errors to
+   `null`/`[]`. They now re-throw `TenantContextError` (the same de-masking as
+   system/farm resolvers in FARM-HIGH-080), so a lost tenant context surfaces.
+2. **useHarvestPlans invalidation** — `invalidateAllHarvestPlanQueries` used a
+   predicate `queryKey[0] === 'harvestPlans'`, but tenant-scoped keys are
+   `['tenant', tenantId, 'harvestPlans', …]`, so it matched NOTHING (harvest
+   plans went stale across a tenant switch). Switched to
+   `createTenantInvalidationKey(tenantId, HARVEST_PLANS_KEY)`.
+3. **boundary success-trace regression** — the FARM-MEDIUM-087 SUCCESS trace
+   (debug) added a debug call to every read and broke `create-harvest-record`'s
+   debug-count assertion. The success trace is now OPT-IN behind
+   `FARM_DATA_READ_TRACE=on`; the mismatch warn stays always-on.
+
+Full farm handler/resolver/dataloader suite 365 green; farm-service + farm-module
+type-check clean. (The 2 `rls.module.spec` DI failures the gate-runner flagged
+are PRE-EXISTING on `origin/main` — verified — not introduced by this branch.)
+
+**Sweep follow-through:** the audit lead (feeding-program masking) prompted a
+repo-wide sweep of farm `*.resolver.ts` for the same pattern, which found two
+more: `department.resolver` (`site` field) and `equipment.resolver`
+(`department` field + tank feed-info enrichment) caught all errors to `null`.
+All now re-throw `TenantContextError` (the `site`/`department` resolvers also
+gained the missing `await` so their catch is no longer dead). A re-sweep
+confirms no remaining farm resolver masks errors to `null`/`[]` without
+surfacing a tenant-context failure.
+
+## FARM-HIGH-086 — backend service-layer masking sweep
+
+Continuation of the resolver de-masking (FARM-HIGH-080/085) into farm-service
+services. 11 catch blocks across 7 files (growth-simulator, fcr-calculation,
+feed-consumption-forecast, daily-feeding-execution, regulatory-settings,
+sentinel-hub, feeding-scheduler) caught a tenant DB read and returned
+null/[]/a default, re-masking a `TenantContextError`. Each now re-throws
+`TenantContextError` at the top of the catch (rest of behavior preserved). 37
+other catches were inspected and deliberately skipped (Redis cache, external
+HTTP, writes, rollback+rethrow, void event handlers, fail-closed readiness —
+none read tenant DB rows returning data). farm-service tsc 0; full farm
+handler/resolver/service/dataloader suite **818 green**.
+
+## FARM-HIGH-087 — frontend stale-on-error sweep (completes FARM-HIGH-064)
+
+13 farm-module pages/components rendered an error-only view that blanked the
+surface on a background-refetch error even though TanStack Query still held
+cached data — the "data appears then disappears" UX bug. Each now gates the
+blocking error view behind `isBlockingError(error, hasData)` (the existing
+`utils/list-view-state.ts` helper) so it fires only on initial-load failure;
+with cached data + a refetch error they keep rendering and show a non-blocking
+amber retry banner (mirroring TanksPage). 6 already-correct components skipped.
+farm-module tsc 0.
+
+## Related (tracked separately in the plan)
+
+- FARM-CRITICAL-* umbrella: 139/169 farm handlers read via raw `@InjectRepository`
+  (0 use `runInTenantRead`); reads must migrate onto the asserting boundary and the
+  error-masking `null`/`[]` blocks (`get-site`, `get-department`, `system.resolver`,
+  `farm.resolver`) removed.
+- Production mock data in routed report tabs (`reports/tabs/*Tab.tsx`).
+- farm-module off the GraphQL codegen SSOT (raw `graphqlClient.request<...>` generics).

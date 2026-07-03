@@ -26,6 +26,7 @@ import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChannelPage } from '@/types/messaging';
 import { normalizeChannelType } from '@/utils/channel-type-wire';
+import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -124,7 +125,9 @@ export function useChannels(
         // per-tenant (MT-CRITICAL-051) — and tenant-isolated by cacheUserData.
         if (offset === 0 && tenantId && userId) {
           const cacheKey = userScopedCacheKey(userId, CACHE_KEY);
-          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch(() => undefined);
+          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch((error: unknown) => {
+            logger.error('[useChannels] failed to cache channel page for offline fallback', error);
+          });
         }
         return page;
       } catch (error) {

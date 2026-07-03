@@ -17,6 +17,7 @@ export function cn(...inputs: ClassValue[]): string {
 // API İstemcileri
 export {
   graphqlClient,
+  publicGraphqlClient,
   restClient,
   setTokens,
   clearTokens,
@@ -39,6 +40,10 @@ export type {
 // Token Lifecycle Manager
 export { tokenLifecycle } from './token-lifecycle';
 export type { TokenLifecycleManager, TokenState } from './token-lifecycle';
+export {
+  backendHealthCircuit,
+  refetchWhenBackendHealthy,
+} from './backend-health-circuit';
 
 // Tarih Yardımcıları
 export {
@@ -147,7 +152,12 @@ export type {
 } from './validation';
 
 // Tenant-Scoped Query Keys (SECURITY: prevents cross-tenant cache leak)
-export { createTenantQueryKey } from './tenant-query-keys';
+// createTenantQueryKey -> full useQuery key (epoch'd); createTenantInvalidationKey
+// -> epoch-less prefix for invalidateQueries/removeQueries (see the factory docs).
+export { createTenantQueryKey, createTenantInvalidationKey } from './tenant-query-keys';
+// SessionSnapshot (A1) — SSoT read-model for "is there an authenticated tenant session".
+export { getSessionSnapshot } from './session-snapshot';
+export type { SessionSnapshot } from './session-snapshot';
 
 // Logout Cleanup (SECURITY: FE-HIGH-005 — clears all browser storage layers)
 export { logoutCleanup, registerLogoutCleanup } from './logout-cleanup';

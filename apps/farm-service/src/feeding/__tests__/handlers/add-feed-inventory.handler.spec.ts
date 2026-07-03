@@ -19,7 +19,8 @@
  *      the payload omits it — never emits an undefined date.
  */
 import { NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
+import type { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AddFeedInventoryHandler } from '../../handlers/add-feed-inventory.handler';
 import { AddFeedInventoryCommand } from '../../commands/add-feed-inventory.command';
@@ -27,6 +28,8 @@ import { FeedInventory } from '../../entities/feed-inventory.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { Site } from '../../../site/entities/site.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+
+const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface HarnessOpts {
   feed?: Partial<Feed> | null;
@@ -39,12 +42,12 @@ function makeHarness(opts: HarnessOpts = {}) {
   const feed: Partial<Feed> | null =
     opts.feed === null
       ? null
-      : { id: 'feed-1', tenantId: 'tenant-1', ...(opts.feed ?? {}) };
+      : { id: 'feed-1', tenantId: TENANT_ID, ...(opts.feed ?? {}) };
 
   const site: Partial<Site> | null =
     opts.site === null
       ? null
-      : { id: 'site-1', tenantId: 'tenant-1', ...(opts.site ?? {}) };
+      : { id: 'site-1', tenantId: TENANT_ID, ...(opts.site ?? {}) };
 
   const feedRepository = {
     findOne: jest.fn().mockResolvedValue(feed),
@@ -62,29 +65,19 @@ function makeHarness(opts: HarnessOpts = {}) {
     }),
   };
 
-  const managerFindOne = jest.fn().mockResolvedValue(
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
+  const managerFindOne = mockManager.findOne as jest.Mock;
+  managerFindOne.mockResolvedValue(
     opts.existingInventory === undefined ? null : opts.existingInventory,
   );
-  const managerSave = jest.fn(async (_: unknown, entity: FeedInventory) => {
-    return { ...entity, id: entity.id ?? 'saved-inv-id' };
-  });
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: {
-      findOne: managerFindOne,
-      save: managerSave,
-    } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
+  (mockManager.save as jest.Mock).mockImplementation(
+    async (_: unknown, entity: FeedInventory) => {
+      return { ...entity, id: entity.id ?? 'saved-inv-id' };
+    },
+  );
+  const commit = mockQueryRunner.commitTransaction as jest.Mock;
+  const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
+  const dataSource = mockDataSource;
 
   const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
     if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
@@ -109,7 +102,7 @@ function makeCommand(overrides: Partial<{
   receivedDate: Date;
 }> = {}) {
   return new AddFeedInventoryCommand(
-    'tenant-1',
+    TENANT_ID,
     {
       feedId: 'feed-1',
       siteId: 'site-1',
@@ -134,7 +127,7 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['eventType']).toBe('FeedInventoryReceived');
-    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['tenantId']).toBe(TENANT_ID);
     expect(event['feedId']).toBe('feed-1');
     expect(event['siteId']).toBe('site-1');
     expect(event['lotNumber']).toBe('LOT-A-001');
@@ -150,7 +143,7 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
     const { handler, enqueue } = makeHarness({
       existingInventory: {
         id: 'existing-inv-1',
-        tenantId: 'tenant-1',
+        tenantId: TENANT_ID,
         feedId: 'feed-1',
         siteId: 'site-1',
         lotNumber: 'LOT-A-001',
@@ -207,6 +200,6 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ receivedDate: undefined }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event['receivedDate']).toBeInstanceOf(Date);
+    expect(typeof event['receivedDate']).toBe('string');
   });
 });

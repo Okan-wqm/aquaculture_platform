@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 
@@ -31,6 +31,7 @@ export class AuditLogService {
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -64,14 +65,40 @@ export class AuditLogService {
     // EntityManager.create/save (entity-target form) binds the write to the
     // caller's transaction without a repository handle — atomic/fail-CLOSED
     // audit. Pure INSERT with explicit dto.tenantId; no tenant-unscoped find.
-    const mgr = manager ?? this.auditLogRepository.manager;
-    const auditLog = mgr.create(AuditLog, {
-      ...dto,
-      severity: dto.severity ?? AuditLogSeverity.INFO,
+    if (manager) {
+      const auditLog = manager.create(AuditLog, {
+        ...dto,
+        severity: dto.severity ?? AuditLogSeverity.INFO,
+      });
+      const saved = await manager.save(auditLog);
+      this.logger.debug(`Audit log created: ${dto.action} for ${dto.entityType}`);
+      return saved;
+    }
+
+    // ORPHAN-HIGH-308 (completion) — standalone audit appends run in SYSTEM
+    // context. The additive audit_append_system INSERT policy is necessary
+    // but NOT sufficient: TypeORM save() always emits INSERT … RETURNING
+    // (to reload generated columns), and PostgreSQL applies the SELECT
+    // policy's USING clause to rows read back via RETURNING — so a
+    // pre-auth/SUPER_ADMIN session (no tenant GUC) still failed with
+    // "new row violates row-level security policy" AFTER the policy landed
+    // (proven live 2026-07-02 18:16 UTC; probe: INSERT passes, INSERT …
+    // RETURNING fails under SET ROLE auth_service). set_config with
+    // is_local = true scopes the bypass to THIS transaction — the same
+    // audited system primitive BypassRlsService and the outbox dispatcher
+    // (ORPHAN-HIGH-321) use — so it cannot leak through the pool. Audit
+    // rows are system-authored compliance records; writing them is the
+    // service's own act, never a tenant-scoped read surface.
+    return this.dataSource.transaction(async (txn) => {
+      await txn.query(`SELECT set_config('app.bypass_rls', 'on', true)`);
+      const auditLog = txn.create(AuditLog, {
+        ...dto,
+        severity: dto.severity ?? AuditLogSeverity.INFO,
+      });
+      const saved = await txn.save(auditLog);
+      this.logger.debug(`Audit log created: ${dto.action} for ${dto.entityType}`);
+      return saved;
     });
-    const saved = await mgr.save(auditLog);
-    this.logger.debug(`Audit log created: ${dto.action} for ${dto.entityType}`);
-    return saved;
   }
 
   async findByTenant(

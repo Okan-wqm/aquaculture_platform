@@ -16,6 +16,7 @@ import {
   imageBuildTargets,
   infraImageBuildTargets,
   readinessServices,
+  readinessSlaSeconds,
   requiredRuntimeEnv,
   requiredRuntimeSecrets,
   serviceDbRolePrefixes,
@@ -165,12 +166,18 @@ function criticalityArtifact(): Artifact {
     ].join('\n');
   });
 
+  // DEPLOY-SSOT: readiness SLA is DERIVED from the catalog, not typed.
+  // = max(startupBudgetSeconds over CRITICAL services) + margin. Replaces the
+  // former hardcoded `readiness_sla_seconds: 300` literal that drifted freely
+  // from the per-service compose start_period values it was supposed to bound.
+  const readinessSla = readinessSlaSeconds();
+
   return {
     path: 'infrastructure/deploy/service-criticality.yaml',
     contents: `${header('yaml')}
 schema_version: 1
 defaults:
-  readiness_sla_seconds: 300
+  readiness_sla_seconds: ${readinessSla}
 services:
 ${services.join('\n')}\n`,
   };
@@ -194,7 +201,6 @@ function requiredSignalsArtifact(): Artifact {
         `  - name: ${entry.composeServiceName}`,
         '    signals:',
         yamlList(entry.requiredSignals, '      '),
-        ...(entry.composeServiceName === 'db-migrate' ? ['    window_seconds: 300'] : []),
       ].join('\n'),
     );
 
@@ -202,8 +208,19 @@ function requiredSignalsArtifact(): Artifact {
     path: 'infrastructure/deploy/required-signals.yaml',
     contents: `${header('yaml')}
 schema_version: 2
+# window_seconds is the MAX time a service has to emit each required boot signal
+# before the deploy gate declares it missing. assert-service-signals.ts polls and
+# passes the instant every signal appears, so a wide window is free for fast
+# services — it only prevents FALSE failures for healthy-but-slow boots. On a
+# contended single-droplet cold-start (all ~25 containers booting at once +
+# gateway supergraph composition retrying while auth-service warms up), the
+# heaviest backend's schema_drift_clean scan (77 entities × per-tenant schemas)
+# legitimately emitted ~220s in — past the former 120s default, false-failing the
+# gate into a rollback even though every container was healthy. 300s (the value
+# db-migrate already used) gives margin; a genuinely dead service still fails,
+# just later.
 defaults:
-  window_seconds: 120
+  window_seconds: 300
 signal_library:
 ${signalLibrary.join('\n')}
 services:

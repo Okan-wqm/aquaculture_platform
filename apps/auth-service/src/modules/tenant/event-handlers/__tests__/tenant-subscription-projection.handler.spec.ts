@@ -29,7 +29,7 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
     ),
     previousPlan: 'starter',
     newPlan: 'professional',
-    effectiveDate: new Date('2026-06-12T00:00:00.000Z'),
+    effectiveDate: '2026-06-12T00:00:00.000Z',
     ...fields,
   });
 

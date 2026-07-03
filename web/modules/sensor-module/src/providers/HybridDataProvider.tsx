@@ -28,6 +28,7 @@ import React, {
   useContext,
   type ReactNode,
 } from 'react';
+import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import { useScadaStore } from '../store/scada';
 import { ScadaSocketService } from '../services/ScadaSocketService';
 import {
@@ -265,6 +266,23 @@ export function HybridDataProviderInner({
       liveTagCacheRef.current.clear();
     };
    
+  }, []);
+
+  // ── Effect: tenant-isolation cache purge ──────────────────────────────────
+  // SECURITY: clear the live tag cache on tenant switch / logout. The /scada
+  // singleton is disconnected by ScadaSocketService on those events (stopping the
+  // previous tenant's TAG_VALUES stream); clearing here ensures getTagValue /
+  // getTagSnapshot never surface the previous tenant's live values after a switch.
+  useEffect(() => {
+    const clearCache = (): void => {
+      liveTagCacheRef.current.clear();
+    };
+    const unregisterTenantChange = onTenantChange(clearCache);
+    const unregisterLogout = registerLogoutCleanup(clearCache);
+    return () => {
+      unregisterTenantChange();
+      unregisterLogout();
+    };
   }, []);
 
   // ── IDataProvider implementation ──────────────────────────────────────────

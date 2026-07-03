@@ -7,6 +7,7 @@
 import React from 'react';
 import { Button } from '@aquaculture/shared-ui';
 import { useTankCleanerFish } from '../../../hooks/useCleanerFish';
+import { isBlockingError } from '../../../utils/list-view-state';
 import { SourceTypeLabels } from '../types';
 
 interface TankCleanerFishCardProps {
@@ -26,7 +27,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
   onMortality,
   onRemove,
 }) => {
-  const { data: tankInfo, isLoading, error } = useTankCleanerFish(tankId);
+  const { data: tankInfo, isLoading, error, refetch } = useTankCleanerFish(tankId);
 
   // Format date
   const formatDate = (dateString: string) => {
@@ -46,7 +47,10 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
     );
   }
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // tank info. A failed background refetch with cached data keeps rendering the
+  // card and surfaces a non-blocking strip below (stale-on-error).
+  if (isBlockingError(error, Boolean(tankInfo))) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
@@ -64,6 +68,21 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
 
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
+      {/* Non-blocking refresh error — keeps the last-loaded card visible. */}
+      {error && (
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2">
+          <p className="text-xs text-amber-800">
+            Couldn&apos;t refresh — showing the last loaded data.
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-4 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">

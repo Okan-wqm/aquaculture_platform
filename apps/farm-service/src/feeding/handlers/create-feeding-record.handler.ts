@@ -36,12 +36,13 @@
  */
 import { randomUUID } from 'crypto';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
@@ -95,11 +96,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // All reads + writes inside a single transaction. TOCTOU fix: batch/feed
     // lookups now run with pessimistic locks so a concurrent CloseBatch or
     // feed-delete cannot mutate state between the validation and the write.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       // Batch'i doğrula (inside TX with pessimistic_write lock)
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: payload.batchId, tenantId },
@@ -221,23 +218,17 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         feedId: payload.feedId,
         plannedAmountKg: payload.plannedAmount ?? 0,
         actualAmountKg: payload.actualAmount,
-        feedingDate: new Date(payload.feedingDate),
+        feedingDate: toEventIso(payload.feedingDate),
         feedingTime: payload.feedingTime || '',
         variance: (payload.actualAmount - (payload.plannedAmount ?? 0)),
       };
       await this.outboxPublisher.enqueue(feedingEvent, queryRunner.manager);
 
-      // Commit transaction (feeding record + batch update + inventory
-      // deduction + outbox row(s) are all atomic)
-      await queryRunner.commitTransaction();
-
+      // The transactional boundary commits (feeding record + batch update +
+      // inventory deduction + outbox row(s) are all atomic) on return, and
+      // rolls back + rethrows on any throw above.
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   /**

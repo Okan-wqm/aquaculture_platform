@@ -41,7 +41,7 @@ function makeEvent(
     message: 'Cumulative mortality rate 12.00% is critical',
     mortalityRate: 12,
     reason: 'DISEASE',
-    recordedAt: new Date('2026-06-10T08:00:00.000Z'),
+    recordedAt: '2026-06-10T08:00:00.000Z',
     ...overrides,
   };
 }

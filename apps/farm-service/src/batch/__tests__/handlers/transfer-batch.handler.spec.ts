@@ -65,12 +65,14 @@ describe('TransferBatchHandler', () => {
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
+      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
+      { applyBatchDelta: jest.fn().mockImplementation(() => Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 })) } as never,
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
       new MobileCommandReceiptService(),
     );
   });
 
-  const TENANT = 'tenant-1';
+  const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const USER = 'user-1';
 
   it('should throw NotFoundException when batch not found', async () => {
@@ -162,7 +164,6 @@ describe('TransferBatchHandler', () => {
       return Promise.resolve(null);
     });
     mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
-    mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
     await handler.execute(
       new TransferBatchCommand(

@@ -22,6 +22,7 @@ import {
   UpdateParameterConfigInput,
 } from '../../../hooks/useParameterConfigs';
 import { useParamEquipmentMappings } from '../../../hooks/useParamEquipmentMapping';
+import { isBlockingError } from '../../../utils/list-view-state';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { ConfigFormModal, ConfigFormData, EMPTY_FORM } from './ConfigFormModal';
 import { EquipmentMappingPanel } from './EquipmentMappingPanel';
@@ -117,7 +118,7 @@ export const ParameterConfigManager: React.FC = () => {
     group: groupFilter || undefined,
   }), [groupFilter]);
 
-  const { data: configs, isLoading, error } = useParameterConfigList(filter);
+  const { data: configs, isLoading, error, refetch } = useParameterConfigList(filter);
   const createMutation = useCreateParameterConfig();
   const updateMutation = useUpdateParameterConfig();
   const deleteMutation = useDeleteParameterConfig();
@@ -229,7 +230,10 @@ export const ParameterConfigManager: React.FC = () => {
     );
   }
 
-  if (error) {
+  // Blocking error — ONLY when the initial load failed and there is no cached
+  // configs. A failed background refetch with cached configs keeps rendering the
+  // list and surfaces a non-blocking banner below (stale-on-error).
+  if (isBlockingError(error, (configs?.length ?? 0) > 0)) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-800">Failed to load parameter configs: {(error as Error).message}</p>
@@ -239,6 +243,22 @@ export const ParameterConfigManager: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Non-blocking refresh error — keeps the last-loaded configs visible. */}
+      {error && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t refresh parameter configs — showing the last loaded data.{' '}
+            <span className="text-amber-700">{(error as Error).message}</span>
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">

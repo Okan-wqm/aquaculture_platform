@@ -157,6 +157,9 @@ volumes:
   minio_data:
   mosquitto_data:
   mosquitto_log:
+  # ORPHAN-090: persistence for the monitoring stack (sizes are the operator's call).
+  prometheus_data:
+  alertmanager_data:
 
 services:
   # ===========================================================================
@@ -620,11 +623,20 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
+      # /health/live is pure process liveness (composition is BACKGROUND via
+      # BackgroundCompositionManager, reported on /health/ready). It normally
+      # answers in <10ms, BUT during the simultaneous cold-boot of ~14 services on
+      # the 4-CPU droplet the gateway is CPU-starved and a probe can exceed 10s
+      # wall-clock (observed: a probe timed out at ~+70s; the container only went
+      # healthy at ~+100s). timeout 30s tolerates that transient starvation; the 60s
+      # start_period stops early storm-probes from counting toward `retries` so the
+      # container flips healthy on the first real success. Aligned with the gateway's
+      # startupBudgetSeconds (120) in the service-catalog SSoT.
       test: ['CMD', 'curl', '-sf', 'http://localhost:3000/health/live']
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
-      start_period: 120s
+      start_period: 60s
 
   auth-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:${TAG:?TAG required}
@@ -1018,31 +1030,39 @@ services:
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
-      # Stripe credentials — OPTIONAL in compose, REQUIRED before billing goes live.
-      #
-      # Architectural decision (2026-04-14): the `:?` strict-requirement was
-      # too tight for environments that haven't onboarded Stripe yet (dev,
-      # staging, droplets running before payment integration is live). The
-      # billing-service code already implements proper graceful degradation:
-      #
-      #   - stripe-webhook.controller.ts:74 reads the secret with default ''
-      #   - line 77 logs a warning "Webhook signature verification will
-      #     reject all requests" when missing
-      #   - line 106 explicitly rejects every webhook with 400 when missing
-      #
-      # So an empty default does NOT silently accept unauthenticated webhooks
-      # (the controller fails closed). It just lets the service BOOT without
-      # forcing operators to populate Stripe keys before they're using
-      # billing. Operators MUST set both vars before flipping billing on
-      # in production — see docs/runbooks/secret-rotation.md (P5 plan).
-      #
-      # Empty-string defaults instead of unset because the controller's
-      # configService.get() with a default ('' fallback) treats unset and
-      # empty as the same case — both trigger the missing-secret warning
-      # path. Either form would work; empty-string is more explicit about
-      # the contract.
+      # Stripe — gated by the STRIPE_BILLING_ENABLED SSoT flag
+      # (libs/backend-common/src/billing/stripe-client.factory.ts). ONE switch
+      # reconciles two historically conflicting contracts:
+      #   - 2026-04-14 graceful-boot: billing MUST boot on a droplet with no
+      #     Stripe credential (the webhook controller independently fails closed —
+      #     rejects every webhook 400 when STRIPE_WEBHOOK_SECRET is missing).
+      #   - PR #640 fail-closed: a deployment that CLAIMS to bill must not start
+      #     mis-wired.
+      # The flag separates intent ("is Stripe on here?") from config ("is the key
+      # present?"):
+      #   STRIPE_BILLING_ENABLED unset/false (DEFAULT) → the factory binds a
+      #     disabled client; the service BOOTS; outbound Stripe calls fail closed
+      #     at REQUEST time (StripeNotConfiguredError). This is the droplet today.
+      #   STRIPE_BILLING_ENABLED=true + STRIPE_SECRET_KEY present → real client.
+      #   STRIPE_BILLING_ENABLED=true + STRIPE_SECRET_KEY missing → boot fails
+      #     closed by design.
+      # To turn billing on: set STRIPE_BILLING_ENABLED=true AND STRIPE_SECRET_KEY
+      # together (see docs/runbooks/secret-rotation.md). STRIPE_SECRET_KEY is the
+      # canonical name read by the factory + PLATFORM_SECRET_ENV_VARS (was wrongly
+      # injected as STRIPE_API_KEY here, which the factory never reads → the boot
+      # crash this fixes). STRIPE_BILLING_ENABLED is a non-secret intent flag.
+      # BILLING_PROVIDER is the explicit provider switch (factory SSoT):
+      #   mock (DEFAULT here) → a functional local MockBillingProvider: no outbound
+      #     Stripe, no key, local subscriptions/receipts. Correct for the
+      #     test/demo tenants on this droplet — billing WORKS instead of throwing.
+      #   stripe → the real adapter; a paying deployment MUST set this explicitly
+      #     AND provide STRIPE_SECRET_KEY (missing key then fails closed at boot).
+      # Defaulting to mock keeps a demo droplet self-healing and NEVER makes a real
+      # charge; flipping to stripe is a deliberate, key-bearing act.
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-mock}
+      STRIPE_BILLING_ENABLED: ${STRIPE_BILLING_ENABLED:-false}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1674,3 +1694,85 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # ── Monitoring stack (ORPHAN-090) ──────────────────────────────────────────
+  # The droplet exposed every service /metrics but ran NO scraper, so nothing
+  # collected them. These four containers consume the configs that already live
+  # under infrastructure/monitoring/droplet/ (prometheus.yml + the catalog-
+  # GENERATED file_sd/aqua-services.json + rules/ + alertmanager.yml). They are
+  # ADDITIVE — no existing service is touched — and stay on the internal network
+  # only (no host port published; reach the UI via an ssh tunnel).
+  #
+  # INFRA-OWNER DECISIONS PENDING before this is deployed:
+  #   - Prometheus retention/disk (15d default below; size is the operator's call).
+  #   - Alertmanager receivers: alertmanager.yml needs real SMTP/webhook secrets
+  #     before any alert actually notifies.
+  #   - observability-service /metrics is INTERNAL_API_KEY-gated; its scrape job is
+  #     intentionally NOT enabled until that auth header is wired into prometheus.yml.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aqua-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/monitoring/droplet/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/droplet/rules:/etc/prometheus/rules:ro
+      - ./infrastructure/monitoring/droplet/file_sd:/etc/prometheus/file_sd:ro
+      - prometheus_data:/prometheus
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: aqua-cadvisor
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: aqua-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aqua-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    volumes:
+      - ./infrastructure/monitoring/droplet/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M

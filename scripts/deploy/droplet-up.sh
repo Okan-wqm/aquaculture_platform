@@ -26,7 +26,17 @@
 # =============================================================================
 
 set -euo pipefail
-cd /var/aqua-saas
+
+# Deploy filesystem SSoT + the SHA-pinned checkout materializer. This script
+# runs from the dedicated, deploy-owned DEPLOY_CHECKOUT_DIR worktree — NOT the
+# interactive /var/aqua-saas working tree — so a parallel engineering/agent
+# session checking out a feature branch can never fight or false-fail the
+# deploy. deploy-paths.sh is loaded from the persistent source repo because
+# THIS file may itself be executing from the freshly-materialized checkout, and
+# that checkout is what the materialize routine (provided by the snippet)
+# pins to DEPLOY_SHA before we cd into it below.
+# shellcheck source=scripts/deploy/deploy-paths.sh
+source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
 
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
@@ -74,8 +84,8 @@ cleanup_docker_auth() {
 trap cleanup_docker_auth EXIT
 
 ACTIVE_COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
-if [ -z "${ACTIVE_COMPOSE_PROFILES}" ] && [ -f /var/aqua-saas/.env ]; then
-  ACTIVE_COMPOSE_PROFILES="$(grep -E '^COMPOSE_PROFILES=' /var/aqua-saas/.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+if [ -z "${ACTIVE_COMPOSE_PROFILES}" ] && [ -f "${DEPLOY_ENV_FILE}" ]; then
+  ACTIVE_COMPOSE_PROFILES="$(grep -E '^COMPOSE_PROFILES=' "${DEPLOY_ENV_FILE}" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
 fi
 case ",${ACTIVE_COMPOSE_PROFILES// /,}," in
   *",rust-sidecar,"*)
@@ -108,7 +118,7 @@ esac
 # ──────────────────────────────────────────────────────────────────────────
 read_env_file_value() {
   local name="$1"
-  local file="${2:-/var/aqua-saas/.env}"
+  local file="${2:-${DEPLOY_ENV_FILE}}"
 
   if [ ! -r "$file" ]; then
     return 0
@@ -119,7 +129,7 @@ read_env_file_value() {
 
 generate_credential() {
   local VAR_NAME="$1"
-  local ENV_FILE="${2:-/var/aqua-saas/.env}"
+  local ENV_FILE="${2:-${DEPLOY_ENV_FILE}}"
   touch "${ENV_FILE}"
   if grep -q "^${VAR_NAME}=" "${ENV_FILE}" 2>/dev/null; then
     echo "  ${VAR_NAME}: already set"
@@ -760,11 +770,18 @@ SELECT 'ok' AS release_verification;
 SQL
 }
 
-# SEC-CI-012: Checkout to the specific SHA that triggered the workflow
-# instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
-echo "=== Checking out deploy SHA ==="
-git fetch --force --prune origin
-git checkout -f ${DEPLOY_SHA}
+# SEC-CI-012: Pin the deploy source to the exact SHA that triggered the
+# workflow (prevents TOCTOU race if another commit lands mid-deploy).
+#
+# The pin lands in the DEDICATED, deploy-owned DEPLOY_CHECKOUT_DIR worktree
+# (detached HEAD), NOT the interactive /var/aqua-saas tree — the deploy and
+# live engineering/agent sessions no longer share a working tree, so neither
+# can drift the other's HEAD. `cd` into the pinned checkout so every relative
+# path below (docker compose -f docker-compose.droplet.yml, infrastructure/...
+# mounts, scripts/deploy/*) resolves to the SHA-pinned source.
+echo "=== Pinning deploy source checkout ==="
+materialize_deploy_checkout "${DEPLOY_SHA}"
+cd "${DEPLOY_CHECKOUT_DIR}"
 
 echo "Deploy release id: ${DEPLOY_RELEASE_ID}"
 echo "Deploy state dir: ${DEPLOY_STATE_DIR}"
@@ -795,9 +812,12 @@ fi
 # without operator intervention. --force is reserved for proactive
 # renewal of existing certs nearing expiry.
 echo "=== TLS certificate generation (always-run; idempotent) ==="
+# Read TLS material from the persistent certs dir (DEPLOY_CERTS_DIR), which is
+# symlinked into the checkout as ./certs — generate-internal-certs.sh writes
+# there via that symlink, and docker-compose.droplet.yml bind-mounts ./certs.
 CERT_RENEW=false
-if [ -f "certs/redis/redis-cert.pem" ]; then
-  EXPIRY=$(openssl x509 -enddate -noout -in certs/redis/redis-cert.pem 2>/dev/null | cut -d= -f2)
+if [ -f "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" ]; then
+  EXPIRY=$(openssl x509 -enddate -noout -in "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" 2>/dev/null | cut -d= -f2)
   if [ -n "$EXPIRY" ]; then
     EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s 2>/dev/null || echo 0)
     NOW_EPOCH=$(date +%s)
@@ -836,7 +856,7 @@ fi
 #
 # Phase A2 — docker-compose interpolation valid
 echo "=== Pre-flight: generated service DB credentials ==="
-ENV_FILE="/var/aqua-saas/.env"
+ENV_FILE="${DEPLOY_ENV_FILE}"
 for SVC in ${SERVICE_DB_ROLES}; do
   generate_credential "${SVC}_SERVICE_DB_PASS" "${ENV_FILE}"
 done
@@ -859,19 +879,23 @@ done
 # never rotates (rotation stays an incident-response ceremony — see
 # docs/runbooks/secret-rotation.md).
 echo "=== Pre-flight: required secrets presence ==="
-bash /var/aqua-saas/scripts/deploy/droplet-bootstrap-env.sh
+# Bootstrap writes to the PERSISTENT secrets file (DEPLOY_ENV_FILE), never the
+# ephemeral checkout. The bootstrap + lib scripts themselves come from the
+# SHA-pinned checkout (relative paths; we cd'd there) so they match the
+# deployed source exactly.
+ENV_FILE="${DEPLOY_ENV_FILE}" bash scripts/deploy/droplet-bootstrap-env.sh
 # shellcheck disable=SC1091
-source /var/aqua-saas/scripts/deploy/lib/required-env-secrets.sh
+source scripts/deploy/lib/required-env-secrets.sh
 MISSING=()
 while IFS= read -r SECRET; do
-  if ! grep -q "^${SECRET}=" /var/aqua-saas/.env 2>/dev/null; then
+  if ! grep -q "^${SECRET}=" "${DEPLOY_ENV_FILE}" 2>/dev/null; then
     MISSING+=("$SECRET")
   fi
 done < <(required_env_secret_names)
 if [ ${#MISSING[@]} -gt 0 ]; then
   echo "::error::Still missing after bootstrap: ${MISSING[*]}"
   echo "  Bootstrap reported success but preflight re-check failed — investigate"
-  echo "  /var/aqua-saas/.env permissions and scripts/deploy/droplet-bootstrap-env.sh output."
+  echo "  ${DEPLOY_ENV_FILE} permissions and scripts/deploy/droplet-bootstrap-env.sh output."
   exit 1
 fi
 echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
@@ -879,7 +903,7 @@ echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
 echo "=== Pre-flight: compose interpolation ==="
 if ! docker compose -f docker-compose.droplet.yml config --quiet; then
   echo "::error::docker-compose.droplet.yml interpolation failed."
-  echo "  Likely cause: missing :? required env var in /var/aqua-saas/.env"
+  echo "  Likely cause: missing :? required env var in ${DEPLOY_ENV_FILE}"
   echo "  Aborting BEFORE any container actions — no production state changed."
   exit 1
 fi
@@ -1002,7 +1026,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # detect existing values and skip generation (idempotent).
   # ================================================================
   echo "=== Ensuring per-service credentials exist ==="
-  ENV_FILE="/var/aqua-saas/.env"
+  ENV_FILE="${DEPLOY_ENV_FILE}"
 
   generate_credential() {
     local VAR_NAME="$1"
@@ -1062,9 +1086,12 @@ if [ "$FULL_DEPLOY" = "true" ]; then
 
   echo "=== Per-service credentials provisioned ==="
 
-  # RSA key pair for JWT RS256 signing (auth-service signs, all verify)
+  # RSA key pair for JWT RS256 signing (auth-service signs, all verify).
+  # Persisted in the stable certs dir (mounted into containers via the
+  # compose ./certs/jwt bind, which resolves through the checkout's certs
+  # symlink to DEPLOY_CERTS_DIR) — never regenerated on a recreated checkout.
   echo "=== Ensuring JWT RSA key pair exists ==="
-  JWT_KEY_DIR="/var/aqua-saas/certs/jwt"
+  JWT_KEY_DIR="${DEPLOY_CERTS_DIR}/jwt"
   if [ ! -f "$JWT_KEY_DIR/private.pem" ]; then
     echo "  Generating RSA-2048 key pair for JWT..."
     mkdir -p "$JWT_KEY_DIR"
@@ -1185,7 +1212,7 @@ else
   # mTLS cert CN IS identity. Only legacy internal bookkeeping
   # credentials + DB role passwords get generated.
   echo "=== Ensuring per-service credentials exist ==="
-  ENV_FILE="/var/aqua-saas/.env"
+  ENV_FILE="${DEPLOY_ENV_FILE}"
   generate_credential() {
     local VAR_NAME="$1"
     if grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
@@ -1343,6 +1370,35 @@ if ! verify_release_ledger_sql; then
   rollback_and_record "release_sql" || true
   exit 1
 fi
+
+# Pre-promotion public-path smoke THROUGH nginx — the gate the app.suderra.com outage
+# slipped past. Every container can be "healthy" (and boot-signals/readiness can pass)
+# while nginx→gateway still returns 502: a subgraph being down means the supergraph never
+# composes and the gateway never serves /graphql. Assert the REAL public path returns
+# valid GraphQL JSON before promoting; a 502/HTML body rolls the deploy back.
+echo "=== Public /graphql smoke through nginx ==="
+SMOKE_HOST="${PUBLIC_SMOKE_HOST:-app.suderra.com}"
+# Exercise the REAL https public path. Was http://localhost, which nginx
+# 301-redirects http→https, so the smoke saw a 301 (not GraphQL JSON) and
+# false-failed every deploy. Default to https on the public host, pinned to the
+# local nginx via --resolve so it tests the exact public TLS path (valid cert,
+# SNI, Host) without depending on external DNS. -L/--post301/--post302 also
+# re-POST through a redirect if PUBLIC_SMOKE_ORIGIN is overridden back to http.
+SMOKE_ORIGIN="${PUBLIC_SMOKE_ORIGIN:-https://${SMOKE_HOST}}"
+SMOKE_RESOLVE="${PUBLIC_SMOKE_RESOLVE:-${SMOKE_HOST}:443:127.0.0.1}"
+smoke_out="$(curl -sS -m 15 -L --post301 --post302 --resolve "${SMOKE_RESOLVE}" -w $'\n%{http_code}' \
+  -H "Host: ${SMOKE_HOST}" -H 'Content-Type: application/json' \
+  -X POST --data '{"query":"{ __typename }"}' "${SMOKE_ORIGIN}/graphql" || true)"
+smoke_code="$(printf '%s' "${smoke_out}" | tail -n1)"
+smoke_body="$(printf '%s' "${smoke_out}" | sed '$d')"
+if [ "${smoke_code}" != "200" ] || \
+   ! printf '%s' "${smoke_body}" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("data",{}).get("__typename") else 1)' 2>/dev/null; then
+  echo "::error::Public POST /graphql smoke failed through nginx (HTTP ${smoke_code}; body is not GraphQL JSON). The gateway is not serving public traffic — a subgraph is likely down. Initiating rollback."
+  record_release_ledger "failed" "public_graphql_smoke"
+  rollback_and_record "public_graphql_smoke" || true
+  exit 1
+fi
+echo "  Public /graphql smoke passed (HTTP 200, valid GraphQL JSON)."
 
 record_release_ledger "promoted" ""
 

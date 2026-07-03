@@ -23,7 +23,7 @@ import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, createBaseEvent } from '@platform/event-contracts';
 import type { BatchClosedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
@@ -234,7 +234,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         totalMortality: finalMetrics.totalMortality,
         mortalityRate: finalMetrics.mortalityRate,
         daysInProduction: finalMetrics.daysInProduction,
-        closedAt,
+        closedAt: toEventIso(closedAt),
       };
       await this.outboxPublisher.enqueue(closedEvent, queryRunner.manager);
       return savedBatch;

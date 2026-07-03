@@ -165,7 +165,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(current).not.toContain('Last verified commit');
     expect(current).toContain('## Authority Chain');
     expect(current).toContain('Executable code and machine-checked contracts are normative');
-    expect(current).toContain('Codex CLI');
+    expect(current).toContain('Claude Code CLI');
     for (const anchor of [
       'aria-kernel/aria_kernel/cli.py',
       'aria-kernel/aria_kernel/runtime_profile.py',
@@ -251,9 +251,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('historical live docs are explicitly subordinate to CURRENT_STATE', () => {
     const staleRuntimeTerms = [
-      'Claude Code',
-      'Anthropic',
-      'ANTHROPIC_API_KEY',
+      'Codex CLI',
+      'codex exec',
+      'codex_runtime.py',
+      'OPENAI_API_KEY',
       'llm_bridge.py',
       'only implemented ARIA code',
       'does not implement the kernel',
@@ -274,7 +275,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(architecture).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
     for (const anchor of [
       'Executable code and machine-checked contracts are normative',
-      'Codex CLI',
+      'Claude Code CLI',
       'artifact-bearing',
       'Lifecycle-only cycles do not authorize promotion',
       'docs/aria/CURRENT_STATE.md',
@@ -306,7 +307,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'aria-kernel/aria_kernel/auto_merge.py',
       'tools/aria-poc/ci_executor.py',
       'tools/aria-poc/worker_executor.py',
-      'tools/aria-poc/codex_runtime.py',
+      'tools/aria-poc/claude_runtime.py',
       'aria-kernel/aria_kernel/artifact_safety.py',
       'aria-kernel/aria_kernel/burn_in.py',
       'docs/aria/ENTERPRISE_AUTONOMY_SSOT.md',
@@ -433,7 +434,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
   });
 
   it('stale ARIA runbooks are marked historical or compatibility material', () => {
-    const staleRuntimeTerms = ['snowball', 'Claude Code', 'Anthropic', 'ANTHROPIC_API_KEY', 'llm_bridge.py'];
+    const staleRuntimeTerms = ['snowball', 'llm_bridge.py'];
     for (const rel of HISTORICAL_ARIA_RUNBOOKS) {
       const body = read(rel);
       const containsStaleTerm = staleRuntimeTerms.some((term) => body.includes(term));
@@ -444,13 +445,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
   });
 
-  it('Codex executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
+  it('Claude Code executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
     const contract = read('tools/aria-poc/ci_executor_contract_proven.md');
     expect(contract).toContain('checkout the `main` target ref');
-    expect(contract).toContain('codex_cli_version_minimum: codex-cli 0.135.0');
+    expect(contract).toContain('claude_cli_version_minimum: claude-code 2.1.197');
     expect(contract).toContain('verification_mode: runtime-preflight');
-    expect(contract).toContain('ChatGPT-managed Codex CLI login');
-    expect(contract).not.toMatch(/PENDING-CODEX-CONTRACT-TESTS|codex_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/);
+    expect(contract).toContain('managed Claude Code login');
+    expect(contract).not.toMatch(/PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/);
   });
 
   it('snowball curation is SSoT-bound and rejects duplicate runtime ownership', () => {
@@ -468,7 +469,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(body).toMatch(/no direct branch\s+merge/);
   });
 
-  it('live ARIA workflows target main and enforce the Codex CLI floor', () => {
+  it('live ARIA workflows target main and enforce the Claude Code CLI floor', () => {
     for (const rel of LIVE_WORKFLOWS) {
       const workflow = read(rel);
       expect(workflow).not.toMatch(
@@ -477,8 +478,8 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
     const executor = read('.github/workflows/aria-agent-executor.yml');
     expect(executor).toContain('ref: main');
-    expect(executor).toContain('REQUIRED_CODEX_VERSION="0.135.0"');
-    expect(executor).toContain('codex --version');
+    expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.197"');
+    expect(executor).toContain('claude --version');
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
     expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
     expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);

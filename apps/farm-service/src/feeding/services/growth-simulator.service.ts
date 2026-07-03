@@ -17,6 +17,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { TenantContextError } from '@aquaculture/backend-common/database';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -365,6 +366,9 @@ export class GrowthSimulatorService {
         where: { tenantId, tankId },
       });
     } catch (error) {
+      if (error instanceof TenantContextError) {
+        throw error;
+      }
       this.logger.warn(`Failed to get tank batch for tank ${tankId}: ${error}`);
       return null;
     }

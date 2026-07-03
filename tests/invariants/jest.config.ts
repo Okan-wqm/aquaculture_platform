@@ -192,6 +192,8 @@ export default {
         '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
         '<rootDir>/verified-user-assertion-mounted.spec.ts',
+        '<rootDir>/tenant-execution-context-registered.spec.ts',
+        '<rootDir>/tenant-schema-cache-module-registered.spec.ts',
         '<rootDir>/no-default-tenant-storage-key.spec.ts',
         '<rootDir>/farm-cacheable-has-evict.spec.ts',
         '<rootDir>/tenant-context-ssot.spec.ts',

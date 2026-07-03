@@ -5401,6 +5401,47 @@ Status: RESOLVED for slice 9 — 5 resolved (4 fixed + 1 dead-removed), baseline
 
 ---
 
+## ORPHAN-HIGH-329 — tenant-scoped services lose AsyncLocalStorage tenant context across Apollo/CQRS async boundaries → intermittent empty / phantom reads on the tenant panel
+
+**Renumbered from the originally-assigned ORPHAN-HIGH-187 during merge-train collision resolution** — main independently claimed that id for an unrelated production-deploy-rollback finding; this heading is the authoritative record for the tenant-context finding.
+
+**Severity:** HIGH
+**Discovered:** 2026-06-26, user-reported runtime bug ("data loads then vanishes, data that isn't mine appears" on the tenant panel; data verified present in the database)
+**Files:**
+- `apps/hr-service/src/app.module.ts`, `apps/sensor-service/src/app.module.ts`, `apps/hydroponics-service/src/app.module.ts`, `apps/messaging-service/src/app.module.ts`, `apps/ai-service/src/app.module.ts`, `apps/alert-engine/src/app.module.ts`
+- `libs/backend-common/src/middleware/tenant-schema.middleware.ts:92`
+- `libs/backend-common/src/database/tenant-connection-bootstrap.service.ts:116-154`
+- `libs/backend-common/src/context/tenant-execution-context.interceptor.ts`
+
+**Problem:** Tenant-scoped services patch the pg pool for per-tenant `search_path` routing via `createTenantConnectionBootstrap(<src>)`, but relied solely on `TenantSchemaMiddleware`'s `requestContextStorage.run(store, () => next())` to carry the tenant schema. That `run()` scope only reliably covers the Express middleware chain. Apollo GraphQL resolver execution and the CQRS QueryBus insert async boundaries BEFORE TypeORM checks out a connection; on those hops the middleware-seeded context can be gone, so `TenantConnectionBootstrap` reads an empty context at checkout and falls back to `SET search_path TO "<src>", public` (the empty source/template schema). Reads then run against the wrong schema: tenant rows intermittently "disappear" and template/seed rows surface as phantom data, request-to-request nondeterministically.
+
+`TenantExecutionContextInterceptor` already cures this (re-enters `withTenantContext` around the resolver/handler pipeline) but was wired into only `farm-service` and `event-store-service`; the other six tenant-scoped services had no equivalent.
+
+**Risk:** Intermittent, panel-wide data-correctness failures for every tenant-scoped read served via GraphQL/CQRS (farm, sensor, hr, hydroponics, messaging, ai, alert). User-visible as data that loads then vanishes.
+
+**Reproducibility:** Repeatedly fetch a tenant-scoped GraphQL query against an affected subgraph (e.g. hr departments) for the same tenant; a fraction of requests resolve `search_path` to the source schema and return empty/template rows instead of the tenant's data.
+
+**Fix (RESOLVED 2026-06-26):** Introduced the SSoT module `TenantExecutionContextModule` (`@aquaculture/backend-common/context`) that owns the single `APP_INTERCEPTOR` registration of `TenantExecutionContextInterceptor`. All seven tenant-scoped services (the six above plus farm via `FarmMetricsModule`) and `event-store-service` now import it once instead of hand-copying a provider block. New invariant `tests/invariants/tenant-execution-context-registered.spec.ts` asserts every `createTenantConnectionBootstrap()` service imports the module so a future service cannot silently ship without it. Frontend cross-tenant query-key scoping (latent; manifests only on tenant-switch/impersonation) is tracked separately as a follow-up. Status: RESOLVED (backend root cause).
+
+---
+
+## ORPHAN-MEDIUM-327 — freshly provisioned tenants can be blocked up to 30s by a stale negative schema-existence cache
+
+**Renumbered from the originally-assigned ORPHAN-MEDIUM-188 during merge-train collision resolution** — main independently claimed that id for an unrelated frontend gateway-502 finding; this heading is the authoritative record.
+**Severity:** MEDIUM
+**Discovered:** 2026-06-26, while answering "yeni oluşturulan tenant'larda da aynı problem olmamalı" (new tenants must not have the same problem) — extends ORPHAN-HIGH-329.
+**Files:**
+- `libs/backend-common/src/middleware/tenant-schema.middleware.ts`
+- `libs/backend-common/src/database/schema-lru-cache.ts`
+- `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts` (publishes `TenantProvisioned`)
+
+**Problem:** `TenantSchemaMiddleware` calls `checkSchemaExists()` and throws `UnauthorizedException('Tenant not provisioned')` when the `tenant_<uuid>` schema is missing. `SchemaLRUCache` caches NEGATIVE results for 30s (`negativeTtlMs = 30_000`). If any tenant-scoped HTTP request for tenant X lands during the provisioning window — before aqua-db-migrate creates the schema — the "does not exist" result is cached for 30s. Even after the schema is created moments later, subsequent requests keep seeing the stale negative entry and the tenant stays blocked for up to 30s. A `invalidate()` method exists on the cache but was NEVER called by provisioning (grep: defined in the middleware, zero call sites). The negative TTL was the only self-healing mechanism — i.e. correctness depended on a timeout, not a structural guarantee.
+
+**Risk:** New tenant's first requests intermittently fail with a hard 401 for up to 30s after the schema exists. Narrow trigger (JWT-gating means a user normally can't request a tenant before it is ACTIVE, which is after schema creation), but not a structural guarantee — so it could surface for impersonation/warmup/internal requests in the provisioning window.
+
+**Reproducibility:** Issue a tenant-scoped request carrying tenant X's id while X is still provisioning (schema not yet created), then create the schema; subsequent requests for X within 30s still receive "Tenant not provisioned" until the negative TTL expires.
+
+**Fix (RESOLVED 2026-06-26):** Root-cause, make-it-automatic — NOT a TTL tweak. Extracted the schema-existence cache into an injectable app-singleton `TenantSchemaCacheService`; `createTenantSchemaMiddleware` now resolves it via DI instead of constructing a private `new SchemaLRUCache`. A new `TenantSchemaCacheInvalidationSubscriber` (in `TenantSchemaCacheModule`) subscribes to `TenantProvisioned` and invalidates the `tenant_<uuid>` entry on the SAME shared instance, so a freshly provisioned tenant's stale negative entry is cleared the instant provisioning completes. All seven tenant-scoped services (farm, sensor, hr, hydroponics, messaging, ai, alert) import the module once; invariant `tests/invariants/tenant-schema-cache-module-registered.spec.ts` enforces the wiring (and catches the runtime-DI coupling statically). End-to-end behavior proven by `libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.spec.ts`. Status: RESOLVED.
 ## ORPHAN-HIGH-187 - production deploy systemically rolled back (2 critical services miss the 300s health SLA) — dual root cause + SSoT fix
 
 Severity: HIGH (every main deploy since ~#660 failed `deploy-production/deploy` with "2 critical service(s) failed to reach healthy within 300s SLA → rollback"; production kept serving only via per-service rollback to stale images — backend pinned at #664, **billing pinned at #628**, so NO recent code reached prod). Diagnosed via a 9-agent workflow (parallel investigate → synthesize → 3-lens adversarial verify); the adversarial pass corrected the initial design's blind-spots (image-bake gap, a 2nd SLA literal, a fabricated secret-mount, /health/ready coverage) BEFORE implementation.

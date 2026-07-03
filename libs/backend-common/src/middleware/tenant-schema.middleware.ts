@@ -2,7 +2,7 @@ import { Injectable, NestMiddleware, Logger, BadRequestException, UnauthorizedEx
 import { Request, Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
 import { requestContextStorage } from '../logging/request-context';
-import { SchemaLRUCache } from '../database/schema-lru-cache';
+import { TenantSchemaCacheService } from '../database/tenant-schema-cache';
 import { getTenantSchemaName, isValidUUID } from '../database/tenant-schema.utils';
 
 /**
@@ -33,9 +33,17 @@ export function createTenantSchemaMiddleware(defaultSchema: string) {
   @Injectable()
   class TenantSchemaMiddlewareImpl implements NestMiddleware {
     readonly logger = new Logger(`TenantSchemaMiddleware[${defaultSchema}]`);
-    readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000, 30_000);
 
-    constructor(readonly dataSource: DataSource) {}
+    // The schema-existence cache is a SHARED app-singleton injected from
+    // TenantSchemaCacheModule — NOT a per-middleware `new SchemaLRUCache`.
+    // TenantSchemaCacheInvalidationSubscriber clears the SAME instance on
+    // TenantProvisioned, so a freshly provisioned tenant is never blocked by a
+    // stale negative entry. Every tenant-scoped service imports
+    // TenantSchemaCacheModule (enforced by an invariant).
+    constructor(
+      readonly dataSource: DataSource,
+      readonly schemaCache: TenantSchemaCacheService,
+    ) {}
 
     async use(req: TenantRequest, res: Response, next: NextFunction): Promise<void> {
       const startTime = Date.now();

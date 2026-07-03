@@ -31579,6 +31579,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/context/tenant-execution-context.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/context/with-tenant-context.ts",
       "prettier_managed": true
     },
@@ -32276,6 +32282,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/tenant-migration-ledger-privileges.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache.service.ts",
       "prettier_managed": true
     },
     {
@@ -37614,6 +37650,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/tenant-execution-context-registered.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/tenant-fanout-entity-parity.spec.ts",
       "prettier_managed": true
     },
@@ -37621,6 +37663,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tenant-provisioning-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tenant-schema-cache-module-registered.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49212,10 +49260,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8056,
+  "file_count": 8064,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7881,
-  "managed_file_list_sha256": "224934f4d9a119ac5040fa2b4e295e1bb4dcc7da6b0e9523893c7852c511499c",
+  "managed_count": 7889,
+  "managed_file_list_sha256": "d0e81bb6dd8341b210571c301dd7a383d9ad0b30d9e7bde1813ef314c37954bd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -1,11 +1,19 @@
 /**
- * One water-chemistry card (P2). Header: title + chart-type dropdown + gear + remove.
- * Body: the selected chart from the card's explicit config (engineReady-guarded).
+ * One water-chemistry card (P3b). Header: title + chart-type dropdown + gear + remove.
+ * Body: the SHARED SSoT chart — identical to the farm calculator (DeffeyesChart / the
+ * secondary UIA·H₂S·CO₂ charts), engineReady-guarded. No lean fork.
  */
+import { buildDeffeyesData, computeWaterChemistryOutputs } from '@aquaculture/shared-ui';
+import type { WaterChemistryInputs } from '@aquaculture/shared-ui';
+import {
+  CarbonateVsPhChart,
+  DeffeyesChart,
+  H2sVsPhChart,
+  UiaVsPhChart,
+} from '@platform/shared-ui/water-chemistry/components';
 import { type ReactElement } from 'react';
 
-import { WcChart } from '../charts/WcCharts';
-import { cardToEngineInputs } from '../engine-adapter';
+import { cardToWaterChemistryInputs } from '../engine-adapter';
 import type { ChartType, WcCard } from '../types';
 
 const CHART_LABELS: Record<ChartType, string> = {
@@ -14,6 +22,21 @@ const CHART_LABELS: Record<ChartType, string> = {
   co2: 'CO₂ vs pH',
   h2s: 'H₂S vs pH',
 };
+
+function renderChart(chartType: ChartType, inputs: WaterChemistryInputs): ReactElement {
+  const outputs = computeWaterChemistryOutputs(inputs, []);
+  switch (chartType) {
+    case 'nh3':
+      return <UiaVsPhChart inputs={inputs} outputs={outputs} />;
+    case 'h2s':
+      return <H2sVsPhChart inputs={inputs} outputs={outputs} />;
+    case 'co2':
+      return <CarbonateVsPhChart inputs={inputs} outputs={outputs} />;
+    case 'deffeyes':
+    default:
+      return <DeffeyesChart data={buildDeffeyesData(inputs, [])} />;
+  }
+}
 
 const WcChartCard = ({
   card,
@@ -26,7 +49,7 @@ const WcChartCard = ({
   onConfigure: () => void;
   onRemove: () => void;
 }): ReactElement => {
-  const inputs = cardToEngineInputs(card);
+  const inputs = cardToWaterChemistryInputs(card);
   return (
     <div className="flex h-full flex-col rounded-lg border border-gray-200 bg-white shadow-sm">
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-1.5">
@@ -46,9 +69,9 @@ const WcChartCard = ({
         <button type="button" onClick={onConfigure} title="Configure" className="text-gray-400 hover:text-gray-700">⚙</button>
         <button type="button" onClick={onRemove} title="Remove" className="text-gray-400 hover:text-red-600">✕</button>
       </div>
-      <div className="min-h-0 flex-1 p-2">
+      <div className="min-h-0 flex-1 overflow-auto p-2">
         {inputs ? (
-          <WcChart inputs={inputs} chartType={card.chartType} />
+          renderChart(card.chartType, inputs)
         ) : (
           <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-300 bg-gray-50 p-3 text-center text-xs text-gray-500">
             Incomplete configuration — set temperature, salinity, pH and alkalinity (⚙) to render.

@@ -1,32 +1,20 @@
 /**
- * Adapter: a configured CARD → engine inputs.
+ * Adapter: a configured CARD → the shared `WaterChemistryInputs` SSoT.
  *
- * The engine (`@platform/aquaculture-engines`) is reused UNCHANGED. This is the only
- * glue: it reads each parameter off the card's explicit source (sensor reading or manual
- * value), maps them onto the engine's `WaterParams`/limits, and returns null when the
- * core self-consistent tuple (temp/salinity/pH/alkalinity) is absent — so a
- * half-configured card shows a message instead of a garbage operating point.
+ * Reads each parameter off the card's explicit source (sensor reading or manual value)
+ * and maps it onto the shared water-chemistry input shape consumed by the promoted
+ * shared-ui charts (DeffeyesChart + secondary charts) via `computeWaterChemistryOutputs`
+ * / `buildDeffeyesData`. Returns null when the core self-consistent tuple
+ * (temp/salinity/pH/alkalinity) is absent — the engineReady guard, so a half-configured
+ * card shows a message instead of a garbage operating point.
  *
  * MOCK note: connected sensor readings come from the mock READINGS table; the real phase
  * reads live values from sensor-service and limits from WaterQualityParameterConfig.
  */
-import { alkMgToMeq } from '@platform/aquaculture-engines';
+import type { WaterChemistryInputs } from '@aquaculture/shared-ui';
 
 import { READINGS } from './mock/fixtures';
 import type { ParamKey, WcCard } from './types';
-
-export interface EngineInputs {
-  tempC: number;
-  pH: number;
-  salinity: number;
-  alkalinityMeq: number;
-  tan: number;
-  nh3Limit: number;
-  co2Toxic: number;
-  caMgL: number;
-  h2sUgL: number;
-  h2sLimitUgL: number;
-}
 
 /** Read one parameter's value off a card's explicit source (sensor reading or manual). */
 export function cardValue(card: WcCard, p: ParamKey): number | null {
@@ -38,25 +26,34 @@ export function cardValue(card: WcCard, p: ParamKey): number | null {
 }
 
 /**
- * Map an explicitly-configured CARD to engine inputs, or null if the core tuple
- * (temp/salinity/pH/alkalinity) is incomplete — the engineReady guard.
+ * Map an explicitly-configured CARD to the shared WaterChemistryInputs, or null if the
+ * core tuple (temp/salinity/pH/alkalinity) is incomplete — the engineReady guard.
  */
-export function cardToEngineInputs(card: WcCard): EngineInputs | null {
+export function cardToWaterChemistryInputs(card: WcCard): WaterChemistryInputs | null {
   const tempC = cardValue(card, 'temperature');
   const pH = cardValue(card, 'ph');
   const salinity = cardValue(card, 'salinity');
-  const alkMg = cardValue(card, 'alkalinity');
-  if (tempC == null || pH == null || salinity == null || alkMg == null) return null;
+  const alkalinityMg = cardValue(card, 'alkalinity');
+  if (tempC == null || pH == null || salinity == null || alkalinityMg == null) return null;
+  const l = card.limits;
   return {
     tempC,
     pH,
     salinity,
-    alkalinityMeq: alkMgToMeq(alkMg),
-    tan: cardValue(card, 'tan') ?? card.limits.tan,
-    nh3Limit: card.limits.nh3Limit,
-    co2Toxic: card.limits.co2Toxic,
-    caMgL: cardValue(card, 'calcium') ?? card.limits.caMgL,
+    alkalinityMg,
+    targetpH: l.targetPh,
+    targetAlkalinityMg: l.targetAlk,
+    alkMinMg: l.targetAlk * 0.6,
+    alkMaxMg: l.targetAlk * 1.4,
+    tan: cardValue(card, 'tan') ?? l.tan,
+    unIonizedNH3: l.nh3Limit,
+    co2Toxic: l.co2Toxic,
     h2sUgL: cardValue(card, 'h2s') ?? 0,
-    h2sLimitUgL: card.limits.h2sLimitUgL,
+    h2sLimitUgL: l.h2sLimitUgL,
+    caMgL: cardValue(card, 'calcium') ?? l.caMgL,
+    volume: card.volumeM3,
+    fishType: 'Arctic Charr',
+    fishSize: '0-5 gram',
+    showTarget: true,
   };
 }

@@ -67,6 +67,7 @@ def issue_challenger_envelope(
     suggested_prompt: str = "Independently scan the codebase and write a competing plan from the same evidence.",
     base_dir: str | Path | None = None,
     plan_revision_hash: str | None = None,
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -97,4 +98,5 @@ def issue_challenger_envelope(
         round_number=round_number,
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
+        target_sha=target_sha,
     )

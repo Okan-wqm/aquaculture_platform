@@ -1,31 +1,31 @@
 import { describe, expect, it } from 'vitest';
 
-import { cardToEngineInputs, cardValue } from '../engine-adapter';
+import { cardToWaterChemistryInputs, cardValue } from '../engine-adapter';
 import { createCard } from '../useWcCards';
 
-describe('card → engine inputs (P2 card model)', () => {
+describe('card → shared WaterChemistryInputs (P3 card model)', () => {
   it('a default tank card is engine-ready: sensor pH + manual alkalinity', () => {
     const card = createCard({ kind: 'tank', id: 't1' }, 'salmon_freshwater', 'Outlet');
     // pH auto-bound to the tank sensor PH-T1 (7.4); alkalinity has no sensor → manual default
     expect(card.paramSources.ph.mode).toBe('sensor');
     expect(cardValue(card, 'ph')).toBe(7.4);
     expect(card.paramSources.alkalinity.mode).toBe('manual');
-    const inputs = cardToEngineInputs(card);
+    const inputs = cardToWaterChemistryInputs(card);
     expect(inputs).not.toBeNull();
     expect(inputs?.pH).toBe(7.4);
-    expect(inputs?.alkalinityMeq).toBeGreaterThan(0);
+    expect(inputs?.alkalinityMg).toBeGreaterThan(0);
   });
 
-  it('a manual override is reflected in the engine inputs', () => {
+  it('a manual override is reflected in the inputs', () => {
     const card = createCard({ kind: 'tank', id: 't1' });
     card.paramSources.ph = { mode: 'manual', value: 6.5 };
-    expect(cardToEngineInputs(card)?.pH).toBe(6.5);
+    expect(cardToWaterChemistryInputs(card)?.pH).toBe(6.5);
   });
 
   it('returns null when a core value is missing (engineReady guard)', () => {
     const card = createCard({ kind: 'tank', id: 't1' });
     card.paramSources.temperature = { mode: 'manual', value: undefined };
-    expect(cardToEngineInputs(card)).toBeNull();
+    expect(cardToWaterChemistryInputs(card)).toBeNull();
   });
 
   it('species template seeds the editable limits', () => {

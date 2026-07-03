@@ -42526,18 +42526,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/farm-module/src/pages/water-chemistry/components/DeffeyesChart.spec.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/farm-module/src/pages/water-chemistry/components/DeffeyesChart.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/farm-module/src/pages/water-chemistry/components/EquipmentMappingPanel.tsx",
       "prettier_managed": true
     },
@@ -42575,12 +42563,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/water-chemistry/components/RecordTab.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/farm-module/src/pages/water-chemistry/components/ResultsPanel.tsx",
       "prettier_managed": true
     },
     {
@@ -48980,6 +48962,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/components/DeffeyesChart.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/components/DeffeyesChart.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/components/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/components/ResultsPanel.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/water-chemistry/compute.ts",
       "prettier_managed": true
     },
@@ -49296,10 +49302,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8070,
+  "file_count": 8071,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7895,
-  "managed_file_list_sha256": "fb82f542adadf29bce1cd5325e13b3a6d6dc3e8754e82e5162f0a433828e390e",
+  "managed_count": 7896,
+  "managed_file_list_sha256": "ab0249e0cfa9f5483146049af6cb7c9c1d5db3bd6c87f575408cb84e6f7c4f66",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

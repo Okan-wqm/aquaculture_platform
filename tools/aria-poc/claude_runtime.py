@@ -95,6 +95,9 @@ class ClaudeRunResult:
     # stream-json events, or None. Callers own the fallback policy; the
     # runtime only detects and reports.
     refusal: dict[str, Any] | None = None
+    # Credit/quota-exhaustion record (fable primary → opus fallback sibling of
+    # the K2 refusal path), or None. Detection only; executors own the policy.
+    credit_exhaustion: dict[str, Any] | None = None
 
 
 def is_mock_mode() -> bool:
@@ -334,6 +337,9 @@ def run_claude_exec(
         usage=usage,
         events=events,
         refusal=extract_refusal(events),
+        credit_exhaustion=extract_credit_exhaustion(
+            returncode=proc.returncode, stderr=proc.stderr, events=events,
+        ),
     )
 
 
@@ -428,6 +434,70 @@ def extract_refusal(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None
                     "explanation": str(event.get("result") or "")[:300],
                     "model": None,
                 }
+    return None
+
+
+# Credit/quota-exhaustion markers (case-insensitive substrings). This is the
+# SSoT the operator tunes from production: every credit fallback emits a
+# governance row carrying the real matched marker, so the set can be narrowed
+# or widened against actual CLI wording (the exact insufficient-credit format
+# under managed-session auth is the one honest unknown here).
+#
+# DELIBERATELY credit/quota/billing-SPECIFIC. Transient signals — "overloaded",
+# a bare per-minute rate limit / HTTP 429, network/timeout — are NOT here: they
+# are handled by the EXTERNAL_OUTAGE requeue path (retry on the SAME model
+# clears them), whereas credit exhaustion is deterministic and model-pool
+# specific (only a different tier's pool resolves it), exactly like a refusal.
+CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = (
+    "credit balance",          # "Your credit balance is too low"
+    "insufficient credit",
+    "insufficient_quota",
+    "insufficient funds",
+    "quota exceeded",
+    "quota_exceeded",
+    "out of credits",
+    "purchase more credits",
+    "billing",
+    "payment required",        # HTTP 402 reason phrase (avoids a bare "402" match)
+    "usage limit",
+    "usage_limit",
+    "usage limit reached",
+    "monthly limit",
+)
+
+
+def extract_credit_exhaustion(
+    *,
+    returncode: int,
+    stderr: str,
+    events: tuple[dict[str, Any], ...],
+) -> dict[str, Any] | None:
+    """Detect a credit/quota-exhaustion failure (detection only — sibling of
+    :func:`extract_refusal`; the fable→opus fallback policy lives in the
+    executors).
+
+    Gated on ``returncode != 0`` so a clean run can never be misread as a
+    credit failure. The error text is drawn from stderr plus the terminal
+    ``result`` event's ``result``/``error``/``subtype`` fields, matched
+    case-insensitively against :data:`CREDIT_EXHAUSTION_MARKERS`. Returns a
+    record naming the matched marker, or ``None``.
+    """
+    if returncode == 0:
+        return None
+    haystacks: list[str] = [stderr or ""]
+    for event in events:
+        if event.get("type") == "result":
+            haystacks.append(str(event.get("result") or ""))
+            haystacks.append(str(event.get("error") or ""))
+            haystacks.append(str(event.get("subtype") or ""))
+    blob = "\n".join(haystacks).lower()
+    for marker in CREDIT_EXHAUSTION_MARKERS:
+        if marker in blob:
+            return {
+                "source": "cli_error_text",
+                "matched_marker": marker,
+                "returncode": returncode,
+            }
     return None
 
 

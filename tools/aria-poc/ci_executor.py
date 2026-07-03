@@ -931,14 +931,56 @@ def invoke_claude_cli(
             model=agent_profile.model,
             effort=agent_profile.effort,
         )
+        # Total retries across BOTH fallback triggers (credit + refusal) are
+        # bounded to exactly ONE opus attempt: once we fall back, a subsequent
+        # refusal/credit signal on the opus result must escalate, never re-retry.
+        _fell_back_to_opus = False
+        # Credit/quota-exhaustion fallback (sibling of the K2 refusal path).
+        # Insufficient credit is deterministic, not transient: never route it
+        # through the EXTERNAL_OUTAGE requeue path (the same fable pool refuses
+        # again N times). Policy: exactly ONE audited retry on the opus tier at
+        # xhigh ("ultra code") effort when the exhausted model was fable — opus
+        # is a separate credit pool. A credit failure already on opus (guard
+        # False) falls through to the caller's failure handling. Every path
+        # leaves a governance row.
+        if completed.credit_exhaustion is not None and agent_profile.model == "fable":
+            _credit_payload = {
+                "request_id": request_id,
+                "subagent_type": subagent_type,
+                "from_model": agent_profile.model,
+                "to_model": "opus",
+                "to_effort": "xhigh",
+                "credit_exhaustion": completed.credit_exhaustion,
+            }
+            if tools_dir is not None:
+                try:
+                    from aria_kernel.tool_registry import (
+                        append_tools_governance as _cf_gov,
+                        ensure_tools_dir as _cf_ens,
+                    )
+                    _cf_gov(_cf_ens(tools_dir), "model_credit_fallback_attempted", _credit_payload)
+                except Exception:
+                    pass
+            _stage(
+                f"model_credit_fallback request_id={request_id} "
+                f"marker={completed.credit_exhaustion.get('matched_marker')!r} fable->opus@xhigh"
+            )
+            completed = run_claude_exec(
+                prompt_text=prompt_text,
+                timeout_seconds=timeout_seconds,
+                model="opus",
+                effort="xhigh",
+            )
+            _fell_back_to_opus = True
         # K2 (ORPHAN-HIGH-284) — model-safety refusal policy. A classifier
         # refusal is deterministic, not transient: never route it through the
         # EXTERNAL_OUTAGE requeue path (the reaper would refuse again N times).
         # Policy: exactly ONE audited fallback retry on the opus tier when the
         # refusing model was fable; a second refusal (or a refusal already on
-        # opus) escalates to HUMAN_REQUIRED via the caller's refusal branch.
+        # opus, or a refusal after the credit fallback already spent the one
+        # retry) escalates to HUMAN_REQUIRED via the caller's refusal branch.
         # Every path leaves a governance row — no silent downgrade.
-        if completed.refusal is not None and agent_profile.model == "fable":
+        if completed.refusal is not None and agent_profile.model == "fable" and not _fell_back_to_opus:
             _refusal_payload = {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
@@ -965,6 +1007,7 @@ def invoke_claude_cli(
                 model="opus",
                 effort=agent_profile.effort,
             )
+            _fell_back_to_opus = True
         if completed.refusal is not None:
             _unresolved_payload = {
                 "request_id": request_id,

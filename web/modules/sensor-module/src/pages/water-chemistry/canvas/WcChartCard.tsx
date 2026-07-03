@@ -4,11 +4,12 @@
  * secondary UIA·H₂S·CO₂ charts), engineReady-guarded. No lean fork.
  */
 import { buildDeffeyesData, computeWaterChemistryOutputs } from '@aquaculture/shared-ui';
-import type { WaterChemistryInputs } from '@aquaculture/shared-ui';
+import type { CalculatedOutputs, WaterChemistryInputs } from '@aquaculture/shared-ui';
 import {
   CarbonateVsPhChart,
   DeffeyesChart,
   H2sVsPhChart,
+  ResultsPanel,
   UiaVsPhChart,
 } from '@platform/shared-ui/water-chemistry/components';
 import { type ReactElement } from 'react';
@@ -23,8 +24,7 @@ const CHART_LABELS: Record<ChartType, string> = {
   h2s: 'H₂S vs pH',
 };
 
-function renderChart(chartType: ChartType, inputs: WaterChemistryInputs): ReactElement {
-  const outputs = computeWaterChemistryOutputs(inputs, []);
+function renderChart(chartType: ChartType, inputs: WaterChemistryInputs, outputs: CalculatedOutputs): ReactElement {
   switch (chartType) {
     case 'nh3':
       return <UiaVsPhChart inputs={inputs} outputs={outputs} />;
@@ -34,7 +34,11 @@ function renderChart(chartType: ChartType, inputs: WaterChemistryInputs): ReactE
       return <CarbonateVsPhChart inputs={inputs} outputs={outputs} />;
     case 'deffeyes':
     default:
-      return <DeffeyesChart data={buildDeffeyesData(inputs, [])} />;
+      return (
+        <div className="h-72">
+          <DeffeyesChart data={buildDeffeyesData(inputs, [])} />
+        </div>
+      );
   }
 }
 
@@ -50,6 +54,7 @@ const WcChartCard = ({
   onRemove: () => void;
 }): ReactElement => {
   const inputs = cardToWaterChemistryInputs(card);
+  const outputs = inputs ? computeWaterChemistryOutputs(inputs, []) : null;
   return (
     <div className="flex h-full flex-col rounded-lg border border-gray-200 bg-white shadow-sm">
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-1.5">
@@ -69,9 +74,13 @@ const WcChartCard = ({
         <button type="button" onClick={onConfigure} title="Configure" className="text-gray-400 hover:text-gray-700">⚙</button>
         <button type="button" onClick={onRemove} title="Remove" className="text-gray-400 hover:text-red-600">✕</button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
-        {inputs ? (
-          renderChart(card.chartType, inputs)
+      <div className="min-h-0 flex-1 space-y-3 overflow-auto p-2">
+        {inputs && outputs ? (
+          <>
+            {renderChart(card.chartType, inputs, outputs)}
+            {/* Toxic-border readouts + Dosing Recipes (shared ResultsPanel, SSoT). */}
+            <ResultsPanel outputs={outputs} />
+          </>
         ) : (
           <div className="flex h-full items-center justify-center rounded border border-dashed border-gray-300 bg-gray-50 p-3 text-center text-xs text-gray-500">
             Incomplete configuration — set temperature, salinity, pH and alkalinity (⚙) to render.

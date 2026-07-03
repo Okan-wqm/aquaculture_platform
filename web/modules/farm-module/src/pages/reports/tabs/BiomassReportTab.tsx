@@ -8,8 +8,10 @@ import { useMutation } from '@tanstack/react-query';
 import { graphqlClient } from '@aquaculture/shared-ui';
 import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import {
+  useBiomassReport,
   useBiomassReports,
   useInvalidateBiomassReports,
+  BiomassReportPayload,
 } from '../../../hooks/useBiomassReports';
 import { BiomassSpeciesBreakdown } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
@@ -77,7 +79,7 @@ interface TransferFormRecord {
   reason: string;
 }
 
-interface BiomassFormData {
+export interface BiomassFormData {
   month: number;
   year: number;
   currentBiomass: {
@@ -247,6 +249,97 @@ function getInitialFormData(): BiomassFormData {
     slaughter: { totalQuantity: 0, totalBiomassKg: 0, records: [] },
     transfers: [],
     feedConsumption: { totalKg: 0, byFeedType: [] },
+    biomassLoadedFromSystem: false,
+    feedLoadedFromSystem: false,
+  };
+}
+
+/**
+ * Reverse of the submit mapping: hydrate the wizard form from a persisted
+ * report payload so returning to a drafted month pre-fills instead of starting
+ * blank (which would silently overwrite the DRAFT on submit). `month` is the
+ * 0-indexed JS month (the form convention); the persisted `reportMonth` is
+ * 1–12, so the caller subtracts one. Record `id`s are regenerated because the
+ * payload does not persist the form-only row identity — this runs on wizard
+ * open (an event handler), never in render, so fresh ids are safe.
+ */
+export function hydrateFormFromPayload(
+  payload: BiomassReportPayload,
+  month: number,
+  year: number,
+): BiomassFormData {
+  return {
+    month,
+    year,
+    currentBiomass: {
+      totalKg: payload.currentBiomass.totalKg,
+      bySpecies: payload.currentBiomass.bySpecies.map((s) => ({
+        speciesId: s.speciesId,
+        speciesName: s.speciesName,
+        fishCount: s.fishCount,
+        biomassKg: s.biomassKg,
+        avgWeightG: s.avgWeightG,
+      })),
+    },
+    stockings: payload.stockings.map((r) => ({
+      id: crypto.randomUUID(),
+      date: r.date,
+      speciesName: r.speciesCode,
+      quantity: r.fishCount,
+      avgWeightG: r.avgWeightG,
+      supplier: r.supplier ?? '',
+      batchNumber: r.notes ?? '',
+    })),
+    mortality: {
+      totalCount: payload.mortality.totalCount,
+      byCause: payload.mortality.byCause.map((c) => ({
+        cause: c.cause,
+        count: c.count,
+      })),
+      details: payload.mortality.details.map((d) => ({
+        id: crypto.randomUUID(),
+        date: d.date,
+        cause: d.cause,
+        speciesName: d.speciesCode,
+        count: d.count,
+        biomassLossKg: d.biomassLossKg ?? undefined,
+        notes: d.notes ?? undefined,
+      })),
+    },
+    slaughter: {
+      totalQuantity: payload.slaughter.totalQuantity,
+      totalBiomassKg: payload.slaughter.totalBiomassKg,
+      records: payload.slaughter.records.map((r) => ({
+        id: crypto.randomUUID(),
+        date: r.date,
+        speciesName: r.speciesCode,
+        quantity: r.quantity,
+        biomassKg: r.biomassKg,
+        buyer: r.buyer ?? undefined,
+        notes: r.notes ?? undefined,
+      })),
+    },
+    transfers: payload.transfers.map((t) => ({
+      id: crypto.randomUUID(),
+      direction: t.direction === 'IN' ? 'incoming' : 'outgoing',
+      date: t.date,
+      speciesName: t.speciesCode,
+      quantity: t.fishCount,
+      biomassKg: t.biomassKg,
+      fromToSite: t.counterparty ?? '',
+      batchNumber: '',
+      reason: t.notes ?? '',
+    })),
+    feedConsumption: {
+      totalKg: payload.feedConsumption.totalKg,
+      byFeedType: payload.feedConsumption.byFeedType.map((f) => ({
+        feedName: f.feedName,
+        brandName: f.brandName ?? undefined,
+        quantityKg: f.quantityKg,
+      })),
+    },
+    // The saved draft is the source of truth here, not a fresh system pull —
+    // leave the "auto-populated from tanks" banners off.
     biomassLoadedFromSystem: false,
     feedLoadedFromSystem: false,
   };
@@ -1389,12 +1482,52 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     [biomassReports],
   );
 
+  // The wizard always targets the previous calendar month (getInitialFormData);
+  // resolve whether that period is already persisted so we can pre-fill a DRAFT
+  // and block editing a finalised (immutable) SUBMITTED period.
+  const targetPeriod = useMemo(() => {
+    const seed = getInitialFormData();
+    return { month: seed.month, year: seed.year };
+  }, []);
+  const periodRow = biomassReports.find(
+    (r) => r.reportMonth === targetPeriod.month + 1 && r.reportYear === targetPeriod.year,
+  );
+  const periodDraftExists = periodRow?.status === 'DRAFT';
+  const periodSubmitted = periodRow?.status === 'SUBMITTED';
+
+  // Fetch the full JSONB payload for the target period only when a DRAFT exists,
+  // so the wizard opens pre-filled instead of overwriting it.
+  const { data: existingDraft } = useBiomassReport(
+    effectiveSiteId,
+    targetPeriod.month + 1,
+    targetPeriod.year,
+    { enabled: !!periodDraftExists },
+  );
+
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<BiomassFormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }));
   }, []);
 
   const handleOpenWizard = useCallback(() => {
+    // A finalised period is immutable server-side — do not open an editable
+    // wizard that would only fail on submit.
+    if (periodSubmitted) return;
+
+    // Returning to a drafted month: hydrate from the persisted payload so the
+    // user continues the draft instead of blanking it.
+    if (existingDraft?.reportData) {
+      setFormData(
+        hydrateFormFromPayload(
+          existingDraft.reportData,
+          targetPeriod.month,
+          targetPeriod.year,
+        ),
+      );
+      setIsWizardOpen(true);
+      return;
+    }
+
     {
       const initialData = getInitialFormData();
 
@@ -1431,7 +1564,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       setFormData(initialData);
     }
     setIsWizardOpen(true);
-  }, [tanks]);
+  }, [tanks, periodSubmitted, existingDraft, targetPeriod]);
 
   const createReportMutation = useMutation({
     mutationFn: async (payload: { input: Record<string, unknown> }) => {
@@ -1623,15 +1756,31 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           )}
           <button
             onClick={() => handleOpenWizard()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+            disabled={periodSubmitted}
+            title={
+              periodSubmitted
+                ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is already submitted and immutable`
+                : undefined
+            }
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            New Report
+            {periodDraftExists ? 'Continue Draft' : 'New Report'}
           </button>
         </div>
       </div>
+
+      {periodSubmitted && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-700">
+            The {getMonthLabel(targetPeriod.month, targetPeriod.year)} report is
+            already submitted and cannot be edited. Start a correction flow if the
+            period needs revision.
+          </p>
+        </div>
+      )}
 
       {/* Stats Cards — real persisted rows */}
       <div className="grid grid-cols-3 gap-4">

@@ -771,6 +771,25 @@ def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, to
         pass  # Reconciliation is observability, not a hard fail
 
 
+def _clear_stale_dispatch_artifacts(output_path: Path, transcript_path: Path) -> None:
+    """Remove a prior attempt's output + transcript before a (re)dispatch.
+
+    ORPHAN-332 — a requeued request (poll timeout, which under the credit→opus
+    fallback happens more because opus is slower) MUST start from a clean slate.
+    The dispatched agent has Read tools and is told the expected output path; if
+    a prior attempt's envelope is still on disk it invokes the repo's "look
+    before you write / don't overwrite existing work" discipline and REFUSES to
+    regenerate — emitting a meta-response ("the expected output file already
+    exists on disk") whose top-level cross_review/plan_content is absent. That
+    trips plan_content_invalid:...:absent_or_not_object → requeue → same refusal
+    → human_required, stalling a cycle whose FIRST attempt produced a valid
+    plan. Clearing the stale artifacts makes every (re)dispatch idempotent: the
+    agent always writes a fresh, schema-valid envelope.
+    """
+    output_path.unlink(missing_ok=True)
+    transcript_path.unlink(missing_ok=True)
+
+
 def invoke_claude_cli(
     *,
     request_id: str,
@@ -901,6 +920,10 @@ def invoke_claude_cli(
     prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
+    # ORPHAN-332 — a re-dispatched request must start from a clean slate (see
+    # _clear_stale_dispatch_artifacts). Mock dispatches never reach here (they
+    # return at the mock branch above).
+    _clear_stale_dispatch_artifacts(output_path, resolved_transcript_path)
     if tools_dir is not None:
         try:
             _env_audit_keys = sorted([

@@ -36,6 +36,11 @@ export default defineConfig({
         'react/jsx-dev-runtime',
         'react-router-dom',
         '@tanstack/react-query',
+        // recharts is a federation SHARED SINGLETON (SINGLE_VERSION_PACKAGES).
+        // Externalize it so the promoted water-chemistry charts resolve the ONE
+        // recharts instance from the shared scope — bundling a second copy into
+        // this singleton dist would defeat the single-instance guarantee.
+        'recharts',
       ],
       output: {
         globals: {
@@ -43,6 +48,7 @@ export default defineConfig({
           'react-dom': 'ReactDOM',
           'react-router-dom': 'ReactRouterDOM',
           '@tanstack/react-query': 'ReactQuery',
+          recharts: 'Recharts',
         },
         // CSS'i ayrı dosyaya çıkar
         assetFileNames: (assetInfo) => {
@@ -68,6 +74,14 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      // The pure water-chemistry engine is BUNDLED into shared-ui's dist (it is
+      // stateless math, NOT a federation shared dep, so it cannot be resolved
+      // from the runtime shared scope). Alias it to source so the promoted
+      // charts/compute resolve it at build time. recharts (above) stays external.
+      '@platform/aquaculture-engines': resolve(
+        __dirname,
+        '../../libs/aquaculture-engines/src/index.ts',
+      ),
     },
   },
 });

@@ -41,7 +41,7 @@ use serde_json::Value;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 #[cfg(feature = "scada-display")]
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[cfg(feature = "scada-display")]
 use crate::mqtt::{CommandMessage, CommandResponse};
@@ -243,6 +243,57 @@ pub(crate) fn verify_bundle(
     })
 }
 
+/// Pure decision for the apply-phase-failure ack (EDGE-HIGH-008).
+///
+/// After a mid-apply fault the handler rolls the touched sinks back to
+/// their pre-images and collects any restore errors. This function turns
+/// that outcome into the final command response:
+///
+/// * no restore errors → `phase: "rolled_back"` — the device is back at
+///   its exact pre-bundle state; the bundle applied NOTHING net.
+/// * one or more restore errors → `phase: "failed"` (stage `rollback`) —
+///   the rollback itself faulted, so the device is in a mixed state and
+///   an operator must intervene; the offending sinks are named.
+///
+/// Both outcomes are `success = false`. Extracted so the phase/ack
+/// semantics are unit-tested without a live device.
+#[cfg(feature = "scada-display")]
+fn summarize_apply_rollback(
+    bundle_id: &str,
+    apply_error: &str,
+    restore_errors: &[String],
+) -> (bool, Value, Option<String>) {
+    if restore_errors.is_empty() {
+        (
+            false,
+            serde_json::json!({
+                "bundleId": bundle_id,
+                "phase": "rolled_back",
+                "stage": "apply",
+            }),
+            Some(format!(
+                "apply failed and was rolled back to the pre-bundle state: {}",
+                apply_error
+            )),
+        )
+    } else {
+        (
+            false,
+            serde_json::json!({
+                "bundleId": bundle_id,
+                "phase": "failed",
+                "stage": "rollback",
+                "restoreErrors": restore_errors,
+            }),
+            Some(format!(
+                "apply failed ({}) AND rollback failed ({}) — manual intervention required",
+                apply_error,
+                restore_errors.join("; ")
+            )),
+        )
+    }
+}
+
 #[cfg(feature = "scada-display")]
 impl CommandHandler {
     /// Two-phase bundle apply. Takes the FULL command (not just params)
@@ -351,6 +402,47 @@ impl CommandHandler {
             bundle_id, staged_count
         );
 
+        // Capture a pre-image of EXACTLY the sinks this bundle mutates,
+        // so a runtime fault mid-apply can restore the device to its
+        // pre-bundle state (true all-or-nothing, not honest-partial-apply
+        // — EDGE-HIGH-008). Nothing outside the touched sinks is read or
+        // written, so a package-only bundle never disturbs the program
+        // sink. deploy_program_locked is already self-atomic on its own
+        // failure; these pre-images cover the cross-artifact case where an
+        // EARLIER artifact applied and a LATER one faulted.
+        let touches_program = verified
+            .staged
+            .iter()
+            .any(|a| matches!(a, StagedArtifact::Program { .. }));
+        let touches_process = verified
+            .staged
+            .iter()
+            .any(|a| matches!(a, StagedArtifact::Process { .. }));
+        let touches_package = verified
+            .staged
+            .iter()
+            .any(|a| matches!(a, StagedArtifact::ScadaPackage { .. }));
+        let program_pre = if touches_program {
+            Some(self.load_program_state())
+        } else {
+            None
+        };
+        let (process_pre, package_pre) = match scada_state.as_ref() {
+            Some(s) => (
+                if touches_process {
+                    Some(s.get_process().await)
+                } else {
+                    None
+                },
+                if touches_package {
+                    Some(s.get_package().await)
+                } else {
+                    None
+                },
+            ),
+            None => (None, None),
+        };
+
         // APPLY — all under the single deploy-lock acquisition above.
         let applied_at = chrono::Utc::now().to_rfc3339();
         let mut applied_programs = 0usize;
@@ -393,23 +485,56 @@ impl CommandHandler {
                 }
             };
 
-            if let Err(e) = apply_result {
-                // Honest partial-apply report: verification passed, so this
-                // is a runtime apply failure mid-bundle — the response says
-                // exactly how far it got instead of pretending atomicity.
-                warn!("deploy_bundle {} apply failed: {}", bundle_id, e);
-                return (
-                    false,
-                    json!({
-                        "bundleId": bundle_id,
-                        "phase": "failed",
-                        "stage": "apply",
-                        "appliedPrograms": applied_programs,
-                        "appliedProcesses": applied_processes,
-                        "appliedPackages": applied_packages,
-                    }),
-                    Some(e),
+            if let Err(apply_err) = apply_result {
+                // Verification already passed, so this is a runtime apply
+                // fault mid-bundle. Roll the touched sinks back to their
+                // pre-images in REVERSE apply order (package, process,
+                // program) so the device returns to its exact pre-bundle
+                // state. A pre-image of None means the sink was empty
+                // before the bundle → clear it.
+                warn!(
+                    "deploy_bundle {} apply failed mid-bundle: {} — rolling back",
+                    bundle_id, apply_err
                 );
+                let mut restore_errors: Vec<String> = Vec::new();
+
+                if let (Some(pre), Some(s)) = (package_pre, scada_state.as_ref()) {
+                    let restored = match pre {
+                        Some(prior) => s.deploy_package(prior).await,
+                        None => s.clear_package().await,
+                    };
+                    if let Err(e) = restored {
+                        restore_errors.push(format!("package: {}", e));
+                    }
+                }
+                if let (Some(pre), Some(s)) = (process_pre, scada_state.as_ref()) {
+                    let restored = match pre {
+                        Some(prior) => s.deploy_process(prior).await,
+                        None => s.clear_process().await,
+                    };
+                    if let Err(e) = restored {
+                        restore_errors.push(format!("process: {}", e));
+                    }
+                }
+                if let Some(prior) = program_pre.as_ref() {
+                    if let Err(e) = self.restore_program_state(prior).await {
+                        restore_errors.push(format!("program: {}", e));
+                    }
+                }
+
+                if restore_errors.is_empty() {
+                    info!(
+                        "deploy_bundle {} rolled back to pre-bundle state after apply fault",
+                        bundle_id
+                    );
+                } else {
+                    error!(
+                        "deploy_bundle {} rollback FAILED ({}) — device in mixed state, manual intervention required",
+                        bundle_id,
+                        restore_errors.join("; ")
+                    );
+                }
+                return summarize_apply_rollback(&bundle_id, &apply_err, &restore_errors);
             }
         }
 
@@ -598,5 +723,54 @@ mod tests {
             "got: {}",
             err
         );
+    }
+
+    /// EDGE-HIGH-008: an apply fault that is fully rolled back reports
+    /// `rolled_back` — the device is at its pre-bundle state, so the
+    /// bundle applied nothing net (still success=false: it did NOT
+    /// deploy). The old code reported `failed` with a partial
+    /// `appliedPrograms` count and left the device half-deployed.
+    #[cfg(feature = "scada-display")]
+    #[test]
+    fn rolled_back_apply_reports_rolled_back_and_no_partial_counts() {
+        let (success, result, err) =
+            summarize_apply_rollback("bundle-1", "package apply: disk full", &[]);
+        assert!(!success);
+        assert_eq!(result["phase"], "rolled_back");
+        assert_eq!(result["stage"], "apply");
+        assert_eq!(result["bundleId"], "bundle-1");
+        // No appliedPrograms/Processes/Packages leak — the device is at
+        // the pre-bundle state, not partially deployed.
+        assert!(result.get("appliedPrograms").is_none());
+        assert!(result.get("appliedProcesses").is_none());
+        assert!(result.get("appliedPackages").is_none());
+        assert!(err.expect("message").contains("rolled back"));
+    }
+
+    /// When the rollback ITSELF faults the device is in a mixed state;
+    /// the ack is honest `failed` (stage `rollback`), names the sinks
+    /// that could not be restored, and demands manual intervention.
+    #[cfg(feature = "scada-display")]
+    #[test]
+    fn failed_rollback_reports_failed_with_restore_errors() {
+        let restore_errors = vec![
+            "package: disk full".to_string(),
+            "process: permission denied".to_string(),
+        ];
+        let (success, result, err) =
+            summarize_apply_rollback("bundle-2", "process apply: io error", &restore_errors);
+        assert!(!success);
+        assert_eq!(result["phase"], "failed");
+        assert_eq!(result["stage"], "rollback");
+        let reported = result["restoreErrors"]
+            .as_array()
+            .expect("restoreErrors array");
+        assert_eq!(reported.len(), 2);
+        let msg = err.expect("message");
+        assert!(msg.contains("rollback failed"), "got: {}", msg);
+        assert!(msg.contains("manual intervention"), "got: {}", msg);
+        // Carries BOTH the original apply error and the restore errors.
+        assert!(msg.contains("io error"), "got: {}", msg);
+        assert!(msg.contains("disk full"), "got: {}", msg);
     }
 }

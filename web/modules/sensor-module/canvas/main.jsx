@@ -1,295 +1,19 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Process Editor Canvas</title>
-  <!--
-    React runtime for the sandboxed canvas + @xyflow/react.
-    ROOT CAUSE (SENSOR-MEDIUM-003): @xyflow/react's UMD build declares FOUR
-    dependencies — its factory reads `t(..., e.jsxRuntime, e.React, e.ReactDOM)`,
-    i.e. globals `jsxRuntime` (react/jsx-runtime), `React`, `ReactDOM`. The React
-    UMD bundle exposes `React` + `ReactDOM` but NOT react/jsx-runtime, so xyflow's
-    `jsxRuntime.jsx(...)` read `undefined` and crashed the whole canvas ("Cannot
-    read properties of undefined (reading 'jsx')"). Every CDN version is PINNED so
-    the dependency graph is deterministic (the previous unpinned `react@18` let a
-    patch release drift the UMD out from under xyflow).
-  -->
-  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-is@18.3.1/umd/react-is.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
-  <!--
-    Materialise the react/jsx-runtime UMD global (`jsxRuntime`) that @xyflow/react
-    requires but the React UMD bundle omits. jsx/jsxs are react/jsx-runtime's
-    production entry points; both are React.createElement with the key hoisted out
-    of props — exactly what the classic runtime does — so this completes the
-    genuinely-missing dependency rather than shimming over behaviour. MUST run
-    after the React UMD and before @xyflow/react.
-  -->
-  <script>
-    (function (g) {
-      var React = g.React;
-      if (React) {
-        var jsx = function (type, config, maybeKey) {
-          var props = maybeKey === undefined ? config : Object.assign({}, config, { key: maybeKey });
-          return React.createElement(type, props);
-        };
-        g.jsxRuntime = { jsx: jsx, jsxs: jsx, Fragment: React.Fragment };
-      }
-      // Fail LOUD + CLEAR if the graph is ever incomplete again, instead of the
-      // cryptic downstream "reading 'jsx'" crash.
-      if (!g.React || !g.ReactDOM || !g.jsxRuntime) {
-        throw new Error(
-          '[process-editor-canvas] incomplete React UMD dependency graph: React=' +
-            !!g.React + ' ReactDOM=' + !!g.ReactDOM + ' jsxRuntime=' + !!g.jsxRuntime +
-            ' — check the CDN <script> order/versions in process-editor-canvas.html'
-        );
-      }
-    })(window);
-  </script>
-  <!-- ReactFlow (declares react/jsx-runtime + react + react-dom UMD deps) -->
-  <link href="https://unpkg.com/@xyflow/react@12.11.0/dist/style.css" rel="stylesheet" />
-  <script src="https://unpkg.com/@xyflow/react@12.11.0/dist/umd/index.js"></script>
-  <!-- Recharts for Chart Widgets -->
-  <script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js"></script>
-  <!-- Aquaculture Node Components (UMD Bundle) -->
-  <script src="libs/aquaculture-nodes.umd.js"></script>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    html, body, #root {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-    }
-    .react-flow__node-equipment,
-    .react-flow__node-blower,
-    .react-flow__node-drumFilter,
-    .react-flow__node-uvUnit,
-    .react-flow__node-radialSettler,
-    .react-flow__node-fishTank,
-    .react-flow__node-connectionPoint,
-    .react-flow__node-tankInlet,
-    .react-flow__node-sensor,
-    .react-flow__node-algaeBagRed,
-    .react-flow__node-algaeBagGreen,
-    .react-flow__node-algaeBagYellow,
-    .react-flow__node-ultrafiltration,
-    .react-flow__node-dualDrainTank {
-      padding: 0;
-      border-radius: 8px;
-      background: white;
-      border: 1px solid #e5e7eb;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .react-flow__node-equipment.selected,
-    .react-flow__node-blower.selected,
-    .react-flow__node-drumFilter.selected,
-    .react-flow__node-uvUnit.selected,
-    .react-flow__node-radialSettler.selected,
-    .react-flow__node-fishTank.selected,
-    .react-flow__node-connectionPoint.selected,
-    .react-flow__node-tankInlet.selected,
-    .react-flow__node-sensor.selected,
-    .react-flow__node-algaeBagRed.selected,
-    .react-flow__node-algaeBagGreen.selected,
-    .react-flow__node-algaeBagYellow.selected,
-    .react-flow__node-ultrafiltration.selected,
-    .react-flow__node-dualDrainTank.selected {
-      box-shadow: 0 0 0 2px #22c55e;
-    }
-    .react-flow__node-sensor {
-      border: 1px solid #86efac;
-    }
-    /* Algae bag node specific styles - SVG gorünür olsun */
-    .react-flow__node-algaeBagRed,
-    .react-flow__node-algaeBagGreen,
-    .react-flow__node-algaeBagYellow {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-    }
-    /* SCADA node styles - transparent background for SVG visibility */
-    .react-flow__node-cleanWaterTank,
-    .react-flow__node-dirtyWaterTank,
-    .react-flow__node-waterSupply,
-    .react-flow__node-waterDischarge,
-    .react-flow__node-mbbr,
-    .react-flow__node-hepaFilter,
-    .react-flow__node-dosingPump,
-    .react-flow__node-ultrafiltration,
-    .react-flow__node-dualDrainTank {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-    }
-    /* Heat exchanger node styles - transparent background for SVG visibility */
-    .react-flow__node-heater,
-    .react-flow__node-shellAndTubeHeatExchanger,
-    .react-flow__node-plateHeatExchanger,
-    .react-flow__node-chiller {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-    }
-    /* Generator node styles - transparent background for SVG visibility */
-    .react-flow__node-gasGenerator,
-    .react-flow__node-dieselGenerator {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-    }
-    /* SCADA Widget Node styles */
-    .react-flow__node-scadaWidget {
-      padding: 0;
-      border: none;
-      background: transparent;
-    }
-    .react-flow__node-scadaWidget.selected {
-      box-shadow: 0 0 0 2px #06b6d4;
-    }
-    /* Chart Widget Node styles */
-    .react-flow__node-chartWidget {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      border: 1px solid #e5e7eb;
-      overflow: hidden;
-    }
-    .react-flow__node-chartWidget.selected {
-      box-shadow: 0 0 0 2px #3b82f6;
-    }
-    .chart-widget-header {
-      padding: 6px 10px;
-      background: #f0f9ff;
-      border-bottom: 1px solid #e0f2fe;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      cursor: move;
-    }
-    .chart-widget-content {
-      padding: 8px;
-      min-height: 120px;
-    }
-    .chart-widget-footer {
-      padding: 4px 10px;
-      background: #f9fafb;
-      border-top: 1px solid #f3f4f6;
-      font-size: 11px;
-      color: #6b7280;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .react-flow__node-connectionPoint {
-      border-radius: 50%;
-    }
-    .react-flow__handle {
-      width: 10px;
-      height: 10px;
-      background: white;
-      border: 2px solid #9ca3af;
-    }
-    .react-flow__handle:hover {
-      background: #eff6ff;
-      border-color: #3b82f6;
-    }
-    .react-flow__edge-path {
-      stroke-width: 2;
-    }
-    /* Edge'lerin node SVG'lerinin ustunde gorunmesi icin */
-    .react-flow__edges {
-      z-index: 1000 !important;
-      pointer-events: auto;
-    }
-    .react-flow__edge {
-      pointer-events: all;
-    }
-    .react-flow__connection-line {
-      z-index: 1001 !important;
-    }
-    /* Orthogonal edge segment indicators */
-    .segment-indicator {
-      transition: transform 0.1s ease;
-    }
-    .react-flow__edge-orthogonal:hover .segment-indicator {
-      opacity: 0.6 !important;
-    }
-    .react-flow__controls {
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .react-flow__minimap {
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    /* Node highlight animation */
-    @keyframes node-highlight-pulse {
-      0%, 100% { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.8); }
-      50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.4); }
-    }
-    .node-highlighted {
-      animation: node-highlight-pulse 0.5s ease-in-out 3;
-    }
-    /* Node Resize Handle Styles */
-    .node-resize-handle {
-      position: absolute;
-      background: #3b82f6;
-      border: 2px solid white;
-      border-radius: 2px;
-      z-index: 100;
-      pointer-events: all;
-    }
-    .node-resize-handle.corner {
-      width: 10px;
-      height: 10px;
-      border-radius: 3px;
-    }
-    .node-resize-handle.corner.nw { top: -5px; left: -5px; cursor: nwse-resize; }
-    .node-resize-handle.corner.ne { top: -5px; right: -5px; cursor: nesw-resize; }
-    .node-resize-handle.corner.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
-    .node-resize-handle.corner.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
-    .node-resize-handle.edge {
-      width: 6px;
-      height: 6px;
-    }
-    .node-resize-handle.edge.n { top: -3px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-    .node-resize-handle.edge.s { bottom: -3px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-    .node-resize-handle.edge.e { right: -3px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
-    .node-resize-handle.edge.w { left: -3px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
-    /* Feeder node styles - transparent background for SVG visibility */
-    .react-flow__node-demandFeeder,
-    .react-flow__node-automaticFeeder {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-    }
-    .react-flow__node-demandFeeder.selected,
-    .react-flow__node-automaticFeeder.selected {
-      box-shadow: 0 0 0 2px #22c55e !important;
-    }
-    /* Pump node styles - transparent background for SVG visibility */
-    .react-flow__node-pump,
-    .react-flow__node-valve,
-    .react-flow__node-ozoneGenerator,
-    .react-flow__node-oxygenGenerator {
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-    }
-    .react-flow__node-pump.selected,
-    .react-flow__node-valve.selected,
-    .react-flow__node-ozoneGenerator.selected,
-    .react-flow__node-oxygenGenerator.selected {
-      box-shadow: 0 0 0 2px #22c55e !important;
-    }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script type="text/javascript">
+// Process Editor Canvas — bundled Vite entry (SENSOR-MEDIUM-004).
+// Deps resolve from the repo's node_modules at build time (React 19, xyflow,
+// recharts, @aquaculture/node-components) — NO CDN <script> tags, no jsx-runtime
+// shim, no hand-managed global graph, no public/->dist stale-copy path. A
+// missing dep is a BUILD error, not a cryptic runtime crash.
+import * as React from 'react';
+import * as ReactDOMClient from 'react-dom/client';
+import * as ReactFlowNS from '@xyflow/react';
+import * as AquacultureNodes from '@aquaculture/node-components';
+import * as Recharts from 'recharts';
+import '@xyflow/react/dist/style.css';
+import './canvas.css';
+
+// The ported classic-React app reads a few module namespaces as bare/window
+// identifiers; bind them locally from the bundled imports (was: CDN globals).
+const ReactDOM = { createRoot: ReactDOMClient.createRoot };
     const { createElement: h, useState, useCallback, useRef, useEffect, useMemo } = React;
     const { createRoot } = ReactDOM;
     const {
@@ -306,7 +30,7 @@
       Handle,
       Position,
       MarkerType,
-    } = window.ReactFlow;
+    } = ReactFlowNS;
 
     // ============================================
     // Import from UMD Bundle (@aquaculture/node-components)
@@ -349,7 +73,7 @@
       // Config
       getEdgeStyle,
       CONNECTION_TYPES,
-    } = window.AquacultureNodes;
+    } = AquacultureNodes;
 
     // Status color mapping
     const getStatusColor = (status) => {
@@ -363,7 +87,7 @@
     // Chart Widget Node (Editor-specific)
     // ============================================
     function ChartWidgetNode({ id, data, selected }) {
-      const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } = window.Recharts || {};
+      const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } = Recharts;
 
       const width = data?.width || 320;
       const height = data?.height || 200;
@@ -789,7 +513,6 @@
               widgetData: widgetInfo,
             });
           } catch (e) {
-            console.error('[canvas] Failed to parse scada widget drop data:', e);
           }
           return;
         }
@@ -801,7 +524,6 @@
         try {
           equipment = JSON.parse(equipmentData);
         } catch (e) {
-          console.error('[canvas] Failed to parse equipment drop data:', e);
           return;
         }
 
@@ -907,7 +629,6 @@
                   ...(edge.data || {})  // Preserve existing edge.data
                 }
               }));
-              console.log('[canvas] setEdges - validated edges:', validatedEdges.length, 'sample data:', validatedEdges[0]?.data);
               setEdges(validatedEdges);
               break;
             case 'addNode':
@@ -944,9 +665,7 @@
               break;
             case 'updateNodeData':
               // Update a specific node's data (used after linking/unlinking equipment)
-              console.log('[canvas] updateNodeData received:', data);
               if (data && data.nodeId) {
-                console.log('[canvas] Updating node:', data.nodeId, 'with data:', data.data);
 
                 // Check if this is a handle type change (source <-> target)
                 const handleTypeKeys = Object.keys(data.data || {}).filter(key =>
@@ -1005,12 +724,10 @@
                     const newType = data.data[key];
                     const handleIds = getHandleId(key);
 
-                    console.log('[canvas] Handle type changed:', nodeId, handleIds, '->', newType);
 
                     setEdges((eds) => eds.map((edge) => {
                       if (edge.source === nodeId && matchesHandleId(edge.sourceHandle, handleIds)) {
                         if (newType === 'target') {
-                          console.log('[canvas] Flipping edge (source->target):', edge.id);
                           return {
                             ...edge,
                             source: edge.target,
@@ -1022,7 +739,6 @@
                       }
                       if (edge.target === nodeId && matchesHandleId(edge.targetHandle, handleIds)) {
                         if (newType === 'source') {
-                          console.log('[canvas] Flipping edge (target->source):', edge.id);
                           return {
                             ...edge,
                             source: edge.target,
@@ -1043,14 +759,12 @@
                       ? { ...n, data: { ...n.data, ...data.data } }
                       : n
                   );
-                  console.log('[canvas] Updated nodes:', updatedNodes.find(n => n.id === data.nodeId)?.data);
                   return updatedNodes;
                 });
               }
               break;
             case 'updateEdgeData':
               // Update a specific edge's data (used for changing connection type)
-              console.log('[canvas] updateEdgeData received:', data);
               if (data && data.edgeId) {
                 setEdges((eds) => eds.map((e) =>
                   e.id === data.edgeId
@@ -1070,7 +784,6 @@
             case 'setEditorMode': {
               // { mode: 'pid'|'hmi'|'plc'|'runtime'|'debug' }
               const editorMode = data && data.mode;
-              console.log('[canvas] setEditorMode:', editorMode);
               setNodes((nds) => nds.map((n) => {
                 if (n.type === 'scadaWidget') {
                   // HMI mode: scadaWidget draggable, P&ID nodes locked
@@ -1091,7 +804,6 @@
                   position: { x: overlayNode.position?.x || 0, y: overlayNode.position?.y || 0 },
                   zIndex: 500,
                 };
-                console.log('[canvas] addOverlayNode:', newOverlay.id);
                 setNodes((nds) => nds.concat(newOverlay));
                 notifyParent('nodeAdded', newOverlay);
               }
@@ -1101,7 +813,6 @@
               // { nodeId }
               const removeId = data && data.nodeId;
               if (removeId) {
-                console.log('[canvas] removeOverlayNode:', removeId);
                 setNodes((nds) => nds.filter((n) => n.id !== removeId));
                 setEdges((eds) => eds.filter((e) => e.source !== removeId && e.target !== removeId));
               }
@@ -1112,7 +823,6 @@
               const updateId = data && data.nodeId;
               const updateData = data && data.data;
               if (updateId && updateData) {
-                console.log('[canvas] updateOverlayNode:', updateId);
                 setNodes((nds) => nds.map((n) =>
                   n.id === updateId ? { ...n, data: { ...n.data, ...updateData } } : n
                 ));
@@ -1149,7 +859,6 @@
             case 'lockPidNodes': {
               // { locked: boolean } — lock/unlock P&ID nodes' draggable/selectable
               const locked = data && data.locked;
-              console.log('[canvas] lockPidNodes:', locked);
               setNodes((nds) => nds.map((n) => {
                 if (n.type === 'scadaWidget') return n; // Don't affect overlay nodes
                 return { ...n, draggable: !locked, selectable: true };
@@ -1282,6 +991,3 @@
         h(ProcessEditorCanvas)
       )
     );
-  </script>
-</body>
-</html>

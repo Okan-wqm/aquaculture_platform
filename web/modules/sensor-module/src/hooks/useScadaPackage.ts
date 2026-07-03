@@ -36,12 +36,21 @@ export type {
 export type { ScadaPackageJSON } from '../store/scada';
 
 // Hook for fetching SCADA packages list
-export function useScadaPackages(filter?: ScadaPackageFilter) {
+export function useScadaPackages(
+  filter?: ScadaPackageFilter,
+  options?: { enabled?: boolean },
+) {
   const { token, tenantId } = useAuth();
   const [packages, setPackages] = useState<ScadaPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
+
+  // Callers that only want a SCOPED list (e.g. the unified editor resolving
+  // the package linked to one process) must be able to skip the fetch
+  // entirely while their scope key is absent — an unfiltered fetch returns
+  // the whole tenant list, which a hydration path could wrongly adopt.
+  const enabled = options?.enabled ?? true;
 
   // Stabilize filter by individual fields instead of object reference
   const filterStatus = filter?.status;
@@ -69,6 +78,12 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
 
   // Debounce searchTerm changes (300ms), immediate for other filter changes
   useEffect(() => {
+    // Disabled: report an empty, non-loading list and fetch nothing.
+    if (!enabled) {
+      setPackages([]);
+      setLoading(false);
+      return;
+    }
     // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
     // is ready, otherwise the mount fetch races the auth lifecycle and queries
     // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
@@ -80,7 +95,7 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(fetchPackages, filterSearchTerm ? 300 : 0);
     return () => clearTimeout(debounceRef.current);
-  }, [fetchPackages, filterSearchTerm, token, tenantId]);
+  }, [fetchPackages, filterSearchTerm, token, tenantId, enabled]);
 
   const refetch = useCallback(() => {
     fetchPackages();

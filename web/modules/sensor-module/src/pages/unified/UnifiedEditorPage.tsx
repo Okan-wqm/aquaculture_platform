@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Save,
@@ -38,11 +38,13 @@ import {
   Paperclip,
 } from 'lucide-react';
 
+import type { Edge } from '@xyflow/react';
+
 import { useEditorModeStore, type EditorMode } from '../../store/editorModeStore';
-import { useProcessStore, EquipmentNodeData } from '../../store/processStore';
+import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import { isCanvasMessage } from '../../types/canvas-messages';
 import { useScadaPackageStore } from '../../store/scada';
-import { useProcess } from '../../hooks/useProcess';
+import { useProcess, type ProcessNode } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useUnifiedTags } from '../../hooks/useUnifiedTags';
 import {
@@ -166,8 +168,12 @@ const LiveTagsPanel: React.FC = () => {
 // ============================================================================
 
 const UnifiedEditorPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  // The route is `unified-editor/:processId` (Module.tsx) — the param name
+  // here MUST match it. Reading a wrong key silently yields undefined and the
+  // editor degrades to "new" for every existing process (SENSOR-CRITICAL-001);
+  // UnifiedEditorPage.routeParam.test.tsx pins this against the real router.
+  const { processId: id } = useParams<{ processId: string }>();
+  const [searchParams] = useSearchParams();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Editor mode
@@ -260,8 +266,13 @@ const UnifiedEditorPage: React.FC = () => {
   const deployProc = useDeployProcessToEdge();
   // Existing SCADA package for THIS process (filter by processId) — used to
   // hydrate the HMI canvas on load and to pick create-vs-update on save.
+  // DISABLED without a real process id: an unfiltered fetch would return the
+  // whole tenant list and the hydration below could adopt (and a later save
+  // overwrite) an unrelated package (SENSOR-CRITICAL-002).
+  const hasRealProcessId = Boolean(id && id !== 'new');
   const { packages: linkedPackages } = useScadaPackages(
-    id && id !== 'new' ? { processId: id } : undefined,
+    hasRealProcessId ? { processId: id } : undefined,
+    { enabled: hasRealProcessId },
   );
 
   // SCADA package store — serialize / hydrate / identity for dual-target
@@ -272,6 +283,20 @@ const UnifiedEditorPage: React.FC = () => {
   const scadaLoadFromJSON = useScadaPackageStore((s) => s.loadFromJSON);
   const scadaSetPackageId = useScadaPackageStore((s) => s.setPackageId);
   const scadaPackageName = useScadaPackageStore((s) => s.packageName);
+  const scadaDirty = useScadaPackageStore((s) => s.isDirty);
+  const scadaMarkClean = useScadaPackageStore((s) => s.markClean);
+  const scadaReset = useScadaPackageStore((s) => s.reset);
+
+  // Editor identity follows the route param. The scada store is a module
+  // singleton shared with the standalone Builder, and this component instance
+  // is REUSED when navigating unified-editor/A → unified-editor/B — without a
+  // reset, A's package id + screens would leak into B (or into a fresh "new"
+  // session) and the next save would write B's content into A's package
+  // (SENSOR-HIGH-005). Reset makes cross-identity leakage impossible.
+  useEffect(() => {
+    setScadaPackageId(null);
+    scadaReset();
+  }, [id, scadaReset]);
 
   // Send message to iframe
   const sendToCanvas = useCallback((type: string, data?: unknown) => {
@@ -311,10 +336,15 @@ const UnifiedEditorPage: React.FC = () => {
           const node = data as CanvasNode;
           setSelectedNodeId(node?.id || null);
           selectNode(node);
+          // Selecting a node is a request to inspect it — bring the
+          // properties tab forward (parity with ProcessEditorPage).
+          setRightPanelMode('properties');
           break;
         }
         case 'edgeSelected':
-          selectEdge(data as CanvasEdge as any);
+          // `data` is unknown at this trust boundary; a single assertion to
+          // the store's edge type is the narrowest honest conversion.
+          selectEdge(data as Edge<ProcessEdgeData>);
           break;
         case 'selectionCleared':
           setSelectedNodeId(null);
@@ -337,11 +367,17 @@ const UnifiedEditorPage: React.FC = () => {
     return () => window.removeEventListener('message', handleMessage);
   }, [sendToCanvas, selectNode, selectEdge]);
 
-  // Load process on mount
+  // Load process on mount / param change. BUG-004 (re-ported from
+  // ProcessEditorPage): the effect re-runs when isCanvasReady flips, so
+  // without an abort guard two concurrent getProcess calls race and a stale
+  // response can clobber the canvas after a param change or unmount.
   useEffect(() => {
+    const controller = new AbortController();
+
     const loadProcess = async () => {
       if (id && id !== 'new') {
         const existingProcess = await getProcess(id);
+        if (controller.signal.aborted) return;
         if (existingProcess) {
           setProcessId(existingProcess.id);
           setProcessName(existingProcess.name);
@@ -355,24 +391,51 @@ const UnifiedEditorPage: React.FC = () => {
           resetStore();
           setProcessName('New Project');
         }
-      } else {
-        resetStore();
-        setProcessName('New Project');
+        return;
       }
+
+      // New process. If a template was requested (ProcessTemplatesPage's
+      // "Use This Template" → ?template=<id>), seed the canvas from the
+      // template's diagram — the process itself is only created on Save.
+      const templateId = searchParams.get('template');
+      if (templateId) {
+        const template = await getProcess(templateId);
+        if (controller.signal.aborted) return;
+        if (template) {
+          resetStore();
+          setProcessName(template.name);
+          setCanvasNodes(template.nodes as CanvasNode[]);
+          setCanvasEdges(template.edges as CanvasEdge[]);
+          if (isCanvasReady) {
+            sendToCanvas('setNodes', template.nodes);
+            sendToCanvas('setEdges', template.edges);
+          }
+          return;
+        }
+      }
+      resetStore();
+      setProcessName('New Project');
     };
     loadProcess();
-  }, [id, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
+    return () => controller.abort();
+  }, [id, searchParams, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
 
   // Hydrate the HMI canvas from the SCADA package linked to this process —
-  // once, on first arrival, so it doesn't clobber unsaved edits (6b).
+  // once, on first arrival, so it doesn't clobber unsaved edits (6b). The
+  // adopted package MUST belong to this process: the query is already scoped
+  // by processId, but a package whose linkage disagrees is never adopted —
+  // adopting a foreign package would let a later save overwrite it
+  // (SENSOR-CRITICAL-002 belt-and-braces).
   useEffect(() => {
     if (scadaPackageId) return;
+    if (!hasRealProcessId) return;
     const pkg = linkedPackages[0];
     if (!pkg) return;
+    if (pkg.processId !== id) return;
     setScadaPackageId(pkg.id);
     scadaSetPackageId(pkg.id);
     scadaLoadFromJSON(pkg.packageData);
-  }, [linkedPackages, scadaPackageId, scadaSetPackageId, scadaLoadFromJSON]);
+  }, [linkedPackages, scadaPackageId, hasRealProcessId, id, scadaSetPackageId, scadaLoadFromJSON]);
 
   // Sync editor mode to iframe canvas — when mode changes, send setEditorMode
   useEffect(() => {
@@ -433,30 +496,37 @@ const UnifiedEditorPage: React.FC = () => {
 
       const isNewProcess = !storeProcessId || storeProcessId === 'new' || id === 'new';
 
-      // 1. Persist the P&ID process (unchanged).
+      // 1. Persist the P&ID process — FAIL CLOSED: the mutations report
+      // rejection via { success: false } without throwing, so an unchecked
+      // failure here would silently skip feedback and still run the package
+      // leg (SENSOR-HIGH-004). On failure: surface the error, abort the save.
       let resolvedProcessId: string | null = storeProcessId ?? null;
       if (isNewProcess) {
         const result = await createProcess({
           name: processName,
-          nodes: currentState.nodes as any,
+          nodes: currentState.nodes as ProcessNode[],
           edges: currentState.edges,
         });
-        if (result.success && result.process) {
-          resolvedProcessId = result.process.id;
-          setProcessId(result.process.id);
-          markClean();
-          window.history.replaceState(null, '', `/sensor/unified-editor/${result.process.id}`);
+        if (!result.success || !result.process) {
+          setSaveError(result.message || 'Proses kaydedilemedi');
+          return;
         }
+        resolvedProcessId = result.process.id;
+        setProcessId(result.process.id);
+        markClean();
+        window.history.replaceState(null, '', `/sensor/unified-editor/${result.process.id}`);
       } else {
         const result = await updateProcess({
           processId: storeProcessId,
           name: processName,
-          nodes: currentState.nodes as any,
+          nodes: currentState.nodes as ProcessNode[],
           edges: currentState.edges,
         });
-        if (result.success) {
-          markClean();
+        if (!result.success) {
+          setSaveError(result.message || 'Proses güncellenemedi');
+          return;
         }
+        markClean();
       }
 
       // 2. Persist the HMI SCADA package (6b — dual-target save). The unified
@@ -478,6 +548,9 @@ const UnifiedEditorPage: React.FC = () => {
           setScadaPackageId(created.id);
           scadaSetPackageId(created.id);
         }
+        // Both targets persisted — the HMI side is clean too (SENSOR-HIGH-003:
+        // scada-store dirtiness is tracked separately from the process store).
+        scadaMarkClean();
       }
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Kaydetme başarısız');
@@ -544,7 +617,7 @@ const UnifiedEditorPage: React.FC = () => {
             className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-48"
           />
 
-          {isDirty && (
+          {(isDirty || scadaDirty) && (
             <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
               Unsaved
             </span>
@@ -709,9 +782,9 @@ const UnifiedEditorPage: React.FC = () => {
 
           <button
             onClick={handleSave}
-            disabled={isSaving || !isDirty || !isCanvasReady}
+            disabled={isSaving || !(isDirty || scadaDirty) || !isCanvasReady}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs text-white rounded-lg transition-colors ${
-              isSaving || !isDirty || !isCanvasReady
+              isSaving || !(isDirty || scadaDirty) || !isCanvasReady
                 ? 'bg-cyan-400 cursor-not-allowed'
                 : 'bg-cyan-600 hover:bg-cyan-700'
             }`}

@@ -32,12 +32,15 @@ const spies = vi.hoisted(() => ({
   createProcess: vi.fn(async () => ({ success: true, process: { id: 'proc-1' } })),
   updateProcess: vi.fn(async () => ({ success: true })),
   getProcess: vi.fn(async () => ({ id: 'proc-1', name: 'Test Proc', nodes: [], edges: [] })),
-  linkedPackages: [] as Array<{ id: string; packageData: unknown }>,
+  linkedPackages: [] as Array<{ id: string; processId?: string; packageData: unknown }>,
 }));
 
 vi.mock('react-router-dom', () => ({
-  useParams: () => ({ id: 'proc-1' }),
-  useNavigate: () => vi.fn(),
+  // The real route is `unified-editor/:processId` — the mock MUST use the
+  // same param name the page reads (SENSOR-CRITICAL-001 was masked by this
+  // mock carrying a wrong name; routeParam.test.tsx pins it unmocked).
+  useParams: () => ({ processId: 'proc-1' }),
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }));
 
@@ -215,7 +218,9 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
 
   it('(b) Deploy menu wires the SCADA path to useDeployScadaPackage (purple)', async () => {
     spies.linkedPackages = [
-      { id: 'pkg-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },
+      // processId must match the route param — the hydration guard refuses
+      // to adopt a package linked to a different process (SENSOR-CRITICAL-002).
+      { id: 'pkg-1', processId: 'proc-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },
     ];
     render(<UnifiedEditorPage />);
     // Hydration effect adopts the linked package id.
@@ -231,6 +236,27 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     await waitFor(() =>
       expect(spies.deployScada).toHaveBeenCalledWith({ packageId: 'pkg-1', deviceId: 'device-1' }),
     );
+  });
+
+  it('(guard) a package linked to a DIFFERENT process is never adopted', async () => {
+    // SENSOR-CRITICAL-002: adopting a foreign package would let the next save
+    // overwrite it. The hydration guard must refuse it even if the (mocked)
+    // query returns one.
+    spies.linkedPackages = [
+      { id: 'foreign-pkg', processId: 'someone-elses-process', packageData: { screens: [] } },
+    ];
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    // Not adopted → the SCADA deploy path treats the package as unsaved.
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/SCADA Paketi/));
+    await screen.findByTestId('deploy-dialog-purple');
+    fireEvent.click(screen.getByTestId('deploy-confirm-purple'));
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-result-purple').textContent).toMatch(/kaydedin/),
+    );
+    expect(spies.deployScada).not.toHaveBeenCalled();
   });
 
   it('(b) SCADA deploy is blocked with a message when no package is saved yet', async () => {
@@ -316,8 +342,10 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
 
     // Existing process (getProcess returned proc-1) → update; no linked package → create.
     await waitFor(() => expect(spies.updateProcess).toHaveBeenCalled());
-    await waitFor(() => expect(spies.createPkg).toHaveBeenCalled());
-    const createArg = spies.createPkg.mock.calls[0][0] as { processId: string };
-    expect(createArg.processId).toBe('proc-1');
+    await waitFor(() =>
+      expect(spies.createPkg).toHaveBeenCalledWith(
+        expect.objectContaining({ processId: 'proc-1' }),
+      ),
+    );
   });
 });

@@ -82,6 +82,7 @@ describe('RegulatoryReportStoreService', () => {
       existing.klientReferanse = 'ref-123';
       existing.status = RegulatoryReportSubmissionStatus.FAILED;
       existing.feilmelding = 'previous failure';
+      existing.referanse = 'MT-STALE-42';
       mocks.mockManager.findOne.mockResolvedValueOnce(existing);
 
       const row = await service.recordPending(TENANT_ID, baseParams);
@@ -90,6 +91,8 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.id).toBe('row-1');
       expect(row.status).toBe(RegulatoryReportSubmissionStatus.PENDING);
       expect(row.feilmelding).toBeNull();
+      // FARM-LOW-133: a row re-entering PENDING carries no stale receipt.
+      expect(row.referanse).toBeNull();
       expect(row.payload).toBe(seaLicePayload);
     });
   });
@@ -118,13 +121,16 @@ describe('RegulatoryReportStoreService', () => {
       const row = new RegulatoryReport();
       row.id = 'row-1';
       row.tenantId = TENANT_ID;
-      row.status = RegulatoryReportSubmissionStatus.PENDING;
+      row.status = RegulatoryReportSubmissionStatus.SUBMITTED;
+      row.referanse = 'MT-STALE-9';
       (mocks.mockManager.findOneOrFail as jest.Mock) = jest.fn().mockResolvedValue(row);
 
       await service.markFailed(TENANT_ID, 'row-1', 'Mattilsynet 502');
 
       expect(row.status).toBe(RegulatoryReportSubmissionStatus.FAILED);
       expect(row.feilmelding).toBe('Mattilsynet 502');
+      // FARM-LOW-133: a failed submission has no valid receipt.
+      expect(row.referanse).toBeNull();
       expect(mocks.mockManager.save).toHaveBeenCalledWith(RegulatoryReport, row);
     });
   });

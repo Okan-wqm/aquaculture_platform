@@ -214,8 +214,27 @@ export class RegulatoryResolver {
       submittedBy: userId,
     });
 
+    // FARM-LOW-134: the submit() call and the outcome-persistence are separated.
+    // Only an ACTUAL submit() failure marks the row FAILED. A persistence error
+    // AFTER a successful regulator call must NOT relabel an accepted submission
+    // as FAILED — that would tell the operator to resubmit an already-accepted
+    // report (a genuine duplicate to Mattilsynet). The regulator's verdict is
+    // authoritative; persistence is best-effort after it.
+    let result: ReportSubmissionResult;
     try {
-      const result = await submit();
+      result = await submit();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      await this.reportStore.markFailed(tenantId, row.id, message);
+      return {
+        success: false,
+        reportId: row.id,
+        klientReferanse: input.klientReferanse,
+        feilmelding: message,
+      };
+    }
+
+    try {
       if (result.success) {
         await this.reportStore.markSubmitted(tenantId, row.id, result.referanse);
       } else {
@@ -227,17 +246,16 @@ export class RegulatoryResolver {
               'Submission rejected'),
         );
       }
-      return { ...result, reportId: row.id };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      await this.reportStore.markFailed(tenantId, row.id, message);
-      return {
-        success: false,
-        reportId: row.id,
-        klientReferanse: input.klientReferanse,
-        feilmelding: message,
-      };
+    } catch (persistError) {
+      const message = persistError instanceof Error ? persistError.message : 'Unknown error';
+      // The submission result STANDS; the row is left PENDING for a later
+      // reconcile. Do not report FAILED for a submission the regulator accepted.
+      this.logger.error(
+        `Regulatory report ${row.id} was submitted (success=${result.success}) but persisting ` +
+          `the outcome failed: ${message}. Row left PENDING; the submission result is authoritative.`,
+      );
     }
+    return { ...result, reportId: row.id };
   }
 
   /**

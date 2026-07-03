@@ -123,6 +123,26 @@ describe('WaterQualityCriticalAlertService', () => {
     );
   });
 
+  it('drops a malformed critical-parameter entry (no undefined leaks into the message) — FARM-LOW-135', async () => {
+    const { service, historyRepo } = makeService();
+
+    await service.recordCriticalWaterQuality(
+      makeEvent({
+        // Missing name/direction/threshold — the old guard let it through and
+        // rendered "undefined 3.1 undefined undefined".
+        criticalParametersJson: JSON.stringify([{ code: 'ph', value: 3.1 }]),
+        criticalParameterCount: 1,
+      }),
+    );
+
+    const saved = historyRepo.save.mock.calls[0]?.[0] as AlertHistory;
+    expect(saved.message).not.toContain('undefined');
+    // Degrades to the count-only message because the sole entry was dropped.
+    expect(saved.message).toBe(
+      `Water quality critical at tank ${TANK_ID}: 1 parameter(s) out of critical range`,
+    );
+  });
+
   it('creates a NEW incident and starts escalation when none is open', async () => {
     const { service, incidentRepo, escalation } = makeService({ existingIncident: null });
 

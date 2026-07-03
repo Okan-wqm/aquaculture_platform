@@ -75,13 +75,20 @@ export class WaterQualityCriticalAlertService {
     try {
       const parsed: unknown = JSON.parse(json);
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter(
-        (entry): entry is CriticalParameter =>
-          typeof entry === 'object' &&
-          entry !== null &&
-          typeof (entry as CriticalParameter).code === 'string' &&
-          typeof (entry as CriticalParameter).value === 'number',
-      );
+      // FARM-LOW-135: validate EVERY field buildMessage renders, so a malformed
+      // entry is dropped (the message degrades to count-only) rather than
+      // emitting "undefined 3.1 undefined undefined" into the escalation path.
+      return parsed.filter((entry): entry is CriticalParameter => {
+        if (typeof entry !== 'object' || entry === null) return false;
+        const e = entry as Partial<CriticalParameter>;
+        return (
+          typeof e.code === 'string' &&
+          typeof e.name === 'string' &&
+          typeof e.value === 'number' &&
+          typeof e.threshold === 'number' &&
+          (e.direction === 'above' || e.direction === 'below')
+        );
+      });
     } catch {
       this.logger.warn('WaterQualityCritical criticalParametersJson is not valid JSON');
       return [];

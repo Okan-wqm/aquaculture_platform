@@ -176,10 +176,14 @@ export class RegulatoryReport {
   @Column('jsonb')
   payload: RegulatoryReportPayload;
 
-  /** Mattilsynet receipt reference (SUBMITTED) or outbox event id (QUEUED). */
-  @Field({ nullable: true })
+  /**
+   * Mattilsynet receipt reference (SUBMITTED) or outbox event id (QUEUED).
+   * Typed `| null` because a resubmit that re-enters PENDING/QUEUED or FAILED
+   * must actively CLEAR a prior receipt (TypeORM skips undefined on save).
+   */
+  @Field(() => String, { nullable: true })
   @Column('varchar', { length: 255, nullable: true })
-  referanse?: string;
+  referanse?: string | null;
 
   /**
    * Error message from Mattilsynet / transport when status = FAILED.

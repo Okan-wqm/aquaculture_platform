@@ -127,6 +127,19 @@ describe('RegulatoryResolver — REST submit persist-first flow', () => {
     expect(markSubmitted).not.toHaveBeenCalled();
   });
 
+  it('does NOT relabel an accepted submission FAILED when persisting the outcome throws (FARM-LOW-134)', async () => {
+    markSubmitted.mockRejectedValueOnce(new Error('db write timeout'));
+
+    submitSeaLice.mockResolvedValue({ success: true, referanse: 'MT-1', klientReferanse: 'ref-777' });
+
+    const result = await resolver.submitSeaLiceReport(input, ctx());
+
+    // The regulator accepted it — the operator must NOT be told to resubmit.
+    expect(result.success).toBe(true);
+    expect(markSubmitted).toHaveBeenCalledTimes(1);
+    expect(markFailed).not.toHaveBeenCalled();
+  });
+
   it('marks FAILED and returns an honest failure when the API throws', async () => {
     submitSeaLice.mockRejectedValue(new Error('mattilsynet 502'));
 

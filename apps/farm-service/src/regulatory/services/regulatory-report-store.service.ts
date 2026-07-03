@@ -114,6 +114,8 @@ export class RegulatoryReportStoreService {
       });
       row.status = RegulatoryReportSubmissionStatus.FAILED;
       row.feilmelding = feilmelding;
+      // FARM-LOW-133: a failed submission has no valid receipt.
+      row.referanse = null;
       await queryRunner.manager.save(RegulatoryReport, row);
     });
     this.logger.warn(`Regulatory report ${id} marked FAILED`);
@@ -143,6 +145,9 @@ export class RegulatoryReportStoreService {
       existing.submittedBy = params.submittedBy;
       existing.status = status;
       existing.feilmelding = null;
+      // FARM-LOW-133: a row re-entering PENDING/QUEUED carries no receipt yet —
+      // drop any stale Mattilsynet referanse from a prior SUBMITTED attempt.
+      existing.referanse = null;
       return manager.save(RegulatoryReport, existing);
     }
 

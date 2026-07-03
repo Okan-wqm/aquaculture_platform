@@ -5,7 +5,8 @@
  */
 import React, { useState } from 'react';
 import { useRegulatorySettings, useSubmitDiseaseOutbreak } from '../../../hooks/useRegulatory';
-import { buildVarslingIdentity } from '../utils/varslingIdentity';
+import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { DiseaseOutbreakReport } from '../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
 import { DiseaseOutbreakModal } from '../components/modals';
@@ -71,6 +72,7 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   // dispatches the immediate disease varsling via the backend.
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitDiseaseOutbreak = useSubmitDiseaseOutbreak();
+  const clientRef = useStableClientReference();
 
   const handleCreateReport = () => {
     setShowHealthEventLink(false);
@@ -83,14 +85,14 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   };
 
   const handleModalSubmit = async (data: Partial<DiseaseOutbreakReport>): Promise<void> => {
-    // Resolve the Mattilsynet identity block — throws VarslingConfigError if
+    // Resolve the Mattilsynet identity block — throws RegulatoryConfigError if
     // the tenant is not configured. The modal surfaces the thrown message and
     // stays open (it only closes when this promise RESOLVES).
     const reportSiteId = data.siteId || siteId || 'site-001';
-    const identity = buildVarslingIdentity(regulatorySettings, reportSiteId);
+    const identity = buildRegulatoryIdentity(regulatorySettings, reportSiteId);
 
     const result = await submitDiseaseOutbreak.mutateAsync({
-      klientReferanse: crypto.randomUUID(),
+      klientReferanse: clientRef.get(),
       organisasjonsnummer: identity.organisasjonsnummer,
       lokalitetsnummer: identity.lokalitetsnummer,
       siteId: reportSiteId,
@@ -117,6 +119,10 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
         result.feilmelding || 'Mattilsynet rejected the disease report. Please review and retry.',
       );
     }
+
+    // FARM-HIGH-126: rotate the client reference only after a confirmed success;
+    // a thrown failure above keeps it stable so the operator's retry dedups.
+    clientRef.reset();
   };
 
   return (

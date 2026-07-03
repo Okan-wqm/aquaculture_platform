@@ -4,7 +4,8 @@
  */
 import React, { useState, useMemo } from 'react';
 import { useRegulatorySettings, useSubmitWelfareEvent } from '../../../hooks/useRegulatory';
-import { buildVarslingIdentity } from '../utils/varslingIdentity';
+import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { WelfareEventReport } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
 import { WelfareEventModal } from '../components/modals';
@@ -137,6 +138,7 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   // dispatches the immediate welfare varsling via the backend.
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitWelfareEvent = useSubmitWelfareEvent();
+  const clientRef = useStableClientReference();
 
   // Fetch tank data for mortality warning banner
   const { data: tanksData } = useTanksList({ siteId, isActive: true });
@@ -158,14 +160,14 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   };
 
   const handleModalSubmit = async (data: Partial<WelfareEventReport>): Promise<void> => {
-    // Resolve the Mattilsynet identity block — throws VarslingConfigError if
+    // Resolve the Mattilsynet identity block — throws RegulatoryConfigError if
     // the tenant is not configured. The modal surfaces the thrown message and
     // stays open (it only closes when this promise RESOLVES).
     const reportSiteId = data.siteId || siteId || 'site-001';
-    const identity = buildVarslingIdentity(regulatorySettings, reportSiteId);
+    const identity = buildRegulatoryIdentity(regulatorySettings, reportSiteId);
 
     const result = await submitWelfareEvent.mutateAsync({
-      klientReferanse: crypto.randomUUID(),
+      klientReferanse: clientRef.get(),
       organisasjonsnummer: identity.organisasjonsnummer,
       lokalitetsnummer: identity.lokalitetsnummer,
       siteId: reportSiteId,
@@ -193,6 +195,10 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
         result.feilmelding || 'Mattilsynet rejected the welfare report. Please review and retry.',
       );
     }
+
+    // FARM-HIGH-126: rotate the client reference only after a confirmed success;
+    // a thrown failure above keeps it stable so the operator's retry dedups.
+    clientRef.reset();
   };
 
   return (

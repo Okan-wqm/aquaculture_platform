@@ -23,6 +23,11 @@ import {
 } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
+import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
+import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
+import { toBackendReportMonth } from '../utils/reportPeriod';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
@@ -1114,6 +1119,9 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
   // Regulatory settings & submit mutation
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitCleanerFishMutation = useSubmitCleanerFishReport();
+  const clientRef = useStableClientReference();
+  const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
+    useEffectiveReportSite(siteId);
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
   // Form handlers
@@ -1153,7 +1161,8 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
     setError(null);
     setSubmissionResult(null);
     try {
-      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+      // FARM-HIGH-128: fail-closed identity — never ship a silent lokalitetsnummer 0.
+      const identity = buildRegulatoryIdentity(regulatorySettings, effectiveSiteId ?? '');
 
       // Map species value to Mattilsynet artskode
       const speciesCodeMap: Record<string, string> = {
@@ -1169,15 +1178,11 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
       });
 
       const input: SubmitCleanerFishReportInput = {
-        klientReferanse: crypto.randomUUID(),
-        organisasjonsnummer: regulatorySettings?.organisationNumber || '',
-        lokalitetsnummer: siteMapping?.lokalitetsnummer || 0,
-        kontaktperson: {
-          navn: regulatorySettings?.defaultContactName || '',
-          epost: regulatorySettings?.defaultContactEmail || '',
-          telefonnummer: regulatorySettings?.defaultContactPhone || '',
-        },
-        rapporteringsmaaned: formData.month,
+        klientReferanse: clientRef.get(),
+        organisasjonsnummer: identity.organisasjonsnummer,
+        lokalitetsnummer: identity.lokalitetsnummer,
+        kontaktperson: identity.kontaktperson,
+        rapporteringsmaaned: toBackendReportMonth(formData.month),
         rapporteringsaar: formData.year,
         torrforKg: formData.feedConsumption.dryFeedKg || undefined,
         vatforKg: formData.feedConsumption.wetFeedKg || undefined,
@@ -1214,6 +1219,8 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
       setSubmissionResult(result);
 
       if (result.success) {
+        // FARM-HIGH-126: rotate the stable client reference only on success.
+        clientRef.reset();
         setIsWizardOpen(false);
         setFormData(getInitialFormData());
       } else {
@@ -1225,7 +1232,7 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, regulatorySettings, siteId, submitCleanerFishMutation]);
+  }, [formData, regulatorySettings, effectiveSiteId, clientRef, submitCleanerFishMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(
@@ -1274,19 +1281,27 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
           <h2 className="text-lg font-semibold text-gray-900">Cleaner Fish Reports</h2>
           <p className="text-sm text-gray-500">Monthly rensefisk reports - Due 7th of each month</p>
         </div>
-        <button
-          onClick={() => handleOpenWizard()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Report
-        </button>
+        <div className="flex items-center gap-3">
+          <SiteLocalitySelector
+            siteMappings={siteMappings}
+            effectiveSiteId={effectiveSiteId}
+            onChange={setSelectedSiteId}
+            show={showSelector}
+          />
+          <button
+            onClick={() => handleOpenWizard()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Report
+          </button>
+        </div>
       </div>
 
       {/* Submission History */}
-      <SubmissionHistorySection reportType="CLEANER_FISH" siteId={siteId} />
+      <SubmissionHistorySection reportType="CLEANER_FISH" siteId={effectiveSiteId} />
 
       {/* Wizard Modal */}
       <ReportWizard

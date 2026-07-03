@@ -1,8 +1,12 @@
 /**
- * Varsling identity resolver — shared by the three immediate-report tabs
- * (welfare / escape / disease).
+ * Regulatory identity resolver — the SSoT for the Mattilsynet identity block
+ * shared by EVERY report tab (the 5 REST reports + the 3 immediate/varsling
+ * reports). FARM-HIGH-128: the REST tabs used to hand-roll
+ * `lokalitetsnummer: mapping?.lokalitetsnummer || 0`, silently shipping a 0 when
+ * no mapping resolved; routing them through this fail-closed resolver instead
+ * makes an un-mapped site an actionable error, never an invalid submission.
  *
- * WHY a shared helper — all three tabs need the SAME Mattilsynet identity
+ * WHY a shared helper — all tabs need the SAME Mattilsynet identity
  * block (organisasjonsnummer + per-site lokalitetsnummer + contact person)
  * resolved from RegulatorySettings, plus the SAME "is the tenant configured to
  * submit?" guard. Duplicating this across three tabs would let the validation
@@ -16,13 +20,15 @@
  */
 import type { RegulatorySettings } from '../../../hooks/useRegulatory';
 
-export interface VarslingIdentity {
+export interface RegulatoryIdentity {
   organisasjonsnummer: string;
   lokalitetsnummer: number;
   kontaktperson: {
     navn: string;
     epost: string;
-    telefonnummer?: string;
+    /** Always a string (empty when the tenant configured no phone) so both the
+     *  REST report inputs (required) and the varsling inputs (optional) accept it. */
+    telefonnummer: string;
   };
   siteManagerEmail?: string;
 }
@@ -32,26 +38,26 @@ export interface VarslingIdentity {
  * immediate report. The message is operator-facing and lists exactly what to
  * configure under Setup → Regulatory.
  */
-export class VarslingConfigError extends Error {
+export class RegulatoryConfigError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'VarslingConfigError';
+    this.name = 'RegulatoryConfigError';
   }
 }
 
 /**
  * Resolve the Mattilsynet identity block for a given site, or throw a
- * VarslingConfigError describing the missing configuration.
+ * RegulatoryConfigError describing the missing configuration.
  *
  * @param settings the tenant's regulatory settings (may be undefined if not loaded)
  * @param siteId   the site the report is for — used to look up its lokalitetsnummer
  */
-export function buildVarslingIdentity(
+export function buildRegulatoryIdentity(
   settings: RegulatorySettings | undefined,
   siteId: string,
-): VarslingIdentity {
+): RegulatoryIdentity {
   if (!settings) {
-    throw new VarslingConfigError(
+    throw new RegulatoryConfigError(
       'Regulatory settings are not loaded yet. Please wait a moment and try again.',
     );
   }
@@ -75,7 +81,7 @@ export function buildVarslingIdentity(
   }
 
   if (missing.length > 0) {
-    throw new VarslingConfigError(
+    throw new RegulatoryConfigError(
       `Cannot submit to Mattilsynet — missing ${missing.join(', ')}. ` +
         `Configure these under Setup → Regulatory before reporting.`,
     );
@@ -89,7 +95,7 @@ export function buildVarslingIdentity(
     kontaktperson: {
       navn: navn!,
       epost: epost!,
-      telefonnummer: settings.defaultContactPhone,
+      telefonnummer: settings.defaultContactPhone ?? '',
     },
     siteManagerEmail: settings.defaultContactEmail,
   };

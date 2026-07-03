@@ -26,6 +26,7 @@ import {
 } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
@@ -1286,6 +1287,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitPlannedMutation = useSubmitPlannedSlaughterReport();
   const submitExecutedMutation = useSubmitExecutedSlaughterReport();
+  const clientRef = useStableClientReference();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
   // Form handlers
@@ -1330,7 +1332,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         });
 
         const plannedInput: SubmitPlannedSlaughterInput = {
-          klientReferanse: crypto.randomUUID(),
+          klientReferanse: clientRef.get(),
           organisasjonsnummer: orgNr,
           lokalitetsnummer: lokNr,
           kontaktperson: kontakt,
@@ -1354,7 +1356,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
 
       if (formData.reportType === 'completed') {
         const executedInput: SubmitExecutedSlaughterInput = {
-          klientReferanse: crypto.randomUUID(),
+          klientReferanse: clientRef.get(),
           organisasjonsnummer: orgNr,
           lokalitetsnummer: lokNr,
           kontaktperson: kontakt,
@@ -1382,6 +1384,8 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         }
       }
 
+      // FARM-HIGH-126: rotate the stable client reference only on success.
+      clientRef.reset();
       setIsWizardOpen(false);
       setFormData(getInitialFormData());
     } catch (err) {
@@ -1390,7 +1394,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, regulatorySettings, siteId, submitPlannedMutation, submitExecutedMutation]);
+  }, [formData, regulatorySettings, siteId, clientRef, submitPlannedMutation, submitExecutedMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

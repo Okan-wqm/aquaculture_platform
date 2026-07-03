@@ -19,6 +19,10 @@ import {
 import { SEA_LICE_THRESHOLDS, REGULATORY_CONTACTS } from '../utils/thresholds';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
+import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
+import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 
 // ============================================================================
 // Types
@@ -1173,6 +1177,9 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
   // Regulatory settings & submit mutation
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitSeaLiceMutation = useSubmitSeaLiceReport();
+  const clientRef = useStableClientReference();
+  const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
+    useEffectiveReportSite(siteId);
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
   // Derive site name from tanks data if available
@@ -1216,16 +1223,13 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
         ANNET: 'ANNET_VIRKESTOFF',
       };
       // Build Mattilsynet-aligned input from form data
-      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+      // FARM-HIGH-128: fail-closed identity — never ship a silent lokalitetsnummer 0.
+      const identity = buildRegulatoryIdentity(regulatorySettings, effectiveSiteId ?? '');
       const input: SubmitSeaLiceReportInput = {
-        klientReferanse: crypto.randomUUID(),
-        organisasjonsnummer: regulatorySettings?.organisationNumber || '',
-        lokalitetsnummer: siteMapping?.lokalitetsnummer || 0,
-        kontaktperson: {
-          navn: regulatorySettings?.defaultContactName || '',
-          epost: regulatorySettings?.defaultContactEmail || '',
-          telefonnummer: regulatorySettings?.defaultContactPhone || '',
-        },
+        klientReferanse: clientRef.get(),
+        organisasjonsnummer: identity.organisasjonsnummer,
+        lokalitetsnummer: identity.lokalitetsnummer,
+        kontaktperson: identity.kontaktperson,
         rapporteringsaar: formData.year,
         rapporteringsuke: formData.weekNumber,
         sjotemperatur: formData.waterTemperature3m,
@@ -1280,6 +1284,8 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
       setSubmissionResult(result);
 
       if (result.success) {
+        // FARM-HIGH-126: rotate the stable client reference only on success.
+        clientRef.reset();
         setIsWizardOpen(false);
         setFormData(getInitialFormData());
       } else {
@@ -1291,7 +1297,7 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, regulatorySettings, siteId, submitSeaLiceMutation]);
+  }, [formData, regulatorySettings, effectiveSiteId, clientRef, submitSeaLiceMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(
@@ -1357,19 +1363,27 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
           <h2 className="text-lg font-semibold text-gray-900">Sea Lice Reports</h2>
           <p className="text-sm text-gray-500">Weekly lakselus monitoring - Due every Tuesday</p>
         </div>
-        <button
-          onClick={() => handleOpenWizard()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Report
-        </button>
+        <div className="flex items-center gap-3">
+          <SiteLocalitySelector
+            siteMappings={siteMappings}
+            effectiveSiteId={effectiveSiteId}
+            onChange={setSelectedSiteId}
+            show={showSelector}
+          />
+          <button
+            onClick={() => handleOpenWizard()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Report
+          </button>
+        </div>
       </div>
 
       {/* Submission History */}
-      <SubmissionHistorySection reportType="SEA_LICE" siteId={siteId} />
+      <SubmissionHistorySection reportType="SEA_LICE" siteId={effectiveSiteId} />
 
       {/* Wizard Modal */}
       <ReportWizard

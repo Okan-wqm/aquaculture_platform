@@ -15,18 +15,19 @@ import {
   useSubmitCleanerFishReport,
 } from '../../../hooks/useRegulatory';
 import type { SubmitCleanerFishReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
-import { mockCleanerFishReports } from '../mock/cleanerFishData';
 import {
-  CleanerFishReport,
   CleanerFishSpecies,
   CleanerFishSpeciesCount,
-  CleanerFishMortality,
   CleanerFishDeployment,
   CleanerFishArtskode,
-  ReportStatus,
 } from '../types/reports.types';
-import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
+import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
+import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
+import { toBackendReportMonth } from '../utils/reportPeriod';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
@@ -293,97 +294,6 @@ function getInitialFormData(): CleanerFishFormData {
     feedConsumption: { dryFeedKg: 0, wetFeedKg: 0 },
   };
 }
-
-// ============================================================================
-// Report Card Component
-// ============================================================================
-
-interface CleanerFishReportCardProps {
-  report: CleanerFishReport;
-  onView: () => void;
-  onEdit?: () => void;
-}
-
-const CleanerFishReportCard: React.FC<CleanerFishReportCardProps> = ({ report, onView, onEdit }) => {
-  const isPending = report.status === 'pending' || report.status === 'overdue';
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-teal-100 rounded-lg">
-              <svg className="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">{getMonthLabel(report.month, report.year)}</h3>
-              <p className="text-sm text-gray-500">{report.siteName}</p>
-            </div>
-          </div>
-          <ReportStatusBadge status={report.status} size="sm" />
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-3">
-        {/* Key Metrics */}
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <div className="text-center p-2 bg-teal-50 rounded">
-            <div className="text-lg font-bold text-teal-700">{formatNumber(report.totalCount)}</div>
-            <div className="text-xs text-gray-500">Total Fish</div>
-          </div>
-          <div className="text-center p-2 bg-red-50 rounded">
-            <div className="text-lg font-bold text-red-700">{report.mortality.overallRate.toFixed(1)}%</div>
-            <div className="text-xs text-gray-500">Mortality</div>
-          </div>
-          <div className="text-center p-2 bg-blue-50 rounded">
-            <div className="text-lg font-bold text-blue-700">{report.deployments.length}</div>
-            <div className="text-xs text-gray-500">Deployments</div>
-          </div>
-        </div>
-
-        {/* Species Breakdown */}
-        {report.fishBySpecies.length > 0 && (
-          <div className="flex flex-wrap gap-1 text-xs pt-3 border-t border-gray-100">
-            {report.fishBySpecies.map((fish) => (
-              <span key={fish.species} className="px-2 py-1 bg-teal-50 text-teal-700 rounded">
-                {getSpeciesLabel(fish.species)}: {formatNumber(fish.count)}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Deadline for pending */}
-        {isPending && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <DeadlineIndicator deadline={report.deadline} status={report.status} reportType="Cleaner Fish" />
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
-        <button
-          onClick={onView}
-          className="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          View Details
-        </button>
-        {isPending && onEdit && (
-          <button
-            onClick={onEdit}
-            className="px-3 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            Complete Report
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // Wizard Step Components
@@ -1194,11 +1104,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
 export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ siteId }) => {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<CleanerFishReport | null>(null);
   const [formData, setFormData] = useState<CleanerFishFormData>(getInitialFormData());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
 
   // Fetch tanks with cleaner fish data for auto-population
   const { data: tanksData } = useTanksList({ isActive: true });
@@ -1211,78 +1119,40 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
   // Regulatory settings & submit mutation
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitCleanerFishMutation = useSubmitCleanerFishReport();
+  const clientRef = useStableClientReference();
+  const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
+    useEffectiveReportSite(siteId);
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
-
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockCleanerFishReports.filter((r) => r.siteId === siteId)
-      : mockCleanerFishReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    return filtered.sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-  }, [siteId, statusFilter]);
-
-  // Stats
-  const stats = useMemo(() => {
-    const totalFish = mockCleanerFishReports.reduce((sum, r) => sum + r.totalCount, 0);
-    const totalDeployments = mockCleanerFishReports.reduce((sum, r) => sum + r.deployments.length, 0);
-    const pending = mockCleanerFishReports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
-    return { totalFish, totalDeployments, pending, total: mockCleanerFishReports.length };
-  }, []);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<CleanerFishFormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  const handleOpenWizard = useCallback((report?: CleanerFishReport) => {
-    if (report) {
-      setFormData({
-        month: report.month,
-        year: report.year,
-        fishBySpecies: [...report.fishBySpecies],
-        totalCount: report.totalCount,
-        mortality: { ...report.mortality },
-        deployments: [...report.deployments],
-        perCageData: [],
-        detailedMortality: getDefaultDetailedMortality(),
-        feedConsumption: {
-          dryFeedKg: report.torrforKg || 0,
-          wetFeedKg: report.vatforKg || 0,
-        },
-      });
-    } else {
-      // Auto-populate from system data when creating new report
-      const initialData = getInitialFormData();
+  const handleOpenWizard = useCallback(() => {
+    // Auto-populate from system data when creating new report
+    const initialData = getInitialFormData();
 
-      if (tanks.length > 0) {
-        const aggregated = aggregateCleanerFishFromTanks(tanks);
-        if (aggregated.totalCount > 0) {
-          initialData.fishBySpecies = aggregated.fishBySpecies;
-          initialData.totalCount = aggregated.totalCount;
-          const overallRate = aggregated.totalCount > 0
-            ? (aggregated.totalMortality / (aggregated.totalCount + aggregated.totalMortality)) * 100
-            : 0;
-          initialData.mortality = {
-            bySpecies: aggregated.mortalityBySpecies,
-            totalCount: aggregated.totalMortality,
-            overallRate,
-          };
-        }
-
-        // Auto-populate per-cage data
-        initialData.perCageData = buildPerCageDataFromTanks(tanks);
+    if (tanks.length > 0) {
+      const aggregated = aggregateCleanerFishFromTanks(tanks);
+      if (aggregated.totalCount > 0) {
+        initialData.fishBySpecies = aggregated.fishBySpecies;
+        initialData.totalCount = aggregated.totalCount;
+        const overallRate = aggregated.totalCount > 0
+          ? (aggregated.totalMortality / (aggregated.totalCount + aggregated.totalMortality)) * 100
+          : 0;
+        initialData.mortality = {
+          bySpecies: aggregated.mortalityBySpecies,
+          totalCount: aggregated.totalMortality,
+          overallRate,
+        };
       }
 
-      setFormData(initialData);
+      // Auto-populate per-cage data
+      initialData.perCageData = buildPerCageDataFromTanks(tanks);
     }
+
+    setFormData(initialData);
     setIsWizardOpen(true);
   }, [tanks]);
 
@@ -1291,7 +1161,8 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
     setError(null);
     setSubmissionResult(null);
     try {
-      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+      // FARM-HIGH-128: fail-closed identity — never ship a silent lokalitetsnummer 0.
+      const identity = buildRegulatoryIdentity(regulatorySettings, effectiveSiteId ?? '');
 
       // Map species value to Mattilsynet artskode
       const speciesCodeMap: Record<string, string> = {
@@ -1307,15 +1178,11 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
       });
 
       const input: SubmitCleanerFishReportInput = {
-        klientReferanse: crypto.randomUUID(),
-        organisasjonsnummer: regulatorySettings?.organisationNumber || '',
-        lokalitetsnummer: siteMapping?.lokalitetsnummer || 0,
-        kontaktperson: {
-          navn: regulatorySettings?.defaultContactName || '',
-          epost: regulatorySettings?.defaultContactEmail || '',
-          telefonnummer: regulatorySettings?.defaultContactPhone || '',
-        },
-        rapporteringsmaaned: formData.month,
+        klientReferanse: clientRef.get(),
+        organisasjonsnummer: identity.organisasjonsnummer,
+        lokalitetsnummer: identity.lokalitetsnummer,
+        kontaktperson: identity.kontaktperson,
+        rapporteringsmaaned: toBackendReportMonth(formData.month),
         rapporteringsaar: formData.year,
         torrforKg: formData.feedConsumption.dryFeedKg || undefined,
         vatforKg: formData.feedConsumption.wetFeedKg || undefined,
@@ -1352,6 +1219,8 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
       setSubmissionResult(result);
 
       if (result.success) {
+        // FARM-HIGH-126: rotate the stable client reference only on success.
+        clientRef.reset();
         setIsWizardOpen(false);
         setFormData(getInitialFormData());
       } else {
@@ -1363,7 +1232,7 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, regulatorySettings, siteId, submitCleanerFishMutation]);
+  }, [formData, regulatorySettings, effectiveSiteId, clientRef, submitCleanerFishMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(
@@ -1398,10 +1267,10 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={selectedReport?.siteName || 'Default Site'} />,
+        content: <ReviewStep formData={formData} siteName={"Default Site"} />,
       },
     ],
-    [formData, handleFormChange, selectedReport, tanks, tankOptions]
+    [formData, handleFormChange, tanks, tankOptions]
   );
 
   return (
@@ -1412,91 +1281,33 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
           <h2 className="text-lg font-semibold text-gray-900">Cleaner Fish Reports</h2>
           <p className="text-sm text-gray-500">Monthly rensefisk reports - Due 7th of each month</p>
         </div>
-        <button
-          onClick={() => handleOpenWizard()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Report
-        </button>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Reports</div>
-        </div>
-        <div className="bg-white rounded-lg border border-teal-200 p-4">
-          <div className="text-2xl font-bold text-teal-600">{formatNumber(stats.totalFish)}</div>
-          <div className="text-sm text-gray-500">Total Fish</div>
-        </div>
-        <div className="bg-white rounded-lg border border-blue-200 p-4">
-          <div className="text-2xl font-bold text-blue-600">{stats.totalDeployments}</div>
-          <div className="text-sm text-gray-500">Deployments</div>
-        </div>
-        <div className="bg-white rounded-lg border border-yellow-200 p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-          <div className="text-sm text-gray-500">Pending</div>
-        </div>
-      </div>
-
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-500">Filter:</span>
-        {(['all', 'pending', 'draft', 'submitted', 'approved'] as const).map((status) => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              statusFilter === status
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Reports Grid */}
-      {reports.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500">No reports found</p>
+        <div className="flex items-center gap-3">
+          <SiteLocalitySelector
+            siteMappings={siteMappings}
+            effectiveSiteId={effectiveSiteId}
+            onChange={setSelectedSiteId}
+            show={showSelector}
+          />
           <button
             onClick={() => handleOpenWizard()}
-            className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
           >
-            Create First Report
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Report
           </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {reports.map((report) => (
-            <CleanerFishReportCard
-              key={report.id}
-              report={report}
-              onView={() => setSelectedReport(report)}
-              onEdit={() => {
-                setSelectedReport(report);
-                handleOpenWizard(report);
-              }}
-            />
-          ))}
-        </div>
-      )}
+      </div>
+
+      {/* Submission History */}
+      <SubmissionHistorySection reportType="CLEANER_FISH" siteId={effectiveSiteId} />
 
       {/* Wizard Modal */}
       <ReportWizard
         isOpen={isWizardOpen}
         onClose={() => {
           setIsWizardOpen(false);
-          setSelectedReport(null);
           setFormData(getInitialFormData());
         }}
         onSubmit={handleSubmit}

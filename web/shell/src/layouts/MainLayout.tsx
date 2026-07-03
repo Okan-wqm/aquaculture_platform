@@ -233,6 +233,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-storage', label: 'Storage & Stock', path: '/sites/storage' },
       { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
 { id: 'sites-health', label: 'Health Events', path: '/sites/health', icon: 'activity' },
+      { id: 'sites-maintenance', label: 'Maintenance', path: '/sites/maintenance', icon: 'settings' },
       { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
       { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
       { id: 'sites-analytics', label: 'Analytics', path: '/sites/analytics', icon: 'analytics' },

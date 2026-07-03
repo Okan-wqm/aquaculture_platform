@@ -406,17 +406,18 @@ describe('AlertIncident Entity', () => {
       it('should increment occurrence count', () => {
         const incident = createIncident({ occurrenceCount: 1 });
 
-        incident.recordOccurrence();
+        incident.recordOccurrence(new Date('2026-06-10T08:00:00.000Z'));
 
         expect(incident.occurrenceCount).toBe(2);
       });
 
-      it('should update lastOccurredAt', () => {
+      it('should stamp lastOccurredAt with the EVENT time, not wall-clock (FARM-LOW-145)', () => {
         const incident = createIncident();
+        const occurredAt = new Date('2026-06-10T08:00:00.000Z');
 
-        incident.recordOccurrence();
+        incident.recordOccurrence(occurredAt);
 
-        expect(incident.lastOccurredAt).toBeInstanceOf(Date);
+        expect(incident.lastOccurredAt).toBe(occurredAt);
       });
     });
   });

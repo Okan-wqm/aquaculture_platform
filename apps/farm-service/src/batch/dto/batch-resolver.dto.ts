@@ -7,7 +7,8 @@
  */
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
 
 /**
@@ -121,6 +122,26 @@ export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true }) @IsOptional() @IsString() transferReason?: string;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
   @Field(() => Boolean, { nullable: true, defaultValue: false, description: 'Kapasite kontrolünü atla' }) @IsOptional() skipCapacityCheck?: boolean;
+}
+
+@InputType()
+export class GradingOutputInput {
+  @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId: string;
+  @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
+  @Field(() => Float) @IsNotEmpty() @IsNumber() @Min(0.01) avgWeightG: number;
+  @Field({ nullable: true }) @IsOptional() @IsString() @MaxLength(64) sizeClass?: string;
+  /** Per-output at-most-once envelope — each movement is its own transfer. */
+  @Field(() => ID) @IsNotEmpty() @IsUUID() clientCommandId!: string;
+  @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
+}
+
+@InputType()
+export class RecordGradingInput extends MobileCommandEnvelopeInput {
+  @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
+  @Field(() => ID) @IsNotEmpty() @IsUUID() sourceTankId: string;
+  @Field({ nullable: true }) @IsOptional() gradedAt?: Date;
+  @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
+  @Field(() => [GradingOutputInput]) @ValidateNested({ each: true }) @Type(() => GradingOutputInput) outputs: GradingOutputInput[];
 }
 
 @InputType()

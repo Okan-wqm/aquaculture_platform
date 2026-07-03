@@ -21,6 +21,7 @@ import {
 // Production Modals
 import { MortalityModal } from '../production/components/MortalityModal';
 import { TransferModal } from '../production/components/TransferModal';
+import { GradingModal } from '../production/components/GradingModal';
 import { CullModal } from '../production/components/CullModal';
 import { BatchFormModal } from '../production/components/BatchFormModal';
 
@@ -187,6 +188,7 @@ export const TanksPage: React.FC = () => {
   const [showMortalityModal, setShowMortalityModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showCullModal, setShowCullModal] = useState(false);
+  const [showGradingModal, setShowGradingModal] = useState(false);
 
   // Fish type selection (when tank has both production and cleaner fish)
   const [showFishTypeSelector, setShowFishTypeSelector] = useState(false);
@@ -316,6 +318,21 @@ export const TanksPage: React.FC = () => {
   }, [selectedTankId, selectedTank]);
 
   /**
+   * Handle grading button click (production fish only)
+   */
+  const handleGradingClick = useCallback(() => {
+    if (!selectedTankId || !selectedTank) return;
+
+    if (!selectedTank.batchNumber) {
+      // No production fish to grade
+      return;
+    }
+
+    setOperationFishType('production');
+    setShowGradingModal(true);
+  }, [selectedTankId, selectedTank]);
+
+  /**
    * Handle fish type selection (when tank has both types)
    */
   const handleFishTypeSelect = useCallback((type: 'production' | 'cleaner') => {
@@ -398,6 +415,7 @@ export const TanksPage: React.FC = () => {
     setShowMortalityModal(false);
     setShowTransferModal(false);
     setShowCullModal(false);
+    setShowGradingModal(false);
     setSelectedTankId(null);
     setOperationFishType(null);
     setPendingOperation(null);
@@ -411,6 +429,7 @@ export const TanksPage: React.FC = () => {
     setShowMortalityModal(false);
     setShowTransferModal(false);
     setShowCullModal(false);
+    setShowGradingModal(false);
     setShowFishTypeSelector(false);
     setShowCleanerBatchSelector(false);
     setOperationFishType(null);
@@ -956,6 +975,17 @@ export const TanksPage: React.FC = () => {
             </svg>
           </button>
 
+          <button
+            onClick={handleGradingClick}
+            disabled={!selectedTankId || !selectedTank?.batchNumber}
+            className="p-1.5 text-purple-600 hover:bg-purple-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Grade Fish"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h18M7 8h10M10 12h4m-6 4h8m-5 4h2" />
+            </svg>
+          </button>
+
           <div className="h-6 w-px bg-gray-300" />
 
           <button
@@ -1362,6 +1392,15 @@ export const TanksPage: React.FC = () => {
       {showCullModal && operationFishType === 'production' && selectedTank && (
         <CullModal
           isOpen={showCullModal}
+          onClose={handleCloseModals}
+          tank={tankWithBatchToTankBatch(selectedTank)}
+          onSuccess={handleOperationSuccess}
+        />
+      )}
+
+      {showGradingModal && operationFishType === 'production' && selectedTank && (
+        <GradingModal
+          isOpen={showGradingModal}
           onClose={handleCloseModals}
           tank={tankWithBatchToTankBatch(selectedTank)}
           onSuccess={handleOperationSuccess}

@@ -36,6 +36,7 @@ import { CreateBatchCommand, CreateBatchPayload } from '../commands/create-batch
 import { RecordCullCommand, CullReason } from '../commands/record-cull.command';
 import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
+import { RecordGradingCommand } from '../commands/record-grading.command';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { UpdateBatchCommand } from '../commands/update-batch.command';
 import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
@@ -53,6 +54,7 @@ import {
   BatchPerformanceResponse,
   BatchHistoryEntryResponse,
   AvailableTankResponse,
+  RecordGradingInput,
 } from '../dto/batch-resolver.dto';
 import { CreateBatchInput as CreateBatchInputDTO } from '../dto/create-batch.dto';
 import {
@@ -467,6 +469,47 @@ export class BatchResolver {
         user.roles,
         user.assignedSiteIds ?? [],
         mobileCommandEnvelopeFromInput(input),
+      ),
+    );
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  // FARM-MEDIUM-117: grading is a transfer-class field operation; each output
+  // movement carries its own idempotency envelope and runs through the
+  // TransferBatchCommand SSoT with reason 'grading'.
+  @RequiresMobileFeature('transfer')
+  @Mutation(() => Batch)
+  async recordGrading(
+    @Args('input') input: RecordGradingInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<Batch> {
+    this.logger.log(
+      `Grading batch ${input.batchId} from tank ${input.sourceTankId} into ${input.outputs.length} outputs`,
+    );
+    return this.commandBus.execute(
+      new RecordGradingCommand(
+        tenantId,
+        input.batchId,
+        {
+          sourceTankId: input.sourceTankId,
+          gradedAt: input.gradedAt,
+          notes: input.notes,
+          outputs: input.outputs.map((o) => ({
+            destinationTankId: o.destinationTankId,
+            quantity: o.quantity,
+            avgWeightG: o.avgWeightG,
+            sizeClass: o.sizeClass,
+            clientCommandId: o.clientCommandId,
+            payloadHash: o.payloadHash,
+          })),
+          deviceId: input.deviceId,
+          clientCreatedAt: input.clientCreatedAt,
+          schemaVersion: input.schemaVersion,
+        },
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
       ),
     );
   }

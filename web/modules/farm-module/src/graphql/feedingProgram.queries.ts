@@ -101,27 +101,11 @@ export const DAILY_FEEDING_EXECUTION_FRAGMENT = gql`
 // QUERIES
 // ============================================================================
 
-/**
- * Yemleme programlarini listele
- * Filter destekli (pagination yok)
- *
- * SCHEMA-CONTRACT: Backend returns unpaginated [FeedingProgram]. Filter-only.
- * MED-06: List query uses FeedingProgramBasic to avoid over-fetching sensitive
- * feedAssignments / fcrTable / settings JSON blobs. Use FEEDING_PROGRAM_QUERY
- * (single-item) when the full detail view is needed.
- */
-export const FEEDING_PROGRAMS_QUERY = gql`
-  query FeedingPrograms($filter: FeedingProgramFilterInput) {
-    feedingPrograms(filter: $filter) {
-      ...FeedingProgramBasic
-      tanks {
-        ...FeedingProgramTankFull
-      }
-    }
-  }
-  ${FEEDING_PROGRAM_BASIC_FRAGMENT}
-  ${FEEDING_PROGRAM_TANK_FRAGMENT}
-`;
+// NOTE: FEEDING_PROGRAMS_QUERY, TODAYS_FEEDING_PLAN_QUERY and
+// ACTIVE_FEEDING_PROGRAMS_QUERY were deleted under FARM-MEDIUM-116 —
+// defined but referenced nowhere (frozen in
+// dead-contract-fe-operations.baseline.json). Re-adding one requires an
+// actual call site or the dead-contract gate fails.
 
 /**
  * Tek bir yemleme programini getir
@@ -164,53 +148,4 @@ export const DAILY_FEEDING_EXECUTIONS_QUERY = gql`
     }
   }
   ${DAILY_FEEDING_EXECUTION_FRAGMENT}
-`;
-
-/**
- * Bugunun yemleme planini getir
- * Tum tanklar icin planlanan ve gerceklesen verilerle
- *
- * SCHEMA-CONTRACT: Backend returns flat [DailyFeedingExecution], not a wrapper type.
- * Summary stats (completedTanks, totalPlannedKg, etc.) computed client-side from execution data.
- */
-export const TODAYS_FEEDING_PLAN_QUERY = gql`
-  query TodaysFeedingPlan($programId: ID!) {
-    todaysFeedingPlan(programId: $programId) {
-      ...DailyFeedingExecutionFull
-      feedingProgram {
-        id
-        name
-        code
-      }
-      feedingProgramTank {
-        id
-        equipmentName
-        equipmentCode
-        currentFeedCode
-      }
-    }
-  }
-  ${DAILY_FEEDING_EXECUTION_FRAGMENT}
-`;
-
-/**
- * Aktif programlari getir (dashboard icin)
- *
- * SCHEMA-CONTRACT: Backend returns [FeedingProgram], no todaysSummary sub-field.
- * Optional siteId filter available.
- */
-export const ACTIVE_FEEDING_PROGRAMS_QUERY = gql`
-  query ActiveFeedingPrograms($siteId: ID) {
-    activeFeedingPrograms(siteId: $siteId) {
-      ...FeedingProgramBasic
-      tanks {
-        id
-        equipmentName
-        equipmentCode
-        currentFeedCode
-        isActive
-      }
-    }
-  }
-  ${FEEDING_PROGRAM_BASIC_FRAGMENT}
 `;

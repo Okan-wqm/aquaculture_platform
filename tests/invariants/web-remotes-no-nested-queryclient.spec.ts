@@ -11,7 +11,8 @@
  * ALLOWED and excluded from the scan:
  *   - `main.tsx` — the standalone dev entry, which runs OUTSIDE the shell and
  *     legitimately needs its own provider; it is never loaded as a federated remote.
- *   - test files / `test` + `__tests__` dirs — test harnesses spin up their own client.
+ *   - test files / `test` + `__tests__` + `test-utils` dirs — test harnesses spin up
+ *     their own client (e.g. farm-module's shared renderWithProviders).
  *
  * Tier-3 "make it detectable": this gate fails CI the moment a remote re-introduces
  * a nested client, instead of the regression surfacing as a stale-cache bug in prod.
@@ -22,7 +23,7 @@ import { join, resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const MODULES_DIR = resolve(REPO_ROOT, 'web', 'modules');
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', 'test', '__mocks__']);
+const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', 'test', '__mocks__', 'test-utils']);
 
 function walk(dir: string): string[] {
   const out: string[] = [];

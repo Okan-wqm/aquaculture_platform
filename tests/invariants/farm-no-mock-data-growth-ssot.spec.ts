@@ -24,18 +24,11 @@ const FARM_MODULE_SRC = resolve(REPO_ROOT, 'web/modules/farm-module/src');
  * mock data. POSIX-relative to web/modules/farm-module/src. This list MUST ONLY
  * SHRINK — see the file header. Do not add entries.
  */
-const MOCK_IMPORT_BASELINE = new Set<string>([
-  'pages/reports/ReportsPage.tsx',
-  'pages/reports/hooks/useDeadlines.ts',
-  'pages/reports/tabs/BiomassReportTab.tsx',
-  'pages/reports/tabs/CleanerFishReportTab.tsx',
-  'pages/reports/tabs/DiseaseOutbreakTab.tsx',
-  'pages/reports/tabs/EscapeReportTab.tsx',
-  'pages/reports/tabs/SeaLiceReportTab.tsx',
-  'pages/reports/tabs/SlaughterReportTab.tsx',
-  'pages/reports/tabs/SmoltReportTab.tsx',
-  'pages/reports/tabs/WelfareEventTab.tsx',
-]);
+// FARM-HIGH-125 closed the burn-down: every Reports surface now reads the
+// persisted regulatory_reports / biomass_reports rows and pages/reports/mock/
+// was deleted. The baseline is EMPTY and stays empty — this spec remains as
+// the permanent no-mock gate for farm-module production code.
+const MOCK_IMPORT_BASELINE = new Set<string>([]);
 
 const MOCK_IMPORT_RE = /\bfrom\s+['"][^'"]*mock[^'"]*['"]/;
 

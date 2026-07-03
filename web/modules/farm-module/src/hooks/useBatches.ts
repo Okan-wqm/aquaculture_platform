@@ -113,6 +113,15 @@ export interface TransferBatchInput {
 
 /** One grading destination as edited in the UI — the per-output envelope is attached by useRecordGrading. */
 export interface GradingOutputDraft {
+  /**
+   * FARM-MEDIUM-129: stable per-row identity minted at row creation. The
+   * per-output at-most-once clientCommandId is keyed on THIS, not on the array
+   * index — so trimming already-committed rows and resubmitting the remainder
+   * (the resume path the backend + modal advertise) keeps each surviving row's
+   * id stable instead of reusing a committed id under a new payload. Stripped
+   * before the request reaches the server.
+   */
+  rowKey: string;
   destinationTankId: string;
   quantity: number;
   avgWeightG: number;
@@ -925,8 +934,10 @@ export function useTransferBatch() {
 export function useRecordGrading() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
-  const envelope = useStockCommandEnvelope();
-  const outputCommandIdsRef = useRef<string[]>([]);
+  // FARM-MEDIUM-129: per-output ids keyed by the stable row identity, so a
+  // resubmit of only the not-yet-committed rows reuses each surviving row's id
+  // instead of shifting ids by array position and colliding on payloadHash.
+  const outputCommandIdsRef = useRef<Map<string, string>>(new Map());
 
   return useMutation({
     mutationFn: async (input: RecordGradingInput) => {
@@ -936,28 +947,32 @@ export function useRecordGrading() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const ids = outputCommandIdsRef.current;
+      const idsByRow = outputCommandIdsRef.current;
       const outputs = await Promise.all(
-        input.outputs.map(async (output, index) => {
-          ids[index] ??= crypto.randomUUID();
+        input.outputs.map(async ({ rowKey, ...serverOutput }) => {
+          const clientCommandId = idsByRow.get(rowKey) ?? crypto.randomUUID();
+          idsByRow.set(rowKey, clientCommandId);
+          // FARM-LOW-137: grading carries ONLY per-output envelopes — the
+          // resolver reads no operation-level clientCommandId, so we do not
+          // attach one here (it would be a redundant hash implying dedup that
+          // does not exist).
           return {
-            ...output,
-            clientCommandId: ids[index],
-            payloadHash: await hashPayload(output),
+            ...serverOutput,
+            clientCommandId,
+            payloadHash: await hashPayload(serverOutput),
           };
         }),
       );
       const data = await graphqlClient.request<{ recordGrading: Batch }>(
         RECORD_GRADING_MUTATION,
-        { input: await envelope.attach({ ...input, outputs }) }
+        { input: { ...input, outputs } }
       );
       return data.recordGrading;
     },
     onSuccess: () => {
-      // FARM-HIGH-052: release the operation + per-output clientCommandIds so the
-      // next genuine grading mints fresh ones (see useRecordMortality).
-      envelope.reset();
-      outputCommandIdsRef.current = [];
+      // FARM-HIGH-052: release the per-row clientCommandIds so the next genuine
+      // grading mints fresh ones (see useRecordMortality).
+      outputCommandIdsRef.current = new Map();
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });

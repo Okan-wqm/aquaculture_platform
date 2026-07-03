@@ -81,14 +81,17 @@ interface RecordGradingVariables {
   input: {
     batchId: string;
     sourceTankId: string;
-    clientCommandId: string;
-    payloadHash: string;
+    // FARM-LOW-137: grading carries NO operation-level envelope.
+    clientCommandId?: undefined;
+    payloadHash?: undefined;
     outputs: Array<{
       destinationTankId: string;
       quantity: number;
       avgWeightG: number;
       clientCommandId: string;
       payloadHash: string;
+      // FARM-MEDIUM-129: rowKey is an FE-only stable identity, stripped before the request.
+      rowKey?: undefined;
     }>;
   };
 }
@@ -160,8 +163,9 @@ describe('GradingModal', () => {
     const input = calls[0].input;
     expect(input.batchId).toBe('batch-1');
     expect(input.sourceTankId).toBe('tank-source');
-    expect(input.clientCommandId).toMatch(/[0-9a-f-]{36}/);
-    expect(input.payloadHash).toMatch(/^[0-9a-f]{64}$/);
+    // FARM-LOW-137: no redundant operation-level envelope — only per-output.
+    expect(input.clientCommandId).toBeUndefined();
+    expect(input.payloadHash).toBeUndefined();
 
     expect(input.outputs).toHaveLength(2);
     expect(input.outputs[0]).toMatchObject({ destinationTankId: 'tank-b', quantity: 400, avgWeightG: 180 });
@@ -169,10 +173,12 @@ describe('GradingModal', () => {
     for (const output of input.outputs) {
       expect(output.clientCommandId).toMatch(/[0-9a-f-]{36}/);
       expect(output.payloadHash).toMatch(/^[0-9a-f]{64}$/);
+      // FARM-MEDIUM-129: the FE-only rowKey must never reach the server.
+      expect(output.rowKey).toBeUndefined();
     }
-    // Per-output envelopes are independent of each other AND of the operation envelope.
-    const ids = new Set([input.clientCommandId, ...input.outputs.map((o) => o.clientCommandId)]);
-    expect(ids.size).toBe(3);
+    // The two per-output envelopes are independent of each other.
+    const ids = new Set(input.outputs.map((o) => o.clientCommandId));
+    expect(ids.size).toBe(2);
   });
 
   it('reuses the same command ids when a failed submit is retried unchanged', async () => {
@@ -210,7 +216,8 @@ describe('GradingModal', () => {
 
     const calls = gradingCalls();
     expect(calls).toHaveLength(2);
-    expect(calls[1].input.clientCommandId).toBe(calls[0].input.clientCommandId);
+    // FARM-MEDIUM-129: per-output ids are keyed by stable row identity, so an
+    // unchanged resubmit reuses every output's id (server dedups the retry).
     expect(calls[1].input.outputs.map((o) => o.clientCommandId)).toEqual(
       calls[0].input.outputs.map((o) => o.clientCommandId),
     );

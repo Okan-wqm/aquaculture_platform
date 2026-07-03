@@ -20,6 +20,8 @@ import {
 const MAX_OUTPUTS = 12;
 
 interface OutputRow {
+  /** Stable per-row identity (FARM-MEDIUM-129) — carried to the hook as rowKey. */
+  rowId: string;
   destinationTankId: string;
   quantity: number;
   avgWeightG: number;
@@ -27,6 +29,7 @@ interface OutputRow {
 }
 
 const emptyRow = (avgWeightG: number): OutputRow => ({
+  rowId: crypto.randomUUID(),
   destinationTankId: '',
   quantity: 0,
   avgWeightG,
@@ -128,6 +131,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
     }
 
     const outputs: GradingOutputDraft[] = rows.map((row) => ({
+      rowKey: row.rowId,
       destinationTankId: row.destinationTankId,
       quantity: row.quantity,
       avgWeightG: row.avgWeightG,

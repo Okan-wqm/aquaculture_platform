@@ -1,6 +1,6 @@
 import { resolve } from 'path';
 
-import { getCoreSharedConfig } from '@aquaculture/shared-ui/federation/federationSharedConfig';
+import { getSharedConfigWithRecharts } from '@aquaculture/shared-ui/federation/federationSharedConfig';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
@@ -40,8 +40,11 @@ export default defineConfig(({ mode }) => {
           // because the source files no longer exist.
           './SensorDashboard': './src/pages/SensorDashboardPage.tsx',
         },
-        // FE-HIGH-004: Single source of truth with strictVersion:true
-        shared: getCoreSharedConfig(),
+        // FE-HIGH-004: Single source of truth with strictVersion:true.
+        // recharts shared (was core): the water-chemistry Deffeyes/secondary
+        // charts move to shared-ui, whose recharts import is externalized from
+        // dist and must resolve from the federation shared scope.
+        shared: getSharedConfigWithRecharts(),
       }),
     ],
     resolve: {

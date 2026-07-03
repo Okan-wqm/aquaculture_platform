@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
-import { getSharedConfigWithReactFlow } from '../../shared-ui/src/federation/federationSharedConfig';
+import { getSharedConfigWithReactFlowAndRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Sensor Module Microfrontend
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
           './VfdProgramming': './src/pages/VfdProgrammingPage.tsx',
         },
         // FE-HIGH-004: Single source of truth with strictVersion:true + reactflow
-        shared: getSharedConfigWithReactFlow(),
+        shared: getSharedConfigWithReactFlowAndRecharts(),
       }),
     ],
     resolve: {

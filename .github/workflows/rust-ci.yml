@@ -220,6 +220,8 @@ jobs:
           node-version: '22'
       - name: codec-drift script (validates fixtures + runs Rust golden test)
         run: node --experimental-strip-types tools/scripts/check-codec-drift.ts
+      - name: sensor deploy-contract parity (TS AJV schemas ↔ Rust serde structs)
+        run: node --experimental-strip-types tools/scripts/check-sensor-contract-parity.ts
 
   doc:
     # cargo doc with RUSTDOCFLAGS=-D warnings turns any broken intra-doc

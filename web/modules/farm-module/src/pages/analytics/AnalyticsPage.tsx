@@ -8,7 +8,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Select } from '@aquaculture/shared-ui';
-import { TanksAnalyticsTab, WorkersAnalyticsTab } from './tabs';
+import { TanksAnalyticsTab } from './tabs';
 
 // ============================================================================
 // Constants
@@ -31,7 +31,6 @@ interface AnalyticsTab {
 
 const analyticsTabs: AnalyticsTab[] = [
   { id: 'tanks', label: 'Tanks & Ponds', path: 'tanks' },
-  { id: 'workers', label: 'Workers', path: 'workers' },
 ];
 
 // ============================================================================
@@ -105,7 +104,6 @@ const AnalyticsPage: React.FC = () => {
       <div className="px-4 sm:px-6 py-6">
         <Routes>
           <Route path="tanks" element={<TanksAnalyticsTab dateRange={dateRange} />} />
-          <Route path="workers" element={<WorkersAnalyticsTab dateRange={dateRange} />} />
           <Route path="*" element={<Navigate to="tanks" replace />} />
         </Routes>
       </div>

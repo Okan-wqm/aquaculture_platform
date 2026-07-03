@@ -14,10 +14,6 @@ import {
 } from 'typeorm';
 
 import {
-  assertOutboxTenantIntegrity,
-  OutboxTenantIntegrityError,
-} from './tenant-integrity';
-import {
   OUTBOX_ENTITY_CLASS,
   OUTBOX_BATCH_SIZE,
   OUTBOX_MAX_RETRIES,
@@ -28,6 +24,10 @@ import {
 } from './constants';
 import { OutboxEntityBase } from './outbox-entity.base';
 import { OutboxMetricsService } from './outbox-metrics.service';
+import {
+  assertOutboxTenantIntegrity,
+  OutboxTenantIntegrityError,
+} from './tenant-integrity';
 
 /**
  * OutboxWorkerService

@@ -1,15 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
-import {
-  AlertIncident,
-  IncidentStatus,
-  TimelineEventType,
-} from '../../database/entities/alert-incident.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
-import { EscalationManagerService } from '../../escalation/escalation-manager.service';
+import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 /**
  * Shape of one entry inside the event's `criticalParametersJson` payload
@@ -52,13 +47,12 @@ export class WaterQualityCriticalAlertService {
   constructor(
     @InjectRepository(AlertHistory)
     private readonly historyRepository: Repository<AlertHistory>,
-    @InjectRepository(AlertIncident)
-    private readonly incidentRepository: Repository<AlertIncident>,
-    // DI token is the EscalationManagerService class; TS type is narrowed to the
-    // single method used (Tier-1 "depend on exactly what you need") so unit
-    // tests pass a minimal double with no unsafe casts.
-    @Inject(EscalationManagerService)
-    private readonly escalationManager: Pick<EscalationManagerService, 'startEscalation'>,
+    // The incident dedup + escalation lifecycle is the shared farm-signal SSoT.
+    // DI token is the class; the TS type is narrowed to the one method used
+    // (Tier-1 "depend on exactly what you need") so unit tests pass a minimal
+    // double with no unsafe casts.
+    @Inject(FarmSignalIncidentService)
+    private readonly farmSignalIncident: Pick<FarmSignalIncidentService, 'ensureIncident'>,
   ) {}
 
   /** Deterministic synthetic rule identity — per affected tank/equipment. */
@@ -149,88 +143,29 @@ export class WaterQualityCriticalAlertService {
     });
     const savedHistory = await this.historyRepository.save(history);
 
-    await this.ensureIncident(event, ruleId, ruleName, message, savedHistory.id, triggeredAt);
-  }
+    const location = event.tankId
+      ? `tank ${event.tankId}`
+      : `equipment ${event.equipmentId}`;
 
-  /**
-   * Ensure an AlertIncident exists for this tank's synthetic rule + tenant.
-   * Mirrors MortalityAlertService.ensureIncident: bump an existing open
-   * incident's occurrence count, else create a new one and start escalation.
-   */
-  private async ensureIncident(
-    event: WaterQualityCriticalEvent,
-    ruleId: string,
-    ruleName: string,
-    message: string,
-    historyId: string,
-    triggeredAt: Date,
-  ): Promise<void> {
-    const activeStatuses: IncidentStatus[] = [
-      IncidentStatus.NEW,
-      IncidentStatus.ACKNOWLEDGED,
-      IncidentStatus.INVESTIGATING,
-    ];
-
-    const existing = await this.incidentRepository.findOne({
-      where: {
-        ruleId,
-        tenantId: event.tenantId,
-        status: In(activeStatuses),
-      },
-      order: { createdAt: 'DESC' },
-    });
-
-    if (existing) {
-      existing.recordOccurrence(triggeredAt);
-      await this.incidentRepository.save(existing);
-      this.logger.debug(
-        `Updated existing water-quality incident ${existing.id} for ${ruleId} ` +
-          `(occurrences: ${existing.occurrenceCount})`,
-      );
-      return;
-    }
-
-    const incident = this.incidentRepository.create({
+    // Shape the water-quality-specific incident and hand it to the shared
+    // lifecycle. Severity is always CRITICAL — the producer only publishes this
+    // event once parameters cross their critical bounds.
+    await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
       ruleId,
-      title: `${ruleName}: ${event.tankId ? `tank ${event.tankId}` : `equipment ${event.equipmentId}`}`,
+      title: `${ruleName}: ${location}`,
       description: message,
       severity: AlertSeverity.CRITICAL,
-      status: IncidentStatus.NEW,
-      riskScore: 0,
+      triggeredAt,
+      signalLabel: 'water-quality',
       triggerData: {
-        historyId,
+        historyId: savedHistory.id,
         measurementId: event.measurementId,
         tankId: event.tankId,
         equipmentId: event.equipmentId,
         criticalParameterCount: event.criticalParameterCount,
         triggeredAt,
       },
-      escalationLevel: 0,
-      timeline: [],
-      relatedIncidentIds: [],
-      occurrenceCount: 1,
-      lastOccurredAt: triggeredAt,
     });
-
-    incident.addTimelineEvent({
-      type: TimelineEventType.CREATED,
-      description: message,
-    });
-
-    const savedIncident = await this.incidentRepository.save(incident);
-    this.logger.log(
-      `Created water-quality incident ${savedIncident.id} for ${ruleId} (severity: critical)`,
-    );
-
-    // Escalation is non-blocking for the alert flow — a failure here must not
-    // fail the AlertHistory/Incident write that already landed.
-    this.escalationManager
-      .startEscalation(savedIncident, AlertSeverity.CRITICAL, ruleId)
-      .catch((err: Error) => {
-        this.logger.error(
-          `Failed to start escalation for water-quality incident ${savedIncident.id}: ${err.message}`,
-        );
-      });
   }
 }

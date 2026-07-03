@@ -63,7 +63,7 @@ The two are ~95% identical; culls can be future-dated while mortalities cannot. 
 Classic detail-vs-list drift source. Fix: extract a BATCH_CORE_FIELDS fragment.
 
 ## FARM-LOW-144 — WaterQuality ensureIncident is a near-verbatim copy of Mortality ensureIncident
-A future dedup/lock change must be applied in two places. Fix: extract a shared ensureFarmSignalIncident helper.
+A future dedup/lock change must be applied in two places. Fix: extracted the shared dedup+escalation lifecycle into `FarmSignalIncidentService.ensureIncident(spec)` — the single owner of the "farm signal → AlertIncident" behaviour. Both consumers now only shape a signal-specific `FarmSignalIncidentSpec` (synthetic rule id, title, message, severity, trigger breadcrumb) and delegate; severity is carried through the spec (mortality can be WARNING) instead of being hard-coded per copy. The lifecycle is proven once in `farm-signal-incident.service.spec.ts`; the two consumer specs now assert history shaping + the spec they hand off.
 
 ## FARM-LOW-145 — lastOccurredAt jumps from event-time to processing wall-clock on the first bump
 recordOccurrence() stamps wall-clock, corrupting recency/flapping analytics under consumer lag (shared by mortality + water-quality). Fix: recordOccurrence(occurredAt) takes the event timestamp.

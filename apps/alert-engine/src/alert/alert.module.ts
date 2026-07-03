@@ -11,6 +11,7 @@ import { AuditEntryEntity } from '../audit/entities/audit-entry.entity';
 // Services
 import { AlertEvaluationService } from './services/alert-evaluation.service';
 import { AlertRuleService } from './services/alert-rule.service';
+import { FarmSignalIncidentService } from './services/farm-signal-incident.service';
 import { MortalityAlertService } from './services/mortality-alert.service';
 import { WaterQualityCriticalAlertService } from './services/water-quality-critical-alert.service';
 import { AlertAuditService } from '../audit/alert-audit.service';
@@ -58,6 +59,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     // Services
     AlertEvaluationService,
     AlertRuleService,
+    FarmSignalIncidentService,
     MortalityAlertService,
     WaterQualityCriticalAlertService,
     AlertAuditService,

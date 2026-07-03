@@ -122,7 +122,16 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
       {
         id: 'row-1',
         eventType: 'BatchHarvested',
-        payload: { eventId: 'e1', eventType: 'BatchHarvested', timestamp: new Date().toISOString() },
+        // FARM-HIGH-083: the worker dead-letters any row whose tenant of record
+        // can't be verified — a real published row always carries a matching
+        // column + payload tenant, so the fixture must too.
+        tenantId: '550e8400-e29b-41d4-a716-446655440000',
+        payload: {
+          eventId: 'e1',
+          eventType: 'BatchHarvested',
+          tenantId: '550e8400-e29b-41d4-a716-446655440000',
+          timestamp: new Date().toISOString(),
+        },
         retryCount: 0,
         createdAt: new Date(),
       },

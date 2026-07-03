@@ -35268,6 +35268,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/outbox/src/__tests__/tenant-integrity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/outbox/src/constants.ts",
       "prettier_managed": true
     },
@@ -35317,6 +35323,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/outbox/src/outbox.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/outbox/src/tenant-integrity.ts",
       "prettier_managed": true
     },
     {
@@ -49200,10 +49212,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8054,
+  "file_count": 8056,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7879,
-  "managed_file_list_sha256": "864d3c84b89415cf7cc7e82383113291f9190a15af4832373e9d9c1a12d18a09",
+  "managed_count": 7881,
+  "managed_file_list_sha256": "224934f4d9a119ac5040fa2b4e295e1bb4dcc7da6b0e9523893c7852c511499c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

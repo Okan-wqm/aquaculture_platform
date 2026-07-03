@@ -4,12 +4,51 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Process Editor Canvas</title>
-  <!-- React -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
-  <!-- ReactFlow -->
+  <!--
+    React runtime for the sandboxed canvas + @xyflow/react.
+    ROOT CAUSE (SENSOR-MEDIUM-003): @xyflow/react's UMD build declares FOUR
+    dependencies — its factory reads `t(..., e.jsxRuntime, e.React, e.ReactDOM)`,
+    i.e. globals `jsxRuntime` (react/jsx-runtime), `React`, `ReactDOM`. The React
+    UMD bundle exposes `React` + `ReactDOM` but NOT react/jsx-runtime, so xyflow's
+    `jsxRuntime.jsx(...)` read `undefined` and crashed the whole canvas ("Cannot
+    read properties of undefined (reading 'jsx')"). Every CDN version is PINNED so
+    the dependency graph is deterministic (the previous unpinned `react@18` let a
+    patch release drift the UMD out from under xyflow).
+  -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-is@18.3.1/umd/react-is.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <!--
+    Materialise the react/jsx-runtime UMD global (`jsxRuntime`) that @xyflow/react
+    requires but the React UMD bundle omits. jsx/jsxs are react/jsx-runtime's
+    production entry points; both are React.createElement with the key hoisted out
+    of props — exactly what the classic runtime does — so this completes the
+    genuinely-missing dependency rather than shimming over behaviour. MUST run
+    after the React UMD and before @xyflow/react.
+  -->
+  <script>
+    (function (g) {
+      var React = g.React;
+      if (React) {
+        var jsx = function (type, config, maybeKey) {
+          var props = maybeKey === undefined ? config : Object.assign({}, config, { key: maybeKey });
+          return React.createElement(type, props);
+        };
+        g.jsxRuntime = { jsx: jsx, jsxs: jsx, Fragment: React.Fragment };
+      }
+      // Fail LOUD + CLEAR if the graph is ever incomplete again, instead of the
+      // cryptic downstream "reading 'jsx'" crash.
+      if (!g.React || !g.ReactDOM || !g.jsxRuntime) {
+        throw new Error(
+          '[process-editor-canvas] incomplete React UMD dependency graph: React=' +
+            !!g.React + ' ReactDOM=' + !!g.ReactDOM + ' jsxRuntime=' + !!g.jsxRuntime +
+            ' — check the CDN <script> order/versions in process-editor-canvas.html'
+        );
+      }
+    })(window);
+  </script>
+  <!-- ReactFlow (declares react/jsx-runtime + react + react-dom UMD deps) -->
   <link href="https://unpkg.com/@xyflow/react@12.11.0/dist/style.css" rel="stylesheet" />
   <script src="https://unpkg.com/@xyflow/react@12.11.0/dist/umd/index.js"></script>
   <!-- Recharts for Chart Widgets -->

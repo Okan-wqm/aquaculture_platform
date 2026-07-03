@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -416,6 +417,33 @@ def _poll_for_state(
     return None
 
 
+def _resolve_workspace_head_sha(workspace_root: str | Path | None) -> str | None:
+    """The commit SHA the plan's evidence is grounded at (the checkout HEAD).
+
+    Threaded into every planner/challenger/cross-review/critic envelope as
+    ``target_sha`` so the evidence-validator can grade an agent's evidence_refs
+    as ``repo_verified`` (content matches the git blob at this SHA) instead of
+    ``worktree_candidate``. Without it, ``EvidencePolicy.require_repo_verified``
+    rejects EVERY real ref and convergence can never complete — the layer-4
+    blocker found live 2026-07-03. Returns None when HEAD cannot be resolved
+    (detached/shallow/no-git); the validator then keeps its prior behaviour.
+    """
+    root = Path(workspace_root) if workspace_root else Path.cwd()
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(root),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = proc.stdout.strip()
+    return sha if proc.returncode == 0 and sha else None
+
+
 def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None:
     """Latest revision's content as a structured plan dict, or None.
 
@@ -488,6 +516,11 @@ def run_convergence_drainer(
     transcript_path = transcript_dir / f"{cycle_id}.jsonl"
     persistence = _persistence_path(root, cycle_id)
     convergence_id = plan_id
+    # The SHA the plan's evidence is grounded at — threaded into every envelope
+    # so the evidence-validator can grade agent evidence_refs as repo_verified
+    # (layer-4 blocker: without it every real ref is worktree_candidate and
+    # convergence never completes).
+    target_sha = _resolve_workspace_head_sha(workspace_root)
 
     resumed = False
     starting_round = 1
@@ -556,6 +589,7 @@ def run_convergence_drainer(
             evidence_refs=evidence_refs,
             allowed_scope=allowed_scope,
             base_dir=base_dir,
+            target_sha=target_sha,
         )
         challenger_request_id = challenger_request.get("request_id")
         if challenger_request_id:
@@ -730,6 +764,7 @@ def run_convergence_drainer(
                 evidence_refs=evidence_refs,
                 allowed_scope=allowed_scope,
                 base_dir=base_dir,
+                target_sha=target_sha,
             )
         except Exception as _mint_exc:
             append_tools_governance(
@@ -877,6 +912,7 @@ def run_convergence_drainer(
                 evidence_refs=[str(payload.get("closure_manifest_path")), *evidence_refs],
                 allowed_scope=allowed_scope,
                 base_dir=base_dir,
+                target_sha=target_sha,
             )
             request_id = critic_request.get("request_id")
             if request_id:
@@ -1027,6 +1063,7 @@ def run_convergence_drainer(
                     evidence_refs=evidence_refs,
                     allowed_scope=allowed_scope,
                     base_dir=base_dir,
+                    target_sha=target_sha,
                 )
             except BridgeContractViolation:
                 return ConvergenceResult(

@@ -181,7 +181,7 @@ export class WaterQualityCriticalAlertService {
     });
 
     if (existing) {
-      existing.recordOccurrence();
+      existing.recordOccurrence(triggeredAt);
       await this.incidentRepository.save(existing);
       this.logger.debug(
         `Updated existing water-quality incident ${existing.id} for ${ruleId} ` +

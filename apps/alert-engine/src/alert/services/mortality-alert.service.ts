@@ -129,7 +129,7 @@ export class MortalityAlertService {
     });
 
     if (existing) {
-      existing.recordOccurrence();
+      existing.recordOccurrence(triggeredAt);
       await this.incidentRepository.save(existing);
       this.logger.debug(
         `Updated existing mortality incident ${existing.id} for ${ruleId} ` +

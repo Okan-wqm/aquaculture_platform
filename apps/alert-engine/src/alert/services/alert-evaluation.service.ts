@@ -398,7 +398,7 @@ export class AlertEvaluationService {
 
     if (existingIncident) {
       // Bump occurrence count on the existing incident.
-      existingIncident.recordOccurrence();
+      existingIncident.recordOccurrence(new Date(reading.timestamp));
       await manager.save(AlertIncident, existingIncident);
       this.logger.debug(
         `Updated existing incident ${existingIncident.id} for rule ${rule.id} ` +

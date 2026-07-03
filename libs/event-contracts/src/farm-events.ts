@@ -430,6 +430,18 @@ export interface BatchGradedOutput {
   sizeClass?: string;
 }
 
+/**
+ * BatchGraded — operation-level SUMMARY of a grading run.
+ *
+ * FARM-LOW-146: this event intentionally has NO delta-applying backend consumer.
+ * A grading run is composed of one TransferBatchCommand per output, and each of
+ * those already emits a BatchTransferred event carrying the authoritative stock
+ * deltas that the farm read-model projection applies. BatchGraded exists only as
+ * an operation-level audit/summary record (and a future FE realtime-bridge
+ * surface), mirroring how WaterQualityMeasurementCreated is treated — wiring a
+ * consumer that re-applied its totals would double-count. Do not add a
+ * delta-applying consumer.
+ */
 export interface BatchGradedEvent extends BaseEvent {
   eventType: 'BatchGraded';
   batchId: string;

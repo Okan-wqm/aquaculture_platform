@@ -799,11 +799,17 @@ class EnterpriseCycleTests(unittest.TestCase):
         )
 
     def test_output_contract_compat_finding_is_registered(self):
+        # The compat aliases were removed (registry closing commit 8b98aba5c;
+        # no OUTPUT_CONTRACT_COMPAT alias remains outside constants.py), and
+        # the registry-wide close-out sweep marked the finding RESOLVED. What
+        # this test protects is the AUDIT TRAIL: the finding must stay
+        # registered with its identity fields and a real closing commit —
+        # not a live OPEN state the codebase no longer warrants.
         registry = Path(__file__).parents[2] / "docs/reviews/_registry/findings.jsonl"
         rows = [json.loads(line) for line in registry.read_text(encoding="utf-8").splitlines() if line.strip()]
         finding = next(row for row in rows if row["id"] == OUTPUT_CONTRACT_COMPAT_FINDING_ID)
-        self.assertEqual(finding["state"], "OPEN")
-        self.assertEqual(finding["deadline"], "2026-06-05")
+        self.assertEqual(finding["state"], "RESOLVED")
+        self.assertTrue(finding["closing_commits"], "resolved finding must carry its closing commit")
         self.assertEqual(finding["owner_agent"], "platform-kernel-expert")
         self.assertEqual(finding["severity"], "MEDIUM")
 

@@ -290,51 +290,67 @@ export class ScadaPackageService {
     options?: { dryRun?: boolean },
   ): Promise<{ scanned: number; migrated: number; skipped: number; failed: number; dryRun: boolean }> {
     const dryRun = options?.dryRun ?? false;
-    const packages = await this.scadaPackageRepository.find({ where: { tenantId } });
+    // Enumerate candidate ids only. The authoritative read + write happens
+    // under a row lock inside a per-row transaction (below), so a user edit
+    // concurrent with the backfill cannot be lost: `save(pkg)` writes the
+    // whole entity by primary key with no version check (ScadaPackage.version
+    // is a manual counter, not a TypeORM @VersionColumn), so a blind
+    // read-here / save-later would clobber an edit landing in that window.
+    const ids = (await this.scadaPackageRepository.find({ where: { tenantId } })).map((p) => p.id);
 
     let migrated = 0;
     let skipped = 0;
     let failed = 0;
 
-    for (const pkg of packages) {
-      const meta = pkg.packageData?.meta as Record<string, unknown> | undefined;
-      if (Number(meta?.schemaVersion) === 2) {
-        skipped += 1;
-        continue;
-      }
+    for (const id of ids) {
+      const outcome = await this.scadaPackageRepository.manager.transaction(
+        async (manager): Promise<'migrated' | 'skipped' | 'failed'> => {
+          const pkg = await manager.findOne(ScadaPackage, {
+            where: { id, tenantId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          // Deleted between enumeration and lock acquisition.
+          if (!pkg) return 'skipped';
 
-      // Transform is per-row fenced: a single malformed legacy row is counted
-      // and left untouched, never aborting the rest of the tenant's migration.
-      let doc: Record<string, unknown>;
-      try {
-        const deviceCode = await this.resolveDeviceCode(meta?.edgeDeviceId, tenantId);
-        doc = upcastScadaPackageDoc(pkg.packageData, deviceCode ? { deviceCode } : undefined);
-        if (!validateScadaPackageDocV2(doc)) {
-          failed += 1;
-          this.logger.warn(
-            `Backfill left package ${pkg.id} unchanged: failed ScadaPackageDocV2 validation (${formatValidationErrors(validateScadaPackageDocV2)})`,
-          );
-          continue;
-        }
-      } catch (error) {
-        failed += 1;
-        this.logger.warn(`Backfill left package ${pkg.id} unchanged: ${(error as Error).message}`);
-        continue;
-      }
+          const meta = pkg.packageData?.meta as Record<string, unknown> | undefined;
+          if (Number(meta?.schemaVersion) === 2) return 'skipped';
 
-      migrated += 1;
-      if (!dryRun) {
-        pkg.packageData = doc;
-        pkg.updatedBy = 'system-backfill';
-        await this.scadaPackageRepository.save(pkg);
-      }
+          // Per-row fenced: a single malformed legacy row is counted and left
+          // untouched, never aborting the rest of the tenant's migration.
+          let doc: Record<string, unknown>;
+          try {
+            const deviceCode = await this.resolveDeviceCode(meta?.edgeDeviceId, tenantId);
+            doc = upcastScadaPackageDoc(pkg.packageData, deviceCode ? { deviceCode } : undefined);
+            if (!validateScadaPackageDocV2(doc)) {
+              this.logger.warn(
+                `Backfill left package ${pkg.id} unchanged: failed ScadaPackageDocV2 validation (${formatValidationErrors(validateScadaPackageDocV2)})`,
+              );
+              return 'failed';
+            }
+          } catch (error) {
+            this.logger.warn(`Backfill left package ${pkg.id} unchanged: ${(error as Error).message}`);
+            return 'failed';
+          }
+
+          if (dryRun) return 'migrated';
+
+          pkg.packageData = doc;
+          pkg.updatedBy = 'system-backfill';
+          await manager.save(pkg);
+          return 'migrated';
+        },
+      );
+
+      if (outcome === 'migrated') migrated += 1;
+      else if (outcome === 'skipped') skipped += 1;
+      else failed += 1;
     }
 
     this.logger.log(
-      `SCADA packageData backfill for tenant ${tenantId}: scanned=${packages.length} migrated=${migrated} skipped=${skipped} failed=${failed} dryRun=${dryRun}`,
+      `SCADA packageData backfill for tenant ${tenantId}: scanned=${ids.length} migrated=${migrated} skipped=${skipped} failed=${failed} dryRun=${dryRun}`,
     );
 
-    return { scanned: packages.length, migrated, skipped, failed, dryRun };
+    return { scanned: ids.length, migrated, skipped, failed, dryRun };
   }
 
   async getScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {

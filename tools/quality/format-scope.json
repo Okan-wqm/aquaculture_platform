@@ -39,6 +39,18 @@
     {
       "class": "agent_contract_docs",
       "owner": "agent-governance",
+      "path": ".claude/agents/_shared/aria-agent-authoring-standards.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/_shared/aria-code-writing-standards.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
       "path": ".claude/agents/_shared/aria-implementer-safety-contract.md",
       "prettier_managed": true
     },
@@ -99,6 +111,12 @@
     {
       "class": "agent_contract_docs",
       "owner": "agent-governance",
+      "path": ".claude/agents/aria-autonomy-planner.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
       "path": ".claude/agents/aria-challenger-drafter.md",
       "prettier_managed": true
     },
@@ -112,6 +130,12 @@
       "class": "agent_contract_docs",
       "owner": "agent-governance",
       "path": ".claude/agents/aria-change-intelligence.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/aria-completeness-critic.md",
       "prettier_managed": true
     },
     {
@@ -154,6 +178,12 @@
       "class": "agent_contract_docs",
       "owner": "agent-governance",
       "path": ".claude/agents/aria-primary-planner.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "agent_contract_docs",
+      "owner": "agent-governance",
+      "path": ".claude/agents/aria-worker.md",
       "prettier_managed": true
     },
     {
@@ -3310,6 +3340,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/support/alert-rule-query-builder.mock.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/support/redis-service.mock.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/alert/alert.module.ts",
       "prettier_managed": true
     },
@@ -3359,6 +3401,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/alert/resolvers/escalation-policy.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/__tests__/alert-evaluation.rule-cache.spec.ts",
       "prettier_managed": true
     },
     {
@@ -4091,6 +4139,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1801900000000-AllowSystemInsertsOnAuditLogs.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts",
       "prettier_managed": true
     },
@@ -4734,6 +4788,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/lifecycle-commands.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/unlock-user.spec.ts",
       "prettier_managed": true
     },
     {
@@ -6580,6 +6640,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/services/tank-batch.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/services/tank-count-reconcile.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/tank-batch-module-di.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/batch.module.ts",
       "prettier_managed": true
     },
@@ -7067,6 +7145,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/services/sgr-calculator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/services/tank-batch.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/services/tank-count-reconcile.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/tank-batch.module.ts",
       "prettier_managed": true
     },
     {
@@ -7778,6 +7874,18 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1801700000000-BackfillStaleTankBatchDetails.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1801800000000-BackfillTankBatchCurrentQuantityMirror.spec.ts",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "ef2b9a69f2aca0ffb24f36c9d193741f669acec7cd840d23808dd27691a3bd65",
       "hash_policy": "sha256",
@@ -8344,6 +8452,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1801500000000-EnsureFarmTenantErasureProofLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1801600000000-DropAuditLedgerSourceWriteGuard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1801700000000-BackfillStaleTankBatchDetails.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1801800000000-BackfillTankBatchCurrentQuantityMirror.ts",
       "prettier_managed": true
     },
     {
@@ -8979,6 +9105,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/__tests__/farm-stock-projection.listener.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/events/listeners/__tests__/harvest-completed.listener.spec.ts",
       "prettier_managed": true
     },
@@ -8998,6 +9130,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/events/listeners/batch-created.listener.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/farm-stock-projection.listener.ts",
       "prettier_managed": true
     },
     {
@@ -9448,6 +9586,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feed/services/feeding-protocol-seeder.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/__tests__/feeding-summary-response-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -10024,6 +10168,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/growth/__tests__/get-latest-measurement.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/growth/__tests__/growth-measurement-performance.entity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11301,6 +11451,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/sentinel-hub/__tests__/sentinel-hub-token-cache.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/sentinel-hub/__tests__/sentinel-proxy.policy.spec.ts",
       "prettier_managed": true
     },
@@ -11848,6 +12004,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/lot-mix.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/record-stock-movement-outbox.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -14068,6 +14230,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/app.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/common/error-normalization.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/common/error-normalization.ts",
       "prettier_managed": true
     },
     {
@@ -19453,6 +19627,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/auth-event.handler.lockout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/auth-event.handler.ts",
       "prettier_managed": true
     },
@@ -23401,6 +23581,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/adr/041-aria-narrow-autonomous-merge-lane.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/adr/2026-04-30-apollo-router-self-hosted-static-supergraph.md",
       "prettier_managed": true
     },
@@ -23708,6 +23894,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/aria/IDENTITY.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/PIPELINES.md",
       "prettier_managed": true
     },
     {
@@ -27031,6 +27223,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-02-untracked-worktree-remediation/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -28459,6 +28657,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria-acceptance-gap-hunter/2026-07-01-aria-agent-system-modernization.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/aria/2026-05-14-validation.md",
       "prettier_managed": true
     },
@@ -28753,6 +28957,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-06-30-batch-lifecycle-ssot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-06-30-farm-write-boundary-and-audit-guard.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/frontend-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -28988,6 +29204,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/infra-expert/2026-06-23-nats-single-node-replica-topology-ssot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-07-02-ci-unit-test-quarantine.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/infra/2026-06-30-masked-validation-error-logging.md",
       "prettier_managed": true
     },
     {
@@ -30088,6 +30322,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "e2e/helpers/env.helper.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "e2e/helpers/graphql-client.ts",
       "prettier_managed": true
     },
@@ -30148,6 +30388,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "e2e/playwright.water-chemistry.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "e2e/project.json",
       "prettier_managed": true
     },
     {
@@ -30859,6 +31105,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/aquaculture-engines/src/water-chemistry/__tests__/k-constants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/water-chemistry/__tests__/reagents.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/aquaculture-engines/src/water-chemistry/ammonia-calc.ts",
       "prettier_managed": true
     },
@@ -31309,6 +31567,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/context/tenant-execution-context.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/context/with-tenant-context.ts",
       "prettier_managed": true
     },
@@ -31478,6 +31742,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/typeorm-config.factory.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/update-returning.util.spec.ts",
       "prettier_managed": true
     },
     {
@@ -32005,6 +32275,36 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/tenant-schema-sync.service.ts",
       "prettier_managed": true
     },
@@ -32036,6 +32336,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/typeorm-config.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/update-returning.util.ts",
       "prettier_managed": true
     },
     {
@@ -32275,7 +32581,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/http/__tests__/client-network-context.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/http/__tests__/signed-http-client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/http/client-network-context.util.ts",
       "prettier_managed": true
     },
     {
@@ -32749,6 +33067,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/redis/redis-options.builder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/redis/redis-options.builder.ts",
       "prettier_managed": true
     },
@@ -32756,6 +33080,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/redis/redis.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/redis/redis.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -32816,6 +33146,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/security/__tests__/assert-self-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/__tests__/security-event-subject-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -33613,6 +33949,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/farm-shared/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/farm-shared/src/components/DynamicMeasurementForm.tsx",
       "prettier_managed": true
     },
@@ -33812,6 +34154,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/node-components/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/node-components/project.json",
       "prettier_managed": true
     },
     {
@@ -34141,6 +34489,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/sensor-automation-types/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/sensor-automation-types/src/index.ts",
       "prettier_managed": true
     },
@@ -34388,6 +34742,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "mcp/farm-management/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "mcp/farm-management/project.json",
       "prettier_managed": true
     },
     {
@@ -34926,6 +35286,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/outbox/src/__tests__/outbox-worker.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/outbox/src/constants.ts",
       "prettier_managed": true
     },
@@ -35347,6 +35713,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/project.json",
       "prettier_managed": true
     },
     {
@@ -35953,6 +36325,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "sens-api-gateway/docs/protocols/spi.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "sens-api-gateway/docs/reviews/edge-orphan-findings.md",
       "prettier_managed": true
     },
     {
@@ -36642,6 +37020,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/farm-count-single-writer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/farm-event-handler-tenant-context-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -36673,6 +37057,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/farm-no-mock-data-growth-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/farm-outbox-publish-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -36714,7 +37104,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/farm-stock-mutation-central-only.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/farm-stock-mutation-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/farm-wq-template-nondestructive-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -36913,6 +37315,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/migration-spec-quarantine.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/mobile-csp-headers.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37218,6 +37626,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/tenant-execution-context-registered.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/tenant-fanout-entity-parity.spec.ts",
       "prettier_managed": true
     },
@@ -37225,6 +37639,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tenant-provisioning-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tenant-schema-cache-module-registered.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37656,6 +38076,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/executors/cargo/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/executors/cargo/src/index.ts",
       "prettier_managed": true
     },
@@ -37866,6 +38292,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/fixtures/plan-coverage/nx-graph.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/fixtures/plan-coverage/repo/libs/event-contracts/src/farm-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/gha-sha-pin.ts",
       "prettier_managed": true
     },
@@ -37939,6 +38377,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/npm-audit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/plan-coverage-witness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/plan-coverage-witness.ts",
       "prettier_managed": true
     },
     {
@@ -38293,6 +38743,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/utilities/seed-test-data.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/testing/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/testing/vitest-resource-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/testing/vitest-resource-policy.ts",
       "prettier_managed": true
     },
     {
@@ -38902,6 +39370,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useFarmRealtimeSync.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useFirebaseMessaging.ts",
       "prettier_managed": true
     },
@@ -39394,7 +39868,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/async-action.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/__tests__/channel-type-wire.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/farm-realtime-invalidation.spec.ts",
       "prettier_managed": true
     },
     {
@@ -39424,7 +39910,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/async-action.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/channel-type-wire.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/farm-realtime-invalidation.ts",
       "prettier_managed": true
     },
     {
@@ -40259,6 +40757,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/types/users.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/test-setup.ts",
       "prettier_managed": true
     },
     {
@@ -42292,6 +42796,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hr-module/src/components/leave/LeaveBalanceWidget.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hr-module/src/components/leave/LeaveBalanceWidget.tsx",
       "prettier_managed": true
     },
@@ -42611,6 +43121,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hr-module/src/pages/TrainingPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/hr-module/src/test-setup.ts",
       "prettier_managed": true
     },
     {
@@ -46611,6 +47127,66 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/__tests__/card-engine.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcCanvas.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcCardConfigDrawer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcChartCard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/charts/WcCharts.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/engine-adapter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/mock/fixtures.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/useWcCards.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/WaterChemistryMonitoringPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/WidgetDashboardPage.tsx",
       "prettier_managed": true
     },
@@ -48608,6 +49184,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/utils/remoteIntegrity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/utils/remoteIntegrity.ts",
       "prettier_managed": true
     },
@@ -48654,10 +49236,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 7963,
+  "file_count": 8060,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7788,
-  "managed_file_list_sha256": "e50a103af6de07fce951f62a21da5312f97c07be96f793621ac47b043e897090",
+  "managed_count": 7885,
+  "managed_file_list_sha256": "88d0f375882951ad615e4c916ce5ec3dcd0e04c75ce247c3d467e914a0f2e0c4",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

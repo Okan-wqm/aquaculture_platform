@@ -10,6 +10,7 @@ import { type FC, useState } from 'react';
 
 import WcCanvas from './canvas/WcCanvas';
 import WcCardConfigDrawer from './canvas/WcCardConfigDrawer';
+import WcSystemConfigDrawer from './canvas/WcSystemConfigDrawer';
 import { TANKS } from './mock/fixtures';
 import { isSystemCard } from './types';
 import { useWcCards } from './useWcCards';
@@ -21,6 +22,7 @@ const WaterChemistryMonitoringPage: FC = () => {
   // The Configure drawer edits a POINT card; system-card configuration (member opt-out +
   // target/toxic/reagents sections) is a follow-up, so only point cards open the drawer.
   const selectedPoint = selected && !isSystemCard(selected) ? selected : null;
+  const selectedSystem = selected && isSystemCard(selected) ? selected : null;
 
   const handleAdd = (): void => {
     const id = addCard({ kind: 'tank', id: TANKS[0]?.id ?? 't1' });
@@ -73,6 +75,13 @@ const WaterChemistryMonitoringPage: FC = () => {
         <WcCardConfigDrawer
           card={selectedPoint}
           onChange={(patch) => updateCard(selectedPoint.id, patch)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+      {selectedSystem && (
+        <WcSystemConfigDrawer
+          card={selectedSystem}
+          onChange={(patch) => updateCard(selectedSystem.id, patch)}
           onClose={() => setSelectedId(null)}
         />
       )}

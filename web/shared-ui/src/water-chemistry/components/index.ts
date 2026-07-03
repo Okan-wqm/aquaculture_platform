@@ -14,3 +14,10 @@
  */
 export { default as DeffeyesChart } from './DeffeyesChart';
 export { default as ResultsPanel } from './ResultsPanel';
+export {
+  ChartCard,
+  UiaVsPhChart,
+  H2sVsPhChart,
+  CarbonateVsPhChart,
+  CalciteSaturationChart,
+} from './SecondaryCharts';

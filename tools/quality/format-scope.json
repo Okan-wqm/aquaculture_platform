@@ -48974,6 +48974,42 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/chart-zones.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/compute.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/deffeyes-data.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/water-chemistry/water-chemistry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/tsconfig.eslint.json",
       "prettier_managed": true
     },
@@ -49260,10 +49296,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8064,
+  "file_count": 8070,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7889,
-  "managed_file_list_sha256": "d0e81bb6dd8341b210571c301dd7a383d9ad0b30d9e7bde1813ef314c37954bd",
+  "managed_count": 7895,
+  "managed_file_list_sha256": "fb82f542adadf29bce1cd5325e13b3a6d6dc3e8754e82e5162f0a433828e390e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

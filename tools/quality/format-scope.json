@@ -47163,6 +47163,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcSystemCard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/engine-adapter.ts",
       "prettier_managed": true
     },
@@ -49314,10 +49320,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8073,
+  "file_count": 8074,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7898,
-  "managed_file_list_sha256": "626592c52d8f76bf0338e362e1934b0fab1cc75e2ebac06c397cd8d42f6fa2a1",
+  "managed_count": 7899,
+  "managed_file_list_sha256": "d74725bb519d6de99f0fa78e03670574c0ff42399a6a09fcb1e9a6d933898c43",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -11,16 +11,23 @@ import { type FC, useState } from 'react';
 import WcCanvas from './canvas/WcCanvas';
 import WcCardConfigDrawer from './canvas/WcCardConfigDrawer';
 import { TANKS } from './mock/fixtures';
+import { isSystemCard } from './types';
 import { useWcCards } from './useWcCards';
 
 const WaterChemistryMonitoringPage: FC = () => {
-  const { cards, addCard, updateCard, removeCard, resetDemo } = useWcCards();
+  const { cards, addCard, addSystemCard, updateCard, removeCard, resetDemo } = useWcCards();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = cards.find((c) => c.id === selectedId) ?? null;
+  // The Configure drawer edits a POINT card; system-card configuration (member opt-out +
+  // target/toxic/reagents sections) is a follow-up, so only point cards open the drawer.
+  const selectedPoint = selected && !isSystemCard(selected) ? selected : null;
 
   const handleAdd = (): void => {
     const id = addCard({ kind: 'tank', id: TANKS[0]?.id ?? 't1' });
     setSelectedId(id);
+  };
+  const handleAddSystem = (): void => {
+    addSystemCard('loop-a');
   };
 
   return (
@@ -37,6 +44,10 @@ const WaterChemistryMonitoringPage: FC = () => {
           <button type="button" onClick={handleAdd}
             className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
             ＋ Add chart
+          </button>
+          <button type="button" onClick={handleAddSystem}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">
+            ＋ Add system
           </button>
           <button type="button" onClick={resetDemo}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
@@ -58,10 +69,10 @@ const WaterChemistryMonitoringPage: FC = () => {
         />
       )}
 
-      {selected && (
+      {selectedPoint && (
         <WcCardConfigDrawer
-          card={selected}
-          onChange={(patch) => updateCard(selected.id, patch)}
+          card={selectedPoint}
+          onChange={(patch) => updateCard(selectedPoint.id, patch)}
           onClose={() => setSelectedId(null)}
         />
       )}

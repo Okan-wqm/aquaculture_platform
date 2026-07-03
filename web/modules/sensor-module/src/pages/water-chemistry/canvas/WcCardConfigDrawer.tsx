@@ -15,6 +15,7 @@ import {
 } from '../mock/fixtures';
 import type { CardScope, ParamKey, WcCard } from '../types';
 import { createCard } from '../useWcCards';
+import { NumberField } from './fields';
 
 const SOURCE_PARAMS: ParamKey[] = [
   'temperature', 'salinity', 'ph', 'alkalinity', 'calcium', 'tan', 'nitrate', 'dissolvedOxygen', 'h2s',
@@ -23,19 +24,6 @@ const PARAM_LABEL: Record<ParamKey, string> = {
   temperature: 'Temperature', salinity: 'Salinity', ph: 'pH', alkalinity: 'Alkalinity',
   calcium: 'Calcium', tan: 'TAN', nitrate: 'Nitrate', dissolvedOxygen: 'Dissolved O₂', co2: 'CO₂', h2s: 'H₂S',
 };
-
-function Num({ label, value, unit, step, onChange }: { label: string; value: number; unit?: string; step?: number; onChange: (v: number) => void }): ReactElement {
-  return (
-    <label className="flex items-center justify-between gap-2 text-xs">
-      <span className="text-gray-600">{label}</span>
-      <span className="flex items-center gap-1">
-        <input type="number" step={step ?? 0.1} value={value} onChange={(e) => onChange(Number(e.target.value))}
-          className="w-20 rounded border border-gray-300 px-1.5 py-0.5 text-right text-xs" />
-        {unit && <span className="w-10 text-gray-400">{unit}</span>}
-      </span>
-    </label>
-  );
-}
 
 const WcCardConfigDrawer = ({
   card,
@@ -102,12 +90,12 @@ const WcCardConfigDrawer = ({
             {SPECIES_TEMPLATES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <div className="space-y-1 rounded bg-gray-50 p-2">
-            <Num label="NH₃-N limit" value={card.limits.nh3Limit} unit="mg/L" step={0.001} onChange={(v) => setLimit('nh3Limit', v)} />
-            <Num label="CO₂ toxic" value={card.limits.co2Toxic} unit="mg/L" step={1} onChange={(v) => setLimit('co2Toxic', v)} />
-            <Num label="H₂S limit" value={card.limits.h2sLimitUgL} unit="µg/L" step={1} onChange={(v) => setLimit('h2sLimitUgL', v)} />
-            <Num label="Target pH" value={card.limits.targetPh} step={0.05} onChange={(v) => setLimit('targetPh', v)} />
-            <Num label="Target alk" value={card.limits.targetAlk} unit="mg/L" step={5} onChange={(v) => setLimit('targetAlk', v)} />
-            <Num label="Volume" value={card.volumeM3} unit="m³" step={1} onChange={(v) => onChange({ volumeM3: v })} />
+            <NumberField label="NH₃-N limit" value={card.limits.nh3Limit} unit="mg/L" step={0.001} onChange={(v) => setLimit('nh3Limit', v)} />
+            <NumberField label="CO₂ toxic" value={card.limits.co2Toxic} unit="mg/L" step={1} onChange={(v) => setLimit('co2Toxic', v)} />
+            <NumberField label="H₂S limit" value={card.limits.h2sLimitUgL} unit="µg/L" step={1} onChange={(v) => setLimit('h2sLimitUgL', v)} />
+            <NumberField label="Target pH" value={card.limits.targetPh} step={0.05} onChange={(v) => setLimit('targetPh', v)} />
+            <NumberField label="Target alk" value={card.limits.targetAlk} unit="mg/L" step={5} onChange={(v) => setLimit('targetAlk', v)} />
+            <NumberField label="Volume" value={card.volumeM3} unit="m³" step={1} onChange={(v) => onChange({ volumeM3: v })} />
           </div>
         </section>
 

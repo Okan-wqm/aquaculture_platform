@@ -50,6 +50,7 @@ from claude_runtime import (
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
+    ClaudeRunResult,
     ClaudeUsageUnavailable,
     extract_final_message,
     extract_usage,
@@ -57,6 +58,7 @@ from claude_runtime import (
     parse_claude_jsonl,
     preflight_claude_auth,
     run_claude_exec,
+    run_with_model_fallback,
 )
 
 try:
@@ -925,46 +927,64 @@ def invoke_claude_cli(
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     agent_profile = read_agent_runtime_profile(subagent_type)
     try:
-        completed = run_claude_exec(
-            prompt_text=prompt_text,
-            timeout_seconds=timeout_seconds,
-            model=agent_profile.model,
-            effort=agent_profile.effort,
-        )
-        # K2 (ORPHAN-HIGH-284) — model-safety refusal policy. A classifier
-        # refusal is deterministic, not transient: never route it through the
-        # EXTERNAL_OUTAGE requeue path (the reaper would refuse again N times).
-        # Policy: exactly ONE audited fallback retry on the opus tier when the
-        # refusing model was fable; a second refusal (or a refusal already on
-        # opus) escalates to HUMAN_REQUIRED via the caller's refusal branch.
-        # Every path leaves a governance row — no silent downgrade.
-        if completed.refusal is not None and agent_profile.model == "fable":
-            _refusal_payload = {
+        # Model dispatch with the fable→opus fallback policy (credit + refusal),
+        # applied by the claude_runtime SSoT helper. The executor supplies the
+        # attempt closure and its governance-audit callbacks; the helper owns
+        # the single-retry-bounded control flow.
+        def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            return run_claude_exec(
+                prompt_text=prompt_text,
+                timeout_seconds=timeout_seconds,
+                model=model,
+                effort=effort,
+            )
+
+        def _gov(event: str, payload: dict[str, Any]) -> None:
+            if tools_dir is None:
+                return
+            try:
+                from aria_kernel.tool_registry import (
+                    append_tools_governance as _fb_gov,
+                    ensure_tools_dir as _fb_ens,
+                )
+                _fb_gov(_fb_ens(tools_dir), event, payload)
+            except Exception:
+                pass
+
+        def _on_credit(marker: dict[str, Any]) -> None:
+            _gov("model_credit_fallback_attempted", {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
                 "to_model": "opus",
-                "refusal": completed.refusal,
-            }
-            if tools_dir is not None:
-                try:
-                    from aria_kernel.tool_registry import (
-                        append_tools_governance as _rf_gov,
-                        ensure_tools_dir as _rf_ens,
-                    )
-                    _rf_gov(_rf_ens(tools_dir), "model_refusal_fallback_attempted", _refusal_payload)
-                except Exception:
-                    pass
+                "to_effort": "xhigh",
+                "credit_exhaustion": marker,
+            })
+            _stage(
+                f"model_credit_fallback request_id={request_id} "
+                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh"
+            )
+
+        def _on_refusal(refusal: dict[str, Any]) -> None:
+            _gov("model_refusal_fallback_attempted", {
+                "request_id": request_id,
+                "subagent_type": subagent_type,
+                "from_model": agent_profile.model,
+                "to_model": "opus",
+                "refusal": refusal,
+            })
             _stage(
                 f"model_refusal_fallback request_id={request_id} "
-                f"category={completed.refusal.get('category')!r} fable->opus"
+                f"category={refusal.get('category')!r} fable->opus"
             )
-            completed = run_claude_exec(
-                prompt_text=prompt_text,
-                timeout_seconds=timeout_seconds,
-                model="opus",
-                effort=agent_profile.effort,
-            )
+
+        completed = run_with_model_fallback(
+            run=_dispatch_attempt,
+            model=agent_profile.model,
+            effort=agent_profile.effort,
+            on_credit=_on_credit,
+            on_refusal=_on_refusal,
+        )
         if completed.refusal is not None:
             _unresolved_payload = {
                 "request_id": request_id,

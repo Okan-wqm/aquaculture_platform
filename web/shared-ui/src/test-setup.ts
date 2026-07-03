@@ -36,6 +36,55 @@ if (typeof globalThis.crypto === 'undefined') {
 }
 
 // ============================================================================
+// recharts render polyfills — ResponsiveContainer needs ResizeObserver +
+// element dimensions, which jsdom does not provide. Required by the promoted
+// water-chemistry chart components (DeffeyesChart) tested under shared-ui.
+// ============================================================================
+
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class ResizeObserver {
+    private callback: ResizeObserverCallback;
+
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+    }
+
+    observe(target: Element): void {
+      this.callback(
+        [
+          {
+            target,
+            contentRect: {
+              x: 0,
+              y: 0,
+              width: 900,
+              height: 700,
+              top: 0,
+              left: 0,
+              right: 900,
+              bottom: 700,
+              toJSON: () => ({}),
+            },
+          } as ResizeObserverEntry,
+        ],
+        this,
+      );
+    }
+
+    unobserve(): void {
+      return undefined;
+    }
+
+    disconnect(): void {
+      return undefined;
+    }
+  };
+}
+
+Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 900 });
+Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 700 });
+
+// ============================================================================
 // Suppress console.warn / console.error in tests (optional, keep errors visible)
 // ============================================================================
 

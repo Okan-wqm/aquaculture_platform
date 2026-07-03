@@ -1,4 +1,4 @@
-import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
   RlsModule,
   SchemaDriftModule,
@@ -9,7 +9,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -79,6 +79,10 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
      * per the adoption-invariant pairing rule.
      */
     SchemaDriftModule.forRoot({ serviceName: 'event-store' }),
+    // Tenant execution context interceptor (SSoT registration) — keeps the
+    // validated tenant in AsyncLocalStorage across async boundaries so
+    // tenant-scoped event-stream reads resolve the correct schema.
+    TenantExecutionContextModule,
   ],
   providers: [
     EventStoreSchemaVersionGate,
@@ -94,10 +98,6 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     {
       provide: APP_GUARD,
       useClass: EventStoreServiceIdentityGuard,
-    },
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: TenantExecutionContextInterceptor,
     },
   ],
 })

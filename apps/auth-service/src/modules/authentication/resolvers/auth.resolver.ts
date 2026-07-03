@@ -1,12 +1,13 @@
 import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 import { resolveClientNetworkContext } from '@aquaculture/backend-common/http';
 import { RateLimit } from '@aquaculture/backend-common/rate-limit';
-import { UnauthorizedException, Logger } from '@nestjs/common';
+import { UnauthorizedException, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { AuthDomainMetricsService } from '../../../metrics/auth-domain-metrics.service';
 import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
 import {
   AuthPayload,
@@ -43,6 +44,9 @@ export class AuthResolver {
   constructor(
     private readonly authService: AuthenticationService,
     private readonly configService: ConfigService,
+    // @Optional so unit tests can construct the resolver without the metrics
+    // module; in production AuthMetricsModule is @Global and always provides it.
+    @Optional() private readonly authMetrics?: AuthDomainMetricsService,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
     this.rememberMeRefreshTokenExpiryDays = this.configService.get<number>(
@@ -111,16 +115,27 @@ export class AuthResolver {
     @Args('input') input: LoginInput,
     @Context() context: GqlContext,
   ): Promise<AuthPayload> {
-    const request = context.req;
-    // ORPHAN-MEDIUM-319: behind the gateway, request.ip is ALWAYS the
-    // gateway container; the true actor arrives via the gateway-minted
-    // (service-identity-gated) client network headers. The old
-    // `request.ip || x-forwarded-for` ordering pinned every audit row and
-    // lastLoginIp to ::ffff:172.18.0.x.
-    const { ip: ipAddress, userAgent } = resolveClientNetworkContext(request);
-    const result = await this.authService.login(input, ipAddress, userAgent);
-    this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
-    return this.stripRefreshToken(result);
+    // PERF-MEDIUM-003: tier-0 login latency SLI. Record on BOTH paths — a failed
+    // login (wrong credentials / brute-force probe) is part of the latency SLO,
+    // not excluded from it.
+    const stop = this.authMetrics?.startOperation('login');
+    try {
+      const request = context.req;
+      // ORPHAN-MEDIUM-319: behind the gateway, request.ip is ALWAYS the
+      // gateway container; the true actor arrives via the gateway-minted
+      // (service-identity-gated) client network headers. The old
+      // `request.ip || x-forwarded-for` ordering pinned every audit row and
+      // lastLoginIp to ::ffff:172.18.0.x.
+      const { ip: ipAddress, userAgent } = resolveClientNetworkContext(request);
+      const result = await this.authService.login(input, ipAddress, userAgent);
+      this.setRefreshTokenCookie(context.res, result.refreshToken, result.rememberMe ?? false);
+      const payload = this.stripRefreshToken(result);
+      stop?.('success');
+      return payload;
+    } catch (err) {
+      stop?.('error');
+      throw err;
+    }
   }
 
   @RateLimit({ name: 'refresh', limit: 10, windowMs: 5 * 60_000 })
@@ -291,22 +306,32 @@ export class AuthResolver {
   @SkipTenantGuard()
   @Query(() => TokenValidationResponse)
   async validateToken(@Args('token') token: string): Promise<TokenValidationResponse> {
-    const result = await this.authService.validateToken(token);
-    if (!result.valid || !result.payload) {
-      return { valid: false };
+    // PERF-MEDIUM-003: tier-0 token-validation latency SLI. An invalid token is a
+    // successful OPERATION (it ran to completion); only a thrown error is 'error'.
+    const stop = this.authMetrics?.startOperation('token_validation');
+    try {
+      const result = await this.authService.validateToken(token);
+      if (!result.valid || !result.payload) {
+        stop?.('success');
+        return { valid: false };
+      }
+
+      // Calculate expiration from JWT exp claim or default to 15 minutes from now
+      const expiresAt = result.payload.exp
+        ? new Date(result.payload.exp * 1000)
+        : new Date(Date.now() + 15 * 60 * 1000);
+
+      stop?.('success');
+      return {
+        valid: true,
+        userId: result.payload.sub,
+        tenantId: result.payload.tenantId ?? undefined,
+        role: result.payload.role,
+        expiresAt,
+      };
+    } catch (err) {
+      stop?.('error');
+      throw err;
     }
-
-    // Calculate expiration from JWT exp claim or default to 15 minutes from now
-    const expiresAt = result.payload.exp
-      ? new Date(result.payload.exp * 1000)
-      : new Date(Date.now() + 15 * 60 * 1000);
-
-    return {
-      valid: true,
-      userId: result.payload.sub,
-      tenantId: result.payload.tenantId ?? undefined,
-      role: result.payload.role,
-      expiresAt,
-    };
   }
 }

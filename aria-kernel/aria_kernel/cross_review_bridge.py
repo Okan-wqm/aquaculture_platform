@@ -124,6 +124,7 @@ def issue_cross_review_envelope(
     allowed_scope: list[str],
     base_dir: str | Path | None = None,
     plan_revision_hash: str | None = None,
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Issue a cross_review envelope (Tier-1).
 
@@ -159,6 +160,7 @@ def issue_cross_review_envelope(
         round_number=round_number,
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
+        target_sha=target_sha,
     )
 
 
@@ -172,6 +174,7 @@ def issue_primary_envelope(
     base_dir: str | Path | None = None,
     plan_revision_hash: str | None = None,
     suggested_prompt: str = "Submit your REVISION of the primary plan addressing cross-review findings.",
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Tier-1 IMPOSSIBLE-to-mint round-1 primary envelope.
 
@@ -211,6 +214,7 @@ def issue_primary_envelope(
         round_number=round_number,
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
+        target_sha=target_sha,
     )
 
 
@@ -269,6 +273,7 @@ def issue_completeness_critic_envelope(
     evidence_refs: list[str],
     allowed_scope: list[str],
     base_dir: str | Path | None = None,
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Issue a completeness_critique envelope (Tier-1).
 
@@ -316,6 +321,7 @@ def issue_completeness_critic_envelope(
         convergence_id=plan_id,
         round_number=round_number,
         base_dir=base_dir,
+        target_sha=target_sha,
     )
 
 

@@ -96,6 +96,12 @@ export * from './components';
 
 export * from './utils';
 
+// ============================================================================
+// Water Chemistry (SSoT — pure logic; presentation added in Phase 2)
+// ============================================================================
+
+export * from './water-chemistry';
+
 // Error Types
 export {
   ErrorCode,

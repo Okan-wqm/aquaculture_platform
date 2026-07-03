@@ -535,7 +535,35 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
             "title_hint": f"Address ORPHAN-{severity}-{finding_id}",
         })
     candidates.sort(key=lambda c: (c["severity_rank"], c["raw_id"]))
-    return candidates[:_MAX_CANDIDATES_PER_SOURCE]
+    candidates = candidates[:_MAX_CANDIDATES_PER_SOURCE]
+    # ORPHAN-312 — attach each finding's real code evidence from the registry
+    # SSoT so convert_candidate_to_plan_content can ground the plan in code,
+    # not the orphan-findings.md doc. Read-only, bounded to the selected ids.
+    _attach_orphan_registry_evidence(workspace_root, candidates)
+    return candidates
+
+
+def _attach_orphan_registry_evidence(
+    workspace_root: str | Path, candidates: list[dict[str, Any]],
+) -> None:
+    if not candidates:
+        return
+    # Route the registry JSONL through the blessed strict reader (tolerant
+    # mode: a corrupt row is skipped WITH a ledger_row_corrupt diagnostic, not
+    # silently swallowed — the jsonl-silent-skip invariant bans a bare
+    # except:continue on a JSONL read). Non-existent path → empty iterator.
+    from .strict_jsonl_reader import read_strict_jsonl
+    registry = (Path(workspace_root) / "docs" / "reviews" / "_registry" / "findings.jsonl").resolve()
+    wanted = {c["candidate_id"] for c in candidates}
+    evidence_by_id: dict[str, list[str]] = {}
+    for row in read_strict_jsonl(registry, on_corruption="tolerant"):
+        rid = row.get("id")
+        if rid in wanted and isinstance(row.get("evidence"), list):
+            evidence_by_id[rid] = [e for e in row["evidence"] if isinstance(e, str)]
+    for c in candidates:
+        ev = evidence_by_id.get(c["candidate_id"])
+        if ev:
+            c["evidence"] = ev
 
 
 def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
@@ -863,6 +891,54 @@ def rank_candidate_sources(
     return all_candidates
 
 
+_FINDING_EVIDENCE_CAP = 50
+
+
+def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list[str]]:
+    """Extract (evidence_refs, affected_surfaces) from an aria-findings JSON.
+
+    ORPHAN-312 root fix: the F-finding's ``evidence_chain[].reference`` entries
+    are already ``path:line`` refs to the REAL code the drift lives in (e.g.
+    ``web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346``). Those are
+    the evidence a challenger must ground its plan in — NOT the finding JSON
+    file itself. Returns ([], []) when the file is missing/unparseable or
+    carries no usable references, so the caller can fall back.
+    """
+    if not isinstance(finding_path, str) or not finding_path:
+        return [], []
+    try:
+        finding = json.loads(Path(finding_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return [], []
+    chain = finding.get("evidence_chain")
+    if not isinstance(chain, list):
+        return [], []
+    evidence_refs: list[str] = []
+    affected: list[str] = []
+    for entry in chain:
+        if not isinstance(entry, dict):
+            continue
+        ref = entry.get("reference")
+        if not isinstance(ref, str) or not ref.strip():
+            continue
+        ref = ref.strip()
+        if _looks_unsafe_repo_path(ref):
+            continue
+        # Split a trailing :<line> off to get the bare path for affected_surfaces.
+        path_part = ref.rsplit(":", 1)[0] if re.search(r":\d+$", ref) else ref
+        if ref not in evidence_refs:
+            evidence_refs.append(ref)
+        if path_part not in affected:
+            affected.append(path_part)
+        if len(evidence_refs) >= _FINDING_EVIDENCE_CAP:
+            break
+    return evidence_refs, affected
+
+
+def _looks_unsafe_repo_path(value: str) -> bool:
+    return value.startswith("/") or "\\" in value or value.startswith("../") or "/../" in value
+
+
 def convert_candidate_to_plan_content(
     candidate: Mapping[str, Any],
 ) -> "CyclePlanEnvelope | None":
@@ -962,20 +1038,42 @@ def convert_candidate_to_plan_content(
             f"Address ORPHAN-{severity}-{raw_id} from "
             "docs/reviews/orphan-findings.md (architectural root-cause fix)."
         )
-        evidence_refs = [
-            f"docs/reviews/orphan-findings.md#ORPHAN-{severity}-{raw_id}",
-        ]
-        affected_surfaces = ["docs/reviews/orphan-findings.md"]
+        # ORPHAN-312 root fix — use the registry's real ``evidence`` file list
+        # (attached by scan_orphan_findings) so the plan points at the code the
+        # finding is about, not the orphan-findings.md doc. Doc anchor is the
+        # last-resort fallback when the registry carries no evidence.
+        registry_evidence = candidate.get("evidence")
+        affected_surfaces = []
+        if isinstance(registry_evidence, list):
+            for item in registry_evidence:
+                if isinstance(item, str) and item.strip() and not _looks_unsafe_repo_path(item.strip()):
+                    p = item.strip()
+                    if p not in affected_surfaces:
+                        affected_surfaces.append(p)
+                if len(affected_surfaces) >= _FINDING_EVIDENCE_CAP:
+                    break
+        if affected_surfaces:
+            evidence_refs = list(affected_surfaces)
+        else:
+            evidence_refs = [
+                f"docs/reviews/orphan-findings.md#ORPHAN-{severity}-{raw_id}",
+            ]
+            affected_surfaces = ["docs/reviews/orphan-findings.md"]
     else:  # F_FINDING
-        path = sanitize_untrusted_text(
-            candidate.get("path") or "", max_len=256,
-        )
         summary = (
             f"Process aging F-finding {candidate_id}; verify status + "
             "land remediation if OPEN."
         )
-        evidence_refs = [f"aria-findings/{candidate_id}.json"]
-        affected_surfaces = [f"aria-findings/{candidate_id}.json"]
+        # ORPHAN-312 root fix — ground the plan in the finding's REAL code
+        # references (evidence_chain), not the finding JSON file. This is what
+        # a challenger must cite; the JSON path is only a last-resort fallback
+        # so the validator's non-empty-evidence_refs rule still holds.
+        evidence_refs, affected_surfaces = _evidence_refs_from_finding_json(
+            candidate.get("path"),
+        )
+        if not evidence_refs:
+            evidence_refs = [f"aria-findings/{candidate_id}.json"]
+            affected_surfaces = [f"aria-findings/{candidate_id}.json"]
 
     content: dict[str, Any] = {
         # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).

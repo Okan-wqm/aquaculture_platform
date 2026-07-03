@@ -195,3 +195,105 @@ class RefusalDetectionTests(unittest.TestCase):
             {"type": "result", "subtype": "success", "is_error": False},
         )
         self.assertIsNone(claude_runtime.extract_refusal(events))
+
+
+class CreditExhaustionDetectionTests(unittest.TestCase):
+    """Credit/quota-exhaustion detection — the fable→opus fallback trigger."""
+
+    # The LIVE managed-session failure mode (proven 2026-07-03: ARIA's Fable
+    # pool ran dry). The CLI returns its limit notice as ASSISTANT CONTENT on
+    # a CLEAN exit (returncode 0, zero tokens) — a returncode!=0 gate misses
+    # it, which is exactly why #849's first markers did not fire.
+    _LIVE_LIMIT = (
+        "You've reached your Fable 5 limit. Run /usage-credits to continue "
+        "or switch models with /model."
+    )
+
+    def test_detects_live_usage_limit_message_on_clean_exit(self) -> None:
+        marker = claude_runtime.extract_credit_exhaustion(
+            returncode=0, stderr="", events=(), final_message=self._LIVE_LIMIT,
+        )
+        self.assertIsNotNone(marker)
+        self.assertEqual(marker["source"], "cli_usage_limit_message")
+        self.assertEqual(marker["matched_marker"], "usage-credits")
+
+    def test_detects_live_usage_limit_in_assistant_event(self) -> None:
+        events = (
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": self._LIVE_LIMIT}]}},
+            {"type": "result", "subtype": "success", "result": self._LIVE_LIMIT},
+        )
+        self.assertIsNotNone(claude_runtime.extract_credit_exhaustion(returncode=0, stderr="", events=events))
+
+    def test_clean_plan_mentioning_billing_is_not_credit(self) -> None:
+        # An API credit-error marker in CONTENT on a clean exit must NOT fire —
+        # only the (returncode!=0) error path matches those.
+        self.assertIsNone(
+            claude_runtime.extract_credit_exhaustion(
+                returncode=0, stderr="", events=(),
+                final_message="This plan refactors the billing-service quota module.",
+            ),
+        )
+
+    def test_detects_credit_balance_in_stderr(self) -> None:
+        marker = claude_runtime.extract_credit_exhaustion(
+            returncode=1,
+            stderr="Error: Your credit balance is too low to run this request.",
+            events=(),
+        )
+        self.assertIsNotNone(marker)
+        self.assertEqual(marker["matched_marker"], "credit balance")
+        self.assertEqual(marker["returncode"], 1)
+
+    def test_detects_quota_in_result_event(self) -> None:
+        events = (
+            {"type": "result", "subtype": "error_during_execution", "result": "quota exceeded for this account"},
+        )
+        marker = claude_runtime.extract_credit_exhaustion(returncode=2, stderr="", events=events)
+        self.assertIsNotNone(marker)
+        self.assertEqual(marker["matched_marker"], "quota exceeded")
+
+    def test_detects_payment_required_and_billing(self) -> None:
+        self.assertIsNotNone(
+            claude_runtime.extract_credit_exhaustion(returncode=1, stderr="HTTP 402 Payment Required", events=()),
+        )
+        self.assertIsNotNone(
+            claude_runtime.extract_credit_exhaustion(returncode=1, stderr="billing account is not active", events=()),
+        )
+
+    def test_clean_returncode_is_never_credit_exhaustion(self) -> None:
+        # returncode 0 gate — a clean run whose TEXT happens to mention credit
+        # (e.g. the agent wrote about a billing feature) must not misfire.
+        self.assertIsNone(
+            claude_runtime.extract_credit_exhaustion(
+                returncode=0, stderr="credit balance", events=(),
+            ),
+        )
+
+    def test_transient_signals_are_not_credit_exhaustion(self) -> None:
+        # Overload / bare rate-limit / network stay on the requeue path.
+        for stderr in ("API overloaded, please retry", "rate_limit: 429 too many requests", "network timeout"):
+            self.assertIsNone(
+                claude_runtime.extract_credit_exhaustion(returncode=1, stderr=stderr, events=()),
+                stderr,
+            )
+
+    def test_insufficient_permissions_is_not_credit(self) -> None:
+        # "insufficient permissions" is an auth error, not a credit error —
+        # the markers are credit/quota/funds-specific, never bare "insufficient".
+        self.assertIsNone(
+            claude_runtime.extract_credit_exhaustion(
+                returncode=1, stderr="insufficient permissions for this tool", events=(),
+            ),
+        )
+
+    def test_run_result_defaults_credit_exhaustion_to_none(self) -> None:
+        result = claude_runtime.ClaudeRunResult(
+            returncode=0, stdout="", stderr="", final_message="", usage={}, events=(),
+        )
+        self.assertIsNone(result.credit_exhaustion)
+
+    def test_markers_are_credit_specific_not_transient(self) -> None:
+        blob = " ".join(claude_runtime.CREDIT_EXHAUSTION_MARKERS)
+        self.assertIn("credit balance", claude_runtime.CREDIT_EXHAUSTION_MARKERS)
+        for forbidden in ("overloaded", "429", "timeout", "network"):
+            self.assertNotIn(forbidden, blob)

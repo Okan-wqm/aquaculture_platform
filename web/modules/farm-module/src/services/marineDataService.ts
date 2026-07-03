@@ -1,4 +1,4 @@
-import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
+import { restClient } from '@aquaculture/shared-ui';
 
 export type SentinelLayerId =
   | 'sentinel:natural-color'
@@ -317,24 +317,11 @@ function formatDate(date: Date): string {
   return DATE_FORMATTER.format(date);
 }
 
-function getAuthHeaders(): HeadersInit {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
-  };
-}
-
-async function fetchMarine(path: string, init?: RequestInit): Promise<globalThis.Response> {
-  return fetch(`${MARINE_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      ...getAuthHeaders(),
-      ...init?.headers,
-    },
-  });
-}
+// FARM-MEDIUM-091: marine REST calls go through the shared restClient (auth +
+// tenant + CSRF + lifecycle barrier + 401-refresh). MARINE_API_BASE = '/api/marine'
+// and restClient's restBaseUrl = '/api', so each call uses the '/marine/…' path.
+// buildMarineTileUrl below still uses MARINE_API_BASE directly — those tiles are
+// loaded by Leaflet as <img> URLs, not fetched through this module.
 
 function parseMarineLayer(value: unknown): MarineLayerDefinition {
   if (!isRecord(value)) {
@@ -401,11 +388,7 @@ function parseMarinePoint(value: unknown): MarinePointQueryResult | null {
 }
 
 export async function fetchMarineLayers(): Promise<MarineLayerDefinition[]> {
-  const response = await fetchMarine('/layers');
-  if (!response.ok) {
-    throw new Error(`Marine layers request failed: ${response.status}`);
-  }
-  const payload: unknown = await response.json();
+  const payload: unknown = await restClient.get('/marine/layers');
   if (!Array.isArray(payload)) {
     throw new Error('Marine layers response is not an array');
   }
@@ -420,11 +403,9 @@ export async function fetchMarineAvailability(input: {
   const params = new URLSearchParams();
   if (input.date) params.set('date', formatDate(input.date));
   if (input.depth !== undefined) params.set('depth', String(input.depth));
-  const response = await fetchMarine(`/layers/${encodeURIComponent(input.layerId)}/availability?${params.toString()}`);
-  if (!response.ok) {
-    throw new Error(`Marine availability request failed: ${response.status}`);
-  }
-  const payload: unknown = await response.json();
+  const payload: unknown = await restClient.get(
+    `/marine/layers/${encodeURIComponent(input.layerId)}/availability?${params.toString()}`
+  );
   if (!isRecord(payload)) {
     throw new Error('Invalid marine availability payload');
   }
@@ -467,13 +448,10 @@ export async function fetchMarineTileBlob(input: {
   if (input.depth !== undefined) {
     params.set('depth', String(input.depth));
   }
-  const response = await fetchMarine(
-    `/tiles/${encodeURIComponent(input.layerId)}/${input.z}/${input.x}/${input.y}.png?${params.toString()}`,
+  return restClient.requestBlob(
+    'GET',
+    `/marine/tiles/${encodeURIComponent(input.layerId)}/${input.z}/${input.x}/${input.y}.png?${params.toString()}`
   );
-  if (!response.ok) {
-    throw new Error(`Marine tile request failed: ${response.status}`);
-  }
-  return response.blob();
 }
 
 export async function fetchMarinePointValue(input: {
@@ -483,21 +461,15 @@ export async function fetchMarinePointValue(input: {
   date: Date;
   depth?: number;
 }): Promise<MarinePointQueryResult | null> {
-  const response = await fetchMarine('/point-query', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  const payload: unknown = await restClient.request('POST', '/marine/point-query', {
+    body: {
       layerId: input.layerId,
       lat: input.lat,
       lng: input.lng,
       date: formatDate(input.date),
       depth: input.depth,
-    }),
+    },
   });
-  if (!response.ok) {
-    throw new Error(`Marine point request failed: ${response.status}`);
-  }
-  const payload: unknown = await response.json();
   return parseMarinePoint(payload);
 }
 
@@ -509,20 +481,14 @@ export async function fetchMarineAoiImage(input: {
   width?: number;
   height?: number;
 }): Promise<Blob> {
-  const response = await fetchMarine('/aoi-analysis', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  return restClient.requestBlob('POST', '/marine/aoi-analysis', {
+    body: {
       layerId: input.layerId,
       bbox: Array.isArray(input.bbox) ? [...input.bbox] : input.bbox,
       fromDate: input.fromDate.toISOString(),
       toDate: input.toDate.toISOString(),
       width: input.width ?? 1024,
       height: input.height ?? 1024,
-    }),
+    },
   });
-  if (!response.ok) {
-    throw new Error(`Marine AOI request failed: ${response.status}`);
-  }
-  return response.blob();
 }

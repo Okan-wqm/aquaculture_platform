@@ -18,7 +18,9 @@ import {
   SchemaDriftModule,
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
+  TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
@@ -191,6 +193,13 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       excludeTables: getRlsExcludeTablesForService('alert'),
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    // Tenant execution context interceptor (SSoT registration) — keeps the
+    // validated tenant schema in AsyncLocalStorage across Apollo/CQRS async
+    // boundaries so per-tenant search_path routing holds at pg checkout.
+    TenantExecutionContextModule,
+    // Shared tenant schema-existence cache + TenantProvisioned invalidation
+    // (no stale-negative-cache block for freshly provisioned tenants).
+    TenantSchemaCacheModule,
     SchemaDriftModule.forRoot({
       serviceName: 'alert-engine',
       schemaName: 'alert',

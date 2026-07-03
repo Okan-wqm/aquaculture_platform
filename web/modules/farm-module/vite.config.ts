@@ -1,6 +1,6 @@
 import { resolve } from 'path';
 
-import { getCoreSharedConfig } from '@aquaculture/shared-ui/federation/federationSharedConfig';
+import { getSharedConfigWithRecharts } from '@aquaculture/shared-ui/federation/federationSharedConfig';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
@@ -42,14 +42,22 @@ export default defineConfig(({ mode }) => {
           // (FARM-MEDIUM-114) — live sensor monitoring is owned by the
           // sensor-module remote.
         },
-        // FE-HIGH-004: Single source of truth with strictVersion:true
-        shared: getCoreSharedConfig(),
+        // FE-HIGH-004: Single source of truth with strictVersion:true.
+        // recharts shared (was core): the water-chemistry Deffeyes/secondary
+        // charts move to shared-ui, whose recharts import is externalized from
+        // dist and must resolve from the federation shared scope.
+        shared: getSharedConfigWithRecharts(),
       }),
     ],
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src'),
         '@aquaculture/shared-ui': sharedUiAlias,
+        // Water-chemistry presentation components import from shared-ui SOURCE
+        // (bundled per-remote, NOT via the federation singleton) so recharts is
+        // never forced into the shared-ui singleton. See
+        // web/shared-ui/src/water-chemistry/components/index.ts.
+        '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
         '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
         '@platform/aquaculture-engines': resolve(
           __dirname,

@@ -24,6 +24,19 @@ platform team and its users. All SLOs are enforced via Prometheus alert rules de
 | 5 | Sensor data freshness | `time() - max(sensor_reading_timestamp)` | < 60 s lag | 30 days (rolling) | warning |
 | 6 | Login success rate | `rate(auth_login_success_total) / rate(auth_login_attempts_total)` | >= 99.5% | 7 days (rolling) | warning |
 | 7 | Webhook processing latency | `histogram_quantile(0.95, webhook_processing_duration_seconds_bucket)` | < 5 s | 30 days (rolling) | warning |
+| 8 | Auth login latency p99 (tier-0) | `histogram_quantile(0.99, auth_operation_duration_seconds_bucket{operation="login"})` | < 500 ms | 30 days (rolling) | warning |
+| 9 | Auth token-validation latency p99 (tier-0) | `histogram_quantile(0.99, auth_operation_duration_seconds_bucket{operation="token_validation"})` | < 200 ms | 30 days (rolling) | warning |
+
+> **Tier-0 auth latency (SLI 8 & 9, PERF-MEDIUM-003):** login and token-validation
+> are GraphQL operations served on `/graphql`, so the route-blind
+> `http_request_duration_seconds` histogram (SLI 2/3) cannot isolate them. They are
+> measured directly by `auth_operation_duration_seconds` (auth-service
+> `AuthDomainMetricsService`), labelled by `operation` (`login` /
+> `token_validation`) and `outcome` (`success` / `error` — failed logins are part
+> of the latency budget). The 500 ms login target sits **above** the ~200 ms
+> constant-time login floor (the deliberate timing-attack mitigation), so the alert
+> fires on real regression, not the floor itself. Alerts: `SloAuthLoginP99High`,
+> `SloAuthTokenValidationP99High`.
 
 ---
 

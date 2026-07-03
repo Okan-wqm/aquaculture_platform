@@ -126,8 +126,6 @@ export function generateNH3ToxicZone(
   S: number,
   tan: number,
   nh3Limit: number,
-  alkMin: number,
-  alkMax: number,
   maxDIC = 6
 ): ToxicZone | null {
   const critPH = criticalPHforNH3(tan, nh3Limit, tempC, S);
@@ -161,7 +159,6 @@ export function generateNH3ToxicZone(
 export function generateCO2ToxicZone(
   tempC: number,
   S: number,
-  alkMeq: number,
   co2CritMg: number,
   maxDIC = 6
 ): ToxicZone | null {
@@ -487,11 +484,10 @@ export function generateDeffeyesChartData(
 
   // Toxic zones
   const nh3ToxicZone = generateNH3ToxicZone(
-    tempC, salinity, limits.tan, limits.unIonizedNH3,
-    alkMinMeq, alkMaxMeq, maxDIC
+    tempC, salinity, limits.tan, limits.unIonizedNH3, maxDIC
   );
   const co2ToxicZone = generateCO2ToxicZone(
-    tempC, salinity, alkalinity, limits.co2Toxic, maxDIC
+    tempC, salinity, limits.co2Toxic, maxDIC
   );
   const h2sToxicZone = generateH2SToxicZone(
     tempC, salinity, limits.h2sMeasuredUgL, limits.h2sMeasuredAtPH, limits.h2sLimitUgL, maxDIC

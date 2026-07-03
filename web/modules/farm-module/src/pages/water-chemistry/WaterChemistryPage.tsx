@@ -5,36 +5,26 @@
  *
  * Ported from Python v1.py PyQt5 application.
  */
-import { useCanMutate } from '@aquaculture/shared-ui';
+import {
+  buildDeffeyesData,
+  computeWaterChemistryOutputs,
+  getVisibleH2SChartZones,
+  getVisibleNH3ChartZones,
+  useCanMutate,
+  type WaterChemistryInputs,
+} from '@aquaculture/shared-ui';
 import {
   alkMgToMeq,
-  CalculatedOutputs,
-  calcCo2OfDic,
   calcDicOfAlk,
-  calcDosingVisualization,
   calcForwardDosing,
-  calcH2S,
-  calcNH3,
-  calcSafeTAN,
-  calcSafeTotalSulfide,
-  calcTotalSulfide,
-  calculateDosingRecipes,
-  co2MmToMg,
-  criticalPHforCO2,
-  criticalPHforH2SPHChartDomain,
-  criticalPHforNH3,
   DEFFEYES_CHART_PH_DOMAIN,
   DEFFEYES_LEGACY_PH_DOMAIN,
   generateCarbonateVsPHData,
-  generateDeffeyesChartData,
   generateH2SvsPHData,
   generateSaturationVsPHData,
   generateUIAvsPHData,
-  h2sStatus,
   percentNH3,
   REAGENTS,
-  reagentDirectionLine,
-  uiaStatus,
 } from '@platform/aquaculture-engines';
 import React, { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -59,7 +49,6 @@ import { BulkRecordTab } from './components/BulkRecordTab';
 import DeffeyesChart from './components/DeffeyesChart';
 import { HistoryTab } from './components/HistoryTab';
 import InputPanel from './components/InputPanel';
-import type { WaterChemistryInputs } from './components/InputPanel';
 import OnDemandPanel from './components/OnDemandPanel';
 import { ParameterConfigManager } from './components/ParameterConfigManager';
 import { RecordTab } from './components/RecordTab';
@@ -117,79 +106,6 @@ const DEFAULT_INPUTS: WaterChemistryInputs = {
   showTarget: true,
 };
 
-const REAGENT_COLORS: Record<string, string> = {
-  'Sodium Bicarbonate': '#2563eb',
-  'Sodium Carbonate': '#7c3aed',
-  'Sodium Hydroxide': '#059669',
-  'Calcium Carbonate': '#0891b2',
-  'Calcium Hydroxide': '#65a30d',
-  'Calcium Oxide': '#ca8a04',
-  'Add CO₂': '#ea580c',
-  'De-gas CO₂': '#dc2626',
-  'Muriatic Acid': '#be185d',
-};
-
-interface VisiblePHZone {
-  x1: number;
-  x2: number;
-}
-
-export function getVisibleH2SChartZones(
-  criticalPH: number,
-  minPH = DEFFEYES_CHART_PH_DOMAIN.minPH,
-  maxPH = DEFFEYES_CHART_PH_DOMAIN.maxPH
-): { danger?: VisiblePHZone; alert?: VisiblePHZone; safe?: VisiblePHZone; showCriticalLine: boolean } {
-  if (!isFinite(criticalPH)) {
-    return { safe: { x1: minPH, x2: maxPH }, showCriticalLine: false };
-  }
-  if (criticalPH < minPH) {
-    return { safe: { x1: minPH, x2: maxPH }, showCriticalLine: false };
-  }
-  if (criticalPH >= maxPH) {
-    return { danger: { x1: minPH, x2: maxPH }, showCriticalLine: criticalPH === maxPH };
-  }
-
-  const alertEnd = Math.min(maxPH, criticalPH + 0.2);
-  return {
-    danger: { x1: minPH, x2: criticalPH },
-    alert: alertEnd > criticalPH ? { x1: criticalPH, x2: alertEnd } : undefined,
-    safe: alertEnd < maxPH ? { x1: alertEnd, x2: maxPH } : undefined,
-    showCriticalLine: true,
-  };
-}
-
-/**
- * NH₃ safety bands for the UIA-vs-pH chart, clamped to the chart's visible pH
- * domain. NH₃ is toxic ABOVE the critical pH (mirror of H₂S), so the danger
- * band is on the high-pH (right) side. Clamping matters: when the critical pH
- * falls OUTSIDE the visible domain, Recharts' default `ifOverflow="discard"`
- * silently drops off-domain `<ReferenceArea>`s, which made the red/yellow/green
- * shading vanish for high-TAN / low-limit / high-salinity inputs. This helper
- * returns full-range danger (crit ≤ floor) or full-range safe (crit ≥ ceiling)
- * so the chart is always shaded.
- */
-export function getVisibleNH3ChartZones(
-  criticalPH: number,
-  minPH = 6.0,
-  maxPH = 9.5
-): { danger?: VisiblePHZone; alert?: VisiblePHZone; safe?: VisiblePHZone; showCriticalLine: boolean } {
-  // No reachable critical pH, or it sits above the visible chart → all safe
-  if (!isFinite(criticalPH) || criticalPH >= maxPH) {
-    return { safe: { x1: minPH, x2: maxPH }, showCriticalLine: isFinite(criticalPH) && criticalPH === maxPH };
-  }
-  // Critical pH at/below the visible floor → whole chart is in the danger band
-  if (criticalPH <= minPH) {
-    return { danger: { x1: minPH, x2: maxPH }, showCriticalLine: criticalPH === minPH };
-  }
-  const alertStart = Math.max(minPH, criticalPH - 0.2);
-  return {
-    safe: alertStart > minPH ? { x1: minPH, x2: alertStart } : undefined,
-    alert: alertStart < criticalPH ? { x1: alertStart, x2: criticalPH } : undefined,
-    danger: { x1: criticalPH, x2: maxPH },
-    showCriticalLine: true,
-  };
-}
-
 // ============================================================================
 // OVERVIEW CONTENT - Upgraded with Millero engine
 // ============================================================================
@@ -206,95 +122,19 @@ const OverviewContent: React.FC = () => {
 
   // Convert inputs to engine parameters
   const alkMeq = alkMgToMeq(inputs.alkalinityMg);
-  const targetAlkMeq = alkMgToMeq(inputs.targetAlkalinityMg);
-  const alkMinMeq = alkMgToMeq(inputs.alkMinMg);
-  const alkMaxMeq = alkMgToMeq(inputs.alkMaxMg);
   // H₂S is measured in-situ, so its measurement pH IS the single realtime pH —
   // the same pH that drives the CO₂ and NH₃ toxicity calcs. No separate knob.
   const h2sMeasuredAtPH = inputs.pH;
 
-  // Generate Deffeyes chart data
-  const deffeyesData = useMemo(
-    () => {
-      try {
-        return generateDeffeyesChartData(
-          { tempC: inputs.tempC, pH: inputs.pH, salinity: inputs.salinity, alkalinity: alkMeq },
-          inputs.showTarget ? { targetpH: inputs.targetpH, targetAlkalinity: targetAlkMeq } : null,
-          {
-            tan: inputs.tan,
-            unIonizedNH3: inputs.unIonizedNH3,
-            co2Toxic: inputs.co2Toxic,
-            h2sMeasuredUgL: inputs.h2sUgL,
-            h2sLimitUgL: inputs.h2sLimitUgL,
-            h2sMeasuredAtPH,
-          },
-          alkMinMeq,
-          alkMaxMeq,
-          inputs.caMgL
-        );
-      } catch (e) {
-        reportWaterChemistryDiagnostic('deffeyes-data-generation', e);
-        return {
-          isolines: [], nh3ToxicZone: null, co2ToxicZone: null, h2sToxicZone: null,
-          safeZone: null, currentPoint: { DIC: 0, ALK: 0 }, targetPoint: null,
-          reagentLine: null, dosingVisualization: null, omegaCalcite: null, omegaAragonite: null,
-        };
-      }
-    },
-    [inputs.tempC, inputs.pH, inputs.salinity, alkMeq, inputs.targetpH, targetAlkMeq,
-     inputs.tan, inputs.unIonizedNH3, inputs.co2Toxic, inputs.h2sUgL, inputs.h2sLimitUgL, h2sMeasuredAtPH, alkMinMeq, alkMaxMeq, inputs.showTarget, inputs.caMgL]
+  // Deffeyes chart data + reagent visualization — shared SSoT builder (identical
+  // logic for the farm calculator and the sensor-module cards).
+  const deffeyesDataWithReagent = useMemo(
+    () =>
+      buildDeffeyesData(inputs, selectedReagents, {
+        onError: (_stage, e) => reportWaterChemistryDiagnostic('deffeyes-data-generation', e),
+      }),
+    [inputs, selectedReagents],
   );
-
-  // Add reagent visualization to Deffeyes chart
-  const deffeyesDataWithReagent = useMemo(() => {
-    const result = { ...deffeyesData };
-
-    if (selectedReagents.length === 1) {
-      // Single reagent: show direction line
-      const reagent = REAGENTS.find(r => r.name === selectedReagents[0]);
-      if (reagent) {
-        result.reagentLine = reagentDirectionLine(
-          deffeyesData.currentPoint.DIC,
-          deffeyesData.currentPoint.ALK,
-          reagent,
-          8
-        );
-      }
-    } else if (selectedReagents.length === 2) {
-      // Two reagents: compute dosing visualization
-      // If target exists, compute full path; otherwise just direction lines for wedge
-      if (deffeyesData.targetPoint) {
-        const viz = calcDosingVisualization(
-          deffeyesData.currentPoint.DIC,
-          deffeyesData.currentPoint.ALK,
-          deffeyesData.targetPoint.DIC,
-          deffeyesData.targetPoint.ALK,
-          selectedReagents[0],
-          selectedReagents[1],
-        );
-        result.dosingVisualization = viz;
-      }
-
-      // Always compute direction lines for wedge visualization (even without target)
-      if (!result.dosingVisualization) {
-        const r1 = REAGENTS.find(r => r.name === selectedReagents[0]);
-        const r2 = REAGENTS.find(r => r.name === selectedReagents[1]);
-        if (r1 && r2) {
-          const line1 = reagentDirectionLine(deffeyesData.currentPoint.DIC, deffeyesData.currentPoint.ALK, r1, 8);
-          const line2 = reagentDirectionLine(deffeyesData.currentPoint.DIC, deffeyesData.currentPoint.ALK, r2, 8);
-          result.dosingVisualization = {
-            reagentLine1: { points: line1, label: r1.formula, color: REAGENT_COLORS[r1.name] || '#6b7280' },
-            reagentLine2: { points: line2, label: r2.formula, color: REAGENT_COLORS[r2.name] || '#6b7280' },
-            step1Path: [], step2Path: [],
-            intermediatePoint: { DIC: 0, ALK: 0 },
-            step1Label: '', step2Label: '',
-          };
-        }
-      }
-    }
-
-    return result;
-  }, [deffeyesData, selectedReagents]);
 
   // Generate UIA chart data (replaces old NH3 chart)
   const uiaData = useMemo(
@@ -335,68 +175,11 @@ const OverviewContent: React.FC = () => {
     [inputs.tempC, inputs.salinity, currentDicForChart, inputs.caMgL]
   );
 
-  // Calculate outputs
-  const outputs = useMemo((): CalculatedOutputs => {
-    const toxicNH3pH = criticalPHforNH3(inputs.tan, inputs.unIonizedNH3, inputs.tempC, inputs.salinity);
-    const toxicCO2pH = criticalPHforCO2(alkMeq, inputs.co2Toxic, inputs.tempC, inputs.salinity);
-    const uiaNPercent = isNaN(toxicNH3pH) ? NaN : percentNH3(toxicNH3pH, inputs.tempC, inputs.salinity);
-
-    const currentDIC = calcDicOfAlk(alkMeq, inputs.pH, inputs.tempC, inputs.salinity);
-    const currentCO2mm = calcCo2OfDic(currentDIC, inputs.pH, inputs.tempC, inputs.salinity);
-    const currentCO2 = co2MmToMg(currentCO2mm);
-
-    const targetDIC = calcDicOfAlk(targetAlkMeq, inputs.targetpH, inputs.tempC, inputs.salinity);
-    const targetCO2mm = calcCo2OfDic(targetDIC, inputs.targetpH, inputs.tempC, inputs.salinity);
-    const targetCO2 = co2MmToMg(targetCO2mm);
-
-    const dosingRecipes = calculateDosingRecipes(
-      currentDIC, alkMeq, targetDIC, targetAlkMeq,
-      inputs.volume, selectedReagents
-    );
-
-    // UIA safety calculations (from R Shiny UIA module)
-    const currentUIA = calcNH3(inputs.tan, inputs.pH, inputs.tempC, inputs.salinity);
-    const safeTAN = calcSafeTAN(inputs.pH, inputs.unIonizedNH3, inputs.tempC, inputs.salinity);
-    const uiaStatusLevel = uiaStatus(inputs.pH, toxicNH3pH);
-    const deltaPH = isNaN(toxicNH3pH) ? NaN : toxicNH3pH - inputs.pH;
-
-    // H₂S safety calculations
-    const toxicH2SpH = criticalPHforH2SPHChartDomain(
-      inputs.h2sUgL,
-      h2sMeasuredAtPH,
-      inputs.h2sLimitUgL,
-      inputs.tempC,
-      inputs.salinity,
-      DEFFEYES_CHART_PH_DOMAIN.minPH,
-      DEFFEYES_CHART_PH_DOMAIN.maxPH
-    );
-    const totalSulfide = calcTotalSulfide(inputs.h2sUgL, h2sMeasuredAtPH, inputs.tempC, inputs.salinity);
-    const currentH2S = calcH2S(totalSulfide, inputs.pH, inputs.tempC, inputs.salinity);
-    const safeTotalSulfide = calcSafeTotalSulfide(inputs.pH, inputs.h2sLimitUgL, inputs.tempC, inputs.salinity);
-    const h2sStatusLevel = h2sStatus(inputs.pH, toxicH2SpH);
-    const h2sDeltaPH = isNaN(toxicH2SpH) ? NaN : inputs.pH - toxicH2SpH; // positive = safe (above critical)
-
-    return {
-      toxicNH3pH,
-      toxicCO2pH,
-      uiaNPercent,
-      targetCO2,
-      currentCO2,
-      currentDIC,
-      targetDIC,
-      dosingRecipes,
-      currentUIA,
-      safeTAN,
-      uiaStatusLevel,
-      deltaPH,
-      toxicH2SpH,
-      currentH2S,
-      totalSulfide,
-      safeTotalSulfide,
-      h2sStatusLevel,
-      h2sDeltaPH,
-    };
-  }, [inputs, alkMeq, targetAlkMeq, selectedReagents, h2sMeasuredAtPH]);
+  // Calculate outputs — shared SSoT compute (identical numbers everywhere).
+  const outputs = useMemo(
+    () => computeWaterChemistryOutputs(inputs, selectedReagents),
+    [inputs, selectedReagents],
+  );
 
   // On-demand forward dosing path — derived from the amounts Record
   const onDemandPath = useMemo(() => {

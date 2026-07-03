@@ -3976,6 +3976,16 @@ def _main(argv: list[str] | None = None) -> int:
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
         plan_synthesizer = select_plan_synthesizer(profile=profile)
+        # ORPHAN-312 — install the finding-driven plan source. Without this
+        # the orchestrator's NoOp default returns None and the loop falls back
+        # to the git_diff synthesizer, which ignores seeded findings entirely
+        # and grounds the plan (and the challenger envelope) in arbitrary
+        # changed files. The mining provider ranks ORPHAN>F_FINDING>GIT_DIFF,
+        # converts the top candidate into a code-grounded plan, and soft-falls
+        # to git_diff only when no finding converts (preserves prior behaviour
+        # when there is no pending finding).
+        from .cycle_phases.plan_source import V9PressureSourceProvider
+        plan_content_provider = V9PressureSourceProvider()
         skill_genesis_drainer = select_skill_genesis_drainer(profile=profile)
         # ORPHAN-HIGH-082 fix: CLI flags --challenger-timeout-seconds and
         # --max-rounds are now plumbed all the way to the orchestrator
@@ -3993,6 +4003,7 @@ def _main(argv: list[str] | None = None) -> int:
             review_runner=review_runner,
             specialist_review_runner=specialist_review_runner,
             plan_synthesizer=plan_synthesizer,
+            plan_content_provider=plan_content_provider,
             skill_genesis_drainer=skill_genesis_drainer,
             workspace_root=args.workspace_root,
             max_cycles=args.max_cycles,

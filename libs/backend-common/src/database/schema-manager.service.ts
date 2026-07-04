@@ -408,6 +408,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'water_quality_measurements',
       'water_quality_parameter_configs',
       'water_quality_param_equipment',
+      'sensor_temperature_latest',
       'health_events',
       'harvest_plans',
       'harvest_records',

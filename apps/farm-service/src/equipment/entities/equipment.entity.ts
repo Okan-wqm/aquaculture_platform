@@ -36,19 +36,19 @@ import type { EquipmentSystem } from './equipment-system.entity';
 import { EquipmentType } from './equipment-type.entity';
 
 export enum EquipmentStatus {
-  OPERATIONAL = 'operational',       // Çalışır durumda
-  MAINTENANCE = 'maintenance',       // Bakımda
-  REPAIR = 'repair',                 // Tamirde
+  OPERATIONAL = 'operational', // Çalışır durumda
+  MAINTENANCE = 'maintenance', // Bakımda
+  REPAIR = 'repair', // Tamirde
   OUT_OF_SERVICE = 'out_of_service', // Hizmet dışı
   DECOMMISSIONED = 'decommissioned', // Kullanımdan kaldırıldı
-  STANDBY = 'standby',               // Yedek/Beklemede
+  STANDBY = 'standby', // Yedek/Beklemede
   // Tank-specific statuses
-  ACTIVE = 'active',                 // Aktif (tank - içinde balık var)
-  PREPARING = 'preparing',           // Hazırlanıyor
-  CLEANING = 'cleaning',             // Temizleniyor
-  HARVESTING = 'harvesting',         // Hasat yapılıyor
-  FALLOW = 'fallow',                 // Boş/Dinlendirme
-  QUARANTINE = 'quarantine',         // Karantina
+  ACTIVE = 'active', // Aktif (tank - içinde balık var)
+  PREPARING = 'preparing', // Hazırlanıyor
+  CLEANING = 'cleaning', // Temizleniyor
+  HARVESTING = 'harvesting', // Hasat yapılıyor
+  FALLOW = 'fallow', // Boş/Dinlendirme
+  QUARANTINE = 'quarantine', // Karantina
 }
 
 export interface EquipmentLocation {
@@ -82,25 +82,33 @@ export interface MaintenanceSchedule {
 export interface TankSpecifications {
   [key: string]: unknown;
   tankType: 'circular' | 'rectangular' | 'raceway' | 'd_end' | 'oval' | 'square' | 'other';
-  material: 'fiberglass' | 'concrete' | 'hdpe' | 'steel' | 'stainless_steel' | 'pvc' | 'liner' | 'other';
+  material:
+    | 'fiberglass'
+    | 'concrete'
+    | 'hdpe'
+    | 'steel'
+    | 'stainless_steel'
+    | 'pvc'
+    | 'liner'
+    | 'other';
   waterType: 'freshwater' | 'saltwater' | 'brackish';
   dimensions: {
-    diameter?: number;               // m - circular/oval için
-    length?: number;                 // m - rectangular/raceway için
-    width?: number;                  // m - rectangular/raceway için
-    depth: number;                   // m - tüm tipler için zorunlu
-    waterDepth?: number;             // m - gerçek su seviyesi
-    freeboard?: number;              // m - su yüzeyinden tank kenarına
+    diameter?: number; // m - circular/oval için
+    length?: number; // m - rectangular/raceway için
+    width?: number; // m - rectangular/raceway için
+    depth: number; // m - tüm tipler için zorunlu
+    waterDepth?: number; // m - gerçek su seviyesi
+    freeboard?: number; // m - su yüzeyinden tank kenarına
   };
-  volume: number;                    // m³ - hesaplanmış
-  waterVolume?: number;              // m³ - gerçek su hacmi
-  maxBiomass: number;                // kg
-  maxDensity: number;                // kg/m³
-  maxCount?: number;                 // maksimum adet
+  volume: number; // m³ - hesaplanmış
+  waterVolume?: number; // m³ - gerçek su hacmi
+  maxBiomass: number; // kg
+  maxDensity: number; // kg/m³
+  maxCount?: number; // maksimum adet
   waterFlow?: {
-    flowRate?: number;               // L/dakika veya m³/saat
+    flowRate?: number; // L/dakika veya m³/saat
     flowRateUnit?: 'L/min' | 'm3/h';
-    exchangeRate?: number;           // Hacim/saat değişim oranı
+    exchangeRate?: number; // Hacim/saat değişim oranı
     inletCount?: number;
     outletCount?: number;
     drainType?: 'center' | 'side' | 'dual' | 'other';
@@ -109,8 +117,8 @@ export interface TankSpecifications {
     hasAeration: boolean;
     aerationType?: 'diffuser' | 'paddle_wheel' | 'venturi' | 'blower' | 'other';
     aeratorCount?: number;
-    airFlowRate?: number;            // L/dakika
-    targetDO?: number;               // mg/L
+    airFlowRate?: number; // L/dakika
+    targetDO?: number; // mg/L
   };
 }
 
@@ -207,7 +215,13 @@ export class Equipment {
   @Column({ type: 'date', nullable: true })
   warrantyEndDate?: Date;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   purchasePrice?: number;
 
   @Column({ length: 3, default: 'TRY' })
@@ -240,7 +254,13 @@ export class Equipment {
   @Column({ type: 'int', default: 0 })
   subEquipmentCount: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   operatingHours?: number;
 
   @Column({ type: 'text', nullable: true })
@@ -254,14 +274,36 @@ export class Equipment {
   @Column({ default: false })
   isVisibleInSensor: boolean;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  volume?: number;                   // m³ - tank için
+  /**
+   * Linked temperature sensor (sensor-service `sensors.id`) — set when a tank/
+   * pond/cage is created or edited. Soft cross-service reference (no FK; the
+   * Sensor entity lives in sensor-service). WaterTemperatureService resolves the
+   * tank's current temperature from the latest reading of this sensor, preferring
+   * it over the latest manual water-quality measurement.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  temperatureSensorId?: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  currentBiomass?: number;           // kg - tank için, batch'lerden hesaplanır
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  volume?: number; // m³ - tank için
+
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  currentBiomass?: number; // kg - tank için, batch'lerden hesaplanır
 
   @Column({ type: 'int', nullable: true })
-  currentCount?: number;             // Mevcut adet - tank için
+  currentCount?: number; // Mevcut adet - tank için
 
   @Column({ default: true })
   isActive: boolean;

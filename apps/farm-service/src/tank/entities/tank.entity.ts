@@ -27,15 +27,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  Directive,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, Directive, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { Department } from '../../department/entities/department.entity';
 import { WaterType } from '../../farm/entities/pond.entity';
@@ -51,12 +43,12 @@ export { WaterType };
  * Tank tipi - Fiziksel şekil
  */
 export enum TankType {
-  CIRCULAR = 'circular',           // Dairesel tank
-  RECTANGULAR = 'rectangular',     // Dikdörtgen tank
-  RACEWAY = 'raceway',             // Kanal tipi (uzun, dar)
-  D_END = 'd_end',                 // D-uçlu raceway
-  OVAL = 'oval',                   // Oval tank
-  SQUARE = 'square',               // Kare tank
+  CIRCULAR = 'circular', // Dairesel tank
+  RECTANGULAR = 'rectangular', // Dikdörtgen tank
+  RACEWAY = 'raceway', // Kanal tipi (uzun, dar)
+  D_END = 'd_end', // D-uçlu raceway
+  OVAL = 'oval', // Oval tank
+  SQUARE = 'square', // Kare tank
   OTHER = 'other',
 }
 
@@ -69,13 +61,13 @@ registerEnumType(TankType, {
  * Tank malzemesi
  */
 export enum TankMaterial {
-  FIBERGLASS = 'fiberglass',       // Cam elyaf
-  CONCRETE = 'concrete',           // Beton
-  HDPE = 'hdpe',                   // Yüksek yoğunluklu polietilen
-  STEEL = 'steel',                 // Çelik
+  FIBERGLASS = 'fiberglass', // Cam elyaf
+  CONCRETE = 'concrete', // Beton
+  HDPE = 'hdpe', // Yüksek yoğunluklu polietilen
+  STEEL = 'steel', // Çelik
   STAINLESS_STEEL = 'stainless_steel', // Paslanmaz çelik
-  PVC = 'pvc',                     // PVC
-  LINER = 'liner',                 // Kaplama (havuz için)
+  PVC = 'pvc', // PVC
+  LINER = 'liner', // Kaplama (havuz için)
   OTHER = 'other',
 }
 
@@ -90,14 +82,14 @@ registerEnumType(TankMaterial, {
  * Tank durumu
  */
 export enum TankStatus {
-  ACTIVE = 'active',               // Aktif - içinde balık var
-  PREPARING = 'preparing',         // Hazırlanıyor
-  CLEANING = 'cleaning',           // Temizleniyor
-  MAINTENANCE = 'maintenance',     // Bakımda
-  HARVESTING = 'harvesting',       // Hasat yapılıyor
-  FALLOW = 'fallow',               // Boş/Dinlendirme
-  QUARANTINE = 'quarantine',       // Karantina
-  INACTIVE = 'inactive',           // Kullanım dışı
+  ACTIVE = 'active', // Aktif - içinde balık var
+  PREPARING = 'preparing', // Hazırlanıyor
+  CLEANING = 'cleaning', // Temizleniyor
+  MAINTENANCE = 'maintenance', // Bakımda
+  HARVESTING = 'harvesting', // Hasat yapılıyor
+  FALLOW = 'fallow', // Boş/Dinlendirme
+  QUARANTINE = 'quarantine', // Karantina
+  INACTIVE = 'inactive', // Kullanım dışı
 }
 
 registerEnumType(TankStatus, {
@@ -125,29 +117,29 @@ registerEnumType(TankContainerKind, {
  */
 export interface TankDimensions {
   // Circular tank için
-  diameter?: number;               // m
+  diameter?: number; // m
 
   // Rectangular/Raceway için
-  length?: number;                 // m
-  width?: number;                  // m
+  length?: number; // m
+  width?: number; // m
 
   // Tüm tipler için
-  depth: number;                   // m
-  freeboard?: number;              // Su yüzeyinden tank kenarına mesafe (m)
+  depth: number; // m
+  freeboard?: number; // Su yüzeyinden tank kenarına mesafe (m)
 
   // Water level
-  waterDepth?: number;             // Gerçek su derinliği (m)
+  waterDepth?: number; // Gerçek su derinliği (m)
 }
 
 /**
  * Tank konumu
  */
 export interface TankLocation {
-  building?: string;               // Bina adı
-  section?: string;                // Seksiyon
-  row?: number;                    // Satır numarası
-  column?: number;                 // Sütun numarası
-  floor?: string;                  // Kat
+  building?: string; // Bina adı
+  section?: string; // Seksiyon
+  row?: number; // Satır numarası
+  column?: number; // Sütun numarası
+  floor?: string; // Kat
   coordinates?: {
     x: number;
     y: number;
@@ -160,13 +152,13 @@ export interface TankLocation {
  * Su akış özellikleri
  */
 export interface WaterFlowProperties {
-  flowRate?: number;               // L/dakika
+  flowRate?: number; // L/dakika
   flowRateUnit?: 'L/min' | 'm3/h';
-  exchangeRate?: number;           // Hacim/saat değişim oranı
-  inletCount?: number;             // Giriş sayısı
-  outletCount?: number;            // Çıkış sayısı
-  inletDiameter?: number;          // mm
-  outletDiameter?: number;         // mm
+  exchangeRate?: number; // Hacim/saat değişim oranı
+  inletCount?: number; // Giriş sayısı
+  outletCount?: number; // Çıkış sayısı
+  inletDiameter?: number; // mm
+  outletDiameter?: number; // mm
   drainType?: 'center' | 'side' | 'dual' | 'other';
 }
 
@@ -174,13 +166,13 @@ export interface WaterFlowProperties {
  * Kapasite ve yoğunluk limitleri
  */
 export interface TankCapacity {
-  maxBiomass: number;              // Maksimum biomass (kg)
-  currentBiomass: number;          // Mevcut biomass (kg)
-  maxDensity: number;              // Maksimum yoğunluk (kg/m³)
-  currentDensity?: number;         // Mevcut yoğunluk (kg/m³) - computed
-  maxCount?: number;               // Maksimum adet
-  currentCount?: number;           // Mevcut adet
-  utilizationPercent?: number;     // Kullanım yüzdesi - computed
+  maxBiomass: number; // Maksimum biomass (kg)
+  currentBiomass: number; // Mevcut biomass (kg)
+  maxDensity: number; // Maksimum yoğunluk (kg/m³)
+  currentDensity?: number; // Mevcut yoğunluk (kg/m³) - computed
+  maxCount?: number; // Maksimum adet
+  currentCount?: number; // Mevcut adet
+  utilizationPercent?: number; // Kullanım yüzdesi - computed
 }
 
 /**
@@ -191,8 +183,8 @@ export interface AerationInfo {
   hasAeration: boolean;
   aerationType?: 'diffuser' | 'paddle_wheel' | 'venturi' | 'blower' | 'other';
   aeratorCount?: number;
-  airFlowRate?: number;            // L/dakika
-  targetDO?: number;               // Hedef çözünmüş oksijen (mg/L)
+  airFlowRate?: number; // L/dakika
+  targetDO?: number; // Hedef çözünmüş oksijen (mg/L)
 }
 
 // ============================================================================
@@ -232,7 +224,7 @@ export class Tank {
 
   @Field()
   @Column({ length: 50 })
-  code: string;                    // TNK-2024-00001
+  code: string; // TNK-2024-00001
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -252,7 +244,7 @@ export class Tank {
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
-  systemId?: string;               // Bağlı olduğu sistem (varsa)
+  systemId?: string; // Bağlı olduğu sistem (varsa)
 
   @Field(() => TankContainerKind)
   @Column({
@@ -265,6 +257,16 @@ export class Tank {
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   equipmentTypeId?: string;
+
+  /**
+   * Linked temperature sensor (sensor-service `sensors.id`), set at tank/pond/cage
+   * creation. Soft cross-service reference; WaterTemperatureService reads the
+   * tank's current temperature from this sensor's latest reading (preferring it
+   * over the latest manual measurement when it is more recent).
+   */
+  @Field(() => ID, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  temperatureSensorId?: string;
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
@@ -306,21 +308,39 @@ export class Tank {
    * Çap - Sadece CIRCULAR, OVAL tanklar için
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   diameter?: number;
 
   /**
    * Uzunluk - RECTANGULAR, RACEWAY, D_END tanklar için
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   length?: number;
 
   /**
    * Genişlik - RECTANGULAR, RACEWAY, D_END, SQUARE tanklar için
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   width?: number;
 
   /**
@@ -334,14 +354,26 @@ export class Tank {
    * Su derinliği - Gerçek su seviyesi (m)
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   waterDepth?: number;
 
   /**
    * Freeboard - Su yüzeyinden tank kenarına mesafe (m)
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   freeboard?: number;
 
   // -------------------------------------------------------------------------
@@ -359,7 +391,13 @@ export class Tank {
    * Su hacmi (m³) - waterDepth'e göre hesaplanır
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   waterVolume?: number;
 
   // -------------------------------------------------------------------------
@@ -370,21 +408,39 @@ export class Tank {
    * Maksimum biomass (kg)
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
   maxBiomass: number;
 
   /**
    * Mevcut biomass (kg) - Batch'lerden hesaplanır
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
   currentBiomass: number;
 
   /**
    * Maksimum yoğunluk (kg/m³)
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 30, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 30,
+    transformer: new DecimalTransformer(),
+  })
   maxDensity: number;
 
   /**
@@ -612,8 +668,7 @@ export class Tank {
     const byBiomass = Number(this.maxBiomass) - Number(this.currentBiomass);
 
     const effectiveVolume = this.waterVolume || this.volume;
-    const byDensity =
-      Number(this.maxDensity) * effectiveVolume - Number(this.currentBiomass);
+    const byDensity = Number(this.maxDensity) * effectiveVolume - Number(this.currentBiomass);
 
     return Math.min(byBiomass, byDensity);
   }

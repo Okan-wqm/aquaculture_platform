@@ -2,7 +2,20 @@
  * Create Equipment Input DTO
  */
 import { InputType, Field, Float, ID, Int } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsObject, IsUUID, IsDate, ValidateNested, IsBoolean } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsNumber,
+  MaxLength,
+  MinLength,
+  IsEnum,
+  IsObject,
+  IsUUID,
+  IsDate,
+  ValidateNested,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-type-json';
 import { EquipmentStatus } from '../entities/equipment.entity';
@@ -158,7 +171,10 @@ export class CreateEquipmentInput {
   @Type(() => EquipmentLocationInput)
   location?: EquipmentLocationInput;
 
-  @Field(() => GraphQLJSON, { nullable: true, description: 'Dynamic specifications based on equipment type schema' })
+  @Field(() => GraphQLJSON, {
+    nullable: true,
+    description: 'Dynamic specifications based on equipment type schema',
+  })
   @IsOptional()
   @IsObject()
   specifications?: Record<string, unknown>;
@@ -189,4 +205,12 @@ export class CreateEquipmentInput {
   @IsOptional()
   @IsBoolean()
   isVisibleInSensor?: boolean;
+
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Linked temperature sensor (sensor-service sensors.id) driving the feed rate',
+  })
+  @IsOptional()
+  @IsUUID()
+  temperatureSensorId?: string;
 }

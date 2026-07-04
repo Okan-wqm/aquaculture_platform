@@ -80,6 +80,8 @@ export interface Equipment {
   notes?: string;
   isActive: boolean;
   isVisibleInSensor?: boolean;
+  // Linked temperature sensor (sensor-service sensors.id) driving the feed rate.
+  temperatureSensorId?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -105,6 +107,8 @@ export interface CreateEquipmentInput {
   status?: string;
   notes?: string;
   isVisibleInSensor?: boolean;
+  // Linked temperature sensor (sensor-service sensors.id) driving the feed rate.
+  temperatureSensorId?: string;
 }
 
 export interface UpdateEquipmentInput extends Partial<CreateEquipmentInput> {
@@ -189,6 +193,7 @@ const EQUIPMENT_LIST_QUERY = `
         notes
         isActive
         isVisibleInSensor
+        temperatureSensorId
         createdAt
         updatedAt
       }
@@ -287,6 +292,7 @@ const UPDATE_EQUIPMENT_MUTATION = `
       purchaseDate
       warrantyEndDate
       isVisibleInSensor
+      temperatureSensorId
     }
   }
 `;

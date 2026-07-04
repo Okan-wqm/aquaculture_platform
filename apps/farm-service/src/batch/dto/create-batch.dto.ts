@@ -2,7 +2,7 @@
  * Create Batch DTO
  * @module Batch/DTO
  */
-import { InputType, Field, Float, Int } from '@nestjs/graphql';
+import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
 import {
   IsNotEmpty,
   IsString,
@@ -27,12 +27,12 @@ export class InitialWeightInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0.001)
-  avgWeight: number;               // g
+  avgWeight: number; // g
 
   @Field(() => Float)
   @IsNumber()
   @Min(0.001)
-  totalBiomass: number;            // kg
+  totalBiomass: number; // kg
 }
 
 @InputType()
@@ -158,6 +158,12 @@ export class CreateBatchInput {
   @IsString()
   @MaxLength(100)
   strain?: string;
+
+  /** Feeding protocol assigned at creation; follows the batch, drives feed rate. */
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  protocolId?: string;
 
   @Field(() => BatchInputType, { defaultValue: BatchInputType.FRY })
   @IsEnum(BatchInputType)

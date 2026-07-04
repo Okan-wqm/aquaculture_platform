@@ -16,7 +16,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso, BatchCreatedEvent , createBaseEvent } from '@platform/event-contracts';
+import { toEventIso, BatchCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { CreateBatchCommand } from '../commands/create-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
@@ -80,7 +80,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     // Expected harvest date hesapla
     let expectedHarvestDate = payload.expectedHarvestDate;
     if (!expectedHarvestDate && species.harvestDaysPerInputType) {
-      const inputTypeKey = payload.inputType.toLowerCase().replace('_', '') as keyof typeof species.harvestDaysPerInputType;
+      const inputTypeKey = payload.inputType
+        .toLowerCase()
+        .replace('_', '') as keyof typeof species.harvestDaysPerInputType;
       const harvestDays = species.harvestDaysPerInputType[inputTypeKey];
       if (harvestDays) {
         expectedHarvestDate = new Date(payload.stockedAt);
@@ -98,12 +100,15 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       // assigned to a batch that later fails to save, wasting the sequence
       // number. Moving it inside ensures the code is only consumed when the
       // batch write commits atomically.
-      const generatedCode = payload.batchNumber ? null : await this.codeGenerator.generateCode({
-        prefix: 'B',
-        tenantId,
-        entityType: 'Batch',
-      });
-      const batchNumber = payload.batchNumber || generatedCode?.code || `B-${new Date().getFullYear()}-${Date.now()}`;
+      const generatedCode = payload.batchNumber
+        ? null
+        : await this.codeGenerator.generateCode({
+            prefix: 'B',
+            tenantId,
+            entityType: 'Batch',
+          });
+      const batchNumber =
+        payload.batchNumber || generatedCode?.code || `B-${new Date().getFullYear()}-${Date.now()}`;
 
       // Batch entity oluştur
       const batch = queryRunner.manager.create(Batch, {
@@ -113,6 +118,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         description: payload.description,
         speciesId: payload.speciesId,
         strain: payload.strain,
+        protocolId: payload.protocolId,
         inputType: payload.inputType,
         initialQuantity: payload.initialQuantity,
         currentQuantity: payload.initialQuantity,
@@ -200,7 +206,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
 
       // Save health certificates
       if (payload.healthCertificates && payload.healthCertificates.length > 0) {
-        const healthCertDocs = payload.healthCertificates.map(doc =>
+        const healthCertDocs = payload.healthCertificates.map((doc) =>
           queryRunner.manager.create(BatchDocument, {
             tenantId,
             batchId: savedBatch.id,
@@ -218,14 +224,14 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             notes: doc.notes,
             isActive: true,
             createdBy,
-          })
+          }),
         );
         await queryRunner.manager.save(BatchDocument, healthCertDocs);
       }
 
       // Save import documents
       if (payload.importDocuments && payload.importDocuments.length > 0) {
-        const importDocs = payload.importDocuments.map(doc =>
+        const importDocs = payload.importDocuments.map((doc) =>
           queryRunner.manager.create(BatchDocument, {
             tenantId,
             batchId: savedBatch.id,
@@ -243,7 +249,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             notes: doc.notes,
             isActive: true,
             createdBy,
-          })
+          }),
         );
         await queryRunner.manager.save(BatchDocument, importDocs);
       }
@@ -302,9 +308,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             },
             relations: ['equipmentType'],
           });
-          const equipmentMap = new Map<string, Equipment>(
-            equipments.map((e) => [e.id, e]),
-          );
+          const equipmentMap = new Map<string, Equipment>(equipments.map((e) => [e.id, e]));
 
           // Tank fallback — ONLY the IDs not found in Equipment. Keeps
           // the fallback query small and avoids returning rows that
@@ -327,15 +331,12 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
           // regardless of how many locations turn out to already have
           // a row (mixed-batch scenario). The map uses tankId as key
           // since each tank can host at most one TankBatch row.
-          const existingTankBatches = await queryRunner.manager.find(
-            TankBatch,
-            {
-              where: {
-                tankId: In(tankIds),
-                tenantId,
-              },
+          const existingTankBatches = await queryRunner.manager.find(TankBatch, {
+            where: {
+              tankId: In(tankIds),
+              tenantId,
             },
-          );
+          });
           const tankBatchMap = new Map<string, TankBatch>(
             existingTankBatches.map((tb) => [tb.tankId, tb]),
           );
@@ -373,9 +374,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             const equipmentRecord = equipmentMap.get(tankId);
             const tankRecord = tankMap.get(tankId);
             if (!equipmentRecord && !tankRecord) {
-              this.logger.warn(
-                `Equipment/Tank ${tankId} not found, skipping allocation`,
-              );
+              this.logger.warn(`Equipment/Tank ${tankId} not found, skipping allocation`);
               continue;
             }
 
@@ -403,12 +402,8 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             // The flag is still persisted so the UI can warn and the
             // ops team can follow up. See phase 1.1 of the plan and
             // TankCapacityService for the full invariant contract.
-            const existingSalmon = tankBatch
-              ? Number(tankBatch.totalBiomassKg || 0)
-              : 0;
-            const existingCleaner = tankBatch
-              ? Number(tankBatch.cleanerFishBiomassKg || 0)
-              : 0;
+            const existingSalmon = tankBatch ? Number(tankBatch.totalBiomassKg || 0) : 0;
+            const existingCleaner = tankBatch ? Number(tankBatch.cleanerFishBiomassKg || 0) : 0;
             const capacity = this.tankCapacityService.enforce({
               mode: 'soft',
               equipment,
@@ -423,12 +418,10 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               // Update existing TankBatch (mixed batch scenario)
               tankBatch.isMixedBatch = true;
               tankBatch.totalQuantity += location.quantity;
-              tankBatch.totalBiomassKg =
-                Number(tankBatch.totalBiomassKg) + location.biomass;
+              tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + location.biomass;
               tankBatch.avgWeightG =
                 tankBatch.totalQuantity > 0
-                  ? (Number(tankBatch.totalBiomassKg) * 1000) /
-                    tankBatch.totalQuantity
+                  ? (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity
                   : avgWeightG;
               tankBatch.densityKgM3 = capacity.projectedDensityKgM3;
               tankBatch.capacityUsedPercent = capacity.utilizationPercent;
@@ -442,8 +435,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
                 quantity: location.quantity,
                 avgWeightG: avgWeightG,
                 biomassKg: location.biomass,
-                percentageOfTank:
-                  (location.biomass / Number(tankBatch.totalBiomassKg)) * 100,
+                percentageOfTank: (location.biomass / Number(tankBatch.totalBiomassKg)) * 100,
               });
               tankBatch.batchDetails = batchDetails;
 
@@ -478,9 +470,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               });
               tankBatchMap.set(tankId, tankBatch);
 
-              this.logger.log(
-                `Created new TankBatch for equipment ${equipment.code}`,
-              );
+              this.logger.log(`Created new TankBatch for equipment ${equipment.code}`);
             }
 
             tankBatchesToSave.push(tankBatch);
@@ -568,7 +558,10 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         .map((loc) => loc.tankId || loc.pondId)
         .filter((id): id is string => !!id);
       const batchCreatedEvent: BatchCreatedEvent = {
-        ...createBaseEvent<BatchCreatedEvent>('BatchCreated', tenantId, { aggregateId: savedBatch.id, aggregateType: 'Batch' }),
+        ...createBaseEvent<BatchCreatedEvent>('BatchCreated', tenantId, {
+          aggregateId: savedBatch.id,
+          aggregateType: 'Batch',
+        }),
         userId: createdBy,
         batchId: savedBatch.id,
         tankIds: tankIds.length > 0 ? tankIds : undefined,

@@ -18,6 +18,7 @@ import { DropAuditLedgerSourceWriteGuard1801600000000 } from './1801600000000-Dr
 import { BackfillStaleTankBatchDetails1801700000000 } from './1801700000000-BackfillStaleTankBatchDetails';
 import { BackfillTankBatchCurrentQuantityMirror1801800000000 } from './1801800000000-BackfillTankBatchCurrentQuantityMirror';
 import { CreateRegulatoryReports1801900000000 } from './1801900000000-CreateRegulatoryReports';
+import { AddBatchProtocolId1802000000000 } from './1802000000000-AddBatchProtocolId';
 
 /**
  * Canonical farm-service migration class list.
@@ -48,4 +49,5 @@ export const FARM_MIGRATIONS = [
   BackfillStaleTankBatchDetails1801700000000,
   BackfillTankBatchCurrentQuantityMirror1801800000000,
   CreateRegulatoryReports1801900000000,
+  AddBatchProtocolId1802000000000,
 ] as const;

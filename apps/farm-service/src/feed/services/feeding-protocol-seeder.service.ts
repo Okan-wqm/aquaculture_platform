@@ -99,8 +99,7 @@ const DEFAULT_SEEDS: readonly FeedingProtocolSeedEntry[] = [
     species: 'ATLANTIC_SALMON',
     stage: FeedType.STARTER,
     description:
-      'Pre-smolt freshwater phase (5g → 80g). Pellet size 1.5–3mm; ' +
-      '3–4 feedings/day.',
+      'Pre-smolt freshwater phase (5g → 80g). Pellet size 1.5–3mm; ' + '3–4 feedings/day.',
     targetFcr: 1.0,
     minDissolvedOxygen: 6.5,
     optimalTemperature: { min: 10, max: 14, unit: 'celsius' },
@@ -162,9 +161,7 @@ export class FeedingProtocolSeederService {
       where: { tenantId },
       select: ['species', 'stage'],
     });
-    const existingKeys = new Set(
-      existing.map((p) => `${p.species}:${p.stage}`),
-    );
+    const existingKeys = new Set(existing.map((p) => `${p.species}:${p.stage}`));
 
     const seeded: string[] = [];
     const skipped: string[] = [];
@@ -181,7 +178,17 @@ export class FeedingProtocolSeederService {
         description: entry.description,
         species: entry.species,
         stage: entry.stage,
-        temperatureRanges: entry.temperatureRanges,
+        // Map the compact seed shape to the canonical TemperatureRange the entity
+        // + FeedingProtocolRateService expect ({ min, max, unit, feedingMultiplier }).
+        // Previously the seeder wrote { minTemp, maxTemp } straight into the JSONB,
+        // so min/max were undefined at read time and the temperature multiplier was
+        // silently lost for every seeded protocol.
+        temperatureRanges: entry.temperatureRanges.map((t) => ({
+          min: t.minTemp,
+          max: t.maxTemp,
+          unit: 'celsius' as const,
+          feedingMultiplier: t.feedingMultiplier,
+        })),
         targetFcr: entry.targetFcr,
         minDissolvedOxygen: entry.minDissolvedOxygen,
         optimalTemperature: entry.optimalTemperature,

@@ -41,25 +41,26 @@ export interface InitialLocationData {
 }
 
 export interface CreateBatchPayload {
-  batchNumber?: string;           // Otomatik oluşturulabilir
-  name?: string;                  // Opsiyonel gösterim adı
+  batchNumber?: string; // Otomatik oluşturulabilir
+  name?: string; // Opsiyonel gösterim adı
   description?: string;
-  speciesId: string;              // Tür ID (zorunlu)
-  strain?: string;                // Irk/çeşit
-  inputType: BatchInputType;      // Girdi tipi (eggs, larvae, fry, etc.)
-  initialQuantity: number;        // Başlangıç adedi
-  initialAvgWeightG: number;      // Başlangıç ortalama ağırlık (gram)
-  stockedAt: Date;                // Stoklama tarihi
-  supplierId?: string;            // Tedarikçi ID
-  supplierBatchNumber?: string;   // Tedarikçi parti numarası
-  purchaseCost?: number;          // Satın alma maliyeti
-  currency?: string;              // Para birimi (default: TRY)
-  arrivalMethod?: ArrivalMethod;  // Ulaşım yöntemi
-  targetFCR?: number;             // Hedef FCR (default: tür bazlı)
-  expectedHarvestDate?: Date;     // Beklenen hasat tarihi (otomatik hesaplanabilir)
+  speciesId: string; // Tür ID (zorunlu)
+  strain?: string; // Irk/çeşit
+  protocolId?: string; // Atanan besleme protokolü (feeding_protocols.id)
+  inputType: BatchInputType; // Girdi tipi (eggs, larvae, fry, etc.)
+  initialQuantity: number; // Başlangıç adedi
+  initialAvgWeightG: number; // Başlangıç ortalama ağırlık (gram)
+  stockedAt: Date; // Stoklama tarihi
+  supplierId?: string; // Tedarikçi ID
+  supplierBatchNumber?: string; // Tedarikçi parti numarası
+  purchaseCost?: number; // Satın alma maliyeti
+  currency?: string; // Para birimi (default: TRY)
+  arrivalMethod?: ArrivalMethod; // Ulaşım yöntemi
+  targetFCR?: number; // Hedef FCR (default: tür bazlı)
+  expectedHarvestDate?: Date; // Beklenen hasat tarihi (otomatik hesaplanabilir)
   healthCertificates?: BatchDocumentData[]; // Sağlık sertifikaları
-  importDocuments?: BatchDocumentData[];     // İthalat belgeleri
-  initialLocations?: InitialLocationData[];  // Tank/pond allocations
+  importDocuments?: BatchDocumentData[]; // İthalat belgeleri
+  initialLocations?: InitialLocationData[]; // Tank/pond allocations
   notes?: string;
 }
 

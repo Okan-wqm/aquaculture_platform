@@ -14,6 +14,7 @@ import {
 } from '../../../hooks/useBatches';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSpeciesList } from '../../../hooks/useSpecies';
+import { useFeedingProtocols, feedStageLabels } from '../../../hooks/useFeedingProtocols';
 import { useUploadBatchDocument } from '../../../hooks/useFileUpload';
 import { DocumentUploadSection, toDocumentInput } from './DocumentUploadSection';
 import { TankAllocationSection, toLocationInput } from './TankAllocationSection';
@@ -22,6 +23,7 @@ interface BatchFormData {
   name: string;
   speciesId: string;
   supplierId: string;
+  protocolId: string;
   strain: string;
   inputType: BatchInputType;
   initialQuantity: number | '';
@@ -102,6 +104,9 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
   } = useAvailableTanks({ excludeFullTanks: false });
   const { data: suppliers } = useSupplierList();
   const { data: species } = useSpeciesList();
+  // Active feeding protocols only — a batch may only be linked to a protocol
+  // that is currently in force for the tenant.
+  const { data: feedingProtocols } = useFeedingProtocols({ isActive: true });
   const uploadMutation = useUploadBatchDocument();
   const createBatchMutation = useCreateBatch();
 
@@ -110,6 +115,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
     name: '',
     speciesId: '',
     supplierId: '',
+    protocolId: '',
     strain: '',
     inputType: 'FRY',
     initialQuantity: '',
@@ -150,6 +156,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
         name: '',
         speciesId: '',
         supplierId: '',
+        protocolId: '',
         strain: '',
         inputType: 'FRY',
         initialQuantity: '',
@@ -318,6 +325,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
         healthCertificates: healthCertInputs.length > 0 ? healthCertInputs : undefined,
         importDocuments: importDocInputs.length > 0 ? importDocInputs : undefined,
         initialLocations: locationInputs,
+        protocolId: formData.protocolId || undefined,
         notes: formData.notes || undefined,
       });
 
@@ -477,6 +485,28 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                     <p className="mt-1 text-sm text-red-500">{errors.speciesId}</p>
                   )}
                 </div>
+              </div>
+
+              {/* Feeding Protocol (optional) — selected at creation, follows the batch */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Feeding Protocol
+                </label>
+                <select
+                  value={formData.protocolId}
+                  onChange={(e) => handleInputChange('protocolId', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">No protocol</option>
+                  {feedingProtocols?.items?.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.species} / {feedStageLabels[p.stage] ?? p.stage})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Optional. The selected protocol follows this batch through its lifecycle.
+                </p>
               </div>
 
               <div className="grid grid-cols-3 gap-4">

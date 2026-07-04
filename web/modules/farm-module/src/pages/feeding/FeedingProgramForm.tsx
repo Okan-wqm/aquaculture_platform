@@ -12,7 +12,22 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, Input, Textarea, Alert, Switch, DatePicker, MultiSelect, MultiSelectOption, useAuth, createTenantQueryKey, createTenantInvalidationKey, graphqlClient } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  Card,
+  Button,
+  Input,
+  Textarea,
+  Alert,
+  Switch,
+  DatePicker,
+  MultiSelect,
+  MultiSelectOption,
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  graphqlClient,
+} from '@aquaculture/shared-ui';
 import { useEquipmentList } from '../../hooks/useEquipment';
 import { useFeedList, FeedingMatrix2D, Feed } from '../../hooks/useFeeds';
 import { isBlockingError } from '../../utils/list-view-state';
@@ -208,7 +223,7 @@ function useFeedingProgram(id: string | undefined) {
       if (!id) throw new Error('Program ID required');
       const data = await graphqlClient.request<{ feedingProgram: FeedingProgram }>(
         FEEDING_PROGRAM_QUERY,
-        { id }
+        { id },
       );
       return data.feedingProgram;
     },
@@ -235,12 +250,14 @@ function useCreateFeedingProgram() {
 
       const data = await graphqlClient.request<{ createFeedingProgram: FeedingProgram }>(
         CREATE_FEEDING_PROGRAM,
-        { input }
+        { input },
       );
       return data.createFeedingProgram;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-programs') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'feeding-programs'),
+      });
     },
   });
 }
@@ -253,7 +270,13 @@ function useUpdateFeedingProgram() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, input }: { id: string; input: Partial<CreateFeedingProgramInput> }) => {
+    mutationFn: async ({
+      id,
+      input,
+    }: {
+      id: string;
+      input: Partial<CreateFeedingProgramInput>;
+    }) => {
       if (!token) {
         throw new Error('Authentication required. Please login first.');
       }
@@ -263,13 +286,17 @@ function useUpdateFeedingProgram() {
 
       const data = await graphqlClient.request<{ updateFeedingProgram: FeedingProgram }>(
         UPDATE_FEEDING_PROGRAM,
-        { id, input }
+        { id, input },
       );
       return data.updateFeedingProgram;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-programs') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding-program', variables.id) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'feeding-programs'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'feeding-program', variables.id),
+      });
     },
   });
 }
@@ -307,9 +334,12 @@ function transformFormDataToInput(formData: FeedingProgramFormData): CreateFeedi
             const temps = formData.customFCRMatrix.temperatures;
             const wts = formData.customFCRMatrix.weights;
             // Transpose: srcMatrix[w][t] → fcrValues[t][w]
-            const fcrValues = srcMatrix && temps && wts
-              ? temps.map((_: number, tIdx: number) => wts.map((_: number, wIdx: number) => srcMatrix[wIdx]?.[tIdx] ?? 0))
-              : srcMatrix;
+            const fcrValues =
+              srcMatrix && temps && wts
+                ? temps.map((_: number, tIdx: number) =>
+                    wts.map((_: number, wIdx: number) => srcMatrix[wIdx]?.[tIdx] ?? 0),
+                  )
+                : srcMatrix;
             return {
               temperatures: temps,
               weights: wts,
@@ -332,7 +362,7 @@ function transformFormDataToInput(formData: FeedingProgramFormData): CreateFeedi
  */
 function transformProgramToFormData(
   program: FeedingProgram,
-  equipmentData?: { id: string; name: string; code: string }[]
+  equipmentData?: { id: string; name: string; code: string }[],
 ): FeedingProgramFormData {
   const tanks: TankWithSensor[] = (program.tanks || []).map((tank) => ({
     tankId: tank.equipmentId,
@@ -385,10 +415,7 @@ function transformProgramToFormData(
 /**
  * Consolidated validation function for all steps
  */
-function validateFormData(
-  formData: FeedingProgramFormData,
-  step?: number
-): ValidationErrors {
+function validateFormData(formData: FeedingProgramFormData, step?: number): ValidationErrors {
   const errors: ValidationErrors = {};
 
   // Step 1: Basic Info validation
@@ -472,7 +499,11 @@ function validateFormData(
   if (step === undefined || step === 4) {
     // Matrix is auto-generated from feed assignments, so no strict requirement
     // But if assignments exist and no matrix could be built, warn
-    if (formData.feedAssignments.length > 0 && formData.feedAssignments.some((a) => a.feedId) && !formData.customFCRMatrix) {
+    if (
+      formData.feedAssignments.length > 0 &&
+      formData.feedAssignments.some((a) => a.feedId) &&
+      !formData.customFCRMatrix
+    ) {
       errors.customFCRMatrix = 'Matris hesaplanamadi. Yem atamalarini kontrol edin.';
     }
   }
@@ -537,7 +568,9 @@ function parseGraphQLErrors(error: unknown): { message: string; fieldErrors: Val
 
     // Try to parse GraphQL validation errors
     try {
-      const errorObj = error as { response?: { errors?: Array<{ message: string; extensions?: { field?: string } }> } };
+      const errorObj = error as {
+        response?: { errors?: Array<{ message: string; extensions?: { field?: string } }> };
+      };
       if (errorObj.response?.errors) {
         for (const err of errorObj.response.errors) {
           if (err.extensions?.field) {
@@ -603,7 +636,8 @@ const Stepper: React.FC<StepperProps> = ({
         {steps.map((step, index) => {
           const isCompleted = completedSteps.has(step.id) || currentStep > step.id;
           const isCurrent = currentStep === step.id;
-          const isClickable = onStepClick && (step.id <= currentStep || step.id === currentStep + 1);
+          const isClickable =
+            onStepClick && (step.id <= currentStep || step.id === currentStep + 1);
 
           return (
             <li
@@ -636,8 +670,8 @@ const Stepper: React.FC<StepperProps> = ({
                         isCompleted
                           ? 'bg-blue-600 group-hover:bg-blue-800'
                           : isCurrent
-                          ? 'bg-white border-2 border-blue-600'
-                          : 'bg-white border-2 border-gray-300'
+                            ? 'bg-white border-2 border-blue-600'
+                            : 'bg-white border-2 border-gray-300'
                       }
                       ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed'}
                     `}
@@ -667,7 +701,9 @@ const Stepper: React.FC<StepperProps> = ({
                   >
                     {step.title}
                   </span>
-                  {step.description && <span className="text-xs text-gray-500">{step.description}</span>}
+                  {step.description && (
+                    <span className="text-xs text-gray-500">{step.description}</span>
+                  )}
                 </span>
               </div>
             </li>
@@ -712,68 +748,50 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        {/* Background overlay */}
-        <div
-          className="fixed inset-0 bg-gray-500/75 transition-opacity"
-          aria-hidden="true"
-          onClick={onCancel}
-        ></div>
-
-        {/* Center modal */}
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">
-          &#8203;
-        </span>
-
-        <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
-          <div className="sm:flex sm:items-start">
-            <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
-              <svg
-                className="h-6 w-6 text-yellow-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-            </div>
-            <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-              <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                {title}
-              </h3>
-              <div className="mt-2">
-                <p className="text-sm text-gray-500">{message}</p>
-              </div>
-            </div>
-          </div>
-          <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-            <button
-              type="button"
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm"
-              onClick={onConfirm}
-            >
-              Evet, Iptal Et
-            </button>
-            <button
-              type="button"
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
-              onClick={onCancel}
-            >
-              Devam Et
-            </button>
+    <Modal isOpen={isOpen} onClose={onCancel} size="md" showCloseButton={false}>
+      <div className="sm:flex sm:items-start">
+        <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
+          <svg
+            className="h-6 w-6 text-yellow-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
+        </div>
+        <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+          <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+            {title}
+          </h3>
+          <div className="mt-2">
+            <p className="text-sm text-gray-500">{message}</p>
           </div>
         </div>
       </div>
-    </div>
+      <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+        <button
+          type="button"
+          className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm"
+          onClick={onConfirm}
+        >
+          Evet, Iptal Et
+        </button>
+        <button
+          type="button"
+          className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
+          onClick={onCancel}
+        >
+          Devam Et
+        </button>
+      </div>
+    </Modal>
   );
 };
 
@@ -850,7 +868,10 @@ const Step1BasicInfo: React.FC<Step1Props> = ({ data, onChange, errors }) => {
         </div>
 
         <div>
-          <label htmlFor={startDateInputId} className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor={startDateInputId}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Baslangic Tarihi <span className="text-red-500">*</span>
           </label>
           <DatePicker
@@ -868,7 +889,10 @@ const Step1BasicInfo: React.FC<Step1Props> = ({ data, onChange, errors }) => {
         </div>
 
         <div className="sm:col-span-2">
-          <label htmlFor={descriptionInputId} className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor={descriptionInputId}
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Aciklama
           </label>
           <Textarea
@@ -905,7 +929,12 @@ interface Step2Props {
 
 const Step2TankSelection: React.FC<Step2Props> = ({ data, onChange, errors }) => {
   // Fetch equipment (tanks, ponds, cages)
-  const { data: equipmentData, isLoading: equipmentLoading, error: equipmentError, refetch: refetchEquipment } = useEquipmentList();
+  const {
+    data: equipmentData,
+    isLoading: equipmentLoading,
+    error: equipmentError,
+    refetch: refetchEquipment,
+  } = useEquipmentList();
 
   // Filter to get only tanks/ponds/cages
   const tankEquipment = useMemo(() => {
@@ -979,7 +1008,7 @@ const Step2TankSelection: React.FC<Step2Props> = ({ data, onChange, errors }) =>
   // Handle sensor selection for a tank
   const handleSensorChange = (tankId: string, sensorId: string) => {
     const newTanks = data.selectedTanks.map((t) =>
-      t.tankId === tankId ? { ...t, temperatureSensorId: sensorId || undefined } : t
+      t.tankId === tankId ? { ...t, temperatureSensorId: sensorId || undefined } : t,
     );
     onChange({ selectedTanks: newTanks });
   };
@@ -1011,10 +1040,7 @@ const Step2TankSelection: React.FC<Step2Props> = ({ data, onChange, errors }) =>
 
       {/* Non-blocking refresh error — keeps the last-loaded equipment visible. */}
       {equipmentError && (
-        <Alert
-          type="warning"
-          action={{ label: 'Yeniden Dene', onClick: () => refetchEquipment() }}
-        >
+        <Alert type="warning" action={{ label: 'Yeniden Dene', onClick: () => refetchEquipment() }}>
           Ekipman verileri yenilenemedi — son yuklenen veriler gosteriliyor.
         </Alert>
       )}
@@ -1186,7 +1212,12 @@ const WeightInput: React.FC<{
 };
 
 const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) => {
-  const { data: feedsData, isLoading: feedsLoading, error: feedsError, refetch: refetchFeeds } = useFeedList();
+  const {
+    data: feedsData,
+    isLoading: feedsLoading,
+    error: feedsError,
+    refetch: refetchFeeds,
+  } = useFeedList();
 
   // All active feeds for dropdown
   const activeFeeds = useMemo(() => {
@@ -1214,7 +1245,8 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
     // Check min: feed must cover from the start of range
     if (feed.minFishWeightG != null && feed.minFishWeightG > minWeight) return false;
     // Check max: feed must cover to the end of range (only if maxWeight > 0)
-    if (feed.maxFishWeightG != null && maxWeight > 0 && feed.maxFishWeightG < maxWeight) return false;
+    if (feed.maxFishWeightG != null && maxWeight > 0 && feed.maxFishWeightG < maxWeight)
+      return false;
     return true;
   }, []);
 
@@ -1248,7 +1280,11 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
   };
 
   // Update assignment with weight chaining
-  const handleUpdateAssignment = (id: string, field: keyof FeedAssignment, value: number | string) => {
+  const handleUpdateAssignment = (
+    id: string,
+    field: keyof FeedAssignment,
+    value: number | string,
+  ) => {
     const idx = data.feedAssignments.findIndex((a) => a.id === id);
     if (idx === -1) return;
 
@@ -1281,23 +1317,18 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
     <div className="space-y-6">
       <h3 className="text-lg font-medium text-gray-900">Yem Atamalari</h3>
       <p className="text-sm text-gray-500">
-        Balik agirlik araligina gore kullanilacak yemleri tanimlayin. Araliklar cakismamalidir.
-        Yeni satir eklendiginde min agirlik otomatik olarak onceki satirin max agirligina esitlenir.
+        Balik agirlik araligina gore kullanilacak yemleri tanimlayin. Araliklar cakismamalidir. Yeni
+        satir eklendiginde min agirlik otomatik olarak onceki satirin max agirligina esitlenir.
       </p>
 
       {/* Non-blocking refresh error — keeps the last-loaded feeds visible. */}
       {feedsError && (
-        <Alert
-          type="warning"
-          action={{ label: 'Yeniden Dene', onClick: () => refetchFeeds() }}
-        >
+        <Alert type="warning" action={{ label: 'Yeniden Dene', onClick: () => refetchFeeds() }}>
           Yem verileri yenilenemedi — son yuklenen veriler gosteriliyor.
         </Alert>
       )}
 
-      {errors.feedAssignments && (
-        <Alert type="error">{errors.feedAssignments}</Alert>
-      )}
+      {errors.feedAssignments && <Alert type="error">{errors.feedAssignments}</Alert>}
 
       {/* Feed Assignments Table */}
       <div className="overflow-x-auto">
@@ -1336,7 +1367,8 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">{data.feedAssignments.length === 0 ? (
+          <tbody className="bg-white divide-y divide-gray-200">
+            {data.feedAssignments.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   Henuz yem atamasi eklenmedi. Asagidaki butonu kullanarak ekleyin.
@@ -1344,10 +1376,16 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
               </tr>
             ) : (
               data.feedAssignments.map((assignment, rowIndex) => {
-                const selectedFeed = assignment.feedId ? feedsById.get(assignment.feedId) : undefined;
-                const hasValidRange = assignment.minWeight < assignment.maxWeight && assignment.maxWeight > 0;
-                const selectedFeedOutOfRange = !!(selectedFeed && hasValidRange &&
-                  !isFeedInRange(selectedFeed, assignment.minWeight, assignment.maxWeight));
+                const selectedFeed = assignment.feedId
+                  ? feedsById.get(assignment.feedId)
+                  : undefined;
+                const hasValidRange =
+                  assignment.minWeight < assignment.maxWeight && assignment.maxWeight > 0;
+                const selectedFeedOutOfRange = !!(
+                  selectedFeed &&
+                  hasValidRange &&
+                  !isFeedInRange(selectedFeed, assignment.minWeight, assignment.maxWeight)
+                );
                 const isMinWeightChained = rowIndex > 0;
 
                 return (
@@ -1365,7 +1403,9 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                         <WeightInput
                           id={`min-weight-${assignment.id}`}
                           value={assignment.minWeight}
-                          onChange={(val) => handleUpdateAssignment(assignment.id, 'minWeight', val)}
+                          onChange={(val) =>
+                            handleUpdateAssignment(assignment.id, 'minWeight', val)
+                          }
                           readOnly={isMinWeightChained}
                           className={`w-24 border rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 ${
                             isMinWeightChained
@@ -1373,13 +1413,32 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                               : 'border-gray-300'
                           }`}
                           placeholder="0"
-                          title={isMinWeightChained ? 'Onceki satirin max agirligina zincirlenmis' : undefined}
+                          title={
+                            isMinWeightChained
+                              ? 'Onceki satirin max agirligina zincirlenmis'
+                              : undefined
+                          }
                         />
                         {isMinWeightChained && (
                           <div className="flex items-center mt-1">
-                            <svg className="w-3 h-3 text-gray-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.172 13.828a4 4 0 015.656 0l4 4a4 4 0 01-5.656 5.656l-1.102-1.101" />
+                            <svg
+                              className="w-3 h-3 text-gray-400 mr-1"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M10.172 13.828a4 4 0 015.656 0l4 4a4 4 0 01-5.656 5.656l-1.102-1.101"
+                              />
                             </svg>
                             <span className="text-xs text-gray-400">zincirli</span>
                           </div>
@@ -1392,7 +1451,9 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                         <WeightInput
                           id={`max-weight-${assignment.id}`}
                           value={assignment.maxWeight}
-                          onChange={(val) => handleUpdateAssignment(assignment.id, 'maxWeight', val)}
+                          onChange={(val) =>
+                            handleUpdateAssignment(assignment.id, 'maxWeight', val)
+                          }
                           className="w-24 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                           placeholder="0"
                         />
@@ -1404,20 +1465,30 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                         <select
                           id={`feed-${assignment.id}`}
                           value={assignment.feedId}
-                          onChange={(e) => handleUpdateAssignment(assignment.id, 'feedId', e.target.value)}
+                          onChange={(e) =>
+                            handleUpdateAssignment(assignment.id, 'feedId', e.target.value)
+                          }
                           className={`w-full border rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 ${
-                            selectedFeedOutOfRange ? 'border-red-300 bg-red-50 text-red-900' : 'border-gray-300'
+                            selectedFeedOutOfRange
+                              ? 'border-red-300 bg-red-50 text-red-900'
+                              : 'border-gray-300'
                           }`}
                           disabled={feedsLoading}
                         >
                           <option value="">Yem secin...</option>
                           {activeFeeds.map((feed) => {
-                            const inRange = !hasValidRange || isFeedInRange(feed, assignment.minWeight, assignment.maxWeight);
+                            const inRange =
+                              !hasValidRange ||
+                              isFeedInRange(feed, assignment.minWeight, assignment.maxWeight);
                             return (
                               <option
                                 key={feed.id}
                                 value={feed.id}
-                                style={!inRange ? { backgroundColor: '#FEE2E2', color: '#991B1B' } : undefined}
+                                style={
+                                  !inRange
+                                    ? { backgroundColor: '#FEE2E2', color: '#991B1B' }
+                                    : undefined
+                                }
                               >
                                 {`${feed.name} (${feed.code})${feed.minFishWeightG != null || feed.maxFishWeightG != null ? ` [${feed.minFishWeightG ?? '?'}-${feed.maxFishWeightG ?? '\u221E'}g]` : ''}${!inRange ? ' \u26A0' : ''}`}
                               </option>
@@ -1433,7 +1504,12 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                           title="Satiri sil"
                           aria-label={`${assignment.priority}. yem atamasini sil`}
                         >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -1448,8 +1524,16 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                       <tr>
                         <td colSpan={5} className="px-4 py-2">
                           <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-sm text-red-800">
-                            <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            <svg
+                              className="w-4 h-4 text-red-500 flex-shrink-0"
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                clipRule="evenodd"
+                              />
                             </svg>
                             <span>
                               {`Uyari: ${selectedFeed!.name} yemi ${selectedFeed!.minFishWeightG ?? '?'}-${selectedFeed!.maxFishWeightG ?? '\u221E'}g balik icin tasarlanmistir, ancak bu atama ${assignment.minWeight}-${assignment.maxWeight}g araliginda. Yine de kullanmak istiyorsaniz kayit edebilirsiniz.`}
@@ -1461,7 +1545,8 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                   </React.Fragment>
                 );
               })
-            )}</tbody>
+            )}
+          </tbody>
         </table>
       </div>
 
@@ -1473,7 +1558,12 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
         className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <svg className="w-5 h-5 mr-2 -ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+          />
         </svg>
         Yem Atamasi Ekle
       </button>
@@ -1481,7 +1571,9 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
       {/* Feed coverage reference - 4 per row, sorted by minFishWeightG */}
       {activeFeeds.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-medium text-gray-500 mb-1.5">Yem Araliklari (kucukten buyuge)</p>
+          <p className="text-xs font-medium text-gray-500 mb-1.5">
+            Yem Araliklari (kucukten buyuge)
+          </p>
           <div className="grid grid-cols-4 gap-1.5">
             {activeFeeds
               .filter((f) => f.minFishWeightG != null || f.maxFishWeightG != null)
@@ -1490,7 +1582,11 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
                 const min = feed.minFishWeightG != null ? `${feed.minFishWeightG}g` : '?';
                 const max = feed.maxFishWeightG != null ? `${feed.maxFishWeightG}g` : '\u221E';
                 return (
-                  <div key={feed.id} className="text-xs px-2 py-1 bg-gray-50 rounded border border-gray-200 truncate" title={feed.name}>
+                  <div
+                    key={feed.id}
+                    className="text-xs px-2 py-1 bg-gray-50 rounded border border-gray-200 truncate"
+                    title={feed.name}
+                  >
                     <span className="font-semibold text-gray-700">{`${min}-${max}`}</span>
                     <span className="text-gray-400 ml-1">{feed.code}</span>
                   </div>
@@ -1541,24 +1637,27 @@ function interpolateFromFeedMatrix(
   }
   const wi2 = Math.min(wi + 1, weights.length - 1);
 
-  const t1 = temps[ti]!, t2 = temps[ti2]!;
-  const w1 = weights[wi]!, w2 = weights[wi2]!;
+  const t1 = temps[ti]!,
+    t2 = temps[ti2]!;
+  const w1 = weights[wi]!,
+    w2 = weights[wi2]!;
   const f11 = values[wi]?.[ti] ?? 0;
   const f21 = values[wi]?.[ti2] ?? f11;
   const f12 = values[wi2]?.[ti] ?? f11;
   const f22 = values[wi2]?.[ti2] ?? f11;
 
   if (t1 === t2 && w1 === w2) return f11;
-  if (t1 === t2) return f11 + (f12 - f11) * (clampedWeight - w1) / (w2 - w1);
-  if (w1 === w2) return f11 + (f21 - f11) * (clampedTemp - t1) / (t2 - t1);
+  if (t1 === t2) return f11 + ((f12 - f11) * (clampedWeight - w1)) / (w2 - w1);
+  if (w1 === w2) return f11 + ((f21 - f11) * (clampedTemp - t1)) / (t2 - t1);
 
   const denom = (t2 - t1) * (w2 - w1);
   return (
-    f11 * (t2 - clampedTemp) * (w2 - clampedWeight) +
-    f21 * (clampedTemp - t1) * (w2 - clampedWeight) +
-    f12 * (t2 - clampedTemp) * (clampedWeight - w1) +
-    f22 * (clampedTemp - t1) * (clampedWeight - w1)
-  ) / denom;
+    (f11 * (t2 - clampedTemp) * (w2 - clampedWeight) +
+      f21 * (clampedTemp - t1) * (w2 - clampedWeight) +
+      f12 * (t2 - clampedTemp) * (clampedWeight - w1) +
+      f22 * (clampedTemp - t1) * (clampedWeight - w1)) /
+    denom
+  );
 }
 
 /**
@@ -1646,21 +1745,34 @@ function buildMergedMatrix(
 
     for (const temp of temperatures) {
       // Check if this temperature is within the responsible feed's range
-      const isCovered = matrix?.temperatures && matrix?.weights && matrix?.rates &&
-        feedTempMin != null && feedTempMax != null &&
-        temp >= feedTempMin && temp <= feedTempMax;
+      const isCovered =
+        matrix?.temperatures &&
+        matrix?.weights &&
+        matrix?.rates &&
+        feedTempMin != null &&
+        feedTempMax != null &&
+        temp >= feedTempMin &&
+        temp <= feedTempMax;
 
       coverageRow.push(!!isCovered);
 
       if (isCovered) {
         const rate = interpolateFromFeedMatrix(
-          matrix!.temperatures, matrix!.weights, matrix!.rates, temp, weight,
+          matrix!.temperatures,
+          matrix!.weights,
+          matrix!.rates,
+          temp,
+          weight,
         );
         rateRow.push(+rate.toFixed(2));
 
         if (matrix!.fcrMatrix) {
           const fcr = interpolateFromFeedMatrix(
-            matrix!.temperatures, matrix!.weights, matrix!.fcrMatrix, temp, weight,
+            matrix!.temperatures,
+            matrix!.weights,
+            matrix!.fcrMatrix,
+            temp,
+            weight,
           );
           fcrRow.push(+fcr.toFixed(3));
         } else {
@@ -1745,15 +1857,16 @@ const Step4FCRTable: React.FC<Step4Props> = ({ data, onChange, errors }) => {
     return !feed?.feedingMatrix2D?.rates;
   });
 
-  const hasAssignments = data.feedAssignments.length > 0 && data.feedAssignments.some((a) => a.feedId);
+  const hasAssignments =
+    data.feedAssignments.length > 0 && data.feedAssignments.some((a) => a.feedId);
 
   return (
     <div className="space-y-6">
       <h3 className="text-lg font-medium text-gray-900">Besleme & FCR Matrisi</h3>
       <p className="text-sm text-gray-500">
-        Yem atamalarindaki yemlerin besleme egrilerinden otomatik olarak birlesmis matris hesaplandi.
-        Degerler, her agirlik araligindaki yemin 2D matrisinden interpolasyon ile elde edilmistir.
-        Gerekirse degerleri duzenleyebilirsiniz.
+        Yem atamalarindaki yemlerin besleme egrilerinden otomatik olarak birlesmis matris
+        hesaplandi. Degerler, her agirlik araligindaki yemin 2D matrisinden interpolasyon ile elde
+        edilmistir. Gerekirse degerleri duzenleyebilirsiniz.
       </p>
 
       {/* Feed matrix summary */}
@@ -1761,27 +1874,31 @@ const Step4FCRTable: React.FC<Step4Props> = ({ data, onChange, errors }) => {
         <div className="bg-gray-50 rounded-lg p-4">
           <h4 className="text-sm font-medium text-gray-900 mb-2">Yem Matrisi Durumu</h4>
           <div className="space-y-1">
-            {data.feedAssignments.filter((a) => a.feedId).map((a) => {
-              const feed = feedsById.get(a.feedId);
-              const hasMatrix = !!feed?.feedingMatrix2D?.rates;
-              return (
-                <div key={a.id} className="flex items-center gap-2 text-sm">
-                  <span className={`inline-block w-2 h-2 rounded-full ${hasMatrix ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                  <span className="text-gray-700">
-                    {a.minWeight}-{a.maxWeight}g: {feed?.name || 'Secilmedi'}
-                  </span>
-                  {hasMatrix ? (
-                    <span className="text-xs text-green-600">
-                      {`2D matris mevcut (${feed!.feedingMatrix2D!.temperatures[0]}°C - ${feed!.feedingMatrix2D!.temperatures[feed!.feedingMatrix2D!.temperatures.length - 1]}°C)`}
+            {data.feedAssignments
+              .filter((a) => a.feedId)
+              .map((a) => {
+                const feed = feedsById.get(a.feedId);
+                const hasMatrix = !!feed?.feedingMatrix2D?.rates;
+                return (
+                  <div key={a.id} className="flex items-center gap-2 text-sm">
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full ${hasMatrix ? 'bg-green-500' : 'bg-yellow-500'}`}
+                    />
+                    <span className="text-gray-700">
+                      {a.minWeight}-{a.maxWeight}g: {feed?.name || 'Secilmedi'}
                     </span>
-                  ) : (
-                    <span className="text-xs text-yellow-600">
-                      Matris yok (varsayilan kullanildi)
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+                    {hasMatrix ? (
+                      <span className="text-xs text-green-600">
+                        {`2D matris mevcut (${feed!.feedingMatrix2D!.temperatures[0]}°C - ${feed!.feedingMatrix2D!.temperatures[feed!.feedingMatrix2D!.temperatures.length - 1]}°C)`}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-yellow-600">
+                        Matris yok (varsayilan kullanildi)
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}
@@ -1797,8 +1914,18 @@ const Step4FCRTable: React.FC<Step4Props> = ({ data, onChange, errors }) => {
       {/* No assignments warning */}
       {!hasAssignments && (
         <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          <svg
+            className="mx-auto h-12 w-12 text-gray-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+            />
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900">Matris hesaplanamadi</h3>
           <p className="mt-1 text-sm text-gray-500">
@@ -1813,11 +1940,20 @@ const Step4FCRTable: React.FC<Step4Props> = ({ data, onChange, errors }) => {
           {/* Recalculate button */}
           {hasUserEdited && mergedMatrix && (
             <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              <svg
+                className="w-5 h-5 text-amber-500 flex-shrink-0"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                  clipRule="evenodd"
+                />
               </svg>
               <span className="text-sm text-amber-800 flex-1">
-                Matrisi manuel olarak duzenlediniz. Yem atamalarindan yeniden hesaplamak ister misiniz?
+                Matrisi manuel olarak duzenlediniz. Yem atamalarindan yeniden hesaplamak ister
+                misiniz?
               </span>
               <button
                 type="button"
@@ -1829,9 +1965,7 @@ const Step4FCRTable: React.FC<Step4Props> = ({ data, onChange, errors }) => {
             </div>
           )}
 
-          {errors.customFCRMatrix && (
-            <Alert type="error">{errors.customFCRMatrix}</Alert>
-          )}
+          {errors.customFCRMatrix && <Alert type="error">{errors.customFCRMatrix}</Alert>}
 
           <div className="border border-gray-200 rounded-lg p-4">
             <FeedingMatrixEditor
@@ -1887,7 +2021,10 @@ const Step5Settings: React.FC<Step5Props> = ({ data, onChange, errors }) => {
         {/* Transition Buffer - Only show if auto transition is enabled */}
         {data.autoTransition && (
           <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <label htmlFor={transitionBufferId} className="block text-sm font-medium text-gray-900 mb-2">
+            <label
+              htmlFor={transitionBufferId}
+              className="block text-sm font-medium text-gray-900 mb-2"
+            >
               Gecis Tampon Bolgesi (gram)
             </label>
             <p className="text-sm text-gray-500 mb-3">
@@ -1903,7 +2040,9 @@ const Step5Settings: React.FC<Step5Props> = ({ data, onChange, errors }) => {
                 value={data.transitionBuffer}
                 onChange={(e) => onChange({ transitionBuffer: parseFloat(e.target.value) || 0 })}
                 className="w-24 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                aria-describedby={errors.transitionBuffer ? `${transitionBufferId}-error` : undefined}
+                aria-describedby={
+                  errors.transitionBuffer ? `${transitionBufferId}-error` : undefined
+                }
                 aria-invalid={!!errors.transitionBuffer}
               />
               <span className="text-sm text-gray-500">gram</span>
@@ -1921,9 +2060,7 @@ const Step5Settings: React.FC<Step5Props> = ({ data, onChange, errors }) => {
           <label htmlFor={mealsPerDayId} className="block text-sm font-medium text-gray-900 mb-2">
             Gunluk Ogun Sayisi
           </label>
-          <p className="text-sm text-gray-500 mb-3">
-            Varsayilan gunluk yemleme ogun sayisi.
-          </p>
+          <p className="text-sm text-gray-500 mb-3">Varsayilan gunluk yemleme ogun sayisi.</p>
           <div className="flex items-center gap-2">
             <input
               id={mealsPerDayId}
@@ -2025,7 +2162,12 @@ const FeedingProgramForm: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
 
   // GraphQL hooks
-  const { data: programData, isLoading: programLoading, error: programError, refetch: refetchProgram } = useFeedingProgram(programId);
+  const {
+    data: programData,
+    isLoading: programLoading,
+    error: programError,
+    refetch: refetchProgram,
+  } = useFeedingProgram(programId);
   const createMutation = useCreateFeedingProgram();
   const updateMutation = useUpdateFeedingProgram();
 
@@ -2065,7 +2207,7 @@ const FeedingProgramForm: React.FC = () => {
       setErrors((prev) => ({ ...prev, ...stepErrors }));
       return Object.keys(stepErrors).length === 0;
     },
-    [formData]
+    [formData],
   );
 
   // Validate all steps
@@ -2216,7 +2358,12 @@ const FeedingProgramForm: React.FC = () => {
             aria-label="Besleme programlari listesine don"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -2224,7 +2371,9 @@ const FeedingProgramForm: React.FC = () => {
           </h1>
         </div>
         <p className="mt-1 text-sm text-gray-500">
-          {isEdit ? 'Besleme programi bilgilerini guncelleyin' : 'Yeni bir besleme programi olusturun'}
+          {isEdit
+            ? 'Besleme programi bilgilerini guncelleyin'
+            : 'Yeni bir besleme programi olusturun'}
         </p>
       </div>
 
@@ -2255,7 +2404,12 @@ const FeedingProgramForm: React.FC = () => {
             {currentStep > 1 && (
               <Button type="button" variant="outline" onClick={handlePrev} disabled={isSubmitting}>
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
                 </svg>
                 Geri
               </Button>
@@ -2269,7 +2423,12 @@ const FeedingProgramForm: React.FC = () => {
               <Button type="button" onClick={handleNext} disabled={isSubmitting}>
                 Ileri
                 <svg className="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
                 </svg>
               </Button>
             ) : (

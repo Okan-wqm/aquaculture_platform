@@ -29077,6 +29077,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-04-farm-modal-ssot-and-type-safety.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -37831,6 +37837,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/web-no-createtenantquerykey-in-invalidate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/web-no-hand-rolled-modal-shell.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49506,10 +49518,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8105,
+  "file_count": 8107,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7930,
-  "managed_file_list_sha256": "548c0aee1f4170f06ebe6d598c65ae124b1ceb9bda979195961fa19db372d50d",
+  "managed_count": 7932,
+  "managed_file_list_sha256": "5983b13a32e915ad87b130533dce46cac9c9bf8dd7b34a2f697a6173468f0973",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

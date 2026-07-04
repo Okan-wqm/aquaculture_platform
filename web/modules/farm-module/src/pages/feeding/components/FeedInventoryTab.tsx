@@ -24,7 +24,7 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { useAuth } from '@aquaculture/shared-ui';
+import { Modal, useAuth } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -58,10 +58,7 @@ const statusConfig: Record<InventoryStatus, { label: string; className: string }
 // COMPONENT
 // ============================================================================
 
-export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
-  siteId,
-  sites,
-}) => {
+export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({ siteId, sites }) => {
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<InventoryStatus | ''>('');
@@ -69,10 +66,13 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
   const [selectedInventory, setSelectedInventory] = useState<FeedInventory | null>(null);
 
   // Build filter
-  const filter = useMemo<FeedInventoryFilterInput>(() => ({
-    siteId: siteId || undefined,
-    status: statusFilter || undefined,
-  }), [siteId, statusFilter]);
+  const filter = useMemo<FeedInventoryFilterInput>(
+    () => ({
+      siteId: siteId || undefined,
+      status: statusFilter || undefined,
+    }),
+    [siteId, statusFilter],
+  );
 
   // Data
   const { data, isLoading, error, refetch } = useFeedInventoryList(filter, { page, limit: 20 });
@@ -84,14 +84,18 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
   // Feed lookup
   const feedMap = useMemo(() => {
     const map: Record<string, string> = {};
-    feeds?.items?.forEach((f: any) => { map[f.id] = f.name || f.code; });
+    feeds?.items?.forEach((f: any) => {
+      map[f.id] = f.name || f.code;
+    });
     return map;
   }, [feeds]);
 
   // Site lookup
   const siteMap = useMemo(() => {
     const map: Record<string, string> = {};
-    sites.forEach((s: any) => { map[s.id] = s.name; });
+    sites.forEach((s: any) => {
+      map[s.id] = s.name;
+    });
     return map;
   }, [sites]);
 
@@ -180,7 +184,9 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
     if (!dateStr) return '-';
     try {
       return new Date(dateStr).toLocaleDateString(undefined, {
-        year: 'numeric', month: 'short', day: 'numeric',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
       });
     } catch {
       return dateStr;
@@ -229,7 +235,10 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
         <div className="flex items-center space-x-4">
           <select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value as InventoryStatus | ''); setPage(1); }}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as InventoryStatus | '');
+              setPage(1);
+            }}
             className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">All Statuses</option>
@@ -257,17 +266,39 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Feed</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Qty (kg)</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Min Stock</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lot #</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price/kg</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Value</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Feed
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Site
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Qty (kg)
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Min Stock
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Lot #
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Expiry
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Price/kg
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Total Value
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Location
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -295,7 +326,9 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
                       {Number(inv.minStockKg).toFixed(1)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusCfg.className}`}>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusCfg.className}`}
+                      >
                         {statusCfg.label}
                       </span>
                     </td>
@@ -303,7 +336,13 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
                       {inv.lotNumber || '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm">
-                      <span className={inv.daysUntilExpiry != null && inv.daysUntilExpiry <= 7 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                      <span
+                        className={
+                          inv.daysUntilExpiry != null && inv.daysUntilExpiry <= 7
+                            ? 'text-red-600 font-medium'
+                            : 'text-gray-500'
+                        }
+                      >
                         {formatDate(inv.expiryDate)}
                         {inv.daysUntilExpiry != null && inv.daysUntilExpiry > 0 && (
                           <span className="ml-1 text-xs">({inv.daysUntilExpiry}d)</span>
@@ -314,7 +353,9 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
                       {inv.unitPricePerKg ? `${Number(inv.unitPricePerKg).toFixed(2)}` : '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                      {inv.totalValue ? `${Number(inv.totalValue).toFixed(0)} ${inv.currency || 'NOK'}` : '-'}
+                      {inv.totalValue
+                        ? `${Number(inv.totalValue).toFixed(0)} ${inv.currency || 'NOK'}`
+                        : '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                       {inv.storageLocation || '-'}
@@ -346,18 +387,19 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
         {data && data.total > 20 && (
           <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
             <div className="text-sm text-gray-700">
-              Showing {((page - 1) * 20) + 1} to {Math.min(page * 20, data.total)} of {data.total} records
+              Showing {(page - 1) * 20 + 1} to {Math.min(page * 20, data.total)} of {data.total}{' '}
+              records
             </div>
             <div className="flex space-x-2">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
                 Previous
               </button>
               <button
-                onClick={() => setPage(p => p + 1)}
+                onClick={() => setPage((p) => p + 1)}
                 disabled={!data.hasNextPage}
                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
@@ -385,7 +427,10 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
           inventory={selectedInventory}
           feedName={feedMap[selectedInventory.feedId] || selectedInventory.feedId}
           onSubmit={handleConsumeSubmit}
-          onClose={() => { setModalType(null); setSelectedInventory(null); }}
+          onClose={() => {
+            setModalType(null);
+            setSelectedInventory(null);
+          }}
           isSubmitting={consumeMutation.isPending}
           error={consumeMutation.error}
         />
@@ -395,7 +440,10 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
           inventory={selectedInventory}
           feedName={feedMap[selectedInventory.feedId] || selectedInventory.feedId}
           onSubmit={handleAdjustSubmit}
-          onClose={() => { setModalType(null); setSelectedInventory(null); }}
+          onClose={() => {
+            setModalType(null);
+            setSelectedInventory(null);
+          }}
           isSubmitting={adjustMutation.isPending}
           error={adjustMutation.error}
         />
@@ -419,7 +467,13 @@ interface AddInventoryModalProps {
 }
 
 const AddInventoryModal: React.FC<AddInventoryModalProps> = ({
-  feeds, sites, defaultSiteId, onSubmit, onClose, isSubmitting, error,
+  feeds,
+  sites,
+  defaultSiteId,
+  onSubmit,
+  onClose,
+  isSubmitting,
+  error,
 }) => {
   const today = new Date().toISOString().split('T')[0];
   const [formData, setFormData] = useState({
@@ -436,8 +490,10 @@ const AddInventoryModal: React.FC<AddInventoryModalProps> = ({
     notes: '',
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -446,114 +502,171 @@ const AddInventoryModal: React.FC<AddInventoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
-        <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full p-6 z-10">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Add Feed Inventory</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-              {(error as Error).message}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Feed *</label>
-                <select name="feedId" value={formData.feedId} onChange={handleChange} required
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                  <option value="">Select feed...</option>
-                  {feeds.map((f: any) => (
-                    <option key={f.id} value={f.id}>{f.name || f.code}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Site *</label>
-                <select name="siteId" value={formData.siteId} onChange={handleChange} required
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                  <option value="">Select site...</option>
-                  {sites.map((s: any) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg) *</label>
-                <input type="number" name="quantityKg" value={formData.quantityKg} onChange={handleChange}
-                  required step="0.1" min="0"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Lot Number</label>
-                <input type="text" name="lotNumber" value={formData.lotNumber} onChange={handleChange}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Manufacturing Date</label>
-                <input type="date" name="manufacturingDate" value={formData.manufacturingDate} onChange={handleChange}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
-                <input type="date" name="expiryDate" value={formData.expiryDate} onChange={handleChange}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Received Date</label>
-                <input type="date" name="receivedDate" value={formData.receivedDate} onChange={handleChange}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price per kg</label>
-                <div className="flex items-center space-x-2">
-                  <input type="number" name="unitPricePerKg" value={formData.unitPricePerKg} onChange={handleChange}
-                    step="0.01" min="0"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-                  <select name="currency" value={formData.currency} onChange={handleChange}
-                    className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                    <option value="NOK">NOK</option>
-                    <option value="EUR">EUR</option>
-                    <option value="USD">USD</option>
-                    <option value="TRY">TRY</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Storage Location</label>
-              <input type="text" name="storageLocation" value={formData.storageLocation} onChange={handleChange}
-                placeholder="e.g., Warehouse A, Shelf B3"
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <textarea name="notes" value={formData.notes} onChange={handleChange} rows={2}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button type="button" onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                Cancel
-              </button>
-              <button type="submit" disabled={isSubmitting}
-                className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
-                {isSubmitting ? 'Adding...' : 'Add Inventory'}
-              </button>
-            </div>
-          </form>
+    <Modal isOpen onClose={onClose} title="Add Feed Inventory" size="md">
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          {(error as Error).message}
         </div>
-      </div>
-    </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Feed *</label>
+            <select
+              name="feedId"
+              value={formData.feedId}
+              onChange={handleChange}
+              required
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            >
+              <option value="">Select feed...</option>
+              {feeds.map((f: any) => (
+                <option key={f.id} value={f.id}>
+                  {f.name || f.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Site *</label>
+            <select
+              name="siteId"
+              value={formData.siteId}
+              onChange={handleChange}
+              required
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            >
+              <option value="">Select site...</option>
+              {sites.map((s: any) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg) *</label>
+            <input
+              type="number"
+              name="quantityKg"
+              value={formData.quantityKg}
+              onChange={handleChange}
+              required
+              step="0.1"
+              min="0"
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Lot Number</label>
+            <input
+              type="text"
+              name="lotNumber"
+              value={formData.lotNumber}
+              onChange={handleChange}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Manufacturing Date
+            </label>
+            <input
+              type="date"
+              name="manufacturingDate"
+              value={formData.manufacturingDate}
+              onChange={handleChange}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
+            <input
+              type="date"
+              name="expiryDate"
+              value={formData.expiryDate}
+              onChange={handleChange}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Received Date</label>
+            <input
+              type="date"
+              name="receivedDate"
+              value={formData.receivedDate}
+              onChange={handleChange}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Unit Price per kg
+            </label>
+            <div className="flex items-center space-x-2">
+              <input
+                type="number"
+                name="unitPricePerKg"
+                value={formData.unitPricePerKg}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+              <select
+                name="currency"
+                value={formData.currency}
+                onChange={handleChange}
+                className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="NOK">NOK</option>
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+                <option value="TRY">TRY</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Storage Location</label>
+          <input
+            type="text"
+            name="storageLocation"
+            value={formData.storageLocation}
+            onChange={handleChange}
+            placeholder="e.g., Warehouse A, Shelf B3"
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea
+            name="notes"
+            value={formData.notes}
+            onChange={handleChange}
+            rows={2}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+          >
+            {isSubmitting ? 'Adding...' : 'Add Inventory'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -571,7 +684,12 @@ interface ConsumeInventoryModalProps {
 }
 
 const ConsumeInventoryModal: React.FC<ConsumeInventoryModalProps> = ({
-  inventory, feedName, onSubmit, onClose, isSubmitting, error,
+  inventory,
+  feedName,
+  onSubmit,
+  onClose,
+  isSubmitting,
+  error,
 }) => {
   const [formData, setFormData] = useState({
     inventoryId: inventory.id,
@@ -580,8 +698,10 @@ const ConsumeInventoryModal: React.FC<ConsumeInventoryModalProps> = ({
     notes: '',
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -590,69 +710,79 @@ const ConsumeInventoryModal: React.FC<ConsumeInventoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-10">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Consume Inventory</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-sm text-blue-800">
-              <span className="font-medium">{feedName}</span> - Available: <span className="font-medium">{Number(inventory.quantityKg).toFixed(1)} kg</span>
-              {inventory.lotNumber && <span className="ml-2">(Lot: {inventory.lotNumber})</span>}
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-              {(error as Error).message}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg) *</label>
-              <input type="number" name="quantityKg" value={formData.quantityKg} onChange={handleChange}
-                required step="0.1" min="0.1" max={inventory.quantityKg}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-              <select name="reason" value={formData.reason} onChange={handleChange}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                <option value="FEEDING">Feeding</option>
-                <option value="WASTE">Waste</option>
-                <option value="EXPIRED">Expired</option>
-                <option value="TRANSFER">Transfer</option>
-                <option value="ADJUSTMENT">Adjustment</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <textarea name="notes" value={formData.notes} onChange={handleChange} rows={2}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button type="button" onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                Cancel
-              </button>
-              <button type="submit" disabled={isSubmitting}
-                className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50">
-                {isSubmitting ? 'Processing...' : 'Consume'}
-              </button>
-            </div>
-          </form>
-        </div>
+    <Modal isOpen onClose={onClose} title="Consume Inventory" size="sm">
+      <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <p className="text-sm text-blue-800">
+          <span className="font-medium">{feedName}</span> - Available:{' '}
+          <span className="font-medium">{Number(inventory.quantityKg).toFixed(1)} kg</span>
+          {inventory.lotNumber && <span className="ml-2">(Lot: {inventory.lotNumber})</span>}
+        </p>
       </div>
-    </div>
+
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          {(error as Error).message}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg) *</label>
+          <input
+            type="number"
+            name="quantityKg"
+            value={formData.quantityKg}
+            onChange={handleChange}
+            required
+            step="0.1"
+            min="0.1"
+            max={inventory.quantityKg}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+          <select
+            name="reason"
+            value={formData.reason}
+            onChange={handleChange}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          >
+            <option value="FEEDING">Feeding</option>
+            <option value="WASTE">Waste</option>
+            <option value="EXPIRED">Expired</option>
+            <option value="TRANSFER">Transfer</option>
+            <option value="ADJUSTMENT">Adjustment</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea
+            name="notes"
+            value={formData.notes}
+            onChange={handleChange}
+            rows={2}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
+          >
+            {isSubmitting ? 'Processing...' : 'Consume'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -670,7 +800,12 @@ interface AdjustInventoryModalProps {
 }
 
 const AdjustInventoryModal: React.FC<AdjustInventoryModalProps> = ({
-  inventory, feedName, onSubmit, onClose, isSubmitting, error,
+  inventory,
+  feedName,
+  onSubmit,
+  onClose,
+  isSubmitting,
+  error,
 }) => {
   const [formData, setFormData] = useState({
     inventoryId: inventory.id,
@@ -680,8 +815,10 @@ const AdjustInventoryModal: React.FC<AdjustInventoryModalProps> = ({
     notes: '',
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -690,73 +827,88 @@ const AdjustInventoryModal: React.FC<AdjustInventoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-10">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Adjust Inventory</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-sm text-blue-800">
-              <span className="font-medium">{feedName}</span> - Current: <span className="font-medium">{Number(inventory.quantityKg).toFixed(1)} kg</span>
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-              {(error as Error).message}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment Type *</label>
-              <select name="adjustmentType" value={formData.adjustmentType} onChange={handleChange}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                <option value="INCREASE">Increase</option>
-                <option value="DECREASE">Decrease</option>
-                <option value="SET_QUANTITY">Set Exact Quantity</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {formData.adjustmentType === 'SET_QUANTITY' ? 'New Quantity (kg) *' : 'Amount (kg) *'}
-              </label>
-              <input type="number" name="quantity" value={formData.quantity} onChange={handleChange}
-                required step="0.1" min="0"
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reason *</label>
-              <input type="text" name="reason" value={formData.reason} onChange={handleChange}
-                required placeholder="e.g., Stock count correction, spillage"
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <textarea name="notes" value={formData.notes} onChange={handleChange} rows={2}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" />
-            </div>
-            <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button type="button" onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                Cancel
-              </button>
-              <button type="submit" disabled={isSubmitting}
-                className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-                {isSubmitting ? 'Adjusting...' : 'Apply Adjustment'}
-              </button>
-            </div>
-          </form>
-        </div>
+    <Modal isOpen onClose={onClose} title="Adjust Inventory" size="sm">
+      <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <p className="text-sm text-blue-800">
+          <span className="font-medium">{feedName}</span> - Current:{' '}
+          <span className="font-medium">{Number(inventory.quantityKg).toFixed(1)} kg</span>
+        </p>
       </div>
-    </div>
+
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          {(error as Error).message}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment Type *</label>
+          <select
+            name="adjustmentType"
+            value={formData.adjustmentType}
+            onChange={handleChange}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          >
+            <option value="INCREASE">Increase</option>
+            <option value="DECREASE">Decrease</option>
+            <option value="SET_QUANTITY">Set Exact Quantity</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            {formData.adjustmentType === 'SET_QUANTITY' ? 'New Quantity (kg) *' : 'Amount (kg) *'}
+          </label>
+          <input
+            type="number"
+            name="quantity"
+            value={formData.quantity}
+            onChange={handleChange}
+            required
+            step="0.1"
+            min="0"
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Reason *</label>
+          <input
+            type="text"
+            name="reason"
+            value={formData.reason}
+            onChange={handleChange}
+            required
+            placeholder="e.g., Stock count correction, spillage"
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea
+            name="notes"
+            value={formData.notes}
+            onChange={handleChange}
+            rows={2}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+        </div>
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isSubmitting ? 'Adjusting...' : 'Apply Adjustment'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };

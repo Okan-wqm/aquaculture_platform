@@ -3,7 +3,12 @@
  * Handles CRUD operations for equipment via GraphQL API
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, useTenantQuery } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  useTenantQuery,
+  type SpecificationSchema,
+} from '@aquaculture/shared-ui';
 
 // Types
 export interface EquipmentType {
@@ -13,7 +18,7 @@ export interface EquipmentType {
   category: string;
   description?: string;
   icon?: string;
-  specificationSchema?: Record<string, unknown>;
+  specificationSchema?: SpecificationSchema;
   isActive: boolean;
 }
 

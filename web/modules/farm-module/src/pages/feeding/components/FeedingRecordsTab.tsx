@@ -16,7 +16,7 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { useAuth } from '@aquaculture/shared-ui';
+import { Modal, useAuth } from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
 
 // ============================================================================
@@ -62,11 +62,14 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   const [editingRecord, setEditingRecord] = useState<FeedingRecord | null>(null);
 
   // Build filter
-  const filter = useMemo<FeedingRecordFilterInput>(() => ({
-    batchId: batchId || undefined,
-    startDate: startDate || undefined,
-    endDate: endDate || undefined,
-  }), [batchId, startDate, endDate]);
+  const filter = useMemo<FeedingRecordFilterInput>(
+    () => ({
+      batchId: batchId || undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    }),
+    [batchId, startDate, endDate],
+  );
 
   // Data
   const { data, isLoading, error, refetch } = useFeedingRecordsList(filter, { page, limit: 20 });
@@ -77,14 +80,18 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   // Feed lookup
   const feedMap = useMemo(() => {
     const map: Record<string, string> = {};
-    feeds?.items?.forEach((f: any) => { map[f.id] = f.name || f.code; });
+    feeds?.items?.forEach((f: any) => {
+      map[f.id] = f.name || f.code;
+    });
     return map;
   }, [feeds]);
 
   // Batch lookup
   const batchMap = useMemo(() => {
     const map: Record<string, string> = {};
-    batches.forEach((b) => { map[b.id] = b.batchNumber; });
+    batches.forEach((b) => {
+      map[b.id] = b.batchNumber;
+    });
     return map;
   }, [batches]);
 
@@ -140,7 +147,9 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   const formatDate = (dateStr: string) => {
     try {
       return new Date(dateStr).toLocaleDateString(undefined, {
-        year: 'numeric', month: 'short', day: 'numeric',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
       });
     } catch {
       return dateStr;
@@ -193,7 +202,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
             <input
               type="date"
               value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(1);
+              }}
               className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Start Date"
             />
@@ -201,7 +213,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
             <input
               type="date"
               value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(1);
+              }}
               className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="End Date"
             />
@@ -224,16 +239,36 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Batch</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feed</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Planned (kg)</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actual (kg)</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Variance</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Batch
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Feed
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Time
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Planned (kg)
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actual (kg)
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Variance
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Method
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -265,14 +300,17 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
                     {Number(record.actualAmount).toFixed(1)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-right">
-                    <span className={`${
-                      record.isVarianceAcceptable
-                        ? 'text-green-600'
-                        : record.isBelowPlan
-                        ? 'text-red-600'
-                        : 'text-orange-600'
-                    }`}>
-                      {Number(record.variancePercent) > 0 ? '+' : ''}{Number(record.variancePercent).toFixed(1)}%
+                    <span
+                      className={`${
+                        record.isVarianceAcceptable
+                          ? 'text-green-600'
+                          : record.isBelowPlan
+                            ? 'text-red-600'
+                            : 'text-orange-600'
+                      }`}
+                    >
+                      {Number(record.variancePercent) > 0 ? '+' : ''}
+                      {Number(record.variancePercent).toFixed(1)}%
                     </span>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
@@ -307,18 +345,19 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
         {data && data.total > 20 && (
           <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
             <div className="text-sm text-gray-700">
-              Showing {((page - 1) * 20) + 1} to {Math.min(page * 20, data.total)} of {data.total} records
+              Showing {(page - 1) * 20 + 1} to {Math.min(page * 20, data.total)} of {data.total}{' '}
+              records
             </div>
             <div className="flex space-x-2">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
                 Previous
               </button>
               <button
-                onClick={() => setPage(p => p + 1)}
+                onClick={() => setPage((p) => p + 1)}
                 disabled={!data.hasNextPage}
                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
@@ -337,7 +376,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
           feeds={feeds?.items ?? []}
           userId={user?.id || ''}
           onSubmit={handleFormSubmit}
-          onClose={() => { setShowForm(false); setEditingRecord(null); }}
+          onClose={() => {
+            setShowForm(false);
+            setEditingRecord(null);
+          }}
           isSubmitting={createMutation.isPending || updateMutation.isPending}
           error={createMutation.error || updateMutation.error}
         />
@@ -394,9 +436,11 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
     fedBy: record?.fedBy || userId,
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -408,260 +452,258 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
       wasteAmount: formData.wasteAmount ? Number(formData.wasteAmount) : undefined,
       feedingSequence: Number(formData.feedingSequence),
       totalMealsToday: Number(formData.totalMealsToday),
-      feedingDurationMinutes: formData.feedingDurationMinutes ? Number(formData.feedingDurationMinutes) : undefined,
+      feedingDurationMinutes: formData.feedingDurationMinutes
+        ? Number(formData.feedingDurationMinutes)
+        : undefined,
       feedCost: formData.feedCost ? Number(formData.feedCost) : undefined,
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        {/* Backdrop */}
-        <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={onClose} />
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={isEdit ? 'Edit Feeding Record' : 'New Feeding Record'}
+      size="lg"
+    >
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          {(error as Error).message}
+        </div>
+      )}
 
-        {/* Modal */}
-        <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 z-10">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">
-              {isEdit ? 'Edit Feeding Record' : 'New Feeding Record'}
-            </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-              {(error as Error).message}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          {/* Batch */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Batch *</label>
+              <select
+                name="batchId"
+                value={formData.batchId}
+                onChange={handleChange}
+                required
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="">Select batch...</option>
+                {batches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.batchNumber} - {b.name || 'Unnamed'}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              {/* Batch */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Batch *</label>
-                  <select
-                    name="batchId"
-                    value={formData.batchId}
-                    onChange={handleChange}
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  >
-                    <option value="">Select batch...</option>
-                    {batches.map((b) => (
-                      <option key={b.id} value={b.id}>{b.batchNumber} - {b.name || 'Unnamed'}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Feed */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Feed *</label>
-                  <select
-                    name="feedId"
-                    value={formData.feedId}
-                    onChange={handleChange}
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  >
-                    <option value="">Select feed...</option>
-                    {feeds.map((f: any) => (
-                      <option key={f.id} value={f.id}>{f.name || f.code}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Date */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Date *</label>
-                  <input
-                    type="date"
-                    name="feedingDate"
-                    value={formData.feedingDate}
-                    onChange={handleChange}
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                </div>
-              )}
-
-              {/* Time */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Time *</label>
-                  <input
-                    type="time"
-                    name="feedingTime"
-                    value={formData.feedingTime}
-                    onChange={handleChange}
-                    required
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                </div>
-              )}
-
-              {/* Sequence */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Meal #</label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      name="feedingSequence"
-                      value={formData.feedingSequence}
-                      onChange={handleChange}
-                      min={1}
-                      className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    />
-                    <span className="text-gray-500">of</span>
-                    <input
-                      type="number"
-                      name="totalMealsToday"
-                      value={formData.totalMealsToday}
-                      onChange={handleChange}
-                      min={1}
-                      className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Method */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
-                  <select
-                    name="feedingMethod"
-                    value={formData.feedingMethod}
-                    onChange={handleChange}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  >
-                    <option value="MANUAL">Manual</option>
-                    <option value="AUTOMATIC">Automatic</option>
-                    <option value="DEMAND">Demand</option>
-                    <option value="BROADCAST">Broadcast</option>
-                    <option value="SPOT">Spot</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Planned Amount */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Planned Amount (kg) *</label>
-                  <input
-                    type="number"
-                    name="plannedAmount"
-                    value={formData.plannedAmount}
-                    onChange={handleChange}
-                    required
-                    step="0.1"
-                    min="0"
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  />
-                </div>
-              )}
-
-              {/* Actual Amount */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Actual Amount (kg) *</label>
-                <input
-                  type="number"
-                  name="actualAmount"
-                  value={formData.actualAmount}
-                  onChange={handleChange}
-                  required
-                  step="0.1"
-                  min="0"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                />
-              </div>
-
-              {/* Waste Amount */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Waste Amount (kg)</label>
-                <input
-                  type="number"
-                  name="wasteAmount"
-                  value={formData.wasteAmount}
-                  onChange={handleChange}
-                  step="0.1"
-                  min="0"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                />
-              </div>
-
-              {/* Feed Cost */}
-              {!isEdit && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Feed Cost</label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      name="feedCost"
-                      value={formData.feedCost}
-                      onChange={handleChange}
-                      step="0.01"
-                      min="0"
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    />
-                    <select
-                      name="currency"
-                      value={formData.currency}
-                      onChange={handleChange}
-                      className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                    >
-                      <option value="NOK">NOK</option>
-                      <option value="EUR">EUR</option>
-                      <option value="USD">USD</option>
-                      <option value="TRY">TRY</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Notes */}
+          {/* Feed */}
+          {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-              <textarea
-                name="notes"
-                value={formData.notes}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Feed *</label>
+              <select
+                name="feedId"
+                value={formData.feedId}
                 onChange={handleChange}
-                rows={2}
+                required
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                placeholder="Optional notes..."
+              >
+                <option value="">Select feed...</option>
+                {feeds.map((f: any) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name || f.code}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Date */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Date *</label>
+              <input
+                type="date"
+                name="feedingDate"
+                value={formData.feedingDate}
+                onChange={handleChange}
+                required
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
+          )}
 
-            {/* Actions */}
-            <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? 'Saving...' : isEdit ? 'Update Record' : 'Create Record'}
-              </button>
+          {/* Time */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Time *</label>
+              <input
+                type="time"
+                name="feedingTime"
+                value={formData.feedingTime}
+                onChange={handleChange}
+                required
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
             </div>
-          </form>
+          )}
+
+          {/* Sequence */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Meal #</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  name="feedingSequence"
+                  value={formData.feedingSequence}
+                  onChange={handleChange}
+                  min={1}
+                  className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                />
+                <span className="text-gray-500">of</span>
+                <input
+                  type="number"
+                  name="totalMealsToday"
+                  value={formData.totalMealsToday}
+                  onChange={handleChange}
+                  min={1}
+                  className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Method */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
+              <select
+                name="feedingMethod"
+                value={formData.feedingMethod}
+                onChange={handleChange}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="MANUAL">Manual</option>
+                <option value="AUTOMATIC">Automatic</option>
+                <option value="DEMAND">Demand</option>
+                <option value="BROADCAST">Broadcast</option>
+                <option value="SPOT">Spot</option>
+              </select>
+            </div>
+          )}
+
+          {/* Planned Amount */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Planned Amount (kg) *
+              </label>
+              <input
+                type="number"
+                name="plannedAmount"
+                value={formData.plannedAmount}
+                onChange={handleChange}
+                required
+                step="0.1"
+                min="0"
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+            </div>
+          )}
+
+          {/* Actual Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Actual Amount (kg) *
+            </label>
+            <input
+              type="number"
+              name="actualAmount"
+              value={formData.actualAmount}
+              onChange={handleChange}
+              required
+              step="0.1"
+              min="0"
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+
+          {/* Waste Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Waste Amount (kg)
+            </label>
+            <input
+              type="number"
+              name="wasteAmount"
+              value={formData.wasteAmount}
+              onChange={handleChange}
+              step="0.1"
+              min="0"
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+
+          {/* Feed Cost */}
+          {!isEdit && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Feed Cost</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  name="feedCost"
+                  value={formData.feedCost}
+                  onChange={handleChange}
+                  step="0.01"
+                  min="0"
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                />
+                <select
+                  name="currency"
+                  value={formData.currency}
+                  onChange={handleChange}
+                  className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                >
+                  <option value="NOK">NOK</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="TRY">TRY</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+
+        {/* Notes */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea
+            name="notes"
+            value={formData.notes}
+            onChange={handleChange}
+            rows={2}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            placeholder="Optional notes..."
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Saving...' : isEdit ? 'Update Record' : 'Create Record'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };

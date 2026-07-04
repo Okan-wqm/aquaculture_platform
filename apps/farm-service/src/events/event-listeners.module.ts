@@ -59,6 +59,7 @@ import {
   LowStockAlertListener,
   FeedingCompletedListener,
   FarmStockProjectionListener,
+  SensorTemperatureProjectionListener,
 } from './listeners';
 
 /**
@@ -72,6 +73,7 @@ const EventListeners = [
   LowStockAlertListener,
   FeedingCompletedListener,
   FarmStockProjectionListener,
+  SensorTemperatureProjectionListener,
 ];
 
 @Module({

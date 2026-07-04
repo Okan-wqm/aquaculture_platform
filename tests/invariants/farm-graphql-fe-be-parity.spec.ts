@@ -46,6 +46,10 @@ const FE_SOURCE_ROOT = 'web/modules/farm-module/src';
 const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts
   tenantUsers: 'auth-service',
+  // apps/sensor-service/src/registration/resolvers/registration.resolver.ts
+  // farm-module's useSensors hook lists sensors to link a temperature sensor
+  // to a tank/pond/cage at equipment create/edit time.
+  sensors: 'sensor-service',
 };
 
 interface FrontendRootField {

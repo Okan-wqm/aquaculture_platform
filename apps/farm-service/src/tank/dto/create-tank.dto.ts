@@ -187,6 +187,12 @@ export class CreateTankInput {
   @IsUUID()
   equipmentTypeId?: string;
 
+  /** Linked temperature sensor (sensor-service sensors.id) driving the feed rate. */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsUUID()
+  temperatureSensorId?: string;
+
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
@@ -296,7 +302,10 @@ export class CreateTankInput {
   @Min(0)
   maxBiomass: number;
 
-  @Field(() => Float, { nullable: true, description: 'Manual volume for non-geometric pond/cage containers' })
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Manual volume for non-geometric pond/cage containers',
+  })
   @IsOptional()
   @IsNumber()
   @Min(0.1)

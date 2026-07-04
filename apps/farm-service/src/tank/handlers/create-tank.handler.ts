@@ -112,6 +112,7 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
         containerKind: input.containerKind,
         equipmentTypeId: input.equipmentTypeId,
         equipmentTypeCode: input.equipmentTypeCode,
+        temperatureSensorId: input.temperatureSensorId,
         tankType,
         material,
         waterType,
@@ -233,7 +234,8 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
         // For OTHER type, at least one dimension set should be provided
         const hasCircular = input.diameter && input.diameter > 0;
         const hasRectangular = input.length && input.length > 0 && input.width && input.width > 0;
-        const hasManualVolume = 'volume' in input && Number((input as { volume?: number }).volume) > 0;
+        const hasManualVolume =
+          'volume' in input && Number((input as { volume?: number }).volume) > 0;
 
         if (!hasCircular && !hasRectangular && !hasManualVolume) {
           throw new BadRequestException(

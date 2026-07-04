@@ -8553,6 +8553,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802100000000-AddEquipmentTemperatureSensorId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802200000000-CreateSensorTemperatureLatest.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802300000000-AddTankTemperatureSensorId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -9207,6 +9225,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/__tests__/sensor-temperature-projection.listener.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/events/listeners/batch-created.listener.ts",
       "prettier_managed": true
     },
@@ -9250,6 +9274,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/events/listeners/mortality-recorded.listener.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/sensor-temperature-projection.listener.ts",
       "prettier_managed": true
     },
     {
@@ -13726,6 +13756,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/entities/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/entities/sensor-temperature-latest.entity.ts",
       "prettier_managed": true
     },
     {
@@ -29119,6 +29155,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-04-sensor-water-temperature.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-expert/2026-07-04-water-temperature-feed-rate.md",
       "prettier_managed": true
     },
@@ -41536,6 +41578,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/useSensors.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/useSentinelHub.ts",
       "prettier_managed": true
     },
@@ -49578,10 +49626,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8117,
+  "file_count": 8125,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7942,
-  "managed_file_list_sha256": "e6fcb9bd34b96e7929ceffc222257d31c536ab05ea58ee6635b83dd673693e1a",
+  "managed_count": 7950,
+  "managed_file_list_sha256": "dcf6437089e6c2fb11aa91cd825f30b53713693b04b5daac0e2a11e433a00420",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

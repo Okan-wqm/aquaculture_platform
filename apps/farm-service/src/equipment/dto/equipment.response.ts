@@ -232,7 +232,10 @@ export class EquipmentResponse {
   @Field(() => ID, { nullable: true })
   siteId?: string;
 
-  @Field(() => [EquipmentSystemResponse], { nullable: true, description: 'Systems this equipment serves (many-to-many)' })
+  @Field(() => [EquipmentSystemResponse], {
+    nullable: true,
+    description: 'Systems this equipment serves (many-to-many)',
+  })
   systems?: EquipmentSystemResponse[];
 
   @Field(() => [ID], { nullable: true, description: 'System IDs for convenience' })
@@ -320,7 +323,13 @@ export class EquipmentResponse {
   @Field({ nullable: true })
   isVisibleInSensor?: boolean;
 
-  @Field(() => EquipmentBatchMetrics, { nullable: true, description: 'Batch metrics for tanks/ponds/cages' })
+  @Field(() => ID, { nullable: true })
+  temperatureSensorId?: string;
+
+  @Field(() => EquipmentBatchMetrics, {
+    nullable: true,
+    description: 'Batch metrics for tanks/ponds/cages',
+  })
   batchMetrics?: EquipmentBatchMetrics;
 
   @Field(() => ID, { nullable: true })

@@ -5,15 +5,13 @@
  * used by the feeding-rate calculation (the temperature multiplier of a feeding
  * protocol). Kept deliberately small and cross-module-injectable.
  *
- * Sources, in priority order:
- *   1. (Phase 2b) the latest reading from a sensor linked to the tank.
- *   2. the latest MANUAL water-quality measurement carrying a temperature.
- *   3. null — the caller then applies no temperature correction (multiplier 1.0).
- *
- * Phase 2a wires source #2 only; source #1 (sensor) lands in Phase 2b via a
- * farm-side projection of the sensor-service SensorReading event stream (the
- * cross-schema raw query the old bridge used is prod-broken — `farm_service`
- * has no grant on the `sensor` schema).
+ * Two sources, and the MOST RECENT reading wins:
+ *   - SENSOR: the tank's linked sensor (`equipment.temperatureSensorId`) resolved
+ *     against the local `sensor_temperature_latest` projection (fed by the
+ *     sensor-service SensorReading event — no synchronous cross-service call, no
+ *     cross-schema grant).
+ *   - MANUAL: the latest MANUAL water-quality measurement carrying a temperature.
+ * When neither exists the caller applies no temperature correction (multiplier 1.0).
  *
  * Reads are explicitly schema-qualified (`getTenantSchemaName`) rather than
  * relying on the request search_path, so the service is safe to call from the
@@ -31,8 +29,14 @@ export interface WaterTemperatureReading {
   source: WaterTemperatureSource;
 }
 
-interface TemperatureRow {
-  temperature: string | number | null;
+interface DatedTemperature {
+  celsius: number;
+  measuredAt: Date;
+}
+
+interface DatedTemperatureRow {
+  celsius: string | number | null;
+  measuredAt: string | Date | null;
 }
 
 @Injectable()
@@ -41,17 +45,74 @@ export class WaterTemperatureService {
 
   /**
    * Latest known water temperature (°C) for a tank/equipment, or null when none
-   * is on record. `tankId` matches either the measurement's `tankId` or its
-   * `equipmentId` (a tank is a farm Equipment row; measurements may key on
-   * either).
+   * is on record. Compares the tank's linked-sensor reading against the latest
+   * manual measurement and returns whichever is more recent.
    */
   async getCurrentTemperature(
     tenantId: string,
     tankId: string,
   ): Promise<WaterTemperatureReading | null> {
     const schema = getTenantSchemaName(tenantId);
-    const rows: TemperatureRow[] = await this.dataSource.query(
-      `SELECT "temperature"
+    const [sensor, manual] = await Promise.all([
+      this.getLinkedSensorTemperature(schema, tenantId, tankId),
+      this.getManualTemperature(schema, tenantId, tankId),
+    ]);
+
+    if (sensor && manual) {
+      return sensor.measuredAt >= manual.measuredAt
+        ? { celsius: sensor.celsius, source: 'sensor' }
+        : { celsius: manual.celsius, source: 'manual' };
+    }
+    if (sensor) {
+      return { celsius: sensor.celsius, source: 'sensor' };
+    }
+    if (manual) {
+      return { celsius: manual.celsius, source: 'manual' };
+    }
+    return null;
+  }
+
+  /**
+   * Latest reading from the sensor linked to the container at creation, if any.
+   * A container id resolves against the `tanks` table (tanks/ponds/cages) OR the
+   * `equipment` table (other containers) — the equipment list unions both, so the
+   * id passed here can belong to either — hence the UNION subquery.
+   */
+  private async getLinkedSensorTemperature(
+    schema: string,
+    tenantId: string,
+    tankId: string,
+  ): Promise<DatedTemperature | null> {
+    const rows: DatedTemperatureRow[] = await this.dataSource.query(
+      `SELECT stl."temperatureC" AS celsius, stl."measuredAt" AS "measuredAt"
+         FROM "${schema}".sensor_temperature_latest stl
+        WHERE stl."tenantId" = $2
+          AND stl."sensorId" = (
+            SELECT s."temperatureSensorId"
+              FROM (
+                SELECT "temperatureSensorId" FROM "${schema}".tanks
+                 WHERE "id" = $1 AND "tenantId" = $2
+                UNION ALL
+                SELECT "temperatureSensorId" FROM "${schema}".equipment
+                 WHERE "id" = $1 AND "tenantId" = $2
+              ) s
+             WHERE s."temperatureSensorId" IS NOT NULL
+             LIMIT 1
+          )
+        LIMIT 1`,
+      [tankId, tenantId],
+    );
+    return WaterTemperatureService.toDatedTemperature(rows[0]);
+  }
+
+  /** Latest manual water-quality measurement carrying a temperature, if any. */
+  private async getManualTemperature(
+    schema: string,
+    tenantId: string,
+    tankId: string,
+  ): Promise<DatedTemperature | null> {
+    const rows: DatedTemperatureRow[] = await this.dataSource.query(
+      `SELECT "temperature" AS celsius, "measuredAt" AS "measuredAt"
          FROM "${schema}".water_quality_measurements
         WHERE "tenantId" = $1
           AND ("tankId" = $2 OR "equipmentId" = $2)
@@ -60,10 +121,13 @@ export class WaterTemperatureService {
         LIMIT 1`,
       [tenantId, tankId],
     );
-    const value = rows[0]?.temperature;
-    if (value == null) {
+    return WaterTemperatureService.toDatedTemperature(rows[0]);
+  }
+
+  private static toDatedTemperature(row: DatedTemperatureRow | undefined): DatedTemperature | null {
+    if (!row || row.celsius == null || row.measuredAt == null) {
       return null;
     }
-    return { celsius: Number(value), source: 'manual' };
+    return { celsius: Number(row.celsius), measuredAt: new Date(row.measuredAt) };
   }
 }

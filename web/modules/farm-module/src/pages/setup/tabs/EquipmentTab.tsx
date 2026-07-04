@@ -19,6 +19,7 @@ import { useDepartmentsBySite } from '../../../hooks/useDepartments';
 import { useSiteList } from '../../../hooks/useSites';
 import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
+import { useSensors } from '../../../hooks/useSensors';
 import {
   Modal,
   DynamicSpecificationForm,
@@ -181,6 +182,7 @@ interface EquipmentFormData {
   description: string;
   parentEquipmentId: string; // Parent equipment for hierarchy
   isVisibleInSensor: boolean;
+  temperatureSensorId: string; // Linked temperature sensor (sensor-service sensors.id)
   specifications: Record<string, unknown>; // Dynamic specifications
 }
 
@@ -202,6 +204,7 @@ const initialFormData: EquipmentFormData = {
   description: '',
   parentEquipmentId: '',
   isVisibleInSensor: false,
+  temperatureSensorId: '',
   specifications: {},
 };
 
@@ -239,6 +242,7 @@ export const EquipmentTab: React.FC = () => {
   const { data: departmentsList, error: deptError } = useDepartmentsBySite(formData.siteId || '');
   const { data: systemsList } = useSystemsBySite(formData.siteId || '');
   const { data: suppliersData } = useSupplierList();
+  const { sensors } = useSensors();
   const createEquipment = useCreateEquipment();
   const updateEquipment = useUpdateEquipment();
   const deleteEquipmentMutation = useDeleteEquipment();
@@ -490,6 +494,7 @@ export const EquipmentTab: React.FC = () => {
           description: formData.description || undefined,
           parentEquipmentId: formData.parentEquipmentId || undefined,
           isVisibleInSensor: formData.isVisibleInSensor,
+          temperatureSensorId: formData.temperatureSensorId || undefined,
           specifications: formData.specifications,
         });
       } else {
@@ -509,6 +514,7 @@ export const EquipmentTab: React.FC = () => {
           description: formData.description || undefined,
           parentEquipmentId: formData.parentEquipmentId || undefined,
           isVisibleInSensor: formData.isVisibleInSensor,
+          temperatureSensorId: formData.temperatureSensorId || undefined,
           specifications: formData.specifications,
         });
       }
@@ -549,6 +555,7 @@ export const EquipmentTab: React.FC = () => {
       description: eq.description || '',
       parentEquipmentId: eq.parentEquipmentId || '',
       isVisibleInSensor: eq.isVisibleInSensor ?? false,
+      temperatureSensorId: eq.temperatureSensorId || '',
       specifications: (eq.specifications as Record<string, unknown>) || {},
     });
     setIsModalOpen(true);
@@ -1515,6 +1522,35 @@ export const EquipmentTab: React.FC = () => {
 
               {/* Feeder Calibration Section (edit mode only) */}
               {editingId && isFeederType && <FeederCalibrationSection equipmentId={editingId} />}
+
+              {/* Temperature Sensor (tank / pond / cage only) — links a
+                  sensor-service sensor whose live temperature drives the
+                  tank's feed-rate calculation. */}
+              {TANK_CATEGORIES.includes(formData.selectedCategory) && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Temperature Sensor
+                  </label>
+                  <select
+                    value={formData.temperatureSensorId}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, temperatureSensorId: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">No sensor</option>
+                    {sensors.map((sensor) => (
+                      <option key={sensor.id} value={sensor.id}>
+                        {sensor.name} ({sensor.type})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Optional. Links a sensor whose live temperature drives this tank&apos;s
+                    feed-rate calculation.
+                  </p>
+                </div>
+              )}
 
               {/* Options */}
               <div className="flex items-center gap-2 pt-2">

@@ -53,6 +53,9 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
+import { GrowthStageProtocol, TemperatureRange } from '../../feed/entities/feeding-protocol.entity';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
@@ -124,9 +127,32 @@ export interface FeedingRecordResult {
 // SERVICE
 // ============================================================================
 
+/**
+ * Normalize a JSONB band column read via a raw query — pg returns jsonb already
+ * parsed, but a text-typed legacy row may arrive as a JSON string.
+ */
+function asBandArray<T>(value: T[] | string | null | undefined): T[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 @Injectable()
 export class DailyFeedingExecutionService {
   private readonly logger = new Logger(DailyFeedingExecutionService.name);
+
+  // Stateless rate SSoT — the same calculator the tanks-page DataLoader uses, so
+  // the daily plan and the tanks page agree on the protocol-driven feed rate.
+  private readonly protocolRate = new FeedingProtocolRateService();
 
   constructor(
     @InjectRepository(DailyFeedingExecution)
@@ -355,6 +381,20 @@ export class DailyFeedingExecutionService {
         feedingRatePercent = curvePoint.feedingRatePercent;
         fcr = curvePoint.fcr;
       }
+    }
+
+    // 3b. Protocol precedence (rate SSoT). If the tank's primary batch carries a
+    // feeding protocol, its feedPercent(weight) × tempMultiplier drives the rate —
+    // the SAME calculator the tanks-page DataLoader uses, so the daily plan and the
+    // tanks page agree. FCR stays feed/program-derived (the protocol has no FCR model).
+    const protocolRatePercent = await this.resolveProtocolRatePercent(
+      tenantId,
+      tankState.batchId,
+      avgWeightG,
+      waterTempC,
+    );
+    if (protocolRatePercent !== null) {
+      feedingRatePercent = protocolRatePercent;
     }
 
     // 4. FCR kaynagini kontrol et
@@ -1146,6 +1186,56 @@ export class DailyFeedingExecutionService {
       usingDefaultTemperature: temperatureResult.isDefault,
       batchId: tankBatch.primaryBatchId,
     };
+  }
+
+  /**
+   * The tank's primary-batch feeding-rate percent from its assigned protocol, or
+   * null when the batch carries no protocol or the protocol has no usable weight
+   * bands (caller then keeps the feed matrix/curve rate). Schema-qualified so it
+   * is safe from the daily-feeding cron (no request search_path).
+   */
+  private async resolveProtocolRatePercent(
+    tenantId: string,
+    batchId: string | undefined,
+    avgWeightG: number,
+    waterTempC: number,
+  ): Promise<number | null> {
+    if (!batchId) {
+      return null;
+    }
+    const schema = getTenantSchemaName(tenantId);
+    const batchRows: Array<{ protocolId: string | null }> = await this.dataSource.query(
+      `SELECT "protocolId" FROM "${schema}".batches_v2
+        WHERE "id" = $1 AND "tenantId" = $2 AND "protocolId" IS NOT NULL
+        LIMIT 1`,
+      [batchId, tenantId],
+    );
+    const protocolId = batchRows[0]?.protocolId;
+    if (!protocolId) {
+      return null;
+    }
+    const protocolRows: Array<{
+      growthStageProtocols: GrowthStageProtocol[] | string | null;
+      temperatureRanges: TemperatureRange[] | string | null;
+    }> = await this.dataSource.query(
+      `SELECT "growthStageProtocols", "temperatureRanges" FROM "${schema}".feeding_protocols
+        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true AND "isDeleted" = false
+        LIMIT 1`,
+      [protocolId, tenantId],
+    );
+    const protocol = protocolRows[0];
+    if (!protocol) {
+      return null;
+    }
+    const rate = this.protocolRate.calculateRate(
+      {
+        growthStageProtocols: asBandArray<GrowthStageProtocol>(protocol.growthStageProtocols),
+        temperatureRanges: asBandArray<TemperatureRange>(protocol.temperatureRanges),
+      },
+      avgWeightG,
+      waterTempC,
+    );
+    return rate ? rate.feedingRatePercent : null;
   }
 
   /**

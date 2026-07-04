@@ -10071,6 +10071,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding/services/__tests__/daily-feeding-execution.protocol-rate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding/services/__tests__/daily-feeding-execution.service.spec.ts",
       "prettier_managed": true
     },
@@ -29138,6 +29144,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/farm-expert/2026-07-04-batch-modal-and-tracking.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-04-daily-plan-protocol-ssot.md",
       "prettier_managed": true
     },
     {
@@ -49626,10 +49638,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8125,
+  "file_count": 8127,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7950,
-  "managed_file_list_sha256": "dcf6437089e6c2fb11aa91cd825f30b53713693b04b5daac0e2a11e433a00420",
+  "managed_count": 7952,
+  "managed_file_list_sha256": "5048120a653361b39691271d0450ac8459b4f1684a51c1fd42ec66ad6ace9b68",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

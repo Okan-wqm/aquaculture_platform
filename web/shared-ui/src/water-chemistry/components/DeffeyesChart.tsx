@@ -37,6 +37,12 @@ interface DeffeyesChartProps {
    * report so the exported chart always shows the toxicity bands.
    */
   forceSafetyOverlays?: boolean;
+  /**
+   * Chart-area height in px. Default 700 (the full farm calculator). Small consumers
+   * such as the sensor-module cards pass a fitting size so the chart sits INSIDE the
+   * widget instead of overflowing it and covering the panel below.
+   */
+  chartHeight?: number;
 }
 
 type AlkDicPoint = { CT: number; AT: number };
@@ -479,6 +485,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   maxALK = 6,
   onDemandPath,
   forceSafetyOverlays = false,
+  chartHeight = 700,
 }) => {
   const [showIsolines, setShowIsolines] = useState(true);
   const [showSafeZone, setShowSafeZone] = useState(false);
@@ -594,7 +601,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
           )}
         </div>
       </div>
-      <div className="p-4" style={{ height: 700 }}>
+      <div className="p-4" style={{ height: chartHeight }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart margin={{ top: 10, right: 20, left: 25, bottom: 35 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />

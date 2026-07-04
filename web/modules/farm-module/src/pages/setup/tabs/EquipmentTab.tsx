@@ -20,6 +20,7 @@ import { useSiteList } from '../../../hooks/useSites';
 import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import {
+  Modal,
   DynamicSpecificationForm,
   SpecificationSchema,
   validateSpecifications,
@@ -310,7 +311,7 @@ export const EquipmentTab: React.FC = () => {
   // Get specification schema from selected type
   const specificationSchema = useMemo((): SpecificationSchema | null => {
     if (!selectedEquipmentType?.specificationSchema) return null;
-    return selectedEquipmentType.specificationSchema as unknown as SpecificationSchema;
+    return selectedEquipmentType.specificationSchema;
   }, [selectedEquipmentType]);
 
   // Check if current type is a feeder (for calibration section)
@@ -382,9 +383,7 @@ export const EquipmentTab: React.FC = () => {
   const handleTypeChange = useCallback(
     (typeId: string) => {
       const selectedType = equipmentTypes?.find((t) => t.id === typeId);
-      const schema = selectedType?.specificationSchema as unknown as
-        | SpecificationSchema
-        | undefined;
+      const schema = selectedType?.specificationSchema;
       const defaults = schema ? getDefaultSpecificationValues(schema) : {};
 
       setFormData((prev) => ({
@@ -1127,466 +1126,430 @@ export const EquipmentTab: React.FC = () => {
       )}
 
       {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div
-              className="fixed inset-0 bg-gray-500/75 transition-opacity"
-              onClick={() => setIsModalOpen(false)}
-            />
-            <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto">
-              <form onSubmit={handleSubmit}>
-                <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    {editingId ? 'Edit Equipment' : 'Add Equipment'}
-                  </h3>
-
-                  <div className="space-y-6">
-                    {/* General Information Section */}
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
-                        General Information
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Name *</label>
-                          <input
-                            type="text"
-                            required
-                            value={formData.name}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, name: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Code *</label>
-                          <input
-                            type="text"
-                            required
-                            value={formData.code}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, code: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Two-stage type selection */}
-                      <div className="grid grid-cols-2 gap-4 mt-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Category *
-                          </label>
-                          <select
-                            value={formData.selectedCategory}
-                            onChange={(e) => handleCategoryChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                            required
-                          >
-                            <option value="">Select Category...</option>
-                            {EQUIPMENT_CATEGORIES.map((cat) => (
-                              <option key={cat.value} value={cat.value}>
-                                {cat.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Type *</label>
-                          <select
-                            value={formData.equipmentTypeId}
-                            onChange={(e) => handleTypeChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                            required
-                            disabled={!formData.selectedCategory}
-                          >
-                            <option value="">
-                              {formData.selectedCategory
-                                ? 'Select Type...'
-                                : 'Select category first...'}
-                            </option>
-                            {filteredTypesByCategory.map((type) => (
-                              <option key={type.id} value={type.id}>
-                                {type.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 mt-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Status *
-                          </label>
-                          <select
-                            value={formData.status}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, status: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <optgroup label="General">
-                              <option value="OPERATIONAL">Operational</option>
-                              <option value="MAINTENANCE">Maintenance</option>
-                              <option value="REPAIR">Repair</option>
-                              <option value="STANDBY">Standby</option>
-                              <option value="OUT_OF_SERVICE">Out of Service</option>
-                              <option value="DECOMMISSIONED">Decommissioned</option>
-                            </optgroup>
-                            {TANK_CATEGORIES.includes(formData.selectedCategory) && (
-                              <optgroup label="Tank / Pond / Cage">
-                                <option value="ACTIVE">Active</option>
-                                <option value="PREPARING">Preparing</option>
-                                <option value="CLEANING">Cleaning</option>
-                                <option value="HARVESTING">Harvesting</option>
-                                <option value="FALLOW">Fallow</option>
-                                <option value="QUARANTINE">Quarantine</option>
-                              </optgroup>
-                            )}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Supplier
-                          </label>
-                          <select
-                            value={formData.supplierId}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="">Select Supplier...</option>
-                            {suppliers.map((sup) => (
-                              <option key={sup.id} value={sup.id}>
-                                {sup.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Location Section */}
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
-                        Location
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Site *</label>
-                          <select
-                            value={formData.siteId}
-                            onChange={(e) => handleSiteChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                            required
-                          >
-                            <option value="">Select Site...</option>
-                            {sites.map((site) => (
-                              <option key={site.id} value={site.id}>
-                                {site.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Department *
-                          </label>
-                          <select
-                            value={formData.departmentId}
-                            onChange={(e) => handleDepartmentChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                            required
-                            disabled={!formData.siteId}
-                          >
-                            <option value="">
-                              {deptError
-                                ? 'Departmanlar yüklenemedi'
-                                : !formData.siteId
-                                  ? 'Önce site seçin...'
-                                  : departments.length === 0
-                                    ? 'Bu site için departman bulunamadı'
-                                    : 'Departman seçin...'}
-                            </option>
-                            {departments.map((dept) => (
-                              <option key={dept.id} value={dept.id}>
-                                {dept.name}
-                              </option>
-                            ))}
-                          </select>
-                          {deptError && (
-                            <p className="text-xs text-red-500 mt-1">
-                              Departmanlar yüklenirken hata oluştu
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Systems *{' '}
-                          <span className="text-gray-400 text-xs font-normal">
-                            (Select all systems this equipment serves)
-                          </span>
-                        </label>
-                        {!formData.siteId ? (
-                          <p className="text-sm text-gray-500 italic">Select a site first...</p>
-                        ) : systems.length === 0 ? (
-                          <p className="text-sm text-gray-500 italic">
-                            No systems available for this site
-                          </p>
-                        ) : (
-                          <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1">
-                            {systems.map((sys) => (
-                              <label
-                                key={sys.id}
-                                className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 ${
-                                  formData.systemIds.includes(sys.id)
-                                    ? 'bg-blue-50 border border-blue-200'
-                                    : ''
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={formData.systemIds.includes(sys.id)}
-                                  onChange={() => handleSystemToggle(sys.id)}
-                                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                />
-                                <span className="ml-2 text-sm text-gray-700">{sys.name}</span>
-                                <span className="ml-auto text-xs text-gray-400">{sys.code}</span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                        {formData.systemIds.length > 0 && (
-                          <p className="mt-1 text-xs text-blue-600">
-                            {formData.systemIds.length} system(s) selected
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Hierarchy Section */}
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
-                        Hierarchy
-                      </h4>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Parent Equipment
-                        </label>
-                        <select
-                          value={formData.parentEquipmentId}
-                          onChange={(e) =>
-                            setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
-                          }
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="">None (Root Equipment)</option>
-                          {availableParentEquipment.map((eq) => (
-                            <option key={eq.id} value={eq.id}>
-                              {eq.name} ({eq.code}) - {eq.equipmentType?.name}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-1 text-xs text-gray-500">
-                          Optional. Select if this equipment is a sub-component of another
-                          equipment.
-                        </p>
-                      </div>
-
-                      {/* Show current child equipment when editing */}
-                      {editingId &&
-                      equipment.find((eq) => eq.id === editingId)?.childEquipment?.length ? (
-                        <div className="mt-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Sub-Equipment
-                          </label>
-                          <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
-                            <div className="space-y-2">
-                              {equipment
-                                .find((eq) => eq.id === editingId)
-                                ?.childEquipment?.map((child) => (
-                                  <div
-                                    key={child.id}
-                                    className="flex items-center justify-between text-sm"
-                                  >
-                                    <span className="flex items-center">
-                                      <svg
-                                        className="w-4 h-4 text-gray-400 mr-2"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M9 5l7 7-7 7"
-                                        />
-                                      </svg>
-                                      {child.name} ({child.code})
-                                    </span>
-                                    <span
-                                      className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 text-gray-800'}`}
-                                    >
-                                      {child.status}
-                                    </span>
-                                  </div>
-                                ))}
-                            </div>
-                            <p className="mt-2 text-xs text-gray-500">
-                              To add sub-equipment, edit or create equipment and set this equipment
-                              as their parent.
-                            </p>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {editingId && (
-                        <SubEquipmentSection
-                          parentEquipmentId={editingId}
-                          parentEquipmentTypeCode={
-                            equipment.find((eq) => eq.id === editingId)?.equipmentType?.code
-                          }
-                        />
-                      )}
-                    </div>
-
-                    {/* Details Section */}
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
-                        Details
-                      </h4>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Manufacturer
-                          </label>
-                          <input
-                            type="text"
-                            value={formData.manufacturer}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Model</label>
-                          <input
-                            type="text"
-                            value={formData.model}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, model: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Serial Number
-                          </label>
-                          <input
-                            type="text"
-                            value={formData.serialNumber}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 mt-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Purchase Date
-                          </label>
-                          <input
-                            type="date"
-                            value={formData.purchaseDate}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Warranty Expiry
-                          </label>
-                          <input
-                            type="date"
-                            value={formData.warrantyEndDate}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
-                            }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Technical Specifications Section */}
-                    {formData.equipmentTypeId && specificationSchema && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
-                          Technical Specifications - {selectedEquipmentType?.name}
-                        </h4>
-                        <DynamicSpecificationForm
-                          schema={specificationSchema}
-                          values={formData.specifications}
-                          onChange={handleSpecificationsChange}
-                        />
-                      </div>
-                    )}
-
-                    {/* Feeder Calibration Section (edit mode only) */}
-                    {editingId && isFeederType && (
-                      <FeederCalibrationSection equipmentId={editingId} />
-                    )}
-
-                    {/* Options */}
-                    <div className="flex items-center gap-2 pt-2">
-                      <input
-                        type="checkbox"
-                        id="isVisibleInSensor"
-                        checked={formData.isVisibleInSensor}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, isVisibleInSensor: e.target.checked }))
-                        }
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <label htmlFor="isVisibleInSensor" className="text-sm text-gray-700">
-                        Show in Sensor Module (Process Editor)
-                      </label>
-                    </div>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Equipment' : 'Add Equipment'}
+        size="lg"
+      >
+        <form onSubmit={handleSubmit}>
+          <div className="max-h-[70vh] overflow-y-auto">
+            <div className="space-y-6">
+              {/* General Information Section */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                  General Information
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Code *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.code}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
                   </div>
                 </div>
-                <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                  <button
-                    type="submit"
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    {editingId ? 'Update Equipment' : 'Save Equipment'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Cancel
-                  </button>
+
+                {/* Two-stage type selection */}
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Category *</label>
+                    <select
+                      value={formData.selectedCategory}
+                      onChange={(e) => handleCategoryChange(e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select Category...</option>
+                      {EQUIPMENT_CATEGORIES.map((cat) => (
+                        <option key={cat.value} value={cat.value}>
+                          {cat.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Type *</label>
+                    <select
+                      value={formData.equipmentTypeId}
+                      onChange={(e) => handleTypeChange(e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      required
+                      disabled={!formData.selectedCategory}
+                    >
+                      <option value="">
+                        {formData.selectedCategory ? 'Select Type...' : 'Select category first...'}
+                      </option>
+                      {filteredTypesByCategory.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </form>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Status *</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <optgroup label="General">
+                        <option value="OPERATIONAL">Operational</option>
+                        <option value="MAINTENANCE">Maintenance</option>
+                        <option value="REPAIR">Repair</option>
+                        <option value="STANDBY">Standby</option>
+                        <option value="OUT_OF_SERVICE">Out of Service</option>
+                        <option value="DECOMMISSIONED">Decommissioned</option>
+                      </optgroup>
+                      {TANK_CATEGORIES.includes(formData.selectedCategory) && (
+                        <optgroup label="Tank / Pond / Cage">
+                          <option value="ACTIVE">Active</option>
+                          <option value="PREPARING">Preparing</option>
+                          <option value="CLEANING">Cleaning</option>
+                          <option value="HARVESTING">Harvesting</option>
+                          <option value="FALLOW">Fallow</option>
+                          <option value="QUARANTINE">Quarantine</option>
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <select
+                      value={formData.supplierId}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Supplier...</option>
+                      {suppliers.map((sup) => (
+                        <option key={sup.id} value={sup.id}>
+                          {sup.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Location Section */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                  Location
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Site *</label>
+                    <select
+                      value={formData.siteId}
+                      onChange={(e) => handleSiteChange(e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select Site...</option>
+                      {sites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Department *</label>
+                    <select
+                      value={formData.departmentId}
+                      onChange={(e) => handleDepartmentChange(e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      required
+                      disabled={!formData.siteId}
+                    >
+                      <option value="">
+                        {deptError
+                          ? 'Departmanlar yüklenemedi'
+                          : !formData.siteId
+                            ? 'Önce site seçin...'
+                            : departments.length === 0
+                              ? 'Bu site için departman bulunamadı'
+                              : 'Departman seçin...'}
+                      </option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                    {deptError && (
+                      <p className="text-xs text-red-500 mt-1">
+                        Departmanlar yüklenirken hata oluştu
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Systems *{' '}
+                    <span className="text-gray-400 text-xs font-normal">
+                      (Select all systems this equipment serves)
+                    </span>
+                  </label>
+                  {!formData.siteId ? (
+                    <p className="text-sm text-gray-500 italic">Select a site first...</p>
+                  ) : systems.length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">
+                      No systems available for this site
+                    </p>
+                  ) : (
+                    <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1">
+                      {systems.map((sys) => (
+                        <label
+                          key={sys.id}
+                          className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 ${
+                            formData.systemIds.includes(sys.id)
+                              ? 'bg-blue-50 border border-blue-200'
+                              : ''
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formData.systemIds.includes(sys.id)}
+                            onChange={() => handleSystemToggle(sys.id)}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{sys.name}</span>
+                          <span className="ml-auto text-xs text-gray-400">{sys.code}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {formData.systemIds.length > 0 && (
+                    <p className="mt-1 text-xs text-blue-600">
+                      {formData.systemIds.length} system(s) selected
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Hierarchy Section */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                  Hierarchy
+                </h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Parent Equipment
+                  </label>
+                  <select
+                    value={formData.parentEquipmentId}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">None (Root Equipment)</option>
+                    {availableParentEquipment.map((eq) => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.name} ({eq.code}) - {eq.equipmentType?.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Optional. Select if this equipment is a sub-component of another equipment.
+                  </p>
+                </div>
+
+                {/* Show current child equipment when editing */}
+                {editingId &&
+                equipment.find((eq) => eq.id === editingId)?.childEquipment?.length ? (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Sub-Equipment
+                    </label>
+                    <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+                      <div className="space-y-2">
+                        {equipment
+                          .find((eq) => eq.id === editingId)
+                          ?.childEquipment?.map((child) => (
+                            <div
+                              key={child.id}
+                              className="flex items-center justify-between text-sm"
+                            >
+                              <span className="flex items-center">
+                                <svg
+                                  className="w-4 h-4 text-gray-400 mr-2"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 5l7 7-7 7"
+                                  />
+                                </svg>
+                                {child.name} ({child.code})
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 text-gray-800'}`}
+                              >
+                                {child.status}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">
+                        To add sub-equipment, edit or create equipment and set this equipment as
+                        their parent.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {editingId && (
+                  <SubEquipmentSection
+                    parentEquipmentId={editingId}
+                    parentEquipmentTypeCode={
+                      equipment.find((eq) => eq.id === editingId)?.equipmentType?.code
+                    }
+                  />
+                )}
+              </div>
+
+              {/* Details Section */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                  Details
+                </h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Manufacturer</label>
+                    <input
+                      type="text"
+                      value={formData.manufacturer}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Model</label>
+                    <input
+                      type="text"
+                      value={formData.model}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Serial Number</label>
+                    <input
+                      type="text"
+                      value={formData.serialNumber}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
+                    <input
+                      type="date"
+                      value={formData.purchaseDate}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Warranty Expiry
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.warrantyEndDate}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Technical Specifications Section */}
+              {formData.equipmentTypeId && specificationSchema && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                    Technical Specifications - {selectedEquipmentType?.name}
+                  </h4>
+                  <DynamicSpecificationForm
+                    schema={specificationSchema}
+                    values={formData.specifications}
+                    onChange={handleSpecificationsChange}
+                  />
+                </div>
+              )}
+
+              {/* Feeder Calibration Section (edit mode only) */}
+              {editingId && isFeederType && <FeederCalibrationSection equipmentId={editingId} />}
+
+              {/* Options */}
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="isVisibleInSensor"
+                  checked={formData.isVisibleInSensor}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, isVisibleInSensor: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="isVisibleInSensor" className="text-sm text-gray-700">
+                  Show in Sensor Module (Process Editor)
+                </label>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
+            <button
+              type="submit"
+              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              {editingId ? 'Update Equipment' : 'Save Equipment'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmationDialog

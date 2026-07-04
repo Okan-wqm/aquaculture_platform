@@ -46,6 +46,14 @@ import { io, type Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
+// Runtime config is injected onto `window` by the deploy entrypoint (a
+// non-VITE fallback for the WS URL when the bundle was built without it).
+declare global {
+  interface Window {
+    __RUNTIME_CONFIG__?: { WS_URL?: string };
+  }
+}
+
 // ─── Configuration ──────────────────────────────────────────────────
 
 /**
@@ -57,11 +65,8 @@ import { useAuth, createTenantInvalidationKey } from '@aquaculture/shared-ui';
  * The `/farms` suffix is the Socket.IO namespace exposed by `FarmGateway`.
  */
 function resolveFarmSocketUrl(): string {
-  const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
-  const viteWsUrl = viteEnv?.['VITE_WS_URL'];
-  const runtimeConfig = (window as unknown as { __RUNTIME_CONFIG__?: { WS_URL?: string } })
-    .__RUNTIME_CONFIG__;
-  const runtimeWsUrl = runtimeConfig?.WS_URL;
+  const viteWsUrl: string | undefined = import.meta.env.VITE_WS_URL;
+  const runtimeWsUrl = window.__RUNTIME_CONFIG__?.WS_URL;
 
   const baseUrl = viteWsUrl || runtimeWsUrl || '';
   return `${baseUrl}/farms`;
@@ -174,7 +179,7 @@ export function useFarmRealtimeStream(): void {
   // update auth.token in-place instead of recreating the connection.
   React.useEffect(() => {
     if (socketRef.current && token && socketRef.current.connected) {
-      (socketRef.current as unknown as { auth: { token: string } }).auth = { token };
+      socketRef.current.auth = { token };
     }
   }, [token]);
 
@@ -212,7 +217,7 @@ export function useFarmRealtimeStream(): void {
     socket.on('reconnect_attempt', () => {
       const currentToken = tokenRef.current;
       if (currentToken) {
-        (socket as unknown as { auth: { token: string } }).auth = { token: currentToken };
+        socket.auth = { token: currentToken };
       }
     });
 

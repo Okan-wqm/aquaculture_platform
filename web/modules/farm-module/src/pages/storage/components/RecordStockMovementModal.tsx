@@ -20,7 +20,7 @@
  *    retries do not create duplicate movements — critical for accurate inventory.
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast } from '@aquaculture/shared-ui';
 import {
   useRecordStockMovement,
   StorageItemType,
@@ -36,8 +36,16 @@ import { useConsumableList } from '../../../hooks/useConsumables';
 const MOVEMENT_TYPE_OPTIONS: { value: MovementType; label: string; description: string }[] = [
   { value: MovementType.IN, label: 'Stock In', description: 'Goods receipt from supplier' },
   { value: MovementType.OUT, label: 'Stock Out', description: 'Dispensed to production' },
-  { value: MovementType.WASTE, label: 'Waste / Write-Off', description: 'Expired or damaged disposal' },
-  { value: MovementType.ADJUSTMENT, label: 'Adjustment', description: 'Inventory count correction' },
+  {
+    value: MovementType.WASTE,
+    label: 'Waste / Write-Off',
+    description: 'Expired or damaged disposal',
+  },
+  {
+    value: MovementType.ADJUSTMENT,
+    label: 'Adjustment',
+    description: 'Inventory count correction',
+  },
   { value: MovementType.RETURN, label: 'Return', description: 'Return to supplier' },
 ];
 
@@ -95,10 +103,7 @@ const EXPIRY_DATE_REQUIRED_TYPES = new Set<StorageItemType>([
  * Movement types that require a reason for audit trail purposes.
  * Waste and adjustments must be documented per ISO 22000 non-conformance procedures.
  */
-const REASON_REQUIRED_TYPES = new Set<MovementType>([
-  MovementType.WASTE,
-  MovementType.ADJUSTMENT,
-]);
+const REASON_REQUIRED_TYPES = new Set<MovementType>([MovementType.WASTE, MovementType.ADJUSTMENT]);
 
 /** Represents a selectable item from the feed/chemical/consumable lists */
 interface ItemOption {
@@ -183,7 +188,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
   const itemOptions: ItemOption[] = useMemo(() => {
     switch (itemType) {
       case StorageItemType.FEED:
-        return (feedsData?.items ?? []).map(f => ({
+        return (feedsData?.items ?? []).map((f) => ({
           id: f.id,
           name: f.name,
           code: f.code,
@@ -191,14 +196,14 @@ export const RecordStockMovementModal: React.FC<Props> = ({
         }));
       case StorageItemType.CHEMICAL:
       case StorageItemType.HEALTHCARE:
-        return (chemicalsData?.items ?? []).map(c => ({
+        return (chemicalsData?.items ?? []).map((c) => ({
           id: c.id,
           name: c.name,
           code: c.code,
           unit: c.unit || 'L',
         }));
       case StorageItemType.CONSUMABLE:
-        return (consumablesData?.items ?? []).map(c => ({
+        return (consumablesData?.items ?? []).map((c) => ({
           id: c.id,
           name: c.name,
           code: c.code,
@@ -228,9 +233,18 @@ export const RecordStockMovementModal: React.FC<Props> = ({
     if (isReasonRequired && !reason.trim()) return false;
     return true;
   }, [
-    selectedItemId, quantity, showFromLocation, fromLocationId,
-    showToLocation, toLocationId, isLotNumberRequired, lotNumber,
-    isExpiryDateRequired, expiryDate, isReasonRequired, reason,
+    selectedItemId,
+    quantity,
+    showFromLocation,
+    fromLocationId,
+    showToLocation,
+    toLocationId,
+    isLotNumberRequired,
+    lotNumber,
+    isExpiryDateRequired,
+    expiryDate,
+    isReasonRequired,
+    reason,
   ]);
 
   /** Reset all form fields to defaults (called after successful submit) */
@@ -301,7 +315,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
        * can take corrective action without blocking the movement.
        */
       if (result.warnings && result.warnings.length > 0) {
-        const warningMessages = result.warnings.map(w => w.message).join('; ');
+        const warningMessages = result.warnings.map((w) => w.message).join('; ');
         toast({
           title: 'Movement Recorded with Warnings',
           description: warningMessages,
@@ -324,229 +338,210 @@ export const RecordStockMovementModal: React.FC<Props> = ({
     }
   };
 
-  /* Close modal on Escape key press for keyboard accessibility */
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      return () => document.removeEventListener('keydown', handleEscape);
-    }
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-record-stock-movement">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        {/* Backdrop — clicking outside the modal closes it without submitting */}
-        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
-        <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-          <form onSubmit={handleSubmit}>
-            <div className="px-6 pt-5 pb-4 space-y-4">
-              <h3 id="modal-title-record-stock-movement" className="text-lg font-medium text-gray-900">Record Stock Movement</h3>
+    <Modal isOpen={isOpen} onClose={onClose} title="Record Stock Movement" size="lg">
+      <form onSubmit={handleSubmit}>
+        <div className="space-y-4">
+          {/* Inline error banner — shown when the GraphQL mutation fails */}
+          {submitError && (
+            <div className="rounded-md bg-red-50 border border-red-200 p-3">
+              <p className="text-sm text-red-700">{submitError}</p>
+            </div>
+          )}
 
-              {/* Inline error banner — shown when the GraphQL mutation fails */}
-              {submitError && (
-                <div className="rounded-md bg-red-50 border border-red-200 p-3">
-                  <p className="text-sm text-red-700">{submitError}</p>
-                </div>
-              )}
+          {/* Pre-filled item context banner — confirms which item the user is acting on */}
+          {defaultItemName && (
+            <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
+              <p className="text-sm text-blue-700">
+                Recording movement for: <span className="font-medium">{defaultItemName}</span>
+              </p>
+            </div>
+          )}
 
-              {/* Pre-filled item context banner — confirms which item the user is acting on */}
-              {defaultItemName && (
-                <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
-                  <p className="text-sm text-blue-700">
-                    Recording movement for: <span className="font-medium">{defaultItemName}</span>
-                  </p>
-                </div>
-              )}
+          {/* Movement Type — determines which fields are visible and required */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Movement Type *</label>
+            <select
+              value={movementType}
+              onChange={(e) => handleMovementTypeChange(e.target.value as MovementType)}
+              disabled={!!defaultMovementType}
+              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+            >
+              {MOVEMENT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label} — {opt.description}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              {/* Movement Type — determines which fields are visible and required */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Movement Type *</label>
-                <select
-                  value={movementType}
-                  onChange={e => handleMovementTypeChange(e.target.value as MovementType)}
-                  disabled={!!defaultMovementType}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+          {/* Item Type — determines which item list is loaded */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Item Type *</label>
+            <div className="mt-1 grid grid-cols-4 gap-2">
+              {ITEM_TYPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handleItemTypeChange(opt.value)}
+                  disabled={!!defaultItemType}
+                  className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                    itemType === opt.value
+                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  } disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
-                  {MOVEMENT_TYPE_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label} — {opt.description}
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Item selection — populated from the appropriate list hook based on item type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Item *</label>
+            <select
+              value={selectedItemId}
+              onChange={(e) => setSelectedItemId(e.target.value)}
+              disabled={!!defaultItemId}
+              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+            >
+              <option value="">Select item...</option>
+              {itemOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.name} {opt.code ? `(${opt.code})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Quantity *</label>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              placeholder="0.00"
+              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+          </div>
+
+          {/* Location fields — shown/hidden based on movement type */}
+          <div className="grid grid-cols-2 gap-4">
+            {showFromLocation && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">From Location *</label>
+                <select
+                  value={fromLocationId}
+                  onChange={(e) => setFromLocationId(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                >
+                  <option value="">Select location...</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name} ({loc.code})
                     </option>
                   ))}
                 </select>
               </div>
-
-              {/* Item Type — determines which item list is loaded */}
+            )}
+            {showToLocation && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">Item Type *</label>
-                <div className="mt-1 grid grid-cols-4 gap-2">
-                  {ITEM_TYPE_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => handleItemTypeChange(opt.value)}
-                      disabled={!!defaultItemType}
-                      className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
-                        itemType === opt.value
-                          ? 'bg-blue-50 border-blue-500 text-blue-700'
-                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                      } disabled:opacity-60 disabled:cursor-not-allowed`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Item selection — populated from the appropriate list hook based on item type */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Item *</label>
+                <label className="block text-sm font-medium text-gray-700">To Location *</label>
                 <select
-                  value={selectedItemId}
-                  onChange={e => setSelectedItemId(e.target.value)}
-                  disabled={!!defaultItemId}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  value={toLocationId}
+                  onChange={(e) => setToLocationId(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
-                  <option value="">Select item...</option>
-                  {itemOptions.map(opt => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.name} {opt.code ? `(${opt.code})` : ''}
+                  <option value="">Select location...</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name} ({loc.code})
                     </option>
                   ))}
                 </select>
               </div>
+            )}
+          </div>
 
-              {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Quantity *</label>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={quantity}
-                  onChange={e => setQuantity(e.target.value)}
-                  placeholder="0.00"
-                  className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                />
-              </div>
+          {/* Lot Number — required for FEED and CHEMICAL per EU 178/2002 traceability */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Lot Number {isLotNumberRequired ? '*' : ''}
+            </label>
+            <input
+              type="text"
+              value={lotNumber}
+              onChange={(e) => setLotNumber(e.target.value)}
+              placeholder={
+                isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'
+              }
+              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+          </div>
 
-              {/* Location fields — shown/hidden based on movement type */}
-              <div className="grid grid-cols-2 gap-4">
-                {showFromLocation && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">From Location *</label>
-                    <select
-                      value={fromLocationId}
-                      onChange={e => setFromLocationId(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    >
-                      <option value="">Select location...</option>
-                      {locations.map(loc => (
-                        <option key={loc.id} value={loc.id}>
-                          {loc.name} ({loc.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {showToLocation && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">To Location *</label>
-                    <select
-                      value={toLocationId}
-                      onChange={e => setToLocationId(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    >
-                      <option value="">Select location...</option>
-                      {locations.map(loc => (
-                        <option key={loc.id} value={loc.id}>
-                          {loc.name} ({loc.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
+          {/* Expiry Date — required for FEED and HEALTHCARE per HACCP food safety */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Expiry Date {isExpiryDateRequired ? '*' : ''}
+            </label>
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+          </div>
 
-              {/* Lot Number — required for FEED and CHEMICAL per EU 178/2002 traceability */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Lot Number {isLotNumberRequired ? '*' : ''}
-                </label>
-                <input
-                  type="text"
-                  value={lotNumber}
-                  onChange={e => setLotNumber(e.target.value)}
-                  placeholder={isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                />
-              </div>
-
-              {/* Expiry Date — required for FEED and HEALTHCARE per HACCP food safety */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Expiry Date {isExpiryDateRequired ? '*' : ''}
-                </label>
-                <input
-                  type="date"
-                  value={expiryDate}
-                  onChange={e => setExpiryDate(e.target.value)}
-                  className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                />
-              </div>
-
-              {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
-              {isReasonRequired && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Reason *</label>
-                  <textarea
-                    rows={2}
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    placeholder="Document the reason for this movement (audit trail)"
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
-                </div>
-              )}
-
-              {/* Reference — optional link to external documents (delivery note, PO number) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Reference</label>
-                <input
-                  type="text"
-                  value={reference}
-                  onChange={e => setReference(e.target.value)}
-                  placeholder="PO number, delivery note, etc. (optional)"
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                />
-              </div>
+          {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
+          {isReasonRequired && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Reason *</label>
+              <textarea
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Document the reason for this movement (audit trail)"
+                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              />
             </div>
+          )}
 
-            {/* Footer with cancel/submit actions */}
-            <div className="bg-gray-50 px-6 py-3 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!isFormValid || recordMovement.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {recordMovement.isPending ? 'Recording...' : 'Record Movement'}
-              </button>
-            </div>
-          </form>
+          {/* Reference — optional link to external documents (delivery note, PO number) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Reference</label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="PO number, delivery note, etc. (optional)"
+              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+          </div>
         </div>
-      </div>
-    </div>
+
+        {/* Footer with cancel/submit actions */}
+        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!isFormValid || recordMovement.isPending}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {recordMovement.isPending ? 'Recording...' : 'Record Movement'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 

@@ -14,6 +14,7 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
+import { Modal } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -160,18 +161,19 @@ export const ConsumablesTab: React.FC = () => {
 
   const consumables = consumablesData?.items || [];
 
-  const filtered = consumables.filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const filtered = consumables.filter((item) => {
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.code.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
     return matchesSearch && matchesCat;
   });
 
-  const getCategoryLabel = (cat: string) => CATEGORIES.find(c => c.value === cat)?.label || cat;
+  const getCategoryLabel = (cat: string) => CATEGORIES.find((c) => c.value === cat)?.label || cat;
 
   const getSupplierName = (supplierId?: string) => {
     if (!supplierId) return '-';
-    const supplier = suppliers.find(s => s.id === supplierId);
+    const supplier = suppliers.find((s) => s.id === supplierId);
     return supplier?.name || '-';
   };
 
@@ -247,16 +249,24 @@ export const ConsumablesTab: React.FC = () => {
         quantity: formData.quantity !== '' ? Number(formData.quantity) : undefined,
         unitPrice: formData.unitPrice !== '' ? Number(formData.unitPrice) : undefined,
         currency: formData.currency || undefined,
-        storageTempMin: formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
-        storageTempMax: formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
-        storageHumidityMin: formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
-        storageHumidityMax: formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
+        storageTempMin:
+          formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
+        storageTempMax:
+          formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
+        storageHumidityMin:
+          formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
+        storageHumidityMax:
+          formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
         storageRequirements: formData.storageRequirements || undefined,
         notes: formData.notes || undefined,
       };
 
       if (editingId) {
-        await updateConsumable.mutateAsync({ id: editingId, status: formData.status as ConsumableStatus, ...input });
+        await updateConsumable.mutateAsync({
+          id: editingId,
+          status: formData.status as ConsumableStatus,
+          ...input,
+        });
       } else {
         await createConsumable.mutateAsync(input as CreateConsumableInput);
       }
@@ -281,20 +291,34 @@ export const ConsumablesTab: React.FC = () => {
               type="text"
               placeholder="Search consumables..."
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
             </svg>
           </div>
           <select
             value={selectedCategory}
-            onChange={e => setSelectedCategory(e.target.value)}
+            onChange={(e) => setSelectedCategory(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
-            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            {CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
           </select>
         </div>
         <button
@@ -302,7 +326,12 @@ export const ConsumablesTab: React.FC = () => {
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
           </svg>
           Add Consumable
         </button>
@@ -319,7 +348,9 @@ export const ConsumablesTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load consumables. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+            Retry
+          </button>
         </div>
       )}
 
@@ -329,43 +360,79 @@ export const ConsumablesTab: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name / Code</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock / Min</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Name / Code
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Category
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Unit
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Stock / Min
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Supplier
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filtered.map(item => (
+              {filtered.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{item.name}</div>
                     <div className="text-sm text-gray-500">{item.code}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}
+                    >
                       {getCategoryLabel(item.category)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.unit}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={item.quantity <= item.minStock ? 'text-red-600 font-medium' : 'text-gray-900'}>
+                    <span
+                      className={
+                        item.quantity <= item.minStock
+                          ? 'text-red-600 font-medium'
+                          : 'text-gray-900'
+                      }
+                    >
                       {item.quantity}
                     </span>
                     <span className="text-gray-400"> / {item.minStock}</span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{getSupplierName(item.supplierId)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {getSupplierName(item.supplierId)}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
+                    >
                       {statusLabels[item.status] || item.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">Delete</button>
+                    <button
+                      onClick={() => openEdit(item)}
+                      className="text-blue-600 hover:text-blue-900 mr-3"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -373,206 +440,347 @@ export const ConsumablesTab: React.FC = () => {
           </table>
           {filtered.length === 0 && (
             <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                />
               </svg>
               <h3 className="mt-2 text-sm font-medium text-gray-900">No consumables found</h3>
-              <p className="mt-1 text-sm text-gray-500">Add consumable items to manage your stock.</p>
+              <p className="mt-1 text-sm text-gray-500">
+                Add consumable items to manage your stock.
+              </p>
             </div>
           )}
         </div>
       )}
 
       {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-start justify-center min-h-screen px-4 pt-4 pb-20">
-            <div className="fixed inset-0 bg-gray-500/75" onClick={(e) => { e.stopPropagation(); setIsModalOpen(false); }} />
-            <div className="relative bg-white rounded-lg shadow-xl sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto sm:my-8">
-              <form onSubmit={handleSubmit}>
-                <div className="px-6 pt-5 pb-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    {editingId ? 'Edit Consumable' : 'Add Consumable'}
-                  </h3>
-
-                  {/* Basic Information */}
-                  <CollapsibleSection title="Basic Information" defaultOpen={true}>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Name *</label>
-                          <input type="text" required value={formData.name}
-                            onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Code *</label>
-                          <input type="text" required value={formData.code}
-                            onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Category *</label>
-                          <select required value={formData.category}
-                            onChange={e => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Select</option>
-                            {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Unit</label>
-                          <select value={formData.unit}
-                            onChange={e => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="pcs">Pieces</option>
-                            <option value="m">Meters</option>
-                            <option value="kg">Kilograms</option>
-                            <option value="L">Liters</option>
-                            <option value="box">Box</option>
-                            <option value="roll">Roll</option>
-                            <option value="tank">Tank</option>
-                            <option value="set">Set</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Brand</label>
-                          <input type="text" value={formData.brand}
-                            onChange={e => setFormData(prev => ({ ...prev, brand: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Supplier</label>
-                          <select value={formData.supplierId}
-                            onChange={e => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="">Select Supplier</option>
-                            {suppliers.map((supplier) => (
-                              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Description</label>
-                        <textarea value={formData.description}
-                          onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))} rows={2}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Stock & Price */}
-                  <CollapsibleSection title="Stock & Price">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Current Stock</label>
-                        <input type="number" min="0" step="0.01" value={formData.quantity}
-                          onChange={e => setFormData(prev => ({ ...prev, quantity: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Min Stock</label>
-                        <input type="number" min="0" step="0.01" value={formData.minStock}
-                          onChange={e => setFormData(prev => ({ ...prev, minStock: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Unit Price</label>
-                        <input type="number" min="0" step="0.01" value={formData.unitPrice}
-                          onChange={e => setFormData(prev => ({ ...prev, unitPrice: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Currency</label>
-                        <select value={formData.currency}
-                          onChange={e => setFormData(prev => ({ ...prev, currency: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                          <option value="NOK">NOK</option>
-                          <option value="EUR">EUR</option>
-                          <option value="USD">USD</option>
-                        </select>
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Storage Conditions */}
-                  <CollapsibleSection title="Storage Conditions">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Min Temperature (°C)</label>
-                        <input type="number" step="0.1" value={formData.storageTempMin}
-                          onChange={e => setFormData(prev => ({ ...prev, storageTempMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Max Temperature (°C)</label>
-                        <input type="number" step="0.1" value={formData.storageTempMax}
-                          onChange={e => setFormData(prev => ({ ...prev, storageTempMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Min Humidity (%)</label>
-                        <input type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMin}
-                          onChange={e => setFormData(prev => ({ ...prev, storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Max Humidity (%)</label>
-                        <input type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMax}
-                          onChange={e => setFormData(prev => ({ ...prev, storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700">Storage Requirements</label>
-                        <textarea rows={2} placeholder="Special storage instructions..."
-                          value={formData.storageRequirements}
-                          onChange={e => setFormData(prev => ({ ...prev, storageRequirements: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Additional Information */}
-                  <CollapsibleSection title="Additional Information">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Notes</label>
-                        <textarea value={formData.notes}
-                          onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))} rows={3}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Status</label>
-                        <select value={formData.status}
-                          onChange={e => setFormData(prev => ({ ...prev, status: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                          {Object.entries(statusLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </CollapsibleSection>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Consumable' : 'Add Consumable'}
+        size="lg"
+      >
+        <form onSubmit={handleSubmit}>
+          <div className="max-h-[70vh] overflow-y-auto">
+            {/* Basic Information */}
+            <CollapsibleSection title="Basic Information" defaultOpen={true}>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Code *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.code}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
                 </div>
-
-                <div className="bg-gray-50 px-6 py-3 flex justify-end gap-3">
-                  <button type="button" onClick={() => setIsModalOpen(false)}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={isSaving}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:bg-gray-400">
-                    {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
-                  </button>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Category *</label>
+                    <select
+                      required
+                      value={formData.category}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, category: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select</option>
+                      {CATEGORIES.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Unit</label>
+                    <select
+                      value={formData.unit}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="pcs">Pieces</option>
+                      <option value="m">Meters</option>
+                      <option value="kg">Kilograms</option>
+                      <option value="L">Liters</option>
+                      <option value="box">Box</option>
+                      <option value="roll">Roll</option>
+                      <option value="tank">Tank</option>
+                      <option value="set">Set</option>
+                    </select>
+                  </div>
                 </div>
-              </form>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Brand</label>
+                    <input
+                      type="text"
+                      value={formData.brand}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <select
+                      value={formData.supplierId}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Supplier</option>
+                      {suppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, description: e.target.value }))
+                    }
+                    rows={2}
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Stock & Price */}
+            <CollapsibleSection title="Stock & Price">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Current Stock</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.quantity}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        quantity: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Min Stock</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.minStock}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        minStock: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Unit Price</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.unitPrice}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        unitPrice: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Currency</label>
+                  <select
+                    value={formData.currency}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))}
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="NOK">NOK</option>
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Storage Conditions */}
+            <CollapsibleSection title="Storage Conditions">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Min Temperature (°C)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={formData.storageTempMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Max Temperature (°C)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={formData.storageTempMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Min Humidity (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.storageHumidityMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Max Humidity (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.storageHumidityMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Storage Requirements
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Special storage instructions..."
+                    value={formData.storageRequirements}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Additional Information */}
+            <CollapsibleSection title="Additional Information">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Notes</label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                    rows={3}
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    {Object.entries(statusLabels).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </CollapsibleSection>
           </div>
-        </div>
-      )}
+
+          <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

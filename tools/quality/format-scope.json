@@ -47355,6 +47355,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/__tests__/use-wc-systems.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/fields.tsx",
       "prettier_managed": true
     },
@@ -47374,12 +47380,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcChartCard.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/sensor-module/src/pages/water-chemistry/canvas/WcSystemCard.tsx",
       "prettier_managed": true
     },
     {
@@ -47421,7 +47421,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/useWcSystems.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/WaterChemistryMonitoringPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/WcSystemView.tsx",
       "prettier_managed": true
     },
     {
@@ -49542,10 +49554,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8111,
+  "file_count": 8113,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7936,
-  "managed_file_list_sha256": "137c829313fabfa3fb45cef02e5043a1d529e47a2d7b9c43880868d10456da2d",
+  "managed_count": 7938,
+  "managed_file_list_sha256": "70430e78c8aac8ed3f03cc396b6f3e0270f2eca99ea5ce49f876733a5f2354fd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

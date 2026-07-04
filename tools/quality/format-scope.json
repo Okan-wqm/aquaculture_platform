@@ -8547,6 +8547,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802000000000-AddBatchProtocolId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -9651,7 +9657,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feed/services/__tests__/feeding-protocol-rate.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feed/services/__tests__/feeding-protocol-seeder.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feed/services/feeding-protocol-rate.service.ts",
       "prettier_managed": true
     },
     {
@@ -29078,6 +29096,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/farm-expert/2026-07-04-farm-modal-ssot-and-type-safety.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-04-protocol-batch-feeding-ssot.md",
       "prettier_managed": true
     },
     {
@@ -49518,10 +49542,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8107,
+  "file_count": 8111,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7932,
-  "managed_file_list_sha256": "5983b13a32e915ad87b130533dce46cac9c9bf8dd7b34a2f697a6173468f0973",
+  "managed_count": 7936,
+  "managed_file_list_sha256": "137c829313fabfa3fb45cef02e5043a1d529e47a2d7b9c43880868d10456da2d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

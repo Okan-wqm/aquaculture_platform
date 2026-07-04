@@ -6,7 +6,13 @@
  *
  * @module Batch/Resolvers
  */
-import { Tenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import {
+  Tenant,
+  CurrentUser,
+  Roles,
+  Role,
+  RequiresMobileFeature,
+} from '@aquaculture/backend-common/decorators';
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
@@ -217,7 +223,8 @@ export class BatchResolver {
   async getBatchHistory(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
-    @Args('eventTypes', { type: () => [BatchHistoryEventType], nullable: true }) eventTypes?: BatchHistoryEventType[],
+    @Args('eventTypes', { type: () => [BatchHistoryEventType], nullable: true })
+    eventTypes?: BatchHistoryEventType[],
     @Args('fromDate', { nullable: true }) fromDate?: Date,
     @Args('toDate', { nullable: true }) toDate?: Date,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 50 }) limit?: number,
@@ -244,9 +251,7 @@ export class BatchResolver {
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => String, { name: 'generateBatchNumber' })
-  async generateBatchNumber(
-    @Tenant() tenantId: string,
-  ): Promise<string> {
+  async generateBatchNumber(@Tenant() tenantId: string): Promise<string> {
     this.logger.debug(`Generating batch number for tenant: ${tenantId}`);
     return this.queryBus.execute(new GenerateBatchNumberQuery(tenantId));
   }
@@ -270,28 +275,31 @@ export class BatchResolver {
       description: input.description,
       speciesId: input.speciesId,
       strain: input.strain,
+      protocolId: input.protocolId,
       inputType: input.inputType,
       initialQuantity: input.initialQuantity,
       initialAvgWeightG: input.initialWeight.avgWeight,
       stockedAt: new Date(input.stockedAt),
-      expectedHarvestDate: input.expectedHarvestDate ? new Date(input.expectedHarvestDate) : undefined,
+      expectedHarvestDate: input.expectedHarvestDate
+        ? new Date(input.expectedHarvestDate)
+        : undefined,
       targetFCR: input.targetFCR,
       supplierId: input.supplierId,
       supplierBatchNumber: input.supplierBatchNumber,
       purchaseCost: input.purchaseCost,
       currency: input.currency,
       arrivalMethod: input.arrivalMethod,
-      healthCertificates: input.healthCertificates?.map(doc => ({
+      healthCertificates: input.healthCertificates?.map((doc) => ({
         ...doc,
         issueDate: doc.issueDate,
         expiryDate: doc.expiryDate,
       })),
-      importDocuments: input.importDocuments?.map(doc => ({
+      importDocuments: input.importDocuments?.map((doc) => ({
         ...doc,
         issueDate: doc.issueDate,
         expiryDate: doc.expiryDate,
       })),
-      initialLocations: input.initialLocations?.map(loc => ({
+      initialLocations: input.initialLocations?.map((loc) => ({
         locationType: loc.locationType,
         tankId: loc.tankId,
         pondId: loc.pondId,
@@ -302,9 +310,7 @@ export class BatchResolver {
       notes: input.notes,
     };
 
-    return this.commandBus.execute(
-      new CreateBatchCommand(tenantId, payload, user.sub),
-    );
+    return this.commandBus.execute(new CreateBatchCommand(tenantId, payload, user.sub));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -315,9 +321,7 @@ export class BatchResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Updating batch: ${input.id}`);
-    return this.commandBus.execute(
-      new UpdateBatchCommand(tenantId, input.id, input, user.sub),
-    );
+    return this.commandBus.execute(new UpdateBatchCommand(tenantId, input.id, input, user.sub));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -448,7 +452,9 @@ export class BatchResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
-    this.logger.log(`Transferring batch ${input.batchId} from ${input.sourceTankId} to ${input.destinationTankId}`);
+    this.logger.log(
+      `Transferring batch ${input.batchId} from ${input.sourceTankId} to ${input.destinationTankId}`,
+    );
     const {
       batchId,
       clientCommandId: _clientCommandId,

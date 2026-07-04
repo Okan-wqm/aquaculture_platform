@@ -8,3 +8,4 @@ export { CompactSummaryStats } from './CompactSummaryStats';
 export { TankChartsSection, defaultChartVisibility } from './TankChartsSection';
 export type { ChartVisibility } from './TankChartsSection';
 export { ChartSettingsModal } from './ChartSettingsModal';
+export { WaterTemperatureModal } from './WaterTemperatureModal';

@@ -14019,6 +14019,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/services/__tests__/water-temperature.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/services/parameter-config-cache.service.ts",
       "prettier_managed": true
     },
@@ -14038,6 +14044,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/services/water-quality-validation.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/services/water-temperature.service.ts",
       "prettier_managed": true
     },
     {
@@ -29107,6 +29119,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-04-water-temperature-feed-rate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -42610,6 +42628,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/tanks/components/WaterTemperatureModal.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/tanks/index.ts",
       "prettier_managed": true
     },
@@ -49554,10 +49578,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8113,
+  "file_count": 8117,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7938,
-  "managed_file_list_sha256": "70430e78c8aac8ed3f03cc396b6f3e0270f2eca99ea5ce49f876733a5f2354fd",
+  "managed_count": 7942,
+  "managed_file_list_sha256": "e6fcb9bd34b96e7929ceffc222257d31c536ab05ea58ee6635b83dd673693e1a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

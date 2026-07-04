@@ -21,10 +21,14 @@ import { Feed } from '../../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { BilinearInterpolationService } from '../../services/bilinear-interpolation.service';
+import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { DailyFeedingExecution } from '../../entities/daily-feeding-execution.entity';
 import { FeedingProgram } from '../../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../../entities/feeding-program-tank.entity';
-import { DailyFeedingExecutionService, FeedingRecordResult } from '../../services/daily-feeding-execution.service';
+import {
+  DailyFeedingExecutionService,
+  FeedingRecordResult,
+} from '../../services/daily-feeding-execution.service';
 
 const ENVELOPE = { clientCommandId: 'cmd-9', payloadHash: 'hash-9' };
 // SEC-HIGH-051: the site-scope caller threaded into recordActualFeeding. A
@@ -76,14 +80,12 @@ describe('DailyFeedingExecutionService — feeding idempotency (FARM-MEDIUM-051)
 
     const receipts = new MobileCommandReceiptService();
     // begin: INSERT conflicts → SELECT returns a COMPLETED row → replay mode.
-    jest
-      .spyOn(receipts, 'begin')
-      .mockResolvedValue({
-        mode: 'replay',
-        responseType: 'DailyFeedingExecution',
-        responseId: 'exec-1',
-        responsePayload: committedResult,
-      });
+    jest.spyOn(receipts, 'begin').mockResolvedValue({
+      mode: 'replay',
+      responseType: 'DailyFeedingExecution',
+      responseId: 'exec-1',
+      responsePayload: committedResult,
+    });
 
     service = new DailyFeedingExecutionService(
       repoStub() as Repository<DailyFeedingExecution>,
@@ -94,6 +96,7 @@ describe('DailyFeedingExecutionService — feeding idempotency (FARM-MEDIUM-051)
       repoStub() as Repository<Tank>,
       repoStub() as Repository<Feed>,
       {} as BilinearInterpolationService,
+      {} as WaterTemperatureService,
       dataSource,
       {} as BatchDomainService,
       {} as StockMovementService,
@@ -104,7 +107,15 @@ describe('DailyFeedingExecutionService — feeding idempotency (FARM-MEDIUM-051)
   });
 
   it('replays the committed result without re-running feeding side effects', async () => {
-    const result = await service.recordActualFeeding('exec-1', 10, USER, TENANT, CALLER, undefined, ENVELOPE);
+    const result = await service.recordActualFeeding(
+      'exec-1',
+      10,
+      USER,
+      TENANT,
+      CALLER,
+      undefined,
+      ENVELOPE,
+    );
 
     expect(result).toEqual(committedResult);
     // No execution was loaded or saved — the side effects did not re-run.

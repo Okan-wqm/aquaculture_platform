@@ -47,6 +47,7 @@ import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../../../batch/services/batch-lifecycle-policy.service';
 import { BilinearInterpolationService } from '../bilinear-interpolation.service';
+import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
@@ -222,11 +223,13 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const feedHasStoragePresence = jest
     .fn()
     .mockResolvedValue(opts.hasStoragePresence === undefined ? true : opts.hasStoragePresence);
-  const resolveFeedDeductionLocation = jest.fn().mockResolvedValue(
-    opts.resolveLocation === undefined
-      ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' }
-      : opts.resolveLocation,
-  );
+  const resolveFeedDeductionLocation = jest
+    .fn()
+    .mockResolvedValue(
+      opts.resolveLocation === undefined
+        ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' }
+        : opts.resolveLocation,
+    );
   const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
@@ -264,6 +267,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     repo(),
     repo(),
     bilinearService,
+    {} as WaterTemperatureService,
     dataSource,
     batchDomainService,
     stockMovementService,
@@ -304,8 +308,14 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
   });
 
   it('(b) fail-OPEN: skips the storage deduction and COMMITS when the feed has NO storage presence', async () => {
-    const { service, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback } =
-      makeHarness({ hasStoragePresence: false });
+    const {
+      service,
+      feedHasStoragePresence,
+      resolveFeedDeductionLocation,
+      recordMovement,
+      commit,
+      rollback,
+    } = makeHarness({ hasStoragePresence: false });
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -367,9 +377,11 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
   });
 
   it('happy path: storage-tracked feed deducts IN-TX (OUT) and commits', async () => {
-    const { service, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness({
-      hasStoragePresence: true,
-    });
+    const { service, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness(
+      {
+        hasStoragePresence: true,
+      },
+    );
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 

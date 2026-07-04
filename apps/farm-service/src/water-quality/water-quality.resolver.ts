@@ -5,12 +5,34 @@
  *
  * @module WaterQuality
  */
-import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  ObjectType,
+  Field,
+  Int,
+  Float,
+} from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CurrentTenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import {
+  CurrentTenant,
+  CurrentUser,
+  Roles,
+  Role,
+  RequiresMobileFeature,
+} from '@aquaculture/backend-common/decorators';
 import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
-import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
-import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
+import {
+  StandardPaginatedResponse,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import {
+  WaterQualityMeasurement,
+  WaterQualityStatus,
+} from './entities/water-quality-measurement.entity';
 import { Throttle } from '@aquaculture/backend-common/security';
 import { QueryBus } from '@platform/cqrs';
 import { WaterQualityService } from './water-quality.service';
@@ -148,9 +170,7 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement[]> {
     this.logger.debug(`Getting water quality chart data for tank: ${tankId}`);
-    return this.queryBus.execute(
-      new GetWaterQualityChartQuery(tenantId, tankId, fromDate, toDate),
-    );
+    return this.queryBus.execute(new GetWaterQualityChartQuery(tenantId, tankId, fromDate, toDate));
   }
 
   /**
@@ -164,9 +184,7 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityStatistics> {
     this.logger.debug(`Getting water quality statistics for tank: ${tankId}, days: ${days}`);
-    return this.queryBus.execute(
-      new GetTankWaterQualityStatisticsQuery(tenantId, tankId, days),
-    );
+    return this.queryBus.execute(new GetTankWaterQualityStatisticsQuery(tenantId, tankId, days));
   }
 
   /**
@@ -231,6 +249,24 @@ export class WaterQualityResolver {
   }
 
   /**
+   * Record a single MANUAL water-temperature reading for a tank — the quick,
+   * always-available entry that feeds the feeding-rate calculation. Gated to
+   * tenant-wide roles (which bypass per-site authorization by role hierarchy);
+   * finer-grained recording still flows through the full measurement path.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Throttle({ limit: 60, ttl: 60 })
+  @Mutation(() => Boolean)
+  async recordWaterTemperature(
+    @Args('tankId', { type: () => ID }) tankId: string,
+    @Args('celsius', { type: () => Float }) celsius: number,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<boolean> {
+    return this.waterQualityService.recordManualTemperature(tenantId, tankId, celsius, user.sub);
+  }
+
+  /**
    * Batch creation of water quality measurements for multiple equipment
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -242,7 +278,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<WaterQualityMeasurement[]> {
-    this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
+    this.logger.log(
+      `Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`,
+    );
     return this.waterQualityService.createBatch(tenantId, input, {
       sub: user.sub,
       roles: user.roles,

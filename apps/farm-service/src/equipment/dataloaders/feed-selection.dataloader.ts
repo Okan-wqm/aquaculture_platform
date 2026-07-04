@@ -27,6 +27,7 @@ interface BatchFeedContext {
   batchId: string;
   avgWeightG: number;
   biomassKg: number;
+  waterTempC?: number;
 }
 
 interface FeedingCurvePoint {
@@ -191,6 +192,7 @@ export function createFeedSelectionLoader(
                 temperatureRanges: parseJsonArray(protocol.temperatureRanges),
               },
               ctx.avgWeightG,
+              ctx.waterTempC,
             );
             if (rate) {
               const dailyFeedKg =
@@ -247,8 +249,13 @@ export function createFeedSelectionLoader(
   // Expose method to set batch context before loading. Object.assign keeps the
   // result structurally a FeedSelectionDataLoader without a type assertion.
   return Object.assign(loader, {
-    setContext: (batchId: string, avgWeightG: number, biomassKg: number): void => {
-      contextMap.set(batchId, { batchId, avgWeightG, biomassKg });
+    setContext: (
+      batchId: string,
+      avgWeightG: number,
+      biomassKg: number,
+      waterTempC?: number,
+    ): void => {
+      contextMap.set(batchId, { batchId, avgWeightG, biomassKg, waterTempC });
     },
   });
 }

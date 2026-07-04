@@ -677,6 +677,13 @@ export function useCreateBatch() {
       // Invalidate batch list and batch number
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches', 'list') });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches', 'generateNumber') });
+      // FARM-MEDIUM-133: a new batch allocates fish into tanks (initialLocations),
+      // so it mutates tank + tank-batch read models exactly like every tracking
+      // mutation (mortality/cull/transfer/grading) does. Invalidate them here too
+      // so a freshly created batch is correct-by-default on every surface, not
+      // only on pages that remember to call refetch() themselves.
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }

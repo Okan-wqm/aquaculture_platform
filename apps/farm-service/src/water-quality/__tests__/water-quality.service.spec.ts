@@ -24,7 +24,11 @@ import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { WaterQualityValidationService } from '../services/water-quality-validation.service';
 import { WaterQualityEvaluationService } from '../services/water-quality-evaluation.service';
-import { WaterQualityService, CreateWaterQualityData, WaterQualityCaller } from '../water-quality.service';
+import {
+  WaterQualityService,
+  CreateWaterQualityData,
+  WaterQualityCaller,
+} from '../water-quality.service';
 import {
   WaterQualityMeasurement,
   WaterQualityStatus,
@@ -166,7 +170,11 @@ describe('WaterQualityService — single-ingress validation', () => {
         Promise.resolve({ id: MEASUREMENT, ...(entity as object) }),
       );
 
-      await service.create(TENANT, createInput({ dynamicParameters: { temperature: 14, ph: 7.2 } }), WQ_CALLER);
+      await service.create(
+        TENANT,
+        createInput({ dynamicParameters: { temperature: 14, ph: 7.2 } }),
+        WQ_CALLER,
+      );
 
       // jest infers create()'s array overload for the recorded call, so the
       // 2nd arg is typed `unknown[] | undefined` — which does not overlap with
@@ -191,7 +199,9 @@ describe('WaterQualityService — single-ingress validation', () => {
         hasAlarm: false,
       } as WaterQualityMeasurement;
       repository.findOne.mockResolvedValue(stored);
-      repository.save.mockImplementation((m: unknown) => Promise.resolve(m as WaterQualityMeasurement));
+      repository.save.mockImplementation((m: unknown) =>
+        Promise.resolve(m as WaterQualityMeasurement),
+      );
 
       await service.update(TENANT, MEASUREMENT, { dynamicParameters: { ph: 7.5 } });
 
@@ -228,7 +238,9 @@ describe('WaterQualityService — single-ingress validation', () => {
         parameters: { temperature: 14 },
         overallStatus: WaterQualityStatus.OPTIMAL,
       } as WaterQualityMeasurement);
-      repository.save.mockImplementation((m: unknown) => Promise.resolve(m as WaterQualityMeasurement));
+      repository.save.mockImplementation((m: unknown) =>
+        Promise.resolve(m as WaterQualityMeasurement),
+      );
 
       await service.update(TENANT, MEASUREMENT, { notes: 'rechecked' });
 
@@ -273,6 +285,40 @@ describe('WaterQualityService — single-ingress validation', () => {
 
       expect(noLegacyKey).toBe(true);
       expect(input.dynamicParameters).toEqual({ ph: 7.1 });
+    });
+  });
+
+  describe('recordManualTemperature', () => {
+    it('persists a MANUAL temperature-only measurement and returns true', async () => {
+      const { service, repository } = await buildService();
+      repository.create.mockImplementation((m: unknown) => m as WaterQualityMeasurement);
+      repository.save.mockImplementation((m: unknown) =>
+        Promise.resolve(m as WaterQualityMeasurement),
+      );
+
+      const result = await service.recordManualTemperature(TENANT, 'tank-1', 12.5, 'user-1');
+
+      expect(result).toBe(true);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT,
+          tankId: 'tank-1',
+          equipmentId: 'tank-1',
+          source: MeasurementSource.MANUAL,
+          temperature: 12.5,
+          parameters: { temperature: 12.5 },
+          measuredBy: 'user-1',
+        }),
+      );
+      expect(repository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an out-of-range temperature without saving', async () => {
+      const { service, repository } = await buildService();
+      await expect(
+        service.recordManualTemperature(TENANT, 'tank-1', 99, 'user-1'),
+      ).rejects.toThrow();
+      expect(repository.save).not.toHaveBeenCalled();
     });
   });
 });

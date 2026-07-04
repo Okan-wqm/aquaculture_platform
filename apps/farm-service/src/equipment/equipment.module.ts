@@ -41,6 +41,7 @@ import { EquipmentTypeCatalogCheckerService } from './services/equipment-type-ca
 import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
 import { TankEquipmentAdapterService } from './services/tank-equipment-adapter.service';
 import { SubEquipmentResolver } from './sub-equipment.resolver';
+import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 
 const CommandHandlers = [
   CreateEquipmentHandler,
@@ -90,6 +91,7 @@ const QueryHandlers = [
     TankEquipmentAdapterService,
     EquipmentTypeLookupService,
     EquipmentTypeCatalogCheckerService,
+    WaterTemperatureService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],

@@ -1,7 +1,16 @@
 /**
  * Equipment GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent, Context } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  ResolveField,
+  Parent,
+  Context,
+} from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,9 +21,16 @@ import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { TenantContextError } from '@aquaculture/backend-common/database';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
-import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
+import {
+  EquipmentResponse,
+  PaginatedEquipmentResponse,
+  EquipmentTypeResponse,
+  EquipmentSystemResponse,
+  EquipmentBatchMetrics,
+} from './dto/equipment.response';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { FeedSelectorService } from '../feeding/services/feed-selector.service';
+import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { EquipmentDeletePreviewResponse } from './dto/equipment-delete-preview.response';
 import { CreateEquipmentInput } from './dto/create-equipment.input';
 import { UpdateEquipmentInput } from './dto/update-equipment.input';
@@ -47,6 +63,7 @@ export class EquipmentResolver {
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
     private readonly feedSelectorService: FeedSelectorService,
+    private readonly waterTemperatureService: WaterTemperatureService,
   ) {}
 
   /**
@@ -106,7 +123,9 @@ export class EquipmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    this.logger.log(`Deleting equipment: ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
+    this.logger.log(
+      `Deleting equipment: ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`,
+    );
     const command = new DeleteEquipmentCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
   }
@@ -118,7 +137,8 @@ export class EquipmentResolver {
   @Query(() => EquipmentResponse, { nullable: true })
   async equipment(
     @Args('id', { type: () => ID }) id: string,
-    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false }) includeRelations: boolean,
+    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false })
+    includeRelations: boolean,
     @CurrentTenant() tenantId: string,
   ): Promise<EquipmentResponse | null> {
     const query = new GetEquipmentQuery(id, tenantId, includeRelations);
@@ -131,15 +151,17 @@ export class EquipmentResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedEquipmentResponse)
   async equipmentList(
-    @Args('filter', { type: () => EquipmentFilterInput, nullable: true }) filter?: EquipmentFilterInput,
-    @Args('pagination', { type: () => PaginationInput, nullable: true }) pagination?: PaginationInput,
+    @Args('filter', { type: () => EquipmentFilterInput, nullable: true })
+    filter?: EquipmentFilterInput,
+    @Args('pagination', { type: () => PaginationInput, nullable: true })
+    pagination?: PaginationInput,
     @CurrentTenant() tenantId?: string,
   ): Promise<PaginatedEquipmentResponse> {
     if (!tenantId) {
       throw new Error('Tenant ID is required');
     }
     const query = new ListEquipmentQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<EquipmentResponse>;
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<EquipmentResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -152,8 +174,12 @@ export class EquipmentResolver {
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<EquipmentResponse[]> {
-    const query = new ListEquipmentQuery(tenantId, { departmentId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<EquipmentResponse>;
+    const query = new ListEquipmentQuery(
+      tenantId,
+      { departmentId, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<EquipmentResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -168,7 +194,8 @@ export class EquipmentResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [EquipmentTypeResponse])
   async equipmentTypes(
-    @Args('filter', { type: () => EquipmentTypeFilterInput, nullable: true }) filter?: EquipmentTypeFilterInput,
+    @Args('filter', { type: () => EquipmentTypeFilterInput, nullable: true })
+    filter?: EquipmentTypeFilterInput,
   ): Promise<EquipmentTypeResponse[]> {
     const query = new GetEquipmentTypesQuery(filter);
     return this.queryBus.execute(query) as Promise<EquipmentTypeResponse[]>;
@@ -185,7 +212,7 @@ export class EquipmentResolver {
     @Args('id', { type: () => ID }) id: string,
   ): Promise<EquipmentTypeResponse | null> {
     const query = new GetEquipmentTypesQuery({ isActive: true, id });
-    const types = await this.queryBus.execute(query) as EquipmentTypeResponse[];
+    const types = (await this.queryBus.execute(query)) as EquipmentTypeResponse[];
     return types[0] || null;
   }
 
@@ -214,7 +241,9 @@ export class EquipmentResolver {
       if (error instanceof TenantContextError) {
         throw error;
       }
-      this.logger.debug(`Error resolving department: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(
+        `Error resolving department: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }
@@ -357,11 +386,19 @@ export class EquipmentResolver {
     const biomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
 
     if (tankBatch.primaryBatchId && avgWeightG > 0 && biomassKg > 0) {
+      // Latest water temperature for this tank drives the protocol's temperature
+      // multiplier. Absent (null) → no correction (multiplier 1.0).
+      const waterTempC = (
+        await this.waterTemperatureService.getCurrentTemperature(tenantId, equipment.id)
+      )?.celsius;
       try {
         if (loaders?.feedSelectionLoader) {
           // Set context for the feed loader before loading
           loaders.feedSelectionLoader.setContext(
-            tankBatch.primaryBatchId, avgWeightG, biomassKg,
+            tankBatch.primaryBatchId,
+            avgWeightG,
+            biomassKg,
+            waterTempC,
           );
           const feedResult = await loaders.feedSelectionLoader.load(tankBatch.primaryBatchId);
           if (feedResult) {
@@ -379,6 +416,7 @@ export class EquipmentResolver {
             tankBatch.primaryBatchId,
             avgWeightG,
             biomassKg,
+            waterTempC,
           );
           if (feedResult) {
             feedInfo = {
@@ -394,7 +432,9 @@ export class EquipmentResolver {
         if (error instanceof TenantContextError) {
           throw error;
         }
-        this.logger.warn(`Error getting feed info for tank ${equipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.warn(
+          `Error getting feed info for tank ${equipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
       }
     }
 

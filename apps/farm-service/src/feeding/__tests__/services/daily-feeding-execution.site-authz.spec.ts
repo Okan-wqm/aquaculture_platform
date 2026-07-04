@@ -29,6 +29,7 @@ import { Feed } from '../../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { BilinearInterpolationService } from '../../services/bilinear-interpolation.service';
+import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { DailyFeedingExecution } from '../../entities/daily-feeding-execution.entity';
 import { FeedingProgram } from '../../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../../entities/feeding-program-tank.entity';
@@ -76,7 +77,9 @@ function buildManagerFindOne(tankSiteId: string | null): jest.Mock {
       return Promise.resolve(null);
     }
     if (entity === Department) {
-      return Promise.resolve(tankSiteId ? { id: DEPARTMENT_ID, tenantId: TENANT, siteId: tankSiteId } : null);
+      return Promise.resolve(
+        tankSiteId ? { id: DEPARTMENT_ID, tenantId: TENANT, siteId: tankSiteId } : null,
+      );
     }
     return Promise.resolve(null);
   });
@@ -87,7 +90,10 @@ function makeService(siteIdOnManager: string | null): {
   queryRunner: { commitTransaction: jest.Mock; rollbackTransaction: jest.Mock; release: jest.Mock };
 } {
   const managerFindOne = buildManagerFindOne(siteIdOnManager);
-  const manager = { findOne: managerFindOne, save: jest.fn() } as Partial<EntityManager> as EntityManager;
+  const manager = {
+    findOne: managerFindOne,
+    save: jest.fn(),
+  } as Partial<EntityManager> as EntityManager;
   const queryRunner = {
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -129,6 +135,7 @@ function makeService(siteIdOnManager: string | null): {
     repoStub() as Repository<Tank>,
     repoStub() as Repository<Feed>,
     {} as BilinearInterpolationService,
+    {} as WaterTemperatureService,
     dataSource,
     {} as BatchDomainService,
     {} as StockMovementService,

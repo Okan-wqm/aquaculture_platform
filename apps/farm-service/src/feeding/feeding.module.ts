@@ -45,6 +45,7 @@ import { GrowthSimulatorService } from './services/growth-simulator.service';
 import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
 import { FeedingProgramService } from './services/feeding-program.service';
 import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
+import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 
 // Handlers
 import { FeedingCommandHandlers } from './handlers';
@@ -93,6 +94,7 @@ import { InventoryModule } from '../storage/storage.module';
   ],
   providers: [
     FeedSelectorService,
+    WaterTemperatureService,
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedConsumptionForecastService,

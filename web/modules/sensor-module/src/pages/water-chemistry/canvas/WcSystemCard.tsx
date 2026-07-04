@@ -37,11 +37,7 @@ function renderChart(chartType: ChartType, inputs: WaterChemistryInputs): ReactE
       return <CarbonateVsPhChart inputs={inputs} outputs={outputs} />;
     case 'deffeyes':
     default:
-      return (
-        <div className="h-72">
-          <DeffeyesChart data={buildDeffeyesData(inputs, [])} />
-        </div>
-      );
+      return <DeffeyesChart data={buildDeffeyesData(inputs, [])} chartHeight={300} />;
   }
 }
 

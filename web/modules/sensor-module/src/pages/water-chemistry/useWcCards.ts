@@ -54,7 +54,9 @@ export function createCard(scope: CardScope, speciesTemplateId = 'salmon_freshwa
     volumeM3: 10,
     paramSources,
     chartType: 'deffeyes' as ChartType,
-    layout: { x: 0, y: 0, w: 4, h: 5 },
+    // Default big enough that the Deffeyes chart (chartHeight 300) + ResultsPanel fit
+    // inside the widget without an immediate resize.
+    layout: { x: 0, y: 0, w: 5, h: 9 },
   };
 }
 
@@ -98,7 +100,12 @@ export function useWcCards(): UseWcCards {
 
   const addCard = useCallback((scope: CardScope): string => {
     const card = createCard(scope);
-    setCards((cs) => [...cs, card]);
+    // Append at the BOTTOM (below every existing card) so a new widget never lands on
+    // top of and disrupts the current layout.
+    setCards((cs) => {
+      const y = cs.reduce((m, c) => Math.max(m, c.layout.y + c.layout.h), 0);
+      return [...cs, { ...card, layout: { ...card.layout, y } }];
+    });
     return card.id;
   }, []);
   const addSystemCard = useCallback((systemId: string): string => {

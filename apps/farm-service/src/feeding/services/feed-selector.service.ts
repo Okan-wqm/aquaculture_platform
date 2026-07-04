@@ -12,9 +12,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BatchFeedAssignment, FeedAssignmentEntry } from '../../batch/entities/batch-feed-assignment.entity';
+import {
+  BatchFeedAssignment,
+  FeedAssignmentEntry,
+} from '../../batch/entities/batch-feed-assignment.entity';
 import { Feed, FeedingCurvePoint, FeedingMatrix2D } from '../../feed/entities/feed.entity';
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
+import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
 
 export interface FeedSelectionResult {
   feedId: string;
@@ -22,8 +26,8 @@ export interface FeedSelectionResult {
   feedName: string;
   feedingRatePercent: number;
   dailyFeedKg: number;
-  fcr?: number;              // FCR (Feed Conversion Ratio)
-  usedMatrix2D?: boolean;    // Whether 2D matrix was used
+  fcr?: number; // FCR (Feed Conversion Ratio)
+  usedMatrix2D?: boolean; // Whether 2D matrix was used
 }
 
 interface CachedFeedData {
@@ -55,6 +59,14 @@ export class FeedSelectorService {
   ) {}
 
   /**
+   * Pure, dependency-free rate calculator — the single source of truth for
+   * protocol-driven feed rates. Instantiated directly (not DI) because it holds
+   * no state and no injected collaborators; the rate math still lives in exactly
+   * one class, shared with the bulk DataLoader path.
+   */
+  private readonly protocolRate = new FeedingProtocolRateService();
+
+  /**
    * Preload all feed assignment and feed data for a batch into memory cache.
    * Call this once before a simulation loop to avoid N queries per day.
    * Reduces batch queries from 2*N (N=days) to just 2 total.
@@ -76,7 +88,7 @@ export class FeedSelectorService {
         `SELECT * FROM "${schemaName}".batch_feed_assignments
          WHERE "tenantId" = $1 AND "batchId" = $2 AND "isActive" = true AND "isDeleted" = false
          LIMIT 1`,
-        [tenantId, batchId]
+        [tenantId, batchId],
       );
 
       const assignment = assignmentResult?.[0];
@@ -85,12 +97,13 @@ export class FeedSelectorService {
         return;
       }
 
-      const feedAssignments: FeedAssignmentEntry[] = typeof assignment.feedAssignments === 'string'
-        ? JSON.parse(assignment.feedAssignments)
-        : assignment.feedAssignments;
+      const feedAssignments: FeedAssignmentEntry[] =
+        typeof assignment.feedAssignments === 'string'
+          ? JSON.parse(assignment.feedAssignments)
+          : assignment.feedAssignments;
 
       // 2. Load all referenced feeds in a single query
-      const feedIds = [...new Set(feedAssignments.map(a => a.feedId))];
+      const feedIds = [...new Set(feedAssignments.map((a) => a.feedId))];
       const feeds = new Map<string, any>();
 
       if (feedIds.length > 0) {
@@ -98,7 +111,7 @@ export class FeedSelectorService {
         const feedResults = await this.feedRepo.query(
           `SELECT * FROM "${schemaName}".feeds
            WHERE "id" IN (${placeholders}) AND "tenantId" = $1 AND "isDeleted" = false`,
-          [tenantId, ...feedIds]
+          [tenantId, ...feedIds],
         );
         for (const feed of feedResults) {
           feeds.set(feed.id, feed);
@@ -106,9 +119,13 @@ export class FeedSelectorService {
       }
 
       this.setCacheEntry(cacheKey, { assignments: feedAssignments, feeds });
-      this.logger.debug(`Preloaded feed data for batch ${batchId}: ${feedAssignments.length} assignments, ${feeds.size} feeds`);
+      this.logger.debug(
+        `Preloaded feed data for batch ${batchId}: ${feedAssignments.length} assignments, ${feeds.size} feeds`,
+      );
     } catch (error: unknown) {
-      this.logger.error(`Error preloading feed data for batch ${batchId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(
+        `Error preloading feed data for batch ${batchId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       this.setCacheEntry(cacheKey, { assignments: [], feeds: new Map() });
     }
   }
@@ -127,7 +144,10 @@ export class FeedSelectorService {
       }
       // If still over limit, evict oldest entries
       if (this.feedCache.size >= FEED_CACHE_MAX_SIZE) {
-        const keysToDelete = [...this.feedCache.keys()].slice(0, Math.floor(FEED_CACHE_MAX_SIZE / 4));
+        const keysToDelete = [...this.feedCache.keys()].slice(
+          0,
+          Math.floor(FEED_CACHE_MAX_SIZE / 4),
+        );
         for (const k of keysToDelete) {
           this.feedCache.delete(k);
         }
@@ -184,6 +204,22 @@ export class FeedSelectorService {
     waterTemperature?: number,
   ): Promise<FeedSelectionResult | null> {
     try {
+      // Protocol takes precedence: a batch assigned a feeding protocol drives its
+      // rate from the protocol (feedPercent band × temperature multiplier), not
+      // from the BatchFeedAssignment + Feed matrix. Falls through when the batch
+      // has no protocol / an inactive protocol / a protocol without weight bands.
+      const protocolResult = await this.selectFeedFromProtocol(
+        tenantId,
+        schemaName,
+        batchId,
+        avgWeightG,
+        biomassKg,
+        waterTemperature,
+      );
+      if (protocolResult) {
+        return protocolResult;
+      }
+
       // Check cache first (populated by preloadFeedDataForBatch)
       const cacheKey = `${tenantId}:${batchId}`;
       const cached = this.getCacheEntry(cacheKey);
@@ -201,7 +237,7 @@ export class FeedSelectorService {
           `SELECT * FROM "${schemaName}".batch_feed_assignments
            WHERE "tenantId" = $1 AND "batchId" = $2 AND "isActive" = true AND "isDeleted" = false
            LIMIT 1`,
-          [tenantId, batchId]
+          [tenantId, batchId],
         );
 
         const assignment = assignmentResult?.[0];
@@ -210,16 +246,17 @@ export class FeedSelectorService {
           return null;
         }
 
-        feedAssignments = typeof assignment.feedAssignments === 'string'
-          ? JSON.parse(assignment.feedAssignments)
-          : assignment.feedAssignments;
+        feedAssignments =
+          typeof assignment.feedAssignments === 'string'
+            ? JSON.parse(assignment.feedAssignments)
+            : assignment.feedAssignments;
 
         feedLookup = async (feedId: string) => {
           const feedResult = await this.feedRepo.query(
             `SELECT * FROM "${schemaName}".feeds
              WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false
              LIMIT 1`,
-            [feedId, tenantId]
+            [feedId, tenantId],
           );
           return feedResult?.[0] ?? null;
         };
@@ -237,7 +274,8 @@ export class FeedSelectorService {
       });
 
       const matchingEntry = sortedAssignments.find(
-        (entry: FeedAssignmentEntry) => avgWeightG >= entry.minWeightG && avgWeightG < entry.maxWeightG
+        (entry: FeedAssignmentEntry) =>
+          avgWeightG >= entry.minWeightG && avgWeightG < entry.maxWeightG,
       );
 
       if (!matchingEntry) {
@@ -259,25 +297,21 @@ export class FeedSelectorService {
 
       // Parse feedingMatrix2D if it's a string
       const matrix2D: FeedingMatrix2D | null = feed.feedingMatrix2D
-        ? (typeof feed.feedingMatrix2D === 'string'
-            ? JSON.parse(feed.feedingMatrix2D)
-            : feed.feedingMatrix2D)
+        ? typeof feed.feedingMatrix2D === 'string'
+          ? JSON.parse(feed.feedingMatrix2D)
+          : feed.feedingMatrix2D
         : null;
 
       if (matrix2D && waterTemperature !== undefined) {
         // Use 2D bilinear interpolation
-        const result = this.bilinearService.interpolate(
-          matrix2D,
-          waterTemperature,
-          avgWeightG,
-        );
+        const result = this.bilinearService.interpolate(matrix2D, waterTemperature, avgWeightG);
         feedingRatePercent = result.feedingRatePercent;
         fcr = result.fcr;
         usedMatrix2D = true;
 
         this.logger.debug(
           `2D interpolation: temp=${waterTemperature}°C, weight=${avgWeightG}g -> rate=${feedingRatePercent}%` +
-          (fcr ? `, fcr=${fcr}` : ''),
+            (fcr ? `, fcr=${fcr}` : ''),
         );
       } else {
         // Fallback to 1D curve
@@ -298,9 +332,97 @@ export class FeedSelectorService {
         usedMatrix2D,
       };
     } catch (error: unknown) {
-      this.logger.error(`Error selecting feed for batch ${batchId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(
+        `Error selecting feed for batch ${batchId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       return null;
     }
+  }
+
+  /**
+   * Resolve the feed rate for a batch from its assigned FeedingProtocol.
+   * Returns null (caller falls through to the assignment path) when the batch
+   * has no protocolId, the protocol is missing/inactive, or the protocol has no
+   * usable weight bands. The feed PRODUCT (code/name) comes from the protocol's
+   * optional `feedId`; the RATE always comes from the shared rate SSoT.
+   */
+  private async selectFeedFromProtocol(
+    tenantId: string,
+    schemaName: string,
+    batchId: string,
+    avgWeightG: number,
+    biomassKg: number,
+    waterTemperature?: number,
+  ): Promise<FeedSelectionResult | null> {
+    const batchRows = await this.assignmentRepo.query(
+      `SELECT "protocolId" FROM "${schemaName}".batches_v2
+        WHERE "id" = $1 AND "tenantId" = $2 LIMIT 1`,
+      [batchId, tenantId],
+    );
+    const protocolId: string | null = batchRows?.[0]?.protocolId ?? null;
+    if (!protocolId) {
+      return null;
+    }
+
+    const protocolRows = await this.assignmentRepo.query(
+      `SELECT "id", "name", "feedId", "growthStageProtocols", "temperatureRanges"
+         FROM "${schemaName}".feeding_protocols
+        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true AND "isDeleted" = false
+        LIMIT 1`,
+      [protocolId, tenantId],
+    );
+    const protocol = protocolRows?.[0];
+    if (!protocol) {
+      return null;
+    }
+
+    const growthStageProtocols =
+      typeof protocol.growthStageProtocols === 'string'
+        ? JSON.parse(protocol.growthStageProtocols)
+        : protocol.growthStageProtocols;
+    const temperatureRanges =
+      typeof protocol.temperatureRanges === 'string'
+        ? JSON.parse(protocol.temperatureRanges)
+        : protocol.temperatureRanges;
+
+    const rate = this.protocolRate.calculateRate(
+      { growthStageProtocols, temperatureRanges },
+      avgWeightG,
+      waterTemperature,
+    );
+    if (!rate) {
+      return null;
+    }
+
+    const dailyFeedKg = this.calculateDailyFeed(biomassKg, rate.feedingRatePercent);
+
+    // Feed product: the protocol's recommended feed when it names one; otherwise
+    // the protocol itself is the label (rate-only protocol).
+    let feedId = '';
+    let feedCode = '';
+    let feedName: string = protocol.name ?? 'Protocol';
+    if (protocol.feedId) {
+      const feedRows = await this.feedRepo.query(
+        `SELECT "id", "code", "name" FROM "${schemaName}".feeds
+          WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false LIMIT 1`,
+        [protocol.feedId, tenantId],
+      );
+      const feed = feedRows?.[0];
+      if (feed) {
+        feedId = feed.id;
+        feedCode = feed.code;
+        feedName = feed.name;
+      }
+    }
+
+    return {
+      feedId,
+      feedCode,
+      feedName,
+      feedingRatePercent: rate.feedingRatePercent,
+      dailyFeedKg,
+      usedMatrix2D: false,
+    };
   }
 
   /**
@@ -319,9 +441,8 @@ export class FeedSelectorService {
     }
 
     // Parse if string
-    const curve: FeedingCurvePoint[] = typeof feedingCurve === 'string'
-      ? JSON.parse(feedingCurve)
-      : feedingCurve;
+    const curve: FeedingCurvePoint[] =
+      typeof feedingCurve === 'string' ? JSON.parse(feedingCurve) : feedingCurve;
 
     if (!Array.isArray(curve) || curve.length === 0) {
       return defaultRate;
@@ -330,7 +451,7 @@ export class FeedSelectorService {
     // Sort by fish weight descending and find the first match
     // (the highest weight that's still <= current weight)
     const sortedCurve = [...curve].sort((a, b) => b.fishWeightG - a.fishWeightG);
-    const curvePoint = sortedCurve.find(p => avgWeightG >= p.fishWeightG);
+    const curvePoint = sortedCurve.find((p) => avgWeightG >= p.fishWeightG);
 
     return curvePoint?.feedingRatePercent ?? defaultRate;
   }
@@ -348,9 +469,8 @@ export class FeedSelectorService {
     }
 
     // Parse if string
-    const curve: FeedingCurvePoint[] = typeof feedingCurve === 'string'
-      ? JSON.parse(feedingCurve)
-      : feedingCurve;
+    const curve: FeedingCurvePoint[] =
+      typeof feedingCurve === 'string' ? JSON.parse(feedingCurve) : feedingCurve;
 
     if (!Array.isArray(curve) || curve.length === 0) {
       return undefined;
@@ -358,7 +478,7 @@ export class FeedSelectorService {
 
     // Sort by fish weight descending and find the first match
     const sortedCurve = [...curve].sort((a, b) => b.fishWeightG - a.fishWeightG);
-    const curvePoint = sortedCurve.find(p => avgWeightG >= p.fishWeightG);
+    const curvePoint = sortedCurve.find((p) => avgWeightG >= p.fishWeightG);
 
     return curvePoint?.fcr;
   }
@@ -372,6 +492,6 @@ export class FeedSelectorService {
       return 0;
     }
     // Round to 2 decimal places
-    return Math.round((biomassKg * feedingRatePercent / 100) * 100) / 100;
+    return Math.round(((biomassKg * feedingRatePercent) / 100) * 100) / 100;
   }
 }

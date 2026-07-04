@@ -23,14 +23,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  Directive,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, Directive } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Type-only imports to avoid circular dependency at runtime
 import type { Species } from '../../species/entities/species.entity';
@@ -39,12 +32,7 @@ import type { BatchDocument } from './batch-document.entity';
 // IP-3: Enums and interfaces extracted to batch.types.ts (keeps entity under 500 lines).
 // Import for local use, then re-export for backward compatibility.
 // All existing `import { BatchStatus } from '../entities/batch.entity'` continue to work.
-import {
-  BatchStatus,
-  BatchInputType,
-  ArrivalMethod,
-  BatchType,
-} from './batch.types';
+import { BatchStatus, BatchInputType, ArrivalMethod, BatchType } from './batch.types';
 import type {
   BatchWeight,
   BatchFCR,
@@ -53,12 +41,7 @@ import type {
   BatchMortalitySummary,
 } from './batch.types';
 
-export {
-  BatchStatus,
-  BatchInputType,
-  ArrivalMethod,
-  BatchType,
-};
+export { BatchStatus, BatchInputType, ArrivalMethod, BatchType };
 export type {
   BatchWeight,
   BatchFCR,
@@ -96,11 +79,11 @@ export class Batch {
 
   @Field()
   @Column({ length: 50 })
-  batchNumber: string;             // B-2024-00001
+  batchNumber: string; // B-2024-00001
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
-  name?: string;                   // Opsiyonel görüntüleme adı
+  name?: string; // Opsiyonel görüntüleme adı
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -120,7 +103,23 @@ export class Batch {
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
-  strain?: string;                 // Irk/çeşit
+  strain?: string; // Irk/çeşit
+
+  // -------------------------------------------------------------------------
+  // BESLEME PROTOKOLÜ
+  // -------------------------------------------------------------------------
+
+  /**
+   * Atanan besleme protokolü (feeding_protocols.id). Protokol batch'e bağlıdır;
+   * balık kimliği transferlerde kalıcı olduğu için protokol otomatik olarak
+   * balığı takip eder, hasatta batch kapanınca doğal olarak biter. Günlük yem
+   * oranı (feedPercent × sıcaklık çarpanı) bu protokolden hesaplanır. Soft
+   * reference (FK yok) — protokol silinse bile batch kaydı bozulmaz, hesap
+   * protokol-dışı yola düşer.
+   */
+  @Field(() => ID, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  protocolId?: string;
 
   @Field(() => BatchInputType)
   @Column({
@@ -165,43 +164,73 @@ export class Batch {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  initialQuantity: number;         // Başlangıç adedi
+  initialQuantity: number; // Başlangıç adedi
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  currentQuantity: number;         // Mevcut adet (mortality düşülmüş)
+  currentQuantity: number; // Mevcut adet (mortality düşülmüş)
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  totalMortality: number;          // Toplam ölüm adedi
+  totalMortality: number; // Toplam ölüm adedi
 
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
-  harvestedQuantity?: number;      // Hasat edilen adet
+  harvestedQuantity?: number; // Hasat edilen adet
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  cullCount: number;               // Ayıklama sayısı (cull)
+  cullCount: number; // Ayıklama sayısı (cull)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  totalFeedConsumed: number;       // Toplam yem tüketimi (kg)
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
+  totalFeedConsumed: number; // Toplam yem tüketimi (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  totalFeedCost: number;           // Toplam yem maliyeti
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
+  totalFeedCost: number; // Toplam yem maliyeti
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  retentionRate?: number;          // Tutma oranı (%) - mortality + cull dahil
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  retentionRate?: number; // Tutma oranı (%) - mortality + cull dahil
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true, transformer: new DecimalTransformer() })
-  sgr?: number;                    // Spesifik büyüme oranı (SGR)
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 4,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  sgr?: number; // Spesifik büyüme oranı (SGR)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  costPerKg?: number;              // kg başına maliyet
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  costPerKg?: number; // kg başına maliyet
 
   // -------------------------------------------------------------------------
   // AĞIRLIK TAKİBİ - ÇİFT KAYIT
@@ -249,7 +278,7 @@ export class Batch {
 
   @Field()
   @Column({ type: 'date' })
-  stockedAt: Date;                 // Stoklama tarihi
+  stockedAt: Date; // Stoklama tarihi
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -269,11 +298,17 @@ export class Batch {
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
-  supplierBatchNumber?: string;    // Tedarikçi parti numarası
+  supplierBatchNumber?: string; // Tedarikçi parti numarası
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  purchaseCost?: number;           // Satın alma maliyeti
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  purchaseCost?: number; // Satın alma maliyeti
 
   @Field({ nullable: true })
   @Column({ length: 3, nullable: true })
@@ -442,7 +477,12 @@ export class Batch {
   }
 
   isOperational(): boolean {
-    return [BatchStatus.ACTIVE, BatchStatus.GROWING, BatchStatus.PRE_HARVEST, BatchStatus.HARVESTING].includes(this.status);
+    return [
+      BatchStatus.ACTIVE,
+      BatchStatus.GROWING,
+      BatchStatus.PRE_HARVEST,
+      BatchStatus.HARVESTING,
+    ].includes(this.status);
   }
 
   /**
@@ -460,6 +500,10 @@ export class Batch {
     return this.isOperational() || this.status === BatchStatus.QUARANTINE;
   }
 
-  isCleanerFishBatch(): boolean { return this.batchType === BatchType.CLEANER_FISH; }
-  isProductionBatch(): boolean { return this.batchType === BatchType.PRODUCTION; }
+  isCleanerFishBatch(): boolean {
+    return this.batchType === BatchType.CLEANER_FISH;
+  }
+  isProductionBatch(): boolean {
+    return this.batchType === BatchType.PRODUCTION;
+  }
 }

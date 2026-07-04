@@ -133,6 +133,24 @@ describe('FeedingPage', () => {
     });
   });
 
+  it('switches to the execution tab and fires the daily-feeding-executions query (manual entry lives here, not on daily-plan)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FeedingPage />, { route: '/feeding', path: 'feeding' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Daily Execution/ })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: /Daily Execution/ }));
+
+    await waitFor(() => {
+      expect(
+        requestMock.mock.calls.some(([query]) =>
+          (query as string).includes('query DailyFeedingExecutions'),
+        ),
+      ).toBe(true);
+    });
+  });
+
   it('falls back to the default tab for an unknown ?tab value', async () => {
     renderWithProviders(<FeedingPage />, { route: '/feeding?tab=bogus', path: 'feeding' });
 

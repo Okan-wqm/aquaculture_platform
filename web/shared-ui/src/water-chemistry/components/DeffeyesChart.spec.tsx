@@ -112,4 +112,26 @@ describe('DeffeyesChart', () => {
     expect(screen.getByLabelText('H₂S Toxic')).not.toBeChecked();
     expect(container.querySelector('path[stroke="#b91c1c"]')).toBeInTheDocument();
   });
+
+  it('overlays every measurement point on one chart and suppresses pH isolines beyond a single point', () => {
+    const a = makeLegacyData();
+    const b = makeLegacyData();
+    const { container } = render(
+      <div style={{ width: 900, height: 760 }}>
+        <DeffeyesChart
+          data={a}
+          overlays={[
+            { data: a, label: 'Biofilter inlet', color: '#ef4444' },
+            { data: b, label: 'Tank 1', color: '#22c55e' },
+          ]}
+        />
+      </div>
+    );
+
+    // Each point draws its own colored operating marker on the single chart...
+    expect(container.querySelector('circle[fill="#ef4444"]')).toBeInTheDocument();
+    expect(container.querySelector('circle[fill="#22c55e"]')).toBeInTheDocument();
+    // ...and pH isolines (temp/salinity-specific) are hidden once more than one point overlays.
+    expect(screen.queryByText('pH 7.0')).not.toBeInTheDocument();
+  });
 });

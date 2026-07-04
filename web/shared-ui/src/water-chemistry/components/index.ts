@@ -13,6 +13,7 @@
  * singleton-imports invariant guards against.
  */
 export { default as DeffeyesChart } from './DeffeyesChart';
+export type { DeffeyesOverlay } from './DeffeyesChart';
 export { default as ResultsPanel } from './ResultsPanel';
 export {
   ChartCard,

@@ -43,6 +43,20 @@ interface DeffeyesChartProps {
    * widget instead of overflowing it and covering the panel below.
    */
   chartHeight?: number;
+  /**
+   * Multi-point OVERLAY: draw several measurement points on ONE Deffeyes chart, each
+   * with its OWN operating point + toxic/safe zones (its own limits). When present, pH
+   * isolines are shown only for a single overlay (they are temp/salinity-specific).
+   * Absent (the farm calculator) → the single-`data` rendering is byte-identical.
+   */
+  overlays?: DeffeyesOverlay[];
+}
+
+/** One overlaid measurement point on a system Deffeyes chart. */
+export interface DeffeyesOverlay {
+  data: DeffeyesChartData;
+  label: string;
+  color: string;
 }
 
 type AlkDicPoint = { CT: number; AT: number };
@@ -243,6 +257,12 @@ const StarShape: React.FC<ScatterShapeProps> = (props) => {
     points.push(`${cx + r * 0.4 * Math.cos(innerAngle)},${cy + r * 0.4 * Math.sin(innerAngle)}`);
   }
   return <polygon points={points.join(' ')} fill="#2563eb" stroke="#1d4ed8" strokeWidth={1} />;
+};
+
+/** Colored circle marker for a system-overlay measurement point (recharts injects cx/cy). */
+const OverlayDot: React.FC<ScatterShapeProps & { color?: string }> = ({ cx, cy, color }) => {
+  if (cx == null || cy == null) return null;
+  return <circle cx={cx} cy={cy} r={6} fill={color ?? '#2563eb'} stroke="#ffffff" strokeWidth={1.5} />;
 };
 
 /** Custom arrowhead shape for reagent direction line tip */
@@ -486,7 +506,15 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   onDemandPath,
   forceSafetyOverlays = false,
   chartHeight = 700,
+  overlays,
 }) => {
+  // Overlay mode: multiple measurement points on one chart. pH isolines are
+  // temp/salinity-specific, so they only make sense for a single point.
+  const overlayCount = overlays?.length ?? 0;
+  const isoOk = overlayCount <= 1;
+  // `single` = the classic single-point rendering (farm + point-cards). In overlay mode the
+  // per-point markers + zones below replace the single-`data` operating point + toxic zones.
+  const single = overlayCount === 0;
   const [showIsolines, setShowIsolines] = useState(true);
   const [showSafeZone, setShowSafeZone] = useState(false);
   const [showNH3Zone, setShowNH3Zone] = useState(false);
@@ -629,7 +657,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             />
 
             {/* CO2 Toxic Zone - filled area between curve and X-axis */}
-            {renderCO2Zone && co2AreaData && (
+            {single && renderCO2Zone && co2AreaData && (
               <Area
                 data={co2AreaData}
                 dataKey="AT"
@@ -647,7 +675,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* H₂S Toxic Zone - filled area between critical-pH isoline and X-axis */}
-            {renderH2SZone && h2sAreaData && (
+            {single && renderH2SZone && h2sAreaData && (
               <Area
                 data={h2sAreaData}
                 dataKey="AT"
@@ -665,7 +693,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* NH3 Toxic Zone - filled wedge between NH3 line and Y=maxALK */}
-            {renderNH3Zone && nh3AreaData && (
+            {single && renderNH3Zone && nh3AreaData && (
               <Area
                 data={nh3AreaData}
                 dataKey="AT"
@@ -686,7 +714,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             {renderSafeZone && SafeZoneLayer && <Customized component={SafeZoneLayer} />}
 
             {/* Minor pH isolines (thin, transparent) */}
-            {showIsolines && visibleMinor.map((iso) => (
+            {showIsolines && isoOk && visibleMinor.map((iso) => (
               <Line
                 key={`minor-${iso.pH}`}
                 data={iso.points}
@@ -703,7 +731,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             ))}
 
             {/* Major pH isolines (semi-transparent) */}
-            {showIsolines && visibleMajor.map((iso) => (
+            {showIsolines && isoOk && visibleMajor.map((iso) => (
               <Line
                 key={`major-${iso.pH}`}
                 data={iso.points}
@@ -718,7 +746,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 isAnimationActive={false}
               />
             ))}
-            {showIsolines && <Customized component={PHLabelLayer} />}
+            {showIsolines && isoOk && <Customized component={PHLabelLayer} />}
 
             {/* Reagent direction line */}
             {showDosing && data.reagentLine && (
@@ -870,8 +898,8 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               />
             )}
 
-            {/* Current operating point (blue star) */}
-            {showCurrentPoint && (
+            {/* Current operating point (blue star) — single-point mode only */}
+            {single && showCurrentPoint && (
               <Scatter
                 name="Current Point"
                 data={[{ CT: data.currentPoint.DIC, AT: data.currentPoint.ALK }]}
@@ -880,6 +908,46 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 isAnimationActive={false}
               />
             )}
+
+            {/* System overlay: every measurement point's own operating marker (colored) */}
+            {overlays?.map((ov) => (
+              <Scatter
+                key={`ov-pt-${ov.label}`}
+                name={ov.label}
+                data={[{ CT: ov.data.currentPoint.DIC, AT: ov.data.currentPoint.ALK }]}
+                shape={<OverlayDot color={ov.color} />}
+                legendType="none"
+                isAnimationActive={false}
+              />
+            ))}
+            {/* System overlay: each point's OWN toxic zones (its own limits), toggled together */}
+            {renderNH3Zone &&
+              overlays?.map((ov) => {
+                const pts = ov.data.nh3ToxicZone ? clipNH3Boundary(ov.data.nh3ToxicZone.points, maxDIC, maxALK) : [];
+                return pts.length >= 2 ? (
+                  <Area key={`ov-nh3-${ov.label}`} data={pts} dataKey="AT" baseValue={maxALK}
+                    stroke={ov.color} strokeWidth={1} fill={ov.color} fillOpacity={0.08}
+                    isAnimationActive={false} legendType="none" />
+                ) : null;
+              })}
+            {renderCO2Zone &&
+              overlays?.map((ov) => {
+                const pts = ov.data.co2ToxicZone ? clipCO2Boundary(ov.data.co2ToxicZone.points, maxDIC, maxALK) : [];
+                return pts.length >= 2 ? (
+                  <Area key={`ov-co2-${ov.label}`} data={pts} dataKey="AT" baseValue={0}
+                    stroke={ov.color} strokeWidth={1} strokeDasharray="4 3" fill={ov.color} fillOpacity={0.06}
+                    isAnimationActive={false} legendType="none" />
+                ) : null;
+              })}
+            {renderH2SZone &&
+              overlays?.map((ov) => {
+                const pts = ov.data.h2sToxicZone ? clipCO2Boundary(ov.data.h2sToxicZone.points, maxDIC, maxALK) : [];
+                return pts.length >= 2 ? (
+                  <Area key={`ov-h2s-${ov.label}`} data={pts} dataKey="AT" baseValue={0}
+                    stroke={ov.color} strokeWidth={1} strokeDasharray="2 2" fill={ov.color} fillOpacity={0.05}
+                    isAnimationActive={false} legendType="none" />
+                ) : null;
+              })}
 
             {/* Target point (black X) */}
             {showTarget && data.targetPoint && (

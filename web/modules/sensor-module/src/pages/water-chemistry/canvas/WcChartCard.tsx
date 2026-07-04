@@ -34,11 +34,9 @@ function renderChart(chartType: ChartType, inputs: WaterChemistryInputs, outputs
       return <CarbonateVsPhChart inputs={inputs} outputs={outputs} />;
     case 'deffeyes':
     default:
-      return (
-        <div className="h-72">
-          <DeffeyesChart data={buildDeffeyesData(inputs, [])} />
-        </div>
-      );
+      // chartHeight keeps the (otherwise 700px) Deffeyes chart INSIDE the widget so it
+      // no longer overflows and covers the ResultsPanel below it.
+      return <DeffeyesChart data={buildDeffeyesData(inputs, [])} chartHeight={300} />;
   }
 }
 

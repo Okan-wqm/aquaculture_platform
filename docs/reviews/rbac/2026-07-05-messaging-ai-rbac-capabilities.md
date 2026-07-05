@@ -23,7 +23,8 @@ An earlier attempt to add a parallel catalogue + resolver in `libs/backend-commo
 | ID | Sev | Finding | State |
 |---|---|---|---|
 | MT-HIGH-053 | HIGH | `PERMISSION_CATEGORIES` (the RBAC catalogue SSoT) had ZERO messaging + AI capabilities — the new WhatsApp-like messaging and AI-assistant/BYOK features were entirely ungovernable by tenant RBAC (a tenant admin could neither grant nor restrict them), and seeded roles granted none of them | RESOLVED (this) |
-| MT-HIGH-054 | HIGH | Hardcoded feature gates not yet routed through the capability check: group creation (`create-channel.handler` MODULE_MANAGER gate, MSG-MEDIUM-070) → `channels:create_group`; AI persona tier (AISAFETY-MEDIUM-013) → `ai_personas:<tier>`; AI settings CRUD → `ai_settings:manage`; AI chat → `ai_assistant:use` | OPEN (Faz 7c) |
+| MT-HIGH-054 | HIGH | Hardcoded feature gates not yet routed through the capability check: group creation (`create-channel.handler` MODULE_MANAGER gate, MSG-MEDIUM-070) → `channels:create_group`; AI persona tier (AISAFETY-MEDIUM-013) → `ai_personas:<tier>`; AI settings CRUD → `ai_settings:manage`; AI chat → `ai_assistant:use` | OPEN (Faz 7c backend) |
+| MT-MEDIUM-055 | MEDIUM | FE permission visibility was DEAD: `useAuth().hasPermission` (panel/shared-ui) was a stub returning false for everyone except SUPER_ADMIN ("İzin tabanlı kontrol ileride eklenebilir"), and the mobile PWA had no tenant-capability check at all — so members could not be shown only their granted actions | RESOLVED (this) |
 
 ## Delivered (MT-HIGH-053)
 
@@ -36,3 +37,12 @@ Extended the existing SSoT in `tenant-role.service.ts` — nothing parallel:
 Because `permissionCategories` (query) and the FE role editor are **data-driven**, the tenant-admin role UI now shows the messaging/AI capabilities automatically — no FE change. `TokenService` resolves them into `resourcePermissions` and `TenantPermissionGuard` enforces them with no code change.
 
 New spec `permission-catalogue.spec.ts` locks the coverage in and adds the previously-unguarded **global resource-key-uniqueness invariant** (a collision would silently merge permissions across features).
+
+## Delivered (MT-MEDIUM-055) — FE permission visibility
+
+The FE capability check was dead code; both surfaces now read the **same JWT `resourcePermissions` claim SSoT** (minted by `TokenService`) at their own trust boundary — no parallel permission model:
+- **Panel / shared-ui:** `useAuth().hasPermission` was a stub (false for all but SUPER_ADMIN). Implemented it against `user.resourcePermissions` (SUPER_ADMIN + TENANT_ADMIN bypass, mirroring `TenantPermissionGuard`); `resourcePermissions` is decoded from the access token in `AuthContext.fetchMe` (`decodeResourcePermissions`, token-lifecycle) and attached to the user.
+- **Mobile PWA (standalone):** added `hasPermission` to its own `useAuth` (the PWA does not depend on shared-ui by design), decoding the same claim via a local `jwt-claims` helper — kept distinct from `useMobilePermissions`, which gates a different concern (mobile feature entitlements from `mobile_user_settings`, not tenant RBAC).
+- **Concrete gate:** the AquaMobil "New Group" entry (`NewChatPage`) is now gated on `channels:create_group` — a member without the grant sees DM + AI but not group creation. UI visibility only; the backend re-checks on create.
+
+Fail-closed throughout (missing/garbage claim → no capabilities → nothing extra shown). New spec `token-lifecycle.decode.spec.ts` (6 cases) locks the security-relevant decode.

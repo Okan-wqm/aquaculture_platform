@@ -192,7 +192,11 @@ function UserRow({
  */
 export function NewChatPage(): JSX.Element {
   const navigate = useNavigate();
-  const { user: currentUser, tenantId } = useAuth();
+  const { user: currentUser, tenantId, hasPermission } = useAuth();
+  // Tenant-RBAC: only members granted `channels:create_group` see the group
+  // entry point (admins bypass). DM + AI stay available to everyone. The
+  // backend re-checks the capability on create — this is UI visibility only.
+  const canCreateGroup = hasPermission('channels:create_group');
   const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
   const { createDM, createGroup, createAiChannel, isCreating } = useCreateChannel();
 
@@ -449,8 +453,8 @@ export function NewChatPage(): JSX.Element {
             </div>
           )}
 
-          {/* New Group button */}
-          {!isGroupMode && (
+          {/* New Group button — gated on the channels:create_group capability */}
+          {!isGroupMode && canCreateGroup && (
             <div className="px-4 pt-3">
               <button
                 onClick={handleToggleGroupMode}

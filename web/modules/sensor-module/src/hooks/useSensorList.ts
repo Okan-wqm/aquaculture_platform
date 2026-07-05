@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 
 // Types
@@ -107,57 +107,41 @@ const GET_SENSORS_QUERY = `
 
 // Hook for fetching sensor list
 export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
+  // SENSOR-LOW-006: TanStack Query with a tenant-scoped key + refetchInterval
+  // so the sensor tab's connectivity badges/online count converge on backend
+  // truth (parity with the edge tab) instead of a static mount-time snapshot.
+  // The tenant-scoped key also closes the cross-tenant cache-leak class.
   const { token, tenantId } = useAuth();
-  const [data, setData] = useState<SensorListResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchSensors = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // BUG-020: include filter in variables so server-side filtering is actually applied
+  const query = useQuery<SensorListResult>({
+    queryKey: createTenantQueryKey(tenantId, 'sensors', { filter, pagination }),
+    queryFn: async () => {
+      // BUG-020: include filter in variables so server-side filtering is applied.
       const result = await graphqlFetch<{ sensors: SensorListResult }>(GET_SENSORS_QUERY, {
-        // Note: Only pass 'page' because federation schema doesn't have 'limit' (conflict with farm-service)
+        // Note: only 'page' — the federation schema omits 'limit' (conflict
+        // with farm-service). See SENSOR-LOW-004 for the family-aware paging
+        // follow-up (parent/child rows must stay on the same page).
         ...(filter ? { filter } : {}),
         pagination: {
           page: pagination?.page || 1,
         },
       });
-
-      setData(result.sensors);
-    } catch (err) {
-      setError((err as Error).message);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, pagination]);
-
-  useEffect(() => {
-    // AUTH-READINESS GATE: do not query before tenant context (token + tenantId)
-    // is ready, otherwise the mount fetch races the auth lifecycle and queries
-    // with a null tenant (401/empty). Re-runs when the tenant becomes ready/changes.
-    if (!token || !tenantId) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
-    fetchSensors();
-  }, [fetchSensors, token, tenantId]);
-
-  const refetch = useCallback(() => {
-    fetchSensors();
-  }, [fetchSensors]);
+      return result.sensors;
+    },
+    // AUTH-READINESS GATE: do not query before tenant context is ready,
+    // otherwise the fetch races the auth lifecycle and queries a null tenant.
+    enabled: !!token && !!tenantId,
+    staleTime: 10000,
+    refetchInterval: 30000,
+  });
 
   return {
-    data,
-    sensors: data?.items || [],
-    total: data?.total || 0,
-    loading,
-    error,
-    refetch,
+    data: query.data ?? null,
+    sensors: query.data?.items || [],
+    total: query.data?.total || 0,
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+    refetch: query.refetch,
   };
 }
 

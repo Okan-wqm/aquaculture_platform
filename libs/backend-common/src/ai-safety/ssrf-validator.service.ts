@@ -237,6 +237,84 @@ export class SsrfValidatorService {
   }
 
   /**
+   * Validate a raw network target (host + port) for safe server-side
+   * socket connections to non-HTTP endpoints — industrial protocol links
+   * such as Modbus-TCP, raw TCP/UDP sockets, and WebSocket device streams.
+   *
+   * Unlike {@link validateUrl}, this deliberately does NOT enforce the
+   * HTTP protocol/port allowlist: industrial devices legitimately listen
+   * on arbitrary ports (Modbus 502, vendor-specific ranges). The SSRF
+   * defense that DOES apply is identical — the destination must not resolve
+   * to a private/loopback/link-local/CGNAT/metadata address, and DNS is
+   * resolved BEFORE the caller connects so the resolved IP (not the
+   * hostname) is what gets pinned, closing the DNS-rebinding window.
+   *
+   * SECURITY: the caller MUST connect to `result.resolvedIp` (not the
+   * original hostname) to make the pre-resolution guarantee real.
+   *
+   * @param host - Hostname or IP literal of the target device
+   * @param port - Destination TCP/UDP port (validated as a positive integer)
+   * @returns SsrfValidationResult with safety verdict + resolved IP to pin
+   */
+  async validateHost(host: string, port: number): Promise<SsrfValidationResult> {
+    if (!host || typeof host !== 'string') {
+      return { safe: false, reason: 'Host is required.' };
+    }
+
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return { safe: false, reason: `Port ${port} is out of range (1-65535).` };
+    }
+
+    const hostname = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+
+    // Block known metadata hostnames + localhost variants (defense-in-depth
+    // before DNS, mirroring validateUrl steps 4).
+    if (METADATA_HOSTNAMES.has(hostname)) {
+      return { safe: false, reason: `Host "${hostname}" is a cloud metadata endpoint.` };
+    }
+    if (
+      hostname === 'localhost' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::1'
+    ) {
+      return { safe: false, reason: 'Localhost addresses are not allowed.' };
+    }
+
+    // DNS resolution (pre-connect) — validate ALL resolved IPs.
+    let resolvedIp: string;
+    if (isIPv4(hostname) || isIPv6(hostname)) {
+      resolvedIp = hostname;
+    } else {
+      try {
+        const addresses = await dns.resolve4(hostname);
+        if (addresses.length === 0) {
+          return { safe: false, reason: `DNS resolution failed: no A records for "${hostname}".` };
+        }
+        for (const ip of addresses) {
+          const denied = this.isPrivateIp(ip);
+          if (denied) {
+            return { safe: false, reason: `DNS resolved to private IP: ${denied}`, resolvedIp: ip };
+          }
+        }
+        resolvedIp = addresses[0]!;
+      } catch {
+        return { safe: false, reason: `DNS resolution failed for hostname "${hostname}".` };
+      }
+    }
+
+    const ipCheck = this.isPrivateIp(resolvedIp);
+    if (ipCheck) {
+      return {
+        safe: false,
+        reason: `IP address ${resolvedIp} is in a restricted range: ${ipCheck}`,
+        resolvedIp,
+      };
+    }
+
+    return { safe: true, resolvedIp };
+  }
+
+  /**
    * Get fetch options with SSRF-safe defaults.
    * Use these options when making HTTP requests to validated URLs.
    *

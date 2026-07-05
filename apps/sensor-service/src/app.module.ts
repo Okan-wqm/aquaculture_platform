@@ -76,7 +76,9 @@ import {
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   SchemaDriftModule,
+  TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
@@ -435,6 +437,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     StreamProcessingModule,
 
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    // Tenant execution context interceptor (SSoT registration) — keeps the
+    // validated tenant schema in AsyncLocalStorage across Apollo/CQRS async
+    // boundaries so per-tenant search_path routing holds at pg checkout.
+    TenantExecutionContextModule,
+    // Shared tenant schema-existence cache + TenantProvisioned invalidation
+    // (no stale-negative-cache block for freshly provisioned tenants).
+    TenantSchemaCacheModule,
     SchemaDriftModule.forRoot({ serviceName: 'sensor' }),
   ],
   providers: [

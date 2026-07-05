@@ -22,13 +22,26 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
-import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent , createBaseEvent } from '@platform/event-contracts';
-import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource, ParameterStatus } from './entities/water-quality-measurement.entity';
+import {
+  WaterQualityMeasurementCreatedEvent,
+  WaterQualityCriticalEvent,
+  createBaseEvent,
+} from '@platform/event-contracts';
+import {
+  WaterQualityMeasurement,
+  WaterQualityStatus,
+  MeasurementSource,
+  ParameterStatus,
+} from './entities/water-quality-measurement.entity';
 import { resolveTankSiteId } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
+import {
+  WATER_TEMPERATURE_MAX_C,
+  WATER_TEMPERATURE_MIN_C,
+} from './services/water-temperature.service';
 
 // ============================================================================
 // INTERNAL INTERFACES (Service layer only)
@@ -115,6 +128,48 @@ export class WaterQualityService {
   ) {}
 
   /**
+   * Record a single MANUAL water-temperature observation for a tank.
+   *
+   * A deliberately lighter path than `create()`: temperature is a standalone
+   * reading that drives the feeding-rate calculation, so it is NOT put through
+   * the full multi-parameter strict validation (which would reject unless
+   * `temperature` is mapped to the equipment and every other required-mapped
+   * parameter is also supplied). The measurement still lands in
+   * `water_quality_measurements` (source MANUAL) so it appears in water-quality
+   * history and is read back by WaterTemperatureService.
+   */
+  async recordManualTemperature(
+    tenantId: string,
+    tankId: string,
+    celsius: number,
+    recordedBy?: string,
+  ): Promise<boolean> {
+    if (
+      !Number.isFinite(celsius) ||
+      celsius < WATER_TEMPERATURE_MIN_C ||
+      celsius > WATER_TEMPERATURE_MAX_C
+    ) {
+      throw new BadRequestException(
+        `Water temperature ${celsius}°C is outside the plausible range ` +
+          `(${WATER_TEMPERATURE_MIN_C}°C to ${WATER_TEMPERATURE_MAX_C}°C).`,
+      );
+    }
+
+    const measurement = this.repository.create({
+      tenantId,
+      tankId,
+      equipmentId: tankId,
+      measuredAt: new Date(),
+      source: MeasurementSource.MANUAL,
+      parameters: { temperature: celsius },
+      temperature: celsius,
+      measuredBy: recordedBy,
+    });
+    await this.repository.save(measurement);
+    return true;
+  }
+
+  /**
    * SEC-HIGH-051: resolve the site a water-quality measurement belongs to.
    *
    * A direct `siteId` wins (the measurement is explicitly site-scoped). Else a
@@ -165,7 +220,9 @@ export class WaterQualityService {
         where: { tenantId, idempotencyKey: input.idempotencyKey },
       });
       if (existing) {
-        this.logger.debug(`Idempotent hit: returning existing measurement ${existing.id} for key ${input.idempotencyKey}`);
+        this.logger.debug(
+          `Idempotent hit: returning existing measurement ${existing.id} for key ${input.idempotencyKey}`,
+        );
         return existing;
       }
     }
@@ -249,7 +306,10 @@ export class WaterQualityService {
       // LIFE-SAFETY: Enqueue WaterQualityMeasurementCreatedEvent into the
       // transactional outbox BEFORE commit. Guaranteed delivery via outbox worker.
       const createdEvent: WaterQualityMeasurementCreatedEvent = {
-        ...createBaseEvent<WaterQualityMeasurementCreatedEvent>('WaterQualityMeasurementCreated', tenantId),
+        ...createBaseEvent<WaterQualityMeasurementCreatedEvent>(
+          'WaterQualityMeasurementCreated',
+          tenantId,
+        ),
         measurementId: saved.id,
         equipmentId: saved.equipmentId ?? null,
         tankId: saved.tankId ?? null,
@@ -267,13 +327,22 @@ export class WaterQualityService {
       // delivered reliably via outbox, not fire-and-forget.
       if (saved.hasAlarm && saved.summary?.evaluations) {
         const criticalParams = saved.summary.evaluations
-          .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
-          .map(e => ({
+          .filter(
+            (e) =>
+              e.status === ParameterStatus.CRITICAL_LOW ||
+              e.status === ParameterStatus.CRITICAL_HIGH,
+          )
+          .map((e) => ({
             code: e.parameter,
             name: e.parameter,
             value: e.value,
-            threshold: e.status === ParameterStatus.CRITICAL_LOW ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
-            direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as 'above' | 'below',
+            threshold:
+              e.status === ParameterStatus.CRITICAL_LOW
+                ? (e.criticalMin ?? 0)
+                : (e.criticalMax ?? 0),
+            direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
+              | 'above'
+              | 'below',
             unit: e.unit,
           }));
 
@@ -300,7 +369,9 @@ export class WaterQualityService {
       await queryRunner.release();
     }
 
-    this.logger.log(`Created water quality measurement ${saved.id} with status ${saved.overallStatus}`);
+    this.logger.log(
+      `Created water quality measurement ${saved.id} with status ${saved.overallStatus}`,
+    );
     return saved;
   }
 
@@ -322,11 +393,17 @@ export class WaterQualityService {
     caller: WaterQualityCaller,
   ): Promise<WaterQualityMeasurement[]> {
     const userId = caller.sub;
-    this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
+    this.logger.log(
+      `Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`,
+    );
 
     // 1. Validate ALL items first (fail-fast, before transaction)
     for (const item of input.measurements) {
-      const result = await this.validationService.validate(tenantId, item.dynamicParameters, item.equipmentId);
+      const result = await this.validationService.validate(
+        tenantId,
+        item.dynamicParameters,
+        item.equipmentId,
+      );
       if (!result.valid) {
         throw new BadRequestException({
           message: `Validation failed for equipment ${item.equipmentId}`,
@@ -399,7 +476,10 @@ export class WaterQualityService {
       // Enqueue outbox events for each measurement (inside the same transaction)
       for (const measurement of saved) {
         const createdEvent: WaterQualityMeasurementCreatedEvent = {
-          ...createBaseEvent<WaterQualityMeasurementCreatedEvent>('WaterQualityMeasurementCreated', tenantId),
+          ...createBaseEvent<WaterQualityMeasurementCreatedEvent>(
+            'WaterQualityMeasurementCreated',
+            tenantId,
+          ),
           measurementId: measurement.id,
           equipmentId: measurement.equipmentId ?? null,
           tankId: measurement.tankId ?? null,
@@ -415,13 +495,22 @@ export class WaterQualityService {
         // LIFE-SAFETY: Critical alert event for alert-service
         if (measurement.hasAlarm && measurement.summary?.evaluations) {
           const criticalParams = measurement.summary.evaluations
-            .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
-            .map(e => ({
+            .filter(
+              (e) =>
+                e.status === ParameterStatus.CRITICAL_LOW ||
+                e.status === ParameterStatus.CRITICAL_HIGH,
+            )
+            .map((e) => ({
               code: e.parameter,
               name: e.parameter,
               value: e.value,
-              threshold: e.status === ParameterStatus.CRITICAL_LOW ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
-              direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as 'above' | 'below',
+              threshold:
+                e.status === ParameterStatus.CRITICAL_LOW
+                  ? (e.criticalMin ?? 0)
+                  : (e.criticalMax ?? 0),
+              direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
+                | 'above'
+                | 'below',
               unit: e.unit,
             }));
 
@@ -546,5 +635,4 @@ export class WaterQualityService {
     this.logger.log(`Deleted water quality measurement ${id}`);
     return true;
   }
-
 }

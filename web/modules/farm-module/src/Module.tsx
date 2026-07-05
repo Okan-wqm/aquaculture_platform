@@ -9,7 +9,6 @@ import './styles.css';
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import SensorDashboardPage from './pages/SensorDashboardPage';
 import MapViewPage from './pages/MapViewPage';
 import SetupPage from './pages/setup/SetupPage';
 import ReportsPage from './pages/reports/ReportsPage';
@@ -25,6 +24,7 @@ import CompanyPage from './pages/company/CompanyPage';
 import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import BatchDetailPage from './pages/production/BatchDetailPage';
+import MaintenancePage from './pages/maintenance/MaintenancePage';
 
 // ============================================================================
 // Sites Module
@@ -58,9 +58,11 @@ const FarmModule: React.FC = () => {
       {/* Site Düzenleme — same cleanup as above */}
       <Route path=":siteId/edit" element={<Navigate to="/sites/setup/sites" replace />} />
 
-      {/* Sensör Dashboard */}
-      <Route path="sensors" element={<SensorDashboardPage />} />
-      <Route path=":siteId/sensors" element={<SensorDashboardPage />} />
+      {/* Sensör izleme sensor-module'ün sorumluluğu — buradaki mock
+          SensorDashboardPage kaldırıldı (FARM-MEDIUM-114). Eski
+          linkler canlı sensör modülüne gitsin. */}
+      <Route path="sensors/*" element={<Navigate to="/sensor" replace />} />
+      <Route path=":siteId/sensors" element={<Navigate to="/sensor" replace />} />
 
       {/* Tanks & Ponds Listesi */}
       <Route path="tanks" element={<TanksPage />} />
@@ -111,6 +113,9 @@ const FarmModule: React.FC = () => {
 
       {/* Harvest Plans - Planning, scheduling, workflow management */}
       <Route path="harvest/*" element={<HarvestPlansPage />} />
+
+      {/* Maintenance - Work orders, schedules, spare parts (FARM-MEDIUM-113) */}
+      <Route path="maintenance/*" element={<MaintenancePage />} />
 
       {/* Company Information - Top-level company page */}
       <Route path="company" element={<CompanyPage />} />

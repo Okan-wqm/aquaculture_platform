@@ -14,7 +14,7 @@
  * farm_* counters were recorded into a private registry that NO controller
  * served — Prometheus could never scrape them.
  */
-import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import { ServiceMetricsModule, ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
@@ -24,13 +24,14 @@ import { FarmMetricsInterceptor } from './farm-metrics.interceptor';
 
 @Global()
 @Module({
-  imports: [ServiceMetricsModule],
+  // TenantExecutionContextModule is imported FIRST so its APP_INTERCEPTOR
+  // (tenant execution context) registers ahead of FarmMetricsInterceptor —
+  // tenant context must wrap the resolver before metrics observe it. The
+  // interceptor registration itself is the SSoT module in backend-common,
+  // shared verbatim by every tenant-scoped service (no inline duplication).
+  imports: [TenantExecutionContextModule, ServiceMetricsModule],
   providers: [
     FarmDomainMetricsService,
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: TenantExecutionContextInterceptor,
-    },
     {
       provide: APP_INTERCEPTOR,
       useClass: FarmMetricsInterceptor,

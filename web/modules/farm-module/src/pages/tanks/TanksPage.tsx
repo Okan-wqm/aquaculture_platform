@@ -4,9 +4,20 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useTanksList, tankStatusColors, tankTypeLabels, waterTypeLabels } from '../../hooks/useTanks';
+import {
+  useTanksList,
+  tankStatusColors,
+  tankTypeLabels,
+  waterTypeLabels,
+} from '../../hooks/useTanks';
 import { isBlockingError } from '../../utils/list-view-state';
-import { TankWithBatch, TankFilterState, initialFilterState, tankToTankWithBatch } from './types';
+import {
+  TankWithBatch,
+  TankFilterState,
+  initialFilterState,
+  tankToTankWithBatch,
+  tankWithBatchToTankBatch,
+} from './types';
 import { tankColumns, cleanerFishColumns } from './columns';
 import { useColumnVisibility } from './useColumnVisibility';
 import { ColumnVisibilityMenu } from './ColumnVisibilityMenu';
@@ -16,11 +27,13 @@ import {
   FishTypeSelector,
   CleanerBatchSelector,
   OperationType,
+  WaterTemperatureModal,
 } from './components';
 
 // Production Modals
 import { MortalityModal } from '../production/components/MortalityModal';
 import { TransferModal } from '../production/components/TransferModal';
+import { GradingModal } from '../production/components/GradingModal';
 import { CullModal } from '../production/components/CullModal';
 import { BatchFormModal } from '../production/components/BatchFormModal';
 
@@ -32,7 +45,6 @@ import { DeployModal } from '../cleaner-fish/components/DeployModal';
 import { RemoveModal } from '../cleaner-fish/components/RemoveModal';
 
 // Types
-import { TankBatch } from '../production/types/batch.types';
 import {
   CleanerFishBatch,
   useCleanerFishBatches,
@@ -69,26 +81,6 @@ const categoryLabels: Record<string, string> = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Convert TankWithBatch to TankBatch format for modals
- */
-function tankWithBatchToTankBatch(tank: TankWithBatch): TankBatch {
-  return {
-    id: tank.batchId || tank.id,
-    tenantId: '',
-    equipmentId: tank.id,
-    tankName: tank.name,
-    tankCode: tank.code,
-    primaryBatchId: tank.batchId || undefined,
-    primaryBatchNumber: tank.batchNumber || undefined,
-    totalQuantity: tank.pieces || 0,
-    avgWeightG: tank.avgWeight || 0,
-    totalBiomassKg: tank.biomass || 0,
-    densityKgM3: tank.density || 0,
-    isMixedBatch: tank.isMixedBatch || false,
-    isOverCapacity: tank.isOverCapacity || false,
-  };
-}
 
 /**
  * Format date for display
@@ -125,7 +117,7 @@ export const TanksPage: React.FC = () => {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'production' | 'cleanerFish'>(
-    tabFromUrl === 'cleanerFish' ? 'cleanerFish' : 'production'
+    tabFromUrl === 'cleanerFish' ? 'cleanerFish' : 'production',
   );
 
   // New Batch modal state
@@ -159,10 +151,17 @@ export const TanksPage: React.FC = () => {
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [selectedDeployBatch, setSelectedDeployBatch] = useState<CleanerFishBatch | null>(null);
-  const [removeBatchInfo, setRemoveBatchInfo] = useState<{ batch: CleanerFishBatch; tankId: string } | null>(null);
+  const [removeBatchInfo, setRemoveBatchInfo] = useState<{
+    batch: CleanerFishBatch;
+    tankId: string;
+  } | null>(null);
 
   // Cleaner Fish Data Hooks
-  const { data: cfBatches, isLoading: cfBatchesLoading, refetch: refetchCfBatches } = useCleanerFishBatches();
+  const {
+    data: cfBatches,
+    isLoading: cfBatchesLoading,
+    refetch: refetchCfBatches,
+  } = useCleanerFishBatches();
   const { data: cfSpecies, isLoading: cfSpeciesLoading } = useCleanerFishSpecies();
 
   // Active cleaner fish batches (for deploy modal)
@@ -171,10 +170,11 @@ export const TanksPage: React.FC = () => {
     return cfBatches.filter((b) => b.currentQuantity > 0 && b.status === 'ACTIVE');
   }, [cfBatches]);
 
-  // Fetch all tanks with batch metrics
-  // Backend defaults to 200 items when no pagination is provided
+  // Fetch ALL tanks with batch metrics — useTanksList pages through the backend
+  // list (100/page) when no pagination is passed, so no container is invisible.
   const { data, isLoading: tanksLoading, error, refetch } = useTanksList({ isActive: true });
-  const isLoading = tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));
+  const isLoading =
+    tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));
 
   // ============================================================================
   // QUICK ACTIONS STATE
@@ -187,6 +187,8 @@ export const TanksPage: React.FC = () => {
   const [showMortalityModal, setShowMortalityModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showCullModal, setShowCullModal] = useState(false);
+  const [showGradingModal, setShowGradingModal] = useState(false);
+  const [showWaterTempModal, setShowWaterTempModal] = useState(false);
 
   // Fish type selection (when tank has both production and cleaner fish)
   const [showFishTypeSelector, setShowFishTypeSelector] = useState(false);
@@ -316,79 +318,123 @@ export const TanksPage: React.FC = () => {
   }, [selectedTankId, selectedTank]);
 
   /**
+   * Handle grading button click (production fish only)
+   */
+  const handleGradingClick = useCallback(() => {
+    if (!selectedTankId || !selectedTank) return;
+
+    if (!selectedTank.batchNumber) {
+      // No production fish to grade
+      return;
+    }
+
+    setOperationFishType('production');
+    setShowGradingModal(true);
+  }, [selectedTankId, selectedTank]);
+
+  /**
+   * Handle record-water-temperature button click.
+   *
+   * Water temperature applies to the tank itself (not a specific batch/fish
+   * type), so unlike mortality/transfer this needs no production-vs-cleaner
+   * disambiguation — it just opens the compact temperature modal for the
+   * selected tank.
+   */
+  const handleWaterTempClick = useCallback(() => {
+    if (!selectedTankId || !selectedTank) return;
+    setShowWaterTempModal(true);
+  }, [selectedTankId, selectedTank]);
+
+  /**
+   * Handle water-temperature save success — close the modal and refetch the
+   * tanks list so the feed-rate columns (feedingRatePercent / dailyFeedKg)
+   * recompute with the newly recorded temperature.
+   */
+  const handleWaterTempSuccess = useCallback(() => {
+    setShowWaterTempModal(false);
+    refetch();
+  }, [refetch]);
+
+  /**
    * Handle fish type selection (when tank has both types)
    */
-  const handleFishTypeSelect = useCallback((type: 'production' | 'cleaner') => {
-    setShowFishTypeSelector(false);
-    setOperationFishType(type);
+  const handleFishTypeSelect = useCallback(
+    (type: 'production' | 'cleaner') => {
+      setShowFishTypeSelector(false);
+      setOperationFishType(type);
 
-    if (type === 'production') {
-      if (pendingOperation === 'mortality') {
-        setShowMortalityModal(true);
-      } else if (pendingOperation === 'transfer') {
-        setShowTransferModal(true);
-      }
-    } else if (type === 'cleaner' && selectedTank) {
-      // Check if multiple cleaner batches
-      if ((selectedTank.cleanerFishDetails?.length || 0) > 1) {
-        setShowCleanerBatchSelector(true);
-      } else if (selectedTank.cleanerFishDetails?.[0]) {
-        const detail = selectedTank.cleanerFishDetails[0];
-        setSelectedCleanerBatch({
-          id: detail.batchId,
-          batchNumber: detail.batchNumber,
-          speciesId: detail.speciesId,
-          initialQuantity: detail.quantity,
-          currentQuantity: detail.quantity,
-          stockedAt: detail.deployedAt,
-          status: 'ACTIVE',
-          isActive: true,
-          createdAt: detail.deployedAt,
-          updatedAt: detail.deployedAt,
-        });
+      if (type === 'production') {
         if (pendingOperation === 'mortality') {
           setShowMortalityModal(true);
         } else if (pendingOperation === 'transfer') {
           setShowTransferModal(true);
         }
+      } else if (type === 'cleaner' && selectedTank) {
+        // Check if multiple cleaner batches
+        if ((selectedTank.cleanerFishDetails?.length || 0) > 1) {
+          setShowCleanerBatchSelector(true);
+        } else if (selectedTank.cleanerFishDetails?.[0]) {
+          const detail = selectedTank.cleanerFishDetails[0];
+          setSelectedCleanerBatch({
+            id: detail.batchId,
+            batchNumber: detail.batchNumber,
+            speciesId: detail.speciesId,
+            initialQuantity: detail.quantity,
+            currentQuantity: detail.quantity,
+            stockedAt: detail.deployedAt,
+            status: 'ACTIVE',
+            isActive: true,
+            createdAt: detail.deployedAt,
+            updatedAt: detail.deployedAt,
+          });
+          if (pendingOperation === 'mortality') {
+            setShowMortalityModal(true);
+          } else if (pendingOperation === 'transfer') {
+            setShowTransferModal(true);
+          }
+        }
       }
-    }
-  }, [pendingOperation, selectedTank]);
+    },
+    [pendingOperation, selectedTank],
+  );
 
   /**
    * Handle cleaner batch selection
    */
-  const handleCleanerBatchSelect = useCallback((batch: {
-    batchId: string;
-    batchNumber: string;
-    speciesId: string;
-    speciesName: string;
-    quantity: number;
-    avgWeightG: number;
-    biomassKg: number;
-    sourceType: 'farmed' | 'wild_caught';
-    deployedAt: string;
-  }) => {
-    setShowCleanerBatchSelector(false);
-    setSelectedCleanerBatch({
-      id: batch.batchId,
-      batchNumber: batch.batchNumber,
-      speciesId: batch.speciesId,
-      initialQuantity: batch.quantity,
-      currentQuantity: batch.quantity,
-      stockedAt: batch.deployedAt,
-      status: 'ACTIVE',
-      isActive: true,
-      createdAt: batch.deployedAt,
-      updatedAt: batch.deployedAt,
-    });
+  const handleCleanerBatchSelect = useCallback(
+    (batch: {
+      batchId: string;
+      batchNumber: string;
+      speciesId: string;
+      speciesName: string;
+      quantity: number;
+      avgWeightG: number;
+      biomassKg: number;
+      sourceType: 'farmed' | 'wild_caught';
+      deployedAt: string;
+    }) => {
+      setShowCleanerBatchSelector(false);
+      setSelectedCleanerBatch({
+        id: batch.batchId,
+        batchNumber: batch.batchNumber,
+        speciesId: batch.speciesId,
+        initialQuantity: batch.quantity,
+        currentQuantity: batch.quantity,
+        stockedAt: batch.deployedAt,
+        status: 'ACTIVE',
+        isActive: true,
+        createdAt: batch.deployedAt,
+        updatedAt: batch.deployedAt,
+      });
 
-    if (pendingOperation === 'mortality') {
-      setShowMortalityModal(true);
-    } else if (pendingOperation === 'transfer') {
-      setShowTransferModal(true);
-    }
-  }, [pendingOperation]);
+      if (pendingOperation === 'mortality') {
+        setShowMortalityModal(true);
+      } else if (pendingOperation === 'transfer') {
+        setShowTransferModal(true);
+      }
+    },
+    [pendingOperation],
+  );
 
   /**
    * Handle operation success - reset state and refetch
@@ -398,6 +444,7 @@ export const TanksPage: React.FC = () => {
     setShowMortalityModal(false);
     setShowTransferModal(false);
     setShowCullModal(false);
+    setShowGradingModal(false);
     setSelectedTankId(null);
     setOperationFishType(null);
     setPendingOperation(null);
@@ -411,6 +458,8 @@ export const TanksPage: React.FC = () => {
     setShowMortalityModal(false);
     setShowTransferModal(false);
     setShowCullModal(false);
+    setShowGradingModal(false);
+    setShowWaterTempModal(false);
     setShowFishTypeSelector(false);
     setShowCleanerBatchSelector(false);
     setOperationFishType(null);
@@ -435,13 +484,16 @@ export const TanksPage: React.FC = () => {
     refetch();
   }, [refetchCfBatches, refetch]);
 
-  const handleRemoveFromTank = useCallback((tankId: string, batchId: string) => {
-    const batch = cfBatches?.find((b) => b.id === batchId) || null;
-    if (batch) {
-      setRemoveBatchInfo({ batch, tankId });
-      setShowRemoveModal(true);
-    }
-  }, [cfBatches]);
+  const handleRemoveFromTank = useCallback(
+    (tankId: string, batchId: string) => {
+      const batch = cfBatches?.find((b) => b.id === batchId) || null;
+      if (batch) {
+        setRemoveBatchInfo({ batch, tankId });
+        setShowRemoveModal(true);
+      }
+    },
+    [cfBatches],
+  );
 
   const handleRemoveSuccess = useCallback(() => {
     setShowRemoveModal(false);
@@ -466,11 +518,11 @@ export const TanksPage: React.FC = () => {
 
       // Category filter (case-insensitive comparison)
       const matchesCategory =
-        filters.category === 'all' || tank.category.toUpperCase() === filters.category.toUpperCase();
+        filters.category === 'all' ||
+        tank.category.toUpperCase() === filters.category.toUpperCase();
 
       // Status filter
-      const matchesStatus =
-        filters.status === 'all' || tank.status === filters.status;
+      const matchesStatus = filters.status === 'all' || tank.status === filters.status;
 
       // Department filter
       const matchesDepartment =
@@ -482,7 +534,9 @@ export const TanksPage: React.FC = () => {
         (filters.hasBatch === 'yes' && tank.batchNumber) ||
         (filters.hasBatch === 'no' && !tank.batchNumber);
 
-      return matchesSearch && matchesCategory && matchesStatus && matchesDepartment && matchesHasBatch;
+      return (
+        matchesSearch && matchesCategory && matchesStatus && matchesDepartment && matchesHasBatch
+      );
     });
   }, [tableData, filters]);
 
@@ -497,20 +551,15 @@ export const TanksPage: React.FC = () => {
   }, [cfIsColumnVisible]);
 
   // Handle filter change
-  const handleFilterChange = useCallback(
-    (key: keyof TankFilterState, value: string) => {
-      setFilters((prev) => ({ ...prev, [key]: value }));
-    },
-    []
-  );
+  const handleFilterChange = useCallback((key: keyof TankFilterState, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   // Render cell value
   const renderCell = useCallback((tank: TankWithBatch, columnKey: string): React.ReactNode => {
     switch (columnKey) {
       case 'name':
-        return (
-          <div className="font-medium text-gray-900">{tank.name}</div>
-        );
+        return <div className="font-medium text-gray-900">{tank.name}</div>;
       case 'code':
         return <span className="text-gray-600 font-mono text-sm">{tank.code}</span>;
       case 'category':
@@ -520,8 +569,8 @@ export const TanksPage: React.FC = () => {
               tank.category === 'pond'
                 ? 'bg-blue-100 text-blue-800'
                 : tank.category === 'cage'
-                ? 'bg-purple-100 text-purple-800'
-                : 'bg-cyan-100 text-cyan-800'
+                  ? 'bg-purple-100 text-purple-800'
+                  : 'bg-cyan-100 text-cyan-800'
             }`}
           >
             {categoryLabels[tank.category] || tank.category}
@@ -551,12 +600,22 @@ export const TanksPage: React.FC = () => {
         return formatNumber(tank.maxBiomass, 0);
       case 'maxDensity':
         return formatNumber(tank.maxDensity, 1);
-      case 'batchNumber':
-        return tank.batchNumber ? (
-          <span className="text-blue-600 font-medium">{tank.batchNumber}</span>
+      case 'batchNumber': {
+        // Combined batch (e.g. "B-1 + B-2") when several batches share the tank;
+        // fall back to the single primary batch number otherwise.
+        const details = tank.batchDetails;
+        const batchLabel =
+          details && details.length > 1
+            ? details.map((d) => d.batchNumber).join(' + ')
+            : tank.batchNumber;
+        return batchLabel ? (
+          <span className="text-blue-600 font-medium" title={batchLabel}>
+            {batchLabel}
+          </span>
         ) : (
           <span className="text-gray-400">-</span>
         );
+      }
       case 'pieces':
         return formatNumber(tank.pieces, 0);
       case 'avgWeight':
@@ -570,8 +629,8 @@ export const TanksPage: React.FC = () => {
               tank.isOverCapacity
                 ? 'text-red-600 font-bold'
                 : tank.density > (tank.maxDensity || 30) * 0.9
-                ? 'text-yellow-600'
-                : 'text-gray-900'
+                  ? 'text-yellow-600'
+                  : 'text-gray-900'
             }`}
           >
             {formatNumber(tank.density, 1)}
@@ -586,8 +645,8 @@ export const TanksPage: React.FC = () => {
               tank.survivalRate >= 95
                 ? 'text-green-600'
                 : tank.survivalRate >= 90
-                ? 'text-yellow-600'
-                : 'text-red-600'
+                  ? 'text-yellow-600'
+                  : 'text-red-600'
             }`}
           >
             {formatNumber(tank.survivalRate, 1)}%
@@ -602,8 +661,8 @@ export const TanksPage: React.FC = () => {
               tank.mortalityRate <= 1
                 ? 'text-green-600'
                 : tank.mortalityRate <= 5
-                ? 'text-yellow-600'
-                : 'text-red-600'
+                  ? 'text-yellow-600'
+                  : 'text-red-600'
             }`}
           >
             {formatNumber(tank.mortalityRate, 2)}%
@@ -618,8 +677,8 @@ export const TanksPage: React.FC = () => {
               tank.fcr <= 1.2
                 ? 'text-green-600'
                 : tank.fcr <= 1.5
-                ? 'text-yellow-600'
-                : 'text-red-600'
+                  ? 'text-yellow-600'
+                  : 'text-red-600'
             }`}
           >
             {formatNumber(tank.fcr, 2)}
@@ -640,8 +699,8 @@ export const TanksPage: React.FC = () => {
                   tank.capacityUsedPercent > 100
                     ? 'bg-red-500'
                     : tank.capacityUsedPercent > 80
-                    ? 'bg-yellow-500'
-                    : 'bg-green-500'
+                      ? 'bg-yellow-500'
+                      : 'bg-green-500'
                 }`}
                 style={{ width: `${Math.min(tank.capacityUsedPercent, 100)}%` }}
               />
@@ -689,149 +748,155 @@ export const TanksPage: React.FC = () => {
   }, []);
 
   // Render cleaner fish cell value for tank-level columns
-  const renderCleanerFishTankCell = useCallback((tank: TankWithBatch, columnKey: string): React.ReactNode => {
-    switch (columnKey) {
-      case 'name':
-        return (
-          <div className="font-medium text-gray-900">{tank.name}</div>
-        );
-      case 'code':
-        return <span className="text-gray-600 font-mono text-sm">{tank.code}</span>;
-      case 'category':
-        return (
-          <span
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
-              tank.category === 'pond'
-                ? 'bg-blue-100 text-blue-800'
-                : tank.category === 'cage'
-                ? 'bg-purple-100 text-purple-800'
-                : 'bg-cyan-100 text-cyan-800'
-            }`}
-          >
-            {categoryLabels[tank.category] || tank.category}
-          </span>
-        );
-      case 'status':
-        return (
-          <span
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
-              statusColors[tank.status] || 'bg-gray-100 text-gray-800'
-            }`}
-          >
-            {tank.status}
-          </span>
-        );
-      case 'departmentName':
-        return tank.departmentName || '-';
-      case 'volume':
-        return formatNumber(tank.volume, 1);
-      default:
-        return '-';
-    }
-  }, []);
-
-  // Render cleaner fish cell value for batch-level columns (single batch)
-  const renderCleanerFishBatchCell = useCallback((
-    tank: TankWithBatch,
-    columnKey: string,
-    batchIndex: number
-  ): React.ReactNode => {
-    const cf = tank.cleanerFishDetails?.[batchIndex];
-    if (!cf) return '-';
-
-    switch (columnKey) {
-      case 'cfSpecies':
-        return <span className="text-sm">{cf.speciesName}</span>;
-
-      case 'cfQuantity':
-        return <span className="text-sm">{formatNumber(cf.quantity, 0)}</span>;
-
-      case 'cfAvgWeight':
-        return <span className="text-sm">{formatNumber(cf.avgWeightG, 1)}</span>;
-
-      case 'cfBiomass':
-        return <span className="text-sm">{formatNumber(cf.biomassKg, 2)}</span>;
-
-      case 'cfSourceType':
-        return (
-          <span className={`px-1.5 py-0.5 rounded text-xs ${
-            cf.sourceType === 'farmed'
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-amber-100 text-amber-700'
-          }`}>
-            {cf.sourceType === 'farmed' ? 'Farmed' : 'Wild'}
-          </span>
-        );
-
-      case 'cfDeployedAt':
-        return <span className="text-sm">{formatDate(new Date(cf.deployedAt))}</span>;
-
-      case 'cfBatchNumber':
-        return <span className="text-sm font-mono">{cf.batchNumber}</span>;
-
-      case 'cfBatchCount':
-        // Only show on first row
-        if (batchIndex === 0) {
-          return formatNumber(tank.cleanerFishDetails?.length || 0, 0);
-        }
-        return null;
-
-      // Mortality tracking columns
-      case 'cfInitialQuantity':
-        return <span className="text-sm">{formatNumber(cf.initialQuantity, 0)}</span>;
-
-      case 'cfTotalMortality':
-        return cf.totalMortality ? (
-          <span className="text-sm text-red-600 font-medium">
-            {formatNumber(cf.totalMortality, 0)}
-          </span>
-        ) : (
-          <span className="text-sm text-gray-400">0</span>
-        );
-
-      case 'cfMortalityRate':
-        return cf.mortalityRate !== undefined ? (
-          <span className={`text-sm ${
-            cf.mortalityRate <= 1
-              ? 'text-green-600'
-              : cf.mortalityRate <= 5
-              ? 'text-yellow-600'
-              : 'text-red-600'
-          }`}>
-            {formatNumber(cf.mortalityRate, 2)}%
-          </span>
-        ) : (
-          <span className="text-sm text-gray-400">0%</span>
-        );
-
-      case 'cfLastMortalityAt':
-        return cf.lastMortalityAt ? (
-          <span className="text-sm">{formatDate(new Date(cf.lastMortalityAt))}</span>
-        ) : (
-          <span className="text-sm text-gray-400">-</span>
-        );
-
-      case 'cfSurvivalRate':
-        if (cf.initialQuantity && cf.initialQuantity > 0) {
-          const survivalRate = ((cf.quantity / cf.initialQuantity) * 100);
+  const renderCleanerFishTankCell = useCallback(
+    (tank: TankWithBatch, columnKey: string): React.ReactNode => {
+      switch (columnKey) {
+        case 'name':
+          return <div className="font-medium text-gray-900">{tank.name}</div>;
+        case 'code':
+          return <span className="text-gray-600 font-mono text-sm">{tank.code}</span>;
+        case 'category':
           return (
-            <span className={`text-sm ${
-              survivalRate >= 95
-                ? 'text-green-600'
-                : survivalRate >= 90
-                ? 'text-yellow-600'
-                : 'text-red-600'
-            }`}>
-              {formatNumber(survivalRate, 1)}%
+            <span
+              className={`px-2 py-1 rounded-full text-xs font-medium ${
+                tank.category === 'pond'
+                  ? 'bg-blue-100 text-blue-800'
+                  : tank.category === 'cage'
+                    ? 'bg-purple-100 text-purple-800'
+                    : 'bg-cyan-100 text-cyan-800'
+              }`}
+            >
+              {categoryLabels[tank.category] || tank.category}
             </span>
           );
-        }
-        return <span className="text-sm text-gray-400">-</span>;
+        case 'status':
+          return (
+            <span
+              className={`px-2 py-1 rounded-full text-xs font-medium ${
+                statusColors[tank.status] || 'bg-gray-100 text-gray-800'
+              }`}
+            >
+              {tank.status}
+            </span>
+          );
+        case 'departmentName':
+          return tank.departmentName || '-';
+        case 'volume':
+          return formatNumber(tank.volume, 1);
+        default:
+          return '-';
+      }
+    },
+    [],
+  );
 
-      default:
-        return '-';
-    }
-  }, []);
+  // Render cleaner fish cell value for batch-level columns (single batch)
+  const renderCleanerFishBatchCell = useCallback(
+    (tank: TankWithBatch, columnKey: string, batchIndex: number): React.ReactNode => {
+      const cf = tank.cleanerFishDetails?.[batchIndex];
+      if (!cf) return '-';
+
+      switch (columnKey) {
+        case 'cfSpecies':
+          return <span className="text-sm">{cf.speciesName}</span>;
+
+        case 'cfQuantity':
+          return <span className="text-sm">{formatNumber(cf.quantity, 0)}</span>;
+
+        case 'cfAvgWeight':
+          return <span className="text-sm">{formatNumber(cf.avgWeightG, 1)}</span>;
+
+        case 'cfBiomass':
+          return <span className="text-sm">{formatNumber(cf.biomassKg, 2)}</span>;
+
+        case 'cfSourceType':
+          return (
+            <span
+              className={`px-1.5 py-0.5 rounded text-xs ${
+                cf.sourceType === 'farmed'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-amber-100 text-amber-700'
+              }`}
+            >
+              {cf.sourceType === 'farmed' ? 'Farmed' : 'Wild'}
+            </span>
+          );
+
+        case 'cfDeployedAt':
+          return <span className="text-sm">{formatDate(new Date(cf.deployedAt))}</span>;
+
+        case 'cfBatchNumber':
+          return <span className="text-sm font-mono">{cf.batchNumber}</span>;
+
+        case 'cfBatchCount':
+          // Only show on first row
+          if (batchIndex === 0) {
+            return formatNumber(tank.cleanerFishDetails?.length || 0, 0);
+          }
+          return null;
+
+        // Mortality tracking columns
+        case 'cfInitialQuantity':
+          return <span className="text-sm">{formatNumber(cf.initialQuantity, 0)}</span>;
+
+        case 'cfTotalMortality':
+          return cf.totalMortality ? (
+            <span className="text-sm text-red-600 font-medium">
+              {formatNumber(cf.totalMortality, 0)}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">0</span>
+          );
+
+        case 'cfMortalityRate':
+          return cf.mortalityRate !== undefined ? (
+            <span
+              className={`text-sm ${
+                cf.mortalityRate <= 1
+                  ? 'text-green-600'
+                  : cf.mortalityRate <= 5
+                    ? 'text-yellow-600'
+                    : 'text-red-600'
+              }`}
+            >
+              {formatNumber(cf.mortalityRate, 2)}%
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">0%</span>
+          );
+
+        case 'cfLastMortalityAt':
+          return cf.lastMortalityAt ? (
+            <span className="text-sm">{formatDate(new Date(cf.lastMortalityAt))}</span>
+          ) : (
+            <span className="text-sm text-gray-400">-</span>
+          );
+
+        case 'cfSurvivalRate':
+          if (cf.initialQuantity && cf.initialQuantity > 0) {
+            const survivalRate = (cf.quantity / cf.initialQuantity) * 100;
+            return (
+              <span
+                className={`text-sm ${
+                  survivalRate >= 95
+                    ? 'text-green-600'
+                    : survivalRate >= 90
+                      ? 'text-yellow-600'
+                      : 'text-red-600'
+                }`}
+              >
+                {formatNumber(survivalRate, 1)}%
+              </span>
+            );
+          }
+          return <span className="text-sm text-gray-400">-</span>;
+
+        default:
+          return '-';
+      }
+    },
+    [],
+  );
 
   // Check if column is tank-level (not cleaner fish specific)
   const isTankLevelColumn = useCallback((columnKey: string): boolean => {
@@ -930,7 +995,12 @@ export const TanksPage: React.FC = () => {
             title="Record Mortality"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
             </svg>
           </button>
 
@@ -941,7 +1011,12 @@ export const TanksPage: React.FC = () => {
             title="Transfer Fish"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+              />
             </svg>
           </button>
 
@@ -952,7 +1027,45 @@ export const TanksPage: React.FC = () => {
             title="Record Cull"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"
+              />
+            </svg>
+          </button>
+
+          <button
+            onClick={handleGradingClick}
+            disabled={!selectedTankId || !selectedTank?.batchNumber}
+            className="p-1.5 text-purple-600 hover:bg-purple-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Grade Fish"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 4h18M7 8h10M10 12h4m-6 4h8m-5 4h2"
+              />
+            </svg>
+          </button>
+
+          <button
+            onClick={handleWaterTempClick}
+            disabled={!selectedTankId}
+            className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Record Water Temperature"
+          >
+            {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"
+              />
             </svg>
           </button>
 
@@ -964,7 +1077,12 @@ export const TanksPage: React.FC = () => {
             title="New Batch"
           >
             <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
             </svg>
             New Batch
           </button>
@@ -1087,7 +1205,7 @@ export const TanksPage: React.FC = () => {
         >
           Production Batches
           <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
-            {filteredData.filter(t => t.batchNumber).length}
+            {filteredData.filter((t) => t.batchNumber).length}
           </span>
         </button>
         <button
@@ -1100,7 +1218,7 @@ export const TanksPage: React.FC = () => {
         >
           Cleaner Fish
           <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
-            {filteredData.filter(t => t.hasCleanerFish).length}
+            {filteredData.filter((t) => t.hasCleanerFish).length}
           </span>
         </button>
       </div>
@@ -1119,8 +1237,8 @@ export const TanksPage: React.FC = () => {
                         col.align === 'right'
                           ? 'text-right'
                           : col.align === 'center'
-                          ? 'text-center'
-                          : 'text-left'
+                            ? 'text-center'
+                            : 'text-left'
                       }`}
                     >
                       {col.header}
@@ -1148,8 +1266,8 @@ export const TanksPage: React.FC = () => {
                             col.align === 'right'
                               ? 'text-right'
                               : col.align === 'center'
-                              ? 'text-center'
-                              : 'text-left'
+                                ? 'text-center'
+                                : 'text-left'
                           }`}
                         >
                           {renderCell(tank, col.key)}
@@ -1167,139 +1285,147 @@ export const TanksPage: React.FC = () => {
       {/* Data Table - Cleaner Fish Tab with Rowspan */}
       {activeTab === 'cleanerFish' && (
         <>
-        {/* Cleaner Fish Action Bar */}
-        <div className="flex items-center justify-between mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-green-800">
-              {activeCfBatches.length} active batch{activeCfBatches.length !== 1 ? 'es' : ''}
-              {' · '}
-              {filteredData.filter(t => t.hasCleanerFish).length} tanks with cleaner fish
-            </span>
+          {/* Cleaner Fish Action Bar */}
+          <div className="flex items-center justify-between mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-medium text-green-800">
+                {activeCfBatches.length} active batch{activeCfBatches.length !== 1 ? 'es' : ''}
+                {' · '}
+                {filteredData.filter((t) => t.hasCleanerFish).length} tanks with cleaner fish
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowCreateBatchModal(true)}
+                className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center gap-1.5"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+                Create Batch
+              </button>
+              <button
+                onClick={() => setShowDeployModal(true)}
+                disabled={activeCfBatches.length === 0}
+                className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 8l4 4m0 0l-4 4m4-4H3"
+                  />
+                </svg>
+                Deploy to Tank
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowCreateBatchModal(true)}
-              className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Create Batch
-            </button>
-            <button
-              onClick={() => setShowDeployModal(true)}
-              disabled={activeCfBatches.length === 0}
-              className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-              </svg>
-              Deploy to Tank
-            </button>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {activeCleanerFishColumns.map((col) => (
-                    <th
-                      key={col.key}
-                      className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                        col.align === 'right'
-                          ? 'text-right'
-                          : col.align === 'center'
-                          ? 'text-center'
-                          : 'text-left'
-                      }`}
-                    >
-                      {col.header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredData.length === 0 ? (
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
                   <tr>
-                    <td
-                      colSpan={activeCleanerFishColumns.length}
-                      className="px-4 py-12 text-center text-gray-500"
-                    >
-                      No tanks or ponds found
-                    </td>
+                    {activeCleanerFishColumns.map((col) => (
+                      <th
+                        key={col.key}
+                        className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${
+                          col.align === 'right'
+                            ? 'text-right'
+                            : col.align === 'center'
+                              ? 'text-center'
+                              : 'text-left'
+                        }`}
+                      >
+                        {col.header}
+                      </th>
+                    ))}
                   </tr>
-                ) : (
-                  filteredData.flatMap((tank) => {
-                    // Determine number of rows for this tank
-                    const batchCount = tank.cleanerFishDetails?.length || 0;
-                    const rowCount = Math.max(1, batchCount);
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredData.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={activeCleanerFishColumns.length}
+                        className="px-4 py-12 text-center text-gray-500"
+                      >
+                        No tanks or ponds found
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredData.flatMap((tank) => {
+                      // Determine number of rows for this tank
+                      const batchCount = tank.cleanerFishDetails?.length || 0;
+                      const rowCount = Math.max(1, batchCount);
 
-                    // Generate rows for each cleaner fish batch (or 1 row if none)
-                    return Array.from({ length: rowCount }, (_, batchIdx) => {
-                      const isFirstRow = batchIdx === 0;
-                      const rowKey = `${tank.id}-${batchIdx}`;
+                      // Generate rows for each cleaner fish batch (or 1 row if none)
+                      return Array.from({ length: rowCount }, (_, batchIdx) => {
+                        const isFirstRow = batchIdx === 0;
+                        const rowKey = `${tank.id}-${batchIdx}`;
 
-                      return (
-                        <tr
-                          key={rowKey}
-                          className={`hover:bg-gray-50 ${
-                            !isFirstRow ? 'border-t border-gray-100' : ''
-                          } ${
-                            batchIdx === rowCount - 1 ? 'border-b border-gray-200' : ''
-                          }`}
-                        >
-                          {activeCleanerFishColumns.map((col) => {
-                            // Tank-level columns: only render on first row with rowSpan
-                            if (isTankLevelColumn(col.key)) {
-                              if (!isFirstRow) {
-                                // Skip - already rendered with rowSpan
-                                return null;
+                        return (
+                          <tr
+                            key={rowKey}
+                            className={`hover:bg-gray-50 ${
+                              !isFirstRow ? 'border-t border-gray-100' : ''
+                            } ${batchIdx === rowCount - 1 ? 'border-b border-gray-200' : ''}`}
+                          >
+                            {activeCleanerFishColumns.map((col) => {
+                              // Tank-level columns: only render on first row with rowSpan
+                              if (isTankLevelColumn(col.key)) {
+                                if (!isFirstRow) {
+                                  // Skip - already rendered with rowSpan
+                                  return null;
+                                }
+                                return (
+                                  <td
+                                    key={col.key}
+                                    rowSpan={rowCount > 1 ? rowCount : undefined}
+                                    className={`px-4 py-3 whitespace-nowrap text-sm align-top ${
+                                      col.align === 'right'
+                                        ? 'text-right'
+                                        : col.align === 'center'
+                                          ? 'text-center'
+                                          : 'text-left'
+                                    } ${rowCount > 1 ? 'bg-gray-50/50 border-r border-gray-100' : ''}`}
+                                  >
+                                    {renderCleanerFishTankCell(tank, col.key)}
+                                  </td>
+                                );
                               }
+
+                              // Batch-level columns: render for each batch
                               return (
                                 <td
                                   key={col.key}
-                                  rowSpan={rowCount > 1 ? rowCount : undefined}
-                                  className={`px-4 py-3 whitespace-nowrap text-sm align-top ${
+                                  className={`px-4 py-2 whitespace-nowrap text-sm ${
                                     col.align === 'right'
                                       ? 'text-right'
                                       : col.align === 'center'
-                                      ? 'text-center'
-                                      : 'text-left'
-                                  } ${rowCount > 1 ? 'bg-gray-50/50 border-r border-gray-100' : ''}`}
+                                        ? 'text-center'
+                                        : 'text-left'
+                                  }`}
                                 >
-                                  {renderCleanerFishTankCell(tank, col.key)}
+                                  {batchCount === 0
+                                    ? '-'
+                                    : renderCleanerFishBatchCell(tank, col.key, batchIdx)}
                                 </td>
                               );
-                            }
-
-                            // Batch-level columns: render for each batch
-                            return (
-                              <td
-                                key={col.key}
-                                className={`px-4 py-2 whitespace-nowrap text-sm ${
-                                  col.align === 'right'
-                                    ? 'text-right'
-                                    : col.align === 'center'
-                                    ? 'text-center'
-                                    : 'text-left'
-                                }`}
-                              >
-                                {batchCount === 0
-                                  ? '-'
-                                  : renderCleanerFishBatchCell(tank, col.key, batchIdx)}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    });
-                  })
-                )}
-              </tbody>
-            </table>
+                            })}
+                          </tr>
+                        );
+                      });
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
         </>
       )}
 
@@ -1308,9 +1434,13 @@ export const TanksPage: React.FC = () => {
         Showing {filteredData.length} of {tableData.length} tanks/ponds
         {' | '}
         {activeTab === 'production' ? (
-          <>{visibleColumns.size} of {tankColumns.length} columns visible</>
+          <>
+            {visibleColumns.size} of {tankColumns.length} columns visible
+          </>
         ) : activeTab === 'cleanerFish' ? (
-          <>{cfVisibleColumns.size} of {cleanerFishColumns.length} columns visible</>
+          <>
+            {cfVisibleColumns.size} of {cleanerFishColumns.length} columns visible
+          </>
         ) : null}
       </div>
 
@@ -1368,31 +1498,57 @@ export const TanksPage: React.FC = () => {
         />
       )}
 
-      {/* Cleaner Fish Modals */}
-      {showMortalityModal && operationFishType === 'cleaner' && selectedCleanerBatch && selectedTankId && (
-        <CleanerMortalityModal
-          isOpen={showMortalityModal}
+      {showGradingModal && operationFishType === 'production' && selectedTank && (
+        <GradingModal
+          isOpen={showGradingModal}
           onClose={handleCloseModals}
-          batch={selectedCleanerBatch}
-          tankId={selectedTankId}
+          tank={tankWithBatchToTankBatch(selectedTank)}
           onSuccess={handleOperationSuccess}
         />
       )}
 
-      {showTransferModal && operationFishType === 'cleaner' && selectedCleanerBatch && selectedTankId && (
-        <CleanerTransferModal
-          isOpen={showTransferModal}
-          onClose={handleCloseModals}
-          batch={selectedCleanerBatch}
-          sourceTankId={selectedTankId}
-          tanks={tableData.map((t) => ({
-            id: t.id,
-            name: t.name,
-            code: t.code,
-          }))}
-          onSuccess={handleOperationSuccess}
+      {/* Record Water Temperature (tank-level — no batch/fish-type needed) */}
+      {showWaterTempModal && selectedTank && (
+        <WaterTemperatureModal
+          isOpen={showWaterTempModal}
+          onClose={() => setShowWaterTempModal(false)}
+          tankId={selectedTank.id}
+          tankName={selectedTank.name}
+          onSuccess={handleWaterTempSuccess}
         />
       )}
+
+      {/* Cleaner Fish Modals */}
+      {showMortalityModal &&
+        operationFishType === 'cleaner' &&
+        selectedCleanerBatch &&
+        selectedTankId && (
+          <CleanerMortalityModal
+            isOpen={showMortalityModal}
+            onClose={handleCloseModals}
+            batch={selectedCleanerBatch}
+            tankId={selectedTankId}
+            onSuccess={handleOperationSuccess}
+          />
+        )}
+
+      {showTransferModal &&
+        operationFishType === 'cleaner' &&
+        selectedCleanerBatch &&
+        selectedTankId && (
+          <CleanerTransferModal
+            isOpen={showTransferModal}
+            onClose={handleCloseModals}
+            batch={selectedCleanerBatch}
+            sourceTankId={selectedTankId}
+            tanks={tableData.map((t) => ({
+              id: t.id,
+              name: t.name,
+              code: t.code,
+            }))}
+            onSuccess={handleOperationSuccess}
+          />
+        )}
 
       {/* Cleaner Fish Batch Management Modals */}
       <CreateBatchModal

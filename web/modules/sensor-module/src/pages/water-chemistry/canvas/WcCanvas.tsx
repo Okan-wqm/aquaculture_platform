@@ -46,12 +46,18 @@ const WcCanvas = ({
     const sync = (): void => {
       g.engine.nodes.forEach((n: GridStackNode) => {
         const id = (n.el as HTMLElement | undefined)?.getAttribute('data-card-id');
-        if (id) onChangeRef.current(id, { layout: { x: n.x ?? 0, y: n.y ?? 0, w: n.w ?? 4, h: n.h ?? 5 } });
+        // Persist only fully-resolved geometry — skip a mid-transition node with an
+        // undefined coord so a stale read never collapses every card to x:0.
+        if (id && n.x != null && n.y != null && n.w != null && n.h != null) {
+          onChangeRef.current(id, { layout: { x: n.x, y: n.y, w: n.w, h: n.h } });
+        }
       });
     };
-    g.on('dragstop resizestop', sync);
+    // `change` is GridStack's canonical geometry event (drag + resize + programmatic
+    // moves) — persist on all of them so the layout survives reload.
+    g.on('change', sync);
     return () => {
-      g.off('dragstop resizestop');
+      g.off('change');
       g.destroy(false);
       grid.current = null;
       known.current.clear();

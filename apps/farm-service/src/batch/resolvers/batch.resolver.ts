@@ -6,7 +6,13 @@
  *
  * @module Batch/Resolvers
  */
-import { Tenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import {
+  Tenant,
+  CurrentUser,
+  Roles,
+  Role,
+  RequiresMobileFeature,
+} from '@aquaculture/backend-common/decorators';
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
@@ -36,6 +42,7 @@ import { CreateBatchCommand, CreateBatchPayload } from '../commands/create-batch
 import { RecordCullCommand, CullReason } from '../commands/record-cull.command';
 import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
+import { RecordGradingCommand } from '../commands/record-grading.command';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { UpdateBatchCommand } from '../commands/update-batch.command';
 import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
@@ -53,6 +60,7 @@ import {
   BatchPerformanceResponse,
   BatchHistoryEntryResponse,
   AvailableTankResponse,
+  RecordGradingInput,
 } from '../dto/batch-resolver.dto';
 import { CreateBatchInput as CreateBatchInputDTO } from '../dto/create-batch.dto';
 import {
@@ -65,6 +73,8 @@ import { BatchLocation } from '../entities/batch-location.entity';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { GenerateBatchNumberQuery } from '../queries/generate-batch-number.query';
 import { GetBatchHistoryQuery, BatchHistoryEventType } from '../queries/get-batch-history.query';
+import { GetBatchTraceabilityQuery } from '../queries/get-batch-traceability.query';
+import { BatchTraceabilityResponse } from '../dto/batch-traceability.response';
 import { GetBatchPerformanceQuery } from '../queries/get-batch-performance.query';
 import { GetBatchQuery } from '../queries/get-batch.query';
 import { ListAvailableTanksQuery } from '../queries/list-available-tanks.query';
@@ -215,7 +225,8 @@ export class BatchResolver {
   async getBatchHistory(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
-    @Args('eventTypes', { type: () => [BatchHistoryEventType], nullable: true }) eventTypes?: BatchHistoryEventType[],
+    @Args('eventTypes', { type: () => [BatchHistoryEventType], nullable: true })
+    eventTypes?: BatchHistoryEventType[],
     @Args('fromDate', { nullable: true }) fromDate?: Date,
     @Args('toDate', { nullable: true }) toDate?: Date,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 50 }) limit?: number,
@@ -224,6 +235,21 @@ export class BatchResolver {
     return this.queryBus.execute(
       new GetBatchHistoryQuery(tenantId, id, eventTypes, fromDate, toDate, limit),
     );
+  }
+
+  /**
+   * Full lifecycle traceability report for one batch (Phase 6): residency
+   * intervals + operation timeline + per-feed consumption + water temperature
+   * per residency. Read-only composition over the existing SSoTs.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => BatchTraceabilityResponse, { name: 'batchTraceability' })
+  async getBatchTraceability(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<BatchTraceabilityResponse> {
+    this.logger.debug(`Getting batch traceability report: ${id}`);
+    return this.queryBus.execute(new GetBatchTraceabilityQuery(tenantId, id));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -242,9 +268,7 @@ export class BatchResolver {
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => String, { name: 'generateBatchNumber' })
-  async generateBatchNumber(
-    @Tenant() tenantId: string,
-  ): Promise<string> {
+  async generateBatchNumber(@Tenant() tenantId: string): Promise<string> {
     this.logger.debug(`Generating batch number for tenant: ${tenantId}`);
     return this.queryBus.execute(new GenerateBatchNumberQuery(tenantId));
   }
@@ -268,28 +292,31 @@ export class BatchResolver {
       description: input.description,
       speciesId: input.speciesId,
       strain: input.strain,
+      protocolId: input.protocolId,
       inputType: input.inputType,
       initialQuantity: input.initialQuantity,
       initialAvgWeightG: input.initialWeight.avgWeight,
       stockedAt: new Date(input.stockedAt),
-      expectedHarvestDate: input.expectedHarvestDate ? new Date(input.expectedHarvestDate) : undefined,
+      expectedHarvestDate: input.expectedHarvestDate
+        ? new Date(input.expectedHarvestDate)
+        : undefined,
       targetFCR: input.targetFCR,
       supplierId: input.supplierId,
       supplierBatchNumber: input.supplierBatchNumber,
       purchaseCost: input.purchaseCost,
       currency: input.currency,
       arrivalMethod: input.arrivalMethod,
-      healthCertificates: input.healthCertificates?.map(doc => ({
+      healthCertificates: input.healthCertificates?.map((doc) => ({
         ...doc,
         issueDate: doc.issueDate,
         expiryDate: doc.expiryDate,
       })),
-      importDocuments: input.importDocuments?.map(doc => ({
+      importDocuments: input.importDocuments?.map((doc) => ({
         ...doc,
         issueDate: doc.issueDate,
         expiryDate: doc.expiryDate,
       })),
-      initialLocations: input.initialLocations?.map(loc => ({
+      initialLocations: input.initialLocations?.map((loc) => ({
         locationType: loc.locationType,
         tankId: loc.tankId,
         pondId: loc.pondId,
@@ -300,9 +327,7 @@ export class BatchResolver {
       notes: input.notes,
     };
 
-    return this.commandBus.execute(
-      new CreateBatchCommand(tenantId, payload, user.sub),
-    );
+    return this.commandBus.execute(new CreateBatchCommand(tenantId, payload, user.sub));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -313,9 +338,7 @@ export class BatchResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Updating batch: ${input.id}`);
-    return this.commandBus.execute(
-      new UpdateBatchCommand(tenantId, input.id, input, user.sub),
-    );
+    return this.commandBus.execute(new UpdateBatchCommand(tenantId, input.id, input, user.sub));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -446,7 +469,9 @@ export class BatchResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
-    this.logger.log(`Transferring batch ${input.batchId} from ${input.sourceTankId} to ${input.destinationTankId}`);
+    this.logger.log(
+      `Transferring batch ${input.batchId} from ${input.sourceTankId} to ${input.destinationTankId}`,
+    );
     const {
       batchId,
       clientCommandId: _clientCommandId,
@@ -467,6 +492,47 @@ export class BatchResolver {
         user.roles,
         user.assignedSiteIds ?? [],
         mobileCommandEnvelopeFromInput(input),
+      ),
+    );
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  // FARM-MEDIUM-117: grading is a transfer-class field operation; each output
+  // movement carries its own idempotency envelope and runs through the
+  // TransferBatchCommand SSoT with reason 'grading'.
+  @RequiresMobileFeature('transfer')
+  @Mutation(() => Batch)
+  async recordGrading(
+    @Args('input') input: RecordGradingInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<Batch> {
+    this.logger.log(
+      `Grading batch ${input.batchId} from tank ${input.sourceTankId} into ${input.outputs.length} outputs`,
+    );
+    return this.commandBus.execute(
+      new RecordGradingCommand(
+        tenantId,
+        input.batchId,
+        {
+          sourceTankId: input.sourceTankId,
+          gradedAt: input.gradedAt,
+          notes: input.notes,
+          outputs: input.outputs.map((o) => ({
+            destinationTankId: o.destinationTankId,
+            quantity: o.quantity,
+            avgWeightG: o.avgWeightG,
+            sizeClass: o.sizeClass,
+            clientCommandId: o.clientCommandId,
+            payloadHash: o.payloadHash,
+          })),
+          deviceId: input.deviceId,
+          clientCreatedAt: input.clientCreatedAt,
+          schemaVersion: input.schemaVersion,
+        },
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
       ),
     );
   }

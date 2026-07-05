@@ -1,26 +1,11 @@
 {
-  "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate — wire or delete the operation instead.",
-  "generated_against": "origin/main @ #655 (hr dead-contract removals)",
-  "count": 80,
+  "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate \u2014 wire or delete the operation instead.",
+  "generated_against": "origin/main @ #655 (hr dead-contract removals) \u2014 farm feeding-program dead ops deleted under FARM-MEDIUM-116",
+  "count": 55,
   "entries": [
-    {
-      "id": "ACTIVATE_FEEDING_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
     {
       "id": "ACTIVATE_SENSOR",
       "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "ACTIVE_FEEDING_PROGRAMS_QUERY",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.queries.ts",
-      "kind": "query"
-    },
-    {
-      "id": "ADD_FEED_ASSIGNMENT",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
       "kind": "mutation"
     },
     {
@@ -34,16 +19,6 @@
       "kind": "mutation"
     },
     {
-      "id": "ADD_TANK_TO_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "ADD_TANKS_TO_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "ALARM_COUNT_BY_SEVERITY_QUERY",
       "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
       "kind": "query"
@@ -52,21 +27,6 @@
       "id": "APPLY_PROTOCOL_DEFAULTS",
       "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
       "kind": "mutation"
-    },
-    {
-      "id": "ASSIGN_TEMPERATURE_SENSOR",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "BIOMASS_REPORT_QUERY",
-      "file": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "BIOMASS_REPORTS_QUERY",
-      "file": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
-      "kind": "query"
     },
     {
       "id": "BULK_CREATE_REVIEWS",
@@ -79,23 +39,8 @@
       "kind": "mutation"
     },
     {
-      "id": "CANCEL_FEEDING_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "CARRY_OVER_LEAVE_BALANCES",
       "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "CLONE_FEEDING_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "COMPLETE_FEEDING_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
       "kind": "mutation"
     },
     {
@@ -127,16 +72,6 @@
       "id": "EDGE_DEVICE_IO_TAGS_QUERY",
       "file": "web/modules/sensor-module/src/graphql/device-tags.queries.ts",
       "kind": "query"
-    },
-    {
-      "id": "FEEDING_PROGRAMS_QUERY",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.queries.ts",
-      "kind": "query"
-    },
-    {
-      "id": "GENERATE_DAILY_PLAN",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
     },
     {
       "id": "GET_ATTENDANCE_RECORD",
@@ -249,11 +184,6 @@
       "kind": "query"
     },
     {
-      "id": "PAUSE_FEEDING_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "PLC_CONNECTIONS_BY_SITE_QUERY",
       "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
       "kind": "query"
@@ -264,24 +194,9 @@
       "kind": "mutation"
     },
     {
-      "id": "REACTIVATE_TANK_IN_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "RECALCULATE_DAILY_PLAN",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "RECENT_PLC_ALARMS_QUERY",
       "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
       "kind": "query"
-    },
-    {
-      "id": "RECORD_BULK_FEEDING",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
     },
     {
       "id": "REGISTER_PARENT_WITH_CHILDREN",
@@ -294,23 +209,8 @@
       "kind": "mutation"
     },
     {
-      "id": "REMOVE_FEED_ASSIGNMENT",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "REMOVE_TANK_FROM_PROGRAM",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "REOPEN_REVIEW",
       "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "SKIP_DAILY_FEEDING",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
       "kind": "mutation"
     },
     {
@@ -329,16 +229,6 @@
       "kind": "mutation"
     },
     {
-      "id": "TODAYS_FEEDING_PLAN_QUERY",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.queries.ts",
-      "kind": "query"
-    },
-    {
-      "id": "TRANSITION_TANK_FEED",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "UPDATE_CERTIFICATION_TYPE",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "kind": "mutation"
@@ -354,16 +244,6 @@
       "kind": "mutation"
     },
     {
-      "id": "UPDATE_FCR_TABLE",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "UPDATE_FEED_ASSIGNMENT",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "UPDATE_KEY_RESULT",
       "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
       "kind": "mutation"
@@ -371,11 +251,6 @@
     {
       "id": "UPDATE_LEAVE_TYPE",
       "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "UPDATE_PROGRAM_SETTINGS",
-      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
       "kind": "mutation"
     },
     {

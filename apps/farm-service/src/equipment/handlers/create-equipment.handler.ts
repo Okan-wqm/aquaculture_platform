@@ -58,7 +58,11 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
-      const equipmentSystemRepository = tenantManagerRepo(queryRunner.manager, EquipmentSystem, tenantId);
+      const equipmentSystemRepository = tenantManagerRepo(
+        queryRunner.manager,
+        EquipmentSystem,
+        tenantId,
+      );
       const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
       const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
       const supplierRepository = tenantManagerRepo(queryRunner.manager, Supplier, tenantId);
@@ -94,7 +98,9 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       }
 
       if (input.supplierId) {
-        const supplier = await supplierRepository.findOne({ where: { id: input.supplierId, tenantId } });
+        const supplier = await supplierRepository.findOne({
+          where: { id: input.supplierId, tenantId },
+        });
         if (!supplier) {
           throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
         }
@@ -158,6 +164,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
         notes: input.notes,
         isActive: true,
         isVisibleInSensor: input.isVisibleInSensor ?? false,
+        temperatureSensorId: input.temperatureSensorId,
         isTank: false,
         createdBy: userId,
         updatedBy: userId,
@@ -218,7 +225,9 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       });
 
       persistedEquipment.equipmentSystems = persistedEquipmentSystems;
-      this.logger.log(`Equipment "${persistedEquipment.name}" created with ID ${persistedEquipment.id}`);
+      this.logger.log(
+        `Equipment "${persistedEquipment.name}" created with ID ${persistedEquipment.id}`,
+      );
       return persistedEquipment;
     });
   }
@@ -238,7 +247,9 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       throw new NotFoundException(`Parent equipment with ID "${parentEquipmentId}" not found`);
     }
     if (!parent.isActive || parent.isDeleted) {
-      throw new BadRequestException(`Parent equipment with ID "${parentEquipmentId}" is inactive or deleted`);
+      throw new BadRequestException(
+        `Parent equipment with ID "${parentEquipmentId}" is inactive or deleted`,
+      );
     }
     if (parent.departmentId && parent.departmentId !== childDepartmentId && childSiteId) {
       const parentDepartment = await departmentRepository.findOne({

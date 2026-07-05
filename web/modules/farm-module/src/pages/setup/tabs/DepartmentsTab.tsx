@@ -3,7 +3,12 @@
  * Displays list of departments with CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  DeleteConfirmationDialog,
+  DeletePreviewData,
+  AffectedItemGroup,
+} from '@aquaculture/shared-ui';
 import {
   useDepartmentList,
   useCreateDepartment,
@@ -82,7 +87,7 @@ export const DepartmentsTab: React.FC = () => {
 
   // Delete preview query
   const { data: deletePreview, isLoading: isPreviewLoading } = useDepartmentDeletePreview(
-    deptToDelete?.id ?? null
+    deptToDelete?.id ?? null,
   );
 
   // Transform backend preview to dialog format
@@ -95,7 +100,7 @@ export const DepartmentsTab: React.FC = () => {
       affectedItems.push({
         type: 'equipment',
         label: 'Ekipmanlar',
-        items: deletePreview.affectedItems.equipment.map(e => ({
+        items: deletePreview.affectedItems.equipment.map((e) => ({
           id: e.id,
           name: e.name,
           code: e.code,
@@ -108,7 +113,7 @@ export const DepartmentsTab: React.FC = () => {
       affectedItems.push({
         type: 'tanks',
         label: 'Tanklar',
-        items: deletePreview.affectedItems.tanks.map(t => ({
+        items: deletePreview.affectedItems.tanks.map((t) => ({
           id: t.id,
           name: t.name,
           code: t.code,
@@ -130,18 +135,19 @@ export const DepartmentsTab: React.FC = () => {
   const departments = departmentsData?.items || [];
   const sites = sitesData?.items || [];
 
-  const filteredDepartments = departments.filter(dept => {
+  const filteredDepartments = departments.filter((dept) => {
     const matchesSearch =
       dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       dept.code.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSite = selectedSite === 'all'
-      || (selectedSite === 'orphaned' && !dept.siteId)
-      || dept.siteId === selectedSite;
+    const matchesSite =
+      selectedSite === 'all' ||
+      (selectedSite === 'orphaned' && !dept.siteId) ||
+      dept.siteId === selectedSite;
     return matchesSearch && matchesSite;
   });
 
   // Count orphaned departments
-  const orphanedCount = departments.filter(d => !d.siteId).length;
+  const orphanedCount = departments.filter((d) => !d.siteId).length;
 
   const getLoadPercentage = (current: number, capacity: number) => {
     if (!capacity) return 0;
@@ -254,7 +260,12 @@ export const DepartmentsTab: React.FC = () => {
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
             </svg>
           </div>
           <select
@@ -264,8 +275,10 @@ export const DepartmentsTab: React.FC = () => {
           >
             <option value="all">All Sites</option>
             <option value="orphaned">Orphaned (No Site)</option>
-            {sites.map(site => (
-              <option key={site.id} value={site.id}>{site.name}</option>
+            {sites.map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.name}
+              </option>
             ))}
           </select>
         </div>
@@ -279,7 +292,12 @@ export const DepartmentsTab: React.FC = () => {
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
           </svg>
           Add Department
         </button>
@@ -296,15 +314,27 @@ export const DepartmentsTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load departments. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+            Retry
+          </button>
         </div>
       )}
 
       {/* Orphaned Departments Warning */}
       {orphanedCount > 0 && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <svg className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          <svg
+            className="w-5 h-5 text-red-500 mr-2 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
           </svg>
           <span className="text-sm text-red-700">
             {orphanedCount} department(s) are not associated with any site
@@ -314,227 +344,245 @@ export const DepartmentsTab: React.FC = () => {
 
       {/* Departments Table */}
       {!isLoading && !error && (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Department
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Site
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Capacity
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filteredDepartments.map((dept) => {
-              const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
-              return (
-                <tr key={dept.id} className={!dept.siteId ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{dept.name}</div>
-                      <div className="text-sm text-gray-500">{dept.code}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 text-gray-800'}`}>
-                      {typeLabels[dept.type || ''] || dept.type || '-'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {/* WHY: render the site name from the department's OWN fetched
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Department
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Type
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Site
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Capacity
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredDepartments.map((dept) => {
+                const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
+                return (
+                  <tr
+                    key={dept.id}
+                    className={!dept.siteId ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{dept.name}</div>
+                        <div className="text-sm text-gray-500">{dept.code}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 text-gray-800'}`}
+                      >
+                        {typeLabels[dept.type || ''] || dept.type || '-'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {/* WHY: render the site name from the department's OWN fetched
                         `site { id name }` (useDepartments query), NOT a second
                         useSiteList() join. The join falsely showed "Not associated
                         with any site" whenever that list was loading / empty / past
                         its limit — even though dept.siteId + dept.site were set. */}
-                    {dept.site?.name ? (
-                      <span className="text-gray-500">{dept.site.name}</span>
-                    ) : (
-                      <span className="text-red-600 italic font-medium">
-                        Not associated with any site
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {dept.capacity ? (
-                      <>
-                        <div className="flex items-center">
-                          <div className="flex-1 max-w-[100px]">
-                            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
-                                style={{ width: `${loadPercentage}%` }}
-                              />
+                      {dept.site?.name ? (
+                        <span className="text-gray-500">{dept.site.name}</span>
+                      ) : (
+                        <span className="text-red-600 italic font-medium">
+                          Not associated with any site
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {dept.capacity ? (
+                        <>
+                          <div className="flex items-center">
+                            <div className="flex-1 max-w-[100px]">
+                              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
+                                  style={{ width: `${loadPercentage}%` }}
+                                />
+                              </div>
                             </div>
+                            <span className="ml-2 text-sm text-gray-500">{loadPercentage}%</span>
                           </div>
-                          <span className="ml-2 text-sm text-gray-500">
-                            {loadPercentage}%
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-400 mt-1">
-                          {(dept.currentLoad || 0).toLocaleString()} / {dept.capacity.toLocaleString()}
-                        </div>
-                      </>
-                    ) : (
-                      <span className="text-sm text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(dept)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(dept)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {(dept.currentLoad || 0).toLocaleString()} /{' '}
+                            {dept.capacity.toLocaleString()}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-sm text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => handleEdit(dept)}
+                        className="text-blue-600 hover:text-blue-900 mr-3"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(dept)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
 
-        {/* Empty State */}
-        {filteredDepartments.length === 0 && (
-          <div className="text-center py-12">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No departments found</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Get started by creating a new department.
-            </p>
-          </div>
-        )}
-      </div>
+          {/* Empty State */}
+          {filteredDepartments.length === 0 && (
+            <div className="text-center py-12">
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"
+                />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No departments found</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Get started by creating a new department.
+              </p>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setIsModalOpen(false)} />
-            <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-lg sm:w-full">
-              <form onSubmit={handleSubmit}>
-                <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    {editingId ? 'Edit Department' : 'Add Department'}
-                  </h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Name *</label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.name}
-                        onChange={e => {
-                          setFormData(prev => ({ ...prev, name: e.target.value }));
-                          if (formErrors.name && e.target.value.trim()) setFormErrors(prev => ({ ...prev, name: undefined }));
-                        }}
-                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Code *</label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.code}
-                        onChange={e => {
-                          setFormData(prev => ({ ...prev, code: e.target.value }));
-                          if (formErrors.code && e.target.value.trim()) setFormErrors(prev => ({ ...prev, code: undefined }));
-                        }}
-                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Type</label>
-                      <select
-                        value={formData.type}
-                        onChange={e => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        {Object.entries(typeLabels).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Site *</label>
-                      <select
-                        value={formData.siteId}
-                        onChange={e => {
-                          setFormData(prev => ({ ...prev, siteId: e.target.value }));
-                          if (formErrors.siteId && e.target.value) setFormErrors(prev => ({ ...prev, siteId: undefined }));
-                        }}
-                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300'}`}
-                        required
-                      >
-                        <option value="">Select Site...</option>
-                        {sites.map(site => (
-                          <option key={site.id} value={site.id}>{site.name}</option>
-                        ))}
-                      </select>
-                      {formErrors.siteId && <p className="mt-1 text-sm text-red-600">{formErrors.siteId}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Capacity</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={formData.capacity}
-                        onChange={e => setFormData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Notes</label>
-                      <textarea
-                        value={formData.notes}
-                        onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                        rows={3}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                  <button
-                    type="submit"
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    {editingId ? 'Update' : 'Create'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Department' : 'Add Department'}
+        size="md"
+      >
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Name *</label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => {
+                  setFormData((prev) => ({ ...prev, name: e.target.value }));
+                  if (formErrors.name && e.target.value.trim())
+                    setFormErrors((prev) => ({ ...prev, name: undefined }));
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
+              />
+              {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Code *</label>
+              <input
+                type="text"
+                required
+                value={formData.code}
+                onChange={(e) => {
+                  setFormData((prev) => ({ ...prev, code: e.target.value }));
+                  if (formErrors.code && e.target.value.trim())
+                    setFormErrors((prev) => ({ ...prev, code: undefined }));
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300'}`}
+              />
+              {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Type</label>
+              <select
+                value={formData.type}
+                onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+              >
+                {Object.entries(typeLabels).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Site *</label>
+              <select
+                value={formData.siteId}
+                onChange={(e) => {
+                  setFormData((prev) => ({ ...prev, siteId: e.target.value }));
+                  if (formErrors.siteId && e.target.value)
+                    setFormErrors((prev) => ({ ...prev, siteId: undefined }));
+                }}
+                className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300'}`}
+                required
+              >
+                <option value="">Select Site...</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+              {formErrors.siteId && (
+                <p className="mt-1 text-sm text-red-600">{formErrors.siteId}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Capacity</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.capacity}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
+                }
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Notes</label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+              />
             </div>
           </div>
-        </div>
-      )}
+          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
+            <button
+              type="submit"
+              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              {editingId ? 'Update' : 'Create'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmationDialog

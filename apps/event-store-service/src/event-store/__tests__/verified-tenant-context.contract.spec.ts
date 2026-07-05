@@ -22,11 +22,17 @@ describe('event-store verified tenant context contract', () => {
     }
   });
 
-  it('installs service identity before tenant execution context interception', () => {
+  it('installs service identity guard and registers tenant execution context via the SSoT module', () => {
+    // Service identity guard is still an APP_GUARD provider.
     expect(appModule).toContain('EventStoreServiceIdentityGuard');
-    expect(appModule).toContain('TenantExecutionContextInterceptor');
     expect(appModule).toMatch(
-      /provide:\s*APP_GUARD,[\s\S]*useClass:\s*EventStoreServiceIdentityGuard,[\s\S]*provide:\s*APP_INTERCEPTOR,[\s\S]*useClass:\s*TenantExecutionContextInterceptor/,
+      /provide:\s*APP_GUARD,[\s\S]*useClass:\s*EventStoreServiceIdentityGuard/,
     );
+    // Tenant execution context is now registered through the shared SSoT module
+    // (TenantExecutionContextModule) instead of an inline APP_INTERCEPTOR block.
+    // NestJS runs guards BEFORE interceptors, so EventStoreServiceIdentityGuard
+    // still executes ahead of the tenant-context interceptor — the original
+    // "service identity before tenant execution context" intent is preserved.
+    expect(appModule).toContain('TenantExecutionContextModule');
   });
 });

@@ -76,6 +76,9 @@ async function getDeviceId(): Promise<string> {
   return deviceId;
 }
 
+// FARM-LOW-141: this MUST stay byte-identical to the web client's stableStringify
+// (web/modules/farm-module/src/hooks/useBatches.ts) — both feed one server-side
+// at-most-once payloadHash dedup contract.
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(',')}]`;

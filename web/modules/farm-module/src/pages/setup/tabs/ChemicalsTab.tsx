@@ -20,7 +20,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import { useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -213,7 +213,7 @@ const SiteMultiSelect: React.FC<{
 }> = ({ sites, selectedIds, onChange }) => {
   const toggleSite = (siteId: string) => {
     if (selectedIds.includes(siteId)) {
-      onChange(selectedIds.filter(id => id !== siteId));
+      onChange(selectedIds.filter((id) => id !== siteId));
     } else {
       onChange([...selectedIds, siteId]);
     }
@@ -244,7 +244,7 @@ const SiteMultiSelect: React.FC<{
       {selectedIds.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">
           {selectedIds.map((id) => {
-            const site = sites.find(s => s.id === id);
+            const site = sites.find((s) => s.id === id);
             return site ? (
               <span
                 key={id}
@@ -306,9 +306,7 @@ const DocumentsSection: React.FC<{
 
   if (!chemicalId) {
     return (
-      <p className="text-sm text-gray-500 italic">
-        Save the chemical first to upload documents
-      </p>
+      <p className="text-sm text-gray-500 italic">Save the chemical first to upload documents</p>
     );
   }
 
@@ -345,7 +343,9 @@ const DocumentsSection: React.FC<{
                 className="w-full border border-gray-300 rounded-md py-1.5 px-3 text-sm"
               >
                 {Object.entries(documentTypeLabels).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -367,8 +367,18 @@ const DocumentsSection: React.FC<{
           {documents.map((doc) => (
             <div key={doc.id} className="flex items-center justify-between p-3">
               <div className="flex items-center gap-3">
-                <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                <svg
+                  className="w-8 h-8 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
                 </svg>
                 <div>
                   <p className="text-sm font-medium text-gray-900">{doc.name}</p>
@@ -414,7 +424,8 @@ export const ChemicalsTab: React.FC = () => {
   const { data: chemicalsData, isLoading, error, refetch } = useChemicalList();
   const { data: chemicalTypesData = [] } = useChemicalTypes();
   // Use fallback categories when API data is not available
-  const chemicalTypes = chemicalTypesData.length > 0 ? chemicalTypesData : FALLBACK_CHEMICAL_CATEGORIES;
+  const chemicalTypes =
+    chemicalTypesData.length > 0 ? chemicalTypesData : FALLBACK_CHEMICAL_CATEGORIES;
   const { data: suppliersData } = useSupplierList({ type: SupplierType.CHEMICAL });
   const { data: sitesData } = useSiteList();
   const createChemical = useCreateChemical();
@@ -448,7 +459,7 @@ export const ChemicalsTab: React.FC = () => {
   const suppliers = suppliersData?.items || [];
   const sites = sitesData?.items || [];
 
-  const filteredChemicals = chemicals.filter(chemical => {
+  const filteredChemicals = chemicals.filter((chemical) => {
     const matchesSearch =
       chemical.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       chemical.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -458,16 +469,28 @@ export const ChemicalsTab: React.FC = () => {
   });
 
   const toggleSection = (section: keyof typeof openSections) => {
-    setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+    setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name) { alert('Please enter a name.'); return; }
-    if (!formData.code) { alert('Please enter a code.'); return; }
-    if (!formData.type) { alert('Please select a chemical type.'); return; }
-    if (!formData.siteId) { alert('Please select a site.'); return; }
+    if (!formData.name) {
+      alert('Please enter a name.');
+      return;
+    }
+    if (!formData.code) {
+      alert('Please enter a code.');
+      return;
+    }
+    if (!formData.type) {
+      alert('Please select a chemical type.');
+      return;
+    }
+    if (!formData.siteId) {
+      alert('Please select a site.');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -482,10 +505,14 @@ export const ChemicalsTab: React.FC = () => {
         concentration: formData.concentration || undefined,
         formulation: formData.formulation || undefined,
         storageRequirements: formData.storageRequirements || undefined,
-        storageTempMin: formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
-        storageTempMax: formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
-        storageHumidityMin: formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
-        storageHumidityMax: formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
+        storageTempMin:
+          formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
+        storageTempMax:
+          formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
+        storageHumidityMin:
+          formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
+        storageHumidityMax:
+          formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
         notes: formData.notes || undefined,
       };
 
@@ -521,14 +548,16 @@ export const ChemicalsTab: React.FC = () => {
       console.error('Failed to save chemical:', err);
       // BUG-09: Surface duplicate/conflict errors from backend to the user
       const errorMessage = err instanceof Error ? err.message : String(err);
-      const isDuplicate = errorMessage.toLowerCase().includes('duplicate') ||
+      const isDuplicate =
+        errorMessage.toLowerCase().includes('duplicate') ||
         errorMessage.toLowerCase().includes('conflict') ||
         errorMessage.toLowerCase().includes('already exists') ||
         errorMessage.includes('409');
       if (isDuplicate) {
         toast({
           title: 'Duplicate Chemical',
-          description: 'A chemical with this name or code already exists. Please use a different name or code.',
+          description:
+            'A chemical with this name or code already exists. Please use a different name or code.',
           variant: 'error',
         });
       } else {
@@ -571,7 +600,7 @@ export const ChemicalsTab: React.FC = () => {
       siteIds: chemical.siteId ? [chemical.siteId] : [],
       unit: chemical.unit || 'liter',
     });
-    setOpenSections(prev => ({ ...prev, basic: true }));
+    setOpenSections((prev) => ({ ...prev, basic: true }));
     setIsModalOpen(true);
   };
 
@@ -622,7 +651,7 @@ export const ChemicalsTab: React.FC = () => {
 
   const getSupplierName = (supplierId?: string) => {
     if (!supplierId) return '-';
-    const supplier = suppliers.find(s => s.id === supplierId);
+    const supplier = suppliers.find((s) => s.id === supplierId);
     return supplier?.name || '-';
   };
 
@@ -639,8 +668,18 @@ export const ChemicalsTab: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
             </svg>
           </div>
           <select
@@ -650,7 +689,9 @@ export const ChemicalsTab: React.FC = () => {
           >
             <option value="all">All Categories</option>
             {chemicalTypes.map((type) => (
-              <option key={type.id} value={type.code}>{type.name}</option>
+              <option key={type.id} value={type.code}>
+                {type.name}
+              </option>
             ))}
           </select>
         </div>
@@ -659,13 +700,26 @@ export const ChemicalsTab: React.FC = () => {
             setEditingId(null);
             setEditingChemical(null);
             setFormData(initialFormData);
-            setOpenSections({ basic: true, composition: false, storage: false, usage: false, sites: false, documents: false, notes: false });
+            setOpenSections({
+              basic: true,
+              composition: false,
+              storage: false,
+              usage: false,
+              sites: false,
+              documents: false,
+              notes: false,
+            });
             setIsModalOpen(true);
           }}
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
           </svg>
           Add Chemical
         </button>
@@ -682,7 +736,9 @@ export const ChemicalsTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load chemicals. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+            Retry
+          </button>
         </div>
       )}
 
@@ -692,13 +748,27 @@ export const ChemicalsTab: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chemical</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Manufacturer</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Documents</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Chemical
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Category
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Manufacturer
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Notes
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Documents
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -709,7 +779,9 @@ export const ChemicalsTab: React.FC = () => {
                     <div className="text-sm text-gray-500">{chemical.code}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 text-gray-800'}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 text-gray-800'}`}
+                    >
                       {categoryLabels[chemical.type] || chemical.type}
                     </span>
                   </td>
@@ -717,7 +789,9 @@ export const ChemicalsTab: React.FC = () => {
                     {getSupplierName(chemical.supplierId)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 text-gray-800'}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 text-gray-800'}`}
+                    >
                       {statusLabels[chemical.status] || chemical.status}
                     </span>
                   </td>
@@ -728,8 +802,18 @@ export const ChemicalsTab: React.FC = () => {
                     {chemical.documents?.length || 0} docs
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onClick={() => handleEdit(chemical)} className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                    <button onClick={() => handleDelete(chemical.id)} className="text-red-600 hover:text-red-900">Delete</button>
+                    <button
+                      onClick={() => handleEdit(chemical)}
+                      className="text-blue-600 hover:text-blue-900 mr-3"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(chemical.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -739,392 +823,469 @@ export const ChemicalsTab: React.FC = () => {
           {/* Empty State */}
           {filteredChemicals.length === 0 && (
             <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
+                />
               </svg>
               <h3 className="mt-2 text-sm font-medium text-gray-900">No chemicals found</h3>
-              <p className="mt-1 text-sm text-gray-500">Add chemicals to manage treatments and protocols.</p>
+              <p className="mt-1 text-sm text-gray-500">
+                Add chemicals to manage treatments and protocols.
+              </p>
             </div>
           )}
         </div>
       )}
 
       {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setIsModalOpen(false)} />
-            <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto">
-              <form onSubmit={handleSubmit}>
-                <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    {editingId ? 'Edit Chemical' : 'Add Chemical'}
-                  </h3>
-
-                  {/* Basic Info Section */}
-                  <CollapsibleSection
-                    title="Basic Information"
-                    isOpen={openSections.basic}
-                    onToggle={() => toggleSection('basic')}
-                  >
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Name *</label>
-                          <input
-                            type="text"
-                            required
-                            value={formData.name}
-                            onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Code *</label>
-                          <input
-                            type="text"
-                            required
-                            value={formData.code}
-                            onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Category *</label>
-                          <select
-                            required
-                            value={formData.type}
-                            onChange={e => setFormData(prev => ({ ...prev, type: e.target.value as ChemicalType }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="">Select Category</option>
-                            {chemicalTypes.map((type) => (
-                              <option key={type.id} value={type.code}>{type.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Site *</label>
-                          <select
-                            required
-                            value={formData.siteId}
-                            onChange={e => setFormData(prev => ({ ...prev, siteId: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="">Select Site</option>
-                            {sites.map((site) => (
-                              <option key={site.id} value={site.id}>{site.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Manufacturer (Supplier)</label>
-                          <select
-                            value={formData.supplierId}
-                            onChange={e => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="">Select Supplier</option>
-                            {suppliers.map((supplier) => (
-                              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Unit *</label>
-                          <select
-                            required
-                            value={formData.unit}
-                            onChange={e => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="liter">Liter</option>
-                            <option value="ml">Milliliter</option>
-                            <option value="kg">Kilogram</option>
-                            <option value="gram">Gram</option>
-                            <option value="piece">Piece</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Description</label>
-                        <textarea
-                          value={formData.description}
-                          onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                          rows={2}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Status</label>
-                        <select
-                          value={formData.status}
-                          onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as ChemicalStatus }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          {Object.entries(statusLabels).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Composition Section */}
-                  <CollapsibleSection
-                    title="Composition"
-                    isOpen={openSections.composition}
-                    onToggle={() => toggleSection('composition')}
-                    optional
-                  >
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Active Ingredient</label>
-                        <input
-                          type="text"
-                          value={formData.activeIngredient}
-                          onChange={e => setFormData(prev => ({ ...prev, activeIngredient: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Concentration</label>
-                        <input
-                          type="text"
-                          value={formData.concentration}
-                          placeholder="e.g., 10%, 50mg/L"
-                          onChange={e => setFormData(prev => ({ ...prev, concentration: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700">Formulation</label>
-                        <select
-                          value={formData.formulation}
-                          onChange={e => setFormData(prev => ({ ...prev, formulation: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="">Select Formulation</option>
-                          <option value="liquid">Liquid</option>
-                          <option value="powder">Powder</option>
-                          <option value="granule">Granule</option>
-                          <option value="tablet">Tablet</option>
-                          <option value="gel">Gel</option>
-                          <option value="emulsion">Emulsion</option>
-                        </select>
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Storage & Safety Section */}
-                  <CollapsibleSection
-                    title="Storage & Safety"
-                    isOpen={openSections.storage}
-                    onToggle={() => toggleSection('storage')}
-                    optional
-                  >
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Storage Requirements</label>
-                          <select
-                            value={formData.storageRequirements}
-                            onChange={e => setFormData(prev => ({ ...prev, storageRequirements: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            {storageOptions.map((opt) => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Hazard Class</label>
-                          <input
-                            type="text"
-                            value={formData.hazardClass}
-                            onChange={e => setFormData(prev => ({ ...prev, hazardClass: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-4 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Min Temp (°C)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={formData.storageTempMin}
-                            onChange={e => setFormData(prev => ({ ...prev, storageTempMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Max Temp (°C)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={formData.storageTempMax}
-                            onChange={e => setFormData(prev => ({ ...prev, storageTempMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Min Humidity (%)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="100"
-                            value={formData.storageHumidityMin}
-                            onChange={e => setFormData(prev => ({ ...prev, storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Max Humidity (%)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="100"
-                            value={formData.storageHumidityMax}
-                            onChange={e => setFormData(prev => ({ ...prev, storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Signal Word</label>
-                          <select
-                            value={formData.signalWord}
-                            onChange={e => setFormData(prev => ({ ...prev, signalWord: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="">None</option>
-                            <option value="warning">Warning</option>
-                            <option value="danger">Danger</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">MSDS URL</label>
-                          <input
-                            type="url"
-                            value={formData.msdsUrl}
-                            placeholder="https://..."
-                            onChange={e => setFormData(prev => ({ ...prev, msdsUrl: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Usage Section */}
-                  <CollapsibleSection
-                    title="Usage"
-                    isOpen={openSections.usage}
-                    onToggle={() => toggleSection('usage')}
-                    optional
-                  >
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Withdrawal Period (days)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={formData.withdrawalPeriodDays}
-                          onChange={e => setFormData(prev => ({ ...prev, withdrawalPeriodDays: parseInt(e.target.value) || 0 }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Usage Guide URL</label>
-                        <input
-                          type="url"
-                          value={formData.usageGuideUrl}
-                          placeholder="https://..."
-                          onChange={e => setFormData(prev => ({ ...prev, usageGuideUrl: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Sites Section */}
-                  <CollapsibleSection
-                    title="Sites"
-                    isOpen={openSections.sites}
-                    onToggle={() => toggleSection('sites')}
-                    optional
-                  >
-                    <SiteMultiSelect
-                      sites={sites}
-                      selectedIds={formData.siteIds}
-                      onChange={(ids) => setFormData(prev => ({ ...prev, siteIds: ids }))}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Chemical' : 'Add Chemical'}
+        size="lg"
+      >
+        <form onSubmit={handleSubmit}>
+          <div className="max-h-[70vh] overflow-y-auto">
+            {/* Basic Info Section */}
+            <CollapsibleSection
+              title="Basic Information"
+              isOpen={openSections.basic}
+              onToggle={() => toggleSection('basic')}
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
-                  </CollapsibleSection>
-
-                  {/* Documents Section - Only for editing */}
-                  {editingId && (
-                    <CollapsibleSection
-                      title="Documents"
-                      isOpen={openSections.documents}
-                      onToggle={() => toggleSection('documents')}
-                      optional
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Code *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.code}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Category *</label>
+                    <select
+                      required
+                      value={formData.type}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <DocumentsSection
-                        chemicalId={editingId}
-                        documents={editingChemical?.documents || []}
-                        onUpload={handleDocumentUpload}
-                        onDelete={handleDocumentDelete}
-                        isUploading={uploadDocument.isPending}
-                      />
-                    </CollapsibleSection>
-                  )}
-
-                  {/* Notes Section */}
-                  <CollapsibleSection
-                    title="Notes"
-                    isOpen={openSections.notes}
-                    onToggle={() => toggleSection('notes')}
-                    optional
+                      <option value="">Select Category</option>
+                      {chemicalTypes.map((type) => (
+                        <option key={type.id} value={type.code}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Site *</label>
+                    <select
+                      required
+                      value={formData.siteId}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Site</option>
+                      {sites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Manufacturer (Supplier)
+                    </label>
+                    <select
+                      value={formData.supplierId}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Supplier</option>
+                      {suppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Unit *</label>
+                    <select
+                      required
+                      value={formData.unit}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="liter">Liter</option>
+                      <option value="ml">Milliliter</option>
+                      <option value="kg">Kilogram</option>
+                      <option value="gram">Gram</option>
+                      <option value="piece">Piece</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, description: e.target.value }))
+                    }
+                    rows={2}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <textarea
-                      value={formData.notes}
-                      onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                      rows={3}
-                      placeholder="Additional notes about this chemical..."
-                      className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    {Object.entries(statusLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Composition Section */}
+            <CollapsibleSection
+              title="Composition"
+              isOpen={openSections.composition}
+              onToggle={() => toggleSection('composition')}
+              optional
+            >
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Active Ingredient
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.activeIngredient}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Concentration</label>
+                  <input
+                    type="text"
+                    value={formData.concentration}
+                    placeholder="e.g., 10%, 50mg/L"
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, concentration: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Formulation</label>
+                  <select
+                    value={formData.formulation}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, formulation: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select Formulation</option>
+                    <option value="liquid">Liquid</option>
+                    <option value="powder">Powder</option>
+                    <option value="granule">Granule</option>
+                    <option value="tablet">Tablet</option>
+                    <option value="gel">Gel</option>
+                    <option value="emulsion">Emulsion</option>
+                  </select>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Storage & Safety Section */}
+            <CollapsibleSection
+              title="Storage & Safety"
+              isOpen={openSections.storage}
+              onToggle={() => toggleSection('storage')}
+              optional
+            >
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Storage Requirements
+                    </label>
+                    <select
+                      value={formData.storageRequirements}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {storageOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Hazard Class</label>
+                    <input
+                      type="text"
+                      value={formData.hazardClass}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
-                  </CollapsibleSection>
+                  </div>
                 </div>
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Min Temp (°C)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={formData.storageTempMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Max Temp (°C)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={formData.storageTempMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Min Humidity (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={formData.storageHumidityMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Max Humidity (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={formData.storageHumidityMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Signal Word</label>
+                    <select
+                      value={formData.signalWord}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">None</option>
+                      <option value="warning">Warning</option>
+                      <option value="danger">Danger</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">MSDS URL</label>
+                    <input
+                      type="url"
+                      value={formData.msdsUrl}
+                      placeholder="https://..."
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </CollapsibleSection>
 
-                <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-gray-400"
-                  >
-                    {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
-                    Cancel
-                  </button>
+            {/* Usage Section */}
+            <CollapsibleSection
+              title="Usage"
+              isOpen={openSections.usage}
+              onToggle={() => toggleSection('usage')}
+              optional
+            >
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Withdrawal Period (days)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.withdrawalPeriodDays}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        withdrawalPeriodDays: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  />
                 </div>
-              </form>
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Usage Guide URL</label>
+                  <input
+                    type="url"
+                    value={formData.usageGuideUrl}
+                    placeholder="https://..."
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            {/* Sites Section */}
+            <CollapsibleSection
+              title="Sites"
+              isOpen={openSections.sites}
+              onToggle={() => toggleSection('sites')}
+              optional
+            >
+              <SiteMultiSelect
+                sites={sites}
+                selectedIds={formData.siteIds}
+                onChange={(ids) => setFormData((prev) => ({ ...prev, siteIds: ids }))}
+              />
+            </CollapsibleSection>
+
+            {/* Documents Section - Only for editing */}
+            {editingId && (
+              <CollapsibleSection
+                title="Documents"
+                isOpen={openSections.documents}
+                onToggle={() => toggleSection('documents')}
+                optional
+              >
+                <DocumentsSection
+                  chemicalId={editingId}
+                  documents={editingChemical?.documents || []}
+                  onUpload={handleDocumentUpload}
+                  onDelete={handleDocumentDelete}
+                  isUploading={uploadDocument.isPending}
+                />
+              </CollapsibleSection>
+            )}
+
+            {/* Notes Section */}
+            <CollapsibleSection
+              title="Notes"
+              isOpen={openSections.notes}
+              onToggle={() => toggleSection('notes')}
+              optional
+            >
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                placeholder="Additional notes about this chemical..."
+                className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+              />
+            </CollapsibleSection>
           </div>
-        </div>
-      )}
+
+          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-gray-400"
+            >
+              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

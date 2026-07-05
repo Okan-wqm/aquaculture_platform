@@ -1,10 +1,17 @@
 {
   "entries": [
     {
-      "args": ["nx", "run", "@aqua/cargo:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
-      "command": "eslint .",
-      "cwd": "tools/executors/cargo",
-      "executor": "nx:run-commands",
+      "args": [
+        "nx",
+        "run",
+        "@aqua/cargo:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "@aqua/cargo",
       "resource_class": "eslint-ts",
@@ -38,8 +45,8 @@
         "--",
         "--max-warnings=0"
       ],
-      "command": "eslint .",
-      "cwd": "e2e",
+      "command": null,
+      "cwd": ".",
       "executor": "nx:run-commands",
       "max_warnings": 0,
       "name": "@aquaculture/e2e-tests",
@@ -56,9 +63,9 @@
         "--",
         "--max-warnings=0"
       ],
-      "command": "eslint .",
-      "cwd": "libs/farm-shared",
-      "executor": "nx:run-commands",
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "@aquaculture/farm-shared",
       "resource_class": "eslint-ts",
@@ -66,18 +73,29 @@
       "runner": "nx"
     },
     {
-      "args": ["eslint", "<shard>", "--max-warnings=0"],
-      "command": "eslint .",
-      "cwd": "libs/node-components",
-      "executor": "nx:run-commands",
+      "args": [
+        "eslint",
+        "<shard>",
+        "--max-warnings=0"
+      ],
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "@aquaculture/node-components",
       "resource_class": "eslint-ts-sharded",
       "root": "libs/node-components",
       "runner": "eslint-shards",
       "shards": [
-        ["src/config/**/*.ts", "src/registry/**/*.ts", "src/wrappers/**/*.tsx", "vite.config.ts"],
-        ["src/edges/**/*.tsx"],
+        [
+          "src/config/**/*.ts",
+          "src/registry/**/*.ts",
+          "src/wrappers/**/*.tsx",
+          "vite.config.ts"
+        ],
+        [
+          "src/edges/**/*.tsx"
+        ],
         [
           "src/nodes/AlgaeBagNode.tsx",
           "src/nodes/AutomaticFeederNode.tsx",
@@ -138,9 +156,9 @@
         "--",
         "--max-warnings=0"
       ],
-      "command": "eslint .",
-      "cwd": "libs/shared-contracts",
-      "executor": "nx:run-commands",
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "@aquaculture/shared-contracts",
       "resource_class": "eslint-ts",
@@ -156,9 +174,9 @@
         "--",
         "--max-warnings=0"
       ],
-      "command": "eslint .",
-      "cwd": "mcp/farm-management",
-      "executor": "nx:run-commands",
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "@platform/mcp-farm-management",
       "resource_class": "eslint-ts",
@@ -174,9 +192,9 @@
         "--",
         "--max-warnings=0"
       ],
-      "command": "eslint .",
-      "cwd": "libs/sensor-automation-types",
-      "executor": "nx:run-commands",
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "@platform/sensor-automation-types",
       "resource_class": "eslint-ts",
@@ -184,7 +202,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "admin-api-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "admin-api-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -195,7 +220,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "admin-panel:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "admin-panel:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/modules/admin-panel",
       "executor": "nx:run-commands",
@@ -206,7 +238,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "ai-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "ai-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -217,7 +256,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "alert-engine:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "alert-engine:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -228,10 +274,17 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "aqua-scripts:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
-      "command": "eslint .",
-      "cwd": "scripts",
-      "executor": "nx:run-commands",
+      "args": [
+        "nx",
+        "run",
+        "aqua-scripts:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
       "max_warnings": 0,
       "name": "aqua-scripts",
       "resource_class": "eslint-ts",
@@ -257,7 +310,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "auth-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "auth-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -268,7 +328,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "billing-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "billing-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -279,7 +346,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "config-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "config-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -290,7 +364,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "dashboard:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "dashboard:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/modules/dashboard",
       "executor": "nx:run-commands",
@@ -301,7 +382,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "db-migrate:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "db-migrate:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -330,7 +418,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "event-contracts:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "event-contracts:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -341,7 +436,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "event-contracts-rs:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "event-contracts-rs:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "clippy",
       "cwd": null,
       "executor": "@aqua/cargo:run",
@@ -370,7 +472,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "farm-module:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "farm-module:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/modules/farm-module",
       "executor": "nx:run-commands",
@@ -381,7 +490,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "farm-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "farm-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -392,7 +508,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "gateway-api:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "gateway-api:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -403,7 +526,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "hr-module:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "hr-module:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/modules/hr-module",
       "executor": "nx:run-commands",
@@ -414,7 +544,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "hr-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "hr-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -425,7 +562,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "hydroponics-module:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "hydroponics-module:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "eslint .",
       "cwd": "web/modules/hydroponics-module",
       "executor": "nx:run-commands",
@@ -454,7 +598,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "invariants:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "invariants:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "eslint .",
       "cwd": "tests/invariants",
       "executor": "nx:run-commands",
@@ -465,7 +616,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "messaging-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "messaging-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -476,7 +634,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "migration-harness:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "migration-harness:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -487,7 +652,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "nats-client:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "nats-client:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "clippy",
       "cwd": null,
       "executor": "@aqua/cargo:run",
@@ -498,7 +670,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "node-red-project:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "node-red-project:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "eslint . --max-warnings=0",
       "cwd": "infrastructure/simulators/nodered/data",
       "executor": "nx:run-commands",
@@ -527,7 +706,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "observability:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "observability:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "clippy",
       "cwd": null,
       "executor": "@aqua/cargo:run",
@@ -556,7 +742,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "protocol-codec:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "protocol-codec:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "clippy",
       "cwd": null,
       "executor": "@aqua/cargo:run",
@@ -567,7 +760,50 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "sensor-module:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "router-coprocessor:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
+      "command": "clippy",
+      "cwd": null,
+      "executor": "@aqua/cargo:run",
+      "max_warnings": 0,
+      "name": "router-coprocessor",
+      "resource_class": "rust-clippy",
+      "root": "crates/router-coprocessor",
+      "runner": "nx"
+    },
+    {
+      "args": [
+        "nx",
+        "run",
+        "sensor-ingestion:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
+      "command": "clippy",
+      "cwd": null,
+      "executor": "@aqua/cargo:run",
+      "max_warnings": 0,
+      "name": "sensor-ingestion",
+      "resource_class": "rust-clippy",
+      "root": "apps/sensor-ingestion",
+      "runner": "nx"
+    },
+    {
+      "args": [
+        "nx",
+        "run",
+        "sensor-module:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/modules/sensor-module",
       "executor": "nx:run-commands",
@@ -578,7 +814,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "sensor-service:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "sensor-service:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": null,
       "cwd": null,
       "executor": "@nx/eslint:lint",
@@ -589,7 +832,32 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "shared-ui:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "service-catalog:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
+      "command": null,
+      "cwd": null,
+      "executor": "@nx/eslint:lint",
+      "max_warnings": 0,
+      "name": "service-catalog",
+      "resource_class": "eslint-ts",
+      "root": "platform/libs/service-catalog",
+      "runner": "nx"
+    },
+    {
+      "args": [
+        "nx",
+        "run",
+        "shared-ui:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/shared-ui",
       "executor": "nx:run-commands",
@@ -600,7 +868,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "shell:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "shell:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/shell",
       "executor": "nx:run-commands",
@@ -611,7 +886,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "tenant-admin:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "tenant-admin:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "npm run lint",
       "cwd": "web/modules/tenant-admin",
       "executor": "nx:run-commands",
@@ -622,7 +904,14 @@
       "runner": "nx"
     },
     {
-      "args": ["nx", "run", "tenant-context:lint", "--skip-nx-cache", "--", "--max-warnings=0"],
+      "args": [
+        "nx",
+        "run",
+        "tenant-context:lint",
+        "--skip-nx-cache",
+        "--",
+        "--max-warnings=0"
+      ],
       "command": "clippy",
       "cwd": null,
       "executor": "@aqua/cargo:run",
@@ -636,6 +925,6 @@
   "generated_by": "tools/quality/quality.mjs lint-inventory generate",
   "schema_version": 1,
   "source": "nx project graph",
-  "target_count": 45,
-  "target_list_sha256": "39d728119c5926e882f390dac120c413a3b1237726e61a4e576eb5b0fdc331a8"
+  "target_count": 48,
+  "target_list_sha256": "91623729780238787eef79cdbc21c03c7a1ece64375009905c3949ee89cbb7fb"
 }

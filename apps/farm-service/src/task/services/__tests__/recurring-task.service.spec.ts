@@ -91,18 +91,29 @@ describe('RecurringTaskService timezone handling', () => {
     });
 
     it('returns a different UTC instant for two zones on the same call instant', () => {
-      const svc = makeService();
-      const dueIstanbul = svc.calculateDueDate('Europe/Istanbul');
-      const dueLA = svc.calculateDueDate('America/Los_Angeles');
-      // LA is 10h behind Istanbul; their local-end-of-day instants
-      // are 10h apart in UTC terms (or very close, accounting for
-      // DST state on the call day).
-      const diffMs = Math.abs(
-        dueIstanbul.getTime() - dueLA.getTime(),
-      );
-      const diffHours = diffMs / (1000 * 60 * 60);
-      expect(diffHours).toBeGreaterThanOrEqual(9);
-      expect(diffHours).toBeLessThanOrEqual(11);
+      // Deterministic clock: the 9-11h window below only holds while
+      // Istanbul and Los Angeles are on the SAME calendar date. Outside
+      // 07:00-21:00 UTC the zones straddle midnight and the honest
+      // difference is 24h minus the offset gap (~14h), so a wall-clock
+      // run flaked for ~10 hours of every day. Pin an instant where
+      // both zones share the date (12:00 UTC → 15:00 Istanbul, 05:00 LA).
+      jest.useFakeTimers({ now: new Date('2026-07-01T12:00:00.000Z') });
+      try {
+        const svc = makeService();
+        const dueIstanbul = svc.calculateDueDate('Europe/Istanbul');
+        const dueLA = svc.calculateDueDate('America/Los_Angeles');
+        // LA is 10h behind Istanbul; their local-end-of-day instants
+        // are 10h apart in UTC terms (or very close, accounting for
+        // DST state on the call day).
+        const diffMs = Math.abs(
+          dueIstanbul.getTime() - dueLA.getTime(),
+        );
+        const diffHours = diffMs / (1000 * 60 * 60);
+        expect(diffHours).toBeGreaterThanOrEqual(9);
+        expect(diffHours).toBeLessThanOrEqual(11);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('falls back to UTC when timezone is null', () => {

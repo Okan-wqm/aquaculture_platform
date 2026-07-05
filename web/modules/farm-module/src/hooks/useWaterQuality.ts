@@ -3,18 +3,18 @@
  * Handles CRUD operations for water quality measurements via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type WaterQualityStatus =
-  | 'OPTIMAL'
-  | 'ACCEPTABLE'
-  | 'WARNING'
-  | 'CRITICAL'
-  | 'UNKNOWN';
+export type WaterQualityStatus = 'OPTIMAL' | 'ACCEPTABLE' | 'WARNING' | 'CRITICAL' | 'UNKNOWN';
 
 export type MeasurementSource =
   | 'MANUAL'
@@ -295,6 +295,12 @@ const UPDATE_WATER_QUALITY = `
   }
 `;
 
+const RECORD_WATER_TEMPERATURE = `
+  mutation RecordWaterTemperature($tankId: ID!, $celsius: Float!) {
+    recordWaterTemperature(tankId: $tankId, celsius: $celsius)
+  }
+`;
+
 const DELETE_WATER_QUALITY = `
   mutation DeleteWaterQualityMeasurement($id: ID!) {
     deleteWaterQualityMeasurement(id: $id)
@@ -415,7 +421,14 @@ export function useWaterQualityChart(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'chart', tankId, fromDate?.toISOString(), toDate?.toISOString()),
+    queryKey: createTenantQueryKey(
+      tenantId,
+      'waterQuality',
+      'chart',
+      tankId,
+      fromDate?.toISOString(),
+      toDate?.toISOString(),
+    ),
     queryFn: async () => {
       if (!tankId || !fromDate || !toDate) return [];
       const response = await graphqlClient.request<{
@@ -424,7 +437,7 @@ export function useWaterQualityChart(
         tankId,
         fromDate: fromDate.toISOString(),
         toDate: toDate.toISOString(),
-    enabled: !!tenantId,
+        enabled: !!tenantId,
       });
       return response.waterQualityChart;
     },
@@ -504,7 +517,14 @@ export function useWaterQualityChartBySystem(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'chartBySystem', systemId, fromDate?.toISOString(), toDate?.toISOString()),
+    queryKey: createTenantQueryKey(
+      tenantId,
+      'waterQuality',
+      'chartBySystem',
+      systemId,
+      fromDate?.toISOString(),
+      toDate?.toISOString(),
+    ),
     queryFn: async () => {
       if (!systemId || !fromDate || !toDate) return [];
       const response = await graphqlClient.request<{
@@ -513,7 +533,7 @@ export function useWaterQualityChartBySystem(
         systemId,
         fromDate: fromDate.toISOString(),
         toDate: toDate.toISOString(),
-    enabled: !!tenantId,
+        enabled: !!tenantId,
       });
       return response.waterQualityChartBySystem;
     },
@@ -524,10 +544,7 @@ export function useWaterQualityChartBySystem(
 /**
  * Fetch aggregate statistics for all tanks in a system
  */
-export function useWaterQualityStatisticsBySystem(
-  systemId: string | null,
-  days: number = 7,
-) {
+export function useWaterQualityStatisticsBySystem(systemId: string | null, days: number = 7) {
   const { tenantId } = useAuth();
   const { token } = useAuth();
 
@@ -562,10 +579,51 @@ export function useCreateWaterQuality() {
     },
     onSuccess: (data) => {
       // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId) });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId),
+      });
+    },
+  });
+}
+
+/**
+ * Record a single MANUAL water-temperature reading for a tank — the quick entry
+ * that feeds the feeding-rate calculation. Uses the dedicated `recordWaterTemperature`
+ * mutation, which bypasses the full multi-parameter water-quality validation.
+ */
+export function useRecordWaterTemperature() {
+  const { tenantId } = useAuth();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      tankId,
+      celsius,
+    }: {
+      tankId: string;
+      celsius: number;
+    }): Promise<boolean> => {
+      const response = await graphqlClient.request<{ recordWaterTemperature: boolean }>(
+        RECORD_WATER_TEMPERATURE,
+        { tankId, celsius },
+      );
+      return response.recordWaterTemperature;
+    },
+    onSuccess: (_data, { tankId }) => {
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', tankId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list'),
+      });
     },
   });
 }
@@ -597,7 +655,9 @@ export function useCreateBatchWaterQuality() {
       return response.createBatchWaterQualityMeasurements;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality'),
+      });
     },
   });
 }
@@ -619,11 +679,21 @@ export function useUpdateWaterQuality() {
     },
     onSuccess: (data) => {
       // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'detail', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId) });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'detail', data.id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId),
+      });
     },
   });
 }
@@ -645,7 +715,9 @@ export function useDeleteWaterQuality() {
     },
     onSuccess: () => {
       // Invalidate all water quality queries
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'waterQuality') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality'),
+      });
     },
   });
 }

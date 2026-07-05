@@ -80,6 +80,7 @@ services:
       - "events.*.BatchAllocatedToTank"
       - "events.*.BatchClosed"
       - "events.*.BatchCreated"
+      - "events.*.BatchGraded"
       - "events.*.BatchHarvested"
       - "events.*.BatchMetadataUpdated"
       - "events.*.BatchProductionCompleted"

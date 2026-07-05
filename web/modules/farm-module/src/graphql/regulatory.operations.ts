@@ -26,6 +26,7 @@
 
 const REPORT_SUBMISSION_RESULT_FIELDS = `
   success
+  reportId
   referanse
   klientReferanse
   feilmelding
@@ -320,6 +321,60 @@ export const BIOMASS_REPORTS_QUERY = `
       totalBiomassKg
       submittedAt
       updatedAt
+    }
+  }
+`;
+
+// ============================================================================
+// PERSISTED SUBMISSION HISTORY (FARM-HIGH-125)
+// ============================================================================
+
+const REGULATORY_REPORT_ROW_FIELDS = `
+  id
+  reportType
+  klientReferanse
+  siteId
+  lokalitetsnummer
+  reportYear
+  reportWeek
+  reportMonth
+  status
+  referanse
+  feilmelding
+  submittedBy
+  submittedAt
+  createdAt
+`;
+
+/** Submission history for one report type, newest first. */
+export const REGULATORY_REPORTS_QUERY = `
+  query RegulatoryReports($reportType: RegulatoryReportType!, $siteId: ID, $limit: Int, $offset: Int) {
+    regulatoryReports(reportType: $reportType, siteId: $siteId, limit: $limit, offset: $offset) {
+      ${REGULATORY_REPORT_ROW_FIELDS}
+    }
+  }
+`;
+
+/** One persisted submission including the full submitted payload. */
+export const REGULATORY_REPORT_QUERY = `
+  query RegulatoryReport($id: ID!) {
+    regulatoryReport(id: $id) {
+      ${REGULATORY_REPORT_ROW_FIELDS}
+      payload
+    }
+  }
+`;
+
+/** Per-type status counts + last submission — feeds page badges/summary. */
+export const REGULATORY_REPORT_SUMMARY_QUERY = `
+  query RegulatoryReportSummary($siteId: ID) {
+    regulatoryReportSummary(siteId: $siteId) {
+      reportType
+      pendingCount
+      submittedCount
+      queuedCount
+      failedCount
+      lastSubmittedAt
     }
   }
 `;

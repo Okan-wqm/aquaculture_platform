@@ -53,6 +53,7 @@ import {
   SchemaDriftModule,
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
+  TenantSchemaCacheModule,
 } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
@@ -469,6 +470,9 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       excludeTables: getRlsExcludeTablesForService('farm'),
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    // Shared tenant schema-existence cache + TenantProvisioned invalidation
+    // (no stale-negative-cache block for freshly provisioned tenants).
+    TenantSchemaCacheModule,
     SchemaDriftModule.forRoot({ serviceName: 'farm' }),
   ],
   providers: [

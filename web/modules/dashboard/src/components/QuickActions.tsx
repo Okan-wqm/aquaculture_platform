@@ -43,7 +43,10 @@ const quickActions: QuickAction[] = [
     id: 'add-sensor',
     label: 'Sensör Ekle',
     description: 'Yeni sensör',
-    path: '/sites/sensors/new',
+    // Device management lives in the sensor module — the old
+    // `/sites/sensors/new` target never had a route and fell through
+    // to the farm catch-all (map page).
+    path: '/sensor/devices',
     color: 'bg-green-500',
     icon: <SensorIcon />,
   },

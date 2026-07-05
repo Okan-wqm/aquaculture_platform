@@ -19,7 +19,12 @@ import { CreateEquipmentCommand } from '../commands/create-equipment.command';
 import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { EquipmentCategory, EquipmentType } from '../entities/equipment-type.entity';
-import { Equipment, EquipmentLocation, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
+import {
+  Equipment,
+  EquipmentLocation,
+  EquipmentStatus,
+  TankSpecifications,
+} from '../entities/equipment.entity';
 
 type EquipmentSpecs = TankSpecifications & {
   shape?: string;
@@ -57,11 +62,9 @@ export class TankEquipmentAdapterService {
   ) {}
 
   isTankLike(equipmentType: EquipmentType): boolean {
-    return [
-      EquipmentCategory.TANK,
-      EquipmentCategory.POND,
-      EquipmentCategory.CAGE,
-    ].includes(equipmentType.category);
+    return [EquipmentCategory.TANK, EquipmentCategory.POND, EquipmentCategory.CAGE].includes(
+      equipmentType.category,
+    );
   }
 
   async createFromEquipment(
@@ -111,9 +114,11 @@ export class TankEquipmentAdapterService {
       const byCode = await repository.findOne({ where: { code: tank.equipmentTypeCode } });
       if (byCode) return byCode;
     }
-    return (await repository.findOne({
-      where: { code: this.defaultEquipmentTypeCode(tank.containerKind, tank.tankType) },
-    })) ?? undefined;
+    return (
+      (await repository.findOne({
+        where: { code: this.defaultEquipmentTypeCode(tank.containerKind, tank.tankType) },
+      })) ?? undefined
+    );
   }
 
   toEquipmentResponse(tank: Tank, equipmentType?: EquipmentType): Equipment {
@@ -137,6 +142,7 @@ export class TankEquipmentAdapterService {
     equipment.isActive = tank.isActive;
     equipment.isTank = true;
     equipment.isVisibleInSensor = true;
+    equipment.temperatureSensorId = tank.temperatureSensorId;
     equipment.volume = Number(tank.volume);
     equipment.currentBiomass = Number(tank.currentBiomass);
     equipment.currentCount = tank.currentCount;
@@ -169,16 +175,18 @@ export class TankEquipmentAdapterService {
       aeration: tank.aeration,
     };
     equipment.equipmentSystems = tank.systemId
-      ? [{
-          id: `${tank.id}-${tank.systemId}`,
-          tenantId: tank.tenantId,
-          equipmentId: tank.id,
-          systemId: tank.systemId,
-          isPrimary: true,
-          criticalityLevel: 3,
-          createdAt: tank.createdAt,
-          createdBy: tank.createdBy,
-        }] as EquipmentSystem[]
+      ? ([
+          {
+            id: `${tank.id}-${tank.systemId}`,
+            tenantId: tank.tenantId,
+            equipmentId: tank.id,
+            systemId: tank.systemId,
+            isPrimary: true,
+            criticalityLevel: 3,
+            createdAt: tank.createdAt,
+            createdBy: tank.createdBy,
+          },
+        ] as EquipmentSystem[])
       : [];
     return equipment;
   }
@@ -198,6 +206,7 @@ export class TankEquipmentAdapterService {
       containerKind: this.mapCategoryToContainerKind(equipmentType.category),
       equipmentTypeId: equipmentType.id,
       equipmentTypeCode: equipmentType.code,
+      temperatureSensorId: input.temperatureSensorId,
       tankType,
       material: this.mapTankMaterial(specs.material),
       waterType: this.mapWaterType(specs.waterType),
@@ -236,9 +245,12 @@ export class TankEquipmentAdapterService {
       systemId: Object.prototype.hasOwnProperty.call(input, 'systemIds')
         ? this.resolveSingleSystemId(input.systemIds)
         : undefined,
-      containerKind: equipmentType ? this.mapCategoryToContainerKind(equipmentType.category) : undefined,
+      containerKind: equipmentType
+        ? this.mapCategoryToContainerKind(equipmentType.category)
+        : undefined,
       equipmentTypeId: equipmentType?.id ?? input.equipmentTypeId,
       equipmentTypeCode: equipmentType?.code,
+      temperatureSensorId: input.temperatureSensorId,
       tankType: specs ? this.resolveTankType(specs, equipmentType) : undefined,
       material: specs?.material ? this.mapTankMaterial(specs.material) : undefined,
       waterType: specs?.waterType ? this.mapWaterType(specs.waterType) : undefined,
@@ -253,7 +265,9 @@ export class TankEquipmentAdapterService {
       maxDensity: specs?.maxDensity,
       waterFlow: specs?.waterFlow,
       aeration: specs?.aeration,
-      location: input.location ? this.mapEquipmentLocationToTankLocation(input.location) : undefined,
+      location: input.location
+        ? this.mapEquipmentLocationToTankLocation(input.location)
+        : undefined,
       status: input.status ? this.mapEquipmentStatusToTankStatus(input.status) : undefined,
       installationDate: input.installationDate
         ? new Date(input.installationDate).toISOString()
@@ -304,7 +318,7 @@ export class TankEquipmentAdapterService {
       square: TankType.SQUARE,
       other: TankType.OTHER,
     };
-    return value ? mapping[value.toLowerCase()] ?? TankType.OTHER : TankType.OTHER;
+    return value ? (mapping[value.toLowerCase()] ?? TankType.OTHER) : TankType.OTHER;
   }
 
   private mapTankMaterial(value?: string): TankMaterial {
@@ -319,7 +333,7 @@ export class TankEquipmentAdapterService {
       plastic: TankMaterial.OTHER,
       other: TankMaterial.OTHER,
     };
-    return value ? mapping[value.toLowerCase()] ?? TankMaterial.OTHER : TankMaterial.OTHER;
+    return value ? (mapping[value.toLowerCase()] ?? TankMaterial.OTHER) : TankMaterial.OTHER;
   }
 
   private mapWaterType(value?: string): WaterType {
@@ -328,7 +342,7 @@ export class TankEquipmentAdapterService {
       saltwater: WaterType.SALTWATER,
       brackish: WaterType.BRACKISH,
     };
-    return value ? mapping[value.toLowerCase()] ?? WaterType.FRESHWATER : WaterType.FRESHWATER;
+    return value ? (mapping[value.toLowerCase()] ?? WaterType.FRESHWATER) : WaterType.FRESHWATER;
   }
 
   private mapEquipmentStatusToTankStatus(status?: EquipmentStatus): TankStatus {
@@ -346,7 +360,7 @@ export class TankEquipmentAdapterService {
       [EquipmentStatus.FALLOW]: TankStatus.FALLOW,
       [EquipmentStatus.QUARANTINE]: TankStatus.QUARANTINE,
     };
-    return status ? mapping[status] ?? TankStatus.PREPARING : TankStatus.PREPARING;
+    return status ? (mapping[status] ?? TankStatus.PREPARING) : TankStatus.PREPARING;
   }
 
   private mapTankStatusToEquipmentStatus(status: TankStatus): EquipmentStatus {
@@ -374,7 +388,9 @@ export class TankEquipmentAdapterService {
     };
   }
 
-  private mapTankLocationToEquipmentLocation(location?: Tank['location']): EquipmentLocation | undefined {
+  private mapTankLocationToEquipmentLocation(
+    location?: Tank['location'],
+  ): EquipmentLocation | undefined {
     if (!location) return undefined;
     return {
       building: location.building,
@@ -393,7 +409,8 @@ export class TankEquipmentAdapterService {
     if (containerKind === TankContainerKind.POND) return 'pond-generic';
     if (containerKind === TankContainerKind.CAGE) return 'cage-generic';
     if (tankType === TankType.CIRCULAR) return 'tank-circular';
-    if (tankType === TankType.RECTANGULAR || tankType === TankType.SQUARE) return 'tank-rectangular';
+    if (tankType === TankType.RECTANGULAR || tankType === TankType.SQUARE)
+      return 'tank-rectangular';
     if (tankType === TankType.RACEWAY || tankType === TankType.D_END) return 'tank-raceway';
     return 'tank-generic';
   }

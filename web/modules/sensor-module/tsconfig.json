@@ -20,6 +20,7 @@
     "paths": {
       "@/*": ["src/*"],
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
+      "@platform/shared-ui/*": ["../../shared-ui/src/*"],
       "@aquaculture/node-components": [
         "../../../libs/node-components/src/index.ts"
       ],

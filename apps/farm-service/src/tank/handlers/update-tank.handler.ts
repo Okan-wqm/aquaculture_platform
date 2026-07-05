@@ -60,9 +60,10 @@ export class UpdateTankHandler implements ICommandHandler<UpdateTankCommand, Tan
         updateData.depth !== undefined ||
         updateData.volume !== undefined;
 
-      const tankBatches = hasDimensionChanges || updateData.status !== undefined
-        ? await tankBatchRepository.find({ where: { tankId: id, tenantId } })
-        : [];
+      const tankBatches =
+        hasDimensionChanges || updateData.status !== undefined
+          ? await tankBatchRepository.find({ where: { tankId: id, tenantId } })
+          : [];
       const activeStock = tankBatches.some(
         (batch) =>
           Number(batch.totalQuantity || 0) > 0 ||
@@ -93,7 +94,10 @@ export class UpdateTankHandler implements ICommandHandler<UpdateTankCommand, Tan
         }
       }
 
-      if (updateData.departmentId !== undefined && updateData.departmentId !== existing.departmentId) {
+      if (
+        updateData.departmentId !== undefined &&
+        updateData.departmentId !== existing.departmentId
+      ) {
         const department = await departmentRepository.findOne({
           where: { id: updateData.departmentId, tenantId },
         });
@@ -101,10 +105,14 @@ export class UpdateTankHandler implements ICommandHandler<UpdateTankCommand, Tan
           throw new NotFoundException(`Department with id "${updateData.departmentId}" not found`);
         }
         if (department.isDeleted) {
-          throw new BadRequestException(`Department with id "${updateData.departmentId}" is deleted`);
+          throw new BadRequestException(
+            `Department with id "${updateData.departmentId}" is deleted`,
+          );
         }
         if (existing.systemId) {
-          const system = await systemRepository.findOne({ where: { id: existing.systemId, tenantId } });
+          const system = await systemRepository.findOne({
+            where: { id: existing.systemId, tenantId },
+          });
           if (system && system.siteId !== department.siteId) {
             throw new BadRequestException(
               `System "${system.name}" does not belong to the same site as the department`,
@@ -116,7 +124,9 @@ export class UpdateTankHandler implements ICommandHandler<UpdateTankCommand, Tan
 
       if (updateData.systemId !== undefined) {
         if (updateData.systemId) {
-          const system = await systemRepository.findOne({ where: { id: updateData.systemId, tenantId } });
+          const system = await systemRepository.findOne({
+            where: { id: updateData.systemId, tenantId },
+          });
           if (!system) {
             throw new NotFoundException(`System with id "${updateData.systemId}" not found`);
           }
@@ -143,8 +153,12 @@ export class UpdateTankHandler implements ICommandHandler<UpdateTankCommand, Tan
       if (updateData.name !== undefined) existing.name = updateData.name;
       if (updateData.description !== undefined) existing.description = updateData.description;
       if (updateData.containerKind !== undefined) existing.containerKind = updateData.containerKind;
-      if (updateData.equipmentTypeId !== undefined) existing.equipmentTypeId = updateData.equipmentTypeId;
-      if (updateData.equipmentTypeCode !== undefined) existing.equipmentTypeCode = updateData.equipmentTypeCode;
+      if (updateData.equipmentTypeId !== undefined)
+        existing.equipmentTypeId = updateData.equipmentTypeId;
+      if (updateData.temperatureSensorId !== undefined)
+        existing.temperatureSensorId = updateData.temperatureSensorId;
+      if (updateData.equipmentTypeCode !== undefined)
+        existing.equipmentTypeCode = updateData.equipmentTypeCode;
       if (updateData.tankType !== undefined) existing.tankType = updateData.tankType;
       if (updateData.material !== undefined) existing.material = updateData.material;
       if (updateData.waterType !== undefined) existing.waterType = updateData.waterType;

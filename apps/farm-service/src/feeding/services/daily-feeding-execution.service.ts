@@ -23,13 +23,19 @@ import {
   SiteAuthorizationService,
   type SiteScopeCaller,
 } from '@aquaculture/backend-common/security';
-import { TenantContextError } from '@aquaculture/backend-common/database';
-import { Injectable, Logger, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Optional,
+  Inject,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager, In } from 'typeorm';
+import { Repository, DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent , createBaseEvent } from '@platform/event-contracts';
+import { FeedInventoryLowEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 
@@ -41,18 +47,27 @@ import {
   ExecutionResult,
   TransitionWarning,
 } from '../entities/daily-feeding-execution.entity';
-import { FeedingProgram, FCRSource, FeedAssignment } from '../entities/feeding-program.entity';
+import {
+  FeedingProgram,
+  FCRSource,
+  FeedAssignment,
+  GrowthApplicationMode,
+} from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
+import { GrowthStageProtocol, TemperatureRange } from '../../feed/entities/feeding-protocol.entity';
+import { getTenantSchemaName, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 // Services
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
+import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 
@@ -117,9 +132,32 @@ export interface FeedingRecordResult {
 // SERVICE
 // ============================================================================
 
+/**
+ * Normalize a JSONB band column read via a raw query — pg returns jsonb already
+ * parsed, but a text-typed legacy row may arrive as a JSON string.
+ */
+function asBandArray<T>(value: T[] | string | null | undefined): T[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 @Injectable()
 export class DailyFeedingExecutionService {
   private readonly logger = new Logger(DailyFeedingExecutionService.name);
+
+  // Stateless rate SSoT — the same calculator the tanks-page DataLoader uses, so
+  // the daily plan and the tanks page agree on the protocol-driven feed rate.
+  private readonly protocolRate = new FeedingProtocolRateService();
 
   constructor(
     @InjectRepository(DailyFeedingExecution)
@@ -137,6 +175,7 @@ export class DailyFeedingExecutionService {
     @InjectRepository(Feed)
     private readonly feedRepo: Repository<Feed>,
     private readonly bilinearService: BilinearInterpolationService,
+    private readonly waterTemperatureService: WaterTemperatureService,
     private readonly dataSource: DataSource,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
@@ -147,7 +186,8 @@ export class DailyFeedingExecutionService {
     // future caller) is gated identically and the resolver can never again be
     // the sole, forgettable enforcement point.
     private readonly siteAuth: SiteAuthorizationService,
-    @Optional() @Inject('EVENT_BUS')
+    @Optional()
+    @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
 
@@ -171,7 +211,9 @@ export class DailyFeedingExecutionService {
     tenantId: string,
     userId: string = SYSTEM_USER_ID,
   ): Promise<DailyPlanResult> {
-    this.logger.log(`Generating daily plan for program ${programId} on ${date.toISOString().split('T')[0]}`);
+    this.logger.log(
+      `Generating daily plan for program ${programId} on ${date.toISOString().split('T')[0]}`,
+    );
 
     const result: DailyPlanResult = {
       programId,
@@ -221,7 +263,9 @@ export class DailyFeedingExecutionService {
         });
 
         if (existingExecution) {
-          this.logger.debug(`Execution already exists for tank ${programTank.equipmentCode} on ${date.toISOString().split('T')[0]}`);
+          this.logger.debug(
+            `Execution already exists for tank ${programTank.equipmentCode} on ${date.toISOString().split('T')[0]}`,
+          );
           result.executions.push(existingExecution);
           continue;
         }
@@ -270,7 +314,9 @@ export class DailyFeedingExecutionService {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        result.errors.push(`Error creating execution for tank ${programTank.equipmentCode}: ${errorMessage}`);
+        result.errors.push(
+          `Error creating execution for tank ${programTank.equipmentCode}: ${errorMessage}`,
+        );
         this.logger.error(`Error creating execution for tank ${programTank.equipmentCode}`, error);
       }
     }
@@ -342,14 +388,28 @@ export class DailyFeedingExecutionService {
       }
     }
 
+    // 3b. Protocol precedence (rate SSoT). If the tank's primary batch carries a
+    // feeding protocol, its feedPercent(weight) × tempMultiplier drives the rate —
+    // the SAME calculator the tanks-page DataLoader uses, so the daily plan and the
+    // tanks page agree. FCR stays feed/program-derived (the protocol has no FCR model).
+    // A DEFAULTED temperature must not scale the protocol rate: the tanks page
+    // passes undefined when no reading exists (multiplier 1.0), and the daily
+    // plan must agree — the 15 °C fallback stays confined to the matrix/curve
+    // interpolation above, which needs SOME temperature to interpolate at all.
+    const protocolRatePercent = await this.resolveProtocolRatePercent(
+      tenantId,
+      tankState.batchId,
+      avgWeightG,
+      usingDefaultTemperature ? undefined : waterTempC,
+    );
+    if (protocolRatePercent !== null) {
+      feedingRatePercent = protocolRatePercent;
+    }
+
     // 4. FCR kaynagini kontrol et
     let fcrSource = FCRSource.FEED;
     if (program.settings.fcrSource === FCRSource.PROGRAM && program.fcrTable) {
-      const programFCR = this.getFCRFromProgramTable(
-        program.fcrTable,
-        waterTempC,
-        avgWeightG,
-      );
+      const programFCR = this.getFCRFromProgramTable(program.fcrTable, waterTempC, avgWeightG);
       if (programFCR) {
         fcr = programFCR;
         fcrSource = FCRSource.PROGRAM;
@@ -403,7 +463,7 @@ export class DailyFeedingExecutionService {
     if (usingDefaultTemperature) {
       this.logger.warn(
         `[WARNING] Execution for tank ${programTank.equipmentCode} is using default temperature (${waterTempC}C). ` +
-        `Feeding calculations may be inaccurate.`,
+          `Feeding calculations may be inaccurate.`,
       );
     }
 
@@ -513,15 +573,13 @@ export class DailyFeedingExecutionService {
       });
 
       if (!execution) {
-        throw new NotFoundException(
-          `Execution ${executionId} not found for tenant ${tenantId}`,
-        );
+        throw new NotFoundException(`Execution ${executionId} not found for tenant ${tenantId}`);
       }
 
       if (!execution.canRecordFeeding()) {
         throw new BadRequestException(
           `Execution ${executionId} cannot record feeding (status: ${execution.status}). ` +
-          `Only PLANNED or IN_PROGRESS executions can record feeding.`,
+            `Only PLANNED or IN_PROGRESS executions can record feeding.`,
         );
       }
 
@@ -579,6 +637,14 @@ export class DailyFeedingExecutionService {
         fcr = Math.max(MIN_FCR, Math.min(MAX_FCR, fcr));
       }
 
+      // Growth application mode (per-program). PER_FEEDING rolls the weight up now;
+      // DAILY records the feed but holds back the roll-up to applyPendingDailyGrowth,
+      // so every plan in the day sees the same morning weight.
+      const growthMode =
+        execution.feedingProgram?.settings?.growthApplicationMode ??
+        GrowthApplicationMode.PER_FEEDING;
+      const applyGrowthNow = growthMode === GrowthApplicationMode.PER_FEEDING;
+
       // 3. Buyume hesapla with sanity checks
       const growthKg = this.calculateGrowthFromFeeding(actualKg, fcr);
 
@@ -600,7 +666,7 @@ export class DailyFeedingExecutionService {
       if (growthKg > maxDailyGrowthKg) {
         this.logger.warn(
           `Calculated growth (${growthKg.toFixed(2)}kg) exceeds expected biological limit ` +
-          `(${maxDailyGrowthKg.toFixed(2)}kg, 5% of biomass) for execution ${executionId}`,
+            `(${maxDailyGrowthKg.toFixed(2)}kg, 5% of biomass) for execution ${executionId}`,
         );
       }
 
@@ -615,13 +681,19 @@ export class DailyFeedingExecutionService {
 
       // 5. Execution'i guncelle (entity metodunu kullan)
       execution.recordActualFeeding(actualKg, fcr, userId, notes);
+      if (applyGrowthNow) {
+        // PER_FEEDING: growth is rolled into the tank/batch below, now — stamp the
+        // idempotency key so the daily roll-up never re-applies it.
+        execution.growthAppliedAt = new Date();
+      }
 
-      // 6. Yem gecisi kontrolu
+      // 6. Yem gecisi kontrolu — PER_FEEDING only; DAILY re-evaluates transitions
+      // when the roll-up applies the aggregate growth.
       let feedTransitioned = false;
       let newFeedId: string | undefined;
       let newFeedCode: string | undefined;
 
-      if (execution.feedingProgram) {
+      if (applyGrowthNow && execution.feedingProgram) {
         const transitionResult = await this.checkAndExecuteTransitionWithManager(
           queryRunner.manager,
           execution,
@@ -639,14 +711,18 @@ export class DailyFeedingExecutionService {
       // 7. Kaydet execution within transaction
       await queryRunner.manager.save(execution);
 
-      // 8. Tank ve Batch'i guncelle within same transaction
-      await this.updateTankBiomassWithManager(
-        queryRunner.manager,
-        execution.equipmentId,
-        newBiomassKg,
-        newAvgWeightG,
-        tenantId,
-      );
+      // 8. Tank ve Batch'i guncelle within same transaction — PER_FEEDING only.
+      // DAILY holds back this to applyPendingDailyGrowth, which rolls the whole day's
+      // feed into a single weight update (growthAppliedAt stays null until then).
+      if (applyGrowthNow) {
+        await this.updateTankBiomassWithManager(
+          queryRunner.manager,
+          execution.equipmentId,
+          newBiomassKg,
+          newAvgWeightG,
+          tenantId,
+        );
+      }
 
       // 9a. Storage-ledger deduction (StorageInventory + Feed.quantity
       // roll-up + StockMovement audit row), INSIDE this tx, fail-closed.
@@ -703,12 +779,12 @@ export class DailyFeedingExecutionService {
       // 10. Audit log for state change
       this.logger.log(
         `[AUDIT] Feeding recorded for execution ${executionId}: ` +
-        `status ${previousState.status} -> ${execution.status}, ` +
-        `biomass ${previousState.biomassKg.toFixed(2)}kg -> ${newBiomassKg.toFixed(2)}kg, ` +
-        `avgWeight ${previousState.avgWeightG.toFixed(1)}g -> ${newAvgWeightG.toFixed(1)}g, ` +
-        `actualKg: ${actualKg}, growthKg: ${growthKg.toFixed(2)}, ` +
-        `user: ${userId}` +
-        (feedTransitioned ? `, transitioned to ${newFeedCode}` : ''),
+          `status ${previousState.status} -> ${execution.status}, ` +
+          `biomass ${previousState.biomassKg.toFixed(2)}kg -> ${newBiomassKg.toFixed(2)}kg, ` +
+          `avgWeight ${previousState.avgWeightG.toFixed(1)}g -> ${newAvgWeightG.toFixed(1)}g, ` +
+          `actualKg: ${actualKg}, growthKg: ${growthKg.toFixed(2)}, ` +
+          `user: ${userId}` +
+          (feedTransitioned ? `, transitioned to ${newFeedCode}` : ''),
       );
 
       return result;
@@ -757,9 +833,7 @@ export class DailyFeedingExecutionService {
     });
 
     if (!execution) {
-      throw new NotFoundException(
-        `Execution ${executionId} not found for tenant ${tenantId}`,
-      );
+      throw new NotFoundException(`Execution ${executionId} not found for tenant ${tenantId}`);
     }
 
     // SEC-HIGH-051: assert site assignment before the SKIPPED write. The skip is
@@ -790,7 +864,7 @@ export class DailyFeedingExecutionService {
     // Audit log for state change
     this.logger.log(
       `[AUDIT] Execution ${executionId} skipped: status ${previousStatus} -> ${execution.status}, ` +
-      `reason: "${reason}", user: ${userId}`,
+        `reason: "${reason}", user: ${userId}`,
     );
 
     return savedExecution;
@@ -815,6 +889,108 @@ export class DailyFeedingExecutionService {
       fcr = 1.0;
     }
     return actualKg / fcr;
+  }
+
+  /**
+   * DAILY-mode roll-up: apply the day's pending FCR growth to each tank ONCE.
+   *
+   * PER_FEEDING executions stamp `growthAppliedAt` inline, so the only rows this
+   * finds are DAILY executions whose weight update was pending. For each tank it
+   * sums the pending growth (fed / clamped-FCR) and applies a single weight
+   * update to the still-morning biomass, then stamps every processed execution so
+   * the growth is never applied twice. Idempotent — safe to run repeatedly.
+   */
+  async applyPendingDailyGrowth(
+    tenantId: string,
+  ): Promise<{ tanksUpdated: number; executionsRolledUp: number }> {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const pending = await manager.find(DailyFeedingExecution, {
+        // tenantId predicate matches every sibling read: defense-in-depth beyond
+        // the pinned search_path (a future schema change must not fold tenants).
+        where: { tenantId, status: ExecutionStatus.COMPLETED, growthAppliedAt: IsNull() },
+        relations: { feedingProgram: true, feedingProgramTank: true },
+      });
+      if (pending.length === 0) {
+        return { tanksUpdated: 0, executionsRolledUp: 0 };
+      }
+
+      // Sum each tank's pending growth; carry every id so it can be stamped, and
+      // the latest program-bearing execution so the feed transition the inline
+      // path skipped for DAILY can be evaluated against the rolled-up weight.
+      const byTank = new Map<
+        string,
+        { growthKg: number; ids: string[]; latest?: DailyFeedingExecution }
+      >();
+      for (const exec of pending) {
+        const entry = byTank.get(exec.equipmentId) ?? { growthKg: 0, ids: [] };
+        const actualKg = exec.actualFeedKg;
+        if (actualKg && actualKg > 0) {
+          const fcr = Math.max(0.5, Math.min(5.0, exec.calculations.expectedFCR));
+          entry.growthKg += this.calculateGrowthFromFeeding(actualKg, fcr);
+        }
+        entry.ids.push(exec.id);
+        if (
+          exec.feedingProgram &&
+          (!entry.latest || exec.executionDate >= entry.latest.executionDate)
+        ) {
+          entry.latest = exec;
+        }
+        byTank.set(exec.equipmentId, entry);
+      }
+
+      const now = new Date();
+      let tanksUpdated = 0;
+      for (const [equipmentId, { growthKg, latest }] of byTank) {
+        if (growthKg <= 0) {
+          continue;
+        }
+        // The tank biomass is still the morning value — DAILY held back every update.
+        const tankBatch = await manager.findOne(TankBatch, {
+          where: { tankId: equipmentId, tenantId },
+        });
+        if (!tankBatch) {
+          continue;
+        }
+        const fishCount = tankBatch.currentQuantity ?? tankBatch.totalQuantity;
+        const currentBiomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
+        if (fishCount <= 0) {
+          continue;
+        }
+        const newBiomassKg = currentBiomassKg + growthKg;
+        const newAvgWeightG = (newBiomassKg / fishCount) * 1000;
+        await this.updateTankBiomassWithManager(
+          manager,
+          equipmentId,
+          newBiomassKg,
+          newAvgWeightG,
+          tenantId,
+        );
+        // DAILY held the feed-transition check back at recording time; evaluate
+        // it here against the rolled-up weight so transitions (programTank
+        // update + stats + audit) fire exactly once per day for DAILY programs.
+        if (latest) {
+          const transition = await this.checkAndExecuteTransitionWithManager(
+            manager,
+            latest,
+            newAvgWeightG,
+            tenantId,
+          );
+          if (transition) {
+            latest.markFeedTransition(transition.newFeedId, transition.newFeedCode);
+            await manager.save(latest);
+          }
+        }
+        tanksUpdated += 1;
+      }
+
+      // Stamp EVERY processed execution — including zero-growth ones — so the daily
+      // scan does not keep re-reading them.
+      const allIds = Array.from(byTank.values()).flatMap((e) => e.ids);
+      await manager.update(DailyFeedingExecution, { id: In(allIds) }, { growthAppliedAt: now });
+
+      return { tanksUpdated, executionsRolledUp: allIds.length };
+    });
   }
 
   /**
@@ -985,15 +1161,9 @@ export class DailyFeedingExecutionService {
 
     if (programTank) {
       // Yeni yem atamasinin index'ini bul
-      const newRangeIndex = program.feedAssignments.findIndex(
-        (fa) => fa.feedId === newFeed.feedId,
-      );
+      const newRangeIndex = program.feedAssignments.findIndex((fa) => fa.feedId === newFeed.feedId);
 
-      programTank.transitionToFeed(
-        newFeed.feedId,
-        newFeed.feedCode,
-        newRangeIndex,
-      );
+      programTank.transitionToFeed(newFeed.feedId, newFeed.feedCode, newRangeIndex);
 
       await this.programTankRepo.save(programTank);
 
@@ -1004,7 +1174,7 @@ export class DailyFeedingExecutionService {
       // Audit log for feed transition
       this.logger.log(
         `[AUDIT] Feed transition executed for tank ${programTank.equipmentCode}: ` +
-        `${currentFeed.feedCode} -> ${newFeed.feedCode} (weight: ${newAvgWeightG.toFixed(1)}g)`,
+          `${currentFeed.feedCode} -> ${newFeed.feedCode} (weight: ${newAvgWeightG.toFixed(1)}g)`,
       );
     } else {
       this.logger.warn(
@@ -1028,7 +1198,11 @@ export class DailyFeedingExecutionService {
    * @param tenantId Tenant ID
    * @returns Gecis yapildiysa yeni yem bilgisi, yoksa null
    */
-  private async checkAndExecuteTransitionWithManager(
+  /**
+   * @internal Shared transition seam — invoked inline by recordActualFeeding
+   * (PER_FEEDING) and by applyPendingDailyGrowth (DAILY roll-up).
+   */
+  async checkAndExecuteTransitionWithManager(
     manager: import('typeorm').EntityManager,
     execution: DailyFeedingExecution,
     newAvgWeightG: number,
@@ -1068,15 +1242,9 @@ export class DailyFeedingExecutionService {
 
     if (programTank) {
       // Yeni yem atamasinin index'ini bul
-      const newRangeIndex = program.feedAssignments.findIndex(
-        (fa) => fa.feedId === newFeed.feedId,
-      );
+      const newRangeIndex = program.feedAssignments.findIndex((fa) => fa.feedId === newFeed.feedId);
 
-      programTank.transitionToFeed(
-        newFeed.feedId,
-        newFeed.feedCode,
-        newRangeIndex,
-      );
+      programTank.transitionToFeed(newFeed.feedId, newFeed.feedCode, newRangeIndex);
 
       await manager.save(programTank);
 
@@ -1087,7 +1255,7 @@ export class DailyFeedingExecutionService {
       // Audit log for feed transition
       this.logger.log(
         `[AUDIT] Feed transition executed for tank ${programTank.equipmentCode}: ` +
-        `${currentFeed.feedCode} -> ${newFeed.feedCode} (weight: ${newAvgWeightG.toFixed(1)}g)`,
+          `${currentFeed.feedCode} -> ${newFeed.feedCode} (weight: ${newAvgWeightG.toFixed(1)}g)`,
       );
     } else {
       this.logger.warn(
@@ -1138,11 +1306,7 @@ export class DailyFeedingExecutionService {
     });
 
     // Sicaklik okumasini al
-    const temperatureResult = await this.getWaterTemperature(
-      tankId,
-      tenantId,
-      temperatureSensorId,
-    );
+    const temperatureResult = await this.getWaterTemperature(tankId, tenantId, temperatureSensorId);
 
     return {
       tankId,
@@ -1158,6 +1322,56 @@ export class DailyFeedingExecutionService {
   }
 
   /**
+   * The tank's primary-batch feeding-rate percent from its assigned protocol, or
+   * null when the batch carries no protocol or the protocol has no usable weight
+   * bands (caller then keeps the feed matrix/curve rate). Schema-qualified so it
+   * is safe from the daily-feeding cron (no request search_path).
+   */
+  private async resolveProtocolRatePercent(
+    tenantId: string,
+    batchId: string | undefined,
+    avgWeightG: number,
+    waterTempC: number | undefined,
+  ): Promise<number | null> {
+    if (!batchId) {
+      return null;
+    }
+    const schema = getTenantSchemaName(tenantId);
+    const batchRows: Array<{ protocolId: string | null }> = await this.dataSource.query(
+      `SELECT "protocolId" FROM "${schema}".batches_v2
+        WHERE "id" = $1 AND "tenantId" = $2 AND "protocolId" IS NOT NULL
+        LIMIT 1`,
+      [batchId, tenantId],
+    );
+    const protocolId = batchRows[0]?.protocolId;
+    if (!protocolId) {
+      return null;
+    }
+    const protocolRows: Array<{
+      growthStageProtocols: GrowthStageProtocol[] | string | null;
+      temperatureRanges: TemperatureRange[] | string | null;
+    }> = await this.dataSource.query(
+      `SELECT "growthStageProtocols", "temperatureRanges" FROM "${schema}".feeding_protocols
+        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true AND "isDeleted" = false
+        LIMIT 1`,
+      [protocolId, tenantId],
+    );
+    const protocol = protocolRows[0];
+    if (!protocol) {
+      return null;
+    }
+    const rate = this.protocolRate.calculateRate(
+      {
+        growthStageProtocols: asBandArray<GrowthStageProtocol>(protocol.growthStageProtocols),
+        temperatureRanges: asBandArray<TemperatureRange>(protocol.temperatureRanges),
+      },
+      avgWeightG,
+      waterTempC,
+    );
+    return rate ? rate.feedingRatePercent : null;
+  }
+
+  /**
    * Sensor service'den veya sensor_readings tablosundan sicaklik okur.
    * Bulunamazsa varsayilan deger doner.
    *
@@ -1166,48 +1380,26 @@ export class DailyFeedingExecutionService {
   private async getWaterTemperature(
     tankId: string,
     tenantId: string,
-    sensorId?: string,
+    _sensorId?: string,
   ): Promise<{ value: number; isDefault: boolean }> {
     const DEFAULT_TEMP = 15.0;
 
-    try {
-      // sensor_readings tablosundan en son sicaklik okumasini al
-      // SECURITY FIX: Always include tenant_id check to prevent cross-tenant data access
-      // Even when sensorId is provided, we join with sensors table to verify tenant ownership
-      const query = sensorId
-        ? `SELECT sr.value FROM sensor_readings sr
-           INNER JOIN sensors s ON sr.sensor_id = s.id
-           WHERE sr.sensor_id = $1 AND s.tenant_id = $2
-           AND sr.metric_type = 'temperature'
-           ORDER BY sr.timestamp DESC LIMIT 1`
-        : `SELECT sr.value FROM sensor_readings sr
-           INNER JOIN sensors s ON sr.sensor_id = s.id
-           WHERE s.equipment_id = $1 AND s.tenant_id = $2
-           AND sr.metric_type = 'temperature'
-           ORDER BY sr.timestamp DESC LIMIT 1`;
-
-      const params = sensorId ? [sensorId, tenantId] : [tankId, tenantId];
-      const result = await this.dataSource.query(query, params);
-
-      if (result && result.length > 0 && result[0].value !== null) {
-        return { value: Number(result[0].value), isDefault: false };
-      }
-
-      this.logger.warn(
-        `[WARNING] No temperature reading found for tank ${tankId}. Using default temperature ${DEFAULT_TEMP}C. ` +
-        `Feeding calculations may be inaccurate. Please check temperature sensor configuration.`,
-      );
-      return { value: DEFAULT_TEMP, isDefault: true };
-    } catch (error) {
-      if (error instanceof TenantContextError) {
-        throw error;
-      }
-      this.logger.warn(
-        `[WARNING] Error reading temperature for tank ${tankId}: ${error instanceof Error ? error.message : 'Unknown'}. ` +
-        `Using default temperature ${DEFAULT_TEMP}C. Feeding calculations may be inaccurate.`,
-      );
-      return { value: DEFAULT_TEMP, isDefault: true };
+    // Phase 2a: resolve via WaterTemperatureService (latest manual water-quality
+    // measurement). Replaces the old cross-schema raw query, which was
+    // prod-broken (farm_service has no grant on the `sensor` schema) and named
+    // columns/tables that do not exist. `_sensorId` is reserved for Phase 2b,
+    // when the sensor source resolves the tank's linked sensor reading through
+    // the same service (a farm-side projection of the SensorReading event).
+    const reading = await this.waterTemperatureService.getCurrentTemperature(tenantId, tankId);
+    if (reading) {
+      return { value: reading.celsius, isDefault: false };
     }
+
+    this.logger.warn(
+      `No water temperature on record for tank ${tankId}. Using default ${DEFAULT_TEMP}C; ` +
+        `feeding calculations may be inaccurate until a measurement or sensor reading exists.`,
+    );
+    return { value: DEFAULT_TEMP, isDefault: true };
   }
 
   /**
@@ -1236,9 +1428,7 @@ export class DailyFeedingExecutionService {
 
     // Bulunamazsa en kucuk agirliktaki noktayi don
     const smallest = sorted[sorted.length - 1];
-    return smallest
-      ? { feedingRatePercent: smallest.feedingRatePercent, fcr: smallest.fcr }
-      : null;
+    return smallest ? { feedingRatePercent: smallest.feedingRatePercent, fcr: smallest.fcr } : null;
   }
 
   /**
@@ -1297,12 +1487,14 @@ export class DailyFeedingExecutionService {
     // short-circuiting on biomassKg === 0 (which is a valid but abnormal state)
     if (biomassKg <= 0 || feedingRatePercent <= 0) {
       if (biomassKg === 0) {
-        this.logger.warn('calculateDailyFeedAmount called with biomassKg=0 — possible data entry error');
+        this.logger.warn(
+          'calculateDailyFeedAmount called with biomassKg=0 — possible data entry error',
+        );
       }
       return 0;
     }
     // 2 ondalik basamaga yuvarla
-    return Math.round((biomassKg * feedingRatePercent / 100) * 100) / 100;
+    return Math.round(((biomassKg * feedingRatePercent) / 100) * 100) / 100;
   }
 
   /**
@@ -1457,7 +1649,7 @@ export class DailyFeedingExecutionService {
     if (!feedInventory) {
       this.logger.warn(
         `No available feed inventory found for feedId=${feedId}, tenantId=${tenantId}. ` +
-        `Feeding recorded without inventory deduction.`,
+          `Feeding recorded without inventory deduction.`,
       );
       return;
     }
@@ -1468,7 +1660,7 @@ export class DailyFeedingExecutionService {
     if (newQuantity < 0) {
       this.logger.warn(
         `Feed inventory insufficient: ${currentQuantity}kg available, ${actualAmountKg}kg requested. ` +
-        `Setting inventory to 0. inventoryId=${feedInventory.id}`,
+          `Setting inventory to 0. inventoryId=${feedInventory.id}`,
       );
     }
 
@@ -1487,7 +1679,7 @@ export class DailyFeedingExecutionService {
 
     this.logger.debug(
       `Feed inventory deducted: inventoryId=${feedInventory.id}, ` +
-      `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
+        `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
     );
 
     // Enqueue FeedInventoryLowEvent into the transactional outbox if the
@@ -1500,7 +1692,10 @@ export class DailyFeedingExecutionService {
     // inventory update — exactly matching the sibling CreateFeedingRecordHandler.
     if (feedInventory.quantityKg <= feedInventory.minStockKg) {
       const lowStockEvent: FeedInventoryLowEvent = {
-        ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, { aggregateId: feedInventory.id, aggregateType: 'FeedInventory' }),
+        ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, {
+          aggregateId: feedInventory.id,
+          aggregateType: 'FeedInventory',
+        }),
         userId,
         inventoryId: feedInventory.id,
         feedId: feedInventory.feedId,

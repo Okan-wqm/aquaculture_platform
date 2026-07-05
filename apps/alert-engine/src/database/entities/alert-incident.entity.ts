@@ -369,9 +369,15 @@ export class AlertIncident {
     });
   }
 
-  recordOccurrence(): void {
+  /**
+   * FARM-LOW-145: record another occurrence at the EVENT time, not the
+   * processing wall-clock. Stamping `new Date()` here made lastOccurredAt jump
+   * from event-time (on create) to ingest-time (on every bump), corrupting
+   * recency/flapping analytics — the gap widened exactly under consumer lag.
+   */
+  recordOccurrence(occurredAt: Date): void {
     this.occurrenceCount++;
-    this.lastOccurredAt = new Date();
+    this.lastOccurredAt = occurredAt;
   }
 
   linkIncident(incidentId: string): void {

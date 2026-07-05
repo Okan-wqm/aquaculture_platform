@@ -10,7 +10,11 @@
  * - Create/Edit form with all plan fields
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  formatCurrency as sharedFormatCurrency,
+  DEFAULT_CURRENCY,
+} from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
   useHarvestPlanStats,
@@ -45,7 +49,6 @@ import {
   RefreshCw,
   Search,
   Trash2,
-  X,
   AlertTriangle,
   CheckCircle,
   FileText,
@@ -882,9 +885,7 @@ const PlanCard: React.FC<{
             </span>
           </div>
           {plan.harvestMethod && (
-            <span className="text-gray-500">
-              {HARVEST_METHOD_LABELS[plan.harvestMethod]}
-            </span>
+            <span className="text-gray-500">{HARVEST_METHOD_LABELS[plan.harvestMethod]}</span>
           )}
         </div>
 
@@ -919,7 +920,7 @@ const PlanCard: React.FC<{
               <span className="font-semibold text-green-600">
                 {formatCurrency(
                   plan.financialProjection.estimatedRevenue,
-                  plan.financialProjection.currency
+                  plan.financialProjection.currency,
                 )}
               </span>
             </div>
@@ -957,9 +958,7 @@ const PlanCard: React.FC<{
               </div>
               <div>
                 <p className="text-xs text-green-600">Avg Weight</p>
-                <p className="text-sm font-semibold text-green-800">
-                  {plan.actualAvgWeight}g
-                </p>
+                <p className="text-sm font-semibold text-green-800">{plan.actualAvgWeight}g</p>
               </div>
             </div>
           </div>
@@ -1136,12 +1135,10 @@ const HarvestPlanFormModal: React.FC<{
         estimatedYield: 85,
         confidenceLevel: 'medium',
       },
-    }
+    },
   );
 
   const [activeSection, setActiveSection] = useState<string>('basic');
-
-  if (!isOpen) return null;
 
   const sections = [
     { id: 'basic', label: 'Basic Info', icon: <FileText className="w-4 h-4" /> },
@@ -1158,890 +1155,869 @@ const HarvestPlanFormModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
-
-        <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {plan ? 'Edit Harvest Plan' : 'Create Harvest Plan'}
-            </h2>
-            <button onClick={onClose} className="p-2 rounded-md hover:bg-gray-100">
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={plan ? 'Edit Harvest Plan' : 'Create Harvest Plan'}
+      size="xl"
+    >
+      <form onSubmit={handleSubmit}>
+        <div className="flex">
+          {/* Sidebar */}
+          <div className="w-48 border-r border-gray-200 bg-gray-50 p-4">
+            <nav className="space-y-1">
+              {sections.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => setActiveSection(section.id)}
+                  className={`flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors ${
+                    activeSection === section.id
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  {section.icon}
+                  {section.label}
+                </button>
+              ))}
+            </nav>
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="flex">
-              {/* Sidebar */}
-              <div className="w-48 border-r border-gray-200 bg-gray-50 p-4">
-                <nav className="space-y-1">
-                  {sections.map((section) => (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() => setActiveSection(section.id)}
-                      className={`flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors ${
-                        activeSection === section.id
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
+          {/* Form Content */}
+          <div className="flex-1 p-6 overflow-y-auto max-h-[60vh]">
+            {/* Basic Info Section */}
+            {activeSection === 'basic' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">Basic Information</h3>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Plan Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.name || ''}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    placeholder="e.g., Full Harvest - Sea Bass Batch A"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={formData.description || ''}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={3}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    placeholder="Describe the harvest plan..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Batch *</label>
+                  <select
+                    required
+                    value={formData.batchId || ''}
+                    onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Select a batch</option>
+                    {batches.map((batch) => (
+                      <option key={batch.id} value={batch.id}>
+                        {batch.batchNumber} - {batch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Harvest Type *
+                    </label>
+                    <select
+                      required
+                      value={formData.harvestType || 'full'}
+                      onChange={(e) =>
+                        setFormData({ ...formData, harvestType: e.target.value as HarvestType })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                     >
-                      {section.icon}
-                      {section.label}
-                    </button>
-                  ))}
-                </nav>
-              </div>
-
-              {/* Form Content */}
-              <div className="flex-1 p-6 overflow-y-auto max-h-[60vh]">
-                {/* Basic Info Section */}
-                {activeSection === 'basic' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">Basic Information</h3>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Plan Name *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={formData.name || ''}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        placeholder="e.g., Full Harvest - Sea Bass Batch A"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Description
-                      </label>
-                      <textarea
-                        value={formData.description || ''}
-                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                        rows={3}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        placeholder="Describe the harvest plan..."
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Batch *
-                      </label>
-                      <select
-                        required
-                        value={formData.batchId || ''}
-                        onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      >
-                        <option value="">Select a batch</option>
-                        {batches.map((batch) => (
-                          <option key={batch.id} value={batch.id}>
-                            {batch.batchNumber} - {batch.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Harvest Type *
-                        </label>
-                        <select
-                          required
-                          value={formData.harvestType || 'full'}
-                          onChange={(e) =>
-                            setFormData({ ...formData, harvestType: e.target.value as HarvestType })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
-                            <option key={value} value={value}>
-                              {config.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Harvest Method
-                        </label>
-                        <select
-                          value={formData.harvestMethod || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              harvestMethod: (e.target.value as HarvestMethod) || undefined,
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          <option value="">Select method</option>
-                          {Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Product Form *
-                        </label>
-                        <select
-                          required
-                          value={formData.productForm || 'fresh_whole'}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              productForm: e.target.value as ProductForm,
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          {Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Planned Date *
-                        </label>
-                        <input
-                          type="date"
-                          required
-                          value={formData.plannedDate || ''}
-                          onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })}
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Window Start
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.windowStartDate || ''}
-                          onChange={(e) =>
-                            setFormData({ ...formData, windowStartDate: e.target.value })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Window End
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.windowEndDate || ''}
-                          onChange={(e) =>
-                            setFormData({ ...formData, windowEndDate: e.target.value })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-                    </div>
+                      {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
+                        <option key={value} value={value}>
+                          {config.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                )}
 
-                {/* Criteria Section */}
-                {activeSection === 'criteria' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">Harvest Criteria</h3>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Harvest Method
+                    </label>
+                    <select
+                      value={formData.harvestMethod || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          harvestMethod: (e.target.value as HarvestMethod) || undefined,
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="">Select method</option>
+                      {Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
-                    <div className="bg-gray-50 rounded-md p-4">
-                      <h4 className="text-xs font-medium text-gray-700 mb-3">
-                        Target Weight (grams)
-                      </h4>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Minimum</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={formData.criteria?.targetWeight.min || 0}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                criteria: {
-                                  ...formData.criteria!,
-                                  targetWeight: {
-                                    ...formData.criteria!.targetWeight,
-                                    min: Number(e.target.value),
-                                  },
-                                },
-                              })
-                            }
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Target</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={formData.criteria?.targetWeight.target || 0}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                criteria: {
-                                  ...formData.criteria!,
-                                  targetWeight: {
-                                    ...formData.criteria!.targetWeight,
-                                    target: Number(e.target.value),
-                                  },
-                                },
-                              })
-                            }
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Maximum</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={formData.criteria?.targetWeight.max || 0}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                criteria: {
-                                  ...formData.criteria!,
-                                  targetWeight: {
-                                    ...formData.criteria!.targetWeight,
-                                    max: Number(e.target.value),
-                                  },
-                                },
-                              })
-                            }
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Product Form *
+                    </label>
+                    <select
+                      required
+                      value={formData.productForm || 'fresh_whole'}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          productForm: e.target.value as ProductForm,
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      {Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Planned Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={formData.plannedDate || ''}
+                      onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Window Start
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.windowStartDate || ''}
+                      onChange={(e) =>
+                        setFormData({ ...formData, windowStartDate: e.target.value })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Window End
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.windowEndDate || ''}
+                      onChange={(e) => setFormData({ ...formData, windowEndDate: e.target.value })}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Criteria Section */}
+            {activeSection === 'criteria' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">Harvest Criteria</h3>
+
+                <div className="bg-gray-50 rounded-md p-4">
+                  <h4 className="text-xs font-medium text-gray-700 mb-3">Target Weight (grams)</h4>
+                  <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Quality Grade
-                      </label>
-                      <select
-                        value={formData.criteria?.qualityGrade || ''}
+                      <label className="block text-xs text-gray-500 mb-1">Minimum</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.criteria?.targetWeight.min || 0}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
                             criteria: {
                               ...formData.criteria!,
-                              qualityGrade: e.target.value || undefined,
+                              targetWeight: {
+                                ...formData.criteria!.targetWeight,
+                                min: Number(e.target.value),
+                              },
                             },
                           })
                         }
                         className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      >
-                        <option value="">Not specified</option>
-                        <option value="A">Grade A</option>
-                        <option value="B">Grade B</option>
-                        <option value="C">Grade C</option>
-                      </select>
+                      />
                     </div>
-                  </div>
-                )}
-
-                {/* Estimates Section */}
-                {activeSection === 'estimates' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">Harvest Estimates</h3>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Quantity *
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          value={formData.estimates?.estimatedQuantity || 0}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              estimates: {
-                                ...formData.estimates!,
-                                estimatedQuantity: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Biomass (kg) *
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          step="0.1"
-                          value={formData.estimates?.estimatedBiomass || 0}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              estimates: {
-                                ...formData.estimates!,
-                                estimatedBiomass: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Avg Weight (g) *
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          value={formData.estimates?.estimatedAvgWeight || 0}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              estimates: {
-                                ...formData.estimates!,
-                                estimatedAvgWeight: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Yield (%)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={formData.estimates?.estimatedYield || 85}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              estimates: {
-                                ...formData.estimates!,
-                                estimatedYield: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-                    </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Confidence Level
-                      </label>
-                      <select
-                        value={formData.estimates?.confidenceLevel || 'medium'}
+                      <label className="block text-xs text-gray-500 mb-1">Target</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.criteria?.targetWeight.target || 0}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            estimates: {
-                              ...formData.estimates!,
-                              confidenceLevel: e.target.value as 'low' | 'medium' | 'high',
+                            criteria: {
+                              ...formData.criteria!,
+                              targetWeight: {
+                                ...formData.criteria!.targetWeight,
+                                target: Number(e.target.value),
+                              },
                             },
                           })
                         }
                         className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      >
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                      </select>
+                      />
                     </div>
-                  </div>
-                )}
-
-                {/* Financial Section */}
-                {activeSection === 'financial' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">Financial Projection</h3>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Price
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={formData.financialProjection?.estimatedPrice || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              financialProjection: {
-                                ...formData.financialProjection,
-                                estimatedPrice: Number(e.target.value),
-                                priceUnit: formData.financialProjection?.priceUnit || 'per_kg',
-                                estimatedRevenue: formData.financialProjection?.estimatedRevenue || 0,
-                                estimatedCost: formData.financialProjection?.estimatedCost || 0,
-                                estimatedProfit: formData.financialProjection?.estimatedProfit || 0,
-                                margin: formData.financialProjection?.margin || 0,
-                                currency: formData.financialProjection?.currency || 'EUR',
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Price Unit
-                        </label>
-                        <select
-                          value={formData.financialProjection?.priceUnit || 'per_kg'}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              financialProjection: {
-                                ...formData.financialProjection!,
-                                priceUnit: e.target.value as 'per_kg' | 'per_piece',
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          <option value="per_kg">Per Kilogram</option>
-                          <option value="per_piece">Per Piece</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Revenue
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={formData.financialProjection?.estimatedRevenue || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              financialProjection: {
-                                ...formData.financialProjection!,
-                                estimatedRevenue: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Estimated Cost
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={formData.financialProjection?.estimatedCost || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              financialProjection: {
-                                ...formData.financialProjection!,
-                                estimatedCost: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Currency
-                        </label>
-                        <select
-                          value={formData.financialProjection?.currency || 'EUR'}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              financialProjection: {
-                                ...formData.financialProjection!,
-                                currency: e.target.value,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          <option value="EUR">EUR</option>
-                          <option value="USD">USD</option>
-                          <option value="TRY">TRY</option>
-                          <option value="GBP">GBP</option>
-                          <option value="NOK">NOK</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Logistics Section */}
-                {activeSection === 'logistics' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">Logistics Plan</h3>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Harvest Start Time
-                        </label>
-                        <input
-                          type="time"
-                          value={formData.logistics?.harvestStartTime || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              logistics: {
-                                ...formData.logistics,
-                                harvestStartTime: e.target.value,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Expected Duration (hours)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          value={formData.logistics?.expectedDuration || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              logistics: {
-                                ...formData.logistics,
-                                expectedDuration: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Required Personnel
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={formData.logistics?.requiredPersonnel || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              logistics: {
-                                ...formData.logistics,
-                                requiredPersonnel: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Transport Type
-                        </label>
-                        <select
-                          value={formData.logistics?.transportType || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              logistics: {
-                                ...formData.logistics,
-                                transportType:
-                                  (e.target.value as 'truck' | 'boat' | 'container') || undefined,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          <option value="">Select type</option>
-                          <option value="truck">Truck</option>
-                          <option value="boat">Boat</option>
-                          <option value="container">Container</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Destination Type
-                        </label>
-                        <select
-                          value={formData.logistics?.destinationType || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              logistics: {
-                                ...formData.logistics,
-                                destinationType:
-                                  (e.target.value as
-                                    | 'processing'
-                                    | 'market'
-                                    | 'direct_sale'
-                                    | 'export') || undefined,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          <option value="">Select destination</option>
-                          <option value="processing">Processing Plant</option>
-                          <option value="market">Market</option>
-                          <option value="direct_sale">Direct Sale</option>
-                          <option value="export">Export</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="inline-flex items-center mt-6">
-                          <input
-                            type="checkbox"
-                            checked={formData.logistics?.coldChainRequired || false}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                logistics: {
-                                  ...formData.logistics,
-                                  coldChainRequired: e.target.checked,
-                                },
-                              })
-                            }
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">Cold Chain Required</span>
-                        </label>
-                      </div>
-                    </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Destination Address
-                      </label>
-                      <textarea
-                        value={formData.logistics?.destinationAddress || ''}
+                      <label className="block text-xs text-gray-500 mb-1">Maximum</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.criteria?.targetWeight.max || 0}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            criteria: {
+                              ...formData.criteria!,
+                              targetWeight: {
+                                ...formData.criteria!.targetWeight,
+                                max: Number(e.target.value),
+                              },
+                            },
+                          })
+                        }
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quality Grade
+                  </label>
+                  <select
+                    value={formData.criteria?.qualityGrade || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        criteria: {
+                          ...formData.criteria!,
+                          qualityGrade: e.target.value || undefined,
+                        },
+                      })
+                    }
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="">Not specified</option>
+                    <option value="A">Grade A</option>
+                    <option value="B">Grade B</option>
+                    <option value="C">Grade C</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Estimates Section */}
+            {activeSection === 'estimates' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">Harvest Estimates</h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Quantity *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      value={formData.estimates?.estimatedQuantity || 0}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          estimates: {
+                            ...formData.estimates!,
+                            estimatedQuantity: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Biomass (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="0.1"
+                      value={formData.estimates?.estimatedBiomass || 0}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          estimates: {
+                            ...formData.estimates!,
+                            estimatedBiomass: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Avg Weight (g) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      value={formData.estimates?.estimatedAvgWeight || 0}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          estimates: {
+                            ...formData.estimates!,
+                            estimatedAvgWeight: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Yield (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.estimates?.estimatedYield || 85}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          estimates: {
+                            ...formData.estimates!,
+                            estimatedYield: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Confidence Level
+                  </label>
+                  <select
+                    value={formData.estimates?.confidenceLevel || 'medium'}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        estimates: {
+                          ...formData.estimates!,
+                          confidenceLevel: e.target.value as 'low' | 'medium' | 'high',
+                        },
+                      })
+                    }
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Financial Section */}
+            {activeSection === 'financial' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">Financial Projection</h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Price
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.financialProjection?.estimatedPrice || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          financialProjection: {
+                            ...formData.financialProjection,
+                            estimatedPrice: Number(e.target.value),
+                            priceUnit: formData.financialProjection?.priceUnit || 'per_kg',
+                            estimatedRevenue: formData.financialProjection?.estimatedRevenue || 0,
+                            estimatedCost: formData.financialProjection?.estimatedCost || 0,
+                            estimatedProfit: formData.financialProjection?.estimatedProfit || 0,
+                            margin: formData.financialProjection?.margin || 0,
+                            currency: formData.financialProjection?.currency || 'EUR',
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Price Unit
+                    </label>
+                    <select
+                      value={formData.financialProjection?.priceUnit || 'per_kg'}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          financialProjection: {
+                            ...formData.financialProjection!,
+                            priceUnit: e.target.value as 'per_kg' | 'per_piece',
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="per_kg">Per Kilogram</option>
+                      <option value="per_piece">Per Piece</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Revenue
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.financialProjection?.estimatedRevenue || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          financialProjection: {
+                            ...formData.financialProjection!,
+                            estimatedRevenue: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Cost
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.financialProjection?.estimatedCost || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          financialProjection: {
+                            ...formData.financialProjection!,
+                            estimatedCost: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
+                    <select
+                      value={formData.financialProjection?.currency || 'EUR'}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          financialProjection: {
+                            ...formData.financialProjection!,
+                            currency: e.target.value,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="EUR">EUR</option>
+                      <option value="USD">USD</option>
+                      <option value="TRY">TRY</option>
+                      <option value="GBP">GBP</option>
+                      <option value="NOK">NOK</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Logistics Section */}
+            {activeSection === 'logistics' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">Logistics Plan</h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Harvest Start Time
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.logistics?.harvestStartTime || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          logistics: {
+                            ...formData.logistics,
+                            harvestStartTime: e.target.value,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Expected Duration (hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={formData.logistics?.expectedDuration || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          logistics: {
+                            ...formData.logistics,
+                            expectedDuration: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Required Personnel
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.logistics?.requiredPersonnel || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          logistics: {
+                            ...formData.logistics,
+                            requiredPersonnel: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Transport Type
+                    </label>
+                    <select
+                      value={formData.logistics?.transportType || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          logistics: {
+                            ...formData.logistics,
+                            transportType:
+                              (e.target.value as 'truck' | 'boat' | 'container') || undefined,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="">Select type</option>
+                      <option value="truck">Truck</option>
+                      <option value="boat">Boat</option>
+                      <option value="container">Container</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Destination Type
+                    </label>
+                    <select
+                      value={formData.logistics?.destinationType || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          logistics: {
+                            ...formData.logistics,
+                            destinationType:
+                              (e.target.value as
+                                | 'processing'
+                                | 'market'
+                                | 'direct_sale'
+                                | 'export') || undefined,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="">Select destination</option>
+                      <option value="processing">Processing Plant</option>
+                      <option value="market">Market</option>
+                      <option value="direct_sale">Direct Sale</option>
+                      <option value="export">Export</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="inline-flex items-center mt-6">
+                      <input
+                        type="checkbox"
+                        checked={formData.logistics?.coldChainRequired || false}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
                             logistics: {
                               ...formData.logistics,
-                              destinationAddress: e.target.value,
+                              coldChainRequired: e.target.checked,
                             },
                           })
                         }
-                        rows={2}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
-                    </div>
+                      <span className="ml-2 text-sm text-gray-700">Cold Chain Required</span>
+                    </label>
                   </div>
-                )}
+                </div>
 
-                {/* Customer Section */}
-                {activeSection === 'customer' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-4">
-                      Customer / Order Information
-                    </h3>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Customer Name
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.customerOrder?.customerName || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              customerOrder: {
-                                ...formData.customerOrder,
-                                customerName: e.target.value,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Order ID
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.customerOrder?.orderId || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              customerOrder: {
-                                ...formData.customerOrder,
-                                orderId: e.target.value,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Order Quantity
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={formData.customerOrder?.orderQuantity || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              customerOrder: {
-                                ...formData.customerOrder,
-                                orderQuantity: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Order Unit
-                        </label>
-                        <select
-                          value={formData.customerOrder?.orderUnit || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              customerOrder: {
-                                ...formData.customerOrder,
-                                orderUnit: e.target.value,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        >
-                          <option value="">Select unit</option>
-                          <option value="kg">Kilograms</option>
-                          <option value="pieces">Pieces</option>
-                          <option value="tons">Tons</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Delivery Date
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.customerOrder?.deliveryDate || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              customerOrder: {
-                                ...formData.customerOrder,
-                                deliveryDate: e.target.value,
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Contract Price
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={formData.customerOrder?.contractPrice || ''}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              customerOrder: {
-                                ...formData.customerOrder,
-                                contractPrice: Number(e.target.value),
-                              },
-                            })
-                          }
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Destination Address
+                  </label>
+                  <textarea
+                    value={formData.logistics?.destinationAddress || ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        logistics: {
+                          ...formData.logistics,
+                          destinationAddress: e.target.value,
+                        },
+                      })
+                    }
+                    rows={2}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
-              >
-                {plan ? 'Update Plan' : 'Create Plan'}
-              </button>
-            </div>
-          </form>
+            {/* Customer Section */}
+            {activeSection === 'customer' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">
+                  Customer / Order Information
+                </h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Customer Name
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.customerOrder?.customerName || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          customerOrder: {
+                            ...formData.customerOrder,
+                            customerName: e.target.value,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
+                    <input
+                      type="text"
+                      value={formData.customerOrder?.orderId || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          customerOrder: {
+                            ...formData.customerOrder,
+                            orderId: e.target.value,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Order Quantity
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.customerOrder?.orderQuantity || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          customerOrder: {
+                            ...formData.customerOrder,
+                            orderQuantity: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Order Unit
+                    </label>
+                    <select
+                      value={formData.customerOrder?.orderUnit || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          customerOrder: {
+                            ...formData.customerOrder,
+                            orderUnit: e.target.value,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="">Select unit</option>
+                      <option value="kg">Kilograms</option>
+                      <option value="pieces">Pieces</option>
+                      <option value="tons">Tons</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Delivery Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.customerOrder?.deliveryDate || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          customerOrder: {
+                            ...formData.customerOrder,
+                            deliveryDate: e.target.value,
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Contract Price
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.customerOrder?.contractPrice || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          customerOrder: {
+                            ...formData.customerOrder,
+                            contractPrice: Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
+          >
+            {plan ? 'Update Plan' : 'Create Plan'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -2062,7 +2038,7 @@ const CompleteHarvestModal: React.FC<{
     actualAvgWeight: plan?.estimates.estimatedAvgWeight || 0,
   });
 
-  if (!isOpen || !plan) return null;
+  if (!plan) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2070,103 +2046,84 @@ const CompleteHarvestModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
-
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Complete Harvest</h2>
-            <button onClick={onClose} className="p-2 rounded-md hover:bg-gray-100">
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div className="bg-blue-50 rounded-md p-3 mb-4">
-              <p className="text-sm text-blue-800">
-                Enter the actual harvest results for <strong>{plan.planCode}</strong>
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Actual Quantity Harvested
-              </label>
-              <input
-                type="number"
-                required
-                min="0"
-                value={formData.actualQuantity}
-                onChange={(e) =>
-                  setFormData({ ...formData, actualQuantity: Number(e.target.value) })
-                }
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Estimated: {formatNumber(plan.estimates.estimatedQuantity)}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Actual Biomass (kg)
-              </label>
-              <input
-                type="number"
-                required
-                min="0"
-                step="0.1"
-                value={formData.actualBiomass}
-                onChange={(e) =>
-                  setFormData({ ...formData, actualBiomass: Number(e.target.value) })
-                }
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Estimated: {formatNumber(plan.estimates.estimatedBiomass)} kg
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Actual Average Weight (g)
-              </label>
-              <input
-                type="number"
-                required
-                min="0"
-                step="0.1"
-                value={formData.actualAvgWeight}
-                onChange={(e) =>
-                  setFormData({ ...formData, actualAvgWeight: Number(e.target.value) })
-                }
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Estimated: {plan.estimates.estimatedAvgWeight}g
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700"
-              >
-                Complete Harvest
-              </button>
-            </div>
-          </form>
+    <Modal isOpen={isOpen} onClose={onClose} title="Complete Harvest" size="sm">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="bg-blue-50 rounded-md p-3 mb-4">
+          <p className="text-sm text-blue-800">
+            Enter the actual harvest results for <strong>{plan.planCode}</strong>
+          </p>
         </div>
-      </div>
-    </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Actual Quantity Harvested
+          </label>
+          <input
+            type="number"
+            required
+            min="0"
+            value={formData.actualQuantity}
+            onChange={(e) => setFormData({ ...formData, actualQuantity: Number(e.target.value) })}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Estimated: {formatNumber(plan.estimates.estimatedQuantity)}
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Actual Biomass (kg)
+          </label>
+          <input
+            type="number"
+            required
+            min="0"
+            step="0.1"
+            value={formData.actualBiomass}
+            onChange={(e) => setFormData({ ...formData, actualBiomass: Number(e.target.value) })}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Estimated: {formatNumber(plan.estimates.estimatedBiomass)} kg
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Actual Average Weight (g)
+          </label>
+          <input
+            type="number"
+            required
+            min="0"
+            step="0.1"
+            value={formData.actualAvgWeight}
+            onChange={(e) => setFormData({ ...formData, actualAvgWeight: Number(e.target.value) })}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Estimated: {plan.estimates.estimatedAvgWeight}g
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700"
+          >
+            Complete Harvest
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -2179,7 +2136,7 @@ const ScheduleModal: React.FC<{
 }> = ({ isOpen, onClose, onSchedule, plan }) => {
   const [confirmedDate, setConfirmedDate] = useState(plan?.plannedDate || '');
 
-  if (!isOpen || !plan) return null;
+  if (!plan) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2187,60 +2144,47 @@ const ScheduleModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
-
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Schedule Harvest</h2>
-            <button onClick={onClose} className="p-2 rounded-md hover:bg-gray-100">
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div className="bg-purple-50 rounded-md p-3 mb-4">
-              <p className="text-sm text-purple-800">
-                Set the confirmed harvest date for <strong>{plan.planCode}</strong>
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Confirmed Harvest Date *
-              </label>
-              <input
-                type="date"
-                required
-                value={confirmedDate}
-                onChange={(e) => setConfirmedDate(e.target.value)}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Originally planned: {formatDate(plan.plannedDate)}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
-              >
-                Schedule Harvest
-              </button>
-            </div>
-          </form>
+    <Modal isOpen={isOpen} onClose={onClose} title="Schedule Harvest" size="sm">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="bg-purple-50 rounded-md p-3 mb-4">
+          <p className="text-sm text-purple-800">
+            Set the confirmed harvest date for <strong>{plan.planCode}</strong>
+          </p>
         </div>
-      </div>
-    </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Confirmed Harvest Date *
+          </label>
+          <input
+            type="date"
+            required
+            value={confirmedDate}
+            onChange={(e) => setConfirmedDate(e.target.value)}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Originally planned: {formatDate(plan.plannedDate)}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
+          >
+            Schedule Harvest
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -2253,7 +2197,7 @@ const PostponeModal: React.FC<{
 }> = ({ isOpen, onClose, onPostpone, plan }) => {
   const [newDate, setNewDate] = useState('');
 
-  if (!isOpen || !plan) return null;
+  if (!plan) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2261,61 +2205,44 @@ const PostponeModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
-
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Postpone Harvest</h2>
-            <button onClick={onClose} className="p-2 rounded-md hover:bg-gray-100">
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div className="bg-orange-50 rounded-md p-3 mb-4">
-              <p className="text-sm text-orange-800">
-                Postpone <strong>{plan.planCode}</strong> to a new date
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                New Planned Date *
-              </label>
-              <input
-                type="date"
-                required
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Current date: {formatDate(plan.plannedDate)}
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
-              >
-                Postpone
-              </button>
-            </div>
-          </form>
+    <Modal isOpen={isOpen} onClose={onClose} title="Postpone Harvest" size="sm">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="bg-orange-50 rounded-md p-3 mb-4">
+          <p className="text-sm text-orange-800">
+            Postpone <strong>{plan.planCode}</strong> to a new date
+          </p>
         </div>
-      </div>
-    </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">New Planned Date *</label>
+          <input
+            type="date"
+            required
+            value={newDate}
+            onChange={(e) => setNewDate(e.target.value)}
+            min={new Date().toISOString().split('T')[0]}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">Current date: {formatDate(plan.plannedDate)}</p>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
+          >
+            Postpone
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -2326,45 +2253,41 @@ const ConfirmDeleteModal: React.FC<{
   onConfirm: () => void;
   plan: HarvestPlan | null;
 }> = ({ isOpen, onClose, onConfirm, plan }) => {
-  if (!isOpen || !plan) return null;
+  if (!plan) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
-
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="flex-shrink-0 p-3 bg-red-100 rounded-full">
-              <Trash2 className="w-6 h-6 text-red-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Delete Harvest Plan</h2>
-              <p className="text-sm text-gray-500">This action cannot be undone.</p>
-            </div>
-          </div>
-
-          <p className="text-sm text-gray-600 mb-6">
-            Are you sure you want to delete <strong>{plan.planCode}</strong> - {plan.name}?
-          </p>
-
-          <div className="flex items-center justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onConfirm}
-              className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
-            >
-              Delete
-            </button>
-          </div>
+    <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex-shrink-0 p-3 bg-red-100 rounded-full">
+          <Trash2 className="w-6 h-6 text-red-600" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Delete Harvest Plan</h2>
+          <p className="text-sm text-gray-500">This action cannot be undone.</p>
         </div>
       </div>
-    </div>
+
+      <p className="text-sm text-gray-600 mb-6">
+        Are you sure you want to delete <strong>{plan.planCode}</strong> - {plan.name}?
+      </p>
+
+      <div className="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
+        >
+          Delete
+        </button>
+      </div>
+    </Modal>
   );
 };
 
@@ -2399,8 +2322,8 @@ export const HarvestPlansPage: React.FC = () => {
   const apiFilter = useMemo((): HarvestPlanFilterInput => {
     const f: HarvestPlanFilterInput = {};
     if (filters.searchText) f.searchText = filters.searchText;
-    if (filters.status) f.status = filters.status as any;
-    if (filters.harvestType) f.harvestType = filters.harvestType as any;
+    if (filters.status) f.status = filters.status;
+    if (filters.harvestType) f.harvestType = filters.harvestType;
     if (filters.batchId) f.batchId = filters.batchId;
     if (filters.plannedDateFrom) f.plannedDateFrom = filters.plannedDateFrom;
     if (filters.plannedDateTo) f.plannedDateTo = filters.plannedDateTo;
@@ -2412,14 +2335,23 @@ export const HarvestPlansPage: React.FC = () => {
   // Data from API
   const { data: plansData, isLoading: plansLoading } = useHarvestPlanList(apiFilter);
   const { data: statsData } = useHarvestPlanStats();
-  const { data: batchesData } = useBatchList(undefined, { limit: 100 });
+  const { data: batchesData } = useBatchList(undefined, { fetchAll: true });
 
   const plans = plansData?.items ?? [];
   const stats: HarvestPlanStats = statsData ?? {
-    total: 0, draft: 0, planned: 0, approved: 0, scheduled: 0,
-    inProgress: 0, completed: 0, cancelled: 0, postponed: 0,
-    totalEstimatedBiomass: 0, totalActualBiomass: 0,
-    upcomingCount: 0, overdueCount: 0,
+    total: 0,
+    draft: 0,
+    planned: 0,
+    approved: 0,
+    scheduled: 0,
+    inProgress: 0,
+    completed: 0,
+    cancelled: 0,
+    postponed: 0,
+    totalEstimatedBiomass: 0,
+    totalActualBiomass: 0,
+    upcomingCount: 0,
+    overdueCount: 0,
   };
   const batches = (batchesData?.items ?? []).map((b) => ({
     id: b.id,
@@ -2460,7 +2392,7 @@ export const HarvestPlansPage: React.FC = () => {
     name: planData.name || '',
     description: planData.description,
     batchId: planData.batchId || '',
-    harvestType: planData.harvestType as any,
+    harvestType: planData.harvestType,
     plannedDate: planData.plannedDate || '',
     windowStartDate: planData.windowStartDate || undefined,
     windowEndDate: planData.windowEndDate || undefined,
@@ -2473,8 +2405,8 @@ export const HarvestPlansPage: React.FC = () => {
       qualityGrade: planData.criteria?.qualityGrade,
       minimumConditionFactor: planData.criteria?.minimumConditionFactor,
     },
-    harvestMethod: planData.harvestMethod as any,
-    productForm: planData.productForm as any,
+    harvestMethod: planData.harvestMethod,
+    productForm: planData.productForm,
     estimates: {
       estimatedQuantity: planData.estimates?.estimatedQuantity ?? 0,
       estimatedBiomass: planData.estimates?.estimatedBiomass ?? 0,
@@ -2482,18 +2414,22 @@ export const HarvestPlansPage: React.FC = () => {
       estimatedYield: planData.estimates?.estimatedYield ?? 85,
       confidenceLevel: planData.estimates?.confidenceLevel ?? 'medium',
     },
-    financialProjection: planData.financialProjection ? {
-      estimatedRevenue: planData.financialProjection.estimatedRevenue,
-      estimatedPrice: planData.financialProjection.estimatedPrice,
-      priceUnit: planData.financialProjection.priceUnit,
-      estimatedCost: planData.financialProjection.estimatedCost,
-      estimatedProfit: planData.financialProjection.estimatedProfit,
-      margin: planData.financialProjection.margin,
-      currency: planData.financialProjection.currency,
-    } : undefined,
+    financialProjection: planData.financialProjection
+      ? {
+          estimatedRevenue: planData.financialProjection.estimatedRevenue,
+          estimatedPrice: planData.financialProjection.estimatedPrice,
+          priceUnit: planData.financialProjection.priceUnit,
+          estimatedCost: planData.financialProjection.estimatedCost,
+          estimatedProfit: planData.financialProjection.estimatedProfit,
+          margin: planData.financialProjection.margin,
+          currency: planData.financialProjection.currency,
+        }
+      : undefined,
     logistics: planData.logistics ? { ...planData.logistics } : undefined,
     customerOrder: planData.customerOrder ? { ...planData.customerOrder } : undefined,
-    qualityRequirements: planData.qualityRequirements ? { ...planData.qualityRequirements } : undefined,
+    qualityRequirements: planData.qualityRequirements
+      ? { ...planData.qualityRequirements }
+      : undefined,
     notes: planData.notes,
     attachments: planData.attachments,
   });
@@ -2533,8 +2469,8 @@ export const HarvestPlansPage: React.FC = () => {
       case 'submit':
         // Submit for approval = update status to 'planned'
         updateMutation.mutate(
-          { id: plan.id, status: 'planned' as any },
-          { onError: (err) => console.error('Failed to submit plan:', err) }
+          { id: plan.id, status: 'planned' },
+          { onError: (err) => console.error('Failed to submit plan:', err) },
         );
         break;
       case 'approve':
@@ -2571,7 +2507,7 @@ export const HarvestPlansPage: React.FC = () => {
       {
         onSuccess: () => setSchedulingPlan(null),
         onError: (err) => console.error('Failed to schedule plan:', err),
-      }
+      },
     );
   };
 
@@ -2591,7 +2527,7 @@ export const HarvestPlansPage: React.FC = () => {
       {
         onSuccess: () => setCompletingPlan(null),
         onError: (err) => console.error('Failed to complete harvest:', err),
-      }
+      },
     );
   };
 
@@ -2602,7 +2538,7 @@ export const HarvestPlansPage: React.FC = () => {
       {
         onSuccess: () => setPostponingPlan(null),
         onError: (err) => console.error('Failed to postpone plan:', err),
-      }
+      },
     );
   };
 
@@ -2760,7 +2696,9 @@ export const HarvestPlansPage: React.FC = () => {
         {/* View Mode Toggle */}
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-500">
-            {plansLoading ? 'Loading...' : `Showing ${filteredPlans.length} of ${plansData?.total ?? 0} plans`}
+            {plansLoading
+              ? 'Loading...'
+              : `Showing ${filteredPlans.length} of ${plansData?.total ?? 0} plans`}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -2932,7 +2870,7 @@ export const HarvestPlansPage: React.FC = () => {
                         <span className="text-sm font-medium text-green-600">
                           {formatCurrency(
                             plan.financialProjection.estimatedRevenue,
-                            plan.financialProjection.currency
+                            plan.financialProjection.currency,
                           )}
                         </span>
                       ) : (

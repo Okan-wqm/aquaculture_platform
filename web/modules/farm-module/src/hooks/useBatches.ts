@@ -5,7 +5,12 @@
 import { useRef } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
@@ -29,13 +34,7 @@ export type BatchInputType =
   | 'ADULTS'
   | 'BROODSTOCK';
 
-export type ArrivalMethod =
-  | 'AIR_CARGO'
-  | 'TRUCK'
-  | 'BOAT'
-  | 'RAIL'
-  | 'LOCAL_PICKUP'
-  | 'OTHER';
+export type ArrivalMethod = 'AIR_CARGO' | 'TRUCK' | 'BOAT' | 'RAIL' | 'LOCAL_PICKUP' | 'OTHER';
 
 export type BatchDocumentType =
   | 'HEALTH_CERTIFICATE'
@@ -68,12 +67,7 @@ export type CullReason =
   | 'quality'
   | 'other';
 
-export type QualityGrade =
-  | 'PREMIUM'
-  | 'GRADE_A'
-  | 'GRADE_B'
-  | 'GRADE_C'
-  | 'REJECT';
+export type QualityGrade = 'PREMIUM' | 'GRADE_A' | 'GRADE_B' | 'GRADE_C' | 'REJECT';
 
 // Tank Operation Input Types
 export interface RecordMortalityInput {
@@ -109,6 +103,31 @@ export interface TransferBatchInput {
   transferReason?: string;
   notes?: string;
   skipCapacityCheck?: boolean;
+}
+
+/** One grading destination as edited in the UI — the per-output envelope is attached by useRecordGrading. */
+export interface GradingOutputDraft {
+  /**
+   * FARM-MEDIUM-129: stable per-row identity minted at row creation. The
+   * per-output at-most-once clientCommandId is keyed on THIS, not on the array
+   * index — so trimming already-committed rows and resubmitting the remainder
+   * (the resume path the backend + modal advertise) keeps each surviving row's
+   * id stable instead of reusing a committed id under a new payload. Stripped
+   * before the request reaches the server.
+   */
+  rowKey: string;
+  destinationTankId: string;
+  quantity: number;
+  avgWeightG: number;
+  sizeClass?: string;
+}
+
+export interface RecordGradingInput {
+  batchId: string;
+  sourceTankId: string;
+  gradedAt?: string;
+  notes?: string;
+  outputs: GradingOutputDraft[];
 }
 
 export type AllocationType = 'INITIAL_STOCKING' | 'TRANSFER_IN' | 'REDISTRIBUTION';
@@ -317,6 +336,10 @@ export interface CreateBatchInput {
   healthCertificates?: BatchDocumentInput[];
   importDocuments?: BatchDocumentInput[];
   initialLocations: InitialLocationInput[];
+  // Feeding-protocols → batch link (Phase 1): the batch selects one active
+  // feeding protocol at creation and it follows the batch thereafter. Optional —
+  // a batch may be created without a protocol and have one assigned later.
+  protocolId?: string;
   notes?: string;
 }
 
@@ -345,49 +368,57 @@ interface BatchListResponse {
 }
 
 // GraphQL Queries
+// FARM-LOW-143: the ~40 batch scalar fields, shared by BATCH_LIST_QUERY and
+// BATCH_QUERY so the list and detail selections cannot drift apart (a classic
+// "field on detail but missing on list" source). Detail-only relations
+// (documents, healthCertificates) are appended per-query.
+const BATCH_CORE_FIELDS = `
+  id
+  batchNumber
+  name
+  description
+  speciesId
+  strain
+  inputType
+  initialQuantity
+  currentQuantity
+  totalMortality
+  harvestedQuantity
+  cullCount
+  totalFeedConsumed
+  totalFeedCost
+  retentionRate
+  sgr
+  costPerKg
+  weight
+  fcr
+  stockedAt
+  expectedHarvestDate
+  actualHarvestDate
+  supplierId
+  supplierBatchNumber
+  purchaseCost
+  currency
+  arrivalMethod
+  status
+  statusChangedAt
+  statusReason
+  isActive
+  notes
+  createdAt
+  updatedAt
+  currentBiomassKg
+  currentAvgWeightG
+  mortalityRate
+  survivalRate
+  daysInProduction
+`;
+
 const BATCH_LIST_QUERY = `
   query Batches($filter: BatchFilterInput, $page: Int, $limit: Int, $sortBy: String, $sortOrder: String) {
     batches(filter: $filter, page: $page, limit: $limit, sortBy: $sortBy, sortOrder: $sortOrder) {
       items {
-        id
-        batchNumber
-        name
-        description
-        speciesId
-        strain
-        inputType
-        initialQuantity
-        currentQuantity
-        totalMortality
-        harvestedQuantity
-        cullCount
-        totalFeedConsumed
-        totalFeedCost
-        retentionRate
-        sgr
-        costPerKg
-        weight
-        fcr
-        stockedAt
-        expectedHarvestDate
-        actualHarvestDate
-        supplierId
-        supplierBatchNumber
-        purchaseCost
-        currency
-        arrivalMethod
-        status
-        statusChangedAt
-        statusReason
-        isActive
-        notes
-        createdAt
-        updatedAt
-        currentBiomassKg
-        currentAvgWeightG
-        mortalityRate
-        survivalRate
-        daysInProduction
+        ${BATCH_CORE_FIELDS}
       }
       total
       page
@@ -402,45 +433,7 @@ const BATCH_LIST_QUERY = `
 const BATCH_QUERY = `
   query Batch($id: ID!) {
     batch(id: $id) {
-      id
-      batchNumber
-      name
-      description
-      speciesId
-      strain
-      inputType
-      initialQuantity
-      currentQuantity
-      totalMortality
-      harvestedQuantity
-      cullCount
-      totalFeedConsumed
-      totalFeedCost
-      retentionRate
-      sgr
-      costPerKg
-      weight
-      fcr
-      stockedAt
-      expectedHarvestDate
-      actualHarvestDate
-      supplierId
-      supplierBatchNumber
-      purchaseCost
-      currency
-      arrivalMethod
-      status
-      statusChangedAt
-      statusReason
-      isActive
-      notes
-      createdAt
-      updatedAt
-      currentBiomassKg
-      currentAvgWeightG
-      mortalityRate
-      survivalRate
-      daysInProduction
+      ${BATCH_CORE_FIELDS}
       documents {
         id
         documentType
@@ -535,6 +528,11 @@ const CREATE_BATCH_MUTATION = `
 /**
  * Hook to fetch batch list
  */
+/** Chunk size for the fetch-all page loop (matches the server's sane page size). */
+const BATCH_PAGE_LIMIT = 100;
+/** Sanity ceiling for fetch-all (100 × 50 = 5000 batches). */
+const BATCH_MAX_PAGES = 50;
+
 export function useBatchList(
   filter?: BatchListFilter,
   options?: {
@@ -542,7 +540,14 @@ export function useBatchList(
     limit?: number;
     sortBy?: string;
     sortOrder?: 'ASC' | 'DESC';
-  }
+    /**
+     * Page through the WHOLE list (100/page) instead of one fixed page. Use on
+     * surfaces that must show every batch (production list, batch selectors) —
+     * a fixed `limit` silently hides batches past the cap on web while mobile
+     * pages through everything.
+     */
+    fetchAll?: boolean;
+  },
 ) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -554,17 +559,31 @@ export function useBatchList(
         throw new Error('Tenant context required');
       }
 
-      const data = await graphqlClient.request<{ batches: BatchListResponse }>(
-        BATCH_LIST_QUERY,
-        {
-          filter,
-          page: options?.page ?? 1,
-          limit: options?.limit ?? 20,
-          sortBy: options?.sortBy ?? 'stockedAt',
-          sortOrder: options?.sortOrder ?? 'DESC',
+      const sortBy = options?.sortBy ?? 'stockedAt';
+      const sortOrder = options?.sortOrder ?? 'DESC';
+      const fetchPage = async (page: number, limit: number): Promise<BatchListResponse> => {
+        const data = await graphqlClient.request<{ batches: BatchListResponse }>(
+          BATCH_LIST_QUERY,
+          { filter, page, limit, sortBy, sortOrder },
+        );
+        return data.batches;
+      };
+
+      if (options?.fetchAll) {
+        const first = await fetchPage(1, BATCH_PAGE_LIMIT);
+        const items = [...first.items];
+        const totalPages = Math.min(
+          Math.ceil((first.total ?? items.length) / BATCH_PAGE_LIMIT),
+          BATCH_MAX_PAGES,
+        );
+        for (let page = 2; page <= totalPages; page += 1) {
+          const next = await fetchPage(page, BATCH_PAGE_LIMIT);
+          items.push(...next.items);
         }
-      );
-      return data.batches;
+        return { ...first, items };
+      }
+
+      return fetchPage(options?.page ?? 1, options?.limit ?? 20);
     },
     staleTime: 30000,
     // Only enable when we have valid auth context
@@ -574,7 +593,11 @@ export function useBatchList(
       // Don't retry auth errors
       if (error instanceof Error) {
         const message = error.message.toLowerCase();
-        if (message.includes('unauthenticated') || message.includes('unauthorized') || message.includes('tenant')) {
+        if (
+          message.includes('unauthenticated') ||
+          message.includes('unauthorized') ||
+          message.includes('tenant')
+        ) {
           return false;
         }
       }
@@ -593,10 +616,7 @@ export function useBatch(id: string) {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'batches', 'detail', id),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ batch: Batch }>(
-        BATCH_QUERY,
-        { id }
-      );
+      const data = await graphqlClient.request<{ batch: Batch }>(BATCH_QUERY, { id });
       return data.batch;
     },
     staleTime: 30000,
@@ -624,7 +644,7 @@ export function useAvailableTanks(options?: {
             siteId: options?.siteId,
             departmentId: options?.departmentId,
             excludeFullTanks: options?.excludeFullTanks ?? false,
-          }
+          },
         );
         return data.availableTanks;
       } catch (error) {
@@ -648,7 +668,7 @@ export function useGenerateBatchNumber() {
     queryKey: createTenantQueryKey(tenantId, 'batches', 'generateNumber'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ generateBatchNumber: string }>(
-        GENERATE_BATCH_NUMBER_QUERY
+        GENERATE_BATCH_NUMBER_QUERY,
       );
       return data.generateBatchNumber;
     },
@@ -672,16 +692,28 @@ export function useCreateBatch() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ createBatch: Batch }>(
-        CREATE_BATCH_MUTATION,
-        { input }
-      );
+      const data = await graphqlClient.request<{ createBatch: Batch }>(CREATE_BATCH_MUTATION, {
+        input,
+      });
       return data.createBatch;
     },
     onSuccess: () => {
       // Invalidate batch list and batch number
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches', 'generateNumber') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'batches', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'batches', 'generateNumber'),
+      });
+      // FARM-MEDIUM-133: a new batch allocates fish into tanks (initialLocations),
+      // so it mutates tank + tank-batch read models exactly like every tracking
+      // mutation (mortality/cull/transfer/grading) does. Invalidate them here too
+      // so a freshly created batch is correct-by-default on every surface, not
+      // only on pages that remember to call refetch() themselves.
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
 }
@@ -728,6 +760,17 @@ const TRANSFER_BATCH_MUTATION = `
   }
 `;
 
+const RECORD_GRADING_MUTATION = `
+  mutation RecordGrading($input: RecordGradingInput!) {
+    recordGrading(input: $input) {
+      id
+      batchNumber
+      currentQuantity
+      currentBiomassKg
+    }
+  }
+`;
+
 const CREATE_HARVEST_RECORD_MUTATION = `
   mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
     createHarvestRecord(input: $input) {
@@ -748,16 +791,34 @@ const CREATE_HARVEST_RECORD_MUTATION = `
 // AquaMobil offline-queue contract. The desktop web attaches it here so a
 // double-click / retried submit is deduped server-side instead of
 // double-decrementing inventory.
+/**
+ * Deterministic, RECURSIVELY key-sorted stringify — the canonical form the
+ * server's at-most-once payloadHash guard hashes.
+ *
+ * FARM-LOW-141: this MUST stay byte-identical to AquaMobil's stableStringify
+ * (web/apps/aquamobil/src/pwa/offline-queue.ts) so the web and mobile clients
+ * hash one dedup contract the same way. The previous web impl sorted only the
+ * TOP-LEVEL keys, so a nested object would have hashed differently from mobile —
+ * inert while payloads are flat, a silent drift trap the moment one nests.
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 async function hashPayload(payload: object): Promise<string> {
-  // Deterministic SHA-256 over a sorted-key JSON of the flat domain input: the
-  // SAME payload always hashes the same, so the server's payloadHash guard can
-  // detect a clientCommandId reuse that carries a DIFFERENT payload.
-  const sorted = Object.fromEntries(
-    Object.entries(payload).sort(([a], [b]) => a.localeCompare(b)),
-  );
   const digest = await crypto.subtle.digest(
     'SHA-256',
-    new TextEncoder().encode(JSON.stringify(sorted)),
+    new TextEncoder().encode(stableStringify(payload)),
   );
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, '0'))
@@ -772,7 +833,9 @@ async function hashPayload(payload: object): Promise<string> {
  * queue on the desktop web.
  */
 function useStockCommandEnvelope(): {
-  attach: <T extends object>(input: T) => Promise<T & { clientCommandId: string; payloadHash: string }>;
+  attach: <T extends object>(
+    input: T,
+  ) => Promise<T & { clientCommandId: string; payloadHash: string }>;
   reset: () => void;
 } {
   const commandIdRef = useRef<string | null>(null);
@@ -780,7 +843,11 @@ function useStockCommandEnvelope(): {
     input: T,
   ): Promise<T & { clientCommandId: string; payloadHash: string }> {
     commandIdRef.current ??= crypto.randomUUID();
-    return { ...input, clientCommandId: commandIdRef.current, payloadHash: await hashPayload(input) };
+    return {
+      ...input,
+      clientCommandId: commandIdRef.current,
+      payloadHash: await hashPayload(input),
+    };
   }
   function reset(): void {
     commandIdRef.current = null;
@@ -806,7 +873,7 @@ export function useRecordMortality() {
       }
       const data = await graphqlClient.request<{ recordMortality: Batch }>(
         RECORD_MORTALITY_MUTATION,
-        { input: await envelope.attach(input) }
+        { input: await envelope.attach(input) },
       );
       return data.recordMortality;
     },
@@ -816,7 +883,9 @@ export function useRecordMortality() {
       envelope.reset();
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
@@ -838,17 +907,18 @@ export function useRecordCull() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ recordCull: Batch }>(
-        RECORD_CULL_MUTATION,
-        { input: await envelope.attach(input) }
-      );
+      const data = await graphqlClient.request<{ recordCull: Batch }>(RECORD_CULL_MUTATION, {
+        input: await envelope.attach(input),
+      });
       return data.recordCull;
     },
     onSuccess: () => {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
@@ -870,17 +940,77 @@ export function useTransferBatch() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ transferBatch: Batch }>(
-        TRANSFER_BATCH_MUTATION,
-        { input: await envelope.attach(input) }
-      );
+      const data = await graphqlClient.request<{ transferBatch: Batch }>(TRANSFER_BATCH_MUTATION, {
+        input: await envelope.attach(input),
+      });
       return data.transferBatch;
     },
     onSuccess: () => {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
+    },
+  });
+}
+
+/**
+ * Hook to record a grading operation (FARM-MEDIUM-117).
+ *
+ * Server-side every output is its own TransferBatchCommand (reason 'grading'),
+ * so every output carries its OWN at-most-once envelope. Output command ids are
+ * held stable per output index until a submit succeeds — a retried submit after
+ * a mid-sequence failure reuses the ids, so already-committed outputs are deduped
+ * by the server's at-most-once ledger instead of double-moving fish.
+ */
+export function useRecordGrading() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+  // FARM-MEDIUM-129: per-output ids keyed by the stable row identity, so a
+  // resubmit of only the not-yet-committed rows reuses each surviving row's id
+  // instead of shifting ids by array position and colliding on payloadHash.
+  const outputCommandIdsRef = useRef<Map<string, string>>(new Map());
+
+  return useMutation({
+    mutationFn: async (input: RecordGradingInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const idsByRow = outputCommandIdsRef.current;
+      const outputs = await Promise.all(
+        input.outputs.map(async ({ rowKey, ...serverOutput }) => {
+          const clientCommandId = idsByRow.get(rowKey) ?? crypto.randomUUID();
+          idsByRow.set(rowKey, clientCommandId);
+          // FARM-LOW-137: grading carries ONLY per-output envelopes — the
+          // resolver reads no operation-level clientCommandId, so we do not
+          // attach one here (it would be a redundant hash implying dedup that
+          // does not exist).
+          return {
+            ...serverOutput,
+            clientCommandId,
+            payloadHash: await hashPayload(serverOutput),
+          };
+        }),
+      );
+      const data = await graphqlClient.request<{ recordGrading: Batch }>(RECORD_GRADING_MUTATION, {
+        input: { ...input, outputs },
+      });
+      return data.recordGrading;
+    },
+    onSuccess: () => {
+      // FARM-HIGH-052: release the per-row clientCommandIds so the next genuine
+      // grading mints fresh ones (see useRecordMortality).
+      outputCommandIdsRef.current = new Map();
+      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });
@@ -903,15 +1033,19 @@ export function useCreateHarvestRecord() {
       }
       const data = await graphqlClient.request<{ createHarvestRecord: any }>(
         CREATE_HARVEST_RECORD_MUTATION,
-        { input }
+        { input },
       );
       return data.createHarvestRecord;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'harvestRecords') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'harvestRecords'),
+      });
     },
   });
 }
@@ -1023,10 +1157,9 @@ export function useUpdateBatch() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ updateBatch: Batch }>(
-        UPDATE_BATCH_MUTATION,
-        { input },
-      );
+      const data = await graphqlClient.request<{ updateBatch: Batch }>(UPDATE_BATCH_MUTATION, {
+        input,
+      });
       return data.updateBatch;
     },
     onSuccess: (updatedBatch) => {
@@ -1093,15 +1226,12 @@ export function useCloseBatch() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ closeBatch: Batch }>(
-        CLOSE_BATCH_MUTATION,
-        {
-          id: input.id,
-          reason: input.reason,
-          notes: input.notes,
-          acknowledgeActiveTreatments: input.acknowledgeActiveTreatments,
-        },
-      );
+      const data = await graphqlClient.request<{ closeBatch: Batch }>(CLOSE_BATCH_MUTATION, {
+        id: input.id,
+        reason: input.reason,
+        notes: input.notes,
+        acknowledgeActiveTreatments: input.acknowledgeActiveTreatments,
+      });
       return data.closeBatch;
     },
     onSuccess: () => {
@@ -1140,7 +1270,9 @@ export function useAllocateBatchToTank() {
       // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
       envelope.reset();
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'batches') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'tankBatches'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'tanks') });
     },
   });

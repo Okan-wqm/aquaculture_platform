@@ -151,6 +151,25 @@ export function getSharedConfigWithRecharts(): Record<string, SharedDepConfig> {
 }
 
 /**
+ * Extended shared config that includes BOTH the graph lib @xyflow/react AND
+ * recharts — for sensor-module, which uses @xyflow/react (SCADA/process editor)
+ * and now also recharts (water-chemistry cards render the promoted shared-ui
+ * charts, whose recharts import is externalized from shared-ui's dist and must
+ * therefore be satisfiable from the federation shared scope). Same SSoT rationale
+ * as the helpers above.
+ */
+export function getSharedConfigWithReactFlowAndRecharts(): Record<string, SharedDepConfig> {
+  return {
+    ...getSharedConfigWithReactFlow(),
+    recharts: {
+      singleton: true,
+      strictVersion: true,
+      requiredVersion: SHARED_VERSIONS.recharts,
+    },
+  };
+}
+
+/**
  * Extended shared config that includes lucide-react (tenant-admin icons).
  * Same SSoT rationale as getSharedConfigWithRecharts above.
  */

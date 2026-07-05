@@ -17,6 +17,12 @@ import { EnsureFarmTenantErasureProofLedger1801500000000 } from './1801500000000
 import { DropAuditLedgerSourceWriteGuard1801600000000 } from './1801600000000-DropAuditLedgerSourceWriteGuard';
 import { BackfillStaleTankBatchDetails1801700000000 } from './1801700000000-BackfillStaleTankBatchDetails';
 import { BackfillTankBatchCurrentQuantityMirror1801800000000 } from './1801800000000-BackfillTankBatchCurrentQuantityMirror';
+import { CreateRegulatoryReports1801900000000 } from './1801900000000-CreateRegulatoryReports';
+import { AddBatchProtocolId1802000000000 } from './1802000000000-AddBatchProtocolId';
+import { AddEquipmentTemperatureSensorId1802100000000 } from './1802100000000-AddEquipmentTemperatureSensorId';
+import { CreateSensorTemperatureLatest1802200000000 } from './1802200000000-CreateSensorTemperatureLatest';
+import { AddTankTemperatureSensorId1802300000000 } from './1802300000000-AddTankTemperatureSensorId';
+import { AddExecutionGrowthAppliedAt1802400000000 } from './1802400000000-AddExecutionGrowthAppliedAt';
 
 /**
  * Canonical farm-service migration class list.
@@ -46,4 +52,10 @@ export const FARM_MIGRATIONS = [
   DropAuditLedgerSourceWriteGuard1801600000000,
   BackfillStaleTankBatchDetails1801700000000,
   BackfillTankBatchCurrentQuantityMirror1801800000000,
+  CreateRegulatoryReports1801900000000,
+  AddBatchProtocolId1802000000000,
+  AddEquipmentTemperatureSensorId1802100000000,
+  CreateSensorTemperatureLatest1802200000000,
+  AddTankTemperatureSensorId1802300000000,
+  AddExecutionGrowthAppliedAt1802400000000,
 ] as const;

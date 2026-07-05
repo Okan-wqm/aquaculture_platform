@@ -122,6 +122,33 @@ export class EquipmentSystemResponse {
 }
 
 /**
+ * One batch's share of a tank when several batches are combined in it (e.g.
+ * "B-1 + B-2"). Mirrors the `TankBatch.batchDetails[]` SSoT entry so the UI can
+ * render the per-batch breakdown and target operations at a specific batch
+ * instead of always the primary one.
+ */
+@ObjectType()
+export class BatchDetailMetric {
+  @Field(() => ID)
+  batchId: string;
+
+  @Field()
+  batchNumber: string;
+
+  @Field(() => Int)
+  quantity: number;
+
+  @Field(() => Float)
+  avgWeightG: number;
+
+  @Field(() => Float)
+  biomassKg: number;
+
+  @Field(() => Float, { description: 'Share of the tank stock, percent' })
+  percentageOfTank: number;
+}
+
+/**
  * Batch metrics info for equipment (tank/pond/cage) display
  */
 @ObjectType()
@@ -152,6 +179,12 @@ export class EquipmentBatchMetrics {
 
   @Field({ nullable: true })
   isMixedBatch?: boolean;
+
+  @Field(() => [BatchDetailMetric], {
+    nullable: true,
+    description: 'Per-batch breakdown when the tank holds several batches (combined "B-1 + B-2")',
+  })
+  batchDetails?: BatchDetailMetric[];
 
   @Field({ nullable: true })
   lastFeedingAt?: Date;
@@ -232,7 +265,10 @@ export class EquipmentResponse {
   @Field(() => ID, { nullable: true })
   siteId?: string;
 
-  @Field(() => [EquipmentSystemResponse], { nullable: true, description: 'Systems this equipment serves (many-to-many)' })
+  @Field(() => [EquipmentSystemResponse], {
+    nullable: true,
+    description: 'Systems this equipment serves (many-to-many)',
+  })
   systems?: EquipmentSystemResponse[];
 
   @Field(() => [ID], { nullable: true, description: 'System IDs for convenience' })
@@ -320,7 +356,13 @@ export class EquipmentResponse {
   @Field({ nullable: true })
   isVisibleInSensor?: boolean;
 
-  @Field(() => EquipmentBatchMetrics, { nullable: true, description: 'Batch metrics for tanks/ponds/cages' })
+  @Field(() => ID, { nullable: true })
+  temperatureSensorId?: string;
+
+  @Field(() => EquipmentBatchMetrics, {
+    nullable: true,
+    description: 'Batch metrics for tanks/ponds/cages',
+  })
   batchMetrics?: EquipmentBatchMetrics;
 
   @Field(() => ID, { nullable: true })

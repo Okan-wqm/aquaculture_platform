@@ -35,6 +35,7 @@ import {
   FeedAssignment,
   FCRTable,
   FCRSource,
+  GrowthApplicationMode,
 } from '../entities/feeding-program.entity';
 
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
@@ -59,6 +60,7 @@ export interface CreateProgramInput {
     transitionBuffer?: number;
     notifyOnTransition?: boolean;
     fcrSource?: FCRSource;
+    growthApplicationMode?: GrowthApplicationMode;
     defaultMealsPerDay?: number;
     minFeedingRatePercent?: number;
     maxFeedingRatePercent?: number;
@@ -80,6 +82,7 @@ export interface UpdateProgramInput {
     transitionBuffer?: number;
     notifyOnTransition?: boolean;
     fcrSource?: FCRSource;
+    growthApplicationMode?: GrowthApplicationMode;
     defaultMealsPerDay?: number;
     minFeedingRatePercent?: number;
     maxFeedingRatePercent?: number;
@@ -205,6 +208,8 @@ export class FeedingProgramService {
         transitionBuffer: input.settings?.transitionBuffer ?? 0.5,
         notifyOnTransition: input.settings?.notifyOnTransition ?? true,
         fcrSource: input.settings?.fcrSource ?? FCRSource.FEED,
+        growthApplicationMode:
+          input.settings?.growthApplicationMode ?? GrowthApplicationMode.PER_FEEDING,
         defaultMealsPerDay: input.settings?.defaultMealsPerDay ?? 4,
         minFeedingRatePercent: input.settings?.minFeedingRatePercent,
         maxFeedingRatePercent: input.settings?.maxFeedingRatePercent,
@@ -536,7 +541,7 @@ export class FeedingProgramService {
     // NOTE: sensorId validation is not performed here because sensors are managed
     // by sensor-service (different microservice). The resolver/gateway layer should
     // validate sensor ownership if cross-service validation is required.
-    // For now, we accept the sensorId as-is (it's optional and just stored as UUID reference).
+    // The sensorId is accepted as-is (optional, stored as a UUID reference).
 
     // Use transaction for consistency
     const queryRunner = this.dataSource.createQueryRunner();

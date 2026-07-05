@@ -24,7 +24,9 @@ const MANUAL_DEFAULTS: Record<ParamKey, number> = {
 };
 
 function newId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `wc-${Math.round(performance.now())}-${SPECIES_TEMPLATES.length}`;
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `wc-${Math.round(performance.now())}-${SPECIES_TEMPLATES.length}`;
 }
 
 function scopeName(scope: CardScope): string {
@@ -33,7 +35,11 @@ function scopeName(scope: CardScope): string {
 }
 
 /** Build a default, engine-ready card: auto-bind a sensor per param where one exists, else manual. */
-export function createCard(scope: CardScope, speciesTemplateId = 'salmon_freshwater', samplingLabel = 'Outlet'): WcCard {
+export function createCard(
+  scope: CardScope,
+  speciesTemplateId = 'salmon_freshwater',
+  samplingLabel = 'Outlet',
+): WcCard {
   const species = SPECIES_TEMPLATES.find((s) => s.id === speciesTemplateId) ?? SPECIES_TEMPLATES[0];
   const paramSources = {} as Record<ParamKey, ParamSourceConfig>;
   for (const p of ALL_PARAMS) {
@@ -41,7 +47,17 @@ export function createCard(scope: CardScope, speciesTemplateId = 'salmon_freshwa
     const sensor = sensors[0];
     paramSources[p] = sensor
       ? { mode: 'sensor', sensorId: sensor.id, channelId: sensor.channelId }
-      : { mode: 'manual', value: p === 'alkalinity' ? species.limits.targetAlk : p === 'calcium' ? species.limits.caMgL : p === 'tan' ? species.limits.tan : MANUAL_DEFAULTS[p] };
+      : {
+          mode: 'manual',
+          value:
+            p === 'alkalinity'
+              ? species.limits.targetAlk
+              : p === 'calcium'
+                ? species.limits.caMgL
+                : p === 'tan'
+                  ? species.limits.tan
+                  : MANUAL_DEFAULTS[p],
+        };
   }
   return {
     id: newId(),
@@ -53,23 +69,88 @@ export function createCard(scope: CardScope, speciesTemplateId = 'salmon_freshwa
     volumeM3: 10,
     paramSources,
     chartType: 'deffeyes' as ChartType,
-    layout: { x: 0, y: 0, w: 4, h: 5 },
+    // Default big enough that the Deffeyes chart (chartHeight 300) + ResultsPanel fit
+    // inside the widget without an immediate resize.
+    layout: { x: 0, y: 0, w: 5, h: 9 },
   };
 }
 
 function seed(): WcCard[] {
   return [
     createCard({ kind: 'tank', id: 't1' }, 'salmon_freshwater', 'Outlet'),
-    { ...createCard({ kind: 'tank', id: 't3' }, 'salmon_freshwater', 'After biofilter'), chartType: 'co2', layout: { x: 4, y: 0, w: 4, h: 5 } },
+    {
+      ...createCard({ kind: 'tank', id: 't3' }, 'salmon_freshwater', 'After biofilter'),
+      chartType: 'co2',
+      layout: { x: 5, y: 0, w: 5, h: 9 },
+    },
   ];
+}
+
+const CHART_TYPES: readonly ChartType[] = ['deffeyes', 'nh3', 'h2s', 'co2'];
+
+/**
+ * Persisted-schema guard (root cause of a prod crash on this page): cards live in
+ * localStorage, so a card saved by an OLDER build can miss fields added since —
+ * a pre-`paramSources` card crashed `sourceValue` with "Cannot read properties of
+ * undefined (reading 'temperature')". Every persisted card is FORWARD-MIGRATED
+ * here: a card with a recognizable scope keeps the user's title/limits/layout/
+ * chart/sources where valid and has every missing section rebuilt from the
+ * current template; anything unrecognizable is dropped. The schema can therefore
+ * never crash the page again — old data upgrades instead of being trusted.
+ */
+export function normalizeCard(raw: unknown): WcCard | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const c = raw as Partial<WcCard>;
+  const scope = c.scope;
+  if (
+    !scope ||
+    (scope.kind !== 'tank' && scope.kind !== 'biofilter') ||
+    typeof scope.id !== 'string'
+  ) {
+    return null;
+  }
+  const fresh = createCard(
+    { kind: scope.kind, id: scope.id },
+    typeof c.speciesTemplateId === 'string' ? c.speciesTemplateId : undefined,
+    typeof c.samplingLabel === 'string' ? c.samplingLabel : undefined,
+  );
+  const paramSources = { ...fresh.paramSources };
+  if (c.paramSources && typeof c.paramSources === 'object') {
+    for (const p of ALL_PARAMS) {
+      const src = c.paramSources[p];
+      if (src && (src.mode === 'sensor' || src.mode === 'manual')) {
+        paramSources[p] = src;
+      }
+    }
+  }
+  const layout = c.layout;
+  const layoutValid =
+    !!layout &&
+    typeof layout.x === 'number' &&
+    typeof layout.y === 'number' &&
+    typeof layout.w === 'number' &&
+    typeof layout.h === 'number';
+  return {
+    ...fresh,
+    id: typeof c.id === 'string' && c.id ? c.id : fresh.id,
+    title: typeof c.title === 'string' && c.title ? c.title : fresh.title,
+    limits:
+      c.limits && typeof c.limits === 'object' ? { ...fresh.limits, ...c.limits } : fresh.limits,
+    volumeM3: typeof c.volumeM3 === 'number' && c.volumeM3 > 0 ? c.volumeM3 : fresh.volumeM3,
+    paramSources,
+    chartType: c.chartType && CHART_TYPES.includes(c.chartType) ? c.chartType : fresh.chartType,
+    layout: layoutValid ? layout : fresh.layout,
+  };
 }
 
 function load(): WcCard[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return seed();
-    const parsed = JSON.parse(raw) as WcCard[];
-    return Array.isArray(parsed) && parsed.length ? parsed : seed();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return seed();
+    const cards = parsed.map(normalizeCard).filter((card): card is WcCard => card !== null);
+    return cards.length ? cards : seed();
   } catch {
     return seed();
   }
@@ -96,7 +177,12 @@ export function useWcCards(): UseWcCards {
 
   const addCard = useCallback((scope: CardScope): string => {
     const card = createCard(scope);
-    setCards((cs) => [...cs, card]);
+    // Append at the BOTTOM (below every existing card) so a new widget never lands on
+    // top of and disrupts the current layout.
+    setCards((cs) => {
+      const y = cs.reduce((m, c) => Math.max(m, c.layout.y + c.layout.h), 0);
+      return [...cs, { ...card, layout: { ...card.layout, y } }];
+    });
     return card.id;
   }, []);
   const updateCard = useCallback((id: string, patch: Partial<WcCard>) => {

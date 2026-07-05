@@ -55,8 +55,9 @@ export const BatchInputTab: React.FC = () => {
       searchTerm: searchTerm || undefined,
     },
     {
-      page: 1,
-      limit: 50,
+      // Fetch-all: the production list must show EVERY batch (a fixed 50-cap
+      // hid batches on web while mobile paged through them all).
+      fetchAll: true,
       sortBy: 'stockedAt',
       sortOrder: 'DESC',
     }

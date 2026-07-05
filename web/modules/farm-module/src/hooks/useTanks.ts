@@ -6,6 +6,19 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
+/**
+ * One production batch's share of a tank when several are combined (e.g.
+ * "B-1 + B-2"). Mirrors the backend TankBatch.batchDetails[] SSoT entry.
+ */
+export interface BatchDetail {
+  batchId: string;
+  batchNumber: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  percentageOfTank: number;
+}
+
 export interface CleanerFishDetail {
   batchId: string;
   batchNumber: string;
@@ -33,6 +46,7 @@ export interface TankBatchMetrics {
   capacityUsedPercent?: number;
   isOverCapacity?: boolean;
   isMixedBatch?: boolean;
+  batchDetails?: BatchDetail[];
   lastFeedingAt?: string;
   lastSamplingAt?: string;
   lastMortalityAt?: string;
@@ -174,6 +188,14 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
           capacityUsedPercent
           isOverCapacity
           isMixedBatch
+          batchDetails {
+            batchId
+            batchNumber
+            quantity
+            avgWeightG
+            biomassKg
+            percentageOfTank
+          }
           lastFeedingAt
           lastSamplingAt
           lastMortalityAt
@@ -203,9 +225,22 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
   }
 `;
 
+/** Backend hard max for FarmPaginationInput.limit (StandardPaginationInput @Max(100)). */
+const EQUIPMENT_PAGE_LIMIT = 100;
+/** Sanity ceiling for the fetch-all page loop (100 × 50 = 5000 containers). */
+const EQUIPMENT_MAX_PAGES = 50;
+
 /**
- * Hook to fetch tanks/ponds/cages with batch metrics
- * Uses Equipment entity with categories filter
+ * Hook to fetch tanks/ponds/cages with batch metrics.
+ *
+ * WHY fetch-all: the backend list defaults to 50 rows (max 100/page), and this
+ * hook previously sent NO limit — every tank past the 50th was silently
+ * invisible on web (mobile pages through everything, hence "batch visible on
+ * mobile, missing on web"). The gateway DOES accept FarmPaginationInput.limit;
+ * an old comment here claimed otherwise and was the load-bearing bug.
+ *
+ * WHAT: with explicit pagination the caller's page is fetched as-is; without it
+ * the hook pages through the full list (100/page) and returns every container.
  */
 export function useTanksList(filter?: TankFilterInput, pagination?: { page?: number; pageSize?: number }) {
   const { token, tenantId } = useAuth();
@@ -213,21 +248,36 @@ export function useTanksList(filter?: TankFilterInput, pagination?: { page?: num
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'tanks', 'list', filter, pagination),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ equipmentList: TanksResponse }>(
-        EQUIPMENT_WITH_BATCHES_QUERY,
-        {
-          filter: {
-            ...filter,
-            // Default to TANK, POND, CAGE categories if not specified (uppercase enum values)
-            categories: filter?.categories || ['TANK', 'POND', 'CAGE'],
-            isActive: filter?.isActive ?? true,
-          },
-          // Note: PaginationInput only supports 'page' in merged gateway schema
-          // Backend defaults to 20 items, but we skip pagination to get all items
-          pagination: pagination?.page ? { page: pagination.page } : undefined,
-        }
-      );
-      return data.equipmentList;
+      const gqlFilter = {
+        ...filter,
+        // Default to TANK, POND, CAGE categories if not specified (uppercase enum values)
+        categories: filter?.categories || ['TANK', 'POND', 'CAGE'],
+        isActive: filter?.isActive ?? true,
+      };
+      const fetchPage = async (page: number, limit: number): Promise<TanksResponse> => {
+        const data = await graphqlClient.request<{ equipmentList: TanksResponse }>(
+          EQUIPMENT_WITH_BATCHES_QUERY,
+          { filter: gqlFilter, pagination: { page, limit } },
+        );
+        return data.equipmentList;
+      };
+
+      if (pagination?.page) {
+        return fetchPage(
+          pagination.page,
+          Math.min(pagination.pageSize ?? EQUIPMENT_PAGE_LIMIT, EQUIPMENT_PAGE_LIMIT),
+        );
+      }
+
+      // Fetch-all: page through so every tank/pond/cage is visible on web.
+      const first = await fetchPage(1, EQUIPMENT_PAGE_LIMIT);
+      const items = [...first.items];
+      const totalPages = Math.min(first.totalPages ?? 1, EQUIPMENT_MAX_PAGES);
+      for (let page = 2; page <= totalPages; page += 1) {
+        const next = await fetchPage(page, EQUIPMENT_PAGE_LIMIT);
+        items.push(...next.items);
+      }
+      return { ...first, items, limit: items.length };
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,

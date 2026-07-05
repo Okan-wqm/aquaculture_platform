@@ -4,7 +4,12 @@ import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@aquaculture/shared-ui', () => ({
+// PARTIAL mock: the page now imports the real water-chemistry SSoT
+// (computeWaterChemistryOutputs / buildDeffeyesData / getVisible*ChartZones /
+// WaterChemistryInputs) from shared-ui — a full-replace mock would make those
+// undefined and crash the render. Keep every real export, override only the guard.
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@aquaculture/shared-ui')>()),
   useCanMutate: () => false,
 }));
 
@@ -15,7 +20,6 @@ vi.mock('./components/ParameterConfigManager', () => ({ ParameterConfigManager: 
 
 import { WATER_CHEMISTRY_DIAGNOSTIC_EVENT } from './waterChemistryDiagnostics';
 import type { WaterChemistryDiagnosticDetail } from './waterChemistryDiagnostics';
-import { getVisibleH2SChartZones, getVisibleNH3ChartZones } from './WaterChemistryPage';
 import WaterChemistryPage from './WaterChemistryPage';
 
 function renderWaterChemistryPage(route = '/water-chemistry'): ReturnType<typeof render> {
@@ -34,65 +38,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   cleanup();
-});
-
-describe('getVisibleH2SChartZones', () => {
-  it('renders full safe domain when the H2S critical pH is absent or below the visible chart', () => {
-    expect(getVisibleH2SChartZones(NaN)).toEqual({
-      safe: { x1: 4, x2: 12.5 },
-      showCriticalLine: false,
-    });
-    expect(getVisibleH2SChartZones(3.5)).toEqual({
-      safe: { x1: 4, x2: 12.5 },
-      showCriticalLine: false,
-    });
-  });
-
-  it('renders full danger domain when the H2S critical pH is above the visible chart', () => {
-    expect(getVisibleH2SChartZones(12.5)).toEqual({
-      danger: { x1: 4, x2: 12.5 },
-      showCriticalLine: true,
-    });
-  });
-
-  it('splits danger, alert, and safe bands inside the visible chart', () => {
-    expect(getVisibleH2SChartZones(6)).toEqual({
-      danger: { x1: 4, x2: 6 },
-      alert: { x1: 6, x2: 6.2 },
-      safe: { x1: 6.2, x2: 12.5 },
-      showCriticalLine: true,
-    });
-  });
-});
-
-describe('getVisibleNH3ChartZones (NH₃ toxic ABOVE crit, clamped to 6.0–9.5)', () => {
-  it('renders full safe domain when the NH₃ critical pH is absent or above the visible chart', () => {
-    // Regression guard: off-domain critical pH must NOT leave the chart unshaded.
-    expect(getVisibleNH3ChartZones(NaN)).toEqual({
-      safe: { x1: 6, x2: 9.5 },
-      showCriticalLine: false,
-    });
-    expect(getVisibleNH3ChartZones(10)).toEqual({
-      safe: { x1: 6, x2: 9.5 },
-      showCriticalLine: false,
-    });
-  });
-
-  it('renders full danger domain when the NH₃ critical pH is below the visible chart', () => {
-    expect(getVisibleNH3ChartZones(5)).toEqual({
-      danger: { x1: 6, x2: 9.5 },
-      showCriticalLine: false,
-    });
-  });
-
-  it('splits safe, alert, and danger bands inside the visible chart', () => {
-    expect(getVisibleNH3ChartZones(8)).toEqual({
-      safe: { x1: 6, x2: 7.8 },
-      alert: { x1: 7.8, x2: 8 },
-      danger: { x1: 8, x2: 9.5 },
-      showCriticalLine: true,
-    });
-  });
 });
 
 describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {

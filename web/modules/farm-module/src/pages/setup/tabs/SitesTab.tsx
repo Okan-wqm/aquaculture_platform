@@ -4,8 +4,12 @@
  */
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup } from '@aquaculture/shared-ui';
-import { SiteFormModal } from '../components/SiteFormModal';
+import {
+  DeleteConfirmationDialog,
+  DeletePreviewData,
+  AffectedItemGroup,
+} from '@aquaculture/shared-ui';
+import { SiteFormModal, type SiteFormData } from '../components/SiteFormModal';
 import {
   useSiteList,
   useCreateSite,
@@ -42,7 +46,7 @@ export const SitesTab: React.FC = () => {
 
   // Delete preview query
   const { data: deletePreview, isLoading: isPreviewLoading } = useSiteDeletePreview(
-    siteToDelete?.id ?? null
+    siteToDelete?.id ?? null,
   );
 
   // Transform backend preview to dialog format
@@ -55,7 +59,7 @@ export const SitesTab: React.FC = () => {
       affectedItems.push({
         type: 'departments',
         label: 'Departmanlar',
-        items: deletePreview.affectedItems.departments.map(d => ({
+        items: deletePreview.affectedItems.departments.map((d) => ({
           id: d.id,
           name: d.name,
           code: d.code,
@@ -68,7 +72,7 @@ export const SitesTab: React.FC = () => {
       affectedItems.push({
         type: 'systems',
         label: 'Sistemler',
-        items: deletePreview.affectedItems.systems.map(s => ({
+        items: deletePreview.affectedItems.systems.map((s) => ({
           id: s.id,
           name: s.name,
           code: s.code,
@@ -81,7 +85,7 @@ export const SitesTab: React.FC = () => {
       affectedItems.push({
         type: 'equipment',
         label: 'Ekipmanlar',
-        items: deletePreview.affectedItems.equipment.map(e => ({
+        items: deletePreview.affectedItems.equipment.map((e) => ({
           id: e.id,
           name: e.name,
           code: e.code,
@@ -94,7 +98,7 @@ export const SitesTab: React.FC = () => {
       affectedItems.push({
         type: 'tanks',
         label: 'Tanklar',
-        items: deletePreview.affectedItems.tanks.map(t => ({
+        items: deletePreview.affectedItems.tanks.map((t) => ({
           id: t.id,
           name: t.name,
           code: t.code,
@@ -115,10 +119,11 @@ export const SitesTab: React.FC = () => {
   // Get sites from API
   const sites = sitesData?.items || [];
 
-  const filteredSites = sites.filter(site =>
-    site.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    site.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (site.region?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
+  const filteredSites = sites.filter(
+    (site) =>
+      site.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      site.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (site.region?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false),
   );
 
   const handleCreate = () => {
@@ -153,55 +158,55 @@ export const SitesTab: React.FC = () => {
     setSiteToDelete(null);
   };
 
-  const handleSave = async (formData: any) => {
+  const handleSave = async (formData: Partial<SiteFormData>) => {
     try {
-      // Transform form data to API format (NESTED structure for backend)
-      const siteData: any = {
+      // name + code are required by CreateSiteInput and validated inside the
+      // modal before onSave fires; guard here so the types stay honest.
+      if (!formData.name || !formData.code) return;
+
+      // Transform form data to the API input (nested structure for backend).
+      // Empty strings collapse to `undefined` so the GraphQL layer omits them —
+      // the same effect the old generic key-stripping had, but fully typed.
+      const emptyToUndefined = (v: string | undefined): string | undefined =>
+        v && v !== '' ? v : undefined;
+
+      const siteData: CreateSiteInput = {
         name: formData.name,
         code: formData.code,
-        status: formData.status,
-        country: formData.country || undefined,
-        region: formData.region || undefined,
-        timezone: formData.timezone || undefined,
-        totalArea: formData.totalArea || undefined,
-        contactEmail: formData.contactEmail || undefined,
-        contactPhone: formData.contactPhone || undefined,
-        siteManager: formData.siteManager || undefined,
-        description: formData.description || undefined,
+        status: emptyToUndefined(formData.status),
+        country: emptyToUndefined(formData.country),
+        region: emptyToUndefined(formData.region),
+        timezone: emptyToUndefined(formData.timezone),
+        totalArea: typeof formData.totalArea === 'number' ? formData.totalArea : undefined,
+        contactEmail: emptyToUndefined(formData.contactEmail),
+        contactPhone: emptyToUndefined(formData.contactPhone),
+        siteManager: emptyToUndefined(formData.siteManager),
+        description: emptyToUndefined(formData.description),
       };
 
-      // Add location as nested object if coordinates exist
-      if (formData.location?.latitude && formData.location?.longitude) {
-        siteData.location = {
-          latitude: formData.location.latitude,
-          longitude: formData.location.longitude,
-        };
+      // Add location as a nested object only when both coordinates are real numbers.
+      const location = formData.location;
+      if (typeof location?.latitude === 'number' && typeof location?.longitude === 'number') {
+        siteData.location = { latitude: location.latitude, longitude: location.longitude };
       }
 
-      // Add address as nested object if any field exists
+      // Add address as a nested object if any field is present.
       const address = formData.address;
-      if (address?.street || address?.city || address?.state || address?.postalCode) {
+      if (address && (address.street || address.city || address.state || address.postalCode)) {
         siteData.address = {
-          street: address.street || undefined,
-          city: address.city || undefined,
-          state: address.state || undefined,
-          postalCode: address.postalCode || undefined,
-          country: formData.country || undefined,
+          street: emptyToUndefined(address.street),
+          city: emptyToUndefined(address.city),
+          state: emptyToUndefined(address.state),
+          postalCode: emptyToUndefined(address.postalCode),
+          country: emptyToUndefined(formData.country),
         };
       }
-
-      // Remove undefined and empty string values (but keep nested objects)
-      const cleanedData = Object.fromEntries(
-        Object.entries(siteData).filter(([_, v]) => v !== undefined && v !== '')
-      );
 
       if (editingSite) {
-        await updateSite.mutateAsync({
-          id: editingSite.id,
-          ...cleanedData,
-        } as unknown as UpdateSiteInput);
+        const updateInput: UpdateSiteInput = { id: editingSite.id, ...siteData };
+        await updateSite.mutateAsync(updateInput);
       } else {
-        await createSite.mutateAsync(cleanedData as unknown as CreateSiteInput);
+        await createSite.mutateAsync(siteData);
       }
       setIsModalOpen(false);
     } catch (err) {
@@ -228,7 +233,12 @@ export const SitesTab: React.FC = () => {
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
           </svg>
         </div>
         <button
@@ -236,7 +246,12 @@ export const SitesTab: React.FC = () => {
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
           </svg>
           Add Site
         </button>
@@ -253,101 +268,172 @@ export const SitesTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load sites. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+            Retry
+          </button>
         </div>
       )}
 
       {/* Sites Grid */}
       {!isLoading && !error && (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredSites.map((site) => (
-          <div
-            key={site.id}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
-          >
-            <div className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-semibold text-gray-900">{site.name}</h3>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[site.status]}`}>
-                      {site.status}
-                    </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredSites.map((site) => (
+            <div
+              key={site.id}
+              className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+            >
+              <div className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-gray-900">{site.name}</h3>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[site.status]}`}
+                      >
+                        {site.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">{site.code}</p>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">{site.code}</p>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleEdit(site)}
+                      className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                      title="Edit"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(site)}
+                      className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                      title="Delete"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handleEdit(site)}
-                    className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                    title="Edit"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center text-sm text-gray-600">
+                    <svg
+                      className="w-4 h-4 mr-2 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
                     </svg>
-                  </button>
-                  <button
-                    onClick={() => handleDelete(site)}
-                    className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                    title="Delete"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    {site.region}, {site.country}
+                  </div>
+                  <div className="flex items-center text-sm text-gray-600">
+                    <svg
+                      className="w-4 h-4 mr-2 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                      />
                     </svg>
-                  </button>
+                    {site.totalArea?.toLocaleString()} m²
+                  </div>
+                  {site.contactEmail && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <svg
+                        className="w-4 h-4 mr-2 text-gray-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                        />
+                      </svg>
+                      {site.contactEmail}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center text-sm text-gray-600">
-                  <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  {site.region}, {site.country}
+              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg">
+                <div className="flex justify-between items-center text-xs text-gray-500">
+                  <span>Created: {new Date(site.createdAt).toLocaleDateString()}</span>
+                  <button
+                    className="text-blue-600 hover:text-blue-800 font-medium"
+                    onClick={() => navigate(`/sites/${site.id}`)}
+                  >
+                    View Details →
+                  </button>
                 </div>
-                <div className="flex items-center text-sm text-gray-600">
-                  <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  </svg>
-                  {site.totalArea?.toLocaleString()} m²
-                </div>
-                {site.contactEmail && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  {site.contactEmail}
-                </div>
-                )}
               </div>
             </div>
-
-            <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg">
-              <div className="flex justify-between items-center text-xs text-gray-500">
-                <span>Created: {new Date(site.createdAt).toLocaleDateString()}</span>
-                <button
-                  className="text-blue-600 hover:text-blue-800 font-medium"
-                  onClick={() => navigate(`/sites/${site.id}`)}
-                >
-                  View Details →
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
       )}
 
       {/* Empty State */}
       {!isLoading && !error && filteredSites.length === 0 && (
         <div className="text-center py-12">
-          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          <svg
+            className="mx-auto h-12 w-12 text-gray-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+            />
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900">No sites found</h3>
           <p className="mt-1 text-sm text-gray-500">
-            {searchTerm ? 'Try adjusting your search terms.' : 'Get started by creating a new site.'}
+            {searchTerm
+              ? 'Try adjusting your search terms.'
+              : 'Get started by creating a new site.'}
           </p>
           {!searchTerm && (
             <button
@@ -355,7 +441,12 @@ export const SitesTab: React.FC = () => {
               className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
               <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                />
               </svg>
               Add Site
             </button>

@@ -454,6 +454,45 @@ describe('api-client', () => {
   // ============================================================================
 
   describe('REST Client', () => {
+    // FARM-MEDIUM-091: multipart upload + blob download support
+    it('sends a FormData body as multipart — no JSON Content-Type, body passed through', async () => {
+      apiClient.setTokens('rest-test-token');
+      apiClient.setTenantId('tenant-1');
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { documentId: 'd1' }));
+
+      const fd = new FormData();
+      fd.append('file', new Blob(['x']), 'a.txt');
+      await apiClient.restClient.request('POST', '/upload/doc', { body: fd });
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect(init.body).toBe(fd); // FormData passed through, NOT JSON.stringify'd
+      expect(init.headers['Content-Type']).toBeUndefined(); // browser sets the multipart boundary
+      expect(init.headers['Authorization']).toBe('Bearer rest-test-token');
+      expect(init.headers['X-Tenant-Id']).toBe('tenant-1');
+    });
+
+    it('still JSON-serializes a plain object body with application/json', async () => {
+      apiClient.setTokens('t');
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { ok: true }));
+
+      await apiClient.restClient.request('POST', '/x', { body: { a: 1 } });
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect(init.body).toBe(JSON.stringify({ a: 1 }));
+      expect(init.headers['Content-Type']).toBe('application/json');
+    });
+
+    it('requestBlob returns the raw Blob through the shared auth transport', async () => {
+      apiClient.setTokens('blob-token');
+      mockFetch.mockResolvedValueOnce(mockResponse(200, {}));
+
+      const result = await apiClient.restClient.requestBlob('GET', '/marine/tiles/x.png');
+
+      expect(result).toBeInstanceOf(Blob);
+      const [, init] = mockFetch.mock.calls[0];
+      expect(init.headers['Authorization']).toBe('Bearer blob-token');
+    });
+
     it('should use getAccessToken() for Authorization header', async () => {
       apiClient.setTokens('rest-test-token');
 

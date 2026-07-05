@@ -21,7 +21,7 @@ import {
   ArrayNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { FCRSource } from '../entities/feeding-program.entity';
+import { FCRSource, GrowthApplicationMode } from '../entities/feeding-program.entity';
 import { ProgramEquipmentType } from '../entities/feeding-program-tank.entity';
 
 // ============================================================================
@@ -157,6 +157,11 @@ export class ProgramSettingsInput {
   @IsOptional()
   @IsEnum(FCRSource)
   fcrSource?: FCRSource;
+
+  @Field(() => GrowthApplicationMode, { defaultValue: GrowthApplicationMode.PER_FEEDING })
+  @IsOptional()
+  @IsEnum(GrowthApplicationMode)
+  growthApplicationMode?: GrowthApplicationMode;
 
   @Field(() => Int, { nullable: true, defaultValue: 4 })
   @IsOptional()

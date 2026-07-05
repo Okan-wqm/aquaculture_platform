@@ -133,3 +133,52 @@ export interface WcCard {
   chartType: ChartType;
   layout: CardLayout;
 }
+
+// ============================================================================
+// SYSTEM CARD (P4) — a whole loop with an ordered water flow of member stages
+// ============================================================================
+
+/**
+ * A stage in a system's ordered water flow. Chemical is dosed at the biofilter INLET
+ * (loop start/end); flow = dosing-inlet → biofilter → degassing → tanks/ponds/cages →
+ * recirculate. `enabled=false` opts a member out of monitoring (Configure checkbox).
+ * (`derived?` is the seam a future per-system mass-balance will walk — unused now.)
+ */
+export type WcFlowStageKind = 'dosing-inlet' | 'biofilter' | 'degassing' | 'tank' | 'pond' | 'cage';
+export interface WcFlowStage {
+  id: string;
+  kind: WcFlowStageKind;
+  label: string;
+  scope: CardScope;
+  paramSources: Record<ParamKey, ParamSourceConfig>;
+  enabled: boolean;
+}
+
+/**
+ * A SYSTEM card = a loop whose ordered `flow` auto-includes ALL members (every tank/pond/
+ * cage) + the biofilter + the dosing-inlet. ONE dosing recipe for the whole shared-water
+ * system, computed at the biofilter-inlet reference (`dosingReferenceStageId`).
+ */
+export interface WcSystemCard {
+  id: string;
+  kind: 'system';
+  title: string;
+  systemId: string;
+  flow: WcFlowStage[];
+  activeStageId: string;
+  dosingReferenceStageId: string;
+  shared: {
+    limits: CardLimits;
+    selectedReagents: string[];
+    volumeM3: number;
+  };
+  chartType: ChartType;
+  layout: CardLayout;
+}
+
+/** localStorage union — a stored card with no `kind` is a legacy point card. */
+export type AnyWcCard = WcCard | WcSystemCard;
+
+export function isSystemCard(card: AnyWcCard): card is WcSystemCard {
+  return (card as WcSystemCard).kind === 'system';
+}

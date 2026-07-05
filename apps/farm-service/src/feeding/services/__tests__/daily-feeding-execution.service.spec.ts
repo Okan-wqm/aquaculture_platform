@@ -43,10 +43,16 @@ import {
 } from '../../entities/daily-feeding-execution.entity';
 import { FeedInventory } from '../../entities/feed-inventory.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import {
+  FeedingProgram,
+  GrowthApplicationMode,
+  ProgramSettings,
+} from '../../entities/feeding-program.entity';
 import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../../../batch/services/batch-lifecycle-policy.service';
 import { BilinearInterpolationService } from '../bilinear-interpolation.service';
+import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
@@ -222,11 +228,13 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const feedHasStoragePresence = jest
     .fn()
     .mockResolvedValue(opts.hasStoragePresence === undefined ? true : opts.hasStoragePresence);
-  const resolveFeedDeductionLocation = jest.fn().mockResolvedValue(
-    opts.resolveLocation === undefined
-      ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' }
-      : opts.resolveLocation,
-  );
+  const resolveFeedDeductionLocation = jest
+    .fn()
+    .mockResolvedValue(
+      opts.resolveLocation === undefined
+        ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' }
+        : opts.resolveLocation,
+    );
   const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
@@ -264,6 +272,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     repo(),
     repo(),
     bilinearService,
+    {} as WaterTemperatureService,
     dataSource,
     batchDomainService,
     stockMovementService,
@@ -304,8 +313,14 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
   });
 
   it('(b) fail-OPEN: skips the storage deduction and COMMITS when the feed has NO storage presence', async () => {
-    const { service, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback } =
-      makeHarness({ hasStoragePresence: false });
+    const {
+      service,
+      feedHasStoragePresence,
+      resolveFeedDeductionLocation,
+      recordMovement,
+      commit,
+      rollback,
+    } = makeHarness({ hasStoragePresence: false });
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -367,9 +382,11 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
   });
 
   it('happy path: storage-tracked feed deducts IN-TX (OUT) and commits', async () => {
-    const { service, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness({
-      hasStoragePresence: true,
-    });
+    const { service, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness(
+      {
+        hasStoragePresence: true,
+      },
+    );
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -391,5 +408,45 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     expect(commit).toHaveBeenCalledTimes(1);
     expect(rollback).not.toHaveBeenCalled();
     expect(result.executionId).toBe(EXECUTION);
+  });
+
+  it('DAILY growth mode records the feed but HOLDS BACK the weight roll-up', async () => {
+    const dailyExecution = makeExecution({
+      feedingProgram: mock<FeedingProgram>({
+        settings: mock<ProgramSettings>({ growthApplicationMode: GrowthApplicationMode.DAILY }),
+      }),
+    });
+    const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
+    const { service, commit } = makeHarness({
+      execution: dailyExecution,
+      tankBatch,
+      hasStoragePresence: true,
+    });
+
+    await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
+
+    // The feeding still records + commits, but growth is left pending for the
+    // daily roll-up and the tank weight is NOT updated now.
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(dailyExecution.growthAppliedAt).toBeUndefined();
+    expect(tankBatch.totalBiomassKg).toBeUndefined();
+    expect(tankBatch.avgWeightG).toBeUndefined();
+  });
+
+  it('PER_FEEDING (default) applies growth inline: stamps growthAppliedAt + updates the tank', async () => {
+    const perFeeding = makeExecution(); // no program → PER_FEEDING default
+    const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
+    const { service, commit } = makeHarness({
+      execution: perFeeding,
+      tankBatch,
+      hasStoragePresence: true,
+    });
+
+    await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(perFeeding.growthAppliedAt).toBeInstanceOf(Date);
+    // Growth was rolled into the tank now (50kg fed / 1.1 FCR ≈ 45.45kg on 100kg).
+    expect(tankBatch.totalBiomassKg).toBeGreaterThan(100);
   });
 });

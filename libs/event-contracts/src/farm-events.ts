@@ -414,6 +414,46 @@ export interface BatchTransferredEvent extends BaseEvent {
 }
 
 /**
+ * Batch Graded Event (FARM-MEDIUM-117)
+ *
+ * Summary record of a first-class grading operation: fish from one
+ * source tank sorted into size classes and distributed across
+ * destination tanks. Each individual movement is also recorded as a
+ * `BatchTransferred` event with reason 'grading' — this event carries
+ * the operation-level view (all outputs together).
+ */
+export interface BatchGradedOutput {
+  destinationTankId: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  sizeClass?: string;
+}
+
+/**
+ * BatchGraded — operation-level SUMMARY of a grading run.
+ *
+ * FARM-LOW-146: this event intentionally has NO delta-applying backend consumer.
+ * A grading run is composed of one TransferBatchCommand per output, and each of
+ * those already emits a BatchTransferred event carrying the authoritative stock
+ * deltas that the farm read-model projection applies. BatchGraded exists only as
+ * an operation-level audit/summary record (and a future FE realtime-bridge
+ * surface), mirroring how WaterQualityMeasurementCreated is treated — wiring a
+ * consumer that re-applied its totals would double-count. Do not add a
+ * delta-applying consumer.
+ */
+export interface BatchGradedEvent extends BaseEvent {
+  eventType: 'BatchGraded';
+  batchId: string;
+  sourceTankId: string;
+  totalQuantity: number;
+  totalBiomassKg: number;
+  gradedDate: string;
+  outputs: BatchGradedOutput[];
+  notes?: string;
+}
+
+/**
  * Batch Allocated to Tank Event
  *
  * Represents the resultant allocation state after a batch movement.
@@ -1337,6 +1377,7 @@ export type FarmEvent =
   | SupplierApprovedSitesChangedEvent
   | SiteContactsChangedEvent
   | BatchTransferredEvent
+  | BatchGradedEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent
   | FeedingRecordedEvent

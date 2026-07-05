@@ -9,6 +9,10 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+// Carries the jest-dom matcher TYPE augmentation into this file so it
+// type-checks standalone (CI's changed-files tsc pass) — the runtime
+// registration also comes from the vitest setup file.
+import '@testing-library/jest-dom/vitest';
 import AlertSummaryWidget, {
   AlertItem,
   AlertSeverity,
@@ -727,9 +731,12 @@ describe('AlertSummaryWidget', () => {
 
       render(<AlertSummaryWidget alerts={manyAlerts} maxAlerts={5} />);
 
-      // Should only render 5 alerts
-      const alertItems = screen.getAllByRole('button');
-      expect(alertItems.length).toBeLessThanOrEqual(10); // 5 alerts + potential action buttons
+      // Exactly 5 alert rows render — count the alert items themselves
+      // instead of every role=button in the widget (severity filter chips
+      // and action buttons are also buttons and made the old count-based
+      // assertion drift whenever widget chrome changed).
+      const alertItems = screen.getAllByTestId(/^alert-item-/);
+      expect(alertItems).toHaveLength(5);
     });
   });
 
@@ -1099,9 +1106,11 @@ describe('Edge Cases', () => {
 
     await user.click(screen.getByTestId('acknowledge-btn-alert-1'));
 
-    // Should not crash, button should be re-enabled
+    // Should not crash; the clicked button returns from 'İşleniyor...' to
+    // 'Onayla' (scoped by testid — other unacknowledged alerts render
+    // their own Onayla buttons, so a bare getByText matches multiple).
     await waitFor(() => {
-      expect(screen.getByText('Onayla')).toBeInTheDocument();
+      expect(screen.getByTestId('acknowledge-btn-alert-1')).toHaveTextContent('Onayla');
     });
   });
 

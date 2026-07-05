@@ -289,6 +289,11 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
     setIsProcessing(true);
     try {
       await onAcknowledge(alert.id);
+    } catch {
+      // The callback owner (dashboard page) surfaces its own failure UX;
+      // the widget's contract is to stay mounted and re-enable the button.
+      // Without this catch the rejection escapes the onClick handler as an
+      // unhandled promise rejection.
     } finally {
       if (isMounted.current) setIsProcessing(false);
     }
@@ -301,6 +306,9 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
     setIsProcessing(true);
     try {
       await onResolve(alert.id);
+    } catch {
+      // Same contract as handleAcknowledge — never let a callback rejection
+      // escape the click handler.
     } finally {
       if (isMounted.current) setIsProcessing(false);
     }

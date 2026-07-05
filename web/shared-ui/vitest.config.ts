@@ -7,6 +7,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      // Promoted water-chemistry compute/charts import the engine; resolve it to
+      // source for shared-ui's own vitest (mirrors the vite.config build alias).
+      '@platform/aquaculture-engines': resolve(
+        __dirname,
+        '../../libs/aquaculture-engines/src/index.ts',
+      ),
     },
   },
   test: {

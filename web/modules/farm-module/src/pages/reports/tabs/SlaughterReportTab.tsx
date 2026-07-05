@@ -19,16 +19,10 @@ import type {
   SubmitExecutedSlaughterInput,
   ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
-import { mockSlaughterReports } from '../mock/slaughterData';
-import {
-  SlaughterReport,
-  PlannedSlaughter,
-  CompletedSlaughter,
-  ReportStatus,
-  SlaughterReportType,
-} from '../types/reports.types';
-import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
+import { PlannedSlaughter, CompletedSlaughter, SlaughterReportType } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
@@ -41,16 +35,16 @@ interface SlaughterReportTabProps {
 
 /** Quality grade with Norwegian translation */
 interface QualityGradeDistribution {
-  superior: number;   // Superioer
-  ordinary: number;   // Ordinaer
+  superior: number; // Superioer
+  ordinary: number; // Ordinaer
   production: number; // Produksjonsfisk
-  discard: number;    // Kassert
+  discard: number; // Kassert
 }
 
 /** Slaughter facility info */
 interface SlaughterFacility {
-  facilityName: string;       // godkjenningsnavn
-  approvalNumber: string;     // godkjenningsnummer
+  facilityName: string; // godkjenningsnavn
+  approvalNumber: string; // godkjenningsnummer
 }
 
 /** Regulatory metadata from settings */
@@ -143,7 +137,7 @@ function getWeekNumber(date: Date): number {
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
 /** Get start date (Monday) of a given ISO week */
@@ -168,7 +162,11 @@ function getWeekLabel(week: number, year: number): string {
   const start = getWeekStartDate(week, year);
   const end = getWeekEndDate(week, year);
   const fmtStart = start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  const fmtEnd = end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const fmtEnd = end.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
   return `Week ${week}: ${fmtStart} - ${fmtEnd}`;
 }
 
@@ -194,7 +192,13 @@ function extractBatchOptions(tanks: Tank[] | undefined): BatchOption[] {
     const m = tank.batchMetrics;
     // Only show ACTIVE or PRE_HARVEST status tanks
     const tankStatus = (tank.status || '').toUpperCase();
-    if (tankStatus !== 'ACTIVE' && tankStatus !== 'OPERATIONAL' && tankStatus !== 'HARVESTING' && tankStatus !== 'PRE_HARVEST') continue;
+    if (
+      tankStatus !== 'ACTIVE' &&
+      tankStatus !== 'OPERATIONAL' &&
+      tankStatus !== 'HARVESTING' &&
+      tankStatus !== 'PRE_HARVEST'
+    )
+      continue;
     options.push({
       batchId: m.batchId!,
       batchNumber: m.batchNumber!,
@@ -247,7 +251,11 @@ function getInitialFormData(): SlaughterFormData {
   };
 }
 
-function calculateSummary(planned: PlannedSlaughter[], completed: CompletedSlaughter[], dayPlans?: DayPlanEntry[]) {
+function calculateSummary(
+  planned: PlannedSlaughter[],
+  completed: CompletedSlaughter[],
+  dayPlans?: DayPlanEntry[],
+) {
   const dayPlanQuantity = dayPlans?.reduce((sum, d) => sum + d.quantity, 0) || 0;
   const dayPlanBiomass = dayPlans?.reduce((sum, d) => sum + d.biomassKg, 0) || 0;
 
@@ -258,124 +266,6 @@ function calculateSummary(planned: PlannedSlaughter[], completed: CompletedSlaug
     completedBiomassKg: completed.reduce((sum, c) => sum + c.actualBiomassKg, 0),
   };
 }
-
-// ============================================================================
-// Report Card Component
-// ============================================================================
-
-interface SlaughterReportCardProps {
-  report: SlaughterReport;
-  onView: () => void;
-  onEdit?: () => void;
-}
-
-const SlaughterReportCard: React.FC<SlaughterReportCardProps> = ({ report, onView, onEdit }) => {
-  const isPending = report.status === 'pending' || report.status === 'draft';
-  const hasVariance = report.summary.totalCompleted > 0 &&
-    Math.abs(report.summary.totalCompleted - report.summary.totalPlanned) > 0;
-
-  const variance = report.summary.totalPlanned > 0
-    ? ((report.summary.totalCompleted - report.summary.totalPlanned) / report.summary.totalPlanned * 100)
-    : 0;
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900">{report.id}</h3>
-              <p className="text-sm text-gray-500">{report.siteName}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-              report.reportPeriodType === 'planned'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-green-100 text-green-700'
-            }`}>
-              {report.reportPeriodType === 'planned' ? 'Planned' : 'Completed'}
-            </span>
-            <ReportStatusBadge status={report.status} size="sm" />
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-3">
-        {/* Key Metrics */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="text-center p-2 bg-blue-50 rounded">
-            <div className="text-lg font-bold text-blue-700">{formatNumber(report.summary.totalPlanned)}</div>
-            <div className="text-xs text-gray-500">Planned</div>
-            <div className="text-xs text-blue-600">{formatWeight(report.summary.plannedBiomassKg)}</div>
-          </div>
-          <div className="text-center p-2 bg-green-50 rounded">
-            <div className="text-lg font-bold text-green-700">{formatNumber(report.summary.totalCompleted)}</div>
-            <div className="text-xs text-gray-500">Completed</div>
-            <div className="text-xs text-green-600">{formatWeight(report.summary.completedBiomassKg)}</div>
-          </div>
-        </div>
-
-        {/* Variance */}
-        {hasVariance && (
-          <div className={`text-center p-2 mb-3 rounded ${
-            variance >= 0 ? 'bg-green-50' : 'bg-red-50'
-          }`}>
-            <span className={`text-sm font-medium ${variance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-              Variance: {variance > 0 ? '+' : ''}{variance.toFixed(1)}%
-            </span>
-          </div>
-        )}
-
-        {/* Slaughter Records Summary */}
-        <div className="grid grid-cols-2 gap-2 text-sm pt-3 border-t border-gray-100">
-          <div>
-            <span className="text-gray-500">Planned Events:</span>
-            <span className="ml-1 font-medium">{report.plannedSlaughters.length}</span>
-          </div>
-          <div>
-            <span className="text-gray-500">Completed Events:</span>
-            <span className="ml-1 font-medium">{report.completedSlaughters.length}</span>
-          </div>
-        </div>
-
-        {/* Deadline for pending/draft */}
-        {isPending && report.plannedSlaughters.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <div className="text-sm text-gray-500">
-              Next planned: {formatDate(report.plannedSlaughters[0].plannedDate)}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
-        <button
-          onClick={onView}
-          className="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          View Details
-        </button>
-        {isPending && onEdit && (
-          <button
-            onClick={onEdit}
-            className="px-3 py-1.5 text-sm text-white bg-blue-600 rounded-md hover:bg-blue-700"
-          >
-            Update Report
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // Wizard Step Components
@@ -411,7 +301,9 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             min={1}
             max={52}
             value={formData.weekNumber}
-            onChange={(e) => onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })}
+            onChange={(e) =>
+              onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
+            }
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-700"
           />
         </div>
@@ -422,7 +314,9 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             min={2020}
             max={2030}
             value={formData.year}
-            onChange={(e) => onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })}
+            onChange={(e) =>
+              onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })
+            }
             className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-700"
           />
         </div>
@@ -444,8 +338,18 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             }`}
           >
             <div className="p-3 bg-blue-100 rounded-lg inline-block mb-2">
-              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <svg
+                className="w-6 h-6 text-blue-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
               </svg>
             </div>
             <div className="font-medium text-gray-900">Planned Slaughter</div>
@@ -462,8 +366,18 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             }`}
           >
             <div className="p-3 bg-green-100 rounded-lg inline-block mb-2">
-              <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-6 h-6 text-green-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
             </div>
             <div className="font-medium text-gray-900">Executed Slaughter</div>
@@ -509,14 +423,18 @@ const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <h4 className="text-sm font-medium text-gray-700">Regulatory Metadata</h4>
-          <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">Mattilsynet</span>
+          <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
+            Mattilsynet
+          </span>
         </div>
         <p className="text-xs text-gray-500 mb-3">
           These will be populated from Setup &gt; Regulatory Settings
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Organization Number (organisasjonsnummer)</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              Organization Number (organisasjonsnummer)
+            </label>
             <input
               type="text"
               value={formData.regulatory.organisasjonsnummer}
@@ -527,11 +445,15 @@ const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Site Number (lokalitetsnummer)</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              Site Number (lokalitetsnummer)
+            </label>
             <input
               type="number"
               value={formData.regulatory.lokalitetsnummer}
-              onChange={(e) => updateRegulatory({ lokalitetsnummer: parseInt(e.target.value) || '' as any })}
+              onChange={(e) =>
+                updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
+              }
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
               placeholder="31234"
             />
@@ -578,11 +500,15 @@ const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <h4 className="text-sm font-medium text-gray-700">Slaughter Facility</h4>
-          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">Required</span>
+          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+            Required
+          </span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Facility Name (godkjenningsnavn)</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              Facility Name (godkjenningsnavn)
+            </label>
             <input
               type="text"
               value={formData.facility.facilityName}
@@ -592,7 +518,9 @@ const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Approval Number (godkjenningsnummer) *</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              Approval Number (godkjenningsnummer) *
+            </label>
             <input
               type="text"
               value={formData.facility.approvalNumber}
@@ -618,10 +546,14 @@ interface PlannedSlaughterStepProps {
   batchOptions: BatchOption[];
 }
 
-const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({ formData, onChange, batchOptions }) => {
+const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
+  formData,
+  onChange,
+  batchOptions,
+}) => {
   const dayDates = useMemo(
     () => getDayDatesForWeek(formData.weekNumber, formData.year),
-    [formData.weekNumber, formData.year]
+    [formData.weekNumber, formData.year],
   );
 
   const addDayPlan = (dayIndex: number) => {
@@ -697,7 +629,9 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({ formData, o
         <h4 className="text-sm font-medium text-gray-700">
           Planned Slaughters - {getWeekLabel(formData.weekNumber, formData.year)}
         </h4>
-        <p className="text-xs text-gray-500">Schedule harvests by day of week (planlagteLokaliteter)</p>
+        <p className="text-xs text-gray-500">
+          Schedule harvests by day of week (planlagteLokaliteter)
+        </p>
       </div>
 
       {/* Summary */}
@@ -742,7 +676,10 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({ formData, o
               </div>
 
               {dayEntries.map((entry) => (
-                <div key={entry.originalIndex} className="bg-white border border-gray-100 rounded p-2 mt-2">
+                <div
+                  key={entry.originalIndex}
+                  className="bg-white border border-gray-100 rounded p-2 mt-2"
+                >
                   <div className="flex items-start justify-between mb-2">
                     <span className="text-xs text-gray-400">Entry</span>
                     <button
@@ -750,8 +687,18 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({ formData, o
                       onClick={() => removeDayPlan(entry.originalIndex)}
                       className="text-red-400 hover:text-red-600"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   </div>
@@ -766,17 +713,22 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({ formData, o
                         <option value="">Select batch...</option>
                         {batchOptions.map((b) => (
                           <option key={b.batchId} value={b.batchId}>
-                            {b.batchNumber} - {b.species} ({formatNumber(b.quantity)} pcs, {b.tankName})
+                            {b.batchNumber} - {b.species} ({formatNumber(b.quantity)} pcs,{' '}
+                            {b.tankName})
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Species (artskode: {entry.artskode || '-'})</label>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Species (artskode: {entry.artskode || '-'})
+                      </label>
                       <input
                         type="text"
                         value={entry.species}
-                        onChange={(e) => updateDayPlan(entry.originalIndex, { species: e.target.value })}
+                        onChange={(e) =>
+                          updateDayPlan(entry.originalIndex, { species: e.target.value })
+                        }
                         className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-gray-50"
                         placeholder="Auto from batch"
                       />
@@ -787,18 +739,28 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({ formData, o
                         type="number"
                         min="0"
                         value={entry.quantity || ''}
-                        onChange={(e) => updateDayPlan(entry.originalIndex, { quantity: parseInt(e.target.value) || 0 })}
+                        onChange={(e) =>
+                          updateDayPlan(entry.originalIndex, {
+                            quantity: parseInt(e.target.value) || 0,
+                          })
+                        }
                         className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                         placeholder="0"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Biomass kg (mengdeKg)</label>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Biomass kg (mengdeKg)
+                      </label>
                       <input
                         type="number"
                         min="0"
                         value={entry.biomassKg || ''}
-                        onChange={(e) => updateDayPlan(entry.originalIndex, { biomassKg: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) =>
+                          updateDayPlan(entry.originalIndex, {
+                            biomassKg: parseFloat(e.target.value) || 0,
+                          })
+                        }
                         className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                         placeholder="0"
                       />
@@ -824,7 +786,11 @@ interface CompletedSlaughterStepProps {
   batchOptions: BatchOption[];
 }
 
-const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formData, onChange, batchOptions }) => {
+const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
+  formData,
+  onChange,
+  batchOptions,
+}) => {
   const addCompleted = () => {
     const newRecord: CompletedSlaughter = {
       recordId: `harv-${Date.now()}`,
@@ -883,8 +849,11 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
   };
 
   // Grade distribution handlers
-  const gradeSum = formData.gradeDistribution.superior + formData.gradeDistribution.ordinary +
-    formData.gradeDistribution.production + formData.gradeDistribution.discard;
+  const gradeSum =
+    formData.gradeDistribution.superior +
+    formData.gradeDistribution.ordinary +
+    formData.gradeDistribution.production +
+    formData.gradeDistribution.discard;
   const gradeValid = gradeSum === 100 || gradeSum === 0;
 
   const updateGrade = (grade: keyof QualityGradeDistribution, value: number) => {
@@ -917,19 +886,33 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
         <div className="grid grid-cols-2 gap-4">
           <div>
             <span className="text-sm text-green-800">Total Harvested Fish</span>
-            <div className="text-2xl font-bold text-green-700">{formatNumber(formData.summary.totalCompleted)}</div>
+            <div className="text-2xl font-bold text-green-700">
+              {formatNumber(formData.summary.totalCompleted)}
+            </div>
           </div>
           <div>
             <span className="text-sm text-green-800">Total Harvested Biomass</span>
-            <div className="text-2xl font-bold text-green-700">{formatWeight(formData.summary.completedBiomassKg)}</div>
+            <div className="text-2xl font-bold text-green-700">
+              {formatWeight(formData.summary.completedBiomassKg)}
+            </div>
           </div>
         </div>
       </div>
 
       {formData.completedSlaughters.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="w-12 h-12 mx-auto text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No completed slaughters</p>
           <p className="text-xs text-gray-400">Click "Add Completed" to record a harvest</p>
@@ -946,14 +929,21 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
                   className="text-red-500 hover:text-red-700"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {/* Batch Selection Dropdown */}
                 <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-500 mb-1">Batch (select to auto-fill)</label>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Batch (select to auto-fill)
+                  </label>
                   <select
                     value={record.batchId}
                     onChange={(e) => handleBatchSelectCompleted(index, e.target.value)}
@@ -962,7 +952,8 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
                     <option value="">Select batch...</option>
                     {batchOptions.map((b) => (
                       <option key={b.batchId} value={b.batchId}>
-                        {b.batchNumber} - {b.species} ({formatNumber(b.quantity)} pcs, {formatWeight(b.biomassKg)}, {b.tankName})
+                        {b.batchNumber} - {b.species} ({formatNumber(b.quantity)} pcs,{' '}
+                        {formatWeight(b.biomassKg)}, {b.tankName})
                       </option>
                     ))}
                   </select>
@@ -982,7 +973,9 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
                   <input
                     type="date"
                     value={record.harvestDate.toISOString().split('T')[0]}
-                    onChange={(e) => updateCompleted(index, { harvestDate: new Date(e.target.value) })}
+                    onChange={(e) =>
+                      updateCompleted(index, { harvestDate: new Date(e.target.value) })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                   />
                 </div>
@@ -992,7 +985,9 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
                     type="number"
                     min="0"
                     value={record.actualQuantity || ''}
-                    onChange={(e) => updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -1003,7 +998,9 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
                     type="number"
                     min="0"
                     value={record.actualBiomassKg || ''}
-                    onChange={(e) => updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -1038,12 +1035,18 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
         <div className="bg-white border border-gray-200 rounded-lg p-4 mt-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h5 className="text-sm font-medium text-gray-700">Quality Grade Distribution (kvalitetsgrad)</h5>
-              <p className="text-xs text-gray-500">Percentage breakdown across grades - must sum to 100%</p>
+              <h5 className="text-sm font-medium text-gray-700">
+                Quality Grade Distribution (kvalitetsgrad)
+              </h5>
+              <p className="text-xs text-gray-500">
+                Percentage breakdown across grades - must sum to 100%
+              </p>
             </div>
-            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-              gradeValid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-            }`}>
+            <span
+              className={`px-2 py-0.5 text-xs font-medium rounded ${
+                gradeValid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+              }`}
+            >
               {gradeSum}% / 100%
             </span>
           </div>
@@ -1077,7 +1080,9 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Production (Produksjonsfisk)</label>
+              <label className="block text-xs text-gray-500 mb-1">
+                Production (Produksjonsfisk)
+              </label>
               <div className="flex items-center gap-1">
                 <input
                   type="number"
@@ -1145,10 +1150,18 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({ formDat
           )}
           {gradeSum > 0 && (
             <div className="flex gap-4 mt-2 text-xs text-gray-500">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Superior</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Ordinary</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" /> Production</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Discard</span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Superior
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Ordinary
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" /> Production
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Discard
+              </span>
             </div>
           )}
         </div>
@@ -1167,27 +1180,39 @@ interface ReviewStepProps {
 }
 
 const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
-  const variance = formData.summary.totalPlanned > 0
-    ? ((formData.summary.totalCompleted - formData.summary.totalPlanned) / formData.summary.totalPlanned * 100)
-    : 0;
+  const variance =
+    formData.summary.totalPlanned > 0
+      ? ((formData.summary.totalCompleted - formData.summary.totalPlanned) /
+          formData.summary.totalPlanned) *
+        100
+      : 0;
 
   const weekLabel = getWeekLabel(formData.weekNumber, formData.year);
-  const gradeSum = formData.gradeDistribution.superior + formData.gradeDistribution.ordinary +
-    formData.gradeDistribution.production + formData.gradeDistribution.discard;
+  const gradeSum =
+    formData.gradeDistribution.superior +
+    formData.gradeDistribution.ordinary +
+    formData.gradeDistribution.production +
+    formData.gradeDistribution.discard;
 
   return (
     <div className="space-y-6">
       {/* Regulatory Metadata */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-yellow-800 mb-2">Regulatory Metadata (Mattilsynet)</h4>
+        <h4 className="text-sm font-medium text-yellow-800 mb-2">
+          Regulatory Metadata (Mattilsynet)
+        </h4>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500">Org. Number:</span>
-            <span className="ml-1 font-medium text-gray-900">{formData.regulatory.organisasjonsnummer || '-'}</span>
+            <span className="ml-1 font-medium text-gray-900">
+              {formData.regulatory.organisasjonsnummer || '-'}
+            </span>
           </div>
           <div>
             <span className="text-gray-500">Site Number:</span>
-            <span className="ml-1 font-medium text-gray-900">{formData.regulatory.lokalitetsnummer || '-'}</span>
+            <span className="ml-1 font-medium text-gray-900">
+              {formData.regulatory.lokalitetsnummer || '-'}
+            </span>
           </div>
           <div>
             <span className="text-gray-500">Contact:</span>
@@ -1209,12 +1234,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
         <p className="text-sm text-blue-600 mt-1">{siteName}</p>
         <p className="text-sm text-blue-700 font-medium mt-1">{weekLabel}</p>
-        <span className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
-          formData.reportType === 'planned'
-            ? 'bg-blue-100 text-blue-700'
-            : 'bg-green-100 text-green-700'
-        }`}>
-          {formData.reportType === 'planned' ? 'Planned Slaughter (Planlagt Slakt)' : 'Executed Slaughter (Utfort Slakt)'}
+        <span
+          className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
+            formData.reportType === 'planned'
+              ? 'bg-blue-100 text-blue-700'
+              : 'bg-green-100 text-green-700'
+          }`}
+        >
+          {formData.reportType === 'planned'
+            ? 'Planned Slaughter (Planlagt Slakt)'
+            : 'Executed Slaughter (Utfort Slakt)'}
         </span>
       </div>
 
@@ -1224,11 +1253,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500">Facility Name:</span>
-            <span className="ml-1 font-medium text-gray-900">{formData.facility.facilityName || '-'}</span>
+            <span className="ml-1 font-medium text-gray-900">
+              {formData.facility.facilityName || '-'}
+            </span>
           </div>
           <div>
             <span className="text-gray-500">Approval No.:</span>
-            <span className="ml-1 font-medium text-gray-900">{formData.facility.approvalNumber || '-'}</span>
+            <span className="ml-1 font-medium text-gray-900">
+              {formData.facility.approvalNumber || '-'}
+            </span>
           </div>
         </div>
       </div>
@@ -1236,32 +1269,47 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{formatNumber(formData.summary.totalPlanned)}</div>
+          <div className="text-2xl font-bold text-blue-600">
+            {formatNumber(formData.summary.totalPlanned)}
+          </div>
           <div className="text-xs text-gray-500">Planned Fish</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{formatWeight(formData.summary.plannedBiomassKg)}</div>
+          <div className="text-2xl font-bold text-blue-600">
+            {formatWeight(formData.summary.plannedBiomassKg)}
+          </div>
           <div className="text-xs text-gray-500">Planned Biomass</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{formatNumber(formData.summary.totalCompleted)}</div>
+          <div className="text-2xl font-bold text-green-600">
+            {formatNumber(formData.summary.totalCompleted)}
+          </div>
           <div className="text-xs text-gray-500">Completed Fish</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{formatWeight(formData.summary.completedBiomassKg)}</div>
+          <div className="text-2xl font-bold text-green-600">
+            {formatWeight(formData.summary.completedBiomassKg)}
+          </div>
           <div className="text-xs text-gray-500">Completed Biomass</div>
         </div>
       </div>
 
       {/* Variance */}
       {formData.summary.totalPlanned > 0 && formData.summary.totalCompleted > 0 && (
-        <div className={`rounded-lg p-4 ${variance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+        <div
+          className={`rounded-lg p-4 ${variance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}
+        >
           <div className="flex items-center justify-between">
-            <span className={`text-sm font-medium ${variance >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+            <span
+              className={`text-sm font-medium ${variance >= 0 ? 'text-green-800' : 'text-red-800'}`}
+            >
               Plan vs Actual Variance
             </span>
-            <span className={`text-xl font-bold ${variance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-              {variance > 0 ? '+' : ''}{variance.toFixed(1)}%
+            <span
+              className={`text-xl font-bold ${variance >= 0 ? 'text-green-700' : 'text-red-700'}`}
+            >
+              {variance > 0 ? '+' : ''}
+              {variance.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -1277,7 +1325,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.dayPlans.map((p, i) => (
               <div key={i} className="flex items-center justify-between text-sm">
                 <span className="text-gray-700">
-                  {p.dayLabel} ({p.dateStr}) - {p.batchNumber || 'No batch'} - {p.species || 'No species'}
+                  {p.dayLabel} ({p.dateStr}) - {p.batchNumber || 'No batch'} -{' '}
+                  {p.species || 'No species'}
                 </span>
                 <div className="text-right">
                   <span className="font-medium text-gray-900">{formatNumber(p.quantity)}</span>
@@ -1302,7 +1351,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   {p.batchNumber} - {formatDate(p.plannedDate)}
                 </span>
                 <div className="text-right">
-                  <span className="font-medium text-gray-900">{formatNumber(p.estimatedQuantity)}</span>
+                  <span className="font-medium text-gray-900">
+                    {formatNumber(p.estimatedQuantity)}
+                  </span>
                   <span className="text-gray-500 ml-2">({formatWeight(p.estimatedBiomassKg)})</span>
                 </div>
               </div>
@@ -1329,7 +1380,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   )}
                 </span>
                 <div className="text-right">
-                  <span className="font-medium text-gray-900">{formatNumber(c.actualQuantity)}</span>
+                  <span className="font-medium text-gray-900">
+                    {formatNumber(c.actualQuantity)}
+                  </span>
                   <span className="text-gray-500 ml-2">({formatWeight(c.actualBiomassKg)})</span>
                 </div>
               </div>
@@ -1341,38 +1394,60 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Quality Grade Distribution */}
       {gradeSum > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Quality Grade Distribution</h5>
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+            Quality Grade Distribution
+          </h5>
           <div className="grid grid-cols-4 gap-3">
             <div className="text-center p-2 bg-green-50 rounded">
-              <div className="text-lg font-bold text-green-700">{formData.gradeDistribution.superior}%</div>
+              <div className="text-lg font-bold text-green-700">
+                {formData.gradeDistribution.superior}%
+              </div>
               <div className="text-xs text-gray-500">Superior</div>
             </div>
             <div className="text-center p-2 bg-blue-50 rounded">
-              <div className="text-lg font-bold text-blue-700">{formData.gradeDistribution.ordinary}%</div>
+              <div className="text-lg font-bold text-blue-700">
+                {formData.gradeDistribution.ordinary}%
+              </div>
               <div className="text-xs text-gray-500">Ordinary</div>
             </div>
             <div className="text-center p-2 bg-yellow-50 rounded">
-              <div className="text-lg font-bold text-yellow-700">{formData.gradeDistribution.production}%</div>
+              <div className="text-lg font-bold text-yellow-700">
+                {formData.gradeDistribution.production}%
+              </div>
               <div className="text-xs text-gray-500">Production</div>
             </div>
             <div className="text-center p-2 bg-red-50 rounded">
-              <div className="text-lg font-bold text-red-700">{formData.gradeDistribution.discard}%</div>
+              <div className="text-lg font-bold text-red-700">
+                {formData.gradeDistribution.discard}%
+              </div>
               <div className="text-xs text-gray-500">Discard</div>
             </div>
           </div>
           {/* Visual bar */}
           <div className="flex h-3 rounded-full overflow-hidden mt-3 bg-gray-100">
             {formData.gradeDistribution.superior > 0 && (
-              <div className="bg-green-500" style={{ width: `${formData.gradeDistribution.superior}%` }} />
+              <div
+                className="bg-green-500"
+                style={{ width: `${formData.gradeDistribution.superior}%` }}
+              />
             )}
             {formData.gradeDistribution.ordinary > 0 && (
-              <div className="bg-blue-500" style={{ width: `${formData.gradeDistribution.ordinary}%` }} />
+              <div
+                className="bg-blue-500"
+                style={{ width: `${formData.gradeDistribution.ordinary}%` }}
+              />
             )}
             {formData.gradeDistribution.production > 0 && (
-              <div className="bg-yellow-500" style={{ width: `${formData.gradeDistribution.production}%` }} />
+              <div
+                className="bg-yellow-500"
+                style={{ width: `${formData.gradeDistribution.production}%` }}
+              />
             )}
             {formData.gradeDistribution.discard > 0 && (
-              <div className="bg-red-500" style={{ width: `${formData.gradeDistribution.discard}%` }} />
+              <div
+                className="bg-red-500"
+                style={{ width: `${formData.gradeDistribution.discard}%` }}
+              />
             )}
           </div>
         </div>
@@ -1381,8 +1456,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Submission Notice */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-600">
-          By submitting this report, you confirm that the data is accurate and complete.
-          This report will be submitted to Mattilsynet via the slakt API.
+          By submitting this report, you confirm that the data is accurate and complete. This report
+          will be submitted to Mattilsynet via the slakt API.
         </p>
       </div>
     </div>
@@ -1395,12 +1470,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
 export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }) => {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<SlaughterReport | null>(null);
   const [formData, setFormData] = useState<SlaughterFormData>(getInitialFormData());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
-  const [typeFilter, setTypeFilter] = useState<SlaughterReportType | 'all'>('all');
 
   // Fetch tanks for batch auto-populate
   const { data: tanksData } = useTanksList();
@@ -1410,50 +1482,16 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitPlannedMutation = useSubmitPlannedSlaughterReport();
   const submitExecutedMutation = useSubmitExecutedSlaughterReport();
+  const clientRef = useStableClientReference();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
-
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockSlaughterReports.filter((r) => r.siteId === siteId)
-      : mockSlaughterReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    if (typeFilter !== 'all') {
-      filtered = filtered.filter((r) => r.reportPeriodType === typeFilter);
-    }
-
-    return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }, [siteId, statusFilter, typeFilter]);
-
-  // Stats
-  const stats = useMemo(() => {
-    const totalPlanned = mockSlaughterReports.reduce((sum, r) => sum + r.summary.totalPlanned, 0);
-    const totalCompleted = mockSlaughterReports.reduce((sum, r) => sum + r.summary.totalCompleted, 0);
-    const pending = mockSlaughterReports.filter((r) => r.status === 'pending' || r.status === 'draft').length;
-    return { totalPlanned, totalCompleted, pending, total: mockSlaughterReports.length };
-  }, []);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SlaughterFormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  const handleOpenWizard = useCallback((report?: SlaughterReport) => {
-    if (report) {
-      setFormData({
-        ...getInitialFormData(),
-        reportType: report.reportPeriodType,
-        plannedSlaughters: [...report.plannedSlaughters],
-        completedSlaughters: [...report.completedSlaughters],
-        summary: { ...report.summary },
-      });
-    } else {
-      setFormData(getInitialFormData());
-    }
+  const handleOpenWizard = useCallback(() => {
+    setFormData(getInitialFormData());
     setIsWizardOpen(true);
   }, []);
 
@@ -1462,45 +1500,60 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
     setError(null);
     setSubmissionResult(null);
     try {
-      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
-      const orgNr = formData.regulatory.organisasjonsnummer || regulatorySettings?.organisationNumber || '';
-      const lokNr = (typeof formData.regulatory.lokalitetsnummer === 'number' ? formData.regulatory.lokalitetsnummer : 0) || siteMapping?.lokalitetsnummer || 0;
+      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(
+        (m) => m.siteId === siteId,
+      );
+      const orgNr =
+        formData.regulatory.organisasjonsnummer || regulatorySettings?.organisationNumber || '';
+      const lokNr =
+        (typeof formData.regulatory.lokalitetsnummer === 'number'
+          ? formData.regulatory.lokalitetsnummer
+          : 0) ||
+        siteMapping?.lokalitetsnummer ||
+        0;
       const kontakt = {
-        navn: formData.regulatory.kontaktperson.navn || regulatorySettings?.defaultContactName || '',
-        epost: formData.regulatory.kontaktperson.epost || regulatorySettings?.defaultContactEmail || '',
-        telefonnummer: formData.regulatory.kontaktperson.telefonnummer || regulatorySettings?.defaultContactPhone || '',
+        navn:
+          formData.regulatory.kontaktperson.navn || regulatorySettings?.defaultContactName || '',
+        epost:
+          formData.regulatory.kontaktperson.epost || regulatorySettings?.defaultContactEmail || '',
+        telefonnummer:
+          formData.regulatory.kontaktperson.telefonnummer ||
+          regulatorySettings?.defaultContactPhone ||
+          '',
       };
 
       if (formData.reportType === 'planned') {
         // Group day plans by artskode for UkeplanPerArt
-        const artskodeSet = new Set(formData.dayPlans.map(d => d.artskode || 'SAL'));
-        const ukeplanPerArt = Array.from(artskodeSet).map(artskode => {
-          const artPlans = formData.dayPlans.filter(d => (d.artskode || 'SAL') === artskode);
+        const artskodeSet = new Set(formData.dayPlans.map((d) => d.artskode || 'SAL'));
+        const ukeplanPerArt = Array.from(artskodeSet).map((artskode) => {
+          const artPlans = formData.dayPlans.filter((d) => (d.artskode || 'SAL') === artskode);
           return {
             artskode,
-            mandagKg: artPlans.find(d => d.dayOfWeek === 0)?.biomassKg,
-            tirsdagKg: artPlans.find(d => d.dayOfWeek === 1)?.biomassKg,
-            onsdagKg: artPlans.find(d => d.dayOfWeek === 2)?.biomassKg,
-            torsdagKg: artPlans.find(d => d.dayOfWeek === 3)?.biomassKg,
-            fredagKg: artPlans.find(d => d.dayOfWeek === 4)?.biomassKg,
-            lordagKg: artPlans.find(d => d.dayOfWeek === 5)?.biomassKg,
-            sondagKg: artPlans.find(d => d.dayOfWeek === 6)?.biomassKg,
+            mandagKg: artPlans.find((d) => d.dayOfWeek === 0)?.biomassKg,
+            tirsdagKg: artPlans.find((d) => d.dayOfWeek === 1)?.biomassKg,
+            onsdagKg: artPlans.find((d) => d.dayOfWeek === 2)?.biomassKg,
+            torsdagKg: artPlans.find((d) => d.dayOfWeek === 3)?.biomassKg,
+            fredagKg: artPlans.find((d) => d.dayOfWeek === 4)?.biomassKg,
+            lordagKg: artPlans.find((d) => d.dayOfWeek === 5)?.biomassKg,
+            sondagKg: artPlans.find((d) => d.dayOfWeek === 6)?.biomassKg,
           };
         });
 
         const plannedInput: SubmitPlannedSlaughterInput = {
-          klientReferanse: crypto.randomUUID(),
+          klientReferanse: clientRef.get(),
           organisasjonsnummer: orgNr,
           lokalitetsnummer: lokNr,
           kontaktperson: kontakt,
           uke: formData.weekNumber,
           aar: formData.year,
           godkjenningsnummer: formData.facility.approvalNumber,
-          planlagteLokaliteter: [{
-            organisasjonsnummer: orgNr,
-            lokalitetsnummer: lokNr,
-            ukeplanPerArt,
-          }],
+          planlagteLokaliteter: [
+            {
+              organisasjonsnummer: orgNr,
+              lokalitetsnummer: lokNr,
+              ukeplanPerArt,
+            },
+          ],
         };
         const result = await submitPlannedMutation.mutateAsync(plannedInput);
         setSubmissionResult(result);
@@ -1513,24 +1566,28 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
 
       if (formData.reportType === 'completed') {
         const executedInput: SubmitExecutedSlaughterInput = {
-          klientReferanse: crypto.randomUUID(),
+          klientReferanse: clientRef.get(),
           organisasjonsnummer: orgNr,
           lokalitetsnummer: lokNr,
           kontaktperson: kontakt,
           slakteuke: formData.weekNumber,
           slakteaar: formData.year,
           godkjenningsnummer: formData.facility.approvalNumber,
-          utforteLokaliteter: [{
-            organisasjonsnummer: orgNr,
-            lokalitetsnummer: lokNr,
-            arter: [{
-              art: 'SAL',
-              superiorKg: formData.gradeDistribution.superior,
-              ordinaerKg: formData.gradeDistribution.ordinary,
-              produksjonsfiskKg: formData.gradeDistribution.production,
-              utkastKg: formData.gradeDistribution.discard,
-            }],
-          }],
+          utforteLokaliteter: [
+            {
+              organisasjonsnummer: orgNr,
+              lokalitetsnummer: lokNr,
+              arter: [
+                {
+                  art: 'SAL',
+                  superiorKg: formData.gradeDistribution.superior,
+                  ordinaerKg: formData.gradeDistribution.ordinary,
+                  produksjonsfiskKg: formData.gradeDistribution.production,
+                  utkastKg: formData.gradeDistribution.discard,
+                },
+              ],
+            },
+          ],
         };
         const result = await submitExecutedMutation.mutateAsync(executedInput);
         setSubmissionResult(result);
@@ -1541,6 +1598,8 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         }
       }
 
+      // FARM-HIGH-126: rotate the stable client reference only on success.
+      clientRef.reset();
       setIsWizardOpen(false);
       setFormData(getInitialFormData());
     } catch (err) {
@@ -1549,7 +1608,14 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, regulatorySettings, siteId, submitPlannedMutation, submitExecutedMutation]);
+  }, [
+    formData,
+    regulatorySettings,
+    siteId,
+    clientRef,
+    submitPlannedMutation,
+    submitExecutedMutation,
+  ]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(
@@ -1562,7 +1628,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
           <ReportTypeStep
             formData={formData}
             onChange={handleFormChange}
-            siteName={selectedReport?.siteName || 'Default Site'}
+            siteName={'Default Site'}
           />
         ),
       },
@@ -1602,10 +1668,10 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={selectedReport?.siteName || 'Default Site'} />,
+        content: <ReviewStep formData={formData} siteName={'Default Site'} />,
       },
     ],
-    [formData, handleFormChange, selectedReport, batchOptions]
+    [formData, handleFormChange, batchOptions],
   );
 
   return (
@@ -1614,7 +1680,9 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Slaughter Reports</h2>
-          <p className="text-sm text-gray-500">Weekly planned and executed harvest reports (Mattilsynet slakt)</p>
+          <p className="text-sm text-gray-500">
+            Weekly planned and executed harvest reports (Mattilsynet slakt)
+          </p>
         </div>
         <button
           onClick={() => handleOpenWizard()}
@@ -1627,98 +1695,23 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Reports</div>
-        </div>
-        <div className="bg-white rounded-lg border border-blue-200 p-4">
-          <div className="text-2xl font-bold text-blue-600">{formatNumber(stats.totalPlanned)}</div>
-          <div className="text-sm text-gray-500">Total Planned</div>
-        </div>
-        <div className="bg-white rounded-lg border border-green-200 p-4">
-          <div className="text-2xl font-bold text-green-600">{formatNumber(stats.totalCompleted)}</div>
-          <div className="text-sm text-gray-500">Total Completed</div>
-        </div>
-        <div className="bg-white rounded-lg border border-yellow-200 p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-          <div className="text-sm text-gray-500">Pending</div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Status:</span>
-          {(['all', 'pending', 'draft', 'submitted', 'approved'] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                statusFilter === status
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Type:</span>
-          {(['all', 'planned', 'completed'] as const).map((type) => (
-            <button
-              key={type}
-              onClick={() => setTypeFilter(type)}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                typeFilter === type
-                  ? 'bg-purple-100 text-purple-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {type === 'all' ? 'All' : type.charAt(0).toUpperCase() + type.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Reports Grid */}
-      {reports.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500">No reports found</p>
-          <button
-            onClick={() => handleOpenWizard()}
-            className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            Create First Report
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {reports.map((report) => (
-            <SlaughterReportCard
-              key={report.id}
-              report={report}
-              onView={() => setSelectedReport(report)}
-              onEdit={() => {
-                setSelectedReport(report);
-                handleOpenWizard(report);
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* Submission History */}
+      <SubmissionHistorySection
+        reportType="SLAUGHTER_PLANNED"
+        title="Planned Slaughter Submissions"
+        siteId={siteId}
+      />
+      <SubmissionHistorySection
+        reportType="SLAUGHTER_EXECUTED"
+        title="Executed Slaughter Submissions"
+        siteId={siteId}
+      />
 
       {/* Wizard Modal */}
       <ReportWizard
         isOpen={isWizardOpen}
         onClose={() => {
           setIsWizardOpen(false);
-          setSelectedReport(null);
           setFormData(getInitialFormData());
         }}
         onSubmit={handleSubmit}

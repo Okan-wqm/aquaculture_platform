@@ -6,19 +6,14 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { useDeployCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
-
-interface Tank {
-  id: string;
-  code: string;
-  name: string;
-}
+import type { TankOption } from '../types';
 
 interface DeployModalProps {
   isOpen: boolean;
   onClose: () => void;
   batch: CleanerFishBatch | null;
   batches: (CleanerFishBatch & { speciesName?: string })[];
-  tanks: Tank[];
+  tanks: TankOption[];
   onSuccess: () => void;
 }
 

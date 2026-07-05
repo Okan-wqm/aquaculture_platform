@@ -414,6 +414,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'water_quality_measurements',
       'water_quality_parameter_configs',
       'water_quality_param_equipment',
+      'sensor_temperature_latest',
       'health_events',
       'harvest_plans',
       'harvest_records',
@@ -448,6 +449,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
       'biomass_reports',
+      // Persisted Mattilsynet report submissions (FARM-HIGH-125) — the
+      // legal record of what was reported; per-tenant like biomass_reports.
+      'regulatory_reports',
       'sentinel_hub_settings',
 
       // Weather & Marine observations

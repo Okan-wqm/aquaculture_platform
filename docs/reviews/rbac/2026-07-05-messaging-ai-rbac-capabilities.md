@@ -46,3 +46,13 @@ The FE capability check was dead code; both surfaces now read the **same JWT `re
 - **Concrete gate:** the AquaMobil "New Group" entry (`NewChatPage`) is now gated on `channels:create_group` — a member without the grant sees DM + AI but not group creation. UI visibility only; the backend re-checks on create.
 
 Fail-closed throughout (missing/garbage claim → no capabilities → nothing extra shown). New spec `token-lifecycle.decode.spec.ts` (6 cases) locks the security-relevant decode.
+
+## Delivered (MT-MEDIUM-056) — FE AI-surface visibility
+
+The AquaMobil NewChatPage AI section is now gated the same way the ai-service
+backend gates chat + persona (AISAFETY-HIGH-022/023): the "AI Assistants" section
+shows only when the user has `ai_assistant:use`, and each persona card shows only
+when the user may drive its tier (`ai_personas:<tier>`, derived from the persona
+id prefix; id-less/unknown → operator). Reads the same JWT `resourcePermissions`
+claim SSoT via useAuth().hasPermission; UI visibility only — the backend re-checks
+on chat. Completes the mobile FE half of Faz 7c.

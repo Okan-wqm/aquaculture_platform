@@ -197,6 +197,11 @@ export function NewChatPage(): JSX.Element {
   // entry point (admins bypass). DM + AI stay available to everyone. The
   // backend re-checks the capability on create — this is UI visibility only.
   const canCreateGroup = hasPermission('channels:create_group');
+  // Tenant-RBAC (Faz 7c): the AI assistant needs `ai_assistant:use`, and each
+  // persona is shown only if the user may drive its tier (`ai_personas:<tier>`).
+  // Mirrors the ai-service backend gates (ai_assistant:use + ai_personas:<tier>);
+  // this is UI visibility only — the backend re-checks on chat.
+  const canUseAi = hasPermission('ai_assistant:use');
   const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
   const { createDM, createGroup, createAiChannel, isCreating } = useCreateChannel();
 
@@ -212,6 +217,21 @@ export function NewChatPage(): JSX.Element {
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     enabled: !!tenantId,
   });
+
+  // Tenant-RBAC (Faz 7c): show only personas whose tier the user may drive.
+  // Tier is the persona id prefix ('expert-v1' → 'expert'); an id-less/unknown
+  // persona defaults to the operator tier (the base every granted role has).
+  // Empty when the user lacks ai_assistant:use, so the whole section hides.
+  const visibleAiPersonas = useMemo(() => {
+    if (!canUseAi) return [];
+    const tierOf = (id: string | null | undefined): string => {
+      const prefix = (id ?? '').split('-')[0];
+      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix)
+        ? prefix
+        : 'operator';
+    };
+    return aiPersonas.filter((p) => hasPermission(`ai_personas:${tierOf(p.id)}`));
+  }, [aiPersonas, canUseAi, hasPermission]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupMode, setIsGroupMode] = useState(false);
@@ -433,15 +453,15 @@ export function NewChatPage(): JSX.Element {
             </div>
           </div>
 
-          {/* AI Assistants section */}
-          {!isGroupMode && aiPersonas.length > 0 && (
+          {/* AI Assistants section — gated on ai_assistant:use + per-persona ai_personas:<tier> */}
+          {!isGroupMode && visibleAiPersonas.length > 0 && (
             <div className="px-4 pt-3">
               <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
                 <Sparkles size={12} />
                 AI Assistants
               </h2>
               <div className="grid grid-cols-2 gap-2">
-                {aiPersonas.map((persona) => (
+                {visibleAiPersonas.map((persona) => (
                   <AiPersonaCard
                     key={persona.id ?? 'general'}
                     persona={persona}

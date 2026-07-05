@@ -167,6 +167,11 @@ const LiveTagsPanel: React.FC = () => {
 // Unified Editor Page
 // ============================================================================
 
+import {
+  CANVAS_SOURCE,
+  HOST_SOURCE,
+  PROCESS_EDITOR_CANVAS_URL,
+} from '../../canvas-contract';
 const UnifiedEditorPage: React.FC = () => {
   // The route is `unified-editor/:processId` (Module.tsx) — the param name
   // here MUST match it. Reading a wrong key silently yields undefined and the
@@ -302,7 +307,7 @@ const UnifiedEditorPage: React.FC = () => {
   const sendToCanvas = useCallback((type: string, data?: unknown) => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
-        { type, data, source: 'process-editor-host' },
+        { type, data, source: HOST_SOURCE },
         window.location.origin,
       );
     }
@@ -316,7 +321,7 @@ const UnifiedEditorPage: React.FC = () => {
       const { type, data, source } = event.data;
       // `nodeId` rides at the top level of the openWidgetConfig message.
       const nodeId = (event.data as { nodeId?: string }).nodeId;
-      if (source !== 'process-editor-canvas') return;
+      if (source !== CANVAS_SOURCE) return;
 
       switch (type) {
         case 'ready':
@@ -480,7 +485,7 @@ const UnifiedEditorPage: React.FC = () => {
         const handler = (event: MessageEvent) => {
           if (event.origin !== window.location.origin) return;
           const { type, data, source } = event.data || {};
-          if (source === 'process-editor-canvas' && type === 'state') {
+          if (source === CANVAS_SOURCE && type === 'state') {
             controller.abort();
             resolve(data as { nodes: CanvasNode[]; edges: CanvasEdge[] });
           }
@@ -575,14 +580,7 @@ const UnifiedEditorPage: React.FC = () => {
     [widgetConfigModal.nodeId, sendToCanvas],
   );
 
-  // Canvas URL
-  const getCanvasUrl = () => {
-    const isLocalDev =
-      window.location.hostname === 'localhost' && window.location.port === '3006';
-    return isLocalDev
-      ? '/process-editor-canvas.html'
-      : '/remotes/sensor-module/process-editor-canvas.html';
-  };
+  // Canvas URL — canonical SSoT constant (dev+prod identical base; canvas-contract.ts).
 
   // Mode labels for status bar
   const MODE_LABELS: Record<EditorMode, string> = {
@@ -844,7 +842,7 @@ const UnifiedEditorPage: React.FC = () => {
             )}
             <iframe
               ref={iframeRef}
-              src={getCanvasUrl()}
+              src={PROCESS_EDITOR_CANVAS_URL}
               className={`w-full h-full border-0 ${mode === 'hmi' ? 'hidden' : ''}`}
               title="Process Editor Canvas"
               sandbox="allow-scripts allow-same-origin"

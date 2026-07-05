@@ -10,6 +10,7 @@ import * as AquacultureNodes from '@aquaculture/node-components';
 import * as Recharts from 'recharts';
 import '@xyflow/react/dist/style.css';
 import './canvas.css';
+import { CANVAS_SOURCE, HOST_SOURCE } from '../src/canvas-contract';
 
 // The ported classic-React app reads a few module namespaces as bare/window
 // identifiers; bind them locally from the bundled imports (was: CDN globals).
@@ -583,14 +584,14 @@ const ReactDOM = { createRoot: ReactDOMClient.createRoot };
 
       // Notify parent window (use cached origin for security)
       const notifyParent = useCallback((type, data) => {
-        window.parent.postMessage({ type, data, source: 'process-editor-canvas' }, cachedParentOrigin);
+        window.parent.postMessage({ type, data, source: CANVAS_SOURCE }, cachedParentOrigin);
       }, []);
 
       // Listen for messages from parent
       useEffect(() => {
         const handleMessage = (event) => {
           const { type, data, source } = event.data || {};
-          if (source !== 'process-editor-host') return;
+          if (source !== HOST_SOURCE) return;
 
           // Cache parent origin on first valid message
           if (!cachedParentOrigin || cachedParentOrigin === '*') {

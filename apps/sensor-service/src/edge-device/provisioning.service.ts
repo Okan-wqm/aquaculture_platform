@@ -35,6 +35,7 @@ import {
   EdgeDevice,
   DeviceLifecycleState,
   DeviceModel,
+  isTerminalLifecycleState,
 } from './entities/edge-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEventType, DeviceEventSeverity } from './entities/device-event.entity';
@@ -313,11 +314,12 @@ export class ProvisioningService {
       });
     }
 
-    // Check if device is decommissioned
-    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
+    // Check if device is in a terminal state (SENSOR-MEDIUM-008: REVOKED is
+    // terminal too — a revoked device must not re-activate).
+    if (isTerminalLifecycleState(device.lifecycleState)) {
       throw new BadRequestException({
         success: false,
-        error: 'Device has been decommissioned',
+        error: `Device is in a terminal state (${device.lifecycleState})`,
         errorCode: ActivationErrorCode.DEVICE_DECOMMISSIONED,
       });
     }
@@ -492,8 +494,12 @@ export class ProvisioningService {
       throw new NotFoundException(`Device ${deviceId} not found`);
     }
 
-    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      throw new BadRequestException('Cannot re-provision a decommissioned device');
+    // SENSOR-MEDIUM-008: REVOKED is terminal — re-provisioning would silently
+    // un-revoke the device.
+    if (isTerminalLifecycleState(device.lifecycleState)) {
+      throw new BadRequestException(
+        `Cannot re-provision a device in a terminal state (${device.lifecycleState})`,
+      );
     }
 
     // Generate fresh provisioning credentials

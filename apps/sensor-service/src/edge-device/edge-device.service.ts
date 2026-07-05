@@ -27,7 +27,7 @@ import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import { EdgeDevice, DeviceLifecycleState, DeviceModel } from './entities/edge-device.entity';
+import { EdgeDevice, DeviceLifecycleState, DeviceModel, isTerminalLifecycleState } from './entities/edge-device.entity';
 import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
 import { InstallerScriptService } from './installer-script.service';
 
@@ -583,8 +583,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
   async setMaintenanceMode(id: string, tenantId: string, enabled: boolean): Promise<EdgeDevice> {
     const device = await this.findByIdOrFail(id, tenantId);
 
-    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      throw new BadRequestException('Cannot change maintenance mode of a decommissioned device');
+    // SENSOR-MEDIUM-008: REVOKED is terminal too.
+    if (isTerminalLifecycleState(device.lifecycleState)) {
+      throw new BadRequestException(
+        `Cannot change maintenance mode of a device in a terminal state (${device.lifecycleState})`,
+      );
     }
 
     device.lifecycleState = enabled

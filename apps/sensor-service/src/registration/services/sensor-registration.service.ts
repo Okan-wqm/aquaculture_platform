@@ -7,6 +7,9 @@ import { Sensor, SensorType, SensorRegistrationStatus, SensorRole } from '../../
 import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
+import { ChannelDisplaySettings } from '../../database/entities/sensor-data-channel.entity';
+import { CreateDataChannelInput } from '../dto/data-channel.dto';
+import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
 import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { assertWithinQuota } from '@aquaculture/backend-common/quota';
 import { resolvePlanLimits, tenantPlanFromLevel } from '@platform/event-contracts';
@@ -50,6 +53,7 @@ export class SensorRegistrationService {
     private protocolValidator: ProtocolValidatorService,
     private connectionTester: ConnectionTesterService,
     private eventEmitter: EventEmitter2,
+    private channelManagement: ChannelManagementService,
   ) {}
 
   /**
@@ -130,6 +134,24 @@ export class SensorRegistrationService {
     // Save draft
     const savedSensor = await this.sensorRepository.save(sensor);
 
+    // SENSOR-HIGH-018: persist the data channels collected by the wizard.
+    // Previously RegisterSensorInput.dataChannels was validated then silently
+    // dropped. Registration is all-or-nothing: if channel creation fails
+    // (e.g. duplicate channelKey) the just-created sensor is removed so the
+    // caller does not end up with a channel-less orphan reported as success.
+    if (input.dataChannels && input.dataChannels.length > 0) {
+      try {
+        await this.channelManagement.createChannelsForSensor(
+          savedSensor.id,
+          tenantId,
+          this.toChannelInputs(input.dataChannels),
+        );
+      } catch (err) {
+        await this.sensorRepository.delete({ id: savedSensor.id, tenantId });
+        return { success: false, error: (err as Error).message };
+      }
+    }
+
     // Emit registration started event
     this.eventEmitter.emit('sensor.registration.started', {
       sensorId: savedSensor.id,
@@ -183,6 +205,39 @@ export class SensorRegistrationService {
       connectionTestPassed,
       latencyMs,
     };
+  }
+
+  /**
+   * SENSOR-HIGH-018: map the GraphQL channel input to the channel-management
+   * create input. The only real divergence is displaySettings.widgetType,
+   * which the input types as a free string but the entity narrows to a fixed
+   * set — narrow it here (unknown values drop to undefined) without an unsafe
+   * cast.
+   */
+  private toChannelInputs(channels: CreateDataChannelInput[]): CreateChannelInput[] {
+    return channels.map((ch) => ({
+      ...ch,
+      displaySettings: ch.displaySettings
+        ? {
+            ...ch.displaySettings,
+            widgetType: this.narrowWidgetType(ch.displaySettings.widgetType),
+          }
+        : undefined,
+    }));
+  }
+
+  private narrowWidgetType(
+    widget?: string,
+  ): ChannelDisplaySettings['widgetType'] {
+    switch (widget) {
+      case 'gauge':
+      case 'sparkline':
+      case 'number':
+      case 'status':
+        return widget;
+      default:
+        return undefined;
+    }
   }
 
   /**
@@ -641,6 +696,15 @@ export class SensorRegistrationService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    // SENSOR-MEDIUM-010: parent + children are declared outside the
+    // transactional try so the connection test / status update can run AFTER
+    // commit without the failure-inverting catch. A post-commit throw used to
+    // hit rollbackTransaction() on an already-committed transaction (raising
+    // TransactionNotStartedError, escaping the catch, and reporting the whole
+    // create as failed → duplicate device on retry).
+    let savedParent: Sensor;
+    let savedChildren: Sensor[] = [];
+
     try {
       // Get protocol details
       const protocolDetails = await this.protocolRegistry.getProtocolDetails(parent.protocolCode);
@@ -657,6 +721,10 @@ export class SensorRegistrationService {
         manufacturer: parent.manufacturer,
         model: parent.model,
         serialNumber: parentSerialNumber,
+        // SENSOR-HIGH-025: description was validated on the DTO but dropped by
+        // this create object (the single-sensor path persists it) — the wizard
+        // notes silently vanished. Map it so read-back matches what was saved.
+        description: parent.description,
         farmId: parent.farmId,
         pondId: parent.pondId,
         tankId: parent.tankId,
@@ -676,11 +744,11 @@ export class SensorRegistrationService {
         createdBy: userId,
       });
 
-      const savedParent = await queryRunner.manager.save(Sensor, parentSensor);
+      savedParent = await queryRunner.manager.save(Sensor, parentSensor);
       this.logger.log(`Created parent device: ${savedParent.id}`);
 
       // Create child sensors
-      const savedChildren: Sensor[] = [];
+      savedChildren = [];
       for (let i = 0; i < children.length; i++) {
         const childInput = children[i];
         if (!childInput) continue;
@@ -734,28 +802,43 @@ export class SensorRegistrationService {
         this.logger.log(`Created child sensor: ${savedChild.id} (${childInput.dataPath})`);
       }
 
-      // Commit transaction
+      // Commit transaction — parent + children are now durably created.
       await queryRunner.commitTransaction();
+    } catch (error) {
+      // SENSOR-MEDIUM-010: only roll back while the transaction is still open.
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      this.logger.error('Failed to register parent with children', error);
+      return {
+        success: false,
+        error: `Registration failed: ${(error as Error).message}`,
+      };
+    } finally {
+      await queryRunner.release();
+    }
 
-      // Emit registration started event
-      this.eventEmitter.emit('sensor.parent.registration.started', {
-        parentId: savedParent.id,
-        childIds: savedChildren.map(c => c.id),
-        tenantId,
-        userId,
-        protocolCode: parent.protocolCode,
-      });
+    // ── POST-COMMIT ──────────────────────────────────────────────────────
+    // The devices are committed; a failure here must NOT invert the create to
+    // a failure (that caused duplicate devices on retry). Downgrade status on
+    // error instead.
+    this.eventEmitter.emit('sensor.parent.registration.started', {
+      parentId: savedParent.id,
+      childIds: savedChildren.map(c => c.id),
+      tenantId,
+      userId,
+      protocolCode: parent.protocolCode,
+    });
 
-      // Test connection if not skipped
-      let connectionTestPassed = false;
-      let latencyMs: number | undefined;
+    let connectionTestPassed = false;
+    let latencyMs: number | undefined;
 
-      if (!skipConnectionTest) {
+    if (!skipConnectionTest) {
+      try {
         const testResult = await this.testParentConnection(savedParent.id, tenantId);
         connectionTestPassed = testResult.success;
         latencyMs = testResult.latencyMs;
 
-        // Update parent status based on test result
         if (connectionTestPassed) {
           savedParent.registrationStatus = SensorRegistrationStatus.ACTIVE;
           savedParent.isActive = true;
@@ -764,8 +847,6 @@ export class SensorRegistrationService {
             lastTestedAt: new Date(),
             latencyMs,
           };
-
-          // Activate all children too
           for (const child of savedChildren) {
             child.registrationStatus = SensorRegistrationStatus.ACTIVE;
             child.isActive = true;
@@ -777,51 +858,44 @@ export class SensorRegistrationService {
             lastTestedAt: new Date(),
             lastError: testResult.error,
           };
-
           for (const child of savedChildren) {
             child.registrationStatus = SensorRegistrationStatus.TEST_FAILED;
           }
         }
 
-        // Save updated statuses
         await this.sensorRepository.save(savedParent);
         await this.sensorRepository.save(savedChildren);
+      } catch (postErr) {
+        // Devices remain committed in DRAFT; surface as a warning, not a
+        // whole-registration failure.
+        this.logger.warn(
+          `Post-commit connection test/status update failed for parent ${savedParent.id}`,
+          postErr as Error,
+        );
       }
-
-      // Emit registration completed event
-      this.eventEmitter.emit('sensor.parent.registration.completed', {
-        parentId: savedParent.id,
-        childIds: savedChildren.map(c => c.id),
-        tenantId,
-        userId,
-        protocolCode: parent.protocolCode,
-        success: connectionTestPassed || skipConnectionTest,
-      });
-
-      // Reload parent with children relation
-      const reloadedParent = await this.sensorRepository.findOne({
-        where: { id: savedParent.id },
-        relations: ['childSensors', 'protocol'],
-      });
-
-      return {
-        success: true,
-        parent: reloadedParent || savedParent,
-        children: savedChildren,
-        connectionTestPassed,
-        latencyMs,
-      };
-    } catch (error) {
-      // Rollback on error
-      await queryRunner.rollbackTransaction();
-      this.logger.error('Failed to register parent with children', error);
-      return {
-        success: false,
-        error: `Registration failed: ${(error as Error).message}`,
-      };
-    } finally {
-      await queryRunner.release();
     }
+
+    this.eventEmitter.emit('sensor.parent.registration.completed', {
+      parentId: savedParent.id,
+      childIds: savedChildren.map(c => c.id),
+      tenantId,
+      userId,
+      protocolCode: parent.protocolCode,
+      success: connectionTestPassed || skipConnectionTest,
+    });
+
+    const reloadedParent = await this.sensorRepository.findOne({
+      where: { id: savedParent.id },
+      relations: ['childSensors', 'protocol'],
+    });
+
+    return {
+      success: true,
+      parent: reloadedParent || savedParent,
+      children: savedChildren,
+      connectionTestPassed,
+      latencyMs,
+    };
   }
 
   /**

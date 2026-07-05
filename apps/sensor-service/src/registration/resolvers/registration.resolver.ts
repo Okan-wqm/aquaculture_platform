@@ -257,6 +257,20 @@ export class RegistrationResolver {
       farmId: sensor.farmId,
       pondId: sensor.pondId,
       tankId: sensor.tankId,
+      // SENSOR-HIGH-023: location hierarchy + parent/child + firmware/calibration
+      // were declared on RegisteredSensorType but never mapped here, so they
+      // resolved to null — breaking list grouping and detail read-back. One
+      // mapper feeds both `sensor(id)` and `sensors`, so this fixes both.
+      siteId: sensor.siteId,
+      departmentId: sensor.departmentId,
+      systemId: sensor.systemId,
+      equipmentId: sensor.equipmentId,
+      parentId: sensor.parentId,
+      isParentDevice: sensor.isParentDevice,
+      dataPath: sensor.dataPath,
+      sensorRole: sensor.sensorRole,
+      firmwareVersion: sensor.firmwareVersion,
+      lastCalibratedAt: sensor.lastCalibratedAt,
       location: sensor.location,
       metadata: sensor.metadata,
       tenantId: sensor.tenantId,

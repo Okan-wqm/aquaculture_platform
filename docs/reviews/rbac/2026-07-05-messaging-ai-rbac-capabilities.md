@@ -56,3 +56,9 @@ when the user may drive its tier (`ai_personas:<tier>`, derived from the persona
 id prefix; id-less/unknown → operator). Reads the same JWT `resourcePermissions`
 claim SSoT via useAuth().hasPermission; UI visibility only — the backend re-checks
 on chat. Completes the mobile FE half of Faz 7c.
+
+## Deploy prerequisite (MT-HIGH-057) — existing-tenant capability backfill
+
+| ID | Sev | Finding | Required fix |
+|---|---|---|---|
+| MT-HIGH-057 | HIGH | Existing tenants' roles were seeded BEFORE the messaging/AI capabilities existed, and `seedDefaultRoles` skips when any role already exists. So their `tenant_role_permissions` lack `channels:create_group`, `messages:send`, `ai_assistant:use`, `ai_personas:*`, `ai_settings:*`. Deploying the Faz 7c enforcement (MSG-HIGH-076, AISAFETY-HIGH-022/023) BEFORE a backfill would fail-closed every non-admin member out of group creation AND the AI assistant. | An auth-schema data migration: for each existing `auth.tenant_roles` whose name matches a `DEFAULT_TENANT_ROLES` template, merge that role's new messaging/AI grants from `DEFAULT_ROLE_PERMISSIONS` into `tenant_role_permissions.panel_permissions` + `resource_permissions` (additive; never remove a tenant's custom grants). Custom/renamed roles are the tenant admin's responsibility (they add grants in the role editor). Idempotent. MUST land with — or before — the enforcement deploy. |

@@ -8,7 +8,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { REQUIRED_TENANT_PERMISSIONS_KEY } from '../decorators/require-permission.decorator';
+import {
+  REQUIRED_TENANT_PERMISSIONS_KEY,
+  hasAllResourcePermissions,
+} from '../decorators/require-permission.decorator';
 import { IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
 
 /**
@@ -78,59 +81,20 @@ export class TenantPermissionGuard implements CanActivate {
       throw new ForbiddenException('Access denied');
     }
 
-    // Normalize user roles to uppercase for comparison
-    const userRoles = this.normalizeRoles(user);
-
-    // SUPER_ADMIN and TENANT_ADMIN bypass -- full access
-    if (userRoles.includes(Role.SUPER_ADMIN) || userRoles.includes(Role.TENANT_ADMIN)) {
+    // Delegate the role-bypass + resource-permission membership to the shared
+    // SSoT check (hasAllResourcePermissions) so this guard and every
+    // programmatic/conditional callsite share one implementation.
+    if (hasAllResourcePermissions(user, requiredPermissions)) {
       return true;
     }
 
-    // For MODULE_MANAGER and MODULE_USER, check resource permissions
-    const userPermissions = user.resourcePermissions || [];
-
-    const hasAllPermissions = requiredPermissions.every((required) =>
-      userPermissions.includes(required),
+    const userId = user.sub || user.userId || 'unknown';
+    const granted = user.resourcePermissions || [];
+    const missing = requiredPermissions.filter((p) => !granted.includes(p));
+    this.logger.debug(
+      `Permission denied for user ${userId}: missing [${missing.join(', ')}]`,
     );
-
-    if (!hasAllPermissions) {
-      const userId = user.sub || user.userId || 'unknown';
-      const missing = requiredPermissions.filter((p) => !userPermissions.includes(p));
-      this.logger.debug(
-        `Permission denied for user ${userId}: missing [${missing.join(', ')}]`,
-      );
-      throw new ForbiddenException('Access denied');
-    }
-
-    return true;
-  }
-
-  /**
-   * Extract and normalize user roles to Role enum values
-   */
-  private normalizeRoles(user: UserWithPermissions): Role[] {
-    const roles: Role[] = [];
-    const roleValues = Object.values(Role) as string[];
-
-    // Handle roles array
-    if (Array.isArray(user.roles)) {
-      for (const r of user.roles) {
-        const upper = String(r).toUpperCase();
-        if (roleValues.includes(upper)) {
-          roles.push(upper as Role);
-        }
-      }
-    }
-
-    // Handle single role (backward compatibility)
-    if (user.role) {
-      const upper = String(user.role).toUpperCase();
-      if (roleValues.includes(upper) && !roles.includes(upper as Role)) {
-        roles.push(upper as Role);
-      }
-    }
-
-    return roles;
+    throw new ForbiddenException('Access denied');
   }
 
   /**

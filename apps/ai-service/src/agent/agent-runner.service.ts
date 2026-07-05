@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
 import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
@@ -14,6 +13,27 @@ import { RateLimitService } from '../cost/rate-limit.service';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
 import { AiSafetyMiddleware } from '../safety/ai-safety.middleware';
+import { LlmProviderFactory } from './providers/llm-provider.factory';
+import {
+  LlmAuthError,
+  LlmContentBlock,
+  LlmMessage,
+  LlmToolDefinition,
+} from './providers/llm-provider.interface';
+
+/**
+ * Thrown when a tenant has no usable credential for their selected provider, or
+ * the stored key is rejected by the provider. The controller maps this to a
+ * distinct AI_KEY_MISSING response so the UI can prompt the tenant to enter a
+ * key, rather than surfacing it as a generic 5xx.
+ */
+export class AiKeyMissingError extends Error {
+  readonly code = 'AI_KEY_MISSING';
+  constructor(message = 'No valid AI API key configured for this tenant') {
+    super(message);
+    this.name = 'AiKeyMissingError';
+  }
+}
 
 export interface ChatRequest {
   message: string;
@@ -22,6 +42,11 @@ export interface ChatRequest {
   tenantId: string;
   userId: string;
   userRoles: string[];
+  /**
+   * Faz 7c: the caller's tenant-RBAC capabilities, used to authorize the
+   * requested persona tier (`ai_personas:<tier>`) in AgentProfileService.
+   */
+  resourcePermissions: string[];
   schemaName: string;
   correlationId: string;
 }
@@ -67,7 +92,6 @@ export interface ChatResponse {
 @Injectable()
 export class AgentRunnerService {
   private readonly logger = new Logger(AgentRunnerService.name);
-  private readonly anthropic: Anthropic;
   private readonly maxToolLoops: number;
 
   constructor(
@@ -81,10 +105,11 @@ export class AgentRunnerService {
     private readonly agentConfig: AgentConfigService,
     private readonly aiSafety: AiSafetyMiddleware,
     private readonly breaker: CircuitBreakerService,
+    private readonly providerFactory: LlmProviderFactory,
   ) {
-    this.anthropic = new Anthropic({
-      apiKey: this.configService.get<string>('ANTHROPIC_API_KEY'),
-    });
+    // FAZ1-BYOK: the process-global Anthropic client is gone. Each request runs
+    // against the tenant's own decrypted key, resolved below and passed to the
+    // provider per call — no platform key, no shared client.
     this.maxToolLoops = this.configService.get<number>(
       'AI_MAX_TOOL_LOOPS',
       10,
@@ -92,11 +117,23 @@ export class AgentRunnerService {
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
-    // 1. Check if AI is enabled for tenant
-    const isEnabled = await this.agentConfig.isEnabled(request.tenantId);
-    if (!isEnabled) {
+    // 1. FAZ1-BYOK: fail-closed enablement — AI runs ONLY when the tenant switch
+    // is on AND a key exists for the selected provider. Resolve the credential
+    // up front so a key-less tenant is rejected before any work or cost.
+    const enablement = await this.agentConfig.resolveEnablement(request.tenantId);
+    if (!enablement.enabled) {
+      if (enablement.reason === 'key_missing') {
+        throw new AiKeyMissingError();
+      }
       throw new Error('AI features are not enabled for this tenant');
     }
+
+    const credential = await this.agentConfig.resolveCredential(request.tenantId);
+    if (!credential) {
+      // Enablement said ok but the key vanished between reads — treat as missing.
+      throw new AiKeyMissingError();
+    }
+    const provider = this.providerFactory.get(credential.provider);
 
     // 2. Check rate limit
     const config = await this.agentConfig.getConfig(request.tenantId);
@@ -121,10 +158,13 @@ export class AgentRunnerService {
       );
     }
 
-    // 4. Resolve agent profile
+    // 4. Resolve agent profile (persona tier authorized against the caller's
+    // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
+    // the ai_personas:<tier> grant).
     const profile = await this.profileService.resolveProfile(
       request.tenantId,
       request.persona,
+      { roles: request.userRoles, resourcePermissions: request.resourcePermissions },
     );
 
     // 5. Get or create conversation
@@ -151,19 +191,25 @@ export class AgentRunnerService {
         )
       : null;
 
-    const messages: Anthropic.MessageParam[] = [];
+    const messages: LlmMessage[] = [];
 
-    // Add existing conversation history
+    // Add existing conversation history (stored as plain strings → text blocks)
     if (existingConversation?.messages) {
       for (const msg of existingConversation.messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
-          messages.push({ role: msg.role, content: msg.content });
+          messages.push({
+            role: msg.role,
+            content: [{ type: 'text', text: msg.content }],
+          });
         }
       }
     }
 
     // Add new user message
-    messages.push({ role: 'user', content: request.message });
+    messages.push({
+      role: 'user',
+      content: [{ type: 'text', text: request.message }],
+    });
 
     // Save user message to conversation
     // SECURITY: addMessage now requires tenantId + userId ownership check
@@ -199,10 +245,14 @@ export class AgentRunnerService {
     const effectiveSystemPrompt =
       safetyResult.hardenedSystemPrompt ?? profile.effectiveSystemPrompt;
 
-    // 8. Build tool definitions
-    const toolDefinitions = this.toolRegistry.getClaudeToolDefinitions(
-      profile.effectiveToolNames,
-    );
+    // 8. Build tool definitions (provider-neutral shape)
+    const toolDefinitions: LlmToolDefinition[] = this.toolRegistry
+      .getClaudeToolDefinitions(profile.effectiveToolNames)
+      .map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.input_schema,
+      }));
 
     // 9. Run agent loop
     const toolCalls: ChatResponse['toolCalls'] = [];
@@ -222,6 +272,9 @@ export class AgentRunnerService {
       userRoles: request.userRoles,
       correlationId: request.correlationId,
       persona: request.persona,
+      // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
+      // most-restrictive) gates whether an actuation tool may run autonomously.
+      actuationPolicy: profile.actuationPolicy,
     };
 
     const currentMessages = [...messages];
@@ -230,51 +283,58 @@ export class AgentRunnerService {
     while (loopCount < this.maxToolLoops) {
       loopCount++;
 
-      // CIRCUIT-CRITICAL-001 cure: every Anthropic API call rides through
-      // the canonical sliding-window breaker, scoped per (serviceName,
-      // tenantId). fail-CLOSED is mandatory for billable upstreams — a
-      // degraded response from the AI must NOT silently substitute a free
-      // fallback that the user thinks is the real answer. Per-tenant key
-      // isolates noisy-neighbor: one tenant's runaway agent loop cannot
-      // trip the breaker for everyone.
-      const response = await this.breaker.execute({
-        serviceName: 'anthropic-api',
-        tenantId: request.tenantId,
-        options: { ...DEFAULT_BREAKER_OPTIONS, failureMode: 'fail-closed' },
-        fn: () =>
-          this.anthropic.messages.create({
-            model: profile.persona.model,
-            max_tokens: profile.persona.maxTokensPerTurn,
-            system: effectiveSystemPrompt,
-            tools: toolDefinitions as Anthropic.Tool[],
-            messages: currentMessages,
-          }),
-      });
+      // CIRCUIT-CRITICAL-001 cure: every provider API call rides through the
+      // canonical sliding-window breaker, scoped per (provider, tenantId).
+      // fail-CLOSED is mandatory for billable upstreams — a degraded response
+      // must NOT silently substitute a free fallback the user thinks is real.
+      // Per-tenant + per-provider key isolates noisy-neighbor: one tenant's
+      // runaway loop cannot trip the breaker for everyone, and one provider's
+      // outage does not trip the other.
+      let response;
+      try {
+        response = await this.breaker.execute({
+          serviceName: `${credential.provider}-api`,
+          tenantId: request.tenantId,
+          options: { ...DEFAULT_BREAKER_OPTIONS, failureMode: 'fail-closed' },
+          fn: () =>
+            provider.chat(
+              {
+                model: profile.persona.model,
+                maxTokens: profile.persona.maxTokensPerTurn,
+                system: effectiveSystemPrompt,
+                tools: toolDefinitions,
+                messages: currentMessages,
+              },
+              credential,
+            ),
+        });
+      } catch (err) {
+        // A rejected key is a tenant-actionable configuration problem, not a
+        // transient outage — surface it as AI_KEY_MISSING so the UI prompts for
+        // a new key instead of showing a generic failure.
+        if (err instanceof LlmAuthError) {
+          throw new AiKeyMissingError('The configured AI API key was rejected');
+        }
+        throw err;
+      }
 
-      // TENANTCOST-HIGH-002 cure: track every Anthropic token class.
-      // The Anthropic SDK types these as optional (older API versions
-      // didn't surface cache_*); coalesce to 0 so downstream rollup
-      // gets explicit zeros instead of NaN.
-      totalTokens.input += response.usage.input_tokens;
-      totalTokens.output += response.usage.output_tokens;
-      const cacheRead =
-        (response.usage as { cache_read_input_tokens?: number })
-          .cache_read_input_tokens ?? 0;
-      const cacheCreation =
-        (response.usage as { cache_creation_input_tokens?: number })
-          .cache_creation_input_tokens ?? 0;
-      totalTokens.cacheRead += cacheRead;
-      totalTokens.cacheCreation += cacheCreation;
+      // Track every token class (providers report cache_* as 0 when absent, so
+      // the rollup gets explicit zeros instead of NaN).
+      totalTokens.input += response.usage.input;
+      totalTokens.output += response.usage.output;
+      totalTokens.cacheRead += response.usage.cacheRead;
+      totalTokens.cacheCreation += response.usage.cacheCreation;
       // `total` keeps the legacy semantics (input + output sum) because
       // downstream TokenBudgetService consumes it as a single counter.
-      // Cost-weighted accounting that uses the per-class breakdown
-      // happens in the W4 cost-rollup pipeline, NOT here.
-      totalTokens.total +=
-        response.usage.input_tokens + response.usage.output_tokens;
+      totalTokens.total += response.usage.input + response.usage.output;
 
       // Process response content
       const textBlocks: string[] = [];
-      const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
+      const toolUseBlocks: Array<{
+        id: string;
+        name: string;
+        input: Record<string, unknown>;
+      }> = [];
 
       for (const block of response.content) {
         if (block.type === 'text') {
@@ -285,24 +345,23 @@ export class AgentRunnerService {
       }
 
       // If no tool use, we're done
-      if (toolUseBlocks.length === 0 || response.stop_reason === 'end_turn') {
+      if (toolUseBlocks.length === 0 || response.stopReason === 'end_turn') {
         finalMessage = textBlocks.join('\n');
         break;
       }
 
-      // Execute tools and build tool results
-      // Add assistant message with tool_use blocks
+      // Execute tools and build tool results.
+      // Add assistant message with the model's produced blocks (text + tool_use).
       currentMessages.push({ role: 'assistant', content: response.content });
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      const toolResults: LlmContentBlock[] = [];
 
       for (const toolUse of toolUseBlocks) {
         // SECURITY: Validate tool call through safety pipeline before execution.
         const toolMeta = this.toolRegistry.getClaudeToolDefinitions([toolUse.name]);
         const toolSchema: Record<string, unknown> =
           toolMeta[0]?.input_schema ?? {};
-        const inputRecord = toolUse.input as Record<string, unknown>;
-        const urls = Object.values(inputRecord).filter(
+        const urls = Object.values(toolUse.input).filter(
           (v): v is string => typeof v === 'string' && /^https?:\/\//i.test(v),
         );
 
@@ -319,9 +378,9 @@ export class AgentRunnerService {
           );
           toolResults.push({
             type: 'tool_result',
-            tool_use_id: toolUse.id,
+            toolUseId: toolUse.id,
             content: `Error: Tool call blocked by safety validation: ${toolValidation.rejectionReason}`,
-            is_error: true,
+            isError: true,
           });
           continue;
         }
@@ -334,17 +393,17 @@ export class AgentRunnerService {
 
         toolCalls.push({
           name: toolUse.name,
-          input: toolUse.input as Record<string, unknown>,
+          input: toolUse.input,
           result: result.data,
         });
 
         toolResults.push({
           type: 'tool_result',
-          tool_use_id: toolUse.id,
+          toolUseId: toolUse.id,
           content: result.success
             ? JSON.stringify(result.data)
             : `Error: ${result.error}`,
-          is_error: !result.success,
+          isError: !result.success,
         });
       }
 

@@ -86,6 +86,7 @@ import { AiOutboxModule } from './outbox/ai-outbox.module';
 import { AgentConversation } from './conversation/conversation.entity';
 import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
+import { AiOutbox } from './outbox/ai-outbox.entity';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
@@ -127,7 +128,12 @@ type QueryComplexityOperationContext = {
         createServiceTypeOrmConfig(configService, {
           serviceName: 'ai',
           schema: 'ai',
-          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit],
+          // FAZ0-BOOT-02: AiOutbox MUST be in this list — OutboxModule.forFeature
+          // only wires repositories/publishers; the DataSource learns entity
+          // metadata solely from here. Omitting it broke outbox repository DI
+          // and left the outbox table out of SourceSchemaBootstrap/TenantSchemaSync
+          // (messaging-service registers MessagingOutbox the same way).
+          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit, AiOutbox],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

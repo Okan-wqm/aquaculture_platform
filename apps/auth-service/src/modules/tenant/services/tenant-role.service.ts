@@ -94,6 +94,15 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
       users: { view: true, invite: false, edit_permissions: false, deactivate: false },
       roles: { view: true, create: false, edit: false, delete: false },
     },
+    messaging: {
+      channels: { view: true, create_group: true, create_dm: true, manage: true },
+      messages: { send: true },
+    },
+    ai: {
+      ai_assistant: { use: true },
+      ai_settings: { view: true, manage: true },
+      ai_personas: { operator: true, manager: true, expert: true, supervisor: false },
+    },
   },
   Technician: {
     farm: {
@@ -108,6 +117,14 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
     reports: {
       dashboard: { view: true, analytics: false },
       reports: { view: true, export: false, create_custom: false },
+    },
+    messaging: {
+      channels: { view: true, create_group: true, create_dm: true, manage: false },
+      messages: { send: true },
+    },
+    ai: {
+      ai_assistant: { use: true },
+      ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
     },
   },
   'Feed Manager': {
@@ -125,6 +142,14 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
     reports: {
       dashboard: { view: true, analytics: false },
       reports: { view: true, export: true, create_custom: false },
+    },
+    messaging: {
+      channels: { view: true, create_group: true, create_dm: true, manage: false },
+      messages: { send: true },
+    },
+    ai: {
+      ai_assistant: { use: true },
+      ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
     },
   },
   Operator: {
@@ -152,6 +177,14 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
       dashboard: { view: true, analytics: false },
       reports: { view: true, export: false, create_custom: false },
     },
+    messaging: {
+      channels: { view: true, create_group: true, create_dm: true, manage: false },
+      messages: { send: true },
+    },
+    ai: {
+      ai_assistant: { use: true },
+      ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
   },
   Viewer: {
     farm: {
@@ -178,6 +211,16 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
     reports: {
       dashboard: { view: true, analytics: false },
       reports: { view: true, export: false, create_custom: false },
+    },
+    messaging: {
+      // Most-restricted role: can view channels, DM, and chat — but not start
+      // groups. A tenant admin can widen this per role in the role editor.
+      channels: { view: true, create_group: false, create_dm: true, manage: false },
+      messages: { send: true },
+    },
+    ai: {
+      ai_assistant: { use: true },
+      ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
     },
   },
 };
@@ -238,6 +281,37 @@ export const PERMISSION_CATEGORIES = {
       settings: { name: 'Settings', actions: ['view', 'edit'] },
       users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
       roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
+    },
+  },
+  // Messaging + AI capabilities (Faz 7). Resource keys are globally unique
+  // (the wire permission is `${resourceKey}:${action}`, so keys must not collide
+  // with any above — e.g. AI settings is `ai_settings`, not `settings`). Adding
+  // them here is the SSoT change: the tenant-admin role editor (permissionCategories
+  // query, data-driven), token-mint resolution, and TenantPermissionGuard all
+  // pick them up automatically — no parallel catalogue.
+  messaging: {
+    name: 'Messaging',
+    resources: {
+      channels: {
+        name: 'Channels',
+        // create_group is the WhatsApp-like group-creation capability
+        // (MSG-MEDIUM-070); create_dm the 1:1; manage covers rename/members.
+        actions: ['view', 'create_group', 'create_dm', 'manage'],
+      },
+      messages: { name: 'Messages', actions: ['send'] },
+    },
+  },
+  ai: {
+    name: 'AI Assistant',
+    resources: {
+      ai_assistant: { name: 'AI Chat', actions: ['use'] },
+      // AI settings = the tenant BYOK keys / provider / model (Faz 1).
+      ai_settings: { name: 'AI Settings', actions: ['view', 'manage'] },
+      // Persona tiers — which AI persona a member may drive (AISAFETY-MEDIUM-013).
+      ai_personas: {
+        name: 'AI Personas',
+        actions: ['operator', 'manager', 'expert', 'supervisor'],
+      },
     },
   },
 };

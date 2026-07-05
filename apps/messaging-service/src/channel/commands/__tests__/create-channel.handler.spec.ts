@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Channel, ChannelType } from '../../entities/channel.entity';
@@ -111,12 +111,15 @@ describe('CreateChannelHandler', () => {
     expect(queryRunner.release).toHaveBeenCalled();
   });
 
-  it('rejects GROUP creation for MODULE_USER role', async () => {
+  it('allows a plain MODULE_USER member to create a GROUP (MSG-MEDIUM-070, WhatsApp-like)', async () => {
     const cmd = new CreateChannelCommand(
       tenantId, creatorId, makeInput(), 'MODULE_USER',
     );
 
-    await expect(handler.execute(cmd)).rejects.toThrow(ForbiddenException);
+    const result = await handler.execute(cmd);
+
+    expect(result.type).toBe(ChannelType.GROUP);
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------

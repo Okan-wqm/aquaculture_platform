@@ -15,7 +15,6 @@ import {
   IsEnum,
   ValidateIf,
   ArrayMaxSize,
-  IsUrl,
   Matches,
 } from 'class-validator';
 import { ChannelType } from '../entities/channel.entity';
@@ -25,7 +24,7 @@ import { ChannelType } from '../entities/channel.entity';
  *
  * - DIRECT: exactly 2 memberIds (creator + counterpart), name is ignored
  * - GROUP: at least 1 memberId (the creator is added automatically), name is required
- * - AI: at least 1 memberId, name is optional. Supports aiPersona + aiServiceUrl.
+ * - AI: at least 1 memberId, name is optional. Supports aiPersona.
  */
 @InputType()
 export class CreateChannelInput {
@@ -65,13 +64,7 @@ export class CreateChannelInput {
   })
   aiPersona?: string;
 
-  @Field(() => String, {
-    nullable: true,
-    description: 'Custom MCP server URL override. Only for AI channels.',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(512)
-  @IsUrl({ require_protocol: true, protocols: ['https'] }, { message: 'aiServiceUrl must be a valid HTTPS URL' })
-  aiServiceUrl?: string;
+  // MSG-HIGH-060: `aiServiceUrl` removed — see channel.entity.ts. A member could
+  // set it to any public HTTPS endpoint and the bridge exfiltrated conversation
+  // context + tenantId there. BYOK routes all AI through ai-service over NATS.
 }

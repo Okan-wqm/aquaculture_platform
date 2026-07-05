@@ -24,6 +24,10 @@ vi.mock('../../utils/token-lifecycle', () => ({
     notifyTokenCleared: vi.fn(),
     destroy: vi.fn(),
   },
+  // AuthContext.fetchMe decodes the tenant-RBAC capabilities from the token via
+  // this helper (MT-MEDIUM-055); the mock must export it or the module replacement
+  // leaves it undefined and every fetchMe call throws.
+  decodeResourcePermissions: vi.fn(() => []),
 }));
 
 // Mock the api-client module before importing AuthContext

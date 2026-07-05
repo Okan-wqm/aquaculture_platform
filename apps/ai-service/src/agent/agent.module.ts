@@ -6,9 +6,20 @@ import { ConversationModule } from '../conversation/conversation.module';
 import { AgentConfigModule } from '../tenant-config/agent-config.module';
 import { CostModule } from '../cost/cost.module';
 import { AiSafetyModule } from '../safety/ai-safety.module';
+import { LlmProvidersModule } from './providers/providers.module';
 
 @Module({
-  imports: [ToolRegistryModule, ConversationModule, AgentConfigModule, CostModule, AiSafetyModule],
+  // FAZ1-BYOK: LlmProvidersModule is the SSoT for provider wiring (stateless
+  // per-tenant; credential passed per call). Imported rather than declared
+  // inline so the tenant-config CRUD can share the same factory without a cycle.
+  imports: [
+    ToolRegistryModule,
+    ConversationModule,
+    AgentConfigModule,
+    CostModule,
+    AiSafetyModule,
+    LlmProvidersModule,
+  ],
   providers: [AgentRunnerService, AgentProfileService],
   exports: [AgentRunnerService, AgentProfileService],
 })

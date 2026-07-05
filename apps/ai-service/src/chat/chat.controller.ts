@@ -10,19 +10,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { IsString, IsOptional, IsNotEmpty, MaxLength, Matches } from 'class-validator';
-import { Request, Response } from 'express';
-import { AgentRunnerService, ChatRequest } from '../agent/agent-runner.service';
+import { Response } from 'express';
+import { hasResourcePermission } from '@aquaculture/backend-common/decorators';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
+import {
+  AgentRunnerService,
+  AiKeyMissingError,
+  ChatRequest,
+} from '../agent/agent-runner.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-
-interface TenantRequest extends Request {
-  tenantId?: string;
-  user?: {
-    sub?: string;
-    tenantId?: string;
-    roles?: string[];
-    email?: string;
-  };
-}
 
 class ChatBodyDto {
   @IsString()
@@ -76,6 +72,14 @@ export class ChatController {
       throw new HttpException('Authentication required', HttpStatus.UNAUTHORIZED);
     }
 
+    // Tenant-RBAC (Faz 7c): using the AI assistant needs ai_assistant:use.
+    // Admins bypass; the default seeded roles all grant it (a tenant admin can
+    // revoke it per role). Checked before any SSE header is flushed so a denial
+    // is a clean 403, not a truncated stream.
+    if (!hasResourcePermission(req.user, 'ai_assistant:use')) {
+      throw new HttpException('Missing required permission: ai_assistant:use', HttpStatus.FORBIDDEN);
+    }
+
     if (!body.message?.trim()) {
       throw new HttpException('Message is required', HttpStatus.BAD_REQUEST);
     }
@@ -107,6 +111,8 @@ export class ChatController {
         tenantId,
         userId,
         userRoles,
+        // Faz 7c: authorize the persona tier against the caller's grants.
+        resourcePermissions: req.user?.resourcePermissions ?? [],
         schemaName,
         correlationId,
       };
@@ -145,19 +151,44 @@ export class ChatController {
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       res.end();
     } catch (error) {
-      this.logger.error(
-        `Chat error: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      // FAZ1-BYOK: a missing/rejected tenant key is a configuration state, not
+      // a server fault — surface a distinct AI_KEY_MISSING code (not a 500) so
+      // the mobile/panel client can route the user to the AI settings page to
+      // enter a key instead of showing a generic error.
+      const isKeyMissing =
+        error instanceof AiKeyMissingError ||
+        (error as { code?: string })?.code === 'AI_KEY_MISSING';
+
+      if (isKeyMissing) {
+        this.logger.warn(`Chat blocked: tenant has no valid AI key (${tenantId})`);
+      } else {
+        this.logger.error(
+          `Chat error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
 
       // If headers already sent, send error as SSE event
       if (res.headersSent) {
         res.write(
           `data: ${JSON.stringify({
             type: 'error',
-            message: error instanceof Error ? error.message : 'Internal error',
+            code: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL',
+            message: isKeyMissing
+              ? 'No valid AI API key is configured. Ask a tenant admin to add one in AI settings.'
+              : error instanceof Error
+                ? error.message
+                : 'Internal error',
           })}\n\n`,
         );
         res.end();
+      } else if (isKeyMissing) {
+        throw new HttpException(
+          {
+            code: 'AI_KEY_MISSING',
+            message: 'No valid AI API key is configured for this tenant.',
+          },
+          HttpStatus.PRECONDITION_REQUIRED,
+        );
       } else {
         throw new HttpException(
           error instanceof Error ? error.message : 'Internal error',

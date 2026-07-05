@@ -79,6 +79,14 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           ...(assertion.planLevel !== undefined
             ? { planLevel: assertion.planLevel }
             : {}),
+          // MT-HIGH-054: expose the tenant-RBAC capabilities so subgraph
+          // @RequireTenantPermission / hasResourcePermission work on the prod
+          // gateway path. Without this every non-admin fails closed on any
+          // capability-gated route (a functional outage — same class as the
+          // sites/mobileFeatures fix above).
+          ...(assertion.resourcePermissions !== undefined
+            ? { resourcePermissions: assertion.resourcePermissions }
+            : {}),
         };
 
         // Once the gateway assertion is the authoritative identity, drop the
@@ -160,6 +168,11 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     if (!this.isOptionalStringArray(candidate.mobileFeatures)) {
       throw new BadRequestException('Verified user assertion has invalid mobileFeatures');
     }
+    // MT-HIGH-054: resourcePermissions is optional but, when present, must be a
+    // string[] — reject a malformed claim fail-closed (mirrors the checks above).
+    if (!this.isOptionalStringArray(candidate.resourcePermissions)) {
+      throw new BadRequestException('Verified user assertion has invalid resourcePermissions');
+    }
     // SSOT-C-13: planLevel is optional, but when present must be a finite
     // number — reject a malformed claim fail-closed (mirrors the checks above).
     if (
@@ -191,6 +204,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       assertionId: candidate.assertionId,
       assignedSiteIds: candidate.assignedSiteIds,
       mobileFeatures: candidate.mobileFeatures,
+      resourcePermissions: candidate.resourcePermissions,
       planLevel: candidate.planLevel,
       clientIp: candidate.clientIp ?? null,
       clientUserAgent: candidate.clientUserAgent ?? null,

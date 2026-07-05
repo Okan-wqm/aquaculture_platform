@@ -16,6 +16,7 @@ import {
   AvailableTank,
   GradingOutputDraft,
 } from '../../../hooks/useBatches';
+import { BatchScopeSelector } from './BatchScopeSelector';
 
 const MAX_OUTPUTS = 12;
 
@@ -49,7 +50,21 @@ export const GradingModal: React.FC<GradingModalProps> = ({
   tank,
   onSuccess,
 }) => {
-  const sourceAvgWeightG = tank.avgWeightG || 0;
+  const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(tank.primaryBatchId);
+
+  // Combined-tank scoping: grading splits the SELECTED batch, so the source stock,
+  // biomass, remaining count and per-row weight defaults are that batch's share —
+  // you cannot grade out more fish than the selected batch holds. A single-batch
+  // tank falls back to the tank totals (behaviour unchanged).
+  const isCombined = (tank.batchDetails?.length ?? 0) > 1;
+  const selectedBatch = useMemo(
+    () => (isCombined ? tank.batchDetails?.find((b) => b.batchId === selectedBatchId) : undefined),
+    [isCombined, tank.batchDetails, selectedBatchId],
+  );
+  const availableQuantity = selectedBatch?.quantity ?? tank.totalQuantity;
+  const availableBiomassKg = selectedBatch?.biomassKg ?? tank.totalBiomassKg;
+  const sourceAvgWeightG = selectedBatch?.avgWeightG ?? tank.avgWeightG ?? 0;
+  const selectedBatchNumber = selectedBatch?.batchNumber ?? tank.primaryBatchNumber;
 
   const [rows, setRows] = useState<OutputRow[]>([
     emptyRow(sourceAvgWeightG),
@@ -80,7 +95,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
     [rows],
   );
 
-  const remainingInSource = Math.max(0, tank.totalQuantity - totalQuantity);
+  const remainingInSource = Math.max(0, availableQuantity - totalQuantity);
 
   const errors = useMemo(() => {
     const errs: string[] = [];
@@ -93,13 +108,13 @@ export const GradingModal: React.FC<GradingModalProps> = ({
     if (new Set(chosen).size !== chosen.length) {
       errs.push('Each output must target a different destination tank');
     }
-    if (totalQuantity > tank.totalQuantity) {
+    if (totalQuantity > availableQuantity) {
       errs.push(
-        `Total graded quantity (${totalQuantity.toLocaleString()}) exceeds source tank stock (${tank.totalQuantity.toLocaleString()})`,
+        `Total graded quantity (${totalQuantity.toLocaleString()}) exceeds ${isCombined ? 'batch' : 'source tank'} stock (${availableQuantity.toLocaleString()})`,
       );
     }
     return errs;
-  }, [rows, totalQuantity, tank.totalQuantity]);
+  }, [rows, totalQuantity, availableQuantity, isCombined]);
 
   const isValid = errors.length === 0 && rows.length > 0;
 
@@ -121,11 +136,12 @@ export const GradingModal: React.FC<GradingModalProps> = ({
     setRows([emptyRow(sourceAvgWeightG), emptyRow(sourceAvgWeightG)]);
     setGradedAt(new Date().toISOString().split('T')[0]);
     setNotes('');
-  }, [sourceAvgWeightG]);
+    setSelectedBatchId(tank.primaryBatchId);
+  }, [sourceAvgWeightG, tank.primaryBatchId]);
 
   const handleSubmit = async () => {
     if (!isValid) return;
-    if (!tank.primaryBatchId) {
+    if (!selectedBatchId) {
       toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
       return;
     }
@@ -140,7 +156,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
 
     try {
       await recordGrading.mutateAsync({
-        batchId: tank.primaryBatchId,
+        batchId: selectedBatchId,
         sourceTankId: tank.equipmentId,
         gradedAt,
         notes: notes.trim() || undefined,
@@ -174,18 +190,26 @@ export const GradingModal: React.FC<GradingModalProps> = ({
               <p className="text-xs text-purple-600 uppercase font-medium">Source Tank</p>
               <h3 className="font-medium text-gray-900">{tank.tankName}</h3>
               <p className="text-sm text-gray-500">
-                Batch: {tank.primaryBatchNumber || 'No batch assigned'}
+                Batch: {selectedBatchNumber || 'No batch assigned'}
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-500">Current Stock</p>
               <p className="text-lg font-semibold text-gray-900">
-                {tank.totalQuantity.toLocaleString()} fish
+                {availableQuantity.toLocaleString()} fish
               </p>
-              <p className="text-sm text-gray-500">{tank.totalBiomassKg.toFixed(1)} kg</p>
+              <p className="text-sm text-gray-500">{availableBiomassKg.toFixed(1)} kg</p>
             </div>
           </div>
         </div>
+
+        {/* Combined-tank batch scope (renders only when >1 batch shares the tank) */}
+        <BatchScopeSelector
+          batchDetails={tank.batchDetails}
+          selectedBatchId={selectedBatchId}
+          onChange={setSelectedBatchId}
+          accent="purple"
+        />
 
         {/* Output rows */}
         <div className="space-y-3">
@@ -267,7 +291,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     type="number"
                     id={`grading-quantity-${index}`}
                     min="1"
-                    max={tank.totalQuantity}
+                    max={availableQuantity}
                     value={row.quantity || ''}
                     onChange={(e) => updateRow(index, { quantity: parseInt(e.target.value) || 0 })}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
@@ -369,7 +393,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
               <div>
                 <p className="text-xs text-gray-500 uppercase">Source Before</p>
                 <p className="text-lg font-bold text-gray-700">
-                  {tank.totalQuantity.toLocaleString()} fish
+                  {availableQuantity.toLocaleString()} fish
                 </p>
               </div>
               <div>

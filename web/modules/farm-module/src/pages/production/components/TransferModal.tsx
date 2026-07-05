@@ -7,6 +7,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { TankBatch } from '../types/batch.types';
 import { useTransferBatch, useAvailableTanks, AvailableTank } from '../../../hooks/useBatches';
+import { BatchScopeSelector } from './BatchScopeSelector';
 
 // Transfer reason options
 const TransferReasons = {
@@ -39,10 +40,30 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [transferReason, setTransferReason] = useState<string>('DENSITY_MANAGEMENT');
   const [notes, setNotes] = useState<string>('');
   const [transferredAt, setTransferredAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(tank.primaryBatchId);
+
+  // Combined-tank scoping: on a tank holding several batches (B-1 + B-2) the
+  // transfer moves fish from the SELECTED batch, so the source stock/biomass/weight
+  // and the max transferable quantity are that batch's share — you cannot move more
+  // fish than the selected batch holds. A single-batch tank uses the tank totals.
+  const isCombined = (tank.batchDetails?.length ?? 0) > 1;
+  const selectedBatch = useMemo(
+    () => (isCombined ? tank.batchDetails?.find((b) => b.batchId === selectedBatchId) : undefined),
+    [isCombined, tank.batchDetails, selectedBatchId],
+  );
+  const availableQuantity = selectedBatch?.quantity ?? tank.totalQuantity;
+  const availableBiomassKg = selectedBatch?.biomassKg ?? tank.totalBiomassKg;
+  const scopedAvgWeightG = selectedBatch?.avgWeightG ?? tank.avgWeightG ?? 0;
+  const selectedBatchNumber = selectedBatch?.batchNumber ?? tank.primaryBatchNumber;
 
   // Mutation hook
   const transferBatch = useTransferBatch();
   const { toast } = useToast();
+
+  // Keep the read-only weight in sync with the selected batch on a combined tank.
+  useEffect(() => {
+    setAvgWeightG(scopedAvgWeightG);
+  }, [scopedAvgWeightG]);
 
   // Fetch available tanks
   const { data: availableTanks = [], isLoading: tanksLoading } = useAvailableTanks({
@@ -59,21 +80,20 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     return destinationTanks.find((t: AvailableTank) => t.id === destinationTankId);
   }, [destinationTanks, destinationTankId]);
 
-  // Calculate biomass from source tank average weight (not user-editable)
-  const sourceAvgWeightG = tank.avgWeightG || 0;
+  // Calculate biomass from the selected batch's average weight (not user-editable)
   const calculatedBiomass = useMemo(() => {
-    if (quantity > 0 && sourceAvgWeightG > 0) {
-      return (quantity * sourceAvgWeightG) / 1000; // kg
+    if (quantity > 0 && scopedAvgWeightG > 0) {
+      return (quantity * scopedAvgWeightG) / 1000; // kg
     }
     return 0;
-  }, [quantity, sourceAvgWeightG]);
+  }, [quantity, scopedAvgWeightG]);
 
   // Calculate post-operation states
   const postOperationStates = useMemo(() => {
     // Source tank after transfer
     const sourceAfter = {
-      quantity: Math.max(0, tank.totalQuantity - quantity),
-      biomass: Math.max(0, tank.totalBiomassKg - calculatedBiomass),
+      quantity: Math.max(0, availableQuantity - quantity),
+      biomass: Math.max(0, availableBiomassKg - calculatedBiomass),
     };
 
     // Destination tank after transfer
@@ -84,7 +104,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     } : null;
 
     return { sourceAfter, destAfter };
-  }, [tank.totalQuantity, tank.totalBiomassKg, quantity, calculatedBiomass, selectedDestinationTank]);
+  }, [availableQuantity, availableBiomassKg, quantity, calculatedBiomass, selectedDestinationTank]);
 
   // Validation - separate errors (blocking) from warnings (non-blocking)
   const { errors, warnings } = useMemo(() => {
@@ -97,8 +117,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     if (quantity <= 0) {
       errs.push('Quantity must be greater than 0');
     }
-    if (quantity > tank.totalQuantity) {
-      errs.push(`Quantity cannot exceed source tank stock (${tank.totalQuantity.toLocaleString()})`);
+    if (quantity > availableQuantity) {
+      errs.push(
+        `Quantity cannot exceed ${isCombined ? 'batch' : 'source tank'} stock (${availableQuantity.toLocaleString()})`,
+      );
     }
     if (!notes.trim()) {
       errs.push('Please explain why the fish are being transferred');
@@ -113,7 +135,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     }
 
     return { errors: errs, warnings: warns };
-  }, [destinationTankId, quantity, tank.totalQuantity, notes, selectedDestinationTank, calculatedBiomass]);
+  }, [destinationTankId, quantity, availableQuantity, isCombined, notes, selectedDestinationTank, calculatedBiomass]);
 
   const isValid = errors.length === 0;
 
@@ -121,29 +143,30 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const resetForm = useCallback(() => {
     setDestinationTankId('');
     setQuantity(0);
-    setAvgWeightG(tank.avgWeightG || 0);
+    setAvgWeightG(scopedAvgWeightG);
     setTransferReason('DENSITY_MANAGEMENT');
     setNotes('');
     setTransferredAt(new Date().toISOString().split('T')[0]);
-  }, [tank.avgWeightG]);
+    setSelectedBatchId(tank.primaryBatchId);
+  }, [scopedAvgWeightG, tank.primaryBatchId]);
 
   // Handle submit
   const handleSubmit = async () => {
     if (!isValid) return;
 
     // Check if we have a batch
-    if (!tank.primaryBatchId) {
+    if (!selectedBatchId) {
       toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
       return;
     }
 
     try {
       await transferBatch.mutateAsync({
-        batchId: tank.primaryBatchId,
+        batchId: selectedBatchId,
         sourceTankId: tank.equipmentId, // Source tank
         destinationTankId: destinationTankId,
         quantity,
-        avgWeightG: tank.avgWeightG > 0 ? tank.avgWeightG : undefined,
+        avgWeightG: scopedAvgWeightG > 0 ? scopedAvgWeightG : undefined,
         transferReason,
         transferredAt,
         notes,
@@ -185,20 +208,28 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               <p className="text-xs text-blue-600 uppercase font-medium">Source Tank</p>
               <h3 className="font-medium text-gray-900">{tank.tankName}</h3>
               <p className="text-sm text-gray-500">
-                Batch: {tank.primaryBatchNumber || 'No batch assigned'}
+                Batch: {selectedBatchNumber || 'No batch assigned'}
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-500">Current Stock</p>
               <p className="text-lg font-semibold text-gray-900">
-                {tank.totalQuantity.toLocaleString()} fish
+                {availableQuantity.toLocaleString()} fish
               </p>
               <p className="text-sm text-gray-500">
-                {tank.totalBiomassKg.toFixed(1)} kg
+                {availableBiomassKg.toFixed(1)} kg
               </p>
             </div>
           </div>
         </div>
+
+        {/* Combined-tank batch scope (renders only when >1 batch shares the tank) */}
+        <BatchScopeSelector
+          batchDetails={tank.batchDetails}
+          selectedBatchId={selectedBatchId}
+          onChange={setSelectedBatchId}
+          accent="blue"
+        />
 
         {/* Form Fields */}
         <div className="space-y-4">
@@ -269,38 +300,38 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               type="number"
               id="quantity"
               min="1"
-              max={tank.totalQuantity}
+              max={availableQuantity}
               value={quantity || ''}
               onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Enter number of fish to transfer"
             />
-            {/* Quick select buttons */}
+            {/* Quick select buttons — percentages of the SELECTED batch's stock */}
             <div className="mt-2 flex gap-2">
               <button
                 type="button"
-                onClick={() => setQuantity(Math.floor(tank.totalQuantity * 0.25))}
+                onClick={() => setQuantity(Math.floor(availableQuantity * 0.25))}
                 className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
               >
                 25%
               </button>
               <button
                 type="button"
-                onClick={() => setQuantity(Math.floor(tank.totalQuantity * 0.5))}
+                onClick={() => setQuantity(Math.floor(availableQuantity * 0.5))}
                 className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
               >
                 50%
               </button>
               <button
                 type="button"
-                onClick={() => setQuantity(Math.floor(tank.totalQuantity * 0.75))}
+                onClick={() => setQuantity(Math.floor(availableQuantity * 0.75))}
                 className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
               >
                 75%
               </button>
               <button
                 type="button"
-                onClick={() => setQuantity(tank.totalQuantity)}
+                onClick={() => setQuantity(availableQuantity)}
                 className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
               >
                 100%
@@ -316,13 +347,14 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <input
               type="number"
               id="avgWeight"
-              value={tank.avgWeightG?.toFixed(1) || 0}
+              value={scopedAvgWeightG.toFixed(1)}
               readOnly
               disabled
               className="mt-1 block w-full rounded-md border-gray-200 bg-gray-50 shadow-sm sm:text-sm text-gray-600 cursor-not-allowed"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Source tank average — cannot be changed during transfer. Biomass is calculated automatically.
+              {isCombined ? 'Selected batch' : 'Source tank'} average — cannot be changed during
+              transfer. Biomass is calculated automatically.
             </p>
           </div>
 
@@ -400,8 +432,8 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="text-xs text-gray-500">Before</p>
-                    <p className="text-sm font-medium">{tank.totalQuantity.toLocaleString()} fish</p>
-                    <p className="text-xs text-gray-500">{tank.totalBiomassKg.toFixed(1)} kg</p>
+                    <p className="text-sm font-medium">{availableQuantity.toLocaleString()} fish</p>
+                    <p className="text-xs text-gray-500">{availableBiomassKg.toFixed(1)} kg</p>
                   </div>
                   <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />

@@ -29209,6 +29209,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-05-wc-persisted-schema-crash.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -47469,6 +47475,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/water-chemistry/__tests__/persisted-schema-migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/water-chemistry/__tests__/system-model.spec.ts",
       "prettier_managed": true
     },
@@ -49674,10 +49686,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8133,
+  "file_count": 8135,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7958,
-  "managed_file_list_sha256": "5b8a910adf888d44291c632811634b7149acdb3ac4b55ffd5070431002de3ee6",
+  "managed_count": 7960,
+  "managed_file_list_sha256": "0b02d2172953b784e2c4dcf58ad11e8f29a38a019c8e2728f61cb6a83e91cf96",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -448,6 +448,7 @@ export class EquipmentResolver {
       capacityUsedPercent: Number(tankBatch.capacityUsedPercent) || undefined,
       isOverCapacity: tankBatch.isOverCapacity,
       isMixedBatch: tankBatch.isMixedBatch,
+      batchDetails: tankBatch.batchDetails || undefined,
       lastFeedingAt: tankBatch.lastFeedingAt,
       lastSamplingAt: tankBatch.lastSamplingAt,
       lastMortalityAt: tankBatch.lastMortalityAt,

@@ -33,6 +33,9 @@ const BatchTanksTab = React.lazy(
 const BatchFeedingTab = React.lazy(
   () => import('./tabs/BatchFeedingTab'),
 );
+const BatchTraceabilityTab = React.lazy(
+  () => import('./tabs/BatchTraceabilityTab'),
+);
 
 /**
  * Tab descriptor. The `to` field is RELATIVE to the page's base
@@ -43,6 +46,7 @@ const TABS = [
   { to: 'overview', label: 'Genel Bakış' },
   { to: 'tanks', label: 'Tanklar' },
   { to: 'feeding', label: 'Yem Atamaları' },
+  { to: 'traceability', label: 'Traceability' },
 ] as const;
 
 const BatchDetailPage: React.FC = () => {
@@ -159,6 +163,10 @@ const BatchDetailPage: React.FC = () => {
           <Route
             path="feeding"
             element={<BatchFeedingTab batch={batch} />}
+          />
+          <Route
+            path="traceability"
+            element={<BatchTraceabilityTab batch={batch} />}
           />
           <Route
             path="*"

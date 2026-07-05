@@ -78,6 +78,19 @@ describe('SensorTemperatureProjectionListener', () => {
     expect(runInTenantTransaction).not.toHaveBeenCalled();
   });
 
+  it('drops readings outside the plausible temperature bounds (GSEC-MEDIUM-002)', async () => {
+    await listener.handle(makeEvent({ readingTemperature: 87 }));
+    await listener.handle(makeEvent({ readingTemperature: -40 }));
+    await listener.handle(makeEvent({ readingTemperature: Number.POSITIVE_INFINITY }));
+    expect(runInTenantTransaction).not.toHaveBeenCalled();
+  });
+
+  it('drops readings with a far-future timestamp so newest-wins cannot be pinned (GSEC-MEDIUM-002)', async () => {
+    const future = new Date(Date.now() + 60 * 60_000).toISOString(); // +1h > 5min skew
+    await listener.handle(makeEvent({ timestamp: future }));
+    expect(runInTenantTransaction).not.toHaveBeenCalled();
+  });
+
   it('exposes SensorReading as its subscribed event type', () => {
     expect(listener.getEventType()).toBe('SensorReading');
   });

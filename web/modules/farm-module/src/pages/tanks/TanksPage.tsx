@@ -11,7 +11,13 @@ import {
   waterTypeLabels,
 } from '../../hooks/useTanks';
 import { isBlockingError } from '../../utils/list-view-state';
-import { TankWithBatch, TankFilterState, initialFilterState, tankToTankWithBatch } from './types';
+import {
+  TankWithBatch,
+  TankFilterState,
+  initialFilterState,
+  tankToTankWithBatch,
+  tankWithBatchToTankBatch,
+} from './types';
 import { tankColumns, cleanerFishColumns } from './columns';
 import { useColumnVisibility } from './useColumnVisibility';
 import { ColumnVisibilityMenu } from './ColumnVisibilityMenu';
@@ -39,7 +45,6 @@ import { DeployModal } from '../cleaner-fish/components/DeployModal';
 import { RemoveModal } from '../cleaner-fish/components/RemoveModal';
 
 // Types
-import { TankBatch } from '../production/types/batch.types';
 import {
   CleanerFishBatch,
   useCleanerFishBatches,
@@ -76,26 +81,6 @@ const categoryLabels: Record<string, string> = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Convert TankWithBatch to TankBatch format for modals
- */
-function tankWithBatchToTankBatch(tank: TankWithBatch): TankBatch {
-  return {
-    id: tank.batchId || tank.id,
-    tenantId: '',
-    equipmentId: tank.id,
-    tankName: tank.name,
-    tankCode: tank.code,
-    primaryBatchId: tank.batchId || undefined,
-    primaryBatchNumber: tank.batchNumber || undefined,
-    totalQuantity: tank.pieces || 0,
-    avgWeightG: tank.avgWeight || 0,
-    totalBiomassKg: tank.biomass || 0,
-    densityKgM3: tank.density || 0,
-    isMixedBatch: tank.isMixedBatch || false,
-    isOverCapacity: tank.isOverCapacity || false,
-  };
-}
 
 /**
  * Format date for display
@@ -185,8 +170,8 @@ export const TanksPage: React.FC = () => {
     return cfBatches.filter((b) => b.currentQuantity > 0 && b.status === 'ACTIVE');
   }, [cfBatches]);
 
-  // Fetch all tanks with batch metrics
-  // Backend defaults to 200 items when no pagination is provided
+  // Fetch ALL tanks with batch metrics — useTanksList pages through the backend
+  // list (100/page) when no pagination is passed, so no container is invisible.
   const { data, isLoading: tanksLoading, error, refetch } = useTanksList({ isActive: true });
   const isLoading =
     tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));
@@ -615,12 +600,22 @@ export const TanksPage: React.FC = () => {
         return formatNumber(tank.maxBiomass, 0);
       case 'maxDensity':
         return formatNumber(tank.maxDensity, 1);
-      case 'batchNumber':
-        return tank.batchNumber ? (
-          <span className="text-blue-600 font-medium">{tank.batchNumber}</span>
+      case 'batchNumber': {
+        // Combined batch (e.g. "B-1 + B-2") when several batches share the tank;
+        // fall back to the single primary batch number otherwise.
+        const details = tank.batchDetails;
+        const batchLabel =
+          details && details.length > 1
+            ? details.map((d) => d.batchNumber).join(' + ')
+            : tank.batchNumber;
+        return batchLabel ? (
+          <span className="text-blue-600 font-medium" title={batchLabel}>
+            {batchLabel}
+          </span>
         ) : (
           <span className="text-gray-400">-</span>
         );
+      }
       case 'pieces':
         return formatNumber(tank.pieces, 0);
       case 'avgWeight':

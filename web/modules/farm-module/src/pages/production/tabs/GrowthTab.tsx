@@ -294,7 +294,7 @@ export const GrowthTab: React.FC = () => {
   // Fetch active batches for batch selection
   const { data: batchData, isLoading: batchesLoading } = useBatchList(
     { isActive: true },
-    { limit: 50, sortBy: 'stockedAt', sortOrder: 'DESC' }
+    { fetchAll: true, sortBy: 'stockedAt', sortOrder: 'DESC' }
   );
 
   const activeBatches = batchData?.items ?? [];

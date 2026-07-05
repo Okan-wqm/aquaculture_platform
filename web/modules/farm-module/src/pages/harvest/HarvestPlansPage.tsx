@@ -2335,7 +2335,7 @@ export const HarvestPlansPage: React.FC = () => {
   // Data from API
   const { data: plansData, isLoading: plansLoading } = useHarvestPlanList(apiFilter);
   const { data: statsData } = useHarvestPlanStats();
-  const { data: batchesData } = useBatchList(undefined, { limit: 100 });
+  const { data: batchesData } = useBatchList(undefined, { fetchAll: true });
 
   const plans = plansData?.items ?? [];
   const stats: HarvestPlanStats = statsData ?? {

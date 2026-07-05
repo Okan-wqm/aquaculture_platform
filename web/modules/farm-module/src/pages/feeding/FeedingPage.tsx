@@ -241,11 +241,16 @@ const FeedingPage: React.FC = () => {
    * require feeding. QUARANTINE batches are excluded as they follow
    * separate feeding protocols.
    */
-  const { data: batchesData, isLoading: batchesLoading } = useBatchList({
-    siteId: selectedSiteId || undefined,
-    status: ['ACTIVE', 'GROWING', 'PRE_HARVEST'] as BatchStatus[],
-    isActive: true,
-  });
+  const { data: batchesData, isLoading: batchesLoading } = useBatchList(
+    {
+      siteId: selectedSiteId || undefined,
+      status: ['ACTIVE', 'GROWING', 'PRE_HARVEST'] as BatchStatus[],
+      isActive: true,
+    },
+    // Fetch-all: the batch selector previously used the default limit of 20,
+    // silently hiding every batch past the 20th.
+    { fetchAll: true },
+  );
 
   // Memoize forecast input to prevent stale-time bypass (PERF-003)
   const forecastInput = useMemo(

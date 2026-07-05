@@ -73,6 +73,8 @@ import { BatchLocation } from '../entities/batch-location.entity';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { GenerateBatchNumberQuery } from '../queries/generate-batch-number.query';
 import { GetBatchHistoryQuery, BatchHistoryEventType } from '../queries/get-batch-history.query';
+import { GetBatchTraceabilityQuery } from '../queries/get-batch-traceability.query';
+import { BatchTraceabilityResponse } from '../dto/batch-traceability.response';
 import { GetBatchPerformanceQuery } from '../queries/get-batch-performance.query';
 import { GetBatchQuery } from '../queries/get-batch.query';
 import { ListAvailableTanksQuery } from '../queries/list-available-tanks.query';
@@ -233,6 +235,21 @@ export class BatchResolver {
     return this.queryBus.execute(
       new GetBatchHistoryQuery(tenantId, id, eventTypes, fromDate, toDate, limit),
     );
+  }
+
+  /**
+   * Full lifecycle traceability report for one batch (Phase 6): residency
+   * intervals + operation timeline + per-feed consumption + water temperature
+   * per residency. Read-only composition over the existing SSoTs.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => BatchTraceabilityResponse, { name: 'batchTraceability' })
+  async getBatchTraceability(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<BatchTraceabilityResponse> {
+    this.logger.debug(`Getting batch traceability report: ${id}`);
+    return this.queryBus.execute(new GetBatchTraceabilityQuery(tenantId, id));
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)

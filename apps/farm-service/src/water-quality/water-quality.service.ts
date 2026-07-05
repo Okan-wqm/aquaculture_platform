@@ -38,6 +38,10 @@ import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
+import {
+  WATER_TEMPERATURE_MAX_C,
+  WATER_TEMPERATURE_MIN_C,
+} from './services/water-temperature.service';
 
 // ============================================================================
 // INTERNAL INTERFACES (Service layer only)
@@ -140,9 +144,14 @@ export class WaterQualityService {
     celsius: number,
     recordedBy?: string,
   ): Promise<boolean> {
-    if (!Number.isFinite(celsius) || celsius < -5 || celsius > 45) {
+    if (
+      !Number.isFinite(celsius) ||
+      celsius < WATER_TEMPERATURE_MIN_C ||
+      celsius > WATER_TEMPERATURE_MAX_C
+    ) {
       throw new BadRequestException(
-        `Water temperature ${celsius}°C is outside the plausible range (-5°C to 45°C).`,
+        `Water temperature ${celsius}°C is outside the plausible range ` +
+          `(${WATER_TEMPERATURE_MIN_C}°C to ${WATER_TEMPERATURE_MAX_C}°C).`,
       );
     }
 

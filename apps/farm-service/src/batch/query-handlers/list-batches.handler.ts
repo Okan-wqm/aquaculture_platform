@@ -23,7 +23,11 @@ export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, Pagin
   ) {}
 
   async execute(query: ListBatchesQuery): Promise<PaginatedQueryResult<Batch>> {
-    const { tenantId, filter, page, limit, sortBy, sortOrder } = query;
+    const { tenantId, filter, page, sortBy, sortOrder } = query;
+    // Hard page-size ceiling: an unbounded caller-supplied take() is a DoS
+    // vector (the equipment list already caps at 100; batches had no cap).
+    const MAX_LIMIT = 200;
+    const limit = Math.min(Math.max(query.limit, 1), MAX_LIMIT);
 
     // Read through the fail-closed tenant boundary so the query builder runs on a
     // connection whose search_path + RLS GUC are verified for this tenant.

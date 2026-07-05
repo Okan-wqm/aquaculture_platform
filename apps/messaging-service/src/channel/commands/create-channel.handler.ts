@@ -1,7 +1,6 @@
 import {
   Injectable,
   Logger,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
@@ -21,12 +20,11 @@ import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.ent
 import { ChannelService } from '../services/channel.service';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 
-/** Platform roles that are allowed to create GROUP channels */
-const GROUP_ALLOWED_ROLES = new Set([
-  'SUPER_ADMIN',
-  'TENANT_ADMIN',
-  'MODULE_MANAGER',
-]);
+// MSG-MEDIUM-070: GROUP creation is no longer role-gated. The product is
+// WhatsApp-like — any tenant member may start a group, exactly as they may
+// start a DM or an AI channel. Invited members are still validated as active
+// users of THIS tenant (admissionService.assertActiveTenantUsers below), so
+// opening group creation to members introduces no cross-tenant exposure.
 
 @Injectable()
 @CommandHandler(CreateChannelCommand)
@@ -46,7 +44,7 @@ export class CreateChannelHandler
   /**
    * Execute the create-channel command.
    *
-   * - GROUP: requires MODULE_MANAGER+ platform role. Creator becomes OWNER.
+   * - GROUP: any tenant member may create (MSG-MEDIUM-070). Creator becomes OWNER.
    * - DIRECT: exactly 2 participants; de-duplicates via dmPairKey.
    * - AI: any authenticated user can create.
    */
@@ -55,16 +53,13 @@ export class CreateChannelHandler
   }
 
   private async executeInTenantContext(command: CreateChannelCommand): Promise<Channel> {
-    const { tenantId, userId, input, userRole } = command;
+    const { tenantId, userId, input } = command;
 
     // ---------------------------------------------------------------
     // Pre-validation
     // ---------------------------------------------------------------
-    if (input.type === ChannelType.GROUP && !GROUP_ALLOWED_ROLES.has(userRole)) {
-      throw new ForbiddenException(
-        'Only MODULE_MANAGER or higher roles can create GROUP channels',
-      );
-    }
+    // MSG-MEDIUM-070: no GROUP role gate — any member may create a group
+    // (WhatsApp-like). Member validity is enforced by the admission gate below.
 
     if (input.type === ChannelType.DIRECT) {
       // For DM the memberIds array must contain exactly the counterpart.

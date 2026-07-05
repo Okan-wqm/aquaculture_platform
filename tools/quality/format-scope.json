@@ -6868,6 +6868,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/dto/batch-traceability.response.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/dto/create-batch.dto.ts",
       "prettier_managed": true
     },
@@ -7078,6 +7084,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/queries/get-batch-traceability.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/queries/get-batch.query.ts",
       "prettier_managed": true
     },
@@ -7102,6 +7114,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/query-handlers/__tests__/get-batch-traceability.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/query-handlers/generate-batch-number.handler.ts",
       "prettier_managed": true
     },
@@ -7115,6 +7133,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/query-handlers/get-batch-performance.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/query-handlers/get-batch-traceability.handler.ts",
       "prettier_managed": true
     },
     {
@@ -29197,6 +29221,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-05-batch-traceability-and-visibility.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-expert/2026-07-05-combine-batch-visibility.md",
       "prettier_managed": true
     },
@@ -41458,6 +41488,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/useBatchTraceability.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/useBiomassReports.ts",
       "prettier_managed": true
     },
@@ -42124,6 +42160,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/tabs/__tests__/batchTraceabilityReportExport.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/tabs/__tests__/BatchTraceabilityTab.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/production/tabs/BatchFeedingTab.tsx",
       "prettier_managed": true
     },
@@ -42143,6 +42191,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/production/tabs/BatchTanksTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/tabs/batchTraceabilityReportExport.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/tabs/BatchTraceabilityTab.tsx",
       "prettier_managed": true
     },
     {
@@ -49686,10 +49746,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8135,
+  "file_count": 8145,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7960,
-  "managed_file_list_sha256": "0b02d2172953b784e2c4dcf58ad11e8f29a38a019c8e2728f61cb6a83e91cf96",
+  "managed_count": 7970,
+  "managed_file_list_sha256": "d220e944003a4797b81f37dde599ceeb1b5d237991a204d20dded41b80be583a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

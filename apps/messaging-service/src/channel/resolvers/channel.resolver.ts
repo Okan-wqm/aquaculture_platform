@@ -18,11 +18,11 @@ import {
   Parent,
   Context,
 } from '@nestjs/graphql';
-import { UseGuards, Logger, NotFoundException } from '@nestjs/common';
+import { UseGuards, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { DataSource, IsNull } from 'typeorm';
 import DataLoader from 'dataloader';
-import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role, hasResourcePermission } from '@aquaculture/backend-common/decorators';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
@@ -164,6 +164,23 @@ export class ChannelResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Args('input') input: CreateChannelInput,
   ): Promise<Channel> {
+    // Tenant-RBAC (Faz 7c): only GROUP creation is capability-gated —
+    // `channels:create_group`. DM + AI channels stay open to any member, so the
+    // check is conditional (a blanket guard on this multi-type mutation would
+    // wrongly block DMs). Uses the shared SSoT check that TenantPermissionGuard
+    // uses, so admins bypass and the verdict matches the FE hasPermission gate
+    // (AquaMobil NewChatPage). The default seeded roles grant create_group to
+    // every role (WhatsApp-like), so behaviour is preserved until a tenant admin
+    // narrows it. Enforced independently of the FE's button-hiding.
+    if (
+      input.type === ChannelType.GROUP &&
+      !hasResourcePermission(user, 'channels:create_group')
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to create group channels',
+      );
+    }
+
     const primaryRole = this.getPrimaryRole(user);
 
     return this.commandBus.execute<CreateChannelCommand, Channel>(

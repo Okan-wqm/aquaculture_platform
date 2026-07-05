@@ -65,3 +65,9 @@ Adversarial self-review of the stacked PRs (#880-#883) surfaced defects in the f
 | MSG-HIGH-075 | HIGH | messaging: (a) DropChannelAiServiceUrl schema-qualified → column persists in tenant clones; (b) semantic-search egress ships query text to ai-service with NO egress gate | migration unqualified; route semantic search through AiEgressGateService |
 | AISAFETY-MEDIUM-020 | MEDIUM | AI egress consent checks only the trigger sender; fetchContextMessages forwards ALL members' last 50 incl. non-consenting; confirmAiAction egress bypasses the gate (dead endpoint today) | TODO — per-author consent filter on context; gate confirmAiAction |
 | AISAFETY-MEDIUM-021 | MEDIUM | Tool requiredPermissions vocabulary (`operator`/`manager`) mismatches ctx.userRoles (`MODULE_USER`/`TENANT_ADMIN`) → every tool call denied (pre-existing since initial commit) | TODO — align tool permission vocabulary with platform roles or capabilities (Faz 7) |
+
+## Faz 7c enforcement (2026-07-05) — tenant-RBAC capability gate on group creation
+
+| ID | Sev | Finding | Fix |
+|---|---|---|---|
+| MSG-HIGH-076 | HIGH | Group-channel creation had no tenant-RBAC gate: MSG-MEDIUM-070 (rightly) removed the hardcoded MODULE_MANAGER role gate for WhatsApp-like behaviour, but nothing then let a tenant admin restrict WHO may start groups — the tenant-configurable RBAC (Faz 7) capability `channels:create_group` was not enforced on the create path | createChannel resolver now conditionally enforces `channels:create_group` for `ChannelType.GROUP` (DM + AI stay open) via the shared SSoT `hasResourcePermission` — the same check `TenantPermissionGuard` uses (admins bypass), matching the AquaMobil FE gate. Also consolidated the guard's inline bypass+membership logic into that one SSoT helper (`hasAllResourcePermissions` in backend-common) so guard + programmatic callsites share one implementation. Depends on the messaging/AI capabilities being in the catalogue (auth-service PR #885). |

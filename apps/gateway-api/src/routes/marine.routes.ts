@@ -121,6 +121,7 @@ export class MarineRoutesController {
       email: user.email,
       assignedSiteIds: user.assignedSiteIds,
       mobileFeatures: user.mobileFeatures,
+      resourcePermissions: user.resourcePermissions,
     });
     const queryString = this.buildQueryString(query);
     const bodyBytes = method === 'POST' ? JSON.stringify(body ?? {}) : '';

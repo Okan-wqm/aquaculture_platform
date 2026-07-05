@@ -163,16 +163,19 @@ export class MqttAuthService implements OnModuleInit {
    * @param acc - Access type: 1=read, 2=write/publish, 4=subscribe (MOSQ_ACL_SUBSCRIBE)
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
-    // acc=4 (MOSQ_ACL_SUBSCRIBE) is the pattern-level subscribe check.
-    // Allow all subscribes — actual message delivery is separately gated by acc=1 (READ).
-    if (acc === 4) {
-      return true;
-    }
-
-    // Service accounts: per-topic-pattern grants scoped to tenants
+    // Service accounts: per-topic-pattern grants scoped to tenants. Handled
+    // first so their intentional wildcard subscribe patterns still work.
     if (this.serviceAccountNames.has(username)) {
       return this.checkServiceAccountAccess(username, topic, acc);
     }
+
+    // SENSOR-MEDIUM-005: subscribe (acc=4) is NO LONGER blanket-allowed for
+    // device accounts. It flows through the same tenant-topic verification as
+    // read (acc=1), so a device can only subscribe within its own
+    // `tenants/{ownTenant}/devices/{ownDevice}/...` namespace. An over-broad
+    // or cross-tenant filter (e.g. `tenants/+/devices/#`) fails the concrete
+    // tenant/device match below and is denied — enforcement no longer depends
+    // solely on the broker re-running the per-message read ACL.
 
     // $SYS/ topics: deny for all non-service accounts
     if (topic.startsWith('$SYS/')) {
@@ -220,15 +223,28 @@ export class MqttAuthService implements OnModuleInit {
     }
 
     // Legacy edge topics: edge/{device_username}/...
-    // D04 SEC-M01: These topics lack tenant enforcement — log deprecation warning
+    // SENSOR-MEDIUM-006: these topics carry no tenant namespace. They are now
+    // DENIED by default and only permitted during a migration window when
+    // MQTT_LEGACY_EDGE_TOPICS_ENABLED=true (never in production). Once every
+    // device is on tenants/{tenantId}/devices/{deviceCode}/... the flag (and
+    // this branch) are removed.
     if (topic.startsWith('edge/')) {
+      const legacyEnabled =
+        this.configService.get('MQTT_LEGACY_EDGE_TOPICS_ENABLED') === 'true' &&
+        this.configService.get('NODE_ENV') !== 'production';
+      if (!legacyEnabled) {
+        this.logger.warn(
+          `[DENIED] Legacy edge/ topic ${topic} for ${username} — tenant-unscoped ` +
+          'topics are disabled. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
+        );
+        return false;
+      }
       const legacyMatch = topic.match(/^edge\/([^/]+)\//);
       const allowed = legacyMatch !== null && legacyMatch[1] === username;
       if (allowed) {
         this.logger.warn(
-          `[DEPRECATED] ACL granted on legacy topic ${topic} for ${username}. ` +
-          'Legacy edge/ topics lack tenant enforcement and will be removed in a future release. ' +
-          'Migrate device to tenant-prefixed topic: tenants/{tenantId}/devices/{deviceCode}/...',
+          `[DEPRECATED] ACL granted on legacy topic ${topic} for ${username} during ` +
+          'the migration window. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
         );
       }
       return allowed;

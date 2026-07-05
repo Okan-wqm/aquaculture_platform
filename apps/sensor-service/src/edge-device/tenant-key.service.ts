@@ -9,7 +9,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, DataSource } from 'typeorm';
 
 import {
   CreateTenantKeyInput,
@@ -31,7 +31,58 @@ export class TenantKeyService {
     @InjectRepository(TenantProvisioningKey)
     private readonly tenantKeyRepository: Repository<TenantProvisioningKey>,
     private readonly installerScriptService: InstallerScriptService,
+    private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * SENSOR-HIGH-027: tenant_provisioning_keys is a per-tenant table, so keys
+   * created by the authenticated admin path land in `tenant_<uuid>`. But
+   * validateAndGetKey is reached from PUBLIC endpoints (self-register /
+   * installer) whose search_path defaults to "sensor, public", so a plain
+   * repository lookup queried the empty source-schema template and every
+   * legitimate token failed as "Invalid installer token".
+   *
+   * This mirrors the sibling `findDeviceAcrossSchemas` (edge_devices): resolve
+   * the token by UNION-ALL across all tenant schemas. keyToken is a 256-bit
+   * crypto-random value, so a cross-schema collision is not a practical concern
+   * for the LIMIT 1 resolution.
+   */
+  private async findKeyAcrossSchemas(token: string): Promise<TenantProvisioningKey | null> {
+    const schemas: { schema_name: string }[] = await this.dataSource.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
+    );
+    if (schemas.length === 0) {
+      return null;
+    }
+    // Schema names are constrained by the regex above (tenant_ + 16 hex chars).
+    const unionParts = schemas.map(
+      (s) => `SELECT * FROM "${s.schema_name}".tenant_provisioning_keys WHERE key_token = $1`,
+    );
+    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
+    const rows = await this.dataSource.query(sql, [token]);
+    if (!rows || rows.length === 0) {
+      return null;
+    }
+    return this.mapRowToKey(rows[0]);
+  }
+
+  private mapRowToKey(row: Record<string, unknown>): TenantProvisioningKey {
+    const key = new TenantProvisioningKey();
+    key.id = row['id'] as string;
+    key.tenantId = row['tenant_id'] as string;
+    key.keyToken = row['key_token'] as string;
+    key.name = (row['name'] as string) ?? undefined;
+    key.isActive = row['is_active'] as boolean;
+    key.maxDevices = (row['max_devices'] as number) ?? undefined;
+    key.usedCount = row['used_count'] as number;
+    key.autoApprove = row['auto_approve'] as boolean;
+    key.defaultSiteId = (row['default_site_id'] as string) ?? undefined;
+    key.expiresAt = row['expires_at'] ? new Date(row['expires_at'] as string) : undefined;
+    key.createdBy = (row['created_by'] as string) ?? undefined;
+    key.createdAt = new Date(row['created_at'] as string);
+    key.updatedAt = new Date(row['updated_at'] as string);
+    return key;
+  }
 
   /**
    * Create a tenant-level provisioning key
@@ -109,9 +160,8 @@ export class TenantKeyService {
    * Throws appropriate HTTP exceptions if the key is invalid, revoked, expired, or at capacity.
    */
   async validateAndGetKey(token: string): Promise<TenantProvisioningKey> {
-    const key = await this.tenantKeyRepository.findOne({
-      where: { keyToken: token },
-    });
+    // SENSOR-HIGH-027: resolve across tenant schemas (see findKeyAcrossSchemas).
+    const key = await this.findKeyAcrossSchemas(token);
 
     if (!key) {
       throw new NotFoundException('Invalid installer token');

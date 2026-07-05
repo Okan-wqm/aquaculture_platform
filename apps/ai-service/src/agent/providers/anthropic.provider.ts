@@ -118,8 +118,9 @@ export class AnthropicProvider implements LlmProvider {
   async validateCredential(credential: LlmCredential): Promise<boolean> {
     const client = this.clientFor(credential.apiKey);
     try {
-      // Minimal 1-token liveness probe. A rejected key surfaces as an auth
-      // error → false; any content response proves the key authenticates.
+      // Minimal 1-token liveness probe. A content response proves the key
+      // authenticates. The probe model is fixed only to exercise auth; a valid
+      // key that happens to lack access to THIS model must still validate.
       await client.messages.create({
         model: 'claude-haiku-4-5',
         max_tokens: 1,
@@ -127,8 +128,20 @@ export class AnthropicProvider implements LlmProvider {
       });
       return true;
     } catch (err) {
-      if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
+      // ONLY a genuine authentication failure (401) means the key is invalid.
+      if (err instanceof Anthropic.AuthenticationError) {
         return false;
+      }
+      // A 403 PermissionDenied means the key AUTHENTICATED but the workspace
+      // lacks access to the probe model (or is billing-restricted) — the key
+      // itself is valid, so accept it. A model/billing problem surfaces at chat
+      // time with its own error rather than blocking the tenant from saving a
+      // legitimate key here.
+      if (err instanceof Anthropic.PermissionDeniedError) {
+        this.logger.warn(
+          'Anthropic key authenticated but the probe model is not accessible (permission/billing) — accepting the key as valid',
+        );
+        return true;
       }
       // A transient upstream failure (429/5xx/network) is NOT a key verdict —
       // propagate so the caller can distinguish "key is bad" from "provider is

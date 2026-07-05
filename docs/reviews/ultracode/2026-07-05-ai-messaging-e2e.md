@@ -54,3 +54,14 @@
 - NATS side is already prepared for ai-service: `services.yaml` carries the `ai_service` identity with exactly the four `request.ai.*` subscribe permissions; `nats.conf` CN mapping generated. Only the client cert mount needs verification during Faz 0.
 - `ai` module schema is already declared in `MODULE_SCHEMAS` (`libs/backend-common/src/database/schema-manager.service.ts:553`) — tenant provisioning needs no change, existing tenants need a schema backfill run.
 - Product-owner decisions binding this remediation: BYOK-only (no platform-key fallback), panel gets BOTH AI assistant and full messaging, advanced RAG in scope with self-hosted multilingual embeddings, message history is NOT a raw RAG corpus.
+
+## Self-review round 2 (2026-07-05) — defects found in the fix commits themselves
+
+Adversarial self-review of the stacked PRs (#880-#883) surfaced defects in the fixes:
+
+| ID | Sev | Finding | Fix |
+|---|---|---|---|
+| AISAFETY-HIGH-019 | HIGH | ai-service BYOK defects: (a) migration schema-qualified `"ai"."tenant_agent_configs"` never reaches per-tenant clones → existing tenants 500 on every chat/settings; (b) chatModel persisted but never applied; (c) persona applicableRoles gate bricks manager/expert/supervisor for everyone (no admin write surface); (d) key CRUD returns 500/401 instead of 400; (e) validateCredential treats 403 as invalid key; (f) unknown-tool not audited | migration unqualified fan-out; chatModel in model resolution; drop applicableRoles gate (role-ceiling stays, allowlist→Faz 7); 400s; only 401→invalid; audit unknown-tool |
+| MSG-HIGH-075 | HIGH | messaging: (a) DropChannelAiServiceUrl schema-qualified → column persists in tenant clones; (b) semantic-search egress ships query text to ai-service with NO egress gate | migration unqualified; route semantic search through AiEgressGateService |
+| AISAFETY-MEDIUM-020 | MEDIUM | AI egress consent checks only the trigger sender; fetchContextMessages forwards ALL members' last 50 incl. non-consenting; confirmAiAction egress bypasses the gate (dead endpoint today) | TODO — per-author consent filter on context; gate confirmAiAction |
+| AISAFETY-MEDIUM-021 | MEDIUM | Tool requiredPermissions vocabulary (`operator`/`manager`) mismatches ctx.userRoles (`MODULE_USER`/`TENANT_ADMIN`) → every tool call denied (pre-existing since initial commit) | TODO — align tool permission vocabulary with platform roles or capabilities (Faz 7) |

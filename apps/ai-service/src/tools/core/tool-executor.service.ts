@@ -33,12 +33,16 @@ export class ToolExecutorService {
 
     const tool = this.registry.getTool(toolName);
     if (!tool) {
-      return {
+      const unknown: ToolResult = {
         success: false,
         error: `Unknown tool: ${toolName}`,
         durationMs: 0,
         cacheable: false,
       };
+      // Audit unknown-tool attempts too — an LLM probing tool names should
+      // leave a trail rather than vanish.
+      await this.audit(toolName, inputRecord, unknown, ctx);
+      return unknown;
     }
 
     const metadata = tool.getMetadata();
@@ -91,9 +95,10 @@ export class ToolExecutorService {
     const result = await tool.execute(input, ctx);
 
     // Persist every execution to the audit trail. Awaited (not fire-and-forget)
-    // so a regulated actuation is never reported done before its audit row is
-    // durable; AuditService itself swallows storage errors so audit can't break
-    // the chat flow.
+    // so audit ordering is deterministic. NOTE: AuditService logs loudly and
+    // then SWALLOWS a storage failure so a broken audit write can't break the
+    // chat flow — so this orders but does not by itself GUARANTEE durability; a
+    // hard durability guarantee (outbox/transaction) is tracked separately.
     await this.audit(toolName, inputRecord, result, ctx);
 
     return result;

@@ -76,10 +76,15 @@ export class AgentProfileService {
    * Resolve effective profile:
    * Base Profile + tenant additions - tenant removals, filtered by module entitlements.
    *
-   * AISAFETY-MEDIUM-013: the resolved persona is authorized against BOTH the
-   * tenant's applicableRoles allowlist AND the caller's platform-role ceiling
-   * before anything else runs, so a user cannot escalate into a higher-privilege
-   * persona (e.g. the autonomous supervisor) just by naming it in the request.
+   * AISAFETY-MEDIUM-013: the resolved persona is authorized against the caller's
+   * platform-role ceiling before anything else runs, so a user cannot escalate
+   * into a higher-privilege persona (e.g. the autonomous supervisor) just by
+   * naming it in the request. The additional per-tenant persona allowlist that
+   * the audit row also mentioned is deferred to the tenant-configurable RBAC
+   * phase (Faz 7, `ai.persona.<tier>` capability) — enforcing it here with the
+   * ['operator']-only default while there is no admin write surface would brick
+   * manager/expert/supervisor for every tenant (including admins). The role
+   * ceiling is the actual escalation control and closes the finding's core.
    */
   async resolveProfile(
     tenantId: string,
@@ -90,12 +95,10 @@ export class AgentProfileService {
     const basePersona =
       PERSONAS[personaId] ?? PERSONAS[config.baseProfileId] ?? OPERATOR_PERSONA;
 
-    // AISAFETY-MEDIUM-013: authorize the persona tier. The tier is derived from
-    // the RESOLVED persona (not the raw request string), so the fallback path
-    // is authorized too. Two independent gates, both must pass (fail-closed):
-    //   1. tenant allowlist — config.applicableRoles enables this tier
-    //   2. user ceiling     — the caller's highest role permits this tier
-    this.assertPersonaPermitted(basePersona, config.applicableRoles, userRoles);
+    // AISAFETY-MEDIUM-013: authorize the persona tier against the caller's role
+    // ceiling. Tier is derived from the RESOLVED persona (not the raw request
+    // string), so the fallback path is authorized too. Fail-closed.
+    this.assertPersonaPermitted(basePersona, userRoles);
 
     // Start with base tool names
     const toolNames = new Set(basePersona.defaultToolNames);
@@ -129,14 +132,17 @@ export class AgentProfileService {
       config.actuationPolicy,
     );
 
-    // FAZ0-BOOT-03: model resolution moved to config. Persona files carry the
-    // platform default tier; AI_CHAT_MODEL_OVERRIDE pins one model fleet-wide
-    // (ops escape hatch for model retirements without a redeploy). The
-    // per-tenant chatModel override (TenantAgentConfig) lands with BYOK Faz 1
-    // and will slot in between the two. Spread copy — PERSONAS entries are
-    // shared module singletons and must never be mutated per request.
+    // Model resolution precedence (highest wins):
+    //   1. AI_CHAT_MODEL_OVERRIDE — ops fleet-wide escape hatch for a model
+    //      retirement, applied without a redeploy or any tenant edit.
+    //   2. config.chatModel       — the tenant's own per-tenant override (set
+    //      via the BYOK settings CRUD; runs on the tenant's own key/bill).
+    //   3. basePersona.model      — the platform default for the persona tier.
+    // Spread copy below — PERSONAS entries are shared module singletons and must
+    // never be mutated per request.
     const model =
       this.configService.get<string>('AI_CHAT_MODEL_OVERRIDE') ??
+      (config.chatModel?.trim() || null) ??
       basePersona.model;
 
     return {
@@ -157,16 +163,19 @@ export class AgentProfileService {
 
   /**
    * The capability tier of a persona, derived from its id prefix
-   * ('supervisor-v1' → 'supervisor'). Unknown prefixes fall back to the lowest
-   * tier so a mis-named persona can never be treated as more privileged.
+   * ('supervisor-v1' → 'supervisor'). An UNKNOWN prefix maps to the HIGHEST tier
+   * (supervisor) so a mis-named / future persona is treated as maximally
+   * privileged and thus reachable only by the highest role — fail-safe, never
+   * silently broadly-accessible.
    */
   private personaTier(persona: AgentPersona): AgentRole {
     const prefix = persona.id.split('-')[0];
-    return prefix === 'manager' ||
+    return prefix === 'operator' ||
+      prefix === 'manager' ||
       prefix === 'expert' ||
       prefix === 'supervisor'
       ? prefix
-      : 'operator';
+      : 'supervisor';
   }
 
   /** The highest persona tier the caller's roles permit (fail-closed default: operator). */
@@ -182,23 +191,16 @@ export class AgentProfileService {
   }
 
   /**
-   * AISAFETY-MEDIUM-013: fail-closed persona authorization. Denies unless BOTH
-   * the tenant allowlist enables the tier AND the caller's role ceiling reaches
-   * it. Throws PersonaNotPermittedError otherwise.
+   * AISAFETY-MEDIUM-013: fail-closed persona authorization against the caller's
+   * role ceiling. A user cannot drive a persona above their role's tier. Throws
+   * PersonaNotPermittedError otherwise. (The per-tenant persona allowlist moves
+   * to Faz 7 RBAC — see resolveProfile.)
    */
   private assertPersonaPermitted(
     persona: AgentPersona,
-    applicableRoles: AgentRole[],
     userRoles: string[],
   ): void {
     const tier = this.personaTier(persona);
-
-    if (!applicableRoles.includes(tier)) {
-      this.logger.warn(
-        `Persona ${persona.id} (tier ${tier}) not in tenant applicableRoles [${applicableRoles.join(', ')}]`,
-      );
-      throw new PersonaNotPermittedError(persona.id);
-    }
 
     const ceiling = this.userTierCeiling(userRoles);
     if (TIER_RANK[tier] > TIER_RANK[ceiling]) {

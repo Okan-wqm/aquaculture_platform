@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -169,9 +170,11 @@ export class AgentConfigController {
 
   /**
    * Turn a submitted key value into the persisted value: empty → null (clear);
-   * non-empty → the key, but only after a live validation ping succeeds. A
-   * rejected key throws (400 via provider factory / UnauthorizedException) so
-   * the dead key is never written.
+   * non-empty → the key, but only after a live validation ping succeeds. Every
+   * rejection is a 400 (request-content invalidity) — NOT 401: the caller is a
+   * fully-authenticated TENANT_ADMIN, and SPA/mobile interceptors treat 401 as
+   * session-expiry and would log the admin out mid-form. The dead key is never
+   * written.
    */
   private async resolveKeyUpdate(
     provider: LlmProviderId,
@@ -183,8 +186,19 @@ export class AgentConfigController {
     }
     // Reject an echoed masked hint (contains the mask bullet) as a real key.
     if (trimmed.includes('•')) {
-      throw new UnauthorizedException(
+      throw new BadRequestException(
         'A masked key hint cannot be submitted as a key. Enter the full key or leave it unchanged.',
+      );
+    }
+
+    // The provider must be wired in this build. The DTO permits provider:'openai'
+    // but OpenAiProvider is Faz 1b — submitting an OpenAI key now is a clean 400
+    // (with the available providers), not a 500 from an unwired factory lookup.
+    if (!this.providerFactory.supports(provider)) {
+      throw new BadRequestException(
+        `The "${provider}" AI provider is not available yet. Available: ${this.providerFactory
+          .availableProviders()
+          .join(', ')}.`,
       );
     }
 
@@ -194,7 +208,7 @@ export class AgentConfigController {
       apiKey: trimmed,
     });
     if (!valid) {
-      throw new UnauthorizedException(
+      throw new BadRequestException(
         `The ${provider} API key was rejected by the provider. Check the key and try again.`,
       );
     }

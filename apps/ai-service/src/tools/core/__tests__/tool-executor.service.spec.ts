@@ -136,13 +136,18 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     expect(logToolExecution).toHaveBeenCalledTimes(1);
   });
 
-  it('returns an error for an unknown tool (no audit, nothing ran)', async () => {
+  it('returns an error for an unknown tool and audits the attempt (LLM tool-name probing leaves a trail)', async () => {
     registry.getTool.mockReturnValue(undefined);
 
     const result = await service.executeTool('nope', {}, ctx('allowed'));
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/unknown tool/i);
-    expect(logToolExecution).not.toHaveBeenCalled();
+    expect(logToolExecution).toHaveBeenCalledWith(
+      'nope',
+      expect.any(Object),
+      expect.objectContaining({ success: false }),
+      expect.objectContaining({ tenantId: 't1' }),
+    );
   });
 });

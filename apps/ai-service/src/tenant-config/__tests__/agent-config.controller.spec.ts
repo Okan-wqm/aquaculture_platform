@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { AgentConfigController } from '../agent-config.controller';
 
 /**
@@ -15,6 +15,7 @@ describe('AgentConfigController (BYOK settings)', () => {
   const validateCredential = jest.fn();
   const providerFactory = {
     get: jest.fn().mockReturnValue({ validateCredential }),
+    supports: jest.fn().mockReturnValue(true),
     availableProviders: jest.fn().mockReturnValue(['anthropic']),
   };
 
@@ -65,11 +66,11 @@ describe('AgentConfigController (BYOK settings)', () => {
     );
   });
 
-  it('PUT rejects an invalid key and does NOT persist it', async () => {
+  it('PUT rejects an invalid key with 400 (not 401) and does NOT persist it', async () => {
     validateCredential.mockResolvedValue(false);
     await expect(
       controller.updateSettings(req('t1'), { anthropicApiKey: 'sk-bad' } as never),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(agentConfig.upsertConfig).not.toHaveBeenCalled();
   });
 
@@ -82,11 +83,23 @@ describe('AgentConfigController (BYOK settings)', () => {
     );
   });
 
-  it('PUT rejects an echoed masked hint being submitted as a key', async () => {
+  it('PUT rejects an echoed masked hint being submitted as a key (400)', async () => {
     await expect(
       controller.updateSettings(req('t1'), { anthropicApiKey: '••••1234' } as never),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(validateCredential).not.toHaveBeenCalled();
+  });
+
+  it('PUT rejects a key for an unwired provider with 400 (not 500)', async () => {
+    providerFactory.supports = jest.fn().mockReturnValue(false);
+    providerFactory.availableProviders = jest.fn().mockReturnValue(['anthropic']);
+    await expect(
+      controller.updateSettings(
+        req('t1'),
+        { provider: 'openai', openaiApiKey: 'sk-openai' } as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(agentConfig.upsertConfig).not.toHaveBeenCalled();
   });
 
   it('requires a tenant context (no tenant → Unauthorized)', async () => {

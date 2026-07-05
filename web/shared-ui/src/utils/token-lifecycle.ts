@@ -108,13 +108,14 @@ export function decodeResourcePermissions(token: string): string[] {
 
     const payload = parts[1];
     const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const parsed = JSON.parse(atob(padded));
+    const parsed = JSON.parse(atob(padded)) as { resourcePermissions?: unknown };
 
     if (
       Array.isArray(parsed.resourcePermissions) &&
-      parsed.resourcePermissions.every((p: unknown) => typeof p === 'string')
+      parsed.resourcePermissions.every((p): p is string => typeof p === 'string')
     ) {
-      return parsed.resourcePermissions as string[];
+      // The type predicate narrows the array to string[] here, so no cast.
+      return parsed.resourcePermissions;
     }
     return [];
   } catch {

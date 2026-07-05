@@ -26,9 +26,10 @@ export function decodeResourcePermissions(token: string | null | undefined): str
 
     if (
       Array.isArray(parsed.resourcePermissions) &&
-      parsed.resourcePermissions.every((p) => typeof p === 'string')
+      parsed.resourcePermissions.every((p): p is string => typeof p === 'string')
     ) {
-      return parsed.resourcePermissions as string[];
+      // The type predicate narrows the array to string[] here, so no cast.
+      return parsed.resourcePermissions;
     }
     return [];
   } catch {

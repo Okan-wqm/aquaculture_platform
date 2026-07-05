@@ -3,7 +3,12 @@ import { AgentPersona } from '../agent-profile.service';
 export const OPERATOR_PERSONA: AgentPersona = {
   id: 'operator-v1',
   name: 'Operator',
-  model: 'claude-haiku-4-5-20250515',
+  // FAZ0-BOOT-03: 'claude-haiku-4-5-20250515' was a nonexistent dated ID —
+  // every chat request 404'd at the Anthropic API. Aliases track the served
+  // model and survive snapshot retirements. Tier intent: operator = fast/cheap
+  // triage. Env override: AI_CHAT_MODEL_OVERRIDE (AgentProfileService);
+  // per-tenant chatModel override lands with BYOK (Faz 1).
+  model: 'claude-haiku-4-5',
   systemPrompt: `You are an aquaculture operations assistant. You help fish farm operators with:
 - Checking water quality parameters (pH, ammonia, CO2, H2S)
 - Reading sensor values and understanding their meaning

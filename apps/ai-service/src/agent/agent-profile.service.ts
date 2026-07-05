@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { OPERATOR_PERSONA } from './personas/operator';
@@ -37,6 +38,7 @@ export class AgentProfileService {
   constructor(
     private readonly agentConfig: AgentConfigService,
     private readonly toolRegistry: ToolRegistryService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -83,8 +85,18 @@ export class AgentProfileService {
       config.actuationPolicy,
     );
 
+    // FAZ0-BOOT-03: model resolution moved to config. Persona files carry the
+    // platform default tier; AI_CHAT_MODEL_OVERRIDE pins one model fleet-wide
+    // (ops escape hatch for model retirements without a redeploy). The
+    // per-tenant chatModel override (TenantAgentConfig) lands with BYOK Faz 1
+    // and will slot in between the two. Spread copy — PERSONAS entries are
+    // shared module singletons and must never be mutated per request.
+    const model =
+      this.configService.get<string>('AI_CHAT_MODEL_OVERRIDE') ??
+      basePersona.model;
+
     return {
-      persona: basePersona,
+      persona: { ...basePersona, model },
       effectiveToolNames,
       effectiveSystemPrompt: systemPrompt,
       actuationPolicy,

@@ -72,5 +72,12 @@ export interface ITool<TInput = unknown, TOutput = unknown> {
   execute(input: TInput, ctx: ToolExecutionContext): Promise<ToolResult<TOutput>>;
 }
 
-/** Token for NestJS multi-provider injection */
-export const TOOL_PROVIDERS = Symbol('TOOL_PROVIDERS');
+// WHY no TOOL_PROVIDERS token here anymore (FAZ0-BOOT-01): the previous
+// `Symbol('TOOL_PROVIDERS')` design assumed Angular-style `multi: true`
+// providers, which NestJS does not have — every module-level
+// `{ provide: TOOL_PROVIDERS, useExisting: X }` silently LOST to the
+// registry module's own `useValue: []`, so the registry always booted with
+// ZERO tools. Discovery is now automatic: any @Injectable() provider
+// decorated with @Tool() is found via DiscoveryService at startup
+// (see ToolRegistryService). Registering a new tool = declare the class as
+// a provider in any module + decorate it. Nothing else.

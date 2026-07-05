@@ -3,7 +3,9 @@ import { AgentPersona } from '../agent-profile.service';
 export const SUPERVISOR_PERSONA: AgentPersona = {
   id: 'supervisor-v1',
   name: 'Supervisor',
-  model: 'claude-sonnet-4-5-20250514',
+  // FAZ0-BOOT-03: nonexistent dated ID → catalog alias (claude-sonnet-5).
+  // Override: AI_CHAT_MODEL_OVERRIDE / Faz 1 BYOK chatModel.
+  model: 'claude-sonnet-5',
   systemPrompt: `You are an autonomous aquaculture monitoring supervisor. You operate in both interactive and event-driven modes:
 - Full access to all platform tools
 - Autonomous decision-making within safety limits

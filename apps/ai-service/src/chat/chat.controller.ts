@@ -11,7 +11,11 @@ import {
 } from '@nestjs/common';
 import { IsString, IsOptional, IsNotEmpty, MaxLength, Matches } from 'class-validator';
 import { Request, Response } from 'express';
-import { AgentRunnerService, ChatRequest } from '../agent/agent-runner.service';
+import {
+  AgentRunnerService,
+  AiKeyMissingError,
+  ChatRequest,
+} from '../agent/agent-runner.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 interface TenantRequest extends Request {
@@ -145,19 +149,44 @@ export class ChatController {
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       res.end();
     } catch (error) {
-      this.logger.error(
-        `Chat error: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      // FAZ1-BYOK: a missing/rejected tenant key is a configuration state, not
+      // a server fault — surface a distinct AI_KEY_MISSING code (not a 500) so
+      // the mobile/panel client can route the user to the AI settings page to
+      // enter a key instead of showing a generic error.
+      const isKeyMissing =
+        error instanceof AiKeyMissingError ||
+        (error as { code?: string })?.code === 'AI_KEY_MISSING';
+
+      if (isKeyMissing) {
+        this.logger.warn(`Chat blocked: tenant has no valid AI key (${tenantId})`);
+      } else {
+        this.logger.error(
+          `Chat error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
 
       // If headers already sent, send error as SSE event
       if (res.headersSent) {
         res.write(
           `data: ${JSON.stringify({
             type: 'error',
-            message: error instanceof Error ? error.message : 'Internal error',
+            code: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL',
+            message: isKeyMissing
+              ? 'No valid AI API key is configured. Ask a tenant admin to add one in AI settings.'
+              : error instanceof Error
+                ? error.message
+                : 'Internal error',
           })}\n\n`,
         );
         res.end();
+      } else if (isKeyMissing) {
+        throw new HttpException(
+          {
+            code: 'AI_KEY_MISSING',
+            message: 'No valid AI API key is configured for this tenant.',
+          },
+          HttpStatus.PRECONDITION_REQUIRED,
+        );
       } else {
         throw new HttpException(
           error instanceof Error ? error.message : 'Internal error',

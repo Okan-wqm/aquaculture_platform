@@ -40,6 +40,7 @@ import { SensorRegistrationWizard } from '../components/registration/SensorRegis
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
+import { useAuth } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
   VfdDevice,
@@ -438,6 +439,13 @@ const DevicesPage: React.FC = () => {
   const [edgePage, setEdgePage] = useState(1);
   const edgeLimit = 12;
 
+  // SENSOR-LOW-003: defense-in-depth front-end gate for privileged device
+  // actions. The backend @Roles remain the source of truth (SUPER_ADMIN ⊃
+  // TENANT_ADMIN ⊃ MODULE_MANAGER); this hides affordances a MODULE_USER
+  // cannot complete instead of dead-ending them in a 403.
+  const { hasAnyRole } = useAuth();
+  const canManageDevices = hasAnyRole(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
+
   // Fetch real sensors from API
   const { sensors, loading, error, refetch } = useSensorList();
 
@@ -669,6 +677,7 @@ const DevicesPage: React.FC = () => {
           </p>
         </div>
         <div className="relative">
+          {canManageDevices && (
           <button
             onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
             className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -676,6 +685,7 @@ const DevicesPage: React.FC = () => {
             <Plus className="w-4 h-4" />
             Yeni Cihaz Ekle
           </button>
+          )}
 
           {/* Device Type Selector Dropdown */}
           {showDeviceTypeSelector && (
@@ -882,8 +892,8 @@ const DevicesPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Bulk Firmware Update */}
-              {selectedDeviceIds.size > 0 && (
+              {/* Bulk Firmware Update (SENSOR-LOW-003: manage-gated) */}
+              {canManageDevices && selectedDeviceIds.size > 0 && (
                 <button
                   onClick={() => {
                     setBulkFirmwareVersion('');
@@ -956,6 +966,7 @@ const DevicesPage: React.FC = () => {
               <p className="text-sm mt-1 mb-4">
                 İlk Revolution Pi veya Industrial PC cihazınızı kaydedin
               </p>
+              {canManageDevices && (
               <button
                 onClick={() => handleAddDevice('edge')}
                 className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -963,6 +974,7 @@ const DevicesPage: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 İlk Edge Controller'ı Kaydet
               </button>
+              )}
             </div>
           )}
 
@@ -1168,6 +1180,7 @@ const DevicesPage: React.FC = () => {
               <Cpu className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Henüz cihaz kaydedilmemiş</p>
               <p className="text-sm mt-1 mb-4">Başlamak için yeni bir sensör veya VFD cihazı ekleyin</p>
+              {canManageDevices && (
               <button
                 onClick={() => setShowDeviceTypeSelector(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -1175,6 +1188,7 @@ const DevicesPage: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 İlk Cihazı Ekle
               </button>
+              )}
             </div>
           )}
 
@@ -1299,7 +1313,7 @@ const DevicesPage: React.FC = () => {
               <p className="text-lg font-medium">
                 {hasVfdFilters ? 'Sonuç bulunamadı' : 'Henüz VFD cihazı kaydedilmemiş'}
               </p>
-              {!hasVfdFilters && (
+              {!hasVfdFilters && canManageDevices && (
                 <button
                   onClick={() => handleAddDevice('vfd')}
                   className="mt-4 flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"

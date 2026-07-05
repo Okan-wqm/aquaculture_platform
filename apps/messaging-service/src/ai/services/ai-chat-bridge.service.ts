@@ -31,6 +31,7 @@ import {
 import { InstructionHierarchyService } from '../safety/instruction-hierarchy.service';
 import { ToolSchemaValidatorService } from '../safety/tool-schema-validator.service';
 import { AiPersonasRegistryService } from './ai-personas-registry.service';
+import { AiEgressGateService } from './ai-egress-gate.service';
 
 /** Virtual AI user UUID -- consistent across all tenants. */
 const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -95,6 +96,7 @@ export class AiChatBridgeService {
     private readonly toolSchemaValidator: ToolSchemaValidatorService,
     private readonly personasRegistry: AiPersonasRegistryService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly egressGate: AiEgressGateService,
   ) {}
 
   /**
@@ -120,6 +122,26 @@ export class AiChatBridgeService {
     });
 
     if (!channel || channel.type !== ChannelType.AI) {
+      return;
+    }
+
+    // MSG-HIGH-061: route the chat egress through the fail-closed egress gate
+    // SSoT (the same boundary sentiment/embedding use, with the pre-declared
+    // 'ai-chat' purpose). This enforces BOTH the tenant AI master switch AND
+    // per-user consent — canAnalyzeMessage = isTenantAiEnabled AND
+    // hasUserConsented — and treats a consent-resolution error as denial. The
+    // gate lives here, at the single AI-chat egress point, so no caller (the
+    // handler forwards unconditionally) can bypass it. A tenant that disables
+    // AI now stops chat too; previously the chat path ignored the switch.
+    const egressAllowed = await this.egressGate.isAllowed(
+      tenantId,
+      senderId,
+      'ai-chat',
+    );
+    if (!egressAllowed) {
+      this.logger.debug(
+        `AI chat egress denied for channel ${channelId} (tenant AI disabled or user consent absent) — not forwarding`,
+      );
       return;
     }
 

@@ -7,6 +7,7 @@ import {
   OutputPiiScannerService,
 } from '@aquaculture/backend-common/ai-safety';
 import { AiChatBridgeService } from '../ai-chat-bridge.service';
+import { AiEgressGateService } from '../ai-egress-gate.service';
 import { AiPersonasRegistryService } from '../ai-personas-registry.service';
 import { InstructionHierarchyService } from '../../safety/instruction-hierarchy.service';
 import { ToolSchemaValidatorService } from '../../safety/tool-schema-validator.service';
@@ -47,6 +48,7 @@ describe('AiChatBridgeService', () => {
   // a safe default that keeps the happy path flowing through to NATS + persist.
   let inputFilter: { scanInput: jest.Mock };
   let outputPiiScanner: { redact: jest.Mock };
+  let egressGate: { isAllowed: jest.Mock };
   let instructionHierarchy: { buildHardenedSystemPrompt: jest.Mock };
   let toolSchemaValidator: Record<string, jest.Mock>;
   let personasRegistry: { getPersonaSystemPrompt: jest.Mock };
@@ -83,6 +85,11 @@ describe('AiChatBridgeService', () => {
         scanResult: { hasPii: false, detections: [], countByType: {} },
       })),
     };
+    // Default: egress gate allows (tenant AI on + user consented). Denial-path
+    // tests override this to false.
+    egressGate = {
+      isAllowed: jest.fn().mockResolvedValue(true),
+    };
     instructionHierarchy = {
       buildHardenedSystemPrompt: jest.fn().mockReturnValue('hardened-prompt'),
     };
@@ -113,6 +120,7 @@ describe('AiChatBridgeService', () => {
         { provide: ToolSchemaValidatorService, useValue: toolSchemaValidator },
         { provide: AiPersonasRegistryService, useValue: personasRegistry },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: AiEgressGateService, useValue: egressGate },
       ],
     }).compile();
 
@@ -145,6 +153,37 @@ describe('AiChatBridgeService', () => {
         content: 'What is water quality?',
       }),
     );
+  });
+
+  // -----------------------------------------------------------------------
+  // MSG-HIGH-061: egress gate blocks chat when the tenant disabled AI or the
+  // user has not consented — no forward to ai-service, no data leaves messaging.
+  // -----------------------------------------------------------------------
+  it('does NOT forward to ai-service when the egress gate denies (tenant AI off / no consent)', async () => {
+    const aiChannel = createMockChannel({ id: aiChannelId, type: ChannelType.AI });
+    channelRepo.findOne.mockResolvedValue(aiChannel);
+    egressGate.isAllowed.mockResolvedValue(false);
+
+    await service.handleAiChannelMessage(
+      tenantId, aiChannelId, messageId, 'What is water quality?', senderId,
+    );
+
+    expect(egressGate.isAllowed).toHaveBeenCalledWith(tenantId, senderId, 'ai-chat');
+    expect(natsClient.send).not.toHaveBeenCalled();
+    // Nothing leaves messaging: no input scan, no context fetch, no persistence.
+    expect(inputFilter.scanInput).not.toHaveBeenCalled();
+  });
+
+  it('consults the egress gate BEFORE scanning input or forwarding (gate is the first egress step)', async () => {
+    const aiChannel = createMockChannel({ id: aiChannelId, type: ChannelType.AI });
+    channelRepo.findOne.mockResolvedValue(aiChannel);
+    natsClient.send.mockReturnValue(of({ content: 'ok', metadata: null }));
+
+    await service.handleAiChannelMessage(
+      tenantId, aiChannelId, messageId, 'hi', senderId,
+    );
+
+    expect(egressGate.isAllowed).toHaveBeenCalledWith(tenantId, senderId, 'ai-chat');
   });
 
   // -----------------------------------------------------------------------

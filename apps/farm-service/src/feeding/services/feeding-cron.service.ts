@@ -123,10 +123,10 @@ export class FeedingCronService {
    */
   private async tryAcquireAdvisoryLock(jobName: string): Promise<boolean> {
     const lockKey = this.getAdvisoryLockKey(jobName);
-    const result = await this.dataSource.query(
-      `SELECT pg_try_advisory_lock($1, $2) as acquired`,
-      [ADVISORY_LOCK_NAMESPACE, lockKey],
-    );
+    const result = await this.dataSource.query(`SELECT pg_try_advisory_lock($1, $2) as acquired`, [
+      ADVISORY_LOCK_NAMESPACE,
+      lockKey,
+    ]);
     return result[0]?.acquired === true;
   }
 
@@ -135,10 +135,10 @@ export class FeedingCronService {
    */
   private async releaseAdvisoryLock(jobName: string): Promise<void> {
     const lockKey = this.getAdvisoryLockKey(jobName);
-    await this.dataSource.query(
-      `SELECT pg_advisory_unlock($1, $2)`,
-      [ADVISORY_LOCK_NAMESPACE, lockKey],
-    );
+    await this.dataSource.query(`SELECT pg_advisory_unlock($1, $2)`, [
+      ADVISORY_LOCK_NAMESPACE,
+      lockKey,
+    ]);
   }
 
   // ==========================================================================
@@ -176,7 +176,7 @@ export class FeedingCronService {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // ==========================================================================
@@ -202,16 +202,13 @@ export class FeedingCronService {
 
   private logJobEnd(context: JobContext, metrics: Partial<CronJobMetrics>): void {
     const duration = Date.now() - context.startTime;
-    this.logger.log(
-      `Job ${context.jobName} completed in ${duration}ms`,
-      {
-        jobId: context.jobId,
-        jobName: context.jobName,
-        tenantId: context.tenantId,
-        duration,
-        ...metrics,
-      },
-    );
+    this.logger.log(`Job ${context.jobName} completed in ${duration}ms`, {
+      jobId: context.jobId,
+      jobName: context.jobName,
+      tenantId: context.tenantId,
+      duration,
+      ...metrics,
+    });
   }
 
   private logJobError(context: JobContext, message: string, error: Error): void {
@@ -322,10 +319,9 @@ export class FeedingCronService {
         return;
       }
 
-      this.logger.log(
-        `Discovered ${tenantSchemas.length} tenant schemas`,
-        { jobId: context.jobId },
-      );
+      this.logger.log(`Discovered ${tenantSchemas.length} tenant schemas`, {
+        jobId: context.jobId,
+      });
 
       // Process each tenant schema using withTenantContext() for proper
       // AsyncLocalStorage isolation. Raw queryRunner + SET search_path is
@@ -345,17 +341,21 @@ export class FeedingCronService {
 
             let offset = 0;
             let hasMore = true;
-            programsByTenant = new Map<string, Array<{ id: string; code: string; tenantId: string }>>();
+            programsByTenant = new Map<
+              string,
+              Array<{ id: string; code: string; tenantId: string }>
+            >();
 
             while (hasMore) {
-              const batch: Array<{ id: string; code: string; tenantId: string }> = await discoveryRunner.query(
-                `SELECT id, code, "tenantId"
+              const batch: Array<{ id: string; code: string; tenantId: string }> =
+                await discoveryRunner.query(
+                  `SELECT id, code, "tenantId"
                  FROM feeding_programs
                  WHERE status = $1
                  ORDER BY "tenantId" ASC, id ASC
                  OFFSET $2 LIMIT $3`,
-                [FeedingProgramStatus.ACTIVE, offset, BATCH_SIZE],
-              );
+                  [FeedingProgramStatus.ACTIVE, offset, BATCH_SIZE],
+                );
 
               if (batch.length === 0) {
                 hasMore = false;
@@ -409,11 +409,8 @@ export class FeedingCronService {
               for (const program of programs) {
                 try {
                   const planResult = await this.withRetry(
-                    () => this.executionService.generateDailyPlan(
-                      program.id,
-                      today,
-                      program.tenantId,
-                    ),
+                    () =>
+                      this.executionService.generateDailyPlan(program.id, today, program.tenantId),
                     tenantContext,
                     `generateDailyPlan-${program.code}`,
                   );
@@ -421,9 +418,7 @@ export class FeedingCronService {
                   result.generated += planResult.executionsCreated;
 
                   if (planResult.errors.length > 0) {
-                    result.errors.push(
-                      ...planResult.errors.map(e => `${program.code}: ${e}`),
-                    );
+                    result.errors.push(...planResult.errors.map((e) => `${program.code}: ${e}`));
                     this.logger.warn(
                       `Program ${program.code} had ${planResult.errors.length} errors`,
                       {
@@ -439,16 +434,12 @@ export class FeedingCronService {
                   const errorMsg = `Program ${program.code}: ${err.message}`;
                   result.errors.push(errorMsg);
 
-                  this.logger.error(
-                    `Failed to process program ${program.code}`,
-                    err.stack,
-                    {
-                      jobId: context.jobId,
-                      tenantId,
-                      programCode: program.code,
-                      errorMessage: err.message,
-                    },
-                  );
+                  this.logger.error(`Failed to process program ${program.code}`, err.stack, {
+                    jobId: context.jobId,
+                    tenantId,
+                    programCode: program.code,
+                    errorMessage: err.message,
+                  });
                 }
               }
             });
@@ -491,7 +482,6 @@ export class FeedingCronService {
 
       // Emit metrics for monitoring/alerting
       this.emitJobMetrics(metrics);
-
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logJobError(context, 'Daily plan generation failed', err);
@@ -500,6 +490,81 @@ export class FeedingCronService {
       metrics.endTime = new Date();
       metrics.duration = Date.now() - context.startTime;
       this.emitJobMetrics(metrics);
+    } finally {
+      await this.releaseAdvisoryLock(context.jobName);
+    }
+  }
+
+  // ==========================================================================
+  // DAILY GROWTH ROLL-UP (05:00 - before the 06:00 daily plan)
+  // ==========================================================================
+
+  /**
+   * Roll up DAILY-mode pending feeding growth once per day, at 05:00 — before
+   * generateDailyPlans (06:00) so that day's plans read the rolled-up weight.
+   * PER_FEEDING programs already applied their growth inline (growthAppliedAt
+   * stamped), so only DAILY executions are pending. applyPendingDailyGrowth is
+   * idempotent, so a retry or an extra run never double-applies growth.
+   */
+  @Cron('0 5 * * *', {
+    name: 'apply-daily-growth-rollup',
+    timeZone: 'Europe/Istanbul',
+  })
+  async applyDailyGrowthRollup(): Promise<void> {
+    const context = this.createJobContext('apply-daily-growth-rollup');
+    this.logJobStart(context, 'Starting daily feeding-growth roll-up...');
+
+    const lockAcquired = await this.tryAcquireAdvisoryLock(context.jobName);
+    if (!lockAcquired) {
+      this.logger.log('Another instance is running this job, skipping', { jobId: context.jobId });
+      return;
+    }
+
+    try {
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
+      let tanksUpdated = 0;
+      let executionsRolledUp = 0;
+
+      for (const schema of tenantSchemas) {
+        // Discover the tenantIds in this schema that have pending (pending) growth.
+        const discoveryRunner = this.dataSource.createQueryRunner();
+        await discoveryRunner.connect();
+        let tenantIds: string[] = [];
+        try {
+          await discoveryRunner.query(`SET search_path TO "${schema}", farm, public`);
+          const rows: Array<{ tenantId: string }> = await discoveryRunner.query(
+            `SELECT DISTINCT "tenantId" FROM "daily_feeding_executions"
+              WHERE "status" = $1 AND "growthAppliedAt" IS NULL`,
+            [ExecutionStatus.COMPLETED],
+          );
+          tenantIds = rows.map((r) => r.tenantId).filter(Boolean);
+        } finally {
+          await discoveryRunner.query('RESET search_path').catch(() => {});
+          await discoveryRunner.release();
+        }
+
+        for (const tenantId of tenantIds) {
+          try {
+            const result = await this.executionService.applyPendingDailyGrowth(tenantId);
+            tanksUpdated += result.tanksUpdated;
+            executionsRolledUp += result.executionsRolledUp;
+          } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(
+              `Daily growth roll-up failed for tenant ${tenantId}: ${err.message}`,
+              {
+                jobId: context.jobId,
+                tenantId,
+              },
+            );
+          }
+        }
+      }
+
+      this.logger.log(
+        `Daily growth roll-up complete: ${tanksUpdated} tank(s), ${executionsRolledUp} execution(s)`,
+        { jobId: context.jobId },
+      );
     } finally {
       await this.releaseAdvisoryLock(context.jobName);
     }
@@ -622,8 +687,10 @@ export class FeedingCronService {
             continue;
           }
 
-          const schemaWarningCount = Array.from(warningsByTenant.values())
-            .reduce((sum, arr) => sum + arr.length, 0);
+          const schemaWarningCount = Array.from(warningsByTenant.values()).reduce(
+            (sum, arr) => sum + arr.length,
+            0,
+          );
           totalWarnings += schemaWarningCount;
           tenantsWithWarnings += warningsByTenant.size;
 
@@ -638,7 +705,7 @@ export class FeedingCronService {
               tenantId,
               jobId: context.jobId,
               date: today,
-              warnings: executions.map(e => ({
+              warnings: executions.map((e) => ({
                 executionId: e.id,
                 equipmentCode: e.equipmentCode,
                 equipmentName: e.equipmentName,
@@ -665,7 +732,6 @@ export class FeedingCronService {
         tenantsProcessed: tenantsWithWarnings,
         totalRecords: totalWarnings,
       });
-
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logJobError(context, 'Feed transition check failed', err);
@@ -721,10 +787,9 @@ export class FeedingCronService {
         return;
       }
 
-      this.logger.log(
-        `Found ${tenantsWithOldData.length} tenants with old execution records`,
-        { jobId: context.jobId },
-      );
+      this.logger.log(`Found ${tenantsWithOldData.length} tenants with old execution records`, {
+        jobId: context.jobId,
+      });
 
       let totalDeleted = 0;
       const deletedByTenant: Record<string, number> = {};
@@ -761,17 +826,21 @@ export class FeedingCronService {
                      AND status = ANY($3)
                      LIMIT $4
                    )`,
-                  [tenantId, oneYearAgo, [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED], CLEANUP_BATCH_SIZE],
+                  [
+                    tenantId,
+                    oneYearAgo,
+                    [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED],
+                    CLEANUP_BATCH_SIZE,
+                  ],
                 );
 
-                deleted = result?.rowCount ?? (Array.isArray(result) ? 0 : result?.affected ?? 0);
+                deleted = result?.rowCount ?? (Array.isArray(result) ? 0 : (result?.affected ?? 0));
                 tenantDeleted += deleted;
                 iterations++;
 
                 if (deleted === CLEANUP_BATCH_SIZE) {
                   await this.sleep(100);
                 }
-
               } while (deleted === CLEANUP_BATCH_SIZE && iterations < maxIterations);
             } finally {
               await queryRunner.release();
@@ -780,20 +849,19 @@ export class FeedingCronService {
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
           // withTenantContext throws on invalid UUID — skip this tenant
-          this.logger.warn(
-            `Skipping cleanup for tenantId ${tenantId}: ${err.message}`,
-            { jobId: context.jobId },
-          );
+          this.logger.warn(`Skipping cleanup for tenantId ${tenantId}: ${err.message}`, {
+            jobId: context.jobId,
+          });
           continue;
         }
 
         if (tenantDeleted > 0) {
           deletedByTenant[tenantId] = tenantDeleted;
           totalDeleted += tenantDeleted;
-          this.logger.debug(
-            `Tenant ${tenantId}: deleted ${tenantDeleted} records`,
-            { jobId: context.jobId, tenantId },
-          );
+          this.logger.debug(`Tenant ${tenantId}: deleted ${tenantDeleted} records`, {
+            jobId: context.jobId,
+            tenantId,
+          });
         }
 
         if (iterations >= maxIterations) {
@@ -817,7 +885,6 @@ export class FeedingCronService {
         cutoffDate: oneYearAgo,
         tenantsProcessed: tenantsWithOldData.length,
       });
-
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logJobError(context, 'Cleanup failed', err);
@@ -901,11 +968,8 @@ export class FeedingCronService {
         for (const program of programs) {
           try {
             const result = await this.withRetry(
-              () => this.executionService.generateDailyPlan(
-                program.id,
-                targetDate,
-                program.tenantId,
-              ),
+              () =>
+                this.executionService.generateDailyPlan(program.id, targetDate, program.tenantId),
               context,
               `manualGenerate-${program.code}`,
             );
@@ -914,15 +978,14 @@ export class FeedingCronService {
             errors += result.errors.length;
 
             if (result.errors.length > 0) {
-              errorDetails.push(...result.errors.map(e => `${program.code}: ${e}`));
+              errorDetails.push(...result.errors.map((e) => `${program.code}: ${e}`));
             }
           } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));
-            this.logger.error(
-              `Failed to generate for program ${program.id}`,
-              err.stack,
-              { jobId: context.jobId, programId: program.id },
-            );
+            this.logger.error(`Failed to generate for program ${program.id}`, err.stack, {
+              jobId: context.jobId,
+              programId: program.id,
+            });
             errors++;
             errorDetails.push(`${program.code}: ${err.message}`);
           }

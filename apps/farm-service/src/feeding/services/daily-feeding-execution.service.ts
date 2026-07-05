@@ -32,7 +32,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager, In } from 'typeorm';
+import { Repository, DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { NatsEventBus } from '@platform/event-bus';
 import { FeedInventoryLowEvent, createBaseEvent } from '@platform/event-contracts';
@@ -47,7 +47,12 @@ import {
   ExecutionResult,
   TransitionWarning,
 } from '../entities/daily-feeding-execution.entity';
-import { FeedingProgram, FCRSource, FeedAssignment } from '../entities/feeding-program.entity';
+import {
+  FeedingProgram,
+  FCRSource,
+  FeedAssignment,
+  GrowthApplicationMode,
+} from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
@@ -55,7 +60,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
 import { GrowthStageProtocol, TemperatureRange } from '../../feed/entities/feeding-protocol.entity';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { getTenantSchemaName, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
@@ -628,6 +633,14 @@ export class DailyFeedingExecutionService {
         fcr = Math.max(MIN_FCR, Math.min(MAX_FCR, fcr));
       }
 
+      // Growth application mode (per-program). PER_FEEDING rolls the weight up now;
+      // DAILY records the feed but holds back the roll-up to applyPendingDailyGrowth,
+      // so every plan in the day sees the same morning weight.
+      const growthMode =
+        execution.feedingProgram?.settings?.growthApplicationMode ??
+        GrowthApplicationMode.PER_FEEDING;
+      const applyGrowthNow = growthMode === GrowthApplicationMode.PER_FEEDING;
+
       // 3. Buyume hesapla with sanity checks
       const growthKg = this.calculateGrowthFromFeeding(actualKg, fcr);
 
@@ -664,13 +677,19 @@ export class DailyFeedingExecutionService {
 
       // 5. Execution'i guncelle (entity metodunu kullan)
       execution.recordActualFeeding(actualKg, fcr, userId, notes);
+      if (applyGrowthNow) {
+        // PER_FEEDING: growth is rolled into the tank/batch below, now — stamp the
+        // idempotency key so the daily roll-up never re-applies it.
+        execution.growthAppliedAt = new Date();
+      }
 
-      // 6. Yem gecisi kontrolu
+      // 6. Yem gecisi kontrolu — PER_FEEDING only; DAILY re-evaluates transitions
+      // when the roll-up applies the aggregate growth.
       let feedTransitioned = false;
       let newFeedId: string | undefined;
       let newFeedCode: string | undefined;
 
-      if (execution.feedingProgram) {
+      if (applyGrowthNow && execution.feedingProgram) {
         const transitionResult = await this.checkAndExecuteTransitionWithManager(
           queryRunner.manager,
           execution,
@@ -688,14 +707,18 @@ export class DailyFeedingExecutionService {
       // 7. Kaydet execution within transaction
       await queryRunner.manager.save(execution);
 
-      // 8. Tank ve Batch'i guncelle within same transaction
-      await this.updateTankBiomassWithManager(
-        queryRunner.manager,
-        execution.equipmentId,
-        newBiomassKg,
-        newAvgWeightG,
-        tenantId,
-      );
+      // 8. Tank ve Batch'i guncelle within same transaction — PER_FEEDING only.
+      // DAILY holds back this to applyPendingDailyGrowth, which rolls the whole day's
+      // feed into a single weight update (growthAppliedAt stays null until then).
+      if (applyGrowthNow) {
+        await this.updateTankBiomassWithManager(
+          queryRunner.manager,
+          execution.equipmentId,
+          newBiomassKg,
+          newAvgWeightG,
+          tenantId,
+        );
+      }
 
       // 9a. Storage-ledger deduction (StorageInventory + Feed.quantity
       // roll-up + StockMovement audit row), INSIDE this tx, fail-closed.
@@ -862,6 +885,79 @@ export class DailyFeedingExecutionService {
       fcr = 1.0;
     }
     return actualKg / fcr;
+  }
+
+  /**
+   * DAILY-mode roll-up: apply the day's pending FCR growth to each tank ONCE.
+   *
+   * PER_FEEDING executions stamp `growthAppliedAt` inline, so the only rows this
+   * finds are DAILY executions whose weight update was pending. For each tank it
+   * sums the pending growth (fed / clamped-FCR) and applies a single weight
+   * update to the still-morning biomass, then stamps every processed execution so
+   * the growth is never applied twice. Idempotent — safe to run repeatedly.
+   */
+  async applyPendingDailyGrowth(
+    tenantId: string,
+  ): Promise<{ tanksUpdated: number; executionsRolledUp: number }> {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const pending = await manager.find(DailyFeedingExecution, {
+        where: { status: ExecutionStatus.COMPLETED, growthAppliedAt: IsNull() },
+      });
+      if (pending.length === 0) {
+        return { tanksUpdated: 0, executionsRolledUp: 0 };
+      }
+
+      // Sum each tank's pending growth; carry every id so it can be stamped.
+      const byTank = new Map<string, { growthKg: number; ids: string[] }>();
+      for (const exec of pending) {
+        const entry = byTank.get(exec.equipmentId) ?? { growthKg: 0, ids: [] };
+        const actualKg = exec.actualFeedKg;
+        if (actualKg && actualKg > 0) {
+          const fcr = Math.max(0.5, Math.min(5.0, exec.calculations.expectedFCR));
+          entry.growthKg += this.calculateGrowthFromFeeding(actualKg, fcr);
+        }
+        entry.ids.push(exec.id);
+        byTank.set(exec.equipmentId, entry);
+      }
+
+      const now = new Date();
+      let tanksUpdated = 0;
+      for (const [equipmentId, { growthKg }] of byTank) {
+        if (growthKg <= 0) {
+          continue;
+        }
+        // The tank biomass is still the morning value — DAILY held back every update.
+        const tankBatch = await manager.findOne(TankBatch, {
+          where: { tankId: equipmentId, tenantId },
+        });
+        if (!tankBatch) {
+          continue;
+        }
+        const fishCount = tankBatch.currentQuantity ?? tankBatch.totalQuantity;
+        const currentBiomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
+        if (fishCount <= 0) {
+          continue;
+        }
+        const newBiomassKg = currentBiomassKg + growthKg;
+        const newAvgWeightG = (newBiomassKg / fishCount) * 1000;
+        await this.updateTankBiomassWithManager(
+          manager,
+          equipmentId,
+          newBiomassKg,
+          newAvgWeightG,
+          tenantId,
+        );
+        tanksUpdated += 1;
+      }
+
+      // Stamp EVERY processed execution — including zero-growth ones — so the daily
+      // scan does not keep re-reading them.
+      const allIds = Array.from(byTank.values()).flatMap((e) => e.ids);
+      await manager.update(DailyFeedingExecution, { id: In(allIds) }, { growthAppliedAt: now });
+
+      return { tanksUpdated, executionsRolledUp: allIds.length };
+    });
   }
 
   /**

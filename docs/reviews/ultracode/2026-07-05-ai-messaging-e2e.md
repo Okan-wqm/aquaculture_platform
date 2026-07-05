@@ -89,3 +89,10 @@ Adversarial self-review of the stacked PRs (#880-#883) surfaced defects in the f
 | ID | Sev | Finding | Fix |
 |---|---|---|---|
 | AISAFETY-HIGH-023 | HIGH | Persona-tier authorization used a FIXED platform-role ceiling (ROLE_TIER_CEILING) — not tenant-configurable. A tenant admin could not decide which role may drive which AI persona tier (e.g. grant a senior operator the expert assistant, or forbid the autonomous supervisor for everyone but themselves) | AgentProfileService migrated from the platform-role ceiling to the tenant-RBAC capability `ai_personas:<tier>`, resolved via the shared SSoT hasResourcePermission (admins bypass). resourcePermissions threaded ChatRequest → agent-runner → resolveProfile (now available at ai-service via SEC-HIGH-054). Removed the now-dead TIER_RANK / ROLE_TIER_CEILING / userTierCeiling. Seeded defaults grant operator to all, manager/expert to senior roles, supervisor to none (admin-only) — same effective floor as the old ceiling, now tenant-customizable. Persona spec rewritten for the capability model. |
+
+## Finding splits from AISAFETY-MEDIUM-013
+
+The original combined finding AISAFETY-MEDIUM-013 (persona authorization + actuation + audit + TenantScopedTool race) was split into focused findings for independent tracking:
+
+- **AISAFETY-MEDIUM-017** — AI tool actuation confirmation is a no-op and tool-execution audit is dead code (split from AISAFETY-MEDIUM-013). Fixed: fail-closed actuation gate (only `allowed` executes) + real AuditService.logToolExecution.
+- **AISAFETY-LOW-018** — `TenantScopedTool` stores the QueryRunner as singleton instance state (cross-request race). Fixed: AsyncLocalStorage-backed per-execution runner.

@@ -13,7 +13,7 @@ Updated 2026-07-02: the 2026-06-18 snapshot listed 13 active CRITICALs. The
 re-applied onto main's then-current 587-entry chain — see the registry's own
 `closing_commits` per finding for the merged fix evidence) resolved 11 of the
 13: `COMPLIANCE-CRITICAL-001`, `INFRA-CRITICAL-023/024/026/027/028/030/031/032`,
-`DEPLOY-CRITICAL-008`, `MT-CRITICAL-052`, `FARM-CRITICAL-060`. Only the two rows
+`DEPLOY-CRITICAL-008`, `MT-CRITICAL-052`, `FARM-CRITICAL-060`. Only the three rows
 below remain active; `INFRA-CRITICAL-029` itself stayed OPEN because its
 would-be closers (`INFRA-CRITICAL-031`/`032`) close it only via a
 sibling-trailer pattern the automated close ceremony does not certify — that is
@@ -32,6 +32,7 @@ Allowed truth buckets:
 | -------------------- | --------------- | ------------ | ------------ | ------------ |
 | `INFRA-CRITICAL-029` | OPEN            | 1.1          | data-expert  | real-open    |
 | `FARM-CRITICAL-061`  | OPEN            | 1.1          | farm-expert  | real-open    |
+| `AISAFETY-CRITICAL-003` | OPEN         | —            | ai-safety-auditor | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -46,9 +47,14 @@ Allowed truth buckets:
 
 ## Already-Fixed Evidence
 
-No active CRITICAL finding remains in `already-fixed-needs-close` after the
-2026-06-20 registry close follow-up. Reconciled items moved to
-`Resolved Evidence`.
+- `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
+  key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +
+  the `LlmProvider` abstraction + the settings CRUD) implements the fix; the
+  registry row stays OPEN only until the post-merge close ceremony records a
+  main-reachable closing commit (`close` refuses branch-local SHAs, PROC-HIGH-001).
+
+The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
+`already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.
 
 ## Implementation Evidence Pending Registry Close
 

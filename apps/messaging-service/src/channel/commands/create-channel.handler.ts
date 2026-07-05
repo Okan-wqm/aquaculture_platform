@@ -207,7 +207,7 @@ export class CreateChannelHandler
 
   /**
    * Create a GROUP or AI channel.
-   * For AI channels, persists aiPersona and aiServiceUrl from the input.
+   * For AI channels, persists aiPersona from the input.
    * @see ADR-012 Phase 4 AI Persona system
    */
   private async createGroupOrAiChannel(
@@ -237,7 +237,9 @@ export class CreateChannelHandler
         createdBy: creatorId,
         dmPairKey: null,
         aiPersona: input.type === ChannelType.AI ? (input.aiPersona ?? null) : null,
-        aiServiceUrl: input.type === ChannelType.AI ? (input.aiServiceUrl ?? null) : null,
+        // MSG-HIGH-060: aiServiceUrl removed — AI always routes through
+        // ai-service over NATS with the tenant's BYOK key (no member-specified
+        // endpoint, no exfiltration vector).
       });
       const savedChannel = await queryRunner.manager.save(Channel, channel);
 

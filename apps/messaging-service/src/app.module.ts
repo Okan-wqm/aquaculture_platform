@@ -109,6 +109,7 @@ import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/18
 import { AddMessagesEmbeddingColumn1800700000000 } from './migrations/1800700000000-AddMessagesEmbeddingColumn';
 import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000000-CreateMessageReceiptLedger';
 import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migrations/1801000000000-EnsureMessagingTenantErasureProofLedger';
+import { DropChannelAiServiceUrl1802000000000 } from './migrations/1802000000000-DropChannelAiServiceUrl';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -199,6 +200,7 @@ type QueryComplexityOperationContext = {
             AddMessagesEmbeddingColumn1800700000000,
             CreateMessageReceiptLedger1800800000000,
             EnsureMessagingTenantErasureProofLedger1801000000000,
+            DropChannelAiServiceUrl1802000000000,
           ],
         }),
     }),

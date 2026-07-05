@@ -94,10 +94,27 @@ export class Channel {
   @Column({ type: 'varchar', length: 50, nullable: true })
   aiPersona: string | null;
 
-  /** Custom MCP server URL override. Null = use default ai-service via NATS. */
-  @Field(() => String, { nullable: true })
-  @Column({ type: 'varchar', length: 512, nullable: true })
-  aiServiceUrl: string | null;
+  // MSG-HIGH-060: the per-channel `aiServiceUrl` override was removed. It let any
+  // channel member point the AI at an arbitrary public HTTPS endpoint they
+  // controlled; the bridge then POSTed tenantId + the last 50 messages there.
+  // SSRF validation only blocked private/internal targets — it did nothing
+  // against exfiltration to an attacker's public server. With BYOK (Faz 1) the
+  // tenant's AI always runs through ai-service over NATS with the tenant's own
+  // key, so a member-specified endpoint is both obsolete and a data-exfil vector.
+  //
+  // Expand-contract removal: the @Column (and its DB column, dropped in
+  // migration 1802000000000) and every write path are gone, but the GraphQL
+  // field is retained as a DEPRECATED, always-null field so existing clients
+  // (the mobile app still selects it until its codegen is regenerated) keep
+  // working — they now receive null instead of a stored endpoint. The field
+  // carries no data and no write path, so there is nothing to exfiltrate. The
+  // GraphQL field is dropped in a later change once no client selects it.
+  @Field(() => String, {
+    nullable: true,
+    deprecationReason:
+      'Removed for security (MSG-HIGH-060). Always null — AI routes through ai-service via the tenant BYOK key.',
+  })
+  readonly aiServiceUrl: string | null = null;
 
   /**
    * Active members of this channel.

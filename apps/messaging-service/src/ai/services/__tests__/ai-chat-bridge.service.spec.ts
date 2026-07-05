@@ -5,7 +5,6 @@ import { OutboxPublisher } from '@platform/outbox';
 import {
   InputFilterService,
   OutputPiiScannerService,
-  SsrfValidatorService,
 } from '@aquaculture/backend-common/ai-safety';
 import { AiChatBridgeService } from '../ai-chat-bridge.service';
 import { AiPersonasRegistryService } from '../ai-personas-registry.service';
@@ -48,7 +47,6 @@ describe('AiChatBridgeService', () => {
   // a safe default that keeps the happy path flowing through to NATS + persist.
   let inputFilter: { scanInput: jest.Mock };
   let outputPiiScanner: { redact: jest.Mock };
-  let ssrfValidator: { validateUrl: jest.Mock; getSafeFetchOptions: jest.Mock };
   let instructionHierarchy: { buildHardenedSystemPrompt: jest.Mock };
   let toolSchemaValidator: Record<string, jest.Mock>;
   let personasRegistry: { getPersonaSystemPrompt: jest.Mock };
@@ -85,10 +83,6 @@ describe('AiChatBridgeService', () => {
         scanResult: { hasPii: false, detections: [], countByType: {} },
       })),
     };
-    ssrfValidator = {
-      validateUrl: jest.fn().mockResolvedValue({ safe: true }),
-      getSafeFetchOptions: jest.fn().mockReturnValue({ redirect: 'error' }),
-    };
     instructionHierarchy = {
       buildHardenedSystemPrompt: jest.fn().mockReturnValue('hardened-prompt'),
     };
@@ -115,7 +109,6 @@ describe('AiChatBridgeService', () => {
         { provide: 'NATS_SERVICE', useValue: natsClient },
         { provide: InputFilterService, useValue: inputFilter },
         { provide: OutputPiiScannerService, useValue: outputPiiScanner },
-        { provide: SsrfValidatorService, useValue: ssrfValidator },
         { provide: InstructionHierarchyService, useValue: instructionHierarchy },
         { provide: ToolSchemaValidatorService, useValue: toolSchemaValidator },
         { provide: AiPersonasRegistryService, useValue: personasRegistry },

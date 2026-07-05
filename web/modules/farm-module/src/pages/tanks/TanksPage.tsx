@@ -185,8 +185,8 @@ export const TanksPage: React.FC = () => {
     return cfBatches.filter((b) => b.currentQuantity > 0 && b.status === 'ACTIVE');
   }, [cfBatches]);
 
-  // Fetch all tanks with batch metrics
-  // Backend defaults to 200 items when no pagination is provided
+  // Fetch ALL tanks with batch metrics — useTanksList pages through the backend
+  // list (100/page) when no pagination is passed, so no container is invisible.
   const { data, isLoading: tanksLoading, error, refetch } = useTanksList({ isActive: true });
   const isLoading =
     tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));

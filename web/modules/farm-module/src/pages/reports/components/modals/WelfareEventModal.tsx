@@ -137,7 +137,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
   const tanks = tanksData?.items || [];
 
   // Fetch active batches
-  const { data: batchesData } = useBatchList({ isActive: true, siteId }, { limit: 100 });
+  const { data: batchesData } = useBatchList({ isActive: true, siteId }, { fetchAll: true });
   const batches = batchesData?.items || [];
 
   // Tanks with high mortality (rate > threshold)

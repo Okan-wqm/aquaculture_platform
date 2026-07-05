@@ -14,8 +14,14 @@
  *  - Expiry date highlighting (row background) and badges (EXPIRED / EXPIRING SOON)
  *  - Loading, error, and empty states
  */
-import React, { useState, useCallback } from 'react';
-import { useStorageInventory, StorageItemType, MovementType } from '../../../hooks/useStorageInventory';
+import React, { useState, useCallback, useMemo } from 'react';
+import {
+  useStorageInventory,
+  useStorageOverview,
+  StorageItemType,
+  MovementType,
+  LowStockAlert,
+} from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
 
@@ -62,7 +68,20 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
   const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, itemType);
 
+  // Low-stock signal: the SAME server-side threshold the Overview tab shows
+  // (master quantity <= minStock, computed in get-storage-overview) — surfaced
+  // HERE, on the rows the operator actually restocks from. Matched by itemId.
+  const { data: overview } = useStorageOverview();
+  const lowStockByItemId = useMemo(() => {
+    const map = new Map<string, LowStockAlert>();
+    for (const alert of overview?.lowStockAlerts ?? []) {
+      map.set(alert.itemId, alert);
+    }
+    return map;
+  }, [overview?.lowStockAlerts]);
+
   const items = inventory || [];
+  const lowStockCount = items.filter(item => lowStockByItemId.has(item.itemId)).length;
 
   const filtered = items.filter(item => {
     const term = searchTerm.toLowerCase();
@@ -111,6 +130,13 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
+
+        {/* Low-stock banner: items at/below their minimum — restock these first. */}
+        {lowStockCount > 0 && (
+          <span className="inline-flex items-center self-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 whitespace-nowrap">
+            {lowStockCount} low stock
+          </span>
+        )}
 
         {/* Primary entry point for receiving new deliveries or recording manual
             stock additions. Pre-fills item type and movement type to IN. */}
@@ -166,7 +192,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
                 >
                   {columns.map(col => (
                     <td key={col} className={getCellClassName(col)}>
-                      {renderCell(col, item)}
+                      {renderCell(col, item, lowStockByItemId.get(item.itemId))}
                     </td>
                   ))}
 
@@ -257,10 +283,30 @@ function renderCell(
     expiryDate?: string;
     notes?: string;
   },
+  lowStock?: LowStockAlert,
 ): React.ReactNode {
   switch (col) {
     case 'itemName':
-      return item.itemName || '-';
+      return (
+        <>
+          {item.itemName || '-'}
+          {/* Low-stock badge — same server-side threshold as the Overview tab
+              (master quantity <= minStock). Red = nothing left; amber = at or
+              below the reorder point, restock soon. */}
+          {lowStock && (
+            <span
+              className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
+                lowStock.currentQuantity === 0
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700'
+              }`}
+              title={`${lowStock.currentQuantity} / min ${lowStock.minStock} ${lowStock.unit}`}
+            >
+              {lowStock.currentQuantity === 0 ? 'OUT OF STOCK' : 'LOW STOCK'}
+            </span>
+          )}
+        </>
+      );
 
     case 'location':
       return item.locationName || '-';

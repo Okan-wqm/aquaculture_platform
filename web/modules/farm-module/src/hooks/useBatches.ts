@@ -528,6 +528,11 @@ const CREATE_BATCH_MUTATION = `
 /**
  * Hook to fetch batch list
  */
+/** Chunk size for the fetch-all page loop (matches the server's sane page size). */
+const BATCH_PAGE_LIMIT = 100;
+/** Sanity ceiling for fetch-all (100 × 50 = 5000 batches). */
+const BATCH_MAX_PAGES = 50;
+
 export function useBatchList(
   filter?: BatchListFilter,
   options?: {
@@ -535,6 +540,13 @@ export function useBatchList(
     limit?: number;
     sortBy?: string;
     sortOrder?: 'ASC' | 'DESC';
+    /**
+     * Page through the WHOLE list (100/page) instead of one fixed page. Use on
+     * surfaces that must show every batch (production list, batch selectors) —
+     * a fixed `limit` silently hides batches past the cap on web while mobile
+     * pages through everything.
+     */
+    fetchAll?: boolean;
   },
 ) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -547,14 +559,31 @@ export function useBatchList(
         throw new Error('Tenant context required');
       }
 
-      const data = await graphqlClient.request<{ batches: BatchListResponse }>(BATCH_LIST_QUERY, {
-        filter,
-        page: options?.page ?? 1,
-        limit: options?.limit ?? 20,
-        sortBy: options?.sortBy ?? 'stockedAt',
-        sortOrder: options?.sortOrder ?? 'DESC',
-      });
-      return data.batches;
+      const sortBy = options?.sortBy ?? 'stockedAt';
+      const sortOrder = options?.sortOrder ?? 'DESC';
+      const fetchPage = async (page: number, limit: number): Promise<BatchListResponse> => {
+        const data = await graphqlClient.request<{ batches: BatchListResponse }>(
+          BATCH_LIST_QUERY,
+          { filter, page, limit, sortBy, sortOrder },
+        );
+        return data.batches;
+      };
+
+      if (options?.fetchAll) {
+        const first = await fetchPage(1, BATCH_PAGE_LIMIT);
+        const items = [...first.items];
+        const totalPages = Math.min(
+          Math.ceil((first.total ?? items.length) / BATCH_PAGE_LIMIT),
+          BATCH_MAX_PAGES,
+        );
+        for (let page = 2; page <= totalPages; page += 1) {
+          const next = await fetchPage(page, BATCH_PAGE_LIMIT);
+          items.push(...next.items);
+        }
+        return { ...first, items };
+      }
+
+      return fetchPage(options?.page ?? 1, options?.limit ?? 20);
     },
     staleTime: 30000,
     // Only enable when we have valid auth context

@@ -70,9 +70,11 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.Reac
     bg: 'bg-green-100', text: 'text-green-800',
     icon: <Check className="h-3 w-3" />,
   },
-  [VfdChangeSetStatus.PARTIALLY_APPLIED]: {
-    bg: 'bg-orange-100', text: 'text-orange-800',
-    icon: <AlertTriangle className="h-3 w-3" />,
+  // SENSOR-HIGH-028: VERIFIED is a real backend state — a verified change set
+  // rendered STATUS_STYLES[undefined] before this key existed.
+  [VfdChangeSetStatus.VERIFIED]: {
+    bg: 'bg-emerald-100', text: 'text-emerald-800',
+    icon: <Check className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.FAILED]: {
     bg: 'bg-red-100', text: 'text-red-800',

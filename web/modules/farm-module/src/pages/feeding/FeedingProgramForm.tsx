@@ -91,6 +91,8 @@ interface FeedingProgramFormData {
   transitionBuffer: number;
   notifyOnTransition: boolean;
   mealsPerDay: number;
+  /** When FCR-based growth from feeding is rolled into the tank weight. */
+  growthMode: 'PER_FEEDING' | 'DAILY';
 }
 
 // GraphQL Input Types
@@ -120,6 +122,7 @@ interface CreateFeedingProgramInput {
     transitionBuffer: number;
     notifyOnTransition: boolean;
     fcrSource: 'PROGRAM' | 'FEED';
+    growthApplicationMode: 'PER_FEEDING' | 'DAILY';
     defaultMealsPerDay: number;
   };
 }
@@ -152,6 +155,7 @@ interface FeedingProgram {
     transitionBuffer: number;
     notifyOnTransition: boolean;
     fcrSource: 'PROGRAM' | 'FEED';
+    growthApplicationMode?: 'PER_FEEDING' | 'DAILY';
     defaultMealsPerDay: number;
   };
   tanks?: Array<{
@@ -181,6 +185,7 @@ const initialFormData: FeedingProgramFormData = {
   transitionBuffer: 5,
   notifyOnTransition: true,
   mealsPerDay: 3,
+  growthMode: 'PER_FEEDING',
 };
 
 // Default FCR matrix for custom FCR mode
@@ -352,6 +357,7 @@ function transformFormDataToInput(formData: FeedingProgramFormData): CreateFeedi
       transitionBuffer: formData.transitionBuffer,
       notifyOnTransition: formData.notifyOnTransition,
       fcrSource: formData.useFeedFCR ? 'FEED' : 'PROGRAM',
+      growthApplicationMode: formData.growthMode,
       defaultMealsPerDay: formData.mealsPerDay,
     },
   };
@@ -405,6 +411,12 @@ function transformProgramToFormData(
     transitionBuffer: program.settings?.transitionBuffer ?? 5,
     notifyOnTransition: program.settings?.notifyOnTransition ?? true,
     mealsPerDay: program.settings?.defaultMealsPerDay ?? 3,
+    // `settings` is read back as a JSON blob, so the enum arrives as its stored
+    // lowercase value ('daily'); normalize to the form's uppercase union.
+    growthMode:
+      String(program.settings?.growthApplicationMode ?? '').toUpperCase() === 'DAILY'
+        ? 'DAILY'
+        : 'PER_FEEDING',
   };
 }
 
@@ -2080,6 +2092,31 @@ const Step5Settings: React.FC<Step5Props> = ({ data, onChange, errors }) => {
               {errors.mealsPerDay}
             </p>
           )}
+        </div>
+
+        {/* FCR Growth Application Mode */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <label
+            htmlFor="growth-mode-select"
+            className="block text-sm font-medium text-gray-900 mb-2"
+          >
+            Buyume Guncellemesi (FCR)
+          </label>
+          <p className="text-sm text-gray-500 mb-3">
+            Yem atildikca baligin agirligi FCR oraninda artar. Bu artis her yem atiminda aninda mi,
+            yoksa gun sonunda toplu mu uygulansin?
+          </p>
+          <select
+            id="growth-mode-select"
+            value={data.growthMode}
+            onChange={(e) =>
+              onChange({ growthMode: e.target.value === 'DAILY' ? 'DAILY' : 'PER_FEEDING' })
+            }
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="PER_FEEDING">Her yem atiminda (aninda)</option>
+            <option value="DAILY">Gun sonu toplu (gunluk)</option>
+          </select>
         </div>
 
         {/* Notify on Transition */}

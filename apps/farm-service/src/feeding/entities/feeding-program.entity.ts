@@ -28,14 +28,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import {
   IsNotEmpty,
@@ -83,11 +76,11 @@ export const MAX_FCR_WEIGHTS = 30;
  * Program durumu
  */
 export enum FeedingProgramStatus {
-  DRAFT = 'draft',           // Taslak - henuz aktif degil
-  ACTIVE = 'active',         // Aktif - gunluk planlar olusturuluyor
-  PAUSED = 'paused',         // Duraklatilmis
-  COMPLETED = 'completed',   // Tamamlandi
-  CANCELLED = 'cancelled',   // Iptal edildi
+  DRAFT = 'draft', // Taslak - henuz aktif degil
+  ACTIVE = 'active', // Aktif - gunluk planlar olusturuluyor
+  PAUSED = 'paused', // Duraklatilmis
+  COMPLETED = 'completed', // Tamamlandi
+  CANCELLED = 'cancelled', // Iptal edildi
 }
 
 registerEnumType(FeedingProgramStatus, {
@@ -99,13 +92,30 @@ registerEnumType(FeedingProgramStatus, {
  * FCR kaynagi
  */
 export enum FCRSource {
-  PROGRAM = 'program',       // Program'in kendi FCR tablosu
-  FEED = 'feed',             // Feed entity'sindeki fcrMatrix
+  PROGRAM = 'program', // Program'in kendi FCR tablosu
+  FEED = 'feed', // Feed entity'sindeki fcrMatrix
 }
 
 registerEnumType(FCRSource, {
   name: 'FCRSource',
   description: 'FCR veri kaynagi',
+});
+
+/**
+ * When the FCR-based weight growth from actual feeding is applied to the tank/
+ * batch. The DAY-END TOTAL growth is identical either way (growth is linear in
+ * feed); the mode only controls WHEN the avg-weight rolls up.
+ */
+export enum GrowthApplicationMode {
+  /** Apply growth immediately on each recorded feeding (avg weight updates live). */
+  PER_FEEDING = 'per_feeding',
+  /** Hold back growth; a daily job rolls up the day's feed into one weight update. */
+  DAILY = 'daily',
+}
+
+registerEnumType(GrowthApplicationMode, {
+  name: 'GrowthApplicationMode',
+  description: 'When FCR-based feeding growth is applied to the tank/batch',
 });
 
 // ============================================================================
@@ -259,7 +269,11 @@ export function validateFCRTable(table: unknown): string[] {
       errors.push(`temperatures array must not exceed ${MAX_FCR_TEMPERATURES} items`);
     }
     for (let i = 0; i < t['temperatures'].length; i++) {
-      if (typeof t['temperatures'][i] !== 'number' || t['temperatures'][i] < -10 || t['temperatures'][i] > 50) {
+      if (
+        typeof t['temperatures'][i] !== 'number' ||
+        t['temperatures'][i] < -10 ||
+        t['temperatures'][i] > 50
+      ) {
         errors.push(`temperatures[${i}] must be a number between -10 and 50`);
       }
     }
@@ -311,7 +325,10 @@ export function validateFCRTable(table: unknown): string[] {
   }
 
   // Optional fields validation
-  if (t['temperatureUnit'] !== undefined && !['celsius', 'fahrenheit'].includes(t['temperatureUnit'] as string)) {
+  if (
+    t['temperatureUnit'] !== undefined &&
+    !['celsius', 'fahrenheit'].includes(t['temperatureUnit'] as string)
+  ) {
     errors.push('temperatureUnit must be "celsius" or "fahrenheit"');
   }
 
@@ -338,6 +355,8 @@ export interface ProgramSettings {
   notifyOnTransition: boolean;
   /** FCR kaynagi */
   fcrSource: FCRSource;
+  /** When FCR-based growth from feeding rolls up (defaults to PER_FEEDING). */
+  growthApplicationMode?: GrowthApplicationMode;
   /** Varsayilan gunluk ogun sayisi */
   defaultMealsPerDay?: number;
   /** Minimum yemleme orani (%) */
@@ -365,7 +384,11 @@ export function validateProgramSettings(settings: unknown): string[] {
     errors.push('autoTransition must be a boolean');
   }
 
-  if (typeof s['transitionBuffer'] !== 'number' || s['transitionBuffer'] < 0 || s['transitionBuffer'] > 100) {
+  if (
+    typeof s['transitionBuffer'] !== 'number' ||
+    s['transitionBuffer'] < 0 ||
+    s['transitionBuffer'] > 100
+  ) {
     errors.push('transitionBuffer must be a number between 0 and 100');
   }
 
@@ -377,20 +400,41 @@ export function validateProgramSettings(settings: unknown): string[] {
     errors.push('fcrSource must be a valid FCRSource enum value');
   }
 
+  if (
+    s['growthApplicationMode'] !== undefined &&
+    !Object.values(GrowthApplicationMode).includes(
+      s['growthApplicationMode'] as GrowthApplicationMode,
+    )
+  ) {
+    errors.push('growthApplicationMode must be a valid GrowthApplicationMode enum value');
+  }
+
   if (s['defaultMealsPerDay'] !== undefined) {
-    if (typeof s['defaultMealsPerDay'] !== 'number' || s['defaultMealsPerDay'] < 1 || s['defaultMealsPerDay'] > 24) {
+    if (
+      typeof s['defaultMealsPerDay'] !== 'number' ||
+      s['defaultMealsPerDay'] < 1 ||
+      s['defaultMealsPerDay'] > 24
+    ) {
       errors.push('defaultMealsPerDay must be a number between 1 and 24');
     }
   }
 
   if (s['minFeedingRatePercent'] !== undefined) {
-    if (typeof s['minFeedingRatePercent'] !== 'number' || s['minFeedingRatePercent'] < 0 || s['minFeedingRatePercent'] > 100) {
+    if (
+      typeof s['minFeedingRatePercent'] !== 'number' ||
+      s['minFeedingRatePercent'] < 0 ||
+      s['minFeedingRatePercent'] > 100
+    ) {
       errors.push('minFeedingRatePercent must be a number between 0 and 100');
     }
   }
 
   if (s['maxFeedingRatePercent'] !== undefined) {
-    if (typeof s['maxFeedingRatePercent'] !== 'number' || s['maxFeedingRatePercent'] < 0 || s['maxFeedingRatePercent'] > 100) {
+    if (
+      typeof s['maxFeedingRatePercent'] !== 'number' ||
+      s['maxFeedingRatePercent'] < 0 ||
+      s['maxFeedingRatePercent'] > 100
+    ) {
       errors.push('maxFeedingRatePercent must be a number between 0 and 100');
     }
   }
@@ -753,9 +797,7 @@ export class FeedingProgram {
    * @returns true if status is DRAFT or PAUSED
    */
   isEditable(): boolean {
-    return [FeedingProgramStatus.DRAFT, FeedingProgramStatus.PAUSED].includes(
-      this.status,
-    );
+    return [FeedingProgramStatus.DRAFT, FeedingProgramStatus.PAUSED].includes(this.status);
   }
 
   /**
@@ -827,9 +869,7 @@ export class FeedingProgram {
     }
 
     // Sort by minWeightG to find the minimum threshold
-    const sortedByWeight = [...this.feedAssignments].sort(
-      (a, b) => a.minWeightG - b.minWeightG,
-    );
+    const sortedByWeight = [...this.feedAssignments].sort((a, b) => a.minWeightG - b.minWeightG);
 
     // Handle weight below minimum - return the first/lowest assignment
     const lowestAssignment = sortedByWeight[0];
@@ -838,16 +878,11 @@ export class FeedingProgram {
     }
 
     // Sort by priority for normal lookup
-    const sortedByPriority = [...this.feedAssignments].sort(
-      (a, b) => a.priority - b.priority,
-    );
+    const sortedByPriority = [...this.feedAssignments].sort((a, b) => a.priority - b.priority);
 
     // Find the first assignment where weight falls within range
     for (const assignment of sortedByPriority) {
-      if (
-        avgWeightG >= assignment.minWeightG &&
-        avgWeightG < assignment.maxWeightG
-      ) {
+      if (avgWeightG >= assignment.minWeightG && avgWeightG < assignment.maxWeightG) {
         return assignment;
       }
     }
@@ -928,9 +963,7 @@ export class FeedingProgram {
     }
 
     // Sort by minWeightG for gap/overlap checks
-    const sorted = [...this.feedAssignments].sort(
-      (a, b) => a.minWeightG - b.minWeightG,
-    );
+    const sorted = [...this.feedAssignments].sort((a, b) => a.minWeightG - b.minWeightG);
 
     for (let i = 0; i < sorted.length; i++) {
       const current = sorted[i];
@@ -957,9 +990,7 @@ export class FeedingProgram {
       if (i > 0) {
         const prev = sorted[i - 1];
         if (prev && current.minWeightG < prev.maxWeightG) {
-          errors.push(
-            `Agirlik araliklari ortusyor: ${prev.feedCode} ve ${current.feedCode}`,
-          );
+          errors.push(`Agirlik araliklari ortusyor: ${prev.feedCode} ve ${current.feedCode}`);
         }
       }
     }

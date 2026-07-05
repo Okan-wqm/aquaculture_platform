@@ -22,6 +22,7 @@ import { AddBatchProtocolId1802000000000 } from './1802000000000-AddBatchProtoco
 import { AddEquipmentTemperatureSensorId1802100000000 } from './1802100000000-AddEquipmentTemperatureSensorId';
 import { CreateSensorTemperatureLatest1802200000000 } from './1802200000000-CreateSensorTemperatureLatest';
 import { AddTankTemperatureSensorId1802300000000 } from './1802300000000-AddTankTemperatureSensorId';
+import { AddExecutionGrowthAppliedAt1802400000000 } from './1802400000000-AddExecutionGrowthAppliedAt';
 
 /**
  * Canonical farm-service migration class list.
@@ -56,4 +57,5 @@ export const FARM_MIGRATIONS = [
   AddEquipmentTemperatureSensorId1802100000000,
   CreateSensorTemperatureLatest1802200000000,
   AddTankTemperatureSensorId1802300000000,
+  AddExecutionGrowthAppliedAt1802400000000,
 ] as const;

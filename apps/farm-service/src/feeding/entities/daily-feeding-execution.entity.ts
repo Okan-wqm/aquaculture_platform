@@ -23,16 +23,18 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-import { IsUUID, IsNumber, IsString, IsOptional, Min, ValidateNested, IsEnum, MaxLength } from 'class-validator';
+import {
+  IsUUID,
+  IsNumber,
+  IsString,
+  IsOptional,
+  Min,
+  ValidateNested,
+  IsEnum,
+  MaxLength,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { FeedingProgram, InvalidJSONBStructureError } from './feeding-program.entity';
 import { FeedingProgramTank, ProgramEquipmentType } from './feeding-program-tank.entity';
@@ -51,7 +53,9 @@ export { InvalidJSONBStructureError };
  */
 export class InvalidExecutionStateError extends Error {
   constructor(currentStatus: ExecutionStatus) {
-    super(`Cannot record feeding: execution is in '${currentStatus}' state. Only PLANNED or IN_PROGRESS executions can record feeding.`);
+    super(
+      `Cannot record feeding: execution is in '${currentStatus}' state. Only PLANNED or IN_PROGRESS executions can record feeding.`,
+    );
     this.name = 'InvalidExecutionStateError';
   }
 }
@@ -107,10 +111,10 @@ registerEnumType(ExecutionStatus, {
  */
 export interface ExecutionCalculation {
   // Tank başlangıç durumu
-  avgWeightG: number;            // Ortalama balık ağırlığı (g)
-  fishCount: number;             // Balık sayısı
-  biomassKg: number;             // Toplam biomass (kg)
-  waterTempC: number;            // Su sıcaklığı (°C)
+  avgWeightG: number; // Ortalama balık ağırlığı (g)
+  fishCount: number; // Balık sayısı
+  biomassKg: number; // Toplam biomass (kg)
+  waterTempC: number; // Su sıcaklığı (°C)
   /** True if temperature is using default value because sensor reading was unavailable */
   usingDefaultTemperature?: boolean;
 
@@ -118,12 +122,12 @@ export interface ExecutionCalculation {
   activeFeedId: string;
   activeFeedCode: string;
   activeFeedName: string;
-  feedingRatePercent: number;    // Yemleme oranı (% biomass)
+  feedingRatePercent: number; // Yemleme oranı (% biomass)
 
   // Hesaplanan yem miktarı
-  plannedFeedKg: number;         // biomassKg × feedingRatePercent / 100
-  mealsPerDay: number;           // Günlük öğün sayısı
-  perMealKg: number;             // Öğün başına yem (kg)
+  plannedFeedKg: number; // biomassKg × feedingRatePercent / 100
+  mealsPerDay: number; // Günlük öğün sayısı
+  perMealKg: number; // Öğün başına yem (kg)
 
   // FCR bilgisi
   expectedFCR: number;
@@ -137,12 +141,12 @@ export interface ExecutionCalculation {
  * Yem geçiş uyarısı
  */
 export interface TransitionWarning {
-  currentRange: string;          // "5-50g"
-  nextRange: string;             // "50-200g"
+  currentRange: string; // "5-50g"
+  nextRange: string; // "50-200g"
   nextFeedId: string;
   nextFeedCode: string;
-  remainingGrams: number;        // Kalan gram (50 - 45.2 = 4.8)
-  estimatedDays: number;         // Tahmini gün sayısı
+  remainingGrams: number; // Kalan gram (50 - 45.2 = 4.8)
+  estimatedDays: number; // Tahmini gün sayısı
 }
 
 /**
@@ -151,14 +155,14 @@ export interface TransitionWarning {
 export interface ExecutionResult {
   // Verilen yem
   actualFeedGivenKg: number;
-  variance: number;              // actualFeedGivenKg - plannedFeedKg
+  variance: number; // actualFeedGivenKg - plannedFeedKg
   variancePercent: number;
 
   // FCR ile büyüme hesabı
   appliedFCR: number;
-  calculatedGrowthKg: number;    // actualFeedGivenKg / appliedFCR
-  newBiomassKg: number;          // biomassKg + calculatedGrowthKg
-  newAvgWeightG: number;         // newBiomassKg / fishCount × 1000
+  calculatedGrowthKg: number; // actualFeedGivenKg / appliedFCR
+  newBiomassKg: number; // biomassKg + calculatedGrowthKg
+  newAvgWeightG: number; // newBiomassKg / fishCount × 1000
 
   // Yem geçişi
   feedTransitioned: boolean;
@@ -286,6 +290,16 @@ export class DailyFeedingExecution {
   @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 
+  /**
+   * When this execution's FCR-based growth was rolled into the tank/batch weight.
+   * PER_FEEDING programs set it inline at recording time; DAILY programs leave it
+   * null until the daily roll-up job applies the aggregate growth (this is the
+   * idempotency key that stops growth being applied twice).
+   */
+  @Field({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  growthAppliedAt?: Date;
+
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   completedBy?: string;
@@ -302,7 +316,10 @@ export class DailyFeedingExecution {
   @Column({ length: 100, nullable: true })
   feederName?: string;
 
-  @Field(() => FeedingMethod, { nullable: true, description: 'Feeding method used (manual, automatic, etc.)' })
+  @Field(() => FeedingMethod, {
+    nullable: true,
+    description: 'Feeding method used (manual, automatic, etc.)',
+  })
   @Column({
     type: 'enum',
     enum: FeedingMethod,
@@ -385,7 +402,10 @@ export class DailyFeedingExecution {
    * Variance between actual and planned feed in kilograms
    * @returns The variance or null if not yet recorded
    */
-  @Field(() => Float, { nullable: true, description: 'Variance between actual and planned feed (kg)' })
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Variance between actual and planned feed (kg)',
+  })
   get varianceKg(): number | null {
     return this.actualResults?.variance ?? null;
   }
@@ -394,7 +414,10 @@ export class DailyFeedingExecution {
    * Variance percentage between actual and planned feed
    * @returns The variance percentage or null if not yet recorded
    */
-  @Field(() => Float, { nullable: true, description: 'Variance percentage between actual and planned feed' })
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Variance percentage between actual and planned feed',
+  })
   get variancePercent(): number | null {
     return this.actualResults?.variancePercent ?? null;
   }
@@ -405,7 +428,7 @@ export class DailyFeedingExecution {
    */
   @Field(() => Boolean, { description: 'Whether there is a feed transition warning' })
   get hasTransitionWarning(): boolean {
-    return !!(this.calculations?.transitionWarning);
+    return !!this.calculations?.transitionWarning;
   }
 
   /**
@@ -521,10 +544,16 @@ export class DailyFeedingExecution {
     }
 
     // Optional fields validation
-    if (result.mortalityCount !== undefined && (typeof result.mortalityCount !== 'number' || result.mortalityCount < 0)) {
+    if (
+      result.mortalityCount !== undefined &&
+      (typeof result.mortalityCount !== 'number' || result.mortalityCount < 0)
+    ) {
       issues.push('mortalityCount must be a non-negative number if provided');
     }
-    if (result.mortalityBiomassKg !== undefined && (typeof result.mortalityBiomassKg !== 'number' || result.mortalityBiomassKg < 0)) {
+    if (
+      result.mortalityBiomassKg !== undefined &&
+      (typeof result.mortalityBiomassKg !== 'number' || result.mortalityBiomassKg < 0)
+    ) {
       issues.push('mortalityBiomassKg must be a non-negative number if provided');
     }
 
@@ -580,9 +609,7 @@ export class DailyFeedingExecution {
    * @returns True if status allows recording (PLANNED or IN_PROGRESS)
    */
   canRecordFeeding(): boolean {
-    return [ExecutionStatus.PLANNED, ExecutionStatus.IN_PROGRESS].includes(
-      this.status,
-    );
+    return [ExecutionStatus.PLANNED, ExecutionStatus.IN_PROGRESS].includes(this.status);
   }
 
   /**
@@ -637,9 +664,7 @@ export class DailyFeedingExecution {
     // Variance calculation with safe division
     // When plannedKg is 0 (fasting day), any actual feed is 100% overfeeding
     const variance = actualKg - plannedKg;
-    const variancePercent = plannedKg > 0
-      ? (variance / plannedKg) * 100
-      : (actualKg > 0 ? 100 : 0);
+    const variancePercent = plannedKg > 0 ? (variance / plannedKg) * 100 : actualKg > 0 ? 100 : 0;
 
     this.actualResults = {
       actualFeedGivenKg: actualKg,

@@ -1,9 +1,17 @@
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { ToolRegistryModule } from '../tool-registry.module';
 import { ToolRegistryService } from '../tool-registry.service';
 import { WaterChemistryToolsModule } from '../water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from '../sensor-config/sensor-config-tools.module';
+import { ToolExecutionAudit } from '../../audit/tool-execution-audit.entity';
+
+// The executor (provided by ToolRegistryModule) now depends on AuditService,
+// which is DB-backed via TypeOrmModule.forFeature. This registry-discovery spec
+// cares only about tool registration, so the audit repository is stubbed — no
+// DataSource is composed.
+const AUDIT_REPO_STUB = { create: jest.fn(), save: jest.fn(), find: jest.fn() };
 
 /**
  * FAZ0-BOOT-01 regression guard.
@@ -37,7 +45,10 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
         WaterChemistryToolsModule,
         SensorConfigToolsModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(getRepositoryToken(ToolExecutionAudit))
+      .useValue(AUDIT_REPO_STUB)
+      .compile();
 
     // onModuleInit (where discovery runs) fires on init, not on compile.
     await moduleRef.init();
@@ -59,7 +70,10 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
         WaterChemistryToolsModule,
         SensorConfigToolsModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(getRepositoryToken(ToolExecutionAudit))
+      .useValue(AUDIT_REPO_STUB)
+      .compile();
     await moduleRef.init();
 
     const registry = moduleRef.get(ToolRegistryService);
@@ -81,7 +95,10 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     // test harnesses) — discovery of zero tools is valid, crashing is not.
     const moduleRef = await Test.createTestingModule({
       imports: [ToolRegistryModule],
-    }).compile();
+    })
+      .overrideProvider(getRepositoryToken(ToolExecutionAudit))
+      .useValue(AUDIT_REPO_STUB)
+      .compile();
     await moduleRef.init();
 
     const registry = moduleRef.get(ToolRegistryService);

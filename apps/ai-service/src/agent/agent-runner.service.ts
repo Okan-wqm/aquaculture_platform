@@ -265,6 +265,9 @@ export class AgentRunnerService {
       userRoles: request.userRoles,
       correlationId: request.correlationId,
       persona: request.persona,
+      // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
+      // most-restrictive) gates whether an actuation tool may run autonomously.
+      actuationPolicy: profile.actuationPolicy,
     };
 
     const currentMessages = [...messages];

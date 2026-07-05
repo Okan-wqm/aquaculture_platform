@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { ToolRegistryService } from './tool-registry.service';
 import { ToolExecutorService } from './core/tool-executor.service';
+import { AuditModule } from '../audit/audit.module';
 
 /**
  * Tool Registry Module
@@ -22,7 +23,9 @@ import { ToolExecutorService } from './core/tool-executor.service';
  * received the empty default and no tool was ever callable by the agent.
  */
 @Module({
-  imports: [DiscoveryModule],
+  // AuditModule: the executor persists every tool outcome to the audit trail
+  // (AISAFETY-MEDIUM-017 — the old inline logExecution was a TODO no-op).
+  imports: [DiscoveryModule, AuditModule],
   providers: [ToolRegistryService, ToolExecutorService],
   exports: [ToolRegistryService, ToolExecutorService],
 })

@@ -11,6 +11,7 @@ describe('AnalyzeSensorDataTool', () => {
     userRoles: ['operator'],
     correlationId: 'corr-123',
     persona: 'aqua-expert',
+    actuationPolicy: 'confirm_required',
   };
 
   beforeEach(() => {

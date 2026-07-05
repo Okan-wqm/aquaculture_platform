@@ -38,6 +38,19 @@ const TANK: TankBatch = {
   isOverCapacity: false,
 };
 
+// A combined tank (B-1 primary 1000 fish + B-2 500 fish = 1500 total). The
+// operation must attribute to the SELECTED batch and scope quantity to its share.
+const COMBINED_TANK: TankBatch = {
+  ...TANK,
+  totalQuantity: 1500,
+  totalBiomassKg: 350,
+  isMixedBatch: true,
+  batchDetails: [
+    { batchId: 'batch-1', batchNumber: 'B-1', quantity: 1000, avgWeightG: 250, biomassKg: 250, percentageOfTank: 66.7 },
+    { batchId: 'batch-2', batchNumber: 'B-2', quantity: 500, avgWeightG: 200, biomassKg: 100, percentageOfTank: 33.3 },
+  ],
+};
+
 interface MortalityVariables {
   input: {
     batchId: string;
@@ -55,11 +68,13 @@ function mortalityCalls(): MortalityVariables[] {
     .map(([, variables]) => variables as MortalityVariables);
 }
 
-function renderModal(): { onSuccess: ReturnType<typeof vi.fn>; onClose: ReturnType<typeof vi.fn> } {
+function renderModal(
+  tank: TankBatch = TANK,
+): { onSuccess: ReturnType<typeof vi.fn>; onClose: ReturnType<typeof vi.fn> } {
   const onSuccess = vi.fn();
   const onClose = vi.fn();
   renderWithProviders(
-    <MortalityModal isOpen onClose={onClose} tank={TANK} onSuccess={onSuccess} />,
+    <MortalityModal isOpen onClose={onClose} tank={tank} onSuccess={onSuccess} />,
   );
   return { onSuccess, onClose };
 }
@@ -132,6 +147,55 @@ describe('MortalityModal', () => {
     await user.type(document.getElementById('notes') as HTMLElement, 'typo');
 
     expect(await screen.findByText(/cannot exceed/i)).toBeInTheDocument();
+    expect(mortalityCalls()).toHaveLength(0);
+  });
+
+  // ── Combined-batch scoping (B-1 + B-2) ──────────────────────────────────────
+  it('shows no batch-scope selector for a single-batch tank', () => {
+    renderModal();
+    expect(document.getElementById('batch-scope')).toBeNull();
+  });
+
+  it('attributes the mortality to the SELECTED batch, not the primary', async () => {
+    routeGraphql([
+      {
+        match: 'mutation RecordMortality',
+        result: {
+          recordMortality: {
+            id: 'batch-2',
+            batchNumber: 'B-2',
+            currentQuantity: 475,
+            totalMortality: 25,
+            retentionRate: 95,
+            mortalityRate: 5,
+            currentBiomassKg: 95,
+          },
+        },
+      },
+    ]);
+    const user = userEvent.setup();
+    const { onSuccess } = renderModal(COMBINED_TANK);
+
+    await user.selectOptions(document.getElementById('batch-scope') as HTMLElement, 'batch-2');
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Record Mortality/ }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    const calls = mortalityCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].input.batchId).toBe('batch-2');
+  });
+
+  it('scopes over-stock validation to the selected batch share (800 > B-2 500, < tank 1500)', async () => {
+    const user = userEvent.setup();
+    renderModal(COMBINED_TANK);
+
+    await user.selectOptions(document.getElementById('batch-scope') as HTMLElement, 'batch-2');
+    await user.type(document.getElementById('quantity') as HTMLElement, '800');
+    await user.type(document.getElementById('notes') as HTMLElement, 'scoped');
+
+    // 800 is under the 1500 tank total but over B-2's 500 share → blocked.
+    expect(await screen.findByText(/cannot exceed batch stock/i)).toBeInTheDocument();
     expect(mortalityCalls()).toHaveLength(0);
   });
 });

@@ -29185,6 +29185,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-05-combine-batch-visibility.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -42034,6 +42040,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/components/BatchScopeSelector.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/production/components/CloseBatchModal.tsx",
       "prettier_managed": true
     },
@@ -49644,10 +49656,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8128,
+  "file_count": 8130,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7953,
-  "managed_file_list_sha256": "06c15e8f1864fa6ad005de917d9c759a1b8d8e0cb098f2b956dcda1afef5e266",
+  "managed_count": 7955,
+  "managed_file_list_sha256": "5ea25635b2a3f74e41a7f7e4ce1f50c284d60592414d76102756c0b8eb4678f7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

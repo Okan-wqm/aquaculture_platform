@@ -2,10 +2,11 @@
  * Cull Modal
  * Records fish culling in a tank with reason and biomass calculation
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { TankBatch, CullReason, CullReasonLabels } from '../types/batch.types';
 import { useRecordCull } from '../../../hooks/useBatches';
+import { BatchScopeSelector } from './BatchScopeSelector';
 
 interface CullModalProps {
   isOpen: boolean;
@@ -26,10 +27,30 @@ export const CullModal: React.FC<CullModalProps> = ({
   const [reason, setReason] = useState<CullReason>(CullReason.GRADING);
   const [notes, setNotes] = useState<string>('');
   const [culledAt, setCulledAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(tank.primaryBatchId);
+
+  // Combined-tank scoping: on a tank holding several batches (B-1 + B-2) the cull
+  // is attributed to the SELECTED batch and every stock/biomass/weight figure is
+  // that batch's share. A single-batch tank falls back to the tank totals.
+  const isCombined = (tank.batchDetails?.length ?? 0) > 1;
+  const selectedBatch = useMemo(
+    () => (isCombined ? tank.batchDetails?.find((b) => b.batchId === selectedBatchId) : undefined),
+    [isCombined, tank.batchDetails, selectedBatchId],
+  );
+  const availableQuantity = selectedBatch?.quantity ?? tank.totalQuantity;
+  const availableBiomassKg = selectedBatch?.biomassKg ?? tank.totalBiomassKg;
+  const scopedAvgWeightG = selectedBatch?.avgWeightG ?? tank.avgWeightG ?? 0;
+  const selectedBatchNumber = selectedBatch?.batchNumber ?? tank.primaryBatchNumber;
 
   // Mutation hook
   const recordCull = useRecordCull();
   const { toast } = useToast();
+
+  // Re-default the editable average weight to the selected batch's average when
+  // the operator switches batches on a combined tank.
+  useEffect(() => {
+    setAvgWeightG(scopedAvgWeightG);
+  }, [scopedAvgWeightG]);
 
   // Calculate biomass loss
   const calculatedBiomass = useMemo(() => {
@@ -41,13 +62,13 @@ export const CullModal: React.FC<CullModalProps> = ({
 
   // Calculate post-operation state
   const postOperationState = useMemo(() => {
-    const newQuantity = Math.max(0, tank.totalQuantity - quantity);
-    const newBiomass = Math.max(0, tank.totalBiomassKg - calculatedBiomass);
+    const newQuantity = Math.max(0, availableQuantity - quantity);
+    const newBiomass = Math.max(0, availableBiomassKg - calculatedBiomass);
     return {
       quantity: newQuantity,
       biomass: newBiomass,
     };
-  }, [tank.totalQuantity, tank.totalBiomassKg, quantity, calculatedBiomass]);
+  }, [availableQuantity, availableBiomassKg, quantity, calculatedBiomass]);
 
   // Validation
   const errors = useMemo(() => {
@@ -55,32 +76,35 @@ export const CullModal: React.FC<CullModalProps> = ({
     if (quantity <= 0) {
       errs.push('Quantity must be greater than 0');
     }
-    if (quantity > tank.totalQuantity) {
-      errs.push(`Quantity cannot exceed tank stock (${tank.totalQuantity.toLocaleString()})`);
+    if (quantity > availableQuantity) {
+      errs.push(
+        `Quantity cannot exceed ${isCombined ? 'batch' : 'tank'} stock (${availableQuantity.toLocaleString()})`,
+      );
     }
     if (!notes.trim()) {
       errs.push('Please explain why the fish were culled');
     }
     return errs;
-  }, [quantity, tank.totalQuantity, notes]);
+  }, [quantity, availableQuantity, isCombined, notes]);
 
   const isValid = errors.length === 0;
 
   // Reset form
   const resetForm = useCallback(() => {
     setQuantity(0);
-    setAvgWeightG(tank.avgWeightG || 0);
+    setAvgWeightG(scopedAvgWeightG);
     setReason(CullReason.GRADING);
     setNotes('');
     setCulledAt(new Date().toISOString().split('T')[0]);
-  }, [tank.avgWeightG]);
+    setSelectedBatchId(tank.primaryBatchId);
+  }, [scopedAvgWeightG, tank.primaryBatchId]);
 
   // Handle submit
   const handleSubmit = async () => {
     if (!isValid) return;
 
     // Check if we have a batch
-    if (!tank.primaryBatchId) {
+    if (!selectedBatchId) {
       toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
       return;
     }
@@ -94,7 +118,7 @@ export const CullModal: React.FC<CullModalProps> = ({
 
     try {
       await recordCull.mutateAsync({
-        batchId: tank.primaryBatchId,
+        batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
         // `reason` is a CullReason enum value whose string literal
@@ -130,17 +154,25 @@ export const CullModal: React.FC<CullModalProps> = ({
             <div>
               <h3 className="font-medium text-gray-900">{tank.tankName}</h3>
               <p className="text-sm text-gray-500">
-                Batch: {tank.primaryBatchNumber || 'No batch assigned'}
+                Batch: {selectedBatchNumber || 'No batch assigned'}
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-500">Current Stock</p>
               <p className="text-lg font-semibold text-gray-900">
-                {tank.totalQuantity.toLocaleString()} fish
+                {availableQuantity.toLocaleString()} fish
               </p>
             </div>
           </div>
         </div>
+
+        {/* Combined-tank batch scope (renders only when >1 batch shares the tank) */}
+        <BatchScopeSelector
+          batchDetails={tank.batchDetails}
+          selectedBatchId={selectedBatchId}
+          onChange={setSelectedBatchId}
+          accent="orange"
+        />
 
         {/* Form Fields */}
         <div className="space-y-4">
@@ -153,7 +185,7 @@ export const CullModal: React.FC<CullModalProps> = ({
               type="number"
               id="quantity"
               min="1"
-              max={tank.totalQuantity}
+              max={availableQuantity}
               value={quantity || ''}
               onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
@@ -177,7 +209,7 @@ export const CullModal: React.FC<CullModalProps> = ({
               placeholder="Enter average weight"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Default: {tank.avgWeightG?.toFixed(1) || 0} g (tank average)
+              Default: {scopedAvgWeightG.toFixed(1)} g ({isCombined ? 'batch' : 'tank'} average)
             </p>
           </div>
 
@@ -254,11 +286,11 @@ export const CullModal: React.FC<CullModalProps> = ({
                 <div className="space-y-1">
                   <p className="text-sm">
                     <span className="text-gray-600">Stock:</span>{' '}
-                    <span className="font-medium">{tank.totalQuantity.toLocaleString()}</span>
+                    <span className="font-medium">{availableQuantity.toLocaleString()}</span>
                   </p>
                   <p className="text-sm">
                     <span className="text-gray-600">Biomass:</span>{' '}
-                    <span className="font-medium">{tank.totalBiomassKg.toFixed(1)} kg</span>
+                    <span className="font-medium">{availableBiomassKg.toFixed(1)} kg</span>
                   </p>
                 </div>
               </div>

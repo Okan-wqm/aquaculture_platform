@@ -35,14 +35,24 @@ const spies = vi.hoisted(() => ({
   linkedPackages: [] as Array<{ id: string; processId?: string; packageData: unknown }>,
 }));
 
-vi.mock('react-router-dom', () => ({
-  // The real route is `unified-editor/:processId` — the mock MUST use the
-  // same param name the page reads (SENSOR-CRITICAL-001 was masked by this
-  // mock carrying a wrong name; routeParam.test.tsx pins it unmocked).
-  useParams: () => ({ processId: 'proc-1' }),
-  useSearchParams: () => [new URLSearchParams(), vi.fn()],
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
-}));
+vi.mock('react-router-dom', () => {
+  // The real useSearchParams returns a STABLE tuple across renders (the router
+  // memoises it until the URL changes). The mock must mirror that: returning a
+  // fresh `new URLSearchParams()` on every call makes the page's load effect —
+  // which depends on `searchParams` — re-run on every render, setState,
+  // re-render, forever (a synchronous infinite re-render loop React's
+  // update-depth guard can't catch because the dep genuinely changes identity).
+  const searchParams = new URLSearchParams();
+  const setSearchParams = vi.fn();
+  return {
+    // The real route is `unified-editor/:processId` — the mock MUST use the
+    // same param name the page reads (SENSOR-CRITICAL-001 was masked by this
+    // mock carrying a wrong name; routeParam.test.tsx pins it unmocked).
+    useParams: () => ({ processId: 'proc-1' }),
+    useSearchParams: () => [searchParams, setSearchParams],
+    Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  };
+});
 
 vi.mock('../../../hooks/useProcess', () => ({
   useProcess: () => ({

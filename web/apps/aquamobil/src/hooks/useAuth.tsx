@@ -8,8 +8,8 @@ import { markAuthReady, resetAuthReady, syncAuthStore } from '@/services/authent
 import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
 import { runAsyncAction } from '@/utils/async-action';
-import { logger } from '@/utils/logger';
 import { decodeResourcePermissions } from '@/utils/jwt-claims';
+import { logger } from '@/utils/logger';
 import { normalizeRole } from '@/utils/normalize-role';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 

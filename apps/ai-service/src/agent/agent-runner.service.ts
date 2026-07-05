@@ -42,6 +42,11 @@ export interface ChatRequest {
   tenantId: string;
   userId: string;
   userRoles: string[];
+  /**
+   * Faz 7c: the caller's tenant-RBAC capabilities, used to authorize the
+   * requested persona tier (`ai_personas:<tier>`) in AgentProfileService.
+   */
+  resourcePermissions: string[];
   schemaName: string;
   correlationId: string;
 }
@@ -153,11 +158,13 @@ export class AgentRunnerService {
       );
     }
 
-    // 4. Resolve agent profile
+    // 4. Resolve agent profile (persona tier authorized against the caller's
+    // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
+    // the ai_personas:<tier> grant).
     const profile = await this.profileService.resolveProfile(
       request.tenantId,
       request.persona,
-      request.userRoles,
+      { roles: request.userRoles, resourcePermissions: request.resourcePermissions },
     );
 
     // 5. Get or create conversation

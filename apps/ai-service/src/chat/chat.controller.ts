@@ -111,6 +111,8 @@ export class ChatController {
         tenantId,
         userId,
         userRoles,
+        // Faz 7c: authorize the persona tier against the caller's grants.
+        resourcePermissions: req.user?.resourcePermissions ?? [],
         schemaName,
         correlationId,
       };

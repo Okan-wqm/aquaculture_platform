@@ -48,46 +48,61 @@ describe('AgentProfileService persona authorization (AISAFETY-MEDIUM-013)', () =
     return moduleRef.get(AgentProfileService);
   };
 
-  it('a regular member (MODULE_USER) CANNOT reach the supervisor persona', async () => {
+  // A caller = platform roles (feed the admin bypass) + tenant-RBAC grants.
+  const caller = (roles: string[], resourcePermissions: string[]) => ({
+    roles,
+    resourcePermissions,
+  });
+
+  it('a member without ai_personas:supervisor CANNOT reach the supervisor persona', async () => {
     const service = await build();
     await expect(
-      service.resolveProfile(tenantId, 'supervisor-v1', ['MODULE_USER']),
+      service.resolveProfile(
+        tenantId,
+        'supervisor-v1',
+        caller(['MODULE_USER'], ['ai_personas:operator']),
+      ),
     ).rejects.toBeInstanceOf(PersonaNotPermittedError);
   });
 
-  it('a TENANT_ADMIN CAN reach the supervisor persona', async () => {
+  it('a TENANT_ADMIN bypasses and CAN reach the supervisor persona', async () => {
     const service = await build();
-    const profile = await service.resolveProfile(tenantId, 'supervisor-v1', [
-      'TENANT_ADMIN',
-    ]);
+    const profile = await service.resolveProfile(
+      tenantId,
+      'supervisor-v1',
+      caller(['TENANT_ADMIN'], []),
+    );
     expect(profile.persona.id).toBe('supervisor-v1');
   });
 
-  it('MODULE_MANAGER reaches expert but not supervisor', async () => {
+  it('a caller granted ai_personas:expert reaches expert but not supervisor', async () => {
     const service = await build();
+    const grants = ['ai_personas:operator', 'ai_personas:manager', 'ai_personas:expert'];
     await expect(
-      service.resolveProfile(tenantId, 'expert-v1', ['MODULE_MANAGER']),
+      service.resolveProfile(tenantId, 'expert-v1', caller(['MODULE_USER'], grants)),
     ).resolves.toMatchObject({ persona: { id: 'expert-v1' } });
     await expect(
-      service.resolveProfile(tenantId, 'supervisor-v1', ['MODULE_MANAGER']),
+      service.resolveProfile(tenantId, 'supervisor-v1', caller(['MODULE_USER'], grants)),
     ).rejects.toBeInstanceOf(PersonaNotPermittedError);
   });
 
-  it('the default operator persona is reachable by a plain member', async () => {
+  it('the operator persona is reachable by a caller granted ai_personas:operator', async () => {
     const service = await build();
-    const profile = await service.resolveProfile(tenantId, 'operator-v1', [
-      'MODULE_USER',
-    ]);
+    const profile = await service.resolveProfile(
+      tenantId,
+      'operator-v1',
+      caller(['MODULE_USER'], ['ai_personas:operator']),
+    );
     expect(profile.persona.id).toBe('operator-v1');
   });
 
-  it('an unknown/empty role set gets the lowest ceiling (fail-closed)', async () => {
+  it('a caller with no persona grants is denied every tier (fail-closed)', async () => {
     const service = await build();
     await expect(
-      service.resolveProfile(tenantId, 'manager-v1', []),
+      service.resolveProfile(tenantId, 'manager-v1', caller(['MODULE_USER'], [])),
     ).rejects.toBeInstanceOf(PersonaNotPermittedError);
     await expect(
-      service.resolveProfile(tenantId, 'manager-v1', ['SOME_UNKNOWN_ROLE']),
+      service.resolveProfile(tenantId, 'operator-v1', caller([], [])),
     ).rejects.toBeInstanceOf(PersonaNotPermittedError);
   });
 
@@ -117,9 +132,11 @@ describe('AgentProfileService persona authorization (AISAFETY-MEDIUM-013)', () =
     }).compile();
     const service = moduleRef.get(AgentProfileService);
 
-    const profile = await service.resolveProfile(tenantId, 'operator-v1', [
-      'MODULE_USER',
-    ]);
+    const profile = await service.resolveProfile(
+      tenantId,
+      'operator-v1',
+      caller(['MODULE_USER'], ['ai_personas:operator']),
+    );
     expect(profile.persona.model).toBe('claude-opus-4-8');
   });
 });

@@ -89,13 +89,19 @@ describe('AgentProfileService model resolution (FAZ0-BOOT-03)', () => {
 
   it('resolves the persona default model when no override is configured', async () => {
     const service = await buildService(undefined);
-    const profile = await service.resolveProfile(tenantId, 'operator-v1', ['MODULE_USER']);
+    const profile = await service.resolveProfile(tenantId, 'operator-v1', {
+      roles: ['MODULE_USER'],
+      resourcePermissions: ['ai_personas:operator'],
+    });
     expect(profile.persona.model).toBe('claude-haiku-4-5');
   });
 
   it('AI_CHAT_MODEL_OVERRIDE pins the model without mutating the shared persona singleton', async () => {
     const service = await buildService('claude-opus-4-8');
-    const profile = await service.resolveProfile(tenantId, 'expert-v1', ['TENANT_ADMIN']);
+    const profile = await service.resolveProfile(tenantId, 'expert-v1', {
+      roles: ['TENANT_ADMIN'],
+      resourcePermissions: [],
+    });
 
     expect(profile.persona.model).toBe('claude-opus-4-8');
     // Personas are module-level singletons shared across requests/tenants —

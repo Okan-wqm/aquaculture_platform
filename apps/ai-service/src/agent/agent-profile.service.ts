@@ -1,5 +1,9 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  hasResourcePermission,
+  type ResourcePermissionUser,
+} from '@aquaculture/backend-common/decorators';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { AgentRole } from '../tenant-config/agent-config.entity';
@@ -8,30 +12,7 @@ import { MANAGER_PERSONA } from './personas/manager';
 import { EXPERT_PERSONA } from './personas/expert';
 import { SUPERVISOR_PERSONA } from './personas/supervisor';
 
-/**
- * Persona tiers ordered by capability/risk. supervisor can act autonomously
- * (actuationPolicy 'allowed'), so it is the most privileged tier.
- */
-const TIER_RANK: Record<AgentRole, number> = {
-  operator: 0,
-  manager: 1,
-  expert: 2,
-  supervisor: 3,
-};
-
-/**
- * Ceiling: the highest persona tier a platform role may request. AISAFETY-MEDIUM-013:
- * a regular member (MODULE_USER) must never reach the autonomous supervisor
- * persona. Unknown/absent roles get the lowest ceiling (fail-closed).
- */
-const ROLE_TIER_CEILING: Record<string, AgentRole> = {
-  SUPER_ADMIN: 'supervisor',
-  TENANT_ADMIN: 'supervisor',
-  MODULE_MANAGER: 'expert',
-  MODULE_USER: 'operator',
-};
-
-/** Thrown when a user requests a persona above their role/tenant entitlement. */
+/** Thrown when a user requests a persona above their tenant-RBAC entitlement. */
 export class PersonaNotPermittedError extends ForbiddenException {
   constructor(personaId: string) {
     super(`Persona "${personaId}" is not permitted for this user`);
@@ -76,29 +57,28 @@ export class AgentProfileService {
    * Resolve effective profile:
    * Base Profile + tenant additions - tenant removals, filtered by module entitlements.
    *
-   * AISAFETY-MEDIUM-013: the resolved persona is authorized against the caller's
-   * platform-role ceiling before anything else runs, so a user cannot escalate
-   * into a higher-privilege persona (e.g. the autonomous supervisor) just by
-   * naming it in the request. The additional per-tenant persona allowlist that
-   * the audit row also mentioned is deferred to the tenant-configurable RBAC
-   * phase (Faz 7, `ai.persona.<tier>` capability) — enforcing it here with the
-   * ['operator']-only default while there is no admin write surface would brick
-   * manager/expert/supervisor for every tenant (including admins). The role
-   * ceiling is the actual escalation control and closes the finding's core.
+   * AISAFETY-MEDIUM-013 / Faz 7c: the resolved persona is authorized against the
+   * caller's tenant-RBAC capabilities (`ai_personas:<tier>`) before anything else
+   * runs, so a user cannot escalate into a higher-privilege persona (e.g. the
+   * autonomous supervisor) just by naming it. This replaces the earlier fixed
+   * platform-role ceiling with the tenant-configurable capability model: the
+   * tenant admin decides which role may drive which persona tier (seeded defaults
+   * grant operator to all, higher tiers to senior roles; supervisor stays
+   * admin-only). Admins bypass. Fail-closed.
    */
   async resolveProfile(
     tenantId: string,
     personaId: string,
-    userRoles: string[],
+    caller: ResourcePermissionUser,
   ): Promise<ResolvedProfile> {
     const config = await this.agentConfig.getConfig(tenantId);
     const basePersona =
       PERSONAS[personaId] ?? PERSONAS[config.baseProfileId] ?? OPERATOR_PERSONA;
 
-    // AISAFETY-MEDIUM-013: authorize the persona tier against the caller's role
-    // ceiling. Tier is derived from the RESOLVED persona (not the raw request
-    // string), so the fallback path is authorized too. Fail-closed.
-    this.assertPersonaPermitted(basePersona, userRoles);
+    // Authorize the persona tier against the caller's capabilities. Tier is
+    // derived from the RESOLVED persona (not the raw request string), so the
+    // fallback path is authorized too. Fail-closed.
+    this.assertPersonaPermitted(basePersona, caller);
 
     // Start with base tool names
     const toolNames = new Set(basePersona.defaultToolNames);
@@ -178,34 +158,21 @@ export class AgentProfileService {
       : 'supervisor';
   }
 
-  /** The highest persona tier the caller's roles permit (fail-closed default: operator). */
-  private userTierCeiling(userRoles: string[]): AgentRole {
-    let ceiling: AgentRole = 'operator';
-    for (const role of userRoles) {
-      const roleCeiling = ROLE_TIER_CEILING[role];
-      if (roleCeiling && TIER_RANK[roleCeiling] > TIER_RANK[ceiling]) {
-        ceiling = roleCeiling;
-      }
-    }
-    return ceiling;
-  }
-
   /**
-   * AISAFETY-MEDIUM-013: fail-closed persona authorization against the caller's
-   * role ceiling. A user cannot drive a persona above their role's tier. Throws
-   * PersonaNotPermittedError otherwise. (The per-tenant persona allowlist moves
-   * to Faz 7 RBAC — see resolveProfile.)
+   * AISAFETY-MEDIUM-013 / Faz 7c: fail-closed persona authorization against the
+   * caller's tenant-RBAC capability `ai_personas:<tier>`. A user cannot drive a
+   * persona tier they were not granted. Admins bypass (via the shared SSoT
+   * check). Throws PersonaNotPermittedError otherwise.
    */
   private assertPersonaPermitted(
     persona: AgentPersona,
-    userRoles: string[],
+    caller: ResourcePermissionUser,
   ): void {
     const tier = this.personaTier(persona);
 
-    const ceiling = this.userTierCeiling(userRoles);
-    if (TIER_RANK[tier] > TIER_RANK[ceiling]) {
+    if (!hasResourcePermission(caller, `ai_personas:${tier}`)) {
       this.logger.warn(
-        `Persona ${persona.id} (tier ${tier}) exceeds user role ceiling ${ceiling} for roles [${userRoles.join(', ')}]`,
+        `Persona ${persona.id} (tier ${tier}) not permitted — caller lacks ai_personas:${tier}`,
       );
       throw new PersonaNotPermittedError(persona.id);
     }

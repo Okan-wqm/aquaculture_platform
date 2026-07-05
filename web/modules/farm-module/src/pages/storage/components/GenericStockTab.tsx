@@ -81,7 +81,11 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
   }, [overview?.lowStockAlerts]);
 
   const items = inventory || [];
-  const lowStockCount = items.filter(item => lowStockByItemId.has(item.itemId)).length;
+  // Distinct ITEMS below minimum — inventory rows are per lot/location, so a
+  // row count would multiply one low feed by its number of lots.
+  const lowStockCount = new Set(
+    items.map(item => item.itemId).filter(id => lowStockByItemId.has(id)),
+  ).size;
 
   const filtered = items.filter(item => {
     const term = searchTerm.toLowerCase();

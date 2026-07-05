@@ -120,6 +120,32 @@ describe('DailyFeedingExecutionService.calculateDailyFeed — protocol precedenc
     expect(result.feedingRatePercent).not.toBe(DEFAULT_RATE);
   });
 
+  it('does NOT scale the protocol rate with a DEFAULTED temperature (fabricated 15C)', async () => {
+    // Temp band 10..20C carries multiplier 0.5 — if the fabricated default 15C
+    // leaked into the protocol branch the rate would halve. With
+    // usingDefaultTemperature the protocol must see NO temperature (multiplier 1).
+    const query = jest.fn((sql: string) => {
+      if (sql.includes('batches_v2')) return Promise.resolve([{ protocolId: PROTOCOL }]);
+      if (sql.includes('feeding_protocols')) {
+        return Promise.resolve([
+          {
+            growthStageProtocols: [
+              { minWeight: 50, maxWeight: 200, weightUnit: 'g', feedPercent: 2.2 },
+            ],
+            temperatureRanges: [{ min: 10, max: 20, unit: 'celsius', feedingMultiplier: 0.5 }],
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    const service = makeService(query);
+
+    const defaulted = { ...tankState(BATCH), waterTempC: 15, usingDefaultTemperature: true };
+    const result = await service.calculateDailyFeed(program, defaulted, programTank, TENANT);
+
+    expect(result.feedingRatePercent).toBe(2.2); // base × 1.0, NOT 1.1
+  });
+
   it('skips the protocol lookup entirely when the tank has no primary batch', async () => {
     const query = jest.fn().mockResolvedValue([]);
     const service = makeService(query);

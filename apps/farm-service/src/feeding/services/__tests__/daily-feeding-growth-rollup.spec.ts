@@ -38,13 +38,20 @@ function mock<T>(impl: Partial<T>): T {
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
-function execFixture(id: string, fedKg: number | null, fcr: number): DailyFeedingExecution {
+function execFixture(
+  id: string,
+  fedKg: number | null,
+  fcr: number,
+  over: Partial<DailyFeedingExecution> = {},
+): DailyFeedingExecution {
   return mock<DailyFeedingExecution>({
     id,
     equipmentId: 'tank-1',
     status: ExecutionStatus.COMPLETED,
     actualFeedKg: fedKg,
+    executionDate: new Date('2026-07-04T00:00:00.000Z'),
     calculations: mock<DailyFeedingExecution['calculations']>({ expectedFCR: fcr }),
+    ...over,
   });
 }
 
@@ -139,6 +146,37 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
 
     expect(result).toEqual({ tanksUpdated: 0, executionsRolledUp: 0 });
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('evaluates the held-back feed transition against the rolled-up weight (DAILY)', async () => {
+    const markFeedTransition = jest.fn();
+    const withProgram = execFixture('e1', 10, 2.0, {
+      feedingProgram: mock<DailyFeedingExecution['feedingProgram']>({ id: 'prog-1' }),
+      markFeedTransition,
+    });
+    const tankBatch = mock<TankBatch>({
+      tankId: 'tank-1',
+      currentQuantity: 1000,
+      currentBiomassKg: 100,
+      totalBiomassKg: 100,
+    });
+    const { manager } = makeManager([withProgram], tankBatch);
+    runInTenantTransaction.mockImplementation(
+      async (_ds, _s, _t, cb: (qr: { manager: EntityManager }) => Promise<unknown>) =>
+        cb({ manager }),
+    );
+    const service = makeService();
+    const transitionSpy = jest
+      .spyOn(service, 'checkAndExecuteTransitionWithManager')
+      .mockResolvedValue({ newFeedId: 'feed-2', newFeedCode: 'F2' });
+
+    await service.applyPendingDailyGrowth(TENANT);
+
+    // Transition evaluated once, against the NEW (rolled-up) average weight:
+    // 100kg + 10/2.0 = 105kg over 1000 fish → 105 g.
+    expect(transitionSpy).toHaveBeenCalledTimes(1);
+    expect(transitionSpy.mock.calls[0]?.[2]).toBeCloseTo(105, 5);
+    expect(markFeedTransition).toHaveBeenCalledWith('feed-2', 'F2');
   });
 
   it('stamps zero-fed (skipped-but-completed) executions without a weight update', async () => {

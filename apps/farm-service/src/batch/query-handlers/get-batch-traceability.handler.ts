@@ -15,7 +15,7 @@
  * @module Batch/QueryHandlers
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { QueryHandler, IQueryHandler, QueryBus } from '@platform/cqrs';
@@ -39,6 +39,12 @@ import {
 const MS_PER_DAY = 86_400_000;
 /** Upper bound for the composed event timeline — a report, not an infinite scroll. */
 const EVENT_LIMIT = 500;
+/**
+ * Upper bound on residency intervals aggregated per report (2 SQL aggregates
+ * each). Far above any realistic move count; when exceeded the report keeps the
+ * FIRST N chronologically and logs the truncation — never a silent cap.
+ */
+const RESIDENCY_LIMIT = 100;
 
 interface FeedAggRow {
   feedId: string;
@@ -62,6 +68,8 @@ function isoDate(d: Date): string {
 export class GetBatchTraceabilityHandler
   implements IQueryHandler<GetBatchTraceabilityQuery, BatchTraceabilityResult>
 {
+  private readonly logger = new Logger(GetBatchTraceabilityHandler.name);
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -112,39 +120,48 @@ export class GetBatchTraceabilityHandler
       const tankById = new Map(tanks.map((t) => [t.id, t]));
 
       const now = new Date();
-      const residencies: BatchResidency[] = [];
-      for (const loc of locations) {
-        const containerId = loc.tankId ?? loc.pondId;
-        if (!containerId) {
-          continue;
-        }
-        const windowEnd = loc.exitedAt ?? now;
-        const [water, feedRows] = await Promise.all([
-          this.aggregateWater(manager, tenantId, containerId, loc.movedAt, loc.exitedAt),
-          this.aggregateFeed(manager, tenantId, batchId, {
-            tankId: containerId,
-            fromDate: isoDate(loc.movedAt),
-            toDate: loc.exitedAt ? isoDate(loc.exitedAt) : undefined,
-          }),
-        ]);
-        const tank = tankById.get(containerId);
-        residencies.push({
-          tankId: containerId,
-          tankName: tank?.name,
-          tankCode: tank?.code,
-          movedAt: loc.movedAt,
-          exitedAt: loc.exitedAt ?? undefined,
-          isCurrent: loc.isCurrentLocation,
-          durationDays:
-            Math.round(((windowEnd.getTime() - loc.movedAt.getTime()) / MS_PER_DAY) * 10) / 10,
-          quantityAtEntry: loc.quantity,
-          avgWeightAtEntryG: loc.avgWeight != null ? Number(loc.avgWeight) : undefined,
-          transferReason: loc.transferReason ?? undefined,
-          water,
-          feed: feedRows,
-          feedTotalKg: Math.round(feedRows.reduce((s, f) => s + f.totalKg, 0) * 100) / 100,
-        });
+      if (locations.length > RESIDENCY_LIMIT) {
+        this.logger.warn(
+          `Batch ${batchId} has ${locations.length} residency intervals; report ` +
+            `aggregates the first ${RESIDENCY_LIMIT} chronologically.`,
+        );
       }
+      const bounded = locations
+        .filter((loc) => (loc.tankId ?? loc.pondId) != null)
+        .slice(0, RESIDENCY_LIMIT);
+      // Per-residency aggregates run CONCURRENTLY (2 bounded SQL aggregates each)
+      // instead of serially — wall clock is the slowest window, not the sum.
+      const residencies: BatchResidency[] = await Promise.all(
+        bounded.map(async (loc): Promise<BatchResidency> => {
+          const containerId = (loc.tankId ?? loc.pondId) as string;
+          const windowEnd = loc.exitedAt ?? now;
+          const [water, feedRows] = await Promise.all([
+            this.aggregateWater(manager, tenantId, containerId, loc.movedAt, loc.exitedAt),
+            this.aggregateFeed(manager, tenantId, batchId, {
+              tankId: containerId,
+              fromDate: isoDate(loc.movedAt),
+              toDate: loc.exitedAt ? isoDate(loc.exitedAt) : undefined,
+            }),
+          ]);
+          const tank = tankById.get(containerId);
+          return {
+            tankId: containerId,
+            tankName: tank?.name,
+            tankCode: tank?.code,
+            movedAt: loc.movedAt,
+            exitedAt: loc.exitedAt ?? undefined,
+            isCurrent: loc.isCurrentLocation,
+            durationDays:
+              Math.round(((windowEnd.getTime() - loc.movedAt.getTime()) / MS_PER_DAY) * 10) / 10,
+            quantityAtEntry: loc.quantity,
+            avgWeightAtEntryG: loc.avgWeight != null ? Number(loc.avgWeight) : undefined,
+            transferReason: loc.transferReason ?? undefined,
+            water,
+            feed: feedRows,
+            feedTotalKg: Math.round(feedRows.reduce((s, f) => s + f.totalKg, 0) * 100) / 100,
+          };
+        }),
+      );
 
       // ── Whole-batch feed totals ──────────────────────────────────────────
       const feedTotals = await this.aggregateFeed(manager, tenantId, batchId, {});
@@ -166,7 +183,6 @@ export class GetBatchTraceabilityHandler
       }
 
       const harvestedAt = batch.actualHarvestDate ?? undefined;
-      const endOfProduction = harvestedAt ? new Date(harvestedAt) : now;
 
       return {
         summary: {
@@ -174,12 +190,13 @@ export class GetBatchTraceabilityHandler
           batchNumber: batch.batchNumber,
           status: batch.status,
           speciesName: batch.species?.commonName ?? batch.species?.scientificName,
-          stockedAt: batch.createdAt,
+          // Canonical stocking date — the user-supplied stockedAt, NOT the DB
+          // row-creation time (backdated stockings would otherwise misreport).
+          stockedAt: batch.stockedAt ?? batch.createdAt,
           harvestedAt,
-          daysInProduction: Math.max(
-            0,
-            Math.floor((endOfProduction.getTime() - batch.createdAt.getTime()) / MS_PER_DAY),
-          ),
+          // Entity SSoT (stockedAt → harvest/now, Math.ceil) so the report can
+          // never disagree with the batch's own daysInProduction.
+          daysInProduction: Math.max(0, batch.getDaysInProduction()),
           initialQuantity: batch.initialQuantity,
           currentQuantity: batch.currentQuantity,
           initialAvgWeightG: batch.weight?.initial?.avgWeight,

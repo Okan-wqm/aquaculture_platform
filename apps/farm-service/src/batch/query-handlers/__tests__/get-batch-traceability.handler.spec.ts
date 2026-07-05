@@ -53,7 +53,9 @@ function makeManager(): EntityManager {
     id: BATCH,
     batchNumber: 'B-1',
     status: 'active' as Batch['status'],
-    createdAt: D0,
+    createdAt: new Date('2026-05-30T00:00:00.000Z'), // row-creation ≠ stocking
+    stockedAt: D0,
+    getDaysInProduction: () => 34,
     initialQuantity: 1000,
     currentQuantity: 900,
     protocolId: 'p-1',
@@ -116,6 +118,9 @@ describe('GetBatchTraceabilityHandler', () => {
 
     // Summary numbers
     expect(result.summary.batchNumber).toBe('B-1');
+    // Canonical stocking date + entity-SSoT DIP — NOT the row-creation time.
+    expect(result.summary.stockedAt).toEqual(D0);
+    expect(result.summary.daysInProduction).toBe(34);
     expect(result.summary.speciesName).toBe('Salmon');
     expect(result.summary.protocolName).toBe('Std Protocol');
     expect(result.summary.survivalRatePercent).toBe(90);

@@ -6,6 +6,19 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
+/**
+ * One production batch's share of a tank when several are combined (e.g.
+ * "B-1 + B-2"). Mirrors the backend TankBatch.batchDetails[] SSoT entry.
+ */
+export interface BatchDetail {
+  batchId: string;
+  batchNumber: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  percentageOfTank: number;
+}
+
 export interface CleanerFishDetail {
   batchId: string;
   batchNumber: string;
@@ -33,6 +46,7 @@ export interface TankBatchMetrics {
   capacityUsedPercent?: number;
   isOverCapacity?: boolean;
   isMixedBatch?: boolean;
+  batchDetails?: BatchDetail[];
   lastFeedingAt?: string;
   lastSamplingAt?: string;
   lastMortalityAt?: string;
@@ -174,6 +188,14 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
           capacityUsedPercent
           isOverCapacity
           isMixedBatch
+          batchDetails {
+            batchId
+            batchNumber
+            quantity
+            avgWeightG
+            biomassKg
+            percentageOfTank
+          }
           lastFeedingAt
           lastSamplingAt
           lastMortalityAt

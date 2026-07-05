@@ -29239,6 +29239,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-05-final-sweep-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-expert/2026-07-05-wc-persisted-schema-crash.md",
       "prettier_managed": true
     },
@@ -42730,6 +42736,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/tanks/__tests__/tank-converters.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/tanks/__tests__/TanksPage.spec.tsx",
       "prettier_managed": true
     },
@@ -49746,10 +49758,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8145,
+  "file_count": 8147,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 7970,
-  "managed_file_list_sha256": "d220e944003a4797b81f37dde599ceeb1b5d237991a204d20dded41b80be583a",
+  "managed_count": 7972,
+  "managed_file_list_sha256": "1805e1cad8097845625cefa853e6a9e4f4859e5eaa4b38030784d015337a0b16",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

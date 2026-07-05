@@ -3,7 +3,8 @@
  * Type definitions for the tanks listing page with customizable columns
  */
 
-import { Tank } from '../../hooks/useTanks';
+import { Tank, BatchDetail } from '../../hooks/useTanks';
+import { TankBatch } from '../production/types/batch.types';
 
 // ============================================================================
 // CONSTANTS
@@ -56,6 +57,7 @@ export interface TankWithBatch {
   batchNumber?: string;
   batchId?: string;
   isMixedBatch?: boolean;
+  batchDetails?: BatchDetail[];
 
   // Stock metrics
   pieces?: number;           // currentQuantity - fish count
@@ -179,6 +181,7 @@ export function tankToTankWithBatch(equipment: Tank): TankWithBatch {
     batchNumber: bm?.batchNumber,
     batchId: bm?.batchId,
     isMixedBatch: bm?.isMixedBatch || false,
+    batchDetails: bm?.batchDetails,
     pieces: bm?.pieces,
     avgWeight: bm?.avgWeight,
     biomass: bm?.biomass,
@@ -216,5 +219,32 @@ export function tankToTankWithBatch(equipment: Tank): TankWithBatch {
     cleanerFishBiomassKg: bm?.cleanerFishBiomassKg,
     cleanerFishDetails: bm?.cleanerFishDetails,
     hasCleanerFish: (bm?.cleanerFishQuantity || 0) > 0,
+  };
+}
+
+/**
+ * Convert TankWithBatch to the TankBatch shape the operation modals consume.
+ *
+ * Lives HERE (exported, next to tankToTankWithBatch) so a spec can pin that the
+ * PRODUCTION data path carries `batchDetails` end-to-end — the combined-batch
+ * scoping in the Mortality/Cull/Transfer/Grading modals is inert without it
+ * (that exact drop shipped once and made the feature dead in prod).
+ */
+export function tankWithBatchToTankBatch(tank: TankWithBatch): TankBatch {
+  return {
+    id: tank.batchId || tank.id,
+    tenantId: '',
+    equipmentId: tank.id,
+    tankName: tank.name,
+    tankCode: tank.code,
+    primaryBatchId: tank.batchId || undefined,
+    primaryBatchNumber: tank.batchNumber || undefined,
+    totalQuantity: tank.pieces || 0,
+    avgWeightG: tank.avgWeight || 0,
+    totalBiomassKg: tank.biomass || 0,
+    densityKgM3: tank.density || 0,
+    isMixedBatch: tank.isMixedBatch || false,
+    isOverCapacity: tank.isOverCapacity || false,
+    batchDetails: tank.batchDetails,
   };
 }

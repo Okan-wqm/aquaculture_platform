@@ -13,14 +13,17 @@
  *   - MANUAL: the latest MANUAL water-quality measurement carrying a temperature.
  * When neither exists the caller applies no temperature correction (multiplier 1.0).
  *
- * Reads are explicitly schema-qualified (`getTenantSchemaName`) rather than
- * relying on the request search_path, so the service is safe to call from the
- * daily-feeding cron (no request context) as well as GraphQL resolvers.
+ * Reads run inside `runInTenantRead` — the platform's fail-closed tenant
+ * boundary (UUID validation + pinned search_path + RLS-GUC assertion) — so the
+ * service is safe from the daily-feeding cron (no request context) AND carries
+ * no hand-built schema interpolation (GSEC-HIGH-001: the previous
+ * `"${schema}".table` raw reads were the only farm read path skipping the
+ * boundary; a schema string is never interpolated here again).
  */
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { DataSource, QueryRunner } from 'typeorm';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 export type WaterTemperatureSource = 'manual' | 'sensor';
 
@@ -28,6 +31,14 @@ export interface WaterTemperatureReading {
   celsius: number;
   source: WaterTemperatureSource;
 }
+
+/**
+ * Biologically plausible water-temperature bounds (°C) — the SSoT shared by the
+ * manual entry path and the sensor projection so no source can feed the
+ * feeding-rate calculation an absurd value.
+ */
+export const WATER_TEMPERATURE_MIN_C = -5;
+export const WATER_TEMPERATURE_MAX_C = 45;
 
 interface DatedTemperature {
   celsius: number;
@@ -52,48 +63,50 @@ export class WaterTemperatureService {
     tenantId: string,
     tankId: string,
   ): Promise<WaterTemperatureReading | null> {
-    const schema = getTenantSchemaName(tenantId);
-    const [sensor, manual] = await Promise.all([
-      this.getLinkedSensorTemperature(schema, tenantId, tankId),
-      this.getManualTemperature(schema, tenantId, tankId),
-    ]);
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const [sensor, manual] = await Promise.all([
+        this.getLinkedSensorTemperature(queryRunner, tenantId, tankId),
+        this.getManualTemperature(queryRunner, tenantId, tankId),
+      ]);
 
-    if (sensor && manual) {
-      return sensor.measuredAt >= manual.measuredAt
-        ? { celsius: sensor.celsius, source: 'sensor' }
-        : { celsius: manual.celsius, source: 'manual' };
-    }
-    if (sensor) {
-      return { celsius: sensor.celsius, source: 'sensor' };
-    }
-    if (manual) {
-      return { celsius: manual.celsius, source: 'manual' };
-    }
-    return null;
+      if (sensor && manual) {
+        return sensor.measuredAt >= manual.measuredAt
+          ? { celsius: sensor.celsius, source: 'sensor' as const }
+          : { celsius: manual.celsius, source: 'manual' as const };
+      }
+      if (sensor) {
+        return { celsius: sensor.celsius, source: 'sensor' as const };
+      }
+      if (manual) {
+        return { celsius: manual.celsius, source: 'manual' as const };
+      }
+      return null;
+    });
   }
 
   /**
    * Latest reading from the sensor linked to the container at creation, if any.
    * A container id resolves against the `tanks` table (tanks/ponds/cages) OR the
    * `equipment` table (other containers) — the equipment list unions both, so the
-   * id passed here can belong to either — hence the UNION subquery.
+   * id passed here can belong to either — hence the UNION subquery. Table names
+   * are unqualified: the pinned search_path routes them into the tenant schema.
    */
   private async getLinkedSensorTemperature(
-    schema: string,
+    queryRunner: QueryRunner,
     tenantId: string,
     tankId: string,
   ): Promise<DatedTemperature | null> {
-    const rows: DatedTemperatureRow[] = await this.dataSource.query(
+    const rows: DatedTemperatureRow[] = await queryRunner.manager.query(
       `SELECT stl."temperatureC" AS celsius, stl."measuredAt" AS "measuredAt"
-         FROM "${schema}".sensor_temperature_latest stl
+         FROM sensor_temperature_latest stl
         WHERE stl."tenantId" = $2
           AND stl."sensorId" = (
             SELECT s."temperatureSensorId"
               FROM (
-                SELECT "temperatureSensorId" FROM "${schema}".tanks
+                SELECT "temperatureSensorId" FROM tanks
                  WHERE "id" = $1 AND "tenantId" = $2
                 UNION ALL
-                SELECT "temperatureSensorId" FROM "${schema}".equipment
+                SELECT "temperatureSensorId" FROM equipment
                  WHERE "id" = $1 AND "tenantId" = $2
               ) s
              WHERE s."temperatureSensorId" IS NOT NULL
@@ -107,13 +120,13 @@ export class WaterTemperatureService {
 
   /** Latest manual water-quality measurement carrying a temperature, if any. */
   private async getManualTemperature(
-    schema: string,
+    queryRunner: QueryRunner,
     tenantId: string,
     tankId: string,
   ): Promise<DatedTemperature | null> {
-    const rows: DatedTemperatureRow[] = await this.dataSource.query(
+    const rows: DatedTemperatureRow[] = await queryRunner.manager.query(
       `SELECT "temperature" AS celsius, "measuredAt" AS "measuredAt"
-         FROM "${schema}".water_quality_measurements
+         FROM water_quality_measurements
         WHERE "tenantId" = $1
           AND ("tankId" = $2 OR "equipmentId" = $2)
           AND "temperature" IS NOT NULL

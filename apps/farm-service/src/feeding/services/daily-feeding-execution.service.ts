@@ -392,11 +392,15 @@ export class DailyFeedingExecutionService {
     // feeding protocol, its feedPercent(weight) × tempMultiplier drives the rate —
     // the SAME calculator the tanks-page DataLoader uses, so the daily plan and the
     // tanks page agree. FCR stays feed/program-derived (the protocol has no FCR model).
+    // A DEFAULTED temperature must not scale the protocol rate: the tanks page
+    // passes undefined when no reading exists (multiplier 1.0), and the daily
+    // plan must agree — the 15 °C fallback stays confined to the matrix/curve
+    // interpolation above, which needs SOME temperature to interpolate at all.
     const protocolRatePercent = await this.resolveProtocolRatePercent(
       tenantId,
       tankState.batchId,
       avgWeightG,
-      waterTempC,
+      usingDefaultTemperature ? undefined : waterTempC,
     );
     if (protocolRatePercent !== null) {
       feedingRatePercent = protocolRatePercent;
@@ -902,14 +906,22 @@ export class DailyFeedingExecutionService {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
       const pending = await manager.find(DailyFeedingExecution, {
-        where: { status: ExecutionStatus.COMPLETED, growthAppliedAt: IsNull() },
+        // tenantId predicate matches every sibling read: defense-in-depth beyond
+        // the pinned search_path (a future schema change must not fold tenants).
+        where: { tenantId, status: ExecutionStatus.COMPLETED, growthAppliedAt: IsNull() },
+        relations: { feedingProgram: true, feedingProgramTank: true },
       });
       if (pending.length === 0) {
         return { tanksUpdated: 0, executionsRolledUp: 0 };
       }
 
-      // Sum each tank's pending growth; carry every id so it can be stamped.
-      const byTank = new Map<string, { growthKg: number; ids: string[] }>();
+      // Sum each tank's pending growth; carry every id so it can be stamped, and
+      // the latest program-bearing execution so the feed transition the inline
+      // path skipped for DAILY can be evaluated against the rolled-up weight.
+      const byTank = new Map<
+        string,
+        { growthKg: number; ids: string[]; latest?: DailyFeedingExecution }
+      >();
       for (const exec of pending) {
         const entry = byTank.get(exec.equipmentId) ?? { growthKg: 0, ids: [] };
         const actualKg = exec.actualFeedKg;
@@ -918,12 +930,18 @@ export class DailyFeedingExecutionService {
           entry.growthKg += this.calculateGrowthFromFeeding(actualKg, fcr);
         }
         entry.ids.push(exec.id);
+        if (
+          exec.feedingProgram &&
+          (!entry.latest || exec.executionDate >= entry.latest.executionDate)
+        ) {
+          entry.latest = exec;
+        }
         byTank.set(exec.equipmentId, entry);
       }
 
       const now = new Date();
       let tanksUpdated = 0;
-      for (const [equipmentId, { growthKg }] of byTank) {
+      for (const [equipmentId, { growthKg, latest }] of byTank) {
         if (growthKg <= 0) {
           continue;
         }
@@ -948,6 +966,21 @@ export class DailyFeedingExecutionService {
           newAvgWeightG,
           tenantId,
         );
+        // DAILY held the feed-transition check back at recording time; evaluate
+        // it here against the rolled-up weight so transitions (programTank
+        // update + stats + audit) fire exactly once per day for DAILY programs.
+        if (latest) {
+          const transition = await this.checkAndExecuteTransitionWithManager(
+            manager,
+            latest,
+            newAvgWeightG,
+            tenantId,
+          );
+          if (transition) {
+            latest.markFeedTransition(transition.newFeedId, transition.newFeedCode);
+            await manager.save(latest);
+          }
+        }
         tanksUpdated += 1;
       }
 
@@ -1165,7 +1198,11 @@ export class DailyFeedingExecutionService {
    * @param tenantId Tenant ID
    * @returns Gecis yapildiysa yeni yem bilgisi, yoksa null
    */
-  private async checkAndExecuteTransitionWithManager(
+  /**
+   * @internal Shared transition seam — invoked inline by recordActualFeeding
+   * (PER_FEEDING) and by applyPendingDailyGrowth (DAILY roll-up).
+   */
+  async checkAndExecuteTransitionWithManager(
     manager: import('typeorm').EntityManager,
     execution: DailyFeedingExecution,
     newAvgWeightG: number,
@@ -1294,7 +1331,7 @@ export class DailyFeedingExecutionService {
     tenantId: string,
     batchId: string | undefined,
     avgWeightG: number,
-    waterTempC: number,
+    waterTempC: number | undefined,
   ): Promise<number | null> {
     if (!batchId) {
       return null;

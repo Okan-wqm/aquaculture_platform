@@ -23,6 +23,14 @@ import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type { BaseEvent, SensorReadingEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
+import {
+  WATER_TEMPERATURE_MAX_C,
+  WATER_TEMPERATURE_MIN_C,
+} from '../../water-quality/services/water-temperature.service';
+
+/** Max tolerated clock skew for a reading's timestamp (5 minutes). */
+const MAX_FUTURE_SKEW_MS = 5 * 60_000;
+
 @Injectable()
 export class SensorTemperatureProjectionListener implements IEventHandler<BaseEvent>, OnModuleInit {
   private readonly logger = new Logger(SensorTemperatureProjectionListener.name);
@@ -66,8 +74,33 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
     if (reading.readingTemperature == null || !isValidUUID(reading.sensorId)) {
       return;
     }
+    // Plausibility clamp (GSEC-MEDIUM-002): the projection feeds the feed-rate
+    // calculation, so a miscalibrated/poisoned sensor must not be able to store
+    // an absurd temperature. Same SSoT bounds as the manual entry path. A bad
+    // reading is DROPPED (not thrown) so it cannot DLQ-loop.
+    const temperature = reading.readingTemperature;
+    if (
+      !Number.isFinite(temperature) ||
+      temperature < WATER_TEMPERATURE_MIN_C ||
+      temperature > WATER_TEMPERATURE_MAX_C
+    ) {
+      this.logger.warn(
+        `SensorReading temperature ${String(temperature)} outside plausible bounds ` +
+          `(${WATER_TEMPERATURE_MIN_C}..${WATER_TEMPERATURE_MAX_C} °C) — reading dropped.`,
+      );
+      return;
+    }
     const measuredAt = new Date(event.timestamp);
     if (Number.isNaN(measuredAt.getTime())) {
+      return;
+    }
+    // Future-timestamp guard (GSEC-MEDIUM-002): the newest-wins upsert compares
+    // measuredAt, so a single far-future timestamp would pin a wrong temperature
+    // that legitimate later readings could never overwrite. Small skew allowed.
+    if (measuredAt.getTime() > Date.now() + MAX_FUTURE_SKEW_MS) {
+      this.logger.warn(
+        `SensorReading timestamp ${event.timestamp} is in the future — reading dropped.`,
+      );
       return;
     }
 

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Logger,
   Put,
@@ -19,17 +20,12 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Request } from 'express';
-import { Roles, Role } from '@aquaculture/backend-common/decorators';
+import { hasResourcePermission } from '@aquaculture/backend-common/decorators';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { JwtAuthGuard } from '../chat/guards/jwt-auth.guard';
 import { AgentConfigService } from './agent-config.service';
 import { LlmProviderId } from './agent-config.entity';
 import { LlmProviderFactory } from '../agent/providers/llm-provider.factory';
-
-interface TenantRequest extends Request {
-  tenantId?: string;
-  user?: { sub?: string; tenantId?: string; roles?: string[] };
-}
 
 /**
  * Update payload for a tenant's AI settings.
@@ -109,9 +105,16 @@ export class AgentConfigController {
   ) {}
 
   @Get()
-  @Roles(Role.TENANT_ADMIN)
   async getSettings(@Req() req: TenantRequest): Promise<AiSettingsView> {
     const tenantId = this.requireTenant(req);
+    // Tenant-RBAC (Faz 7c): reading AI settings (masked hints, provider, budget)
+    // needs ai_settings:view. Admins bypass; a tenant can delegate to any role.
+    this.assertCapability(req, 'ai_settings:view');
+    return this.buildView(tenantId);
+  }
+
+  /** Build the masked settings view. No auth — callers gate before invoking. */
+  private async buildView(tenantId: string): Promise<AiSettingsView> {
     const config = await this.agentConfig.getConfig(tenantId);
     const enablement = await this.agentConfig.resolveEnablement(tenantId);
 
@@ -129,12 +132,15 @@ export class AgentConfigController {
   }
 
   @Put()
-  @Roles(Role.TENANT_ADMIN)
   async updateSettings(
     @Req() req: TenantRequest,
     @Body() body: UpdateAiSettingsDto,
   ): Promise<AiSettingsView> {
     const tenantId = this.requireTenant(req);
+    // Tenant-RBAC (Faz 7c): writing AI settings — including the BYOK keys — needs
+    // ai_settings:manage. Admins bypass; by default only the Supervisor role
+    // carries this grant (a tenant admin can widen/narrow it in the role editor).
+    this.assertCapability(req, 'ai_settings:manage');
 
     const updates: Parameters<AgentConfigService['upsertConfig']>[1] = {};
     if (body.provider !== undefined) updates.provider = body.provider;
@@ -165,7 +171,9 @@ export class AgentConfigController {
 
     await this.agentConfig.upsertConfig(tenantId, updates);
     this.logger.log(`AI settings updated for tenant ${tenantId}`);
-    return this.getSettings(req);
+    // Read-back via buildView (not getSettings) — the caller already passed the
+    // manage gate; re-asserting view here would 403 a manage-only grant.
+    return this.buildView(tenantId);
   }
 
   /**
@@ -229,5 +237,21 @@ export class AgentConfigController {
       throw new UnauthorizedException('Tenant context required');
     }
     return tenantId;
+  }
+
+  /**
+   * Tenant-RBAC capability gate. Uses the shared SSoT check (admins bypass;
+   * otherwise the capability must be in the user's resourcePermissions, threaded
+   * to ai-service via the verified assertion — SEC-HIGH-054). Throws 403 on deny.
+   * Programmatic (not @RequireTenantPermission) because ai-service does not
+   * register TenantPermissionGuard globally — same shape as the messaging
+   * createChannel gate, one SSoT.
+   */
+  private assertCapability(req: TenantRequest, capability: string): void {
+    if (!hasResourcePermission(req.user, capability)) {
+      throw new ForbiddenException(
+        `Missing required permission: ${capability}`,
+      );
+    }
   }
 }

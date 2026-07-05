@@ -1,5 +1,9 @@
 import 'reflect-metadata';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AgentConfigController } from '../agent-config.controller';
 
 /**
@@ -26,6 +30,13 @@ describe('AgentConfigController (BYOK settings)', () => {
 
   const req = (tenantId?: string) =>
     ({ tenantId, user: { sub: 'u1', tenantId, roles: ['TENANT_ADMIN'] } }) as never;
+
+  // A non-admin member with an explicit tenant-RBAC grant set.
+  const memberReq = (tenantId: string, resourcePermissions: string[]) =>
+    ({
+      tenantId,
+      user: { sub: 'u2', tenantId, roles: ['MODULE_USER'], resourcePermissions },
+    }) as never;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -105,6 +116,35 @@ describe('AgentConfigController (BYOK settings)', () => {
   it('requires a tenant context (no tenant → Unauthorized)', async () => {
     await expect(controller.getSettings(req(undefined))).rejects.toBeInstanceOf(
       UnauthorizedException,
+    );
+  });
+
+  // -- Tenant-RBAC capability gate (Faz 7c) ---------------------------------
+  it('getSettings forbids a member without ai_settings:view', async () => {
+    await expect(
+      controller.getSettings(memberReq('t1', [])),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(agentConfig.getConfig).not.toHaveBeenCalled();
+  });
+
+  it('updateSettings forbids a member holding only ai_settings:view (needs manage)', async () => {
+    await expect(
+      controller.updateSettings(
+        memberReq('t1', ['ai_settings:view']),
+        { isEnabled: true } as never,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(agentConfig.upsertConfig).not.toHaveBeenCalled();
+  });
+
+  it('allows a non-admin member granted ai_settings:manage to write (delegation)', async () => {
+    await controller.updateSettings(
+      memberReq('t1', ['ai_settings:manage']),
+      { isEnabled: true } as never,
+    );
+    expect(agentConfig.upsertConfig).toHaveBeenCalledWith(
+      't1',
+      expect.objectContaining({ isEnabled: true }),
     );
   });
 });

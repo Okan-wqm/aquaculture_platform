@@ -98,6 +98,12 @@ export interface JwtUser {
    * enforcement. Populated from the verified assertion / direct JWT.
    */
   planLevel?: number;
+  /**
+   * MT-HIGH-054: tenant-RBAC capability strings (`resource:action`) the user is
+   * granted. Populated from the verified assertion / direct JWT (SEC-HIGH-054).
+   * Read by TenantPermissionGuard and programmatic hasResourcePermission checks.
+   */
+  resourcePermissions?: string[];
 }
 
 /**

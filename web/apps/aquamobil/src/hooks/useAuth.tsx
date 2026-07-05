@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactElement, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
 
 import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
@@ -9,6 +9,7 @@ import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
 import { runAsyncAction } from '@/utils/async-action';
 import { logger } from '@/utils/logger';
+import { decodeResourcePermissions } from '@/utils/jwt-claims';
 import { normalizeRole } from '@/utils/normalize-role';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -30,6 +31,14 @@ interface AuthContextValue extends AuthState {
   }) => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  /**
+   * Tenant-RBAC capability check (`resource:action`) against the current access
+   * token's `resourcePermissions` claim — the same JWT claim SSoT the panel
+   * uses. Admins bypass (mirrors the backend TenantPermissionGuard). Drives
+   * action/UI visibility; the backend enforces every action independently.
+   * Distinct from useMobilePermissions, which gates mobile feature entitlements.
+   */
+  hasPermission: (permission: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -222,6 +231,14 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileDisabled, setIsMobileDisabled] = useState(false);
+
+  // Tenant-RBAC capabilities for UI visibility, decoded once from the current
+  // access token (the same JWT `resourcePermissions` claim the panel reads).
+  // Re-derives only when the token changes (login / refresh).
+  const resourcePermissions = useMemo(
+    () => decodeResourcePermissions(state.accessToken),
+    [state.accessToken],
+  );
 
   // On mount: attempt silent refresh via httpOnly cookie
   useEffect(() => {
@@ -627,6 +644,19 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     syncAuthStore(state.accessToken, state.tenantId, refreshAuthForInterceptor, logoutRef.current);
   }, [state.accessToken, state.tenantId, refreshAuthForInterceptor]);
 
+  const hasPermission = useCallback(
+    (permission: string): boolean => {
+      const role = state.user?.role;
+      if (!role) return false;
+      // SUPER_ADMIN / TENANT_ADMIN bypass — mirrors the backend
+      // TenantPermissionGuard (their tokens carry no resourcePermissions).
+      if (role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN') return true;
+      // Fail-closed: no grant → hidden. Backend re-checks on the action.
+      return resourcePermissions.includes(permission);
+    },
+    [state.user?.role, resourcePermissions],
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -637,6 +667,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
         loginWithToken,
         logout,
         refreshAuth,
+        hasPermission,
       }}
     >
       {children}

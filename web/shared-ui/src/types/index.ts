@@ -36,6 +36,12 @@ export interface User {
   tenantId?: string | null;
   isActive: boolean;
   isEmailVerified?: boolean;
+  /**
+   * Tenant-RBAC capabilities (`resource:action` strings) granted to this user,
+   * decoded from the access token. Drives FE action/UI visibility via
+   * useAuth().hasPermission; the backend enforces independently.
+   */
+  resourcePermissions?: string[];
   // Profile fields
   profileImageUrl?: string | null;
   phoneNumber?: string | null;

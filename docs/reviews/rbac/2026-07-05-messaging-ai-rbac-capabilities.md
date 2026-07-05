@@ -1,0 +1,64 @@
+# Messaging + AI RBAC Capabilities — Review of Record
+
+- **Date:** 2026-07-05
+- **Driver:** platform owner — tenant-configurable RBAC (each tenant admin decides who-can-do-what; members see only granted actions). Plan Faz 7.
+
+## Duplicate check first (per owner directive: never duplicate — improve the existing)
+
+Investigation found the tenant-configurable RBAC is **already built and wired end to end** — it must be EXTENDED, not re-implemented:
+
+| Concern | Existing implementation |
+|---|---|
+| Capability catalogue SSoT | `PERMISSION_CATEGORIES` (`apps/auth-service/src/modules/tenant/services/tenant-role.service.ts`) — category → resources → actions; wire string `resourceKey:action` |
+| Storage | `auth.tenant_roles` / `auth.tenant_role_permissions` / `auth.user_role_assignments` |
+| Token-mint resolution | `TokenService.getUserResourcePermissions` JOINs the tables → `resourcePermissions` JWT claim (cached) |
+| Enforcement | `@RequireTenantPermission` + `TenantPermissionGuard` (`libs/backend-common`); gateway `permission.guard` |
+| Default seeding | `DEFAULT_TENANT_ROLES` + `DEFAULT_ROLE_PERMISSIONS` + `seedDefaultRoles`; provisioning wildcard admin |
+| Tenant-admin CRUD | `tenant-role.resolver` (GraphQL) + FE `web/modules/tenant-admin` (RoleManagementPage, TenantRolesPage, RoleModal, useTenantRoles) |
+
+An earlier attempt to add a parallel catalogue + resolver in `libs/backend-common/src/rbac` (PR #884) was a **duplicate of this system** and was closed.
+
+## Real gap
+
+| ID | Sev | Finding | State |
+|---|---|---|---|
+| MT-HIGH-053 | HIGH | `PERMISSION_CATEGORIES` (the RBAC catalogue SSoT) had ZERO messaging + AI capabilities — the new WhatsApp-like messaging and AI-assistant/BYOK features were entirely ungovernable by tenant RBAC (a tenant admin could neither grant nor restrict them), and seeded roles granted none of them | RESOLVED (this) |
+| MT-HIGH-054 | HIGH | Hardcoded feature gates not yet routed through the capability check: group creation (`create-channel.handler` MODULE_MANAGER gate, MSG-MEDIUM-070) → `channels:create_group`; AI persona tier (AISAFETY-MEDIUM-013) → `ai_personas:<tier>`; AI settings CRUD → `ai_settings:manage`; AI chat → `ai_assistant:use` | OPEN (Faz 7c backend) |
+| MT-MEDIUM-055 | MEDIUM | FE permission visibility was DEAD: `useAuth().hasPermission` (panel/shared-ui) was a stub returning false for everyone except SUPER_ADMIN ("İzin tabanlı kontrol ileride eklenebilir"), and the mobile PWA had no tenant-capability check at all — so members could not be shown only their granted actions | RESOLVED (this) |
+
+## Delivered (MT-HIGH-053)
+
+Extended the existing SSoT in `tenant-role.service.ts` — nothing parallel:
+- **`PERMISSION_CATEGORIES`** gains two categories with globally-unique resource keys (the wire string is `resourceKey:action`, so keys must not collide — AI settings is `ai_settings`, never `settings`):
+  - `messaging` → `channels` (`view`, `create_group`, `create_dm`, `manage`), `messages` (`send`)
+  - `ai` → `ai_assistant` (`use`), `ai_settings` (`view`, `manage`), `ai_personas` (`operator`, `manager`, `expert`, `supervisor`)
+- **`DEFAULT_ROLE_PERMISSIONS`** grants messaging/AI to all five seeded roles at sensible tiers (member-floor is WhatsApp-like: chat + DM + group + operator persona; Supervisor also gets `ai_settings:manage` and the manager/expert persona tiers; Viewer can DM + chat but not start groups).
+
+Because `permissionCategories` (query) and the FE role editor are **data-driven**, the tenant-admin role UI now shows the messaging/AI capabilities automatically — no FE change. `TokenService` resolves them into `resourcePermissions` and `TenantPermissionGuard` enforces them with no code change.
+
+New spec `permission-catalogue.spec.ts` locks the coverage in and adds the previously-unguarded **global resource-key-uniqueness invariant** (a collision would silently merge permissions across features).
+
+## Delivered (MT-MEDIUM-055) — FE permission visibility
+
+The FE capability check was dead code; both surfaces now read the **same JWT `resourcePermissions` claim SSoT** (minted by `TokenService`) at their own trust boundary — no parallel permission model:
+- **Panel / shared-ui:** `useAuth().hasPermission` was a stub (false for all but SUPER_ADMIN). Implemented it against `user.resourcePermissions` (SUPER_ADMIN + TENANT_ADMIN bypass, mirroring `TenantPermissionGuard`); `resourcePermissions` is decoded from the access token in `AuthContext.fetchMe` (`decodeResourcePermissions`, token-lifecycle) and attached to the user.
+- **Mobile PWA (standalone):** added `hasPermission` to its own `useAuth` (the PWA does not depend on shared-ui by design), decoding the same claim via a local `jwt-claims` helper — kept distinct from `useMobilePermissions`, which gates a different concern (mobile feature entitlements from `mobile_user_settings`, not tenant RBAC).
+- **Concrete gate:** the AquaMobil "New Group" entry (`NewChatPage`) is now gated on `channels:create_group` — a member without the grant sees DM + AI but not group creation. UI visibility only; the backend re-checks on create.
+
+Fail-closed throughout (missing/garbage claim → no capabilities → nothing extra shown). New spec `token-lifecycle.decode.spec.ts` (6 cases) locks the security-relevant decode.
+
+## Delivered (MT-MEDIUM-056) — FE AI-surface visibility
+
+The AquaMobil NewChatPage AI section is now gated the same way the ai-service
+backend gates chat + persona (AISAFETY-HIGH-022/023): the "AI Assistants" section
+shows only when the user has `ai_assistant:use`, and each persona card shows only
+when the user may drive its tier (`ai_personas:<tier>`, derived from the persona
+id prefix; id-less/unknown → operator). Reads the same JWT `resourcePermissions`
+claim SSoT via useAuth().hasPermission; UI visibility only — the backend re-checks
+on chat. Completes the mobile FE half of Faz 7c.
+
+## Deploy prerequisite (MT-HIGH-057) — existing-tenant capability backfill
+
+| ID | Sev | Finding | Required fix |
+|---|---|---|---|
+| MT-HIGH-057 | HIGH | Existing tenants' roles were seeded BEFORE the messaging/AI capabilities existed, and `seedDefaultRoles` skips when any role already exists. So their `tenant_role_permissions` lack `channels:create_group`, `messages:send`, `ai_assistant:use`, `ai_personas:*`, `ai_settings:*`. Deploying the Faz 7c enforcement (MSG-HIGH-076, AISAFETY-HIGH-022/023) BEFORE a backfill would fail-closed every non-admin member out of group creation AND the AI assistant. | An auth-schema data migration: for each existing `auth.tenant_roles` whose name matches a `DEFAULT_TENANT_ROLES` template, merge that role's new messaging/AI grants from `DEFAULT_ROLE_PERMISSIONS` into `tenant_role_permissions.panel_permissions` + `resource_permissions` (additive; never remove a tenant's custom grants). Custom/renamed roles are the tenant admin's responsibility (they add grants in the role editor). Idempotent. MUST land with — or before — the enforcement deploy. |

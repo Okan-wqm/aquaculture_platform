@@ -122,12 +122,18 @@ export function useAuth(): UseAuthReturn {
 
   // İzin kontrolü - rol hiyerarşisine göre
   const hasPermission = useCallback(
-    (_permission: string): boolean => {
+    (permission: string): boolean => {
       if (!user) return false;
-      // Basit izin kontrolü: SUPER_ADMIN her şeye erişebilir
-      if (user.role === 'SUPER_ADMIN') return true;
-      // İzin tabanlı kontrol ileride eklenebilir
-      return false;
+      // SUPER_ADMIN and TENANT_ADMIN have full access — mirrors the backend
+      // TenantPermissionGuard, which bypasses both (their tokens carry no
+      // resourcePermissions precisely because they need none).
+      if (user.role === 'SUPER_ADMIN' || user.role === 'TENANT_ADMIN') {
+        return true;
+      }
+      // Tenant-RBAC capability check against the granted set decoded from the
+      // access token. Fail-closed: no grant → hidden. The backend still
+      // enforces every action independently (this only drives UI visibility).
+      return user.resourcePermissions?.includes(permission) ?? false;
     },
     [user]
   );

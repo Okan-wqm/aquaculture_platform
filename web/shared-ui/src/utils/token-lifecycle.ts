@@ -92,6 +92,36 @@ function decodeJwtExp(token: string): number | null {
   }
 }
 
+/**
+ * Decode the tenant-RBAC `resourcePermissions` claim (array of `resource:action`
+ * capability strings) from a JWT payload. Does NOT verify the signature — this
+ * is for UI visibility only (show/hide granted actions); the backend
+ * TenantPermissionGuard independently enforces every action. The claim is
+ * omitted from the token when empty (and for admins, who bypass), so a missing
+ * or malformed claim yields an empty list (fail-closed for UI: nothing extra
+ * shown). Exported so the auth layer can attach it to the current user.
+ */
+export function decodeResourcePermissions(token: string): string[] {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return [];
+
+    const payload = parts[1];
+    const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const parsed = JSON.parse(atob(padded));
+
+    if (
+      Array.isArray(parsed.resourcePermissions) &&
+      parsed.resourcePermissions.every((p: unknown) => typeof p === 'string')
+    ) {
+      return parsed.resourcePermissions as string[];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 // ============================================================================
 // Implementation
 // ============================================================================

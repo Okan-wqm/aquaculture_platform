@@ -157,6 +157,7 @@ export class AgentRunnerService {
     const profile = await this.profileService.resolveProfile(
       request.tenantId,
       request.persona,
+      request.userRoles,
     );
 
     // 5. Get or create conversation

@@ -1,11 +1,42 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
+import { AgentRole } from '../tenant-config/agent-config.entity';
 import { OPERATOR_PERSONA } from './personas/operator';
 import { MANAGER_PERSONA } from './personas/manager';
 import { EXPERT_PERSONA } from './personas/expert';
 import { SUPERVISOR_PERSONA } from './personas/supervisor';
+
+/**
+ * Persona tiers ordered by capability/risk. supervisor can act autonomously
+ * (actuationPolicy 'allowed'), so it is the most privileged tier.
+ */
+const TIER_RANK: Record<AgentRole, number> = {
+  operator: 0,
+  manager: 1,
+  expert: 2,
+  supervisor: 3,
+};
+
+/**
+ * Ceiling: the highest persona tier a platform role may request. AISAFETY-MEDIUM-013:
+ * a regular member (MODULE_USER) must never reach the autonomous supervisor
+ * persona. Unknown/absent roles get the lowest ceiling (fail-closed).
+ */
+const ROLE_TIER_CEILING: Record<string, AgentRole> = {
+  SUPER_ADMIN: 'supervisor',
+  TENANT_ADMIN: 'supervisor',
+  MODULE_MANAGER: 'expert',
+  MODULE_USER: 'operator',
+};
+
+/** Thrown when a user requests a persona above their role/tenant entitlement. */
+export class PersonaNotPermittedError extends ForbiddenException {
+  constructor(personaId: string) {
+    super(`Persona "${personaId}" is not permitted for this user`);
+  }
+}
 
 export interface AgentPersona {
   id: string;
@@ -43,15 +74,28 @@ export class AgentProfileService {
 
   /**
    * Resolve effective profile:
-   * Base Profile + tenant additions - tenant removals, filtered by module entitlements
+   * Base Profile + tenant additions - tenant removals, filtered by module entitlements.
+   *
+   * AISAFETY-MEDIUM-013: the resolved persona is authorized against BOTH the
+   * tenant's applicableRoles allowlist AND the caller's platform-role ceiling
+   * before anything else runs, so a user cannot escalate into a higher-privilege
+   * persona (e.g. the autonomous supervisor) just by naming it in the request.
    */
   async resolveProfile(
     tenantId: string,
     personaId: string,
+    userRoles: string[],
   ): Promise<ResolvedProfile> {
     const config = await this.agentConfig.getConfig(tenantId);
     const basePersona =
       PERSONAS[personaId] ?? PERSONAS[config.baseProfileId] ?? OPERATOR_PERSONA;
+
+    // AISAFETY-MEDIUM-013: authorize the persona tier. The tier is derived from
+    // the RESOLVED persona (not the raw request string), so the fallback path
+    // is authorized too. Two independent gates, both must pass (fail-closed):
+    //   1. tenant allowlist — config.applicableRoles enables this tier
+    //   2. user ceiling     — the caller's highest role permits this tier
+    this.assertPersonaPermitted(basePersona, config.applicableRoles, userRoles);
 
     // Start with base tool names
     const toolNames = new Set(basePersona.defaultToolNames);
@@ -109,6 +153,60 @@ export class AgentProfileService {
 
   getAllPersonas(): AgentPersona[] {
     return Object.values(PERSONAS);
+  }
+
+  /**
+   * The capability tier of a persona, derived from its id prefix
+   * ('supervisor-v1' → 'supervisor'). Unknown prefixes fall back to the lowest
+   * tier so a mis-named persona can never be treated as more privileged.
+   */
+  private personaTier(persona: AgentPersona): AgentRole {
+    const prefix = persona.id.split('-')[0];
+    return prefix === 'manager' ||
+      prefix === 'expert' ||
+      prefix === 'supervisor'
+      ? prefix
+      : 'operator';
+  }
+
+  /** The highest persona tier the caller's roles permit (fail-closed default: operator). */
+  private userTierCeiling(userRoles: string[]): AgentRole {
+    let ceiling: AgentRole = 'operator';
+    for (const role of userRoles) {
+      const roleCeiling = ROLE_TIER_CEILING[role];
+      if (roleCeiling && TIER_RANK[roleCeiling] > TIER_RANK[ceiling]) {
+        ceiling = roleCeiling;
+      }
+    }
+    return ceiling;
+  }
+
+  /**
+   * AISAFETY-MEDIUM-013: fail-closed persona authorization. Denies unless BOTH
+   * the tenant allowlist enables the tier AND the caller's role ceiling reaches
+   * it. Throws PersonaNotPermittedError otherwise.
+   */
+  private assertPersonaPermitted(
+    persona: AgentPersona,
+    applicableRoles: AgentRole[],
+    userRoles: string[],
+  ): void {
+    const tier = this.personaTier(persona);
+
+    if (!applicableRoles.includes(tier)) {
+      this.logger.warn(
+        `Persona ${persona.id} (tier ${tier}) not in tenant applicableRoles [${applicableRoles.join(', ')}]`,
+      );
+      throw new PersonaNotPermittedError(persona.id);
+    }
+
+    const ceiling = this.userTierCeiling(userRoles);
+    if (TIER_RANK[tier] > TIER_RANK[ceiling]) {
+      this.logger.warn(
+        `Persona ${persona.id} (tier ${tier}) exceeds user role ceiling ${ceiling} for roles [${userRoles.join(', ')}]`,
+      );
+      throw new PersonaNotPermittedError(persona.id);
+    }
   }
 
   private resolveActuationPolicy(

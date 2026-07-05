@@ -63,6 +63,9 @@ describe('AgentProfileService model resolution (FAZ0-BOOT-03)', () => {
               blockedToolNames: [],
               actuationPolicy: 'confirm_required',
               customSystemPrompt: null,
+              // Tenant enables all tiers for these model-resolution tests; the
+              // persona-authorization spec covers the allowlist/ceiling gates.
+              applicableRoles: ['operator', 'manager', 'expert', 'supervisor'],
             }),
           },
         },
@@ -86,13 +89,13 @@ describe('AgentProfileService model resolution (FAZ0-BOOT-03)', () => {
 
   it('resolves the persona default model when no override is configured', async () => {
     const service = await buildService(undefined);
-    const profile = await service.resolveProfile(tenantId, 'operator-v1');
+    const profile = await service.resolveProfile(tenantId, 'operator-v1', ['MODULE_USER']);
     expect(profile.persona.model).toBe('claude-haiku-4-5');
   });
 
   it('AI_CHAT_MODEL_OVERRIDE pins the model without mutating the shared persona singleton', async () => {
     const service = await buildService('claude-opus-4-8');
-    const profile = await service.resolveProfile(tenantId, 'expert-v1');
+    const profile = await service.resolveProfile(tenantId, 'expert-v1', ['TENANT_ADMIN']);
 
     expect(profile.persona.model).toBe('claude-opus-4-8');
     // Personas are module-level singletons shared across requests/tenants —

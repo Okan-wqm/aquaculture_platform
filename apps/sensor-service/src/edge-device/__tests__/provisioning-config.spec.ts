@@ -17,6 +17,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { DeviceEvent } from '../entities/device-event.entity';
 import {
@@ -88,6 +89,42 @@ const mockMqttAuthService = {
 };
 
 // ---------------------------------------------------------------------------
+// DataSource mock — the service looks devices up via raw cross-schema SQL
+// (findDeviceAcrossSchemas) and mutates them inside transactions. The mock
+// bridges both paths back to the deviceRepository mock so the per-test
+// `deviceRepo.findOne.mockResolvedValue*` arrangements keep working.
+// ---------------------------------------------------------------------------
+const toSnakeCaseRow = (entity: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(entity).map(([key, value]) => [
+      key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`),
+      value,
+    ]),
+  );
+
+const createMockDataSource = (deviceRepository: ReturnType<typeof createMockRepository>) => ({
+  query: jest.fn(async (sql: string) => {
+    if (sql.includes('information_schema.schemata')) {
+      return [{ schema_name: 'tenant_0123456789abcdef' }];
+    }
+    if (sql.includes('edge_devices')) {
+      const device: Record<string, unknown> | null = await deviceRepository.findOne({});
+      return device ? [toSnakeCaseRow(device)] : [];
+    }
+    return [];
+  }),
+  transaction: jest.fn(async (cb: (manager: unknown) => Promise<unknown>) =>
+    cb({
+      query: jest.fn().mockResolvedValue(undefined),
+      save: deviceRepository.save,
+      findOne: deviceRepository.findOne,
+      update: jest.fn().mockResolvedValue(undefined),
+      getRepository: jest.fn().mockReturnValue(deviceRepository),
+    }),
+  ),
+});
+
+// ---------------------------------------------------------------------------
 // Helper: build a mock EdgeDevice
 // ---------------------------------------------------------------------------
 const buildMockDevice = (overrides: Partial<EdgeDevice> = {}): EdgeDevice =>
@@ -136,6 +173,7 @@ describe('ProvisioningService - Config Management', () => {
         { provide: getRepositoryToken(EdgeDevice), useValue: deviceRepo },
         { provide: getRepositoryToken(TenantProvisioningKey), useValue: tenantKeyRepo },
         { provide: getRepositoryToken(DeviceEvent), useValue: deviceEventRepo },
+        { provide: DataSource, useValue: createMockDataSource(deviceRepo) },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: MqttAuthService, useValue: mockMqttAuthService },
       ],
@@ -174,7 +212,10 @@ describe('ProvisioningService - Config Management', () => {
       // Script should contain the admin API config values
       expect(script).toContain(adminConfig.provisioningApiUrl);
       expect(script).toContain(adminConfig.agentDefaultVersion);
-      expect(script).toContain(adminConfig.githubRepo);
+      // The GitHub repo is pinned from env (EDGE_AGENT_GITHUB_REPO) — the remote
+      // config is never trusted for the repo URL (supply-chain hardening)
+      expect(script).toContain('TestOrg/test-repo');
+      expect(script).not.toContain(adminConfig.githubRepo);
     });
 
     it('should return cached config within TTL', async () => {
@@ -290,7 +331,8 @@ describe('ProvisioningService - Config Management', () => {
 
       expect(script).toContain('https://api.test.com');
       expect(script).toContain('4.0.0');
-      expect(script).toContain('TestOrg/edge-agent');
+      // Repo comes from the pinned env value, not from the admin API response
+      expect(script).toContain('TestOrg/test-repo');
       expect(script).toContain(device.deviceCode);
       expect(script).toContain(device.provisioningToken!);
     });
@@ -312,9 +354,11 @@ describe('ProvisioningService - Config Management', () => {
 
       const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
-      expect(script).toContain('suderra-agent-x86_64-linux');
-      expect(script).toContain('suderra-agent-aarch64-linux');
-      expect(script).toContain('suderra-agent-armv7-linux');
+      expect(script).toContain('TARGET_SLUG="x86_64-linux"');
+      expect(script).toContain('TARGET_SLUG="aarch64-linux"');
+      expect(script).toContain('TARGET_SLUG="armv7-linux"');
+      // Versioned tarball name: suderra-agent-<version>-<slug>.tar.gz
+      expect(script).toContain('suderra-agent-${RELEASE_VERSION}-${TARGET_SLUG}.tar.gz');
     });
 
     it('should reject expired token', async () => {

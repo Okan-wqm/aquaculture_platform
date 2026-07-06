@@ -63,6 +63,22 @@ registerEnumType(TagDataType, {
 });
 
 /**
+ * Registry lifecycle state. `retired` tags stop resolving for NEW bindings
+ * without deleting the row (existing deploy artifacts may still reference
+ * them for audit/rollback).
+ */
+export enum TagStatus {
+  DRAFT = 'draft',
+  ACTIVE = 'active',
+  RETIRED = 'retired',
+}
+
+registerEnumType(TagStatus, {
+  name: 'TagStatus',
+  description: 'Lifecycle state of a registry tag',
+});
+
+/**
  * Source information for a unified tag
  */
 export interface TagSource {
@@ -126,6 +142,15 @@ export class UnifiedTag {
   @Field(() => TagDirection)
   @Column({ type: 'enum', enum: TagDirection, default: TagDirection.INPUT })
   direction!: TagDirection;
+
+  @Field(() => TagStatus)
+  @Column({ type: 'enum', enum: TagStatus, default: TagStatus.ACTIVE })
+  status!: TagStatus;
+
+  /** Bumped on every registry edit; binding snapshots record the revision they resolved against. */
+  @Field()
+  @Column({ type: 'int', default: 1 })
+  revision!: number;
 
   @Field({ nullable: true })
   @Column({ name: 'eng_unit', length: 20, nullable: true })

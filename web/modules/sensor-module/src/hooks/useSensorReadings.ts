@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { useScadaStore, SensorReading, SensorType, SensorStatus, ScadaProcess } from '../store/scadaStore';
+import { useScadaViewerStore, SensorReading, SensorType, SensorStatus, ScadaProcess } from '../store/scadaViewerStore';
 import { EquipmentNodeData, ScadaNode, ScadaEdge } from '../types/scada-types';
 import { useSensorList, RegisteredSensor } from './useSensorList';
 import { API_URL, getAuthHeaders } from '../config/api';
@@ -223,7 +223,7 @@ export function useSensorReadings(refreshInterval: number = 10000) {
     setSensorReadings,
     updateSensorReading,
     loadProcess,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // Fetch real sensors from API
   const { sensors, loading, error, refetch } = useSensorList();

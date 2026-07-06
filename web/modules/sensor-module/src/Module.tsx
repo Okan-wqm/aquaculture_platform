@@ -31,6 +31,7 @@ const ProcessTemplatesPage = lazy(() => import('./pages/process/ProcessTemplates
 // SCADA Package Pages (lazy loaded)
 const ScadaPackageListPage = lazy(() => import('./pages/scada/ScadaPackageListPage'));
 const ScadaPackageBuilderPage = lazy(() => import('./pages/scada/ScadaPackageBuilderPage'));
+const ScadaOperatorPage = lazy(() => import('./pages/scada/ScadaOperatorPage'));
 
 // Unified SCADA Editor (lazy loaded)
 const UnifiedEditorPage = lazy(() => import('./pages/unified/UnifiedEditorPage'));
@@ -111,7 +112,11 @@ const SensorModule: React.FC = () => {
         {/* Analytics */}
         <Route path="analytics" element={<SensorAnalyticsPage />} />
 
-        {/* Process Editor */}
+        {/* Process Editor. The Unified editor is now the default for creating
+            and editing processes (all list/entry links point at unified-editor,
+            6c.4). These standalone ProcessEditorPage routes are kept mounted for
+            ONE release so existing bookmarks/in-flight tabs keep working, then
+            retired. */}
         <Route path="processes" element={<ProcessListPage />} />
         <Route path="process/new" element={<ProcessEditorPage />} />
         <Route path="process/:processId" element={<ProcessEditorPage />} />
@@ -121,6 +126,9 @@ const SensorModule: React.FC = () => {
         <Route path="scada-packages" element={<ScadaPackageListPage />} />
         <Route path="scada-builder/new" element={<ScadaPackageBuilderPage />} />
         <Route path="scada-builder/:packageId" element={<ScadaPackageBuilderPage />} />
+
+        {/* SCADA Operator Runtime (HMI) */}
+        <Route path="scada/operator/:packageId" element={<ScadaOperatorPage />} />
 
         {/* Unified SCADA Editor */}
         <Route path="unified-editor/new" element={<UnifiedEditorPage />} />

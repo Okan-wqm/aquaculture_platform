@@ -17,7 +17,7 @@ import {
   AlertTriangle,
   AlertCircle,
 } from 'lucide-react';
-import { SensorReading, SensorStatus, SensorType } from '../../store/scadaStore';
+import { SensorReading, SensorStatus, SensorType } from '../../store/scadaViewerStore';
 
 // ============================================================================
 // Types

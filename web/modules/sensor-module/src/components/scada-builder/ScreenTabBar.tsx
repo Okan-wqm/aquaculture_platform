@@ -16,7 +16,7 @@ import {
   Settings2,
   Gauge,
 } from 'lucide-react';
-import { useScadaPackageStore, ScreenType, ScreenDef } from '../../store/scadaPackageStore';
+import { useScadaPackageStore, ScreenType, ScreenDef } from '../../store/scada';
 
 const SCREEN_TYPE_OPTIONS: { type: ScreenType; label: string; icon: React.ReactNode }[] = [
   { type: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },

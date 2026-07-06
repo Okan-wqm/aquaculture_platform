@@ -30,6 +30,8 @@ export class DeploymentLogService {
     version: number;
     edgeScript?: Record<string, unknown>;
     deployedBy?: string;
+    artifactId?: string;
+    checksumSha256?: string;
   }): Promise<DeploymentLog> {
     const log = this.deploymentLogRepo.create({
       tenantId: params.tenantId,
@@ -40,6 +42,8 @@ export class DeploymentLogService {
       status: DeploymentStatus.PENDING,
       edgeScript: params.edgeScript,
       deployedBy: params.deployedBy,
+      artifactId: params.artifactId,
+      checksumSha256: params.checksumSha256,
       deployedAt: new Date(),
     });
 

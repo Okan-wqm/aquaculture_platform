@@ -2,6 +2,7 @@ import {
   ObjectType,
   Field,
   ID,
+  Int,
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
@@ -110,6 +111,11 @@ export class Process {
   @Field(() => GraphQLJSON)
   @Column('jsonb', { default: '[]' })
   edges!: ProcessEdge[];
+
+  /** Bumped on every update; carried into the deploy payload and artifact snapshot (Faz 3). */
+  @Field(() => Int)
+  @Column({ type: 'int', default: 1 })
+  version!: number;
 
   @Field()
   @Column({ type: 'uuid', name: 'tenant_id' })

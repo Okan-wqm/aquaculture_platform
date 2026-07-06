@@ -4,7 +4,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AutomationModule } from '../automation/automation.module';
 import { AutomationProgram } from '../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../automation/entities/program-variable.entity';
+import { DeployArtifactModule } from '../deploy-artifact/deploy-artifact.module';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 
@@ -17,6 +19,7 @@ import { UnifiedTagResolver } from './resolvers/unified-tag.resolver';
 import { ProcessService } from './services/process.service';
 import { ScadaPackageService } from './services/scada-package.service';
 import { UnifiedTagService } from './services/unified-tag.service';
+import { TagResolutionService } from './services/tag-resolution.service';
 import { ScadaDeployLogService } from './services/scada-deploy-log.service';
 
 @Module({
@@ -26,6 +29,8 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
       DeviceIoConfig, EdgeDevice,
       AutomationProgram, ProgramVariable,
     ]),
+    DeployArtifactModule,
+    ReleaseBundleModule,
     forwardRef(() => EdgeDeviceModule),
     forwardRef(() => AutomationModule), // For AutomationService in unified deploy
   ],
@@ -33,11 +38,18 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
     ProcessService,
     ScadaPackageService,
     UnifiedTagService,
+    TagResolutionService,
     ScadaDeployLogService,
     ProcessResolver,
     UnifiedTagResolver,
   ],
-  exports: [ProcessService, ScadaPackageService, UnifiedTagService, ScadaDeployLogService],
+  exports: [
+    ProcessService,
+    ScadaPackageService,
+    UnifiedTagService,
+    TagResolutionService,
+    ScadaDeployLogService,
+  ],
 })
  
 export class ProcessModule {}

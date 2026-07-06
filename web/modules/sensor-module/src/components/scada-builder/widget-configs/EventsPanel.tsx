@@ -14,7 +14,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { WidgetEventDef, EventTrigger, EventAction, ScadaScript } from '../../../engine/events/types';
-import { useScadaStore } from '../../../store/scada';
+import { useScadaPackageStore } from '../../../store/scada';
 import { TagBrowser } from '../TagBrowser';
 
 const TRIGGERS: EventTrigger[] = ['click', 'dblclick', 'mousedown', 'mouseup', 'mouseover', 'mouseout'];
@@ -95,7 +95,7 @@ const OpenUrlConfig: React.FC<{ url: string; onChange: (url: string) => void }> 
 };
 
 export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, deviceId, scripts = [] }) => {
-  const screens = useScadaStore((s) => s.screens);
+  const screens = useScadaPackageStore((s) => s.screens);
 
   const addEvent = () => {
     const newEvent: WidgetEventDef = {

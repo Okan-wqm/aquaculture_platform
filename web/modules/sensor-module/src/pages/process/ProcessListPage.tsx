@@ -184,7 +184,7 @@ const ProcessListPage: React.FC = () => {
             Templates
           </Link>
           <Link
-            to="/sensor/process/new"
+            to="/sensor/unified-editor/new"
             className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -235,7 +235,7 @@ const ProcessListPage: React.FC = () => {
               : 'Get started by creating your first process diagram'}
           </p>
           <Link
-            to="/sensor/process/new"
+            to="/sensor/unified-editor/new"
             className="inline-flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
           >
             <Plus className="w-4 h-4" />
@@ -276,7 +276,7 @@ const ProcessListPage: React.FC = () => {
                   <tr key={process.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <Link
-                        to={`/sensor/process/${process.id}`}
+                        to={`/sensor/unified-editor/${process.id}`}
                         className="block"
                       >
                         <div className="font-medium text-gray-900 hover:text-blue-600">
@@ -327,7 +327,7 @@ const ProcessListPage: React.FC = () => {
                             {activeDropdown === process.id && (
                               <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
                                 <Link
-                                  to={`/sensor/process/${process.id}`}
+                                  to={`/sensor/unified-editor/${process.id}`}
                                   className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                                 >
                                   <Edit className="w-4 h-4" />

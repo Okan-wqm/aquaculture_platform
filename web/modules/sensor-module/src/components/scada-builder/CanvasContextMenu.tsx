@@ -15,7 +15,7 @@ import {
   Unlock,
   Bookmark,
 } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -71,25 +71,25 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const activeScreenId = useScadaStore((s) => s.activeScreenId);
-  const selectedWidgetId = useScadaStore((s) => s.selectedWidgetId);
-  const selectedEdgeId = useScadaStore((s) => s.selectedEdgeId);
-  const selectedWidgetIds = useScadaStore((s) => s.selectedWidgetIds);
-  const clipboard = useScadaStore((s) => s.clipboard);
+  const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
+  const selectedWidgetId = useScadaPackageStore((s) => s.selectedWidgetId);
+  const selectedEdgeId = useScadaPackageStore((s) => s.selectedEdgeId);
+  const selectedWidgetIds = useScadaPackageStore((s) => s.selectedWidgetIds);
+  const clipboard = useScadaPackageStore((s) => s.clipboard);
 
   const hasClipboard = clipboard !== null;
 
   // Compute current widget's group ID and lock state
   const currentGroupId = useMemo(() => {
     if (!activeScreenId || !selectedWidgetId) return null;
-    const screen = useScadaStore.getState().screens.find((s) => s.id === activeScreenId);
+    const screen = useScadaPackageStore.getState().screens.find((s) => s.id === activeScreenId);
     const widget = screen?.widgets.find((w) => w.id === selectedWidgetId);
     return widget?.groupId ?? null;
   }, [activeScreenId, selectedWidgetId]);
 
   const isLocked = useMemo(() => {
     if (!activeScreenId || !selectedWidgetId) return false;
-    const screen = useScadaStore.getState().screens.find((s) => s.id === activeScreenId);
+    const screen = useScadaPackageStore.getState().screens.find((s) => s.id === activeScreenId);
     const widget = screen?.widgets.find((w) => w.id === selectedWidgetId);
     return widget?.locked ?? false;
   }, [activeScreenId, selectedWidgetId]);
@@ -133,35 +133,35 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   /* ---- Action helpers ---- */
 
   const handleCut = () => {
-    useScadaStore.getState().cutSelectedWidgets();
+    useScadaPackageStore.getState().cutSelectedWidgets();
     onClose();
   };
 
   const handleCopy = () => {
-    useScadaStore.getState().copySelectedWidgets();
+    useScadaPackageStore.getState().copySelectedWidgets();
     onClose();
   };
 
   const handlePaste = () => {
-    useScadaStore.getState().pasteWidgets();
+    useScadaPackageStore.getState().pasteWidgets();
     onClose();
   };
 
   const handleDeleteWidget = () => {
     if (activeScreenId && selectedWidgetIds.length > 0) {
-      const store = useScadaStore.getState();
+      const store = useScadaPackageStore.getState();
       for (const wId of [...selectedWidgetIds]) {
         store.removeWidget(activeScreenId, wId);
       }
     } else if (activeScreenId && selectedWidgetId) {
-      useScadaStore.getState().removeWidget(activeScreenId, selectedWidgetId);
+      useScadaPackageStore.getState().removeWidget(activeScreenId, selectedWidgetId);
     }
     onClose();
   };
 
   const handleDeleteEdge = () => {
     if (activeScreenId && selectedEdgeId) {
-      useScadaStore.getState().removeEdge(activeScreenId, selectedEdgeId);
+      useScadaPackageStore.getState().removeEdge(activeScreenId, selectedEdgeId);
     }
     onClose();
   };
@@ -178,7 +178,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
    */
 
   const handleBringToFront = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.bringToFront(store.activeScreenId, store.selectedWidgetId);
     }
@@ -186,7 +186,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleSendToBack = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.sendToBack(store.activeScreenId, store.selectedWidgetId);
     }
@@ -194,7 +194,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleBringForward = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.bringForward(store.activeScreenId, store.selectedWidgetId);
     }
@@ -202,7 +202,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleSendBackward = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.sendBackward(store.activeScreenId, store.selectedWidgetId);
     }
@@ -210,7 +210,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleGroup = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetIds.length >= 2) {
       store.groupWidgets(store.activeScreenId, store.selectedWidgetIds);
     }
@@ -218,7 +218,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleUngroup = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && currentGroupId) {
       store.ungroupWidgets(store.activeScreenId, currentGroupId);
     }
@@ -226,7 +226,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleSaveAsTemplate = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (!store.activeScreenId || !store.selectedWidgetId) { onClose(); return; }
     const screen = store.screens.find((s) => s.id === store.activeScreenId);
     const widget = screen?.widgets.find((w) => w.id === store.selectedWidgetId);
@@ -239,7 +239,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleToggleLock = () => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.toggleWidgetLock(store.activeScreenId, store.selectedWidgetId);
     }
@@ -358,7 +358,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
             label="Select All"
             shortcut="Ctrl+A"
             onClick={() => {
-              useScadaStore.getState().selectAllWidgets();
+              useScadaPackageStore.getState().selectAllWidgets();
               onClose();
             }}
           />

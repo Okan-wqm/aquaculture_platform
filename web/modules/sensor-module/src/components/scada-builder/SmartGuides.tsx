@@ -8,7 +8,7 @@
 
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
 
 interface SmartGuidesProps {

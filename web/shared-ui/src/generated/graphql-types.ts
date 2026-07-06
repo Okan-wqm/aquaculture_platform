@@ -4395,6 +4395,8 @@ export type DeployTarget =
   | 'RUST_ENGINE';
 
 export type DeploymentLog = {
+  artifactId?: Maybe<Scalars['ID']['output']>;
+  checksumSha256?: Maybe<Scalars['String']['output']>;
   commandId: Scalars['String']['output'];
   completedAt?: Maybe<Scalars['DateTime']['output']>;
   deployedAt: Scalars['DateTime']['output'];
@@ -8534,6 +8536,7 @@ export type Mutation = {
   assignUserToModule: AssignmentResult;
   assignUserToSite: SiteAssignmentResult;
   autoBindTags: TagDiscoveryResultType;
+  backfillScadaPackageDocs: ScadaBackfillResultType;
   batchActivateSensors: Scalars['Boolean']['output'];
   batchDeactivateSensors: Scalars['Boolean']['output'];
   batchIngestReadings: Scalars['Int']['output'];
@@ -8903,6 +8906,7 @@ export type Mutation = {
   revokeTenantProvisioningKey: Scalars['Boolean']['output'];
   revokeUserRole: Scalars['Boolean']['output'];
   rollbackDeployedProgram: DeploymentResult;
+  rollbackScadaPackageDeploy: DeployScadaPackageResultType;
   rollbackVfdChangeSet: VfdChangeSet;
   saveDashboardLayout: DashboardLayout;
   saveDiscoveredChannels: Array<DataChannelType>;
@@ -9499,6 +9503,11 @@ export type MutationAssignUserToSiteArgs = {
 export type MutationAutoBindTagsArgs = {
   deviceId: Scalars['ID']['input'];
   processId: Scalars['ID']['input'];
+};
+
+
+export type MutationBackfillScadaPackageDocsArgs = {
+  dryRun?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 
@@ -11164,6 +11173,12 @@ export type MutationRevokeUserRoleArgs = {
 
 
 export type MutationRollbackDeployedProgramArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationRollbackScadaPackageDeployArgs = {
+  artifactId: Scalars['ID']['input'];
   deviceId: Scalars['ID']['input'];
 };
 
@@ -13665,6 +13680,7 @@ export type ProgramVariable = {
   scope: VariableScope;
   /** Reference to sensor data channel */
   sensorChannelId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
   varName: Scalars['String']['output'];
   varOrder: Scalars['Float']['output'];
@@ -14279,6 +14295,7 @@ export type Query = {
   regulatoryReports: Array<RegulatoryReport>;
   /** Get regulatory settings for the current tenant */
   regulatorySettings: RegulatorySettingsOutput;
+  resolveTagRefs: TagResolutionResultType;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
   reviewCycleStatus: ReviewCycleStatus;
@@ -15854,6 +15871,11 @@ export type QueryRegulatoryReportsArgs = {
 };
 
 
+export type QueryResolveTagRefsArgs = {
+  refs: Array<Scalars['String']['input']>;
+};
+
+
 export type QueryReviewCycleStatusArgs = {
   periodType: ReviewPeriodType;
   year: Scalars['Int']['input'];
@@ -17310,6 +17332,17 @@ export type ResistensType =
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
 
+export type ResolvedTagBindingType = {
+  dataType: TagDataType;
+  direction: TagDirection;
+  engUnit?: Maybe<Scalars['String']['output']>;
+  ioType: TagIoType;
+  ref: Scalars['String']['output'];
+  revision: Scalars['Int']['output'];
+  source: Scalars['JSON']['output'];
+  unifiedTagId: Scalars['ID']['output'];
+};
+
 export type RetentionPolicy = {
   channelId?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
@@ -17522,12 +17555,22 @@ export type SaveFeederCalibrationsInput = {
   equipmentId: Scalars['String']['input'];
 };
 
+export type ScadaBackfillResultType = {
+  dryRun: Scalars['Boolean']['output'];
+  failed: Scalars['Int']['output'];
+  migrated: Scalars['Int']['output'];
+  scanned: Scalars['Int']['output'];
+  skipped: Scalars['Int']['output'];
+};
+
 export type ScadaDeployLogListType = {
   items: Array<ScadaDeployLogType>;
   total: Scalars['Int']['output'];
 };
 
 export type ScadaDeployLogType = {
+  artifactId?: Maybe<Scalars['ID']['output']>;
+  checksumSha256?: Maybe<Scalars['String']['output']>;
   commandId: Scalars['String']['output'];
   createdAt: Scalars['DateTime']['output'];
   deployedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -17536,7 +17579,8 @@ export type ScadaDeployLogType = {
   errorMessage?: Maybe<Scalars['String']['output']>;
   healthCheckResults?: Maybe<Scalars['JSON']['output']>;
   id: Scalars['ID']['output'];
-  packageId: Scalars['String']['output'];
+  packageId?: Maybe<Scalars['ID']['output']>;
+  processId?: Maybe<Scalars['ID']['output']>;
   receivedAt?: Maybe<Scalars['DateTime']['output']>;
   rolledBackTo?: Maybe<Scalars['Int']['output']>;
   sentAt: Scalars['DateTime']['output'];
@@ -19531,6 +19575,17 @@ export type TagIoType =
   | 'DI'
   | 'DO';
 
+export type TagResolutionResultType = {
+  resolved: Array<ResolvedTagBindingType>;
+  unresolved: Array<UnresolvedTagRefType>;
+};
+
+/** Lifecycle state of a registry tag */
+export type TagStatus =
+  | 'ACTIVE'
+  | 'DRAFT'
+  | 'RETIRED';
+
 export type Tank = {
   aeration?: Maybe<Scalars['JSON']['output']>;
   batchMetrics?: Maybe<TankBatchMetrics>;
@@ -20648,9 +20703,16 @@ export type UnifiedTagType = {
   id: Scalars['ID']['output'];
   ioType: TagIoType;
   localName: Scalars['String']['output'];
+  revision: Scalars['Int']['output'];
   source: Scalars['JSON']['output'];
+  status: TagStatus;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
+};
+
+export type UnresolvedTagRefType = {
+  reason: Scalars['String']['output'];
+  ref: Scalars['String']['output'];
 };
 
 export type UpdateActionInput = {

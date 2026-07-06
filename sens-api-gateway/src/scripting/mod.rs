@@ -50,6 +50,14 @@ pub mod bytecode_sig;
 // signing key — trust transfer happens via source signature,
 // not bytecode signature.
 pub mod st_source_sig;
+
+// Enterprise plan Faz 4: deploy-artifact signature envelope for
+// cloud→edge SCADA package + process deploys. Same trust anchor
+// as bytecode/source signing (firmware_signing_pubkey), new
+// per-kind domain tags (`scada-pkg-v1` / `process-v1`) so the
+// least-privileged artifact classes get the same integrity
+// guarantee as scripts without cross-format confusion.
+pub mod deploy_sig;
 // Batch 160 Faz 3 (plan R-1): ProcessImage ↔ TagIo
 // adapter. `SnapshotTagIo` buffers reads from a scan-
 // cycle-start snapshot + collects writes into a pending

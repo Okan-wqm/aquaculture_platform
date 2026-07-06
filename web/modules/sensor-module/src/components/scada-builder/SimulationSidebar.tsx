@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
 import { useSimulation } from '../../simulation';
 
@@ -214,7 +214,7 @@ export const SimulationSidebar: React.FC = () => {
     alarmRules,
     setSimAlarms,
     automationBindings,
-  } = useScadaStore(
+  } = useScadaPackageStore(
     useShallow((s) => ({
       screens: s.screens,
       simTagValues: s.simTagValues,
@@ -406,7 +406,7 @@ export const SimulationSidebar: React.FC = () => {
    */
   const runClosedLoopTick = useCallback(
     (programId: string): boolean => {
-      const store = useScadaStore.getState();
+      const store = useScadaPackageStore.getState();
       // Guard: simulation mode might have been turned off
       if (!store.simulationMode) {
         return false;

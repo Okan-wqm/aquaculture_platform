@@ -1,0 +1,15 @@
+{
+  "commandId": "4d5e6f7a-8b9c-4d0e-8f1a-2b3c4d5e6f7a",
+  "command": "deploy_bundle",
+  "params": {
+    "bundleId": "44444444-4444-4444-8444-444444444444",
+    "manifest": "{\"artifacts\":[{\"artifactId\":\"55555555-5555-4555-8555-555555555555\",\"kind\":\"automation_program\",\"logCommandId\":\"66666666-6666-4666-8666-666666666666\",\"sha256\":\"5fc3fdfe5209174e104995be0aa8706756042f92cd6ec8480998d2a708345a33\",\"sourceEntityId\":\"8a7b6c5d-4e3f-4a2b-9c8d-7e6f5a4b3c2d\",\"version\":2},{\"artifactId\":\"77777777-7777-4777-8777-777777777777\",\"kind\":\"scada_package\",\"logCommandId\":\"99999999-9999-4999-8999-999999999999\",\"sha256\":\"48d999768b4cc9937b983ac185897a2a3ed755f58a086f67fcc30ec5ca156ee1\",\"sourceEntityId\":\"88888888-8888-4888-8888-888888888888\",\"version\":3}],\"bundleId\":\"44444444-4444-4444-8444-444444444444\"}",
+    "manifestSha256": "215224eddebbdc2144d3ddc18f0aa2ed70e85fb8af843314a5f4453df5fb582b",
+    "signature": "d61c5186f2dd14742a356ffee143286d9d761527f5ed55c7ac44c60e8a36a18d5ba9fe0eeda44bc87d99e301c9682b6f63741a772cfc55ab13f1e12b21ca4e09",
+    "contents": {
+      "5fc3fdfe5209174e104995be0aa8706756042f92cd6ec8480998d2a708345a33": "{\"description\":\"Dissolved-oxygen driven aerator control\",\"executionMode\":\"scan_cycle\",\"functionBlocks\":[{\"fb_type\":\"TON\",\"id\":\"delay1\",\"inputs\":{\"IN\":\"sensor:dissolved_oxygen\"},\"outputs\":{\"Q\":\"var:aerator_ready\"},\"params\":{\"pt_ms\":5000}}],\"id\":\"8a7b6c5d-4e3f-4a2b-9c8d-7e6f5a4b3c2d\",\"name\":\"Aeration Control\",\"replaceExisting\":true,\"scanCycleMs\":100,\"script\":{\"actions\":[{\"message\":\"bundle apply\",\"type\":\"log\"}],\"conditions\":[],\"description\":\"\",\"enabled\":true,\"id\":\"script-aeration-control\",\"name\":\"Aeration Control\",\"on_error\":[],\"priority\":\"normal\",\"triggers\":[{\"type\":\"startup\"}],\"version\":\"2\"},\"version\":2}",
+      "48d999768b4cc9937b983ac185897a2a3ed755f58a086f67fcc30ec5ca156ee1": "{\"alarmRules\":[],\"meta\":{\"name\":\"Fish Tank HMI\",\"schemaVersion\":2},\"screens\":[{\"id\":\"screen-1\",\"isDefault\":true,\"name\":\"Overview\",\"screenType\":\"dashboard\",\"widgets\":[{\"config\":{\"tagName\":\"water_temp\",\"tagRef\":\"EDGE-01/water_temp\"},\"id\":\"widget-1\",\"position\":{\"col\":0,\"h\":3,\"row\":0,\"w\":4},\"widgetType\":\"gauge\"}]}],\"scripts\":[]}"
+    }
+  },
+  "timestamp": "2026-07-02T10:00:00.000Z"
+}

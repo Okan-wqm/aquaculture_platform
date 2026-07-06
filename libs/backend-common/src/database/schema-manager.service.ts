@@ -283,6 +283,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'provisioning_records',
       'witnesses',
       'audit_archive_v1',
+
+      // Signed deploy pipeline (Faz 3/5) — per-tenant tables (their entities
+      // omit `schema:` per ADR-011): content-addressed artifact store +
+      // guarded release-bundle ledger. Must be cloned into every tenant schema.
+      'deploy_artifacts',
+      'release_bundles',
     ],
   },
   {

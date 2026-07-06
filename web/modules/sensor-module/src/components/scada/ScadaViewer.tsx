@@ -4,9 +4,10 @@
  * Uses postMessage for communication with standalone ReactFlow canvas
  */
 
+import { SCADA_VIEWER_CANVAS_URL } from '../../canvas-contract';
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
-import { useScadaStore, ScadaProcess } from '../../store/scadaStore';
+import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
 
 // Strip HTML tags from a string to prevent stored XSS via canvas node rendering
 function stripHtml(value: unknown): unknown {
@@ -28,15 +29,7 @@ function sanitizeNodes(nodes: ScadaProcess['nodes']): ScadaProcess['nodes'] {
   }));
 }
 
-// Get canvas URL
-const getCanvasUrl = () => {
-  // In development, use relative path
-  // In production (Docker), use mf path
-  const basePath = window.location.hostname === 'localhost' && window.location.port === '3006'
-    ? '/scada-viewer-canvas.html'
-    : '/remotes/sensor-module/scada-viewer-canvas.html';
-  return basePath;
-};
+// Canvas URL — canonical SSoT constant (canvas-contract.ts).
 
 interface ScadaViewerProps {
   className?: string;
@@ -53,7 +46,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
     selectedEquipmentId,
     setSelectedEquipmentId,
     setIsPanelOpen,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // Send message to canvas iframe
   const sendToCanvas = useCallback((type: string, data: unknown) => {
@@ -159,7 +152,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
       {/* ReactFlow Canvas iframe */}
       <iframe
         ref={iframeRef}
-        src={getCanvasUrl()}
+        src={SCADA_VIEWER_CANVAS_URL}
         className="w-full h-full border-0"
         title="SCADA Viewer Canvas"
         sandbox="allow-scripts allow-same-origin"

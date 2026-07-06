@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { SensorReading, SensorStatus } from '../../../store/scadaStore';
+import { SensorReading, SensorStatus } from '../../../store/scadaViewerStore';
 
 interface NumericWidgetProps {
   reading: SensorReading;

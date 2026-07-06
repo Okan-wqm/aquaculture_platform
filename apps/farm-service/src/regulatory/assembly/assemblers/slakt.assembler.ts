@@ -1,10 +1,9 @@
 /**
  * Slakt (slaughter) weekly report assemblers — planned + executed.
  *
- * Executed: harvest_records for the ISO week, kg per species. The Norwegian
- * kvalitetsklasse split (superior/ordinær/produksjonsfisk/utkast) does not
- * exist on harvest records until Phase 2 — the per-species totals are
- * assembled and the split is flagged blocking MANUAL_REQUIRED (no guessing).
+ * Executed: harvest_records for the ISO week, kg per species split across the
+ * Norwegian kvalitetsklasse (superior/ordinær/produksjonsfisk/utkast) from the
+ * stored harvest_records.qualityClass (RPT-007) — RECORDS, no guessing.
  *
  * Planned: harvest_plans whose plannedDate falls in the target week, kg into
  * the weekday bucket per species (statuses that still represent an intent:
@@ -44,8 +43,31 @@ export interface SlaktPlanlagtPrefillPayload {
 
 interface ExecutedRow {
   artskode: string;
+  qualityClass: string;
   totalKg: string;
   recordCount: string;
+}
+
+/** Fold an official quality-class value into its wire bucket (kg). */
+function addQualityKg(
+  bucket: KvalitetsklasserPerArtPayload,
+  qualityClass: string,
+  kg: number,
+): void {
+  switch (qualityClass) {
+    case 'superior':
+      bucket.superiorKg = round2(bucket.superiorKg + kg);
+      break;
+    case 'ordinaer':
+      bucket.ordinærKg = round2(bucket.ordinærKg + kg);
+      break;
+    case 'produksjonsfisk':
+      bucket.produksjonsfiskKg = round2(bucket.produksjonsfiskKg + kg);
+      break;
+    case 'utkast':
+      bucket.utkastKg = round2(bucket.utkastKg + kg);
+      break;
+  }
 }
 
 interface PlannedRow {
@@ -127,23 +149,33 @@ export class SlaktReportAssembler {
     fields.push(fromRecords('/totalKgPerArt', 'SlaktReportAssembler.queryExecuted', recordCount));
     this.pushApprovalProvenance(fields, approval);
 
-    const arter: KvalitetsklasserPerArtPayload[] = rows.map((row) => ({
-      art: row.artskode,
-      superiorKg: 0,
-      ordinærKg: 0,
-      produksjonsfiskKg: 0,
-      utkastKg: 0,
-    }));
-    rows.forEach((row, index) => {
+    // One bucket per species, kg folded into the official quality classes from
+    // harvest_records.qualityClass (stored regulatory truth, RPT-007). The
+    // class split is RECORDS now — no MANUAL_REQUIRED distribution.
+    const bySpecies = new Map<string, KvalitetsklasserPerArtPayload>();
+    for (const row of rows) {
+      const bucket =
+        bySpecies.get(row.artskode) ??
+        ({
+          art: row.artskode,
+          superiorKg: 0,
+          ordinærKg: 0,
+          produksjonsfiskKg: 0,
+          utkastKg: 0,
+        } as KvalitetsklasserPerArtPayload);
+      addQualityKg(bucket, row.qualityClass, Number(row.totalKg));
+      bySpecies.set(row.artskode, bucket);
+    }
+    const arter = Array.from(bySpecies.values());
+    if (arter.length > 0) {
       fields.push(
-        manualRequired(
-          `/arter/${index}`,
-          `Distribute ${round2(Number(row.totalKg))} kg of ${row.artskode} across the official quality classes (superior/ordinær/produksjonsfisk/utkast) — the harvest records carry the total but not the regulator's class split until Phase 2.`,
-          true,
+        fromRecords(
+          '/arter',
+          'SlaktReportAssembler.queryExecuted (per quality class)',
+          recordCount,
         ),
       );
-    });
-    if (rows.length === 0) {
+    } else {
       fields.push(
         manualRequired(
           '/arter',
@@ -153,15 +185,23 @@ export class SlaktReportAssembler {
       );
     }
 
+    const totalKgPerArt = new Map<string, number>();
+    for (const row of rows) {
+      totalKgPerArt.set(
+        row.artskode,
+        round2((totalKgPerArt.get(row.artskode) ?? 0) + Number(row.totalKg)),
+      );
+    }
+
     return {
       draftPayload: {
         slakteuke: week,
         slakteår: year,
         godkjenningsnummer: approval.value ?? '',
         arter,
-        totalKgPerArt: rows.map((row) => ({
-          artskode: row.artskode,
-          totalKg: round2(Number(row.totalKg)),
+        totalKgPerArt: Array.from(totalKgPerArt.entries()).map(([artskode, totalKg]) => ({
+          artskode,
+          totalKg,
         })),
       },
       fields,
@@ -260,6 +300,7 @@ export class SlaktReportAssembler {
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       return queryRunner.query(
         `SELECT COALESCE(s."officialCode", s.code) AS artskode,
+                hr."qualityClass" AS "qualityClass",
                 SUM(hr."totalBiomass")::numeric AS "totalKg",
                 COUNT(*)::bigint AS "recordCount"
            FROM harvest_records hr
@@ -269,8 +310,8 @@ export class SlaktReportAssembler {
            JOIN species s ON s.id = b."speciesId"
           WHERE hr."tenantId" = $1
             AND hr."harvestDate"::date BETWEEN $3 AND $4
-          GROUP BY s.code
-          ORDER BY s.code`,
+          GROUP BY COALESCE(s."officialCode", s.code), hr."qualityClass"
+          ORDER BY COALESCE(s."officialCode", s.code), hr."qualityClass"`,
         [tenantId, siteId, fromDate, toDate],
       );
     });

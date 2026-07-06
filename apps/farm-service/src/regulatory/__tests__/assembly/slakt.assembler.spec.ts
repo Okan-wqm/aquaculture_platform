@@ -1,8 +1,8 @@
 /**
- * SlaktReportAssembler — executed totals per species with a blocking quality
- * class split (never guessed); planned kg into ISO weekday buckets;
- * godkjenningsnummer from the facility catalog's default (settings field is
- * the transition fallback), fail-closed when neither exists.
+ * SlaktReportAssembler — executed kg split across the official quality classes
+ * from harvest_records.qualityClass (RECORDS); planned kg into ISO weekday
+ * buckets; godkjenningsnummer from the facility catalog's default (settings
+ * field is the transition fallback), fail-closed when neither exists.
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
@@ -10,6 +10,7 @@ import { RegulatorySettingsService } from '../../regulatory-settings.service';
 import { SlaughterFacilityService } from '../../services/slaughter-facility.service';
 import { SlaughterFacility } from '../../entities/slaughter-facility.entity';
 import { SlaktReportAssembler } from '../../assembly/assemblers/slakt.assembler';
+import { ReportFieldProvenance } from '../../assembly/provenance.types';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
@@ -52,9 +53,12 @@ function makeAssembler(options: {
 }
 
 describe('SlaktReportAssembler', () => {
-  it('executed: assembles per-species totals and blocks the quality-class split', async () => {
+  it('executed: folds kg into the official quality classes from records (no blocking)', async () => {
     const assembler = makeAssembler({
-      executed: [{ artskode: 'SAL', totalKg: '21440.456', recordCount: '4' }],
+      executed: [
+        { artskode: 'SAL', qualityClass: 'superior', totalKg: '18000.44', recordCount: '3' },
+        { artskode: 'SAL', qualityClass: 'produksjonsfisk', totalKg: '3440.016', recordCount: '1' },
+      ],
       approvalNumber: 'S123',
     });
 
@@ -64,14 +68,15 @@ describe('SlaktReportAssembler', () => {
     expect(draftPayload.totalKgPerArt).toEqual([{ artskode: 'SAL', totalKg: 21440.46 }]);
     expect(draftPayload.arter[0]).toEqual({
       art: 'SAL',
-      superiorKg: 0,
+      superiorKg: 18000.44,
       ordinærKg: 0,
-      produksjonsfiskKg: 0,
+      produksjonsfiskKg: 3440.02,
       utkastKg: 0,
     });
-    const split = fields.find((f) => f.path === '/arter/0');
-    expect(split?.blocking).toBe(true);
-    expect(split?.message).toContain('21440.46');
+    // The class split is RECORDS now — no MANUAL_REQUIRED distribution.
+    expect(fields.some((f) => f.path.startsWith('/arter') && f.blocking)).toBe(false);
+    const meta = fields.find((f) => f.path === '/arter');
+    expect(meta?.provenance).toBe(ReportFieldProvenance.RECORDS);
   });
 
   it('prefers the default catalog facility over the legacy settings field', async () => {

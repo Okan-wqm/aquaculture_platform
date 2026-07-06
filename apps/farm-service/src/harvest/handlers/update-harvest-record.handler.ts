@@ -23,12 +23,13 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type HarvestRecordUpdatedEvent,
 } from '@platform/event-contracts';
 import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
-import { HarvestRecord } from '../entities/harvest-record.entity';
+import { HarvestRecord, qualityGradeToClass } from '../entities/harvest-record.entity';
 
 const UPDATABLE_FIELDS = [
   'status',
@@ -49,7 +50,9 @@ const UPDATABLE_FIELDS = [
 
 @Injectable()
 @CommandHandler(UpdateHarvestRecordCommand)
-export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvestRecordCommand, HarvestRecord> {
+export class UpdateHarvestRecordHandler
+  implements ICommandHandler<UpdateHarvestRecordCommand, HarvestRecord>
+{
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -85,6 +88,12 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
           changedFields.push(field);
           (harvestRecord as unknown as Record<string, unknown>)[field] = incoming;
         }
+      }
+
+      // qualityClass is derived from qualityGrade (report SSoT) — re-derive it
+      // whenever the grade changes so the two never diverge.
+      if (changedFields.includes('qualityGrade')) {
+        harvestRecord.qualityClass = qualityGradeToClass(harvestRecord.qualityGrade);
       }
 
       const saved = await queryRunner.manager.save(HarvestRecord, harvestRecord);

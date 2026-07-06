@@ -93,6 +93,42 @@ registerEnumType(QualityGrade, {
   description: 'Kalite sınıfı',
 });
 
+/**
+ * Norwegian official slaughter quality class (kvalitetsklasse) — the taxonomy
+ * the Mattilsynet slakt report requires. This is the STORED regulatory truth
+ * (RPT-007); `qualityGrade` above is the platform's 5-level display grade and
+ * becomes a resolved alias, dropped in Phase 4.
+ */
+export enum QualityClass {
+  SUPERIOR = 'superior',
+  ORDINAER = 'ordinaer',
+  PRODUKSJONSFISK = 'produksjonsfisk',
+  UTKAST = 'utkast',
+}
+
+registerEnumType(QualityClass, {
+  name: 'QualityClass',
+  description: 'Norwegian official slaughter quality class (kvalitetsklasse)',
+});
+
+/**
+ * Deterministic map from the platform's display grade to the official quality
+ * class — the SSoT shared by the create handler and the migration backfill
+ * (the migration mirrors this exact mapping in SQL). The 5→4 collapse is
+ * intentional: Superior is the premium export grade, Utkast the reject.
+ */
+export const QUALITY_GRADE_TO_CLASS: Readonly<Record<QualityGrade, QualityClass>> = Object.freeze({
+  [QualityGrade.PREMIUM]: QualityClass.SUPERIOR,
+  [QualityGrade.GRADE_A]: QualityClass.SUPERIOR,
+  [QualityGrade.GRADE_B]: QualityClass.ORDINAER,
+  [QualityGrade.GRADE_C]: QualityClass.PRODUKSJONSFISK,
+  [QualityGrade.REJECT]: QualityClass.UTKAST,
+});
+
+export function qualityGradeToClass(grade: QualityGrade): QualityClass {
+  return QUALITY_GRADE_TO_CLASS[grade] ?? QualityClass.ORDINAER;
+}
+
 // ============================================================================
 // INTERFACES
 // ============================================================================
@@ -384,6 +420,19 @@ export class HarvestRecord {
     default: QualityGrade.GRADE_A,
   })
   qualityGrade: QualityGrade;
+
+  /**
+   * Official Norwegian quality class — stored regulatory truth for the slakt
+   * report (RPT-007). Derived from qualityGrade at write time; the DB default
+   * only guards blue-green cutover inserts by not-yet-upgraded code.
+   */
+  @Field(() => QualityClass)
+  @Column({
+    type: 'enum',
+    enum: QualityClass,
+    default: QualityClass.ORDINAER,
+  })
+  qualityClass: QualityClass;
 
   // -------------------------------------------------------------------------
   // KALİTE KONTROL

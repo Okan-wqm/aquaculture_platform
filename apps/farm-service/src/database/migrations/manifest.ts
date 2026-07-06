@@ -29,6 +29,7 @@ import { CreateLiceCounts1802700000000 } from './1802700000000-CreateLiceCounts'
 import { CreateTreatmentApplications1802800000000 } from './1802800000000-CreateTreatmentApplications';
 import { CreateWelfareAssessments1802900000000 } from './1802900000000-CreateWelfareAssessments';
 import { CreateEscapeIncidents1803000000000 } from './1803000000000-CreateEscapeIncidents';
+import { AddHarvestNorwegianQualityClass1803100000000 } from './1803100000000-AddHarvestNorwegianQualityClass';
 import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
 import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-CreateSensorTemperatureDaily';
 
@@ -72,6 +73,7 @@ export const FARM_MIGRATIONS = [
   CreateTreatmentApplications1802800000000,
   CreateWelfareAssessments1802900000000,
   CreateEscapeIncidents1803000000000,
+  AddHarvestNorwegianQualityClass1803100000000,
   CreateSlaughterFacilities1803450000000,
   CreateSensorTemperatureDaily1803500000000,
 ] as const;

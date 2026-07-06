@@ -2981,6 +2981,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/providers/__tests__/openai.provider.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/providers/anthropic.provider.ts",
       "prettier_managed": true
     },
@@ -3000,6 +3006,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/providers/llm-provider.interface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/providers/openai.provider.ts",
       "prettier_managed": true
     },
     {
@@ -35850,7 +35862,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f8674a3f82bde40bd6895da541115258c4dc0ec23b37257d1e7a2170ceff36bf",
+      "content_sha256": "0324908ff79fb6e031a801f22fb28cf0a1d7172f9459d2fabb56410cea9d625c",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -50394,10 +50406,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8253,
+  "file_count": 8255,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8078,
-  "managed_file_list_sha256": "65f3cb4c6fbd7dfe69aa20ffc33b5c7b1a5110994b465754110323ec289cf909",
+  "managed_count": 8080,
+  "managed_file_list_sha256": "8ff4986f845bd7e1683e8a79be50178f449b1b216cf474d11d0f4038998c0644",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

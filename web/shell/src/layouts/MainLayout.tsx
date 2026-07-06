@@ -273,6 +273,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'hr-leaves', label: 'Leaves', path: '/hr/leaves', icon: 'calendar-off' },
       { id: 'hr-training', label: 'Training', path: '/hr/training', icon: 'graduation-cap' },
       { id: 'hr-payroll', label: 'Payroll', path: '/hr/payroll' },
+      { id: 'hr-finance', label: 'Finance', path: '/hr/finance', icon: 'analytics' },
     ],
   },
   hydroponics: {

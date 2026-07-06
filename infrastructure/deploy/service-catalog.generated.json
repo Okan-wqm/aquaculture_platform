@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 2,
-    "catalogHash": "7366ffef06010e87886550008fcad2ffcfcfdfd648575944e6aad41cce1d298c",
+    "catalogHash": "a462baa20ffd6000cd93fc83914785eedceadeee5f40ebe0c7b81394b486f354",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -26,6 +26,7 @@
     "config-service",
     "event-store-service",
     "observability-service",
+    "ai-service",
     "prometheus",
     "cadvisor",
     "node-exporter",
@@ -59,6 +60,7 @@
     "config-service",
     "event-store-service",
     "observability-service",
+    "ai-service",
     "shell",
     "dashboard",
     "farm-module",
@@ -86,7 +88,8 @@
       "admin-api-service",
       "config-service",
       "event-store-service",
-      "observability-service"
+      "observability-service",
+      "ai-service"
     ],
     "frontendImageTargets": [
       "shell",
@@ -118,6 +121,7 @@
       "config-service",
       "event-store-service",
       "observability-service",
+      "ai-service",
       "shell",
       "dashboard",
       "farm-module",
@@ -131,6 +135,7 @@
     ],
     "serviceDbRolePrefixes": [
       "ADMIN",
+      "AI",
       "ALERT",
       "AUTH",
       "BILLING",
@@ -213,6 +218,10 @@
       {
         "serviceId": "observability-service",
         "port": 3009
+      },
+      {
+        "serviceId": "ai-service",
+        "port": 3000
       }
     ],
     "frontendImageMatrix": [
@@ -286,6 +295,7 @@
     "config-service",
     "event-store-service",
     "observability-service",
+    "ai-service",
     "shell",
     "dashboard",
     "farm-module",
@@ -302,6 +312,7 @@
   "requiredRuntimeSecrets": [
     "ADMIN_SERVICE_DB_PASS",
     "AI_SERVICE_DB_PASS",
+    "AI_TENANT_SECRET_ENCRYPTION_KEY",
     "ALERT_SERVICE_DB_PASS",
     "AUTH_SERVICE_DB_PASS",
     "BILLING_SERVICE_DB_PASS",

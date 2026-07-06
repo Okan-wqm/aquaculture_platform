@@ -1,6 +1,6 @@
 /**
  * Generated from infrastructure/apollo-router/subgraphs.json.
- * Registry SHA256: eb3507c88433dbba32d0eebd11f4ac72e751d6381b30bc893c1005cabe3dd98a
+ * Registry SHA256: fabe8140775c03e50a102f4a27e2649fda195394adcc70121a2f9333db5a0a62
  * Generator version: 1
  */
 export interface FederatedSubgraphConfig {
@@ -23,4 +23,5 @@ export const FEDERATED_SUBGRAPHS: FederatedSubgraphConfig[] = [
   { name: 'billing', nxProject: 'billing-service', urlEnv: 'BILLING_SERVICE_URL', localUrl: 'http://localhost:3006/graphql', routingUrl: 'http://billing-service:3000/graphql', schemaArtifactPath: 'dist/graphql/subgraphs/billing.graphql' },
   { name: 'notification', nxProject: 'notification-service', urlEnv: 'NOTIFICATION_SERVICE_URL', localUrl: 'http://localhost:4008/graphql', routingUrl: 'http://notification-service:3000/graphql', schemaArtifactPath: 'dist/graphql/subgraphs/notification.graphql' },
   { name: 'config', nxProject: 'config-service', urlEnv: 'CONFIG_SERVICE_URL', localUrl: 'http://localhost:3007/graphql', routingUrl: 'http://config-service:3000/graphql', schemaArtifactPath: 'dist/graphql/subgraphs/config.graphql' },
+  { name: 'ai', nxProject: 'ai-service', urlEnv: 'AI_SERVICE_URL', localUrl: 'http://ai-service:3000/graphql', routingUrl: 'http://ai-service:3000/graphql', schemaArtifactPath: 'dist/graphql/subgraphs/ai.graphql' },
 ];

@@ -367,8 +367,9 @@ describe('ProvisioningService - Config Management', () => {
         deviceName: 'My Device',
       });
 
+      // SENSOR-MEDIUM-002: the token is carried in a header, never the URL.
       expect(result.installerUrl).toContain('https://custom-domain.example.com/install/');
-      expect(result.installerUrl).toContain('?token=');
+      expect(result.installerUrl).not.toContain('?token=');
     });
   });
 
@@ -398,7 +399,10 @@ describe('ProvisioningService - Config Management', () => {
         deviceName: 'Curl Test Device',
       });
 
-      expect(result.installerCommand).toMatch(/^curl -sSL "https:\/\/edge\.example\.com\/install\/.+\?token=.+" \| sudo bash$/);
+      // SENSOR-MEDIUM-002: token travels in the X-Provisioning-Token header.
+      expect(result.installerCommand).toMatch(
+        /^curl -sSL -H "X-Provisioning-Token: .+" "https:\/\/edge\.example\.com\/install\/.+" \| sudo bash$/,
+      );
     });
   });
 

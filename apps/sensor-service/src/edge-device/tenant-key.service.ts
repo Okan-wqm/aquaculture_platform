@@ -135,7 +135,7 @@ export class TenantKeyService {
     return {
       id: saved.id,
       keyToken,
-      installerUrl: await this.installerScriptService.buildTenantInstallerUrl(keyToken),
+      installerUrl: await this.installerScriptService.buildTenantInstallerUrl(),
       installerCommand: await this.installerScriptService.buildTenantInstallerCommand(keyToken),
       expiresAt: saved.expiresAt,
       maxDevices: saved.maxDevices,

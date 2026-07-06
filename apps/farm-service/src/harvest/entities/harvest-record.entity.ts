@@ -137,6 +137,24 @@ export function qualityGradeToClass(grade: QualityGrade): QualityClass {
   return QUALITY_GRADE_TO_CLASS[grade] ?? QualityClass.ORDINAER;
 }
 
+/**
+ * Representative display grade per quality class — the lossy inverse used to
+ * render the retired 5-level `qualityGrade` as a DERIVED display alias now that
+ * `quality_class` is the sole stored taxonomy (RPT-007, Phase 4). PREMIUM is
+ * unreachable by construction (SUPERIOR maps back to GRADE_A) — accepted, since
+ * the class cannot distinguish premium from A.
+ */
+export const CLASS_TO_DISPLAY_GRADE: Readonly<Record<QualityClass, QualityGrade>> = Object.freeze({
+  [QualityClass.SUPERIOR]: QualityGrade.GRADE_A,
+  [QualityClass.ORDINAER]: QualityGrade.GRADE_B,
+  [QualityClass.PRODUKSJONSFISK]: QualityGrade.GRADE_C,
+  [QualityClass.UTKAST]: QualityGrade.REJECT,
+});
+
+export function classToDisplayGrade(qualityClass: QualityClass): QualityGrade {
+  return CLASS_TO_DISPLAY_GRADE[qualityClass] ?? QualityGrade.GRADE_B;
+}
+
 // ============================================================================
 // INTERFACES
 // ============================================================================
@@ -421,19 +439,12 @@ export class HarvestRecord {
   })
   productForm: ProductForm;
 
-  @Field(() => QualityGrade)
-  @Column({
-    type: 'enum',
-    enum: QualityGrade,
-    default: QualityGrade.GRADE_A,
-  })
-  qualityGrade: QualityGrade;
-
   /**
-   * Official Norwegian quality class — stored regulatory truth for the slakt
-   * report (RPT-007), the lossy projection of qualityGrade derived at write
-   * time (see QualityClass docs). qualityGrade stays as the richer source; the
-   * DB default only guards blue-green cutover inserts by not-yet-upgraded code.
+   * Official Norwegian quality class (kvalitetsklasse) — the sole stored quality
+   * taxonomy and the slakt-report truth (RPT-007). The retired 5-level
+   * `qualityGrade` column was dropped in Phase 4
+   * (DropHarvestQualityGrade1804300000000); operators now select the class
+   * directly.
    */
   @Field(() => QualityClass)
   @Column({
@@ -442,6 +453,18 @@ export class HarvestRecord {
     default: QualityClass.ORDINAER,
   })
   qualityClass: QualityClass;
+
+  /**
+   * Retired 5-level display grade, now DERIVED (not stored) from qualityClass
+   * so existing read clients keep a `qualityGrade` field. Lossy alias: SUPERIOR
+   * renders as GRADE_A (PREMIUM is unreachable). No @Column — never persisted.
+   */
+  @Field(() => QualityGrade, {
+    description: 'DEPRECATED display alias derived from qualityClass; use qualityClass.',
+  })
+  get qualityGrade(): QualityGrade {
+    return classToDisplayGrade(this.qualityClass);
+  }
 
   // -------------------------------------------------------------------------
   // KALİTE KONTROL

@@ -12,7 +12,7 @@ import { DataSource, SelectQueryBuilder, Brackets } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { ListHarvestsQuery } from '../queries/list-harvests.query';
-import { HarvestRecord } from '../entities/harvest-record.entity';
+import { HarvestRecord, qualityGradeToClass } from '../entities/harvest-record.entity';
 
 @Injectable()
 @QueryHandler(ListHarvestsQuery)
@@ -72,12 +72,31 @@ export class ListHarvestsHandler implements IQueryHandler<ListHarvestsQuery, Pag
           qb.andWhere('harvest.status IN (:...statuses)', { statuses: filter.statuses });
         }
 
+        // The quality_grade column is retired (RPT-007): filter on the stored
+        // quality_class. A legacy qualityGrade filter maps onto its class; the
+        // qualityClass filters are the SSoT-native path.
+        if (filter.qualityClass) {
+          qb.andWhere('harvest.qualityClass = :qualityClass', {
+            qualityClass: filter.qualityClass,
+          });
+        }
+
+        if (filter.qualityClasses?.length) {
+          qb.andWhere('harvest.qualityClass IN (:...qualityClasses)', {
+            qualityClasses: filter.qualityClasses,
+          });
+        }
+
         if (filter.qualityGrade) {
-          qb.andWhere('harvest.qualityGrade = :qualityGrade', { qualityGrade: filter.qualityGrade });
+          qb.andWhere('harvest.qualityClass = :gradeClass', {
+            gradeClass: qualityGradeToClass(filter.qualityGrade),
+          });
         }
 
         if (filter.qualityGrades?.length) {
-          qb.andWhere('harvest.qualityGrade IN (:...qualityGrades)', { qualityGrades: filter.qualityGrades });
+          qb.andWhere('harvest.qualityClass IN (:...gradeClasses)', {
+            gradeClasses: filter.qualityGrades.map(qualityGradeToClass),
+          });
         }
 
         if (filter.method) {

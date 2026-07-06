@@ -41,6 +41,7 @@ import { AddReportDraftDeadlineNotifiedBucket1803750000000 } from './18037500000
 import { ExtendBiomassReportStatusAltinnManual1804000000000 } from './1804000000000-ExtendBiomassReportStatusAltinnManual';
 import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './1804100000000-DropRegulatorySettingsSlaughterApprovalNumber';
 import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
+import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 
 /**
  * Canonical farm-service migration class list.
@@ -94,4 +95,5 @@ export const FARM_MIGRATIONS = [
   ExtendBiomassReportStatusAltinnManual1804000000000,
   DropRegulatorySettingsSlaughterApprovalNumber1804100000000,
   DropSiteLocalityMappingsJsonb1804200000000,
+  DropHarvestQualityGrade1804300000000,
 ] as const;

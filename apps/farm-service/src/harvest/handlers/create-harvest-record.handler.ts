@@ -307,9 +307,9 @@ export class CreateHarvestRecordHandler
           totalBiomass: biomassKg,
           averageWeight: input.averageWeight,
           productForm: ProductForm.FRESH_WHOLE,
-          qualityGrade,
-          // Official Norwegian quality class is stored truth for the slakt report,
-          // derived from the display grade via the entity's SSoT mapping.
+          // Official Norwegian quality class is the sole stored quality taxonomy
+          // (RPT-007), derived from the deprecated display grade via the entity's
+          // SSoT mapping. qualityGrade is a read-only derived alias — not stored.
           qualityClass: qualityGradeToClass(qualityGrade),
           lotInfo,
           supervisorId: recordedBy,

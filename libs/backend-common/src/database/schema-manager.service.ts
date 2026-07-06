@@ -214,7 +214,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    // SENSOR-MEDIUM-009: vfd_register_mappings is GLOBAL vendor reference data
+    // (declares schema:'sensor'), a single cross-tenant table — NOT per-tenant
+    // cloned — so it belongs in the source-schema-only infrastructure set.
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -226,9 +229,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'processes',
 
       // VFD (Variable Frequency Drive) entities
+      // vfd_register_mappings is intentionally NOT here — it is global
+      // cross-tenant reference data pinned to `sensor` (see infrastructureTables
+      // above, SENSOR-MEDIUM-009), not a per-tenant clone.
       'vfd_devices',
       'vfd_readings',
-      'vfd_register_mappings',
       'vfd_parameter_definitions',
       'vfd_change_sets',
       'vfd_change_set_items',

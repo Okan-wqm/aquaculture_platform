@@ -21,6 +21,8 @@ import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 
 import { BiomassReport } from './entities/biomass-report.entity';
 import { BiomassReportService } from './services/biomass-report.service';
+import { BiomassAltinnExportService } from './services/biomass-altinn-export.service';
+import { BiomassAltinnExportOutput } from './dto/biomass-altinn-export.dto';
 import { CreateBiomassReportInput } from './dto/create-biomass-report.input';
 import { QueryBus } from '@platform/cqrs';
 import { GetBiomassReportByPeriodQuery } from './queries/get-biomass-report-by-period.query';
@@ -39,6 +41,7 @@ export class BiomassReportResolver {
 
   constructor(
     private readonly biomassReportService: BiomassReportService,
+    private readonly altinnExportService: BiomassAltinnExportService,
     private readonly queryBus: QueryBus,
   ) {}
 
@@ -112,6 +115,20 @@ export class BiomassReportResolver {
     return this.queryBus.execute(
       new GetBiomassReportByPeriodQuery(tenantId, siteId, reportMonth, reportYear),
     );
+  }
+
+  @Query(() => BiomassAltinnExportOutput, {
+    description:
+      'Form-ordered FD-0001 export (CSV + printable) for a biomass report, to ' +
+      'transcribe into the Altinn manual submission.',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async biomassReportAltinnExport(
+    @CurrentTenant() tenantId: string,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<BiomassAltinnExportOutput> {
+    const report = await this.biomassReportService.getById(tenantId, id);
+    return { ...this.altinnExportService.build(report), generatedAt: new Date() };
   }
 
   @Query(() => [BiomassReport], {

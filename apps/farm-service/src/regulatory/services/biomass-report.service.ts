@@ -123,9 +123,18 @@ export class BiomassReportService {
   // is reached ONLY when the operator confirms the Altinn receipt.
   // ==========================================================================
 
+  /** Load a report by id within the tenant, or throw NotFound. */
+  async getById(tenantId: string, id: string): Promise<BiomassReport> {
+    const report = await this.repo.findOne({ where: { id, tenantId } });
+    if (!report) {
+      throw new NotFoundException(`Biomass report ${id} not found`);
+    }
+    return report;
+  }
+
   /** DRAFT → READY: the report is reviewed and ready for the Altinn export. */
   async markReady(tenantId: string, id: string, userId: string): Promise<BiomassReport> {
-    const report = await this.getOrThrow(tenantId, id);
+    const report = await this.getById(tenantId, id);
     if (report.status !== BiomassReportStatus.DRAFT) {
       throw new BadRequestException(
         `Biomass report ${id} is ${report.status}; only a DRAFT can be marked READY`,
@@ -139,7 +148,7 @@ export class BiomassReportService {
 
   /** READY → DRAFT: reopen for editing / re-assembly before submission. */
   async revertToDraft(tenantId: string, id: string): Promise<BiomassReport> {
-    const report = await this.getOrThrow(tenantId, id);
+    const report = await this.getById(tenantId, id);
     if (report.status !== BiomassReportStatus.READY) {
       throw new BadRequestException(
         `Biomass report ${id} is ${report.status}; only a READY report can revert to DRAFT`,
@@ -161,7 +170,7 @@ export class BiomassReportService {
     altinnReference: string,
     userId: string,
   ): Promise<BiomassReport> {
-    const report = await this.getOrThrow(tenantId, id);
+    const report = await this.getById(tenantId, id);
     if (report.status !== BiomassReportStatus.READY) {
       throw new BadRequestException(
         `Biomass report ${id} is ${report.status}; confirm the Altinn submission only from READY`,
@@ -177,14 +186,6 @@ export class BiomassReportService {
     report.submittedBy = userId;
     report.submittedAt = new Date();
     return this.repo.save(report);
-  }
-
-  private async getOrThrow(tenantId: string, id: string): Promise<BiomassReport> {
-    const report = await this.repo.findOne({ where: { id, tenantId } });
-    if (!report) {
-      throw new NotFoundException(`Biomass report ${id} not found`);
-    }
-    return report;
   }
 
   /**

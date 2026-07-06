@@ -23,6 +23,7 @@ import { RegulatorySettings } from './entities/regulatory-settings.entity';
 import { RegulatorySettingsService } from './regulatory-settings.service';
 import { BiomassReport } from './entities/biomass-report.entity';
 import { BiomassReportService } from './services/biomass-report.service';
+import { BiomassAltinnExportService } from './services/biomass-altinn-export.service';
 import { BiomassReportResolver } from './biomass-report.resolver';
 import { RegulatorySettingsSeederService } from './services/regulatory-settings-seeder.service';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
@@ -82,6 +83,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     RegulatoryResolver,
     RegulatorySettingsService,
     BiomassReportService,
+    BiomassAltinnExportService,
     BiomassReportResolver,
     GetBiomassReportByPeriodHandler,
     ListBiomassReportsForSiteHandler,

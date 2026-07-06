@@ -283,6 +283,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   batches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  biomassReportAltinnExport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   chemical: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   chemicalSuppliers: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   chemicalTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

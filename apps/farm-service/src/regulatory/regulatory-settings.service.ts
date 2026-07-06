@@ -84,33 +84,22 @@ export class RegulatorySettingsService {
    * Save or update regulatory settings for a tenant
    */
   /**
-   * Effective site → lokalitetsnummer mappings. `sites.lokalitetsnummer` is
-   * the SSoT (RPT-015); the legacy settings jsonb is a transition fallback
-   * (removed in Phase 4). When both exist and disagree, sites wins and the
-   * drift is logged for the operator to reconcile.
+   * Effective site → lokalitetsnummer mappings, read from the SSoT:
+   * `sites.lokalitetsnummer` (RPT-015). The legacy settings jsonb fallback was
+   * removed with the column (Phase 4 dedup — DropSiteLocalityMappingsJsonb).
    */
   async getEffectiveSiteLocalityMappings(tenantId: string): Promise<Record<string, number>> {
-    const [settings, sites] = await Promise.all([
-      this.getSettings(tenantId),
-      this.siteRepo.find({
-        where: { tenantId, lokalitetsnummer: Not(IsNull()) },
-        select: ['id', 'lokalitetsnummer'],
-      }),
-    ]);
+    const sites = await this.siteRepo.find({
+      where: { tenantId, lokalitetsnummer: Not(IsNull()) },
+      select: ['id', 'lokalitetsnummer'],
+    });
 
-    const merged: Record<string, number> = { ...(settings?.siteLocalityMappings ?? {}) };
+    const mappings: Record<string, number> = {};
     for (const site of sites) {
       if (site.lokalitetsnummer == null) continue;
-      const legacy = merged[site.id];
-      if (legacy !== undefined && legacy !== site.lokalitetsnummer) {
-        this.logger.warn(
-          `Site ${site.id} lokalitetsnummer drift: sites=${site.lokalitetsnummer} ` +
-            `settings-jsonb=${legacy} — sites is the SSoT and wins.`,
-        );
-      }
-      merged[site.id] = site.lokalitetsnummer;
+      mappings[site.id] = site.lokalitetsnummer;
     }
-    return merged;
+    return mappings;
   }
 
   async saveSettings(
@@ -144,11 +133,8 @@ export class RegulatorySettingsService {
         settings.defaultContactPhone = input.defaultContactPhone;
       }
       if (input.siteLocalityMappings !== undefined) {
-        settings.siteLocalityMappings = input.siteLocalityMappings;
-        // Transition write-through (RPT-015): sites.lokalitetsnummer is the
-        // SSoT — mirror every mapping onto the site rows so old readers (the
-        // jsonb) and new readers (sites) stay consistent until the jsonb is
-        // dropped in Phase 4.
+        // sites.lokalitetsnummer is the SSoT (RPT-015): write each mapping onto
+        // the site rows. The legacy settings jsonb is gone (Phase 4 dedup).
         for (const [siteId, lokalitetsnummer] of Object.entries(input.siteLocalityMappings)) {
           await this.siteRepo.update({ id: siteId, tenantId }, { lokalitetsnummer });
         }
@@ -240,36 +226,6 @@ export class RegulatorySettingsService {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Get site locality mapping for a specific site
-   */
-  async getLokalitetsnummer(tenantId: string, siteId: string): Promise<number | null> {
-    const settings = await this.getSettings(tenantId);
-    if (!settings?.siteLocalityMappings) return null;
-    return settings.siteLocalityMappings[siteId] || null;
-  }
-
-  /**
-   * Update site locality mapping
-   */
-  async updateSiteLocalityMapping(
-    tenantId: string,
-    siteId: string,
-    lokalitetsnummer: number,
-  ): Promise<void> {
-    let settings = await this.getSettings(tenantId);
-    if (!settings) {
-      settings = this.repo.create({ tenantId, siteLocalityMappings: {} });
-    }
-
-    const mappings = settings.siteLocalityMappings || {};
-    mappings[siteId] = lokalitetsnummer;
-    settings.siteLocalityMappings = mappings;
-
-    await this.repo.save(settings);
-    this.logger.log(`Updated locality mapping for site ${siteId}: ${lokalitetsnummer}`);
   }
 
   /**

@@ -1,9 +1,9 @@
 /**
  * Site → lokalitetsnummer resolution SSoT (RPT-015).
  *
- * sites.lokalitetsnummer wins; the legacy settings jsonb is a transition
- * fallback (dropped in Phase 4). saveSettings writes through to BOTH so old
- * and new readers stay consistent during the soak.
+ * sites.lokalitetsnummer is the sole source; the legacy settings jsonb was
+ * dropped (Phase 4 dedup — DropSiteLocalityMappingsJsonb). saveSettings writes
+ * mappings straight to the site rows.
  */
 import { Repository } from 'typeorm';
 
@@ -14,7 +14,7 @@ import { Site } from '../../site/entities/site.entity';
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 function makeService(options: {
-  jsonbMappings?: Record<string, number>;
+  settingsExists?: boolean;
   siteRows?: Array<{ id: string; lokalitetsnummer: number | null }>;
 }): {
   service: RegulatorySettingsService;
@@ -22,9 +22,7 @@ function makeService(options: {
   settingsSave: jest.Mock;
 } {
   const settingsRow =
-    options.jsonbMappings === undefined
-      ? null
-      : ({ tenantId, siteLocalityMappings: options.jsonbMappings } as RegulatorySettings);
+    options.settingsExists === false ? null : ({ tenantId } as RegulatorySettings);
   const settingsSave = jest
     .fn()
     .mockImplementation((row: RegulatorySettings) => Promise.resolve(row));
@@ -46,12 +44,11 @@ function makeService(options: {
 }
 
 describe('RegulatorySettingsService — effective site locality mappings', () => {
-  it('merges sites over the jsonb fallback (sites win on drift)', async () => {
+  it('reads the mappings from the site rows (the SSoT)', async () => {
     const { service } = makeService({
-      jsonbMappings: { 'site-1': 11111, 'site-2': 22222 },
       siteRows: [
-        { id: 'site-1', lokalitetsnummer: 12345 }, // drift: sites wins
-        { id: 'site-3', lokalitetsnummer: 33333 }, // only on sites
+        { id: 'site-1', lokalitetsnummer: 12345 },
+        { id: 'site-3', lokalitetsnummer: 33333 },
       ],
     });
 
@@ -59,19 +56,18 @@ describe('RegulatorySettingsService — effective site locality mappings', () =>
 
     expect(mappings).toEqual({
       'site-1': 12345,
-      'site-2': 22222,
       'site-3': 33333,
     });
   });
 
-  it('returns the jsonb mapping alone while no site rows carry a number', async () => {
-    const { service } = makeService({ jsonbMappings: { 'site-1': 11111 }, siteRows: [] });
+  it('returns an empty map when no site row carries a number', async () => {
+    const { service } = makeService({ siteRows: [] });
 
-    expect(await service.getEffectiveSiteLocalityMappings(tenantId)).toEqual({ 'site-1': 11111 });
+    expect(await service.getEffectiveSiteLocalityMappings(tenantId)).toEqual({});
   });
 
-  it('saveSettings writes mappings through to the site rows (transition dual-write)', async () => {
-    const { service, siteUpdate } = makeService({ jsonbMappings: {}, siteRows: [] });
+  it('saveSettings writes mappings straight to the site rows', async () => {
+    const { service, siteUpdate } = makeService({ siteRows: [] });
 
     await service.saveSettings(tenantId, {
       siteLocalityMappings: { 'site-1': 12345, 'site-2': 22222 },

@@ -123,14 +123,11 @@ export class RegulatorySettings {
   @Column({ name: 'default_contact_phone', length: 50, nullable: true })
   defaultContactPhone?: string;
 
-  // ==========================================================================
-  // Site to Lokalitetsnummer Mappings (for Mattilsynet reports)
-  // ==========================================================================
-
-  /** Mapping of Site ID to Lokalitetsnummer (e.g., { "site-uuid": 12345 }) */
-  @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ name: 'site_locality_mappings', type: 'jsonb', default: '{}' })
-  siteLocalityMappings: Record<string, number>;
+  // Site → lokalitetsnummer is an intrinsic Site attribute now
+  // (sites.lokalitetsnummer, RPT-015 — the SSoT). The legacy
+  // regulatory_settings.site_locality_mappings jsonb is dropped by
+  // DropSiteLocalityMappingsJsonb1804200000000 (Phase 4 dedup); the effective
+  // map is read from site rows via getEffectiveSiteLocalityMappings.
 
   // Slaughter approval number moved to the slaughter_facilities catalog
   // (SSoT — CreateSlaughterFacilities1803450000000); the legacy

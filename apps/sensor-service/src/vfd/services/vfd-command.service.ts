@@ -122,6 +122,10 @@ export class VfdCommandService {
           result = await this.executeEmergencyStop(device, adapter, handle);
           break;
 
+        case VfdCommandType.QUICK_STOP:
+          result = await this.executeQuickStop(device, adapter, handle);
+          break;
+
         case VfdCommandType.JOG_FORWARD:
           result = await this.executeJog(device, adapter, handle, 'forward');
           break;
@@ -327,6 +331,27 @@ export class VfdCommandService {
     const emergencyCommand = brandCommands?.['QUICK_STOP'] || brandCommands?.['COAST'] || 0x0002;
 
     return adapter.writeControlWord(handle, emergencyCommand, controlWordMapping.registerAddress);
+  }
+
+  /**
+   * Execute QUICK_STOP command — CiA402 controlled fast deceleration (distinct
+   * from EMERGENCY_STOP's coast/OFF2 semantics). Writes the brand's quick-stop
+   * control word, falling back to the standard CiA402 quick-stop bit (0x0002).
+   */
+  private async executeQuickStop(
+    device: VfdDevice,
+    adapter: ReturnType<typeof createVfdAdapter>,
+    handle: VfdConnectionHandle
+  ): Promise<VfdCommandResult> {
+    const controlWordMapping = await this.registerMappingService.getControlWordMapping(device.brand);
+    if (!controlWordMapping) {
+      throw new BadRequestException(`Control word mapping not found for brand ${device.brand}`);
+    }
+
+    const brandCommands = VFD_BRAND_COMMANDS[device.brand];
+    const quickStopCommand = brandCommands?.['QUICK_STOP'] ?? 0x0002;
+
+    return adapter.writeControlWord(handle, quickStopCommand, controlWordMapping.registerAddress);
   }
 
   /**

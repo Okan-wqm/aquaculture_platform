@@ -21,8 +21,10 @@ jest.mock('../../adapters', () => ({
   createVfdAdapter: jest.fn().mockImplementation(() => ({
     connect: jest.fn().mockResolvedValue({ id: 'connection-123' }),
     disconnect: jest.fn().mockResolvedValue(undefined),
-    writeControlWord: jest.fn().mockResolvedValue({ success: true }),
-    writeSpeedReference: jest.fn().mockResolvedValue({ success: true }),
+    // Real adapter write results carry the round-trip latency; the command
+    // service passes result.latencyMs straight through.
+    writeControlWord: jest.fn().mockResolvedValue({ success: true, latencyMs: 12 }),
+    writeSpeedReference: jest.fn().mockResolvedValue({ success: true, latencyMs: 12 }),
   })),
 }));
 
@@ -64,6 +66,10 @@ describe('VfdCommandService', () => {
     dataType: 'uint16',
     scalingFactor: 0.1,
     isWritable: true,
+    // Range bounds so executeSetFrequency's guard actually fires: 45 Hz is in
+    // range, 600 Hz is over-max and -10 Hz is under-min (both must be rejected).
+    minValue: 0,
+    maxValue: 50,
   };
 
   beforeEach(async () => {
@@ -154,9 +160,14 @@ describe('VfdCommandService', () => {
         command: VfdCommandType.SET_FREQUENCY,
       };
 
-      await expect(service.executeCommand('device-123', tenantId, command)).rejects.toThrow(
-        BadRequestException
-      );
+      // executeCommand surfaces in-flow command errors (missing value, range,
+      // connect/write failures) as { success: false, error } — it only throws
+      // for the device preconditions (not found / not active). The command is
+      // still rejected (no frequency is written); the diagnostic is on `error`.
+      const result = await service.executeCommand('device-123', tenantId, command);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/requires a value/i);
     });
 
     it('should throw if device not found', async () => {
@@ -180,18 +191,22 @@ describe('VfdCommandService', () => {
       );
     });
 
-    it('should throw if device is not connected', async () => {
-      const disconnectedDevice = {
-        ...mockDevice,
-        connectionStatus: { isConnected: false },
-      };
-      deviceService.findById.mockResolvedValueOnce(disconnectedDevice as VfdDevice);
+    it('should fail (not throw) when the live connection cannot be established', async () => {
+      // The command path no longer gates on the persisted (possibly stale)
+      // connectionStatus flag — it opens a live connection. When that live
+      // connection fails, the result is { success: false } rather than a throw.
+      const { createVfdAdapter } = require('../../adapters');
+      createVfdAdapter.mockImplementationOnce(() => ({
+        connect: jest.fn().mockRejectedValue(new Error('No route to host')),
+        disconnect: jest.fn().mockResolvedValue(undefined),
+      }));
 
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
-      await expect(service.executeCommand('device-123', tenantId, command)).rejects.toThrow(
-        BadRequestException
-      );
+      const result = await service.executeCommand('device-123', tenantId, command);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/No route to host/);
     });
 
     it('should return latency in result', async () => {
@@ -231,9 +246,10 @@ describe('VfdCommandService', () => {
 
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
-      await expect(service.executeCommand('device-123', tenantId, command)).rejects.toThrow(
-        'Connection failed'
-      );
+      const result = await service.executeCommand('device-123', tenantId, command);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Connection failed');
     });
   });
 
@@ -244,9 +260,11 @@ describe('VfdCommandService', () => {
         value: 600, // Over max
       };
 
-      await expect(service.executeCommand('device-123', tenantId, command)).rejects.toThrow(
-        BadRequestException
-      );
+      // Range validation still blocks the write; surfaced as { success: false }.
+      const result = await service.executeCommand('device-123', tenantId, command);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
     it('should validate negative frequency', async () => {
@@ -255,9 +273,10 @@ describe('VfdCommandService', () => {
         value: -10,
       };
 
-      await expect(service.executeCommand('device-123', tenantId, command)).rejects.toThrow(
-        BadRequestException
-      );
+      const result = await service.executeCommand('device-123', tenantId, command);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 
@@ -296,40 +315,42 @@ describe('VfdCommandService', () => {
   });
 
   describe('connection management', () => {
-    it('should disconnect after command execution', async () => {
+    it('should pool and reuse the connection across commands (no per-command disconnect)', async () => {
       const { createVfdAdapter } = require('../../adapters');
+      const mockConnect = jest
+        .fn()
+        .mockResolvedValue({ id: 'connection-123', isConnected: true });
       const mockDisconnect = jest.fn().mockResolvedValue(undefined);
+      // One adapter is created for the device and cached; both commands reuse it.
       createVfdAdapter.mockImplementationOnce(() => ({
-        connect: jest.fn().mockResolvedValue({ id: 'connection-123' }),
+        connect: mockConnect,
         disconnect: mockDisconnect,
-        writeControlWord: jest.fn().mockResolvedValue({ success: true }),
+        writeControlWord: jest.fn().mockResolvedValue({ success: true, latencyMs: 12 }),
       }));
 
       const command: VfdCommandInput = { command: VfdCommandType.START };
-
+      await service.executeCommand('device-123', tenantId, command);
       await service.executeCommand('device-123', tenantId, command);
 
-      expect(mockDisconnect).toHaveBeenCalled();
+      // Connection is opened once and pooled — not torn down after each command.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+      expect(mockDisconnect).not.toHaveBeenCalled();
     });
 
-    it('should disconnect even on command failure', async () => {
+    it('should surface a write failure as { success: false } without throwing', async () => {
       const { createVfdAdapter } = require('../../adapters');
-      const mockDisconnect = jest.fn().mockResolvedValue(undefined);
       createVfdAdapter.mockImplementationOnce(() => ({
-        connect: jest.fn().mockResolvedValue({ id: 'connection-123' }),
-        disconnect: mockDisconnect,
+        connect: jest.fn().mockResolvedValue({ id: 'connection-123', isConnected: true }),
+        disconnect: jest.fn().mockResolvedValue(undefined),
         writeControlWord: jest.fn().mockRejectedValue(new Error('Write error')),
       }));
 
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
-      try {
-        await service.executeCommand('device-123', tenantId, command);
-      } catch {
-        // Expected to throw
-      }
+      const result = await service.executeCommand('device-123', tenantId, command);
 
-      expect(mockDisconnect).toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Write error');
     });
   });
 });

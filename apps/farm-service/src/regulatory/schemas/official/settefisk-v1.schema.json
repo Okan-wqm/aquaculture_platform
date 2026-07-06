@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mattilsynet/settefisk/v1",
+  "title": "Mattilsynet settefisk (smolt) monthly report — POST /api/settefisk/v1/settefisk",
+  "description": "Transcribed from docs/integrations/mattilsynet-reporting-api.md §3. x-verified=false until diffed against the live swagger (RPT-017).",
+  "x-verified": false,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "klientReferanse",
+    "organisasjonsnummer",
+    "lokalitetsnummer",
+    "kontaktperson",
+    "rapporteringsmåned",
+    "rapporteringsår",
+    "produksjonsenheter"
+  ],
+  "properties": {
+    "klientReferanse": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+    "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+    "kontaktperson": { "$ref": "#/definitions/kontaktperson" },
+    "rapporteringsmåned": { "type": "integer", "minimum": 1, "maximum": 12 },
+    "rapporteringsår": { "type": "integer", "minimum": 2020, "maximum": 2100 },
+    "produksjonsenheter": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/produksjonsenhet" }
+    }
+  },
+  "definitions": {
+    "kontaktperson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navn", "epost", "telefonnummer"],
+      "properties": {
+        "navn": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "epost": { "type": "string", "format": "email", "maxLength": 255 },
+        "telefonnummer": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "produksjonsenhet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "karId",
+        "artskode",
+        "snittvektGram",
+        "beholdningVedMånedsslutt",
+        "antallAvlivet",
+        "antallSelvdød",
+        "antallFlyttetEksternt"
+      ],
+      "properties": {
+        "karId": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "artskode": { "type": "string", "pattern": "^[A-Z]{2,5}$" },
+        "snittvektGram": { "type": "number", "minimum": 0 },
+        "beholdningVedMånedsslutt": { "type": "integer", "minimum": 0 },
+        "antallAvlivet": { "type": "integer", "minimum": 0 },
+        "antallSelvdød": { "type": "integer", "minimum": 0 },
+        "antallFlyttetEksternt": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

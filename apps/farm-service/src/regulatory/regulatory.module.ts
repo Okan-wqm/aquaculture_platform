@@ -14,6 +14,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MaskinportenService } from './maskinporten.service';
 import { MattilsynetApiService } from './mattilsynet-api.service';
+import { MattilsynetSchemaValidatorService } from './services/mattilsynet-schema-validator.service';
 import { RegulatoryResolver } from './regulatory.resolver';
 import { RegulatorySettings } from './entities/regulatory-settings.entity';
 import { RegulatorySettingsService } from './regulatory-settings.service';
@@ -43,6 +44,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
   providers: [
     MaskinportenService,
     MattilsynetApiService,
+    MattilsynetSchemaValidatorService,
     RegulatoryResolver,
     RegulatorySettingsService,
     BiomassReportService,
@@ -60,6 +62,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
   exports: [
     MaskinportenService,
     MattilsynetApiService,
+    MattilsynetSchemaValidatorService,
     RegulatorySettingsService,
     BiomassReportService,
     RegulatorySettingsSeederService,

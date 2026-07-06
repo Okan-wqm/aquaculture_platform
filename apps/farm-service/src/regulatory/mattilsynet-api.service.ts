@@ -20,6 +20,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
+import type { ValidatedPayload } from './schemas/validated-payload';
 
 // ============================================================================
 // Types - Common
@@ -61,7 +62,12 @@ export interface LusetellingPayload {
 
 export interface VirkestoffStyrkePayload {
   verdi: number;
-  enhet: 'MILLIGRAM_PER_GRAM' | 'MILLIGRAM_PER_MILLILITER' | 'GRAM_PER_KILO' | 'MILLIGRAM_PER_KILO' | 'PROSENT';
+  enhet:
+    | 'MILLIGRAM_PER_GRAM'
+    | 'MILLIGRAM_PER_MILLILITER'
+    | 'GRAM_PER_KILO'
+    | 'MILLIGRAM_PER_KILO'
+    | 'PROSENT';
 }
 
 export interface VirkestoffMengdePayload {
@@ -71,25 +77,41 @@ export interface VirkestoffMengdePayload {
 
 // Enum types aligned with official API
 export type VirkestoffTypePayload =
-  | 'AZAMETHIPHOS' | 'CYPERMETHRIN' | 'DELTAMETHRIN' | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID' | 'DIFLUBENZURON' | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON' | 'ANNET_VIRKESTOFF';
+  | 'AZAMETHIPHOS'
+  | 'CYPERMETHRIN'
+  | 'DELTAMETHRIN'
+  | 'IMIDAKLOPRID'
+  | 'HYDROGENPEROKSID'
+  | 'DIFLUBENZURON'
+  | 'EMAMECTIN_BENZOAT'
+  | 'TEFLUBENZURON'
+  | 'ANNET_VIRKESTOFF';
 
 export type IkkeMedikamentellTypePayload =
-  | 'TERMISK_BEHANDLING' | 'MEKANISK_BEHANDLING'
-  | 'FERSKVANNSBEHANDLING' | 'ANNEN_BEHANDLING';
+  | 'TERMISK_BEHANDLING'
+  | 'MEKANISK_BEHANDLING'
+  | 'FERSKVANNSBEHANDLING'
+  | 'ANNEN_BEHANDLING';
 
-export type MedikamentellTypePayload =
-  | 'FORBEHANDLING' | 'BADEBEHANDLING' | 'ANNEN_BEHANDLING';
+export type MedikamentellTypePayload = 'FORBEHANDLING' | 'BADEBEHANDLING' | 'ANNEN_BEHANDLING';
 
 export type ResistensTypePayload =
-  | 'AZAMETHIPHOS' | 'CYPERMETHRIN' | 'DELTAMETHRIN' | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID' | 'DIFLUBENZURON' | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON' | 'FERSKVANNSBEHANDLING' | 'ANNEN_RESISTENS';
+  | 'AZAMETHIPHOS'
+  | 'CYPERMETHRIN'
+  | 'DELTAMETHRIN'
+  | 'IMIDAKLOPRID'
+  | 'HYDROGENPEROKSID'
+  | 'DIFLUBENZURON'
+  | 'EMAMECTIN_BENZOAT'
+  | 'TEFLUBENZURON'
+  | 'FERSKVANNSBEHANDLING'
+  | 'ANNEN_RESISTENS';
 
 export type ResistensAarsakTypePayload =
-  | 'BIOESSAY' | 'NEDSATT_BEHANDLINGSEFFEKT'
-  | 'SITUASJONEN_I_OMRÅDET' | 'ANNEN_ÅRSAK';
+  | 'BIOESSAY'
+  | 'NEDSATT_BEHANDLINGSEFFEKT'
+  | 'SITUASJONEN_I_OMRÅDET'
+  | 'ANNEN_ÅRSAK';
 
 export type TestresultatPayload = 'FØLSOM' | 'NEDSATT_FØLSOMHET' | 'RESISTENS';
 
@@ -224,7 +246,10 @@ export interface RensefiskUttakPayload {
 
 // Cleaner fish origin - ALIGNED WITH OFFICIAL RensefiskOpprinnelse
 export type RensefiskOpprinnelsePayload =
-  | 'UKJENT' | 'VILLFANGET' | 'OPPDRETTET' | 'VILLFANGET_OG_OPPDRETTET';
+  | 'UKJENT'
+  | 'VILLFANGET'
+  | 'OPPDRETTET'
+  | 'VILLFANGET_OG_OPPDRETTET';
 
 export interface RensefiskArtPayload {
   artskode: 'USB' | 'BER' | 'GRO' | 'BNB';
@@ -372,9 +397,10 @@ export class MattilsynetApiService {
   ) {
     // Default to test environment
     const environment = this.configService.get<string>('MATTILSYNET_ENV', 'TEST');
-    this.baseUrl = environment === 'PRODUCTION'
-      ? 'https://innrapportering-api.fisk.mattilsynet.io'
-      : 'https://innrapportering-api.fisk-dev.mattilsynet.io';
+    this.baseUrl =
+      environment === 'PRODUCTION'
+        ? 'https://innrapportering-api.fisk.mattilsynet.io'
+        : 'https://innrapportering-api.fisk-dev.mattilsynet.io';
 
     this.logger.log(`Mattilsynet API configured for: ${this.baseUrl}`);
   }
@@ -384,13 +410,13 @@ export class MattilsynetApiService {
    */
   private async getHeaders(tenantId: string, scope: string): Promise<Record<string, string>> {
     const token = await this.maskinporten.getAccessToken(tenantId, [scope]);
-    const clientId = await this.settingsService.getDecryptedClientId(tenantId) || '';
+    const clientId = (await this.settingsService.getDecryptedClientId(tenantId)) || '';
 
     return {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
       'Client-Id': clientId,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      Accept: 'application/json',
     };
   }
 
@@ -398,7 +424,10 @@ export class MattilsynetApiService {
    * Submit a Sea Lice report
    * POST /api/lakselus/v1/lakselus
    */
-  async submitSeaLiceReport(tenantId: string, payload: SeaLicePayload): Promise<MattilsynetApiResponse> {
+  async submitSeaLiceReport(
+    tenantId: string,
+    payload: ValidatedPayload<SeaLicePayload>,
+  ): Promise<MattilsynetApiResponse> {
     const endpoint = `${this.baseUrl}/api/lakselus/v1/lakselus`;
     return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SEA_LICE, 'Sea Lice');
   }
@@ -407,16 +436,28 @@ export class MattilsynetApiService {
    * Submit a Cleaner Fish report
    * POST /api/rensefisk/v1/rensefisk
    */
-  async submitCleanerFishReport(tenantId: string, payload: CleanerFishPayload): Promise<MattilsynetApiResponse> {
+  async submitCleanerFishReport(
+    tenantId: string,
+    payload: ValidatedPayload<CleanerFishPayload>,
+  ): Promise<MattilsynetApiResponse> {
     const endpoint = `${this.baseUrl}/api/rensefisk/v1/rensefisk`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.CLEANER_FISH, 'Cleaner Fish');
+    return this.submitReport(
+      tenantId,
+      endpoint,
+      payload,
+      MATTILSYNET_SCOPES.CLEANER_FISH,
+      'Cleaner Fish',
+    );
   }
 
   /**
    * Submit a Smolt report
    * POST /api/settefisk/v1/settefisk
    */
-  async submitSmoltReport(tenantId: string, payload: SmoltPayload): Promise<MattilsynetApiResponse> {
+  async submitSmoltReport(
+    tenantId: string,
+    payload: ValidatedPayload<SmoltPayload>,
+  ): Promise<MattilsynetApiResponse> {
     const endpoint = `${this.baseUrl}/api/settefisk/v1/settefisk`;
     return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SMOLT, 'Smolt');
   }
@@ -425,18 +466,36 @@ export class MattilsynetApiService {
    * Submit a Planned Slaughter report
    * POST /api/slakt/v1/planlagt
    */
-  async submitPlannedSlaughterReport(tenantId: string, payload: PlannedSlaughterPayload): Promise<MattilsynetApiResponse> {
+  async submitPlannedSlaughterReport(
+    tenantId: string,
+    payload: ValidatedPayload<PlannedSlaughterPayload>,
+  ): Promise<MattilsynetApiResponse> {
     const endpoint = `${this.baseUrl}/api/slakt/v1/planlagt`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SLAUGHTER, 'Planned Slaughter');
+    return this.submitReport(
+      tenantId,
+      endpoint,
+      payload,
+      MATTILSYNET_SCOPES.SLAUGHTER,
+      'Planned Slaughter',
+    );
   }
 
   /**
    * Submit an Executed Slaughter report
    * POST /api/slakt/v1/utfort
    */
-  async submitExecutedSlaughterReport(tenantId: string, payload: ExecutedSlaughterPayload): Promise<MattilsynetApiResponse> {
+  async submitExecutedSlaughterReport(
+    tenantId: string,
+    payload: ValidatedPayload<ExecutedSlaughterPayload>,
+  ): Promise<MattilsynetApiResponse> {
     const endpoint = `${this.baseUrl}/api/slakt/v1/utfort`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SLAUGHTER, 'Executed Slaughter');
+    return this.submitReport(
+      tenantId,
+      endpoint,
+      payload,
+      MATTILSYNET_SCOPES.SLAUGHTER,
+      'Executed Slaughter',
+    );
   }
 
   /**
@@ -502,7 +561,7 @@ export class MattilsynetApiService {
   async healthCheck(tenantId: string): Promise<{ healthy: boolean; message: string }> {
     try {
       // Try to get a token (validates Maskinporten connection)
-      if (!await this.maskinporten.isConfiguredForTenant(tenantId)) {
+      if (!(await this.maskinporten.isConfiguredForTenant(tenantId))) {
         return {
           healthy: false,
           message: 'Maskinporten not configured',

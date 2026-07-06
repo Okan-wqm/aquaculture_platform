@@ -17,6 +17,7 @@ import type { BaseEvent } from '@platform/event-contracts';
 import { createMockDataSource } from '@aquaculture/testing';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
 import { RegulatoryReport } from '../entities/regulatory-report.entity';
 import { RegulatoryResolver } from '../regulatory.resolver';
 import { MattilsynetApiService } from '../mattilsynet-api.service';
@@ -108,7 +109,14 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
     const mattilsynet = {} as MattilsynetApiService;
     const maskinporten = {} as MaskinportenService;
     const settings = {} as RegulatorySettingsService;
-    resolver = new RegulatoryResolver(mattilsynet, maskinporten, settings, service, reportStore);
+    resolver = new RegulatoryResolver(
+      mattilsynet,
+      maskinporten,
+      settings,
+      service,
+      reportStore,
+      new MattilsynetSchemaValidatorService(),
+    );
   });
 
   describe('submitWelfareEvent', () => {

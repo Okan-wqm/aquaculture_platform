@@ -18,6 +18,7 @@ import { MaskinportenService } from '../maskinporten.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
 import {
   RegulatoryReport,
   RegulatoryReportType,
@@ -82,6 +83,9 @@ describe('RegulatoryResolver — REST submit persist-first flow', () => {
       settings as RegulatorySettingsService,
       {} as RegulatoryVarslingService,
       store as RegulatoryReportStoreService,
+      // The REAL validator (pure, no deps): the persist-first flow must only
+      // ever see schema-valid payloads.
+      new MattilsynetSchemaValidatorService(),
     );
   });
 
@@ -156,5 +160,23 @@ describe('RegulatoryResolver — REST submit persist-first flow', () => {
 
     await expect(resolver.submitSeaLiceReport(input, ctx())).rejects.toThrow('db down');
     expect(submitSeaLice).not.toHaveBeenCalled();
+  });
+
+  it('rejects a schema-invalid payload BEFORE persisting — no PENDING row, no API call', async () => {
+    const invalid = {
+      ...input,
+      // Official schema: lokalitetsnummer is a 5-digit number (10000–99999).
+      lokalitetsnummer: 5,
+    } as SubmitSeaLiceReportInput;
+
+    const result = await resolver.submitSeaLiceReport(invalid, ctx());
+
+    expect(result.success).toBe(false);
+    expect(result.valideringsfeil).toEqual(
+      expect.arrayContaining([expect.objectContaining({ felt: 'lokalitetsnummer' })]),
+    );
+    expect(recordPending).not.toHaveBeenCalled();
+    expect(submitSeaLice).not.toHaveBeenCalled();
+    expect(markFailed).not.toHaveBeenCalled();
   });
 });

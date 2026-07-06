@@ -88,6 +88,7 @@ IDs continue the farm review series as `RPT-*`.
 | RPT-017 | LOW | Local endpoint paths/`Client-Id` header unverified against live swagger (proxy-blocked) | Docs unreachable from CI | Phase 0: verify from unblocked network; contract tests pinned to the verified schema. Tracked; owner: operator (needs network) |
 | RPT-018 | LOW | No submission verification loop (did Mattilsynet actually register it?) | One-way fire | Phase 3 (optional): BarentsWatch public-data cross-check for lice reports |
 | RPT-019 | MEDIUM | Mobile app has zero reporting/field-capture surface | Never built | Phase 6 |
+| RPT-020 | HIGH | Pre-existing red suite on main: `permission-matrix.spec.ts` — `recordWaterTemperature` (@Mutation) and `batchTraceability` (@Query) carry @Roles in source but were never classified in `permission-matrix.ts`, so the fail-closed runtime guard rejects them in production | Operations shipped (PR #873/#879 era) without the mandatory matrix entry; the invariant was red and unnoticed | Fixed in this workstream (canonical finding: FARM-HIGH-145, `docs/reviews/farm-expert/2026-07-06-regulatory-automation.md`) |
 
 ## 3. Target architecture
 

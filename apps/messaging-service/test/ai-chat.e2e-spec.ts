@@ -18,7 +18,6 @@ import {
   TENANT_A,
   USER_A1,
   USER_A2,
-  ADMIN_A,
   E2eTestContext,
   closeE2eTestApp,
 } from './e2e-setup';
@@ -49,12 +48,6 @@ const UPDATE_USER_AI_CONSENT = `
 const GET_AI_SETTINGS = `
   query AiSettings {
     aiSettings { tenantAiEnabled userAiConsent }
-  }
-`;
-
-const UPDATE_TENANT_AI_SETTING = `
-  mutation UpdateTenantAiSetting($enabled: Boolean!) {
-    updateTenantAiSetting(enabled: $enabled)
   }
 `;
 
@@ -181,37 +174,9 @@ describe('AI Chat (E2E)', () => {
     });
   });
 
-  // ── Tenant AI Settings (Admin) ──────────────────────────────────────────
-
-  describe('Tenant AI Settings', () => {
-    it('should allow admin to enable tenant AI setting', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['TENANT_ADMIN'])
-        .query(UPDATE_TENANT_AI_SETTING, { enabled: true })
-        .expect(200);
-
-      expect(res.body.errors).toBeUndefined();
-      expect(res.body.data.updateTenantAiSetting).toBe(true);
-    });
-
-    it('should allow admin to disable tenant AI setting', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['TENANT_ADMIN'])
-        .query(UPDATE_TENANT_AI_SETTING, { enabled: false })
-        .expect(200);
-
-      expect(res.body.errors).toBeUndefined();
-      expect(res.body.data.updateTenantAiSetting).toBe(true);
-    });
-
-    it('should reject tenant AI setting update from non-admin', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, USER_A1, ['MODULE_USER'])
-        .query(UPDATE_TENANT_AI_SETTING, { enabled: true })
-        .expect(200);
-
-      expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toBe('Access denied');
-      expect(res.body.errors[0].extensions?.code).toBe('FORBIDDEN');
-    });
-  });
+  // Tenant AI enablement is no longer a messaging mutation — it moved to
+  // ai-service (updateAiProviderSettings.isEnabled), the SSoT. The removed
+  // updateTenantAiSetting E2E block went with it.
 
   // ── AI Personas ─────────────────────────────────────────────────────────
 

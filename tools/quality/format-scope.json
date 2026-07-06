@@ -3035,7 +3035,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/chat/chat.controller.ts",
+      "path": "apps/ai-service/src/chat/ai-chat.responder.ts",
       "prettier_managed": true
     },
     {
@@ -3202,12 +3202,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/tenant-config/__tests__/agent-config.controller.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/ai-service/src/tenant-config/__tests__/agent-config.encryption.spec.ts",
       "prettier_managed": true
     },
@@ -3215,12 +3209,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tenant-config/__tests__/agent-config.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/ai-service/src/tenant-config/agent-config.controller.ts",
       "prettier_managed": true
     },
     {
@@ -3238,7 +3226,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tenant-config/agent-config.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tenant-config/agent-config.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-config/ai-enablement.responder.ts",
       "prettier_managed": true
     },
     {
@@ -14624,7 +14624,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "761bf5120cadba566f93902d0335b0c791dd084045ec2ac967e5a55a3b980660",
+      "content_sha256": "8744d0fd1164b89f3ddaa77fd21f8ed53a6f76f0735973144092867e9efb18cc",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -15098,12 +15098,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/gateway-api/src/routes/v2/ai.routes.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/gateway-api/src/routes/v2/index.ts",
       "prettier_managed": true
     },
@@ -15165,6 +15159,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/websocket/adapters/redis-io.adapter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/websocket/ai-chat.gateway.ts",
       "prettier_managed": true
     },
     {
@@ -18386,12 +18386,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/entities/tenant-ai-setting.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/ai/entities/user-ai-consent.entity.ts",
       "prettier_managed": true
     },
@@ -19546,6 +19540,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/migrations/1802000000000-DropChannelAiServiceUrl.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/migrations/1802100000000-DropTenantAiSettings.ts",
       "prettier_managed": true
     },
     {
@@ -31436,7 +31436,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4999f9a68d65ef0e87862aa1066f669116fb54f581f540cbf6725d85c6fce3b9",
+      "content_sha256": "c98f077a81e8de6fe4e618b8d731c05bd70817cfb8928cebffbfd29acf415159",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -31459,7 +31459,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d8ec5a0dd28dab1159ffbf8b57481461ff03329c8928bd6bc569ac10d327eae4",
+      "content_sha256": "6e04221ae80598cf7ddbe95eb3f76c1f21ebc2e4249ff04c7f0f11abe678fc27",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -49604,7 +49604,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8978713511aeba1c3dd672c7088341dbc6654fd09c6b67b6f52c242f4f68ab5d",
+      "content_sha256": "02c2afeb8e2a1b9d3907854de9d65b0130a05ac26df9e6446a191376957f9002",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -50253,7 +50253,7 @@
   "file_count": 8229,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8054,
-  "managed_file_list_sha256": "b0ce95f521f7f8b16510511ee7b1104bd9088d3d3162d4d73f571b5ff9559429",
+  "managed_file_list_sha256": "b4cc314a89267e4f077074d8b16ab1a556bfe61e47f535713da91d281ccbe87f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

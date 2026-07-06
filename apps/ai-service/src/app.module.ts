@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { join } from 'path';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -158,6 +159,10 @@ type QueryComplexityOperationContext = {
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
           autoSchemaFile: {
+            // Emit the federated SDL to the registry-canonical artifact path so
+            // the supergraph build + validate-registry pick up the ai subgraph
+            // (must match gatewaySubgraph('ai').schemaArtifactPath in the catalog).
+            path: join(process.cwd(), 'dist/graphql/subgraphs/ai.graphql'),
             federation: 2,
           },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.

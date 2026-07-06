@@ -108,6 +108,13 @@ x-nats-messaging-env: &nats-messaging-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/messaging_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+x-nats-ai-env: &nats-ai-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/ai_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/ai_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_URL: tls://nats:4222
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
@@ -546,6 +553,9 @@ services:
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
       MESSAGING_SERVICE_URL: http://messaging-service:3000/graphql
+      # ai-service is a REST surface (not an Apollo subgraph) — base URL, no /graphql.
+      # The /api/v2/ai proxy (routes/v2/ai.routes.ts) forwards the original path here.
+      AI_SERVICE_URL: http://ai-service:3000/graphql
       GATEWAY_COMPOSITION_MAX_RETRIES: ${GATEWAY_COMPOSITION_MAX_RETRIES:-24}
       GATEWAY_COMPOSITION_RETRY_DELAY_MS: ${GATEWAY_COMPOSITION_RETRY_DELAY_MS:-3000}
       MINIO_ENDPOINT: minio
@@ -1508,6 +1518,70 @@ services:
       # every healthcheck execution fail with
       #   OCI runtime exec failed: exec: "wget": executable file not found in $PATH
       # and marked the container `unhealthy` while the process itself was running fine.
+      test: ['CMD', 'curl', '-sf', 'http://localhost:3000/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # ai-service — AI assistant + BYOK (Faz 0 activation). REST service behind the
+  # gateway's /api/v2/ai proxy (not an Apollo subgraph). Mirrors messaging's
+  # backend shape; AI deltas: per-tenant BYOK key decryption + no MinIO.
+  # ---------------------------------------------------------------------------
+  ai-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/ai-service:${TAG:?TAG required}
+    container_name: aqua-ai
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: ai-service
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=384'
+      DATABASE_HOST: postgres
+      DATABASE_SSL: 'false'
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${AI_SERVICE_DB_USER:-ai_service}
+      DATABASE_PASSWORD: ${AI_SERVICE_DB_PASS:?AI_SERVICE_DB_PASS required}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_DB: '9'
+      <<: *nats-ai-env
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      # The gateway HMAC-signs every gateway→ai-service REST call (SEC-HIGH-054):
+      # the ServiceIdentityGuard needs the shared keyring or every AI request 403s.
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+      # BYOK: AES-256-GCM decrypt of the per-tenant AI credentials at rest.
+      AI_TENANT_SECRET_ENCRYPTION_KEY: ${AI_TENANT_SECRET_ENCRYPTION_KEY:?AI_TENANT_SECRET_ENCRYPTION_KEY required}
+      TRUST_PROXY: 'true'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
+    volumes:
+      - *nats-ca-mount
+      - *nats-clients-mount
+      - *jwt-public-key-mount
+    networks:
+      - aqua-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      db-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
       test: ['CMD', 'curl', '-sf', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s

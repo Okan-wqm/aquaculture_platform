@@ -1,189 +1,76 @@
-# Runbook — ai-service activation (Faz 0 deploy chain)
+# Runbook — ai-service activation (deploy steps)
 
-**Status:** deploy-gated. All AI + RBAC code is merged to `main` (PR #887/#888) but
-`ai-service` is `deploymentStatus: 'inactive'` — the AI assistant + BYOK are dormant
-in production. This runbook is the ordered, verified-as-far-as-possible checklist to
-activate it. Run it in a session **with droplet/deploy access** — the gateway HMAC
-round-trip, NATS mTLS handshake, and cold boot can only be verified live.
+**Status:** the code is complete on `main` — ai-service is a first-class federated
+Apollo **subgraph** (AI settings CRUD is GraphQL) and AI chat rides the platform's
+real-time path (gateway `AiChatGateway` socket.io → NATS `request.ai.chat` →
+ai-service `AiChatResponder`). The hand-rolled REST proxy + SSE controller are
+deleted. Catalog, compose, NATS allowlist, and the supergraph are all wired.
 
-> Why gated (from the plan): the gateway identity chain (`buildGatewayVerifiedUserAssertion`
-> HMAC + `x-verified-user-assertion` verification), the NATS mTLS cert handshake, and
-> the cold-start budget are only observable with a live gateway + ai-service + auth
-> triad. Local invariants verify **config consistency**, not runtime boot.
+What remains is **operational** and needs a session with droplet/deploy access: mint
+the NATS cert, provision two secrets, deploy, and smoke-verify. The gateway HMAC
+round-trip, NATS mTLS handshake, and cold boot can only be confirmed live.
 
 ---
 
-## 0. Prerequisite — mint the ai-service NATS client cert (ADR-015)
+## Architecture (as merged)
 
-`infrastructure/nats/services.yaml` + `nats.conf` already declare `CN=ai_service`
-(the identity exists), but the compose block below mounts a client cert/key that must
-physically exist on the droplet. Follow `docs/runbooks/nats-service-addition.md`:
+- **AI settings** — federated GraphQL on the ai subgraph: `aiSettings` query +
+  `updateAiSettings` mutation (`AgentConfigResolver`), gated by `ai_settings:view` /
+  `ai_settings:manage` (Faz 7c). The gateway federates it like every other subgraph,
+  so identity is the HMAC-verified assertion (resourcePermissions included).
+- **AI chat** — ONE NATS request-reply entrypoint `request.ai.chat`
+  (`AiChatResponder`, `@MessagePattern`), served for BOTH:
+  - the messaging AI-in-channel bridge (`AiChatBridgeService` already sends it), and
+  - the panel/mobile assistant, via the gateway `AiChatGateway` socket.io `/ai`
+    namespace (`ai:chat` → NATS → `ai:response`), gated by `ai_assistant:use`.
+- **BYOK** — per-tenant AES-256-GCM keys decrypted with `AI_TENANT_SECRET_ENCRYPTION_KEY`.
 
-- Mint the `ai_service` client cert/key (CN=ai_service) into the droplet's NATS client
-  cert dir (same location the other services' certs live).
-- Confirm `scripts/nats/generate-nats-conf.py` output already contains the `ai_service`
-  user between the `# BEGIN/END GENERATED` sentinels (it does — verify, don't hand-edit).
+## 0. Mint the ai-service NATS client cert (ADR-015)
 
-Without the cert, `nats_auth_mode_mtls` never clears and ai-service crash-loops on boot.
+`services.yaml` + `nats.conf` already declare `CN=ai_service` (subscribe
+`request.ai.chat` + the 3 other `request.ai.*`; the gateway now publishes
+`request.ai.chat`). The compose block mounts `certs/nats/clients/ai_service-cert.pem`
++ `ai_service-key.pem` — mint them per `docs/runbooks/nats-service-addition.md`.
+Without the cert, `nats_auth_mode_mtls` never clears and ai-service crash-loops.
 
-## 1. Catalog promotion — `platform/libs/service-catalog/src/index.ts`
+## 1. Provision secrets on the droplet (.env)
 
-Change the `ai-service` entry (verified against the catalog taxonomy + validators):
+- `AI_SERVICE_DB_PASS` — the `ai_service` DB role password (role already in the catalog).
+- `AI_TENANT_SECRET_ENCRYPTION_KEY` — 32-byte base64; decrypts BYOK keys at rest.
+  The service serves no tenant's AI without it.
 
-```diff
--    deploymentStatus: 'inactive',
--    deployTarget: 'unsupported',
--    criticality: 'ignored',
--    classification: 'subgraph',
--    gatewayParticipation: 'none',
--    startupBudgetSeconds: 60,
--    requiredSignals: [],
--    requiredEnv: ['AI_SERVICE_DB_PASS'],
-+    deploymentStatus: 'active',
-+    deployTarget: 'droplet',
-+    criticality: 'required',            // feature-down, not data-loss/life-safety
-+    classification: 'internal-service', // REST-proxied, NOT an Apollo subgraph → no gatewaySubgraph
-+    gatewayParticipation: 'none',
-+    startupBudgetSeconds: 60,           // == compose start_period
-+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-+    requiredEnv: ['AI_SERVICE_DB_PASS', 'AI_TENANT_SECRET_ENCRYPTION_KEY'],
-```
+`SERVICE_IDENTITY_KEYRING` / `SIGNING_KID`, `REDIS_PASSWORD`, JWT key are shared/existing.
 
-`AI_TENANT_SECRET_ENCRYPTION_KEY` (AES-256-GCM) decrypts the per-tenant BYOK
-credentials at rest — the service serves no tenant without it.
+## 2. Deploy
 
-## 2. Regenerate the catalog-derived deploy artifacts
+The image + compose + supergraph are catalog-driven and already regenerated. A normal
+deploy pulls the new ai-service image and recreates ai-service + gateway. **Ordering:**
+ai-service must be `healthy` before the gateway recomposes the supergraph (it
+introspects the ai subgraph schema); `db-migrate` runs the `ai` migrations first.
 
-```bash
-npm run service-catalog:generate   # regenerates infrastructure/deploy/service-catalog.generated.json
-                                   # + the droplet-up.sh / post-deploy-verify.sh derived lists
-```
-Commit the regenerated artifacts (the `platform service catalog parity` invariant fails
-otherwise — it asserts the generated image-targets/shell contain `ai-service`).
+## 3. MT-HIGH-057 — backfill BEFORE enforcement is user-visible
 
-## 3. Droplet compose — `docker-compose.droplet.yml`
+Existing tenants' seeded roles gain the messaging/AI capabilities only after the
+`1801300000000-BackfillMessagingAiRoleCapabilities` migration (admin-api) runs — the
+`db-migrate` one-shot runs it before services start. Verify it completed, else every
+non-admin loses group-create + the AI assistant (fail-closed).
 
-There is no `x-nats-ai-env` anchor yet — add one next to the others (line ~104), then
-add the `ai-service` service mirroring `messaging-service` (line ~1434). Key deltas:
+## 4. Smoke (live verification)
 
-```yaml
-x-nats-ai-env: &nats-ai-env
-  NATS_SERVERS: nats://nats:4222
-  NATS_AUTH_MODE: mtls-cert
-  NATS_CLIENT_CERT: /etc/ssl/nats/clients/ai_service.crt
-  NATS_CLIENT_KEY:  /etc/ssl/nats/clients/ai_service.key
-  NATS_CA_CERT:     /etc/ssl/nats/ca.crt
-```
+1. `docker ps` → `aqua-ai` healthy; `nats_auth_mode_mtls` + `schema_drift_clean` in logs.
+2. Supergraph: the gateway composed with the ai subgraph (no composition error in logs);
+   a federated `{ aiSettings { provider isEnabled } }` query returns for a MODULE_USER.
+3. BYOK: as TENANT_ADMIN, `updateAiSettings(input:{anthropicApiKey:"..."})` → 200 masked
+   hint; clear it → `aiSettings.enablementReason == "key_missing"`. Second tenant isolated.
+4. Chat: in a messaging AI channel, send a message → an AI reply posts live (socket.io);
+   with no key it posts the "add a key in AI settings" message (AI_KEY_MISSING). Direct
+   assistant: connect socket.io `/ai`, emit `ai:chat` → `ai:response`; a user WITHOUT
+   `ai_assistant:use` gets `ai:error FORBIDDEN`.
 
-```yaml
-  ai-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/ai-service:${TAG:?TAG required}
-    container_name: aqua-ai
-    restart: unless-stopped
-    environment:
-      SERVICE_NAME: ai-service
-      NODE_ENV: production
-      PORT: 3000                     # containerPort in catalog; keep in sync (INFRA-HIGH-014)
-      NODE_OPTIONS: '--max-old-space-size=384'
-      DATABASE_HOST: postgres
-      DATABASE_SSL: 'false'
-      DATABASE_PORT: 5432
-      DATABASE_USER: ${AI_SERVICE_DB_USER:-ai_service}
-      DATABASE_PASSWORD: ${AI_SERVICE_DB_PASS:?AI_SERVICE_DB_PASS required}
-      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DB_MIGRATE_AUTHORITATIVE: 'true'
-      DATABASE_MIGRATIONS_RUN: 'false'
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      REDIS_DB: '9'                  # unused DB index (rate-limit/cost); confirm no collision
-      <<: *nats-ai-env
-      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      # gateway HMAC-signs every gateway→ai-service REST call (SEC-HIGH-054) → the
-      # ServiceIdentityGuard needs the shared keyring or every AI request 403s.
-      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
-      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
-      # BYOK: per-tenant key decryption
-      AI_TENANT_SECRET_ENCRYPTION_KEY: ${AI_TENANT_SECRET_ENCRYPTION_KEY:?required}
-      TRUST_PROXY: 'true'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
-    volumes:
-      - *nats-ca-mount
-      - *nats-clients-mount
-      - *jwt-public-key-mount
-    networks: [aqua-internal]
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis:    { condition: service_healthy }
-      nats:     { condition: service_started }
-      db-migrate: { condition: service_completed_successfully }   # migrations pre-applied
-    deploy:
-      resources:
-        limits: { memory: 512M, cpus: '0.5' }
-    healthcheck:
-      # mirror messaging: curl -f localhost:3000/health, start_period 60s
-```
-No MinIO block (ai-service has no object-storage dependency until the Faz 3c document corpus).
+## 5. Rollback
 
-## 4. CI image — build + push the ai-service image
-
-Add `ai-service` to the ghcr build matrix in the deploy workflow (mirror the
-`messaging-service` matrix entry). Without this, `${TAG}` has no ai-service image to pull.
-
-## 5. Gateway identity chain — REST proxy for /api/v2/ai (AISAFETY-HIGH-007/009)
-
-**This is the functional blocker, not just hardening.** ai-service registers
-`VerifiedUserAssertionMiddleware`, which REQUIRES `x-verified-user-assertion` on the
-production gateway path. The current `apps/gateway-api/src/routes/v2/ai.routes.ts` is a
-hand-rolled `http.request` proxy that forwards only `authorization` + `x-tenant-id` — NO
-signed assertion, NO HMAC — so every AI request 400s at ai-service.
-
-Route AI through `ServiceProxyService` (the same SSoT messaging/farm use):
-- Register `ai-service` in `loadServiceConfigs` (`stripPrefix: '/api/v2/ai'`, target
-  `AI_SERVICE_URL`), and fix `AI_SERVICE_URL` default from `http://localhost:3008` to the
-  compose service name `http://ai-service:3000`.
-- Align the path: ChatController is `@Controller('api/v2/ai')` under global prefix
-  `api/v1` → real path `/api/v1/api/v2/ai/chat`; either `addPrefix` accordingly OR
-  simplify ChatController/AgentConfigController to `@Controller('ai')` → `/api/v1/ai`.
-- Proxy REST via `proxyRequest` and the SSE chat via `proxySSE` so
-  `buildGatewayVerifiedUserAssertion` (incl. the SEC-HIGH-054 `resourcePermissions`) +
-  `buildSignedInternalHeaders` are emitted.
-- On ai-service: remove `api/v2/ai` from any `VerifiedUserAssertionMiddleware` exclusion
-  so it verifies the HMAC assertion (not a bare `x-user-payload` presence check).
-- nginx `/api/v2/ai/`: `proxy_buffering off` + long read timeout for SSE.
-
-## 6. Secrets/env to provision on the droplet (.env)
-
-`AI_SERVICE_DB_PASS`, `AI_TENANT_SECRET_ENCRYPTION_KEY` (32-byte base64), the ai_service
-NATS cert/key (step 0), `AI_SERVICE_URL=http://ai-service:3000`. `SERVICE_IDENTITY_KEYRING`
-/`SIGNING_KID` already exist (shared).
-
-## 7. DEPLOY ORDERING — MT-HIGH-057 backfill BEFORE enforcement activates
-
-The messaging/AI RBAC enforcement (group-create, AI chat/settings/persona gates) is
-already on `main` and goes live the moment messaging + ai-service (re)deploy. Existing
-tenants' seeded roles do NOT carry the new capabilities until the
-`1801300000000-BackfillMessagingAiRoleCapabilities` migration (admin-api) runs. The
-`db-migrate` one-shot runs migrations before the services start, so a normal deploy
-orders this correctly — **verify** `db-migrate` completed the backfill before smoke.
-If skipped, every non-admin loses group creation + the AI assistant (fail-closed).
-
-## 8. Smoke (live verification — the reason this is gated)
-
-1. `docker ps` → `aqua-ai` healthy; schema-drift validator clean; `nats_auth_mode_mtls`
-   signal set (check logs).
-2. Gateway HMAC round-trip (SEC-HIGH-054): as a MODULE_USER, `POST /api/v2/ai/chat` →
-   NOT 400 "assertion required"; ai-service logs show a verified assertion carrying
-   `resourcePermissions`.
-3. BYOK: as TENANT_ADMIN, `PUT /api/v2/ai/settings` with an Anthropic key → 200; `GET`
-   → masked hint; `POST /api/v2/ai/chat` → real streamed Claude reply. Clear key →
-   `AI_KEY_MISSING`. Second tenant's key isolated.
-4. RBAC: a non-admin WITHOUT `channels:create_group` cannot create a group (403); a
-   Supervisor-role user CAN; persona picker respects `ai_personas:<tier>`.
-
-## 9. Rollback
-
-`ai-service` is additive — if boot fails, set catalog `deploymentStatus: 'inactive'`
-(or scale the compose service to 0) and redeploy; messaging/gateway are unaffected
-(the RBAC enforcement there is already independent). The backfill migration is additive
-+ idempotent; its `down()` removes only the messaging/ai grants it added.
+ai-service is additive; if boot fails, set catalog `deploymentStatus:'inactive'`
+(or scale the compose service to 0) and redeploy — but note the gateway image now
+expects the ai subgraph. If the gateway must roll back too, redeploy the prior gateway
+image; the RetryableIntrospectAndCompose path composes without a down subgraph. The
+backfill migration is additive + idempotent (its `down()` removes only its own grants).

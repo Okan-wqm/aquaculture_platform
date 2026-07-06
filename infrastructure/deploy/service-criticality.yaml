@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: 7366ffef06010e87886550008fcad2ffcfcfdfd648575944e6aad41cce1d298c
+# catalogHash: a462baa20ffd6000cd93fc83914785eedceadeee5f40ebe0c7b81394b486f354
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -65,6 +65,9 @@ services:
   - name: observability-service
     level: warning
     reason: "generated from observability-service criticality in platform service catalog"
+  - name: ai-service
+    level: required
+    reason: "generated from ai-service criticality in platform service catalog"
   - name: prometheus
     level: ignored
     reason: "generated from prometheus criticality in platform service catalog"

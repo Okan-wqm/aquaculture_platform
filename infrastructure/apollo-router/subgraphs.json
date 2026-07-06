@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 2,
-    "catalogHash": "7366ffef06010e87886550008fcad2ffcfcfdfd648575944e6aad41cce1d298c",
+    "catalogHash": "a462baa20ffd6000cd93fc83914785eedceadeee5f40ebe0c7b81394b486f354",
     "note": "do not edit by hand"
   },
   "federationVersion": "=2.10.0",
@@ -98,6 +98,15 @@
       "routingUrl": "http://config-service:3000/graphql",
       "schemaArtifactPath": "dist/graphql/subgraphs/config.graphql",
       "schemaUrl": "http://config-service:3000/graphql"
+    },
+    {
+      "name": "ai",
+      "nxProject": "ai-service",
+      "urlEnv": "AI_SERVICE_URL",
+      "localUrl": "http://ai-service:3000/graphql",
+      "routingUrl": "http://ai-service:3000/graphql",
+      "schemaArtifactPath": "dist/graphql/subgraphs/ai.graphql",
+      "schemaUrl": "http://ai-service:3000/graphql"
     }
   ],
   "excludedFederatedServices": [
@@ -105,12 +114,6 @@
       "name": "admin-api-service",
       "owner": "platform-service-catalog",
       "removeAfterRelease": "admin-api-service-gateway-participation-cutover",
-      "reason": "not registered in gatewaySubgraphs(); promotion requires catalog gatewayParticipation change"
-    },
-    {
-      "name": "ai-service",
-      "owner": "platform-service-catalog",
-      "removeAfterRelease": "ai-service-gateway-participation-cutover",
       "reason": "not registered in gatewaySubgraphs(); promotion requires catalog gatewayParticipation change"
     }
   ]

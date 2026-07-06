@@ -295,6 +295,18 @@ export type AiPersonaType = {
   name: Scalars['String']['output'];
 };
 
+export type AiSettings = {
+  anthropicKeyHint?: Maybe<Scalars['String']['output']>;
+  availableProviders: Array<Scalars['String']['output']>;
+  chatModel?: Maybe<Scalars['String']['output']>;
+  enablementReason: Scalars['String']['output'];
+  hourlyRequestLimit: Scalars['Int']['output'];
+  isEnabled: Scalars['Boolean']['output'];
+  monthlyTokenBudget: Scalars['Int']['output'];
+  openaiKeyHint?: Maybe<Scalars['String']['output']>;
+  provider: Scalars['String']['output'];
+};
+
 export type AiSettingsType = {
   /** Tenant-level AI analysis master switch */
   tenantAiEnabled: Scalars['Boolean']['output'];
@@ -8990,6 +9002,8 @@ export type Mutation = {
   unlockTenantUser: User;
   unpinMessage: Scalars['Boolean']['output'];
   unregisterDeviceToken: Scalars['Boolean']['output'];
+  /** Update the tenant's AI provider (BYOK) settings */
+  updateAiProviderSettings: AiSettings;
   updateAlertRule: AlertRule;
   updateAutoRule: AutoRule;
   updateAutomationProgram: AutomationProgram;
@@ -9083,8 +9097,6 @@ export type Mutation = {
   updateTankStatus: Tank;
   updateTask: Task;
   updateTenant: Tenant;
-  /** Enable/disable AI analysis for the tenant (TENANT_ADMIN only) */
-  updateTenantAiSetting: Scalars['Boolean']['output'];
   updateTenantRole: TenantRole;
   updateTenantUser: User;
   updateTicketStatus: SupportTicket;
@@ -11560,6 +11572,11 @@ export type MutationUnregisterDeviceTokenArgs = {
 };
 
 
+export type MutationUpdateAiProviderSettingsArgs = {
+  input: UpdateAiSettingsInput;
+};
+
+
 export type MutationUpdateAlertRuleArgs = {
   input: UpdateAlertRuleInput;
 };
@@ -11982,11 +11999,6 @@ export type MutationUpdateTaskArgs = {
 export type MutationUpdateTenantArgs = {
   id: Scalars['ID']['input'];
   input: UpdateTenantInput;
-};
-
-
-export type MutationUpdateTenantAiSettingArgs = {
-  enabled: Scalars['Boolean']['input'];
 };
 
 
@@ -13905,6 +13917,10 @@ export type Query = {
   activeTanks: Array<ActiveTankResponse>;
   actuatorUsageStats: ActuatorUsageStats;
   aggregatedReadings: AggregatedReadingsResponse;
+  /** The tenant's AI provider (BYOK) settings, keys masked */
+  aiProviderSettings: AiSettings;
+  /** Health check for AI service */
+  aiServiceHealth: Scalars['String']['output'];
   /** Current AI analysis settings for tenant and user */
   aiSettings: AiSettingsType;
   alarmCountBySeverity: AlarmCountBySeverity;
@@ -20713,6 +20729,16 @@ export type UpdateActionInput = {
   targetRef?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateAiSettingsInput = {
+  anthropicApiKey?: InputMaybe<Scalars['String']['input']>;
+  chatModel?: InputMaybe<Scalars['String']['input']>;
+  hourlyRequestLimit?: InputMaybe<Scalars['Int']['input']>;
+  isEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  monthlyTokenBudget?: InputMaybe<Scalars['Int']['input']>;
+  openaiApiKey?: InputMaybe<Scalars['String']['input']>;
+  provider?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type UpdateAlertRuleInput = {
   conditions?: InputMaybe<Array<AlertConditionInput>>;
   cooldownMinutes?: InputMaybe<Scalars['Int']['input']>;
@@ -23765,6 +23791,7 @@ export type WriteOpcUaNodeInput = {
 };
 
 export type Join__Graph =
+  | 'AI'
   | 'ALERT'
   | 'AUTH'
   | 'BILLING'

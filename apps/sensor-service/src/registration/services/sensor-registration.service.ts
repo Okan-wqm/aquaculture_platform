@@ -12,7 +12,15 @@ import { CreateDataChannelInput } from '../dto/data-channel.dto';
 import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
 import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { assertWithinQuota } from '@aquaculture/backend-common/quota';
-import { resolvePlanLimits, tenantPlanFromLevel } from '@platform/event-contracts';
+import {
+  resolvePlanLimits,
+  tenantPlanFromLevel,
+  createBaseEvent,
+  type SensorRegisteredEvent,
+  type SensorRegistrationStartedEvent,
+  type SensorRegistrationCompletedEvent,
+} from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -54,7 +62,63 @@ export class SensorRegistrationService {
     private connectionTester: ConnectionTesterService,
     private eventEmitter: EventEmitter2,
     private channelManagement: ChannelManagementService,
+    // SENSOR-LOW-007: durable, contract-conformant registration lifecycle
+    // events published through the transactional outbox → NATS (relay owns
+    // delivery post-commit), replacing the in-process EventEmitter2 emissions
+    // that no cross-service consumer could observe. OutboxPublisher is provided
+    // globally by SensorOutboxModule.
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
+
+  // ── SENSOR-LOW-007 event builders (createBaseEvent, flat contract shape) ──
+  private buildRegistrationStartedEvent(
+    sensor: Sensor,
+    protocolCode: string,
+  ): SensorRegistrationStartedEvent {
+    return {
+      ...createBaseEvent<SensorRegistrationStartedEvent>('SensorRegistrationStarted', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+      }),
+      sensorId: sensor.id,
+      sensorName: sensor.name,
+      protocolCode,
+    };
+  }
+
+  private buildRegisteredEvent(sensor: Sensor, protocolCode: string): SensorRegisteredEvent {
+    return {
+      ...createBaseEvent<SensorRegisteredEvent>('SensorRegistered', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+      }),
+      sensorId: sensor.id,
+      farmId: sensor.farmId,
+      pondId: sensor.pondId,
+      sensorType: sensor.type,
+      manufacturer: sensor.manufacturer,
+      model: sensor.model,
+    };
+  }
+
+  private buildRegistrationCompletedEvent(
+    sensor: Sensor,
+    protocolCode: string,
+    connectionTestPassed: boolean,
+  ): SensorRegistrationCompletedEvent {
+    return {
+      ...createBaseEvent<SensorRegistrationCompletedEvent>('SensorRegistrationCompleted', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+      }),
+      sensorId: sensor.id,
+      sensorName: sensor.name,
+      protocolCode,
+      farmId: sensor.farmId,
+      pondId: sensor.pondId,
+      connectionTestPassed,
+    };
+  }
 
   /**
    * Register a new sensor
@@ -62,7 +126,10 @@ export class SensorRegistrationService {
   async registerSensor(
     input: RegisterSensorInput,
     tenantId: string,
-    userId: string,
+    // SENSOR-LOW-007: retained for the call signature; the registration events
+    // are keyed by sensor/tenant, not the acting user (the contract has no
+    // actor field), so this is intentionally unused here.
+    _userId: string,
     /**
      * SSOT-C-13: tenant plan tier ordinal (PLAN_LEVEL) for per-plan sensor-count
      * quota. Undefined for platform SUPER_ADMIN → quota skipped. Enforced here at
@@ -131,8 +198,18 @@ export class SensorRegistrationService {
       isActive: false,
     });
 
-    // Save draft
-    const savedSensor = await this.sensorRepository.save(sensor);
+    // Save draft AND enqueue the SensorRegistrationStarted event atomically
+    // (SENSOR-LOW-007): the outbox INSERT joins the sensor save's transaction,
+    // so the durable lifecycle event can never be lost independently of the
+    // row it describes.
+    const savedSensor = await this.dataSource.transaction(async (manager) => {
+      const persisted = await manager.save(Sensor, sensor);
+      await this.outboxPublisher.enqueue(
+        this.buildRegistrationStartedEvent(persisted, input.protocolCode),
+        manager,
+      );
+      return persisted;
+    });
 
     // SENSOR-HIGH-018: persist the data channels collected by the wizard.
     // Previously RegisterSensorInput.dataChannels was validated then silently
@@ -151,14 +228,6 @@ export class SensorRegistrationService {
         return { success: false, error: (err as Error).message };
       }
     }
-
-    // Emit registration started event
-    this.eventEmitter.emit('sensor.registration.started', {
-      sensorId: savedSensor.id,
-      tenantId,
-      userId,
-      protocolCode: input.protocolCode,
-    });
 
     // Test connection if not skipped
     let connectionTestPassed = false;
@@ -186,17 +255,26 @@ export class SensorRegistrationService {
           lastError: testResult.error,
         };
       }
-
-      await this.sensorRepository.save(savedSensor);
     }
 
-    // Emit registration completed event
-    this.eventEmitter.emit('sensor.registration.completed', {
-      sensorId: savedSensor.id,
-      tenantId,
-      userId,
-      protocolCode: input.protocolCode,
-      success: connectionTestPassed || input.skipConnectionTest,
+    // Persist the final status (if a test ran) AND enqueue the SensorRegistered
+    // + SensorRegistrationCompleted events atomically (SENSOR-LOW-007).
+    await this.dataSource.transaction(async (manager) => {
+      if (!input.skipConnectionTest) {
+        await manager.save(Sensor, savedSensor);
+      }
+      await this.outboxPublisher.enqueue(
+        this.buildRegisteredEvent(savedSensor, input.protocolCode),
+        manager,
+      );
+      await this.outboxPublisher.enqueue(
+        this.buildRegistrationCompletedEvent(
+          savedSensor,
+          input.protocolCode,
+          connectionTestPassed || Boolean(input.skipConnectionTest),
+        ),
+        manager,
+      );
     });
 
     return {
@@ -802,6 +880,13 @@ export class SensorRegistrationService {
         this.logger.log(`Created child sensor: ${savedChild.id} (${childInput.dataPath})`);
       }
 
+      // SENSOR-LOW-007: enqueue the started event inside the same transaction
+      // as the parent+children create so it is atomic with the rows.
+      await this.outboxPublisher.enqueue(
+        this.buildRegistrationStartedEvent(savedParent, parent.protocolCode),
+        queryRunner.manager,
+      );
+
       // Commit transaction — parent + children are now durably created.
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -821,15 +906,8 @@ export class SensorRegistrationService {
     // ── POST-COMMIT ──────────────────────────────────────────────────────
     // The devices are committed; a failure here must NOT invert the create to
     // a failure (that caused duplicate devices on retry). Downgrade status on
-    // error instead.
-    this.eventEmitter.emit('sensor.parent.registration.started', {
-      parentId: savedParent.id,
-      childIds: savedChildren.map(c => c.id),
-      tenantId,
-      userId,
-      protocolCode: parent.protocolCode,
-    });
-
+    // error instead. (SENSOR-LOW-007: the started event was enqueued inside the
+    // create transaction above.)
     let connectionTestPassed = false;
     let latencyMs: number | undefined;
 
@@ -875,14 +953,29 @@ export class SensorRegistrationService {
       }
     }
 
-    this.eventEmitter.emit('sensor.parent.registration.completed', {
-      parentId: savedParent.id,
-      childIds: savedChildren.map(c => c.id),
-      tenantId,
-      userId,
-      protocolCode: parent.protocolCode,
-      success: connectionTestPassed || skipConnectionTest,
-    });
+    // SENSOR-LOW-007: enqueue the registered + completed events durably. Best
+    // effort post-commit — a failure here does not undo the committed devices.
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await this.outboxPublisher.enqueue(
+          this.buildRegisteredEvent(savedParent, parent.protocolCode),
+          manager,
+        );
+        await this.outboxPublisher.enqueue(
+          this.buildRegistrationCompletedEvent(
+            savedParent,
+            parent.protocolCode,
+            connectionTestPassed || Boolean(skipConnectionTest),
+          ),
+          manager,
+        );
+      });
+    } catch (evtErr) {
+      this.logger.warn(
+        `Failed to enqueue parent registration events for ${savedParent.id}`,
+        evtErr as Error,
+      );
+    }
 
     const reloadedParent = await this.sensorRepository.findOne({
       where: { id: savedParent.id },

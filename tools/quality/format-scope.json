@@ -50066,6 +50066,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/components/ai/AiAssistantDrawer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/components/ConsentBanner.tsx",
       "prettier_managed": true
     },
@@ -50109,6 +50115,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shell/src/graphql/settings.operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/hooks/useAiAssistantSocket.ts",
       "prettier_managed": true
     },
     {
@@ -50280,10 +50292,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8234,
+  "file_count": 8236,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8059,
-  "managed_file_list_sha256": "6d8eec18437b62613bf866a2d9a6d97c758fee4bba612806d17dd5eeaaff58d7",
+  "managed_count": 8061,
+  "managed_file_list_sha256": "835fee6253f491392e3335f61a966565491977549222cfe99e664656d20d5ed8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

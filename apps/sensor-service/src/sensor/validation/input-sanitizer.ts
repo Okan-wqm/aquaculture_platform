@@ -220,8 +220,11 @@ export function validatePagination(
   page?: number,
   limit?: number,
 ): { page: number; limit: number; skip: number } {
-  const validPage = Math.max(1, Math.floor(page || 1));
-  const validLimit = Math.min(100, Math.max(1, Math.floor(limit || 20)));
+  // Use nullish coalescing so an explicit limit/page of 0 clamps UP to the
+  // minimum (1) rather than being conflated with "unspecified" and silently
+  // replaced by the default — enforcing the minimum is the intended contract.
+  const validPage = Math.max(1, Math.floor(page ?? 1));
+  const validLimit = Math.min(100, Math.max(1, Math.floor(limit ?? 20)));
   const skip = (validPage - 1) * validLimit;
 
   return { page: validPage, limit: validLimit, skip };

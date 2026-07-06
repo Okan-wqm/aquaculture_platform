@@ -123,8 +123,16 @@ describe('SensorTypeService', () => {
           useValue: {
             find: jest.fn(),
             create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+            // TypeORM's save(array) returns an array; createChannelsFromType-
+            // Definition persists channels as a batch, so the mock must mirror
+            // that (spreading an array into an object literal produced the
+            // {0: channel, id} shape the old spec choked on).
             save: jest.fn().mockImplementation((entity) =>
-              Promise.resolve({ id: 'channel-id', ...entity }),
+              Promise.resolve(
+                Array.isArray(entity)
+                  ? entity.map((e, i) => ({ id: `channel-id-${i}`, ...e }))
+                  : { id: 'channel-id', ...entity },
+              ),
             ),
           },
         },

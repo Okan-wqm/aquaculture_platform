@@ -207,7 +207,10 @@ describe('VFD Enums', () => {
 
     it('should have Siemens using even parity by default', () => {
       expect(VFD_BRAND_DEFAULT_SERIAL[VfdBrand.SIEMENS].parity).toBe('even');
-      expect(VFD_BRAND_DEFAULT_SERIAL[VfdBrand.SIEMENS].baudRate).toBe(19200);
+      // Siemens SINAMICS G120 / MICROMASTER USS default line rate is 9600 baud
+      // (matches VFD_BRAND_DEFAULT_SERIAL[SIEMENS]); the old 19200 expectation
+      // predated the corrected brand table.
+      expect(VFD_BRAND_DEFAULT_SERIAL[VfdBrand.SIEMENS].baudRate).toBe(9600);
     });
 
     it('should have Danfoss using no parity by default', () => {

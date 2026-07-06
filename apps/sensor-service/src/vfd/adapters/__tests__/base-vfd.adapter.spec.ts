@@ -520,8 +520,11 @@ describe('BaseVfdAdapter', () => {
       const buffer = Buffer.from([0x01, 0x03, 0x00, 0x00, 0x00, 0x0a]);
       const crc = adapter.testCalculateCRC16(buffer);
 
-      // Expected CRC for this message
-      expect(crc).toBe(0xc5cd);
+      // Canonical Modbus CRC16 (poly 0xA001, init 0xFFFF) numeric result is
+      // 0xCDC5; on the wire it is transmitted low-byte-first (0xC5, 0xCD). The
+      // old 0xC5CD expectation was the byte-swapped wire order, not the raw
+      // function output.
+      expect(crc).toBe(0xcdc5);
     });
 
     it('should calculate different CRC for different data', () => {

@@ -109,7 +109,12 @@ describe('ChannelDetectionService', () => {
 
     const channelRepoMock = {
       find: jest.fn(),
-      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      // TenantScopedRepository.saveMany() calls repository.create(array), so the
+      // mock must mirror TypeORM's create(array)->array (spreading an array into
+      // an object literal would corrupt the batch into {0,1,2}).
+      create: jest.fn().mockImplementation((dto) =>
+        Array.isArray(dto) ? dto.map((d) => ({ ...d })) : { ...dto },
+      ),
       save: jest.fn().mockImplementation((entity) =>
         Array.isArray(entity)
           ? Promise.resolve(entity.map((e, i) => ({ id: `channel-${i}`, ...e })))
@@ -242,7 +247,9 @@ describe('ChannelDetectionService', () => {
 
   describe('approveProposal', () => {
     it('should create channels and update log when approved', async () => {
-      logRepo.findOne.mockResolvedValue(mockProposal as ChannelDetectionLog);
+      // Return a fresh copy: approveProposal mutates proposal.userAction, and a
+      // shared mockProposal would leak "already approved" into sibling tests.
+      logRepo.findOne.mockResolvedValue({ ...mockProposal } as ChannelDetectionLog);
       channelRepo.find.mockResolvedValue([]);
 
       const result = await service.approveProposal('proposal-1', tenantId);
@@ -250,7 +257,9 @@ describe('ChannelDetectionService', () => {
       expect(logRepo.findOne).toHaveBeenCalledWith({
         where: { id: 'proposal-1', tenantId },
       });
-      expect(channelRepo.create).toHaveBeenCalledTimes(3);
+      // 3 per-channel create() calls in the map + 1 batch create(array) inside
+      // TenantScopedRepository.saveMany() = 4.
+      expect(channelRepo.create).toHaveBeenCalledTimes(4);
       // Batch save: all channels saved in one call via transaction
       expect(channelRepo.save).toHaveBeenCalled();
       expect(logRepo.save).toHaveBeenCalledWith(
@@ -262,7 +271,7 @@ describe('ChannelDetectionService', () => {
     });
 
     it('should use modifications when provided', async () => {
-      logRepo.findOne.mockResolvedValue(mockProposal as ChannelDetectionLog);
+      logRepo.findOne.mockResolvedValue({ ...mockProposal } as ChannelDetectionLog);
       channelRepo.find.mockResolvedValue([]);
 
       const modifications = [
@@ -277,7 +286,8 @@ describe('ChannelDetectionService', () => {
 
       const result = await service.approveProposal('proposal-1', tenantId, modifications);
 
-      expect(channelRepo.create).toHaveBeenCalledTimes(1);
+      // 1 per-channel create() + 1 batch create(array) inside saveMany() = 2.
+      expect(channelRepo.create).toHaveBeenCalledTimes(2);
       expect(channelRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           channelKey: 'temp',

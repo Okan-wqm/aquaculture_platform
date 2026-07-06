@@ -50,6 +50,7 @@ import { ReportAssemblyService } from './assembly/report-assembly.service';
 import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
 import { ReportPrefillResolver } from './report-prefill.resolver';
 import { ReportSchedulerService } from './services/report-scheduler.service';
+import { RegulatorySubmissionService } from './services/regulatory-submission.service';
 
 // Regulatory-report read handlers (FARM-HIGH-125)
 import { ListRegulatoryReportsHandler } from './handlers/list-regulatory-reports.handler';
@@ -103,6 +104,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     GetReportPrefillHandler,
     ReportPrefillResolver,
     ReportSchedulerService,
+    RegulatorySubmissionService,
   ],
   exports: [
     MaskinportenService,

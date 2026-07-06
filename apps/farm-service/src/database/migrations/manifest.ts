@@ -36,6 +36,7 @@ import { AddWorkerVeterinaryFields1803400000000 } from './1803400000000-AddWorke
 import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
 import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-CreateSensorTemperatureDaily';
 import { CreateRegulatoryReportDrafts1803600000000 } from './1803600000000-CreateRegulatoryReportDrafts';
+import { AddRegulatoryReportRetryColumns1803700000000 } from './1803700000000-AddRegulatoryReportRetryColumns';
 
 /**
  * Canonical farm-service migration class list.
@@ -84,4 +85,5 @@ export const FARM_MIGRATIONS = [
   CreateSlaughterFacilities1803450000000,
   CreateSensorTemperatureDaily1803500000000,
   CreateRegulatoryReportDrafts1803600000000,
+  AddRegulatoryReportRetryColumns1803700000000,
 ] as const;

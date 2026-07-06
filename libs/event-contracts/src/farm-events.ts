@@ -1325,6 +1325,24 @@ export interface HarvestRegulatoryRecordedEvent extends BaseEvent {
 }
 
 /**
+ * A Mattilsynet submission failed PERMANENTLY (RPT-018) — a 400/valideringsfeil
+ * that retrying would only re-reject. Consumed by notification-service to alert
+ * the operator that manual correction + resubmit is required; the retry sweep
+ * never touches a PERMANENT row. TRANSIENT failures do NOT raise this event
+ * (they self-heal via backoff replay).
+ */
+export interface RegulatoryReportSubmissionFailedEvent extends BaseEvent {
+  eventType: 'RegulatoryReportSubmissionFailed';
+  reportId: string;
+  reportType: string;
+  klientReferanse: string;
+  siteId?: string;
+  lokalitetsnummer: number;
+  feilmelding: string;
+  attemptCount: number;
+}
+
+/**
  * Tank cleared — emitted when a final harvest empties the last batch out of a
  * tank, so the tank is now free for re-stocking. A dashboard/read-model signal:
  * consumed by the gateway FarmNatsBridge and broadcast into the tenant room so
@@ -1429,5 +1447,6 @@ export type FarmEvent =
   | DiseaseOutbreakReportedEvent
   | MortalityAlertRaisedEvent
   | HarvestRegulatoryRecordedEvent
+  | RegulatoryReportSubmissionFailedEvent
   | TankClearedEvent
   | BatchProductionCompletedEvent;

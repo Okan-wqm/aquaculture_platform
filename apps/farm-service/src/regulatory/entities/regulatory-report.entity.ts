@@ -42,12 +42,12 @@ import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
 import type {
-  SubmitCleanerFishReportInput,
-  SubmitExecutedSlaughterInput,
-  SubmitPlannedSlaughterInput,
-  SubmitSeaLiceReportInput,
-  SubmitSmoltReportInput,
-} from '../dto/regulatory-inputs.dto';
+  CleanerFishPayload,
+  ExecutedSlaughterPayload,
+  PlannedSlaughterPayload,
+  SeaLicePayload,
+  SmoltPayload,
+} from '../mattilsynet-api.service';
 import type {
   SubmitDiseaseOutbreakInput,
   SubmitEscapeReportInput,
@@ -90,19 +90,51 @@ registerEnumType(RegulatoryReportSubmissionStatus, {
   description: 'Lifecycle of a persisted regulatory report submission',
 });
 
+/**
+ * Failure classification driving the retry pipeline (RPT-018). TRANSIENT
+ * failures (5xx / timeout / token) are replayed with exponential backoff;
+ * PERMANENT failures (400 / valideringsfeil) are terminal and raise an outbox
+ * event for the operator — retrying them would only re-send a rejected report.
+ */
+export enum RegulatoryFailureClass {
+  TRANSIENT = 'TRANSIENT',
+  PERMANENT = 'PERMANENT',
+}
+
+registerEnumType(RegulatoryFailureClass, {
+  name: 'RegulatoryFailureClass',
+  description: 'Whether a failed regulatory submission is retryable',
+});
+
 // ============================================================================
-// PAYLOAD — the union of the submit input shapes (type-only imports)
+// PAYLOAD — what was actually recorded per report family (type-only imports)
 // ============================================================================
 
-export type RegulatoryReportPayload =
-  | SubmitSeaLiceReportInput
-  | SubmitCleanerFishReportInput
-  | SubmitSmoltReportInput
-  | SubmitPlannedSlaughterInput
-  | SubmitExecutedSlaughterInput
+/**
+ * The five REST report types persist the EXACT Mattilsynet WIRE payload that
+ * was validated and submitted (Norwegian field names, e.g. `sjøtemperatur`) —
+ * not the GraphQL input DTO. The record-of-submission therefore records what
+ * actually crossed the trust boundary, so the retry sweep can replay the same
+ * bytes under the same klientReferanse (RPT-018). Every member structurally
+ * extends `MattilsynetBasePayload`.
+ */
+export type RegulatoryRestWirePayload =
+  | SeaLicePayload
+  | CleanerFishPayload
+  | SmoltPayload
+  | PlannedSlaughterPayload
+  | ExecutedSlaughterPayload;
+
+/**
+ * The three varsling types have no REST wire payload (they are dispatched as
+ * urgent e-mail via the outbox), so they persist the submitted GraphQL input.
+ */
+export type RegulatoryVarslingPayload =
   | SubmitWelfareEventInput
   | SubmitEscapeReportInput
   | SubmitDiseaseOutbreakInput;
+
+export type RegulatoryReportPayload = RegulatoryRestWirePayload | RegulatoryVarslingPayload;
 
 // ============================================================================
 // ENTITY
@@ -201,6 +233,29 @@ export class RegulatoryReport {
   @Field({ nullable: true })
   @Column('timestamptz', { nullable: true })
   submittedAt?: Date;
+
+  // ==========================================================================
+  // Retry pipeline (RPT-018)
+  // ==========================================================================
+
+  /** How many submission attempts this row has seen (0 before the first). */
+  @Field(() => Int)
+  @Column('int', { default: 0 })
+  attemptCount: number;
+
+  /** When the retry sweep may next replay a TRANSIENT failure (null = never). */
+  @Field({ nullable: true })
+  @Column('timestamptz', { nullable: true })
+  nextAttemptAt?: Date | null;
+
+  /** TRANSIENT (retryable) vs PERMANENT (terminal) for the latest failure. */
+  @Field(() => RegulatoryFailureClass, { nullable: true })
+  @Column({
+    type: 'enum',
+    enum: RegulatoryFailureClass,
+    nullable: true,
+  })
+  failureClass?: RegulatoryFailureClass | null;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })

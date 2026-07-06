@@ -18,6 +18,9 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 import { ReportSchedulerService } from '../services/report-scheduler.service';
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
+import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
+import { RegulatoryReport } from '../entities/regulatory-report.entity';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
 const SITE = 'ssssssss-1111-4222-8333-444444444444';
@@ -27,11 +30,15 @@ function makeService(options: {
   assembled?: { schemaValid: boolean };
   insertRows?: unknown[];
   overdueRows?: unknown[];
+  dueRetries?: RegulatoryReport[];
+  resubmit?: jest.Mock;
 }): {
   service: ReportSchedulerService;
   assemble: jest.Mock;
   query: jest.Mock;
   emit: jest.Mock;
+  listDueRetries: jest.Mock;
+  resubmit: jest.Mock;
 } {
   const assemble = jest.fn().mockResolvedValue({
     draftPayload: { ok: true },
@@ -61,13 +68,24 @@ function makeService(options: {
   const emit = jest.fn();
   const eventEmitter = { emit } as Partial<EventEmitter2> as EventEmitter2;
 
+  const listDueRetries = jest.fn().mockResolvedValue(options.dueRetries ?? []);
+  const reportStore = {
+    listDueRetries,
+  } as Partial<RegulatoryReportStoreService> as RegulatoryReportStoreService;
+  const resubmit = options.resubmit ?? jest.fn().mockResolvedValue({ success: true });
+  const submissionService = {
+    resubmit,
+  } as Partial<RegulatorySubmissionService> as RegulatorySubmissionService;
+
   const service = new ReportSchedulerService(
     {} as Partial<DataSource> as DataSource,
     assemblyService,
     settingsService,
+    reportStore,
+    submissionService,
     eventEmitter,
   );
-  return { service, assemble, query, emit };
+  return { service, assemble, query, emit, listDueRetries, resubmit };
 }
 
 describe('ReportSchedulerService period math', () => {
@@ -168,5 +186,60 @@ describe('ReportSchedulerService.sweepOverdueForTenant', () => {
     expect(sql).toContain("status IN ('draft', 'ready', 'approved')");
     // 2026-07-06T22:30Z is already 2026-07-07 in Oslo.
     expect(params[1]).toBe('2026-07-07');
+  });
+});
+
+describe('ReportSchedulerService.retrySweepForTenant', () => {
+  const NOW = new Date('2026-07-06T09:00:00Z');
+
+  function dueRow(id: string): RegulatoryReport {
+    const row = new RegulatoryReport();
+    row.id = id;
+    row.tenantId = TENANT;
+    return row;
+  }
+
+  it('replays every due TRANSIENT failure and counts the ones that reach SUBMITTED', async () => {
+    const resubmit = jest
+      .fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false }); // still transient — replayed but not yet done
+    const { service, listDueRetries } = makeService({
+      dueRetries: [dueRow('r-1'), dueRow('r-2')],
+      resubmit,
+    });
+
+    const submitted = await service.retrySweepForTenant(TENANT, NOW);
+
+    expect(listDueRetries).toHaveBeenCalledWith(TENANT, NOW, 50);
+    expect(resubmit).toHaveBeenCalledTimes(2);
+    expect(resubmit).toHaveBeenNthCalledWith(1, TENANT, 'r-1');
+    expect(resubmit).toHaveBeenNthCalledWith(2, TENANT, 'r-2');
+    expect(submitted).toBe(1);
+  });
+
+  it('a single replay throwing never aborts the batch', async () => {
+    const resubmit = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ success: true });
+    const { service } = makeService({
+      dueRetries: [dueRow('r-1'), dueRow('r-2')],
+      resubmit,
+    });
+
+    const submitted = await service.retrySweepForTenant(TENANT, NOW);
+
+    expect(resubmit).toHaveBeenCalledTimes(2);
+    expect(submitted).toBe(1);
+  });
+
+  it('does nothing when no retries are due', async () => {
+    const { service, resubmit } = makeService({ dueRetries: [] });
+
+    const submitted = await service.retrySweepForTenant(TENANT, NOW);
+
+    expect(resubmit).not.toHaveBeenCalled();
+    expect(submitted).toBe(0);
   });
 });

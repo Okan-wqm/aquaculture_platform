@@ -21,6 +21,44 @@ import { ConfigService } from '@nestjs/config';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
 import type { ValidatedPayload } from './schemas';
+import { MattilsynetRestReportType } from './schemas';
+import { RegulatoryReportType } from './entities/regulatory-report.entity';
+
+/**
+ * Endpoint + scope + label per REST report type — the SSoT the typed submit
+ * methods and the by-type replay path both key off, so an endpoint path lives
+ * in exactly one place. `path` is appended to the configured base URL.
+ */
+export const MATTILSYNET_REST_ROUTES: Record<
+  MattilsynetRestReportType,
+  { path: string; scope: string; label: string }
+> = {
+  [RegulatoryReportType.SEA_LICE]: {
+    path: '/api/lakselus/v1/lakselus',
+    scope: MATTILSYNET_SCOPES.SEA_LICE,
+    label: 'Sea Lice',
+  },
+  [RegulatoryReportType.CLEANER_FISH]: {
+    path: '/api/rensefisk/v1/rensefisk',
+    scope: MATTILSYNET_SCOPES.CLEANER_FISH,
+    label: 'Cleaner Fish',
+  },
+  [RegulatoryReportType.SMOLT]: {
+    path: '/api/settefisk/v1/settefisk',
+    scope: MATTILSYNET_SCOPES.SMOLT,
+    label: 'Smolt',
+  },
+  [RegulatoryReportType.SLAUGHTER_PLANNED]: {
+    path: '/api/slakt/v1/planlagt',
+    scope: MATTILSYNET_SCOPES.SLAUGHTER,
+    label: 'Planned Slaughter',
+  },
+  [RegulatoryReportType.SLAUGHTER_EXECUTED]: {
+    path: '/api/slakt/v1/utfort',
+    scope: MATTILSYNET_SCOPES.SLAUGHTER,
+    label: 'Executed Slaughter',
+  },
+};
 
 // ============================================================================
 // Types - Common
@@ -392,6 +430,15 @@ export interface MattilsynetApiResponse {
     felt: string;
     melding: string;
   }[];
+  /**
+   * HTTP status of the Mattilsynet response (absent on a network/transport
+   * failure). The submission service classifies transient-vs-permanent from
+   * this + `isNetworkError`, so the status is surfaced structurally rather
+   * than buried in `feilmelding` (RPT-018 retry classification SSoT).
+   */
+  httpStatus?: number;
+  /** True when the call never reached the regulator (DNS/TCP/TLS/timeout). */
+  isNetworkError?: boolean;
 }
 
 // ============================================================================
@@ -442,8 +489,7 @@ export class MattilsynetApiService {
     tenantId: string,
     payload: ValidatedPayload<SeaLicePayload>,
   ): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/lakselus/v1/lakselus`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SEA_LICE, 'Sea Lice');
+    return this.submitByType(tenantId, RegulatoryReportType.SEA_LICE, payload);
   }
 
   /**
@@ -454,14 +500,7 @@ export class MattilsynetApiService {
     tenantId: string,
     payload: ValidatedPayload<CleanerFishPayload>,
   ): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/rensefisk/v1/rensefisk`;
-    return this.submitReport(
-      tenantId,
-      endpoint,
-      payload,
-      MATTILSYNET_SCOPES.CLEANER_FISH,
-      'Cleaner Fish',
-    );
+    return this.submitByType(tenantId, RegulatoryReportType.CLEANER_FISH, payload);
   }
 
   /**
@@ -472,8 +511,7 @@ export class MattilsynetApiService {
     tenantId: string,
     payload: ValidatedPayload<SmoltPayload>,
   ): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/settefisk/v1/settefisk`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SMOLT, 'Smolt');
+    return this.submitByType(tenantId, RegulatoryReportType.SMOLT, payload);
   }
 
   /**
@@ -484,14 +522,7 @@ export class MattilsynetApiService {
     tenantId: string,
     payload: ValidatedPayload<PlannedSlaughterPayload>,
   ): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/slakt/v1/planlagt`;
-    return this.submitReport(
-      tenantId,
-      endpoint,
-      payload,
-      MATTILSYNET_SCOPES.SLAUGHTER,
-      'Planned Slaughter',
-    );
+    return this.submitByType(tenantId, RegulatoryReportType.SLAUGHTER_PLANNED, payload);
   }
 
   /**
@@ -502,13 +533,27 @@ export class MattilsynetApiService {
     tenantId: string,
     payload: ValidatedPayload<ExecutedSlaughterPayload>,
   ): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/slakt/v1/utfort`;
+    return this.submitByType(tenantId, RegulatoryReportType.SLAUGHTER_EXECUTED, payload);
+  }
+
+  /**
+   * By-report-type submission — the endpoint/scope SSoT keyed by report type,
+   * so the typed methods above AND the retry sweep's replay path (which holds a
+   * re-validated base payload) share one endpoint table with no duplication.
+   * The brand still gates this: only a ValidatedPayload can reach it.
+   */
+  async submitByType(
+    tenantId: string,
+    reportType: MattilsynetRestReportType,
+    payload: ValidatedPayload<MattilsynetBasePayload>,
+  ): Promise<MattilsynetApiResponse> {
+    const route = MATTILSYNET_REST_ROUTES[reportType];
     return this.submitReport(
       tenantId,
-      endpoint,
+      `${this.baseUrl}${route.path}`,
       payload,
-      MATTILSYNET_SCOPES.SLAUGHTER,
-      'Executed Slaughter',
+      route.scope,
+      route.label,
     );
   }
 
@@ -546,6 +591,7 @@ export class MattilsynetApiService {
           klientReferanse: payload.klientReferanse,
           feilmelding: responseData.message || `HTTP ${response.status}`,
           valideringsfeil: responseData.errors || responseData.validationErrors,
+          httpStatus: response.status,
         };
       }
 
@@ -565,6 +611,7 @@ export class MattilsynetApiService {
         success: false,
         klientReferanse: payload.klientReferanse,
         feilmelding: error instanceof Error ? error.message : 'Unknown error',
+        isNetworkError: true,
       };
     }
   }

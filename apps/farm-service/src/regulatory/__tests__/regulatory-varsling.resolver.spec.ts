@@ -17,6 +17,7 @@ import type { BaseEvent } from '@platform/event-contracts';
 import { createMockDataSource } from '@aquaculture/testing';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
 import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
 import { RegulatoryReport } from '../entities/regulatory-report.entity';
 import { RegulatoryResolver } from '../regulatory.resolver';
@@ -109,13 +110,17 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
     const mattilsynet = {} as MattilsynetApiService;
     const maskinporten = {} as MaskinportenService;
     const settings = {} as RegulatorySettingsService;
+    // The submission service is unused by the varsling mutations (they route
+    // through RegulatoryVarslingService); an empty stub keeps the resolver
+    // constructable without it.
+    const submissionService = {} as RegulatorySubmissionService;
     resolver = new RegulatoryResolver(
       mattilsynet,
       maskinporten,
       settings,
       service,
-      reportStore,
       new MattilsynetSchemaValidatorService(),
+      submissionService,
     );
   });
 

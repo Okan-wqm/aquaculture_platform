@@ -35,12 +35,21 @@ import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-
 
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
+import { RegulatoryReportStoreService } from './regulatory-report-store.service';
+import { RegulatorySubmissionService } from './regulatory-submission.service';
 import { isoWeekOf } from '../assembly/period.util';
 import { computeDueDate, osloDateString } from './report-deadlines';
 import { ReportDraftStatus } from '../entities/regulatory-report-draft.entity';
 
 /** 'RPRT' in hex — the advisory-lock namespace for regulatory scheduling. */
 const ADVISORY_LOCK_NAMESPACE = 0x52505254;
+
+/**
+ * Per-tenant cap on replays attempted in one retry-sweep tick. A single tenant
+ * with a large backlog cannot monopolise the sweep; the remainder is picked up
+ * on the next 30-minute run once their nextAttemptAt is still due.
+ */
+const RETRY_SWEEP_BATCH_LIMIT = 50;
 
 /** A single report to assemble for a site in a rollover. */
 export interface RolloverJob {
@@ -67,6 +76,8 @@ export class ReportSchedulerService {
     private readonly dataSource: DataSource,
     private readonly assemblyService: ReportAssemblyService,
     private readonly settingsService: RegulatorySettingsService,
+    private readonly reportStore: RegulatoryReportStoreService,
+    private readonly submissionService: RegulatorySubmissionService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -105,6 +116,13 @@ export class ReportSchedulerService {
       }
       return overdue.length;
     });
+  }
+
+  @Cron('*/30 * * * *', { name: 'regulatory-retry-sweep', timeZone: 'Europe/Oslo' })
+  async retrySweep(now: Date = new Date()): Promise<void> {
+    await this.runJob('regulatory-retry-sweep', (tenantId) =>
+      this.retrySweepForTenant(tenantId, now),
+    );
   }
 
   // ==========================================================================
@@ -244,6 +262,37 @@ export class ReportSchedulerService {
         [tenantId, today],
       );
     });
+  }
+
+  /**
+   * Replay every FAILED+TRANSIENT report whose backoff has elapsed. Each replay
+   * goes through RegulatorySubmissionService.resubmit, which re-validates the
+   * stored payload through the brand gate and re-applies the outcome (success →
+   * SUBMITTED, still-transient → next backoff, now-permanent → terminal +
+   * outbox). A single row's failure never aborts the batch. Returns the count of
+   * rows that reached a terminal SUBMITTED state this tick.
+   */
+  async retrySweepForTenant(tenantId: string, now: Date): Promise<number> {
+    const due = await this.reportStore.listDueRetries(tenantId, now, RETRY_SWEEP_BATCH_LIMIT);
+    let submitted = 0;
+    for (const row of due) {
+      try {
+        const result = await this.submissionService.resubmit(tenantId, row.id);
+        if (result.success) submitted += 1;
+      } catch (error) {
+        this.logger.error(
+          `Retry replay failed for report ${row.id.slice(0, 8)}…: ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+      }
+    }
+    if (due.length > 0) {
+      this.logger.log(
+        `Tenant ${tenantId.slice(0, 8)}…: replayed ${due.length} due report(s), ` +
+          `${submitted} now SUBMITTED`,
+      );
+    }
+    return submitted;
   }
 
   // ==========================================================================

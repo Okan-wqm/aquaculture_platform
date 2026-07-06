@@ -53,8 +53,8 @@ import {
   SubmitDiseaseOutbreakInput,
 } from './dto/regulatory-varsling-inputs.dto';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
-import { RegulatoryReportStoreService } from './services/regulatory-report-store.service';
-import { RegulatoryReportPayload, RegulatoryReportType } from './entities/regulatory-report.entity';
+import { RegulatorySubmissionService } from './services/regulatory-submission.service';
+import { RegulatoryReportType } from './entities/regulatory-report.entity';
 import {
   RegulatorySettingsOutput,
   UpdateRegulatorySettingsInput,
@@ -134,8 +134,8 @@ export class RegulatoryResolver {
     private readonly maskinporten: MaskinportenService,
     private readonly settingsService: RegulatorySettingsService,
     private readonly varslingService: RegulatoryVarslingService,
-    private readonly reportStore: RegulatoryReportStoreService,
     private readonly schemaValidator: MattilsynetSchemaValidatorService,
+    private readonly submissionService: RegulatorySubmissionService,
   ) {}
 
   /**
@@ -191,101 +191,6 @@ export class RegulatoryResolver {
       throw new UnauthorizedException('User context required');
     }
     return userId;
-  }
-
-  /**
-   * Resolve the internal siteId for a locality. The Mattilsynet payload
-   * only carries lokalitetsnummer; when the client did not supply an
-   * explicit siteId we reverse-map through the tenant's
-   * siteLocalityMappings so the persisted row stays site-filterable.
-   */
-  private async resolveSiteId(
-    tenantId: string,
-    explicitSiteId: string | undefined,
-    lokalitetsnummer: number,
-  ): Promise<string | undefined> {
-    if (explicitSiteId) return explicitSiteId;
-    const mappings = await this.settingsService.getEffectiveSiteLocalityMappings(tenantId);
-    for (const [siteId, mappedLokalitet] of Object.entries(mappings)) {
-      if (mappedLokalitet === lokalitetsnummer) return siteId;
-    }
-    return undefined;
-  }
-
-  /**
-   * Persist-first submit flow shared by the five Mattilsynet REST report
-   * types (FARM-HIGH-125): record PENDING → call the API → mark
-   * SUBMITTED/FAILED. A failure to persist fails the submit — an
-   * unrecorded report must never reach the regulator.
-   */
-  private async submitWithRecord(
-    tenantId: string,
-    userId: string,
-    reportType: RegulatoryReportType,
-    input: {
-      klientReferanse: string;
-      siteId?: string;
-      lokalitetsnummer: number;
-    },
-    period: { year?: number; week?: number; month?: number },
-    payload: RegulatoryReportPayload,
-    submit: () => Promise<ReportSubmissionResult>,
-  ): Promise<ReportSubmissionResult> {
-    const siteId = await this.resolveSiteId(tenantId, input.siteId, input.lokalitetsnummer);
-    const row = await this.reportStore.recordPending(tenantId, {
-      reportType,
-      klientReferanse: input.klientReferanse,
-      siteId,
-      lokalitetsnummer: input.lokalitetsnummer,
-      reportYear: period.year,
-      reportWeek: period.week,
-      reportMonth: period.month,
-      payload,
-      submittedBy: userId,
-    });
-
-    // FARM-LOW-134: the submit() call and the outcome-persistence are separated.
-    // Only an ACTUAL submit() failure marks the row FAILED. A persistence error
-    // AFTER a successful regulator call must NOT relabel an accepted submission
-    // as FAILED — that would tell the operator to resubmit an already-accepted
-    // report (a genuine duplicate to Mattilsynet). The regulator's verdict is
-    // authoritative; persistence is best-effort after it.
-    let result: ReportSubmissionResult;
-    try {
-      result = await submit();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      await this.reportStore.markFailed(tenantId, row.id, message);
-      return {
-        success: false,
-        reportId: row.id,
-        klientReferanse: input.klientReferanse,
-        feilmelding: message,
-      };
-    }
-
-    try {
-      if (result.success) {
-        await this.reportStore.markSubmitted(tenantId, row.id, result.referanse);
-      } else {
-        await this.reportStore.markFailed(
-          tenantId,
-          row.id,
-          result.feilmelding ??
-            (result.valideringsfeil?.map((v) => `${v.felt}: ${v.melding}`).join('; ') ||
-              'Submission rejected'),
-        );
-      }
-    } catch (persistError) {
-      const message = persistError instanceof Error ? persistError.message : 'Unknown error';
-      // The submission result STANDS; the row is left PENDING for a later
-      // reconcile. Do not report FAILED for a submission the regulator accepted.
-      this.logger.error(
-        `Regulatory report ${row.id} was submitted (success=${result.success}) but persisting ` +
-          `the outcome failed: ${message}. Row left PENDING; the submission result is authoritative.`,
-      );
-    }
-    return { ...result, reportId: row.id };
   }
 
   /**
@@ -639,13 +544,13 @@ export class RegulatoryResolver {
       return validated.result;
     }
 
-    return this.submitWithRecord(
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SEA_LICE,
       input,
       { year: input.rapporteringsaar, week: input.rapporteringsuke },
-      input,
+      validated.payload,
       async () => this.mattilsynetApi.submitSeaLiceReport(tenantId, validated.payload),
     );
   }
@@ -714,13 +619,13 @@ export class RegulatoryResolver {
       return validated.result;
     }
 
-    return this.submitWithRecord(
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.CLEANER_FISH,
       input,
       { year: input.rapporteringsaar, month: input.rapporteringsmaaned },
-      input,
+      validated.payload,
       async () => this.mattilsynetApi.submitCleanerFishReport(tenantId, validated.payload),
     );
   }
@@ -767,13 +672,13 @@ export class RegulatoryResolver {
       return validated.result;
     }
 
-    return this.submitWithRecord(
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SMOLT,
       input,
       { year: input.rapporteringsaar, month: input.rapporteringsmaaned },
-      input,
+      validated.payload,
       async () => this.mattilsynetApi.submitSmoltReport(tenantId, validated.payload),
     );
   }
@@ -828,13 +733,13 @@ export class RegulatoryResolver {
       return validated.result;
     }
 
-    return this.submitWithRecord(
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SLAUGHTER_PLANNED,
       input,
       { year: input.aar, week: input.uke },
-      input,
+      validated.payload,
       async () => this.mattilsynetApi.submitPlannedSlaughterReport(tenantId, validated.payload),
     );
   }
@@ -886,15 +791,35 @@ export class RegulatoryResolver {
       return validated.result;
     }
 
-    return this.submitWithRecord(
+    return this.submissionService.submitWithRecord(
       tenantId,
       userId,
       RegulatoryReportType.SLAUGHTER_EXECUTED,
       input,
       { year: input.slakteaar, week: input.slakteuke },
-      input,
+      validated.payload,
       async () => this.mattilsynetApi.submitExecutedSlaughterReport(tenantId, validated.payload),
     );
+  }
+
+  /**
+   * Replay a persisted FAILED REST submission under the SAME klientReferanse
+   * (Mattilsynet idempotency). The stored payload is re-validated through the
+   * brand gate before it can reach the regulator, so a payload that has since
+   * become schema-invalid becomes a PERMANENT failure instead of a re-send.
+   * This is the manual counterpart to the 30-minute retry sweep.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Replay a previously failed Mattilsynet REST report submission',
+  })
+  async resubmitRegulatoryReport(
+    @Args('reportId') reportId: string,
+    @Context() ctx: GraphQLContext,
+  ): Promise<ReportSubmissionResult> {
+    const tenantId = this.getTenantId(ctx);
+    this.logger.log(`Resubmitting regulatory report: ${reportId}`);
+    return this.submissionService.resubmit(tenantId, reportId);
   }
 
   // ==========================================================================

@@ -76,6 +76,7 @@ import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
 import { WaterChemistryToolsModule } from './tools/water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from './tools/sensor-config/sensor-config-tools.module';
+import { FarmToolsModule } from './tools/farm/farm-tools.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { AgentConfigModule } from './tenant-config/agent-config.module';
 import { AuditModule } from './audit/audit.module';
@@ -271,6 +272,7 @@ type QueryComplexityOperationContext = {
     ToolRegistryModule,
     WaterChemistryToolsModule,
     SensorConfigToolsModule,
+    FarmToolsModule,
     // Feature modules
     HealthModule,
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics

@@ -2,8 +2,8 @@
  * Settefisk (smolt) monthly report assembler.
  *
  * One produksjonsenhet per stocked tank under the site:
- *   karId                     → tank code (Tank.regulatoryUnitId lands in
- *                               Phase 2; until then the internal code, flagged)
+ *   karId                     → tanks.regulatoryUnitId (official kar-/merd-id)
+ *                               when set, else the internal code (RPT-016b)
  *   artskode                  → species catalog code (official FAO mapping
  *                               lands in Phase 2 — non-2-to-5-uppercase codes
  *                               are flagged blocking)
@@ -110,7 +110,7 @@ export class SettefiskReportAssembler {
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       return queryRunner.query(
         `WITH site_tanks AS (
-           SELECT t.id, t.code
+           SELECT t.id, COALESCE(t."regulatoryUnitId", t.code) AS code
              FROM tanks t
              JOIN departments d ON d.id = t."departmentId"
             WHERE t."tenantId" = $1 AND d."siteId" = $2

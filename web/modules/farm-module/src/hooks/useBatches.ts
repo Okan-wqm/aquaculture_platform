@@ -31,6 +31,7 @@ export type BatchInputType =
   | 'FRY'
   | 'FINGERLINGS'
   | 'JUVENILES'
+  | 'SMOLT'
   | 'ADULTS'
   | 'BROODSTOCK';
 

@@ -113,6 +113,7 @@ export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tan
         equipmentTypeId: input.equipmentTypeId,
         equipmentTypeCode: input.equipmentTypeCode,
         temperatureSensorId: input.temperatureSensorId,
+        regulatoryUnitId: input.regulatoryUnitId,
         tankType,
         material,
         waterType,

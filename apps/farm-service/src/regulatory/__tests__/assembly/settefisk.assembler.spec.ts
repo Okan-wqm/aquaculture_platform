@@ -82,4 +82,21 @@ describe('SettefiskReportAssembler', () => {
     expect(draftPayload.produksjonsenheter).toEqual([]);
     expect(fields.some((f) => f.path === '/produksjonsenheter' && f.blocking)).toBe(true);
   });
+
+  it('karId prefers the official regulatoryUnitId over the internal code (RPT-016b)', async () => {
+    const { mockDataSource, mockQueryRunner } = createMockDataSource();
+    let unitSql = '';
+    (mockQueryRunner.query as jest.Mock).mockImplementation((sql: string) => {
+      if (sql.includes('site_tanks')) {
+        unitSql = sql;
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
+    const assembler = new SettefiskReportAssembler(mockDataSource);
+
+    await assembler.assemble(tenantId, siteId, 2026, 6);
+
+    expect(unitSql).toContain('COALESCE(t."regulatoryUnitId", t.code)');
+  });
 });

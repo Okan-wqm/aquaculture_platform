@@ -67,7 +67,11 @@ export class MqttAuthService implements OnModuleInit {
     private readonly deviceRepository: Repository<EdgeDevice>,
     private readonly dataSource: DataSource,
   ) {
-    this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'file') as 'http' | 'file';
+    // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
+    // at only 101 PBKDF2 iterations (Mosquitto password_file parser limit),
+    // orders of magnitude below OWASP guidance; HTTP mode uses 600k. Secure by
+    // default (Tier-2) — legacy file mode must now be opted into explicitly.
+    this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'http') as 'http' | 'file';
 
     // File-based settings
     this.passwordFilePath = this.configService.get<string>(
@@ -88,6 +92,22 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
+    // SENSOR-LOW-008: fail closed on weak legacy file mode in production. The
+    // 101-iteration file-mode hash is unacceptable for a production trust
+    // boundary; starting in it must be an explicit, audited operator decision
+    // (MQTT_ALLOW_LEGACY_FILE_MODE=true) during a migration window, never a
+    // silent default.
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    const legacyFileModeAllowed =
+      this.configService.get<string>('MQTT_ALLOW_LEGACY_FILE_MODE') === 'true';
+    if (isProduction && this.authMode === 'file' && !legacyFileModeAllowed) {
+      throw new Error(
+        'SECURITY: MQTT_AUTH_MODE=file uses 101 PBKDF2 iterations and is refused in ' +
+          'production. Use the DB-backed HTTP backend (MQTT_AUTH_MODE=http), or set ' +
+          'MQTT_ALLOW_LEGACY_FILE_MODE=true to opt into the legacy mode for a migration window.',
+      );
+    }
+
     this.logger.log(`MQTT Authentication Service initialized (mode: ${this.authMode})`);
 
     if (this.authMode === 'file' && this.fileAuthEnabled) {
@@ -430,8 +450,11 @@ export class MqttAuthService implements OnModuleInit {
   /**
    * Hash a password using PBKDF2-SHA512 (Mosquitto $7$ format).
    * Format: $7$iterations$base64salt$base64hash
+   *
+   * SENSOR-LOW-008: the default is the OWASP-grade HTTP-mode count; the weak
+   * 101-iteration file-mode value must be passed explicitly by the legacy path.
    */
-  hashPassword(password: string, iterations: number = MqttAuthService.FILE_MODE_ITERATIONS): string {
+  hashPassword(password: string, iterations: number = MqttAuthService.HTTP_MODE_ITERATIONS): string {
     const salt = randomBytes(12);
     const keyLength = 24;
     const derivedKey = pbkdf2Sync(password, salt, iterations, keyLength, 'sha512');

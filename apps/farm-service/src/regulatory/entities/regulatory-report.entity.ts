@@ -41,13 +41,7 @@ import {
 import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
-import type {
-  CleanerFishPayload,
-  ExecutedSlaughterPayload,
-  PlannedSlaughterPayload,
-  SeaLicePayload,
-  SmoltPayload,
-} from '../mattilsynet-api.service';
+import type { MattilsynetBasePayload } from '../mattilsynet-api.service';
 import type {
   SubmitDiseaseOutbreakInput,
   SubmitEscapeReportInput,
@@ -115,15 +109,16 @@ registerEnumType(RegulatoryFailureClass, {
  * was validated and submitted (Norwegian field names, e.g. `sjøtemperatur`) —
  * not the GraphQL input DTO. The record-of-submission therefore records what
  * actually crossed the trust boundary, so the retry sweep can replay the same
- * bytes under the same klientReferanse (RPT-018). Every member structurally
- * extends `MattilsynetBasePayload`.
+ * bytes under the same klientReferanse (RPT-018).
+ *
+ * Typed as `MattilsynetBasePayload` (the shared header every REST wire payload
+ * carries): the interactive resolvers store a concrete subtype (SeaLicePayload,
+ * …) and the draft auto-submit path stores a payload assembled dynamically from
+ * the draft body + operator overrides. The common base is the honest column
+ * type both satisfy, and the official-schema Ajv validation (the brand's sole
+ * producer) is the real per-type gate at submit time.
  */
-export type RegulatoryRestWirePayload =
-  | SeaLicePayload
-  | CleanerFishPayload
-  | SmoltPayload
-  | PlannedSlaughterPayload
-  | ExecutedSlaughterPayload;
+export type RegulatoryRestWirePayload = MattilsynetBasePayload;
 
 /**
  * The three varsling types have no REST wire payload (they are dispatched as

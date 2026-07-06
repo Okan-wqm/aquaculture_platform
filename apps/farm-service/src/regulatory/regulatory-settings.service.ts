@@ -277,6 +277,23 @@ export class RegulatorySettingsService {
   }
 
   /**
+   * The organisation number that identifies a site's reports to Mattilsynet:
+   * the site's `organisationNumberOverride` (RPT-015 — a co-located operator on
+   * another org's licence) when set, else the tenant default from settings.
+   * Returns null when neither is configured — the submission path fails closed.
+   */
+  async getEffectiveOrganisationNumber(tenantId: string, siteId: string): Promise<string | null> {
+    const [settings, site] = await Promise.all([
+      this.getSettings(tenantId),
+      this.siteRepo.findOne({
+        where: { id: siteId, tenantId },
+        select: ['id', 'organisationNumberOverride'],
+      }),
+    ]);
+    return site?.organisationNumberOverride ?? settings?.organisationNumber ?? null;
+  }
+
+  /**
    * Toggle per-report-type auto-submit opt-in (RPT-003, user decision). Merges
    * one key into `autoSubmitPolicies` so enabling SEA_LICE never disturbs a
    * SMOLT opt-in. Absent/false leaves the scheduler assembling drafts for

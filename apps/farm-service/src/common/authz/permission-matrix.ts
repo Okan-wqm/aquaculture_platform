@@ -193,6 +193,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   refreshReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   saveReportDraftOverrides: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   dismissReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  approveAndSubmitReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateAutoSubmitPolicy: [Role.TENANT_ADMIN],
   syncWeatherData: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   testMaskinportenConnection: [Role.TENANT_ADMIN],

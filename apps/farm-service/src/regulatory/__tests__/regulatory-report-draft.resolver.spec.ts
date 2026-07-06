@@ -8,13 +8,14 @@ import { UnauthorizedException } from '@nestjs/common';
 
 import { RegulatoryReportDraftResolver } from '../regulatory-report-draft.resolver';
 import { RegulatoryReportDraftService } from '../services/regulatory-report-draft.service';
+import { RegulatoryDraftSubmissionService } from '../services/regulatory-draft-submission.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatorySettings } from '../entities/regulatory-settings.entity';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
 
-function ctx(): { req: { user: { tenantId: string } } } {
-  return { req: { user: { tenantId: TENANT } } };
+function ctx(): { req: { user: { tenantId: string; sub: string } } } {
+  return { req: { user: { tenantId: TENANT, sub: 'user-9' } } };
 }
 
 describe('RegulatoryReportDraftResolver', () => {
@@ -22,24 +23,30 @@ describe('RegulatoryReportDraftResolver', () => {
   let listDrafts: jest.Mock;
   let saveOverrides: jest.Mock;
   let dismissDraft: jest.Mock;
+  let approveAndSubmit: jest.Mock;
   let updateAutoSubmitPolicy: jest.Mock;
 
   beforeEach(() => {
     listDrafts = jest.fn().mockResolvedValue([]);
     saveOverrides = jest.fn().mockResolvedValue({ id: 'draft-1' });
     dismissDraft = jest.fn().mockResolvedValue({ id: 'draft-1' });
+    approveAndSubmit = jest.fn().mockResolvedValue({ success: true, reportId: 'row-1' });
     updateAutoSubmitPolicy = jest.fn();
 
     const draftService: Pick<
       RegulatoryReportDraftService,
       'listDrafts' | 'saveOverrides' | 'dismissDraft'
     > = { listDrafts, saveOverrides, dismissDraft };
+    const draftSubmissionService: Pick<RegulatoryDraftSubmissionService, 'approveAndSubmit'> = {
+      approveAndSubmit,
+    };
     const settingsService: Pick<RegulatorySettingsService, 'updateAutoSubmitPolicy'> = {
       updateAutoSubmitPolicy,
     };
 
     resolver = new RegulatoryReportDraftResolver(
       draftService as RegulatoryReportDraftService,
+      draftSubmissionService as RegulatoryDraftSubmissionService,
       settingsService as RegulatorySettingsService,
     );
   });
@@ -52,6 +59,12 @@ describe('RegulatoryReportDraftResolver', () => {
   it('saveReportDraftOverrides forwards draftId + overrides', async () => {
     await resolver.saveReportDraftOverrides({ draftId: 'draft-1', overrides: { '/x': 1 } }, ctx());
     expect(saveOverrides).toHaveBeenCalledWith(TENANT, 'draft-1', { '/x': 1 });
+  });
+
+  it('approveAndSubmitReportDraft forwards tenant + user + draftId', async () => {
+    const result = await resolver.approveAndSubmitReportDraft('draft-1', ctx());
+    expect(result.success).toBe(true);
+    expect(approveAndSubmit).toHaveBeenCalledWith(TENANT, 'user-9', 'draft-1');
   });
 
   it('throws when the tenant context is missing', async () => {

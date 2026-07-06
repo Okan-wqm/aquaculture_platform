@@ -1,8 +1,7 @@
 /**
- * RegulatorySettingsService.updateAutoSubmitPolicy — per-report-type auto-submit
- * opt-in (RPT-003, user decision). One key is merged so toggling one report type
- * never disturbs another's opt-in, and a tenant with no settings row yet gets one
- * created.
+ * RegulatorySettingsService — per-report-type auto-submit opt-in (RPT-003) and
+ * the effective organisation number (site override -> tenant default) used by
+ * the draft submission path.
  */
 import { Repository } from 'typeorm';
 
@@ -11,6 +10,7 @@ import { RegulatorySettings } from '../entities/regulatory-settings.entity';
 import { Site } from '../../site/entities/site.entity';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
+const SITE = 'ssssssss-1111-4222-8333-444444444444';
 
 describe('RegulatorySettingsService.updateAutoSubmitPolicy', () => {
   let service: RegulatorySettingsService;
@@ -66,5 +66,43 @@ describe('RegulatorySettingsService.updateAutoSubmitPolicy', () => {
     const saved = await service.updateAutoSubmitPolicy(TENANT, 'SEA_LICE', false);
 
     expect(saved.autoSubmitPolicies).toEqual({ SEA_LICE: false });
+  });
+});
+
+describe('RegulatorySettingsService.getEffectiveOrganisationNumber', () => {
+  function makeService(
+    settings: Partial<RegulatorySettings> | null,
+    site: { organisationNumberOverride?: string } | null,
+  ): RegulatorySettingsService {
+    const settingsRepo: Pick<Repository<RegulatorySettings>, 'findOne'> = {
+      findOne: jest.fn().mockResolvedValue(settings),
+    };
+    const siteRepo: Pick<Repository<Site>, 'findOne'> = {
+      findOne: jest.fn().mockResolvedValue(site),
+    };
+    return new RegulatorySettingsService(
+      settingsRepo as Repository<RegulatorySettings>,
+      siteRepo as Repository<Site>,
+    );
+  }
+
+  it('prefers the site organisation-number override', async () => {
+    const service = makeService(
+      { organisationNumber: '111111111' },
+      {
+        organisationNumberOverride: '999999999',
+      },
+    );
+    await expect(service.getEffectiveOrganisationNumber(TENANT, SITE)).resolves.toBe('999999999');
+  });
+
+  it('falls back to the tenant default when the site has no override', async () => {
+    const service = makeService({ organisationNumber: '111111111' }, {});
+    await expect(service.getEffectiveOrganisationNumber(TENANT, SITE)).resolves.toBe('111111111');
+  });
+
+  it('returns null (fail-closed) when neither is configured', async () => {
+    const service = makeService(null, null);
+    await expect(service.getEffectiveOrganisationNumber(TENANT, SITE)).resolves.toBeNull();
   });
 });

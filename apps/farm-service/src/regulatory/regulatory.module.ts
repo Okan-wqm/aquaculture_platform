@@ -52,6 +52,7 @@ import { ReportPrefillResolver } from './report-prefill.resolver';
 import { ReportSchedulerService } from './services/report-scheduler.service';
 import { RegulatorySubmissionService } from './services/regulatory-submission.service';
 import { RegulatoryReportDraftService } from './services/regulatory-report-draft.service';
+import { RegulatoryDraftSubmissionService } from './services/regulatory-draft-submission.service';
 import { RegulatoryReportDraftResolver } from './regulatory-report-draft.resolver';
 
 // Regulatory-report read handlers (FARM-HIGH-125)
@@ -108,6 +109,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     ReportSchedulerService,
     RegulatorySubmissionService,
     RegulatoryReportDraftService,
+    RegulatoryDraftSubmissionService,
     RegulatoryReportDraftResolver,
   ],
   exports: [

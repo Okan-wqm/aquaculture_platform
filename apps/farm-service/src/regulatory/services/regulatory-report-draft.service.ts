@@ -167,6 +167,26 @@ export class RegulatoryReportDraftService {
     return this.repo.save(draft);
   }
 
+  /**
+   * Terminal transition after Mattilsynet accepted the draft's submission:
+   * link the persisted regulatory_reports receipt and stamp the approver.
+   * Called by RegulatoryDraftSubmissionService inside the same request/cron
+   * tenant context as the submit.
+   */
+  async markSubmitted(
+    tenantId: string,
+    id: string,
+    submittedReportId: string,
+    approvedBy: string,
+  ): Promise<RegulatoryReportDraft> {
+    const draft = await this.getDraftOrThrow(tenantId, id);
+    draft.status = ReportDraftStatus.SUBMITTED;
+    draft.submittedReportId = submittedReportId;
+    draft.approvedBy = approvedBy;
+    draft.approvedAt = new Date();
+    return this.repo.save(draft);
+  }
+
   // ==========================================================================
   // INTERNAL
   // ==========================================================================

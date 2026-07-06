@@ -18,7 +18,9 @@ import { Roles, Role } from '@aquaculture/backend-common/decorators';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RegulatoryReportDraft } from './entities/regulatory-report-draft.entity';
 import { RegulatoryReportDraftService } from './services/regulatory-report-draft.service';
+import { RegulatoryDraftSubmissionService } from './services/regulatory-draft-submission.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
+import { ReportSubmissionResult } from './dto/regulatory-inputs.dto';
 import {
   AutoSubmitPolicyEntry,
   ReportDeadlineOutput,
@@ -29,7 +31,7 @@ import {
 
 interface GraphQLContext {
   req?: {
-    user?: { tenantId?: string };
+    user?: { tenantId?: string; sub?: string };
     tenantId?: string;
   };
 }
@@ -41,6 +43,7 @@ export class RegulatoryReportDraftResolver {
 
   constructor(
     private readonly draftService: RegulatoryReportDraftService,
+    private readonly draftSubmissionService: RegulatoryDraftSubmissionService,
     private readonly settingsService: RegulatorySettingsService,
   ) {}
 
@@ -50,6 +53,14 @@ export class RegulatoryReportDraftResolver {
       throw new UnauthorizedException('Tenant context required');
     }
     return tenantId;
+  }
+
+  private getUserId(ctx: GraphQLContext): string {
+    const userId = ctx?.req?.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('User context required');
+    }
+    return userId;
   }
 
   // ==========================================================================
@@ -110,6 +121,21 @@ export class RegulatoryReportDraftResolver {
     @Context() ctx: GraphQLContext,
   ): Promise<RegulatoryReportDraft> {
     return this.draftService.dismissDraft(this.getTenantId(ctx), draftId);
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ReportSubmissionResult, {
+    description: 'Approve a READY draft and submit it to Mattilsynet',
+  })
+  async approveAndSubmitReportDraft(
+    @Args('draftId', { type: () => ID }) draftId: string,
+    @Context() ctx: GraphQLContext,
+  ): Promise<ReportSubmissionResult> {
+    return this.draftSubmissionService.approveAndSubmit(
+      this.getTenantId(ctx),
+      this.getUserId(ctx),
+      draftId,
+    );
   }
 
   // ==========================================================================

@@ -20,7 +20,10 @@ import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-ass
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
+import { RegulatoryReportDraftService } from '../services/regulatory-report-draft.service';
+import { RegulatoryDraftSubmissionService } from '../services/regulatory-draft-submission.service';
 import { RegulatoryReport } from '../entities/regulatory-report.entity';
+import { RegulatoryReportDraft } from '../entities/regulatory-report-draft.entity';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
 const SITE = 'ssssssss-1111-4222-8333-444444444444';
@@ -32,6 +35,9 @@ function makeService(options: {
   overdueRows?: unknown[];
   dueRetries?: RegulatoryReport[];
   resubmit?: jest.Mock;
+  autoSubmitPolicies?: Record<string, boolean>;
+  readyDrafts?: RegulatoryReportDraft[];
+  approveAndSubmit?: jest.Mock;
 }): {
   service: ReportSchedulerService;
   assemble: jest.Mock;
@@ -39,6 +45,8 @@ function makeService(options: {
   emit: jest.Mock;
   listDueRetries: jest.Mock;
   resubmit: jest.Mock;
+  listDrafts: jest.Mock;
+  approveAndSubmit: jest.Mock;
 } {
   const assemble = jest.fn().mockResolvedValue({
     draftPayload: { ok: true },
@@ -64,6 +72,9 @@ function makeService(options: {
   const assemblyService = { assemble } as Partial<ReportAssemblyService> as ReportAssemblyService;
   const settingsService = {
     getEffectiveSiteLocalityMappings: jest.fn().mockResolvedValue(options.mappings ?? {}),
+    getSettings: jest
+      .fn()
+      .mockResolvedValue({ autoSubmitPolicies: options.autoSubmitPolicies ?? {} }),
   } as Partial<RegulatorySettingsService> as RegulatorySettingsService;
   const emit = jest.fn();
   const eventEmitter = { emit } as Partial<EventEmitter2> as EventEmitter2;
@@ -77,15 +88,27 @@ function makeService(options: {
     resubmit,
   } as Partial<RegulatorySubmissionService> as RegulatorySubmissionService;
 
+  const listDrafts = jest.fn().mockResolvedValue(options.readyDrafts ?? []);
+  const draftService = {
+    listDrafts,
+  } as Partial<RegulatoryReportDraftService> as RegulatoryReportDraftService;
+  const approveAndSubmit =
+    options.approveAndSubmit ?? jest.fn().mockResolvedValue({ success: true });
+  const draftSubmissionService = {
+    approveAndSubmit,
+  } as Partial<RegulatoryDraftSubmissionService> as RegulatoryDraftSubmissionService;
+
   const service = new ReportSchedulerService(
     {} as Partial<DataSource> as DataSource,
     assemblyService,
     settingsService,
     reportStore,
     submissionService,
+    draftService,
+    draftSubmissionService,
     eventEmitter,
   );
-  return { service, assemble, query, emit, listDueRetries, resubmit };
+  return { service, assemble, query, emit, listDueRetries, resubmit, listDrafts, approveAndSubmit };
 }
 
 describe('ReportSchedulerService period math', () => {
@@ -241,5 +264,68 @@ describe('ReportSchedulerService.retrySweepForTenant', () => {
 
     expect(resubmit).not.toHaveBeenCalled();
     expect(submitted).toBe(0);
+  });
+});
+
+describe('ReportSchedulerService.autoSubmitForTenant', () => {
+  function readyDraft(id: string, reportType: string): RegulatoryReportDraft {
+    const draft = new RegulatoryReportDraft();
+    draft.id = id;
+    draft.tenantId = TENANT;
+    draft.reportType = reportType;
+    return draft;
+  }
+
+  it('submits only READY drafts whose report type is opted in', async () => {
+    const approveAndSubmit = jest.fn().mockResolvedValue({ success: true });
+    const { service, listDrafts } = makeService({
+      autoSubmitPolicies: { SEA_LICE: true, SMOLT: false },
+      readyDrafts: [
+        readyDraft('d-lice', ReportPrefillType.SEA_LICE),
+        readyDraft('d-smolt', ReportPrefillType.SMOLT),
+      ],
+      approveAndSubmit,
+    });
+
+    const submitted = await service.autoSubmitForTenant(TENANT);
+
+    expect(listDrafts).toHaveBeenCalledWith(TENANT, { status: 'ready' });
+    expect(approveAndSubmit).toHaveBeenCalledTimes(1);
+    expect(approveAndSubmit).toHaveBeenCalledWith(
+      TENANT,
+      '00000000-0000-0000-0000-000000000000',
+      'd-lice',
+    );
+    expect(submitted).toBe(1);
+  });
+
+  it('short-circuits when no report type is opted in (no draft read)', async () => {
+    const { service, listDrafts, approveAndSubmit } = makeService({ autoSubmitPolicies: {} });
+
+    const submitted = await service.autoSubmitForTenant(TENANT);
+
+    expect(listDrafts).not.toHaveBeenCalled();
+    expect(approveAndSubmit).not.toHaveBeenCalled();
+    expect(submitted).toBe(0);
+  });
+
+  it('a single auto-submit throwing never aborts the batch', async () => {
+    const approveAndSubmit = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ success: true });
+    const { service } = makeService({
+      autoSubmitPolicies: { SEA_LICE: true },
+      readyDrafts: [
+        readyDraft('d-1', ReportPrefillType.SEA_LICE),
+        readyDraft('d-2', ReportPrefillType.SEA_LICE),
+      ],
+      approveAndSubmit,
+    });
+
+    const submitted = await service.autoSubmitForTenant(TENANT);
+
+    expect(approveAndSubmit).toHaveBeenCalledTimes(2);
+    expect(submitted).toBe(1);
   });
 });

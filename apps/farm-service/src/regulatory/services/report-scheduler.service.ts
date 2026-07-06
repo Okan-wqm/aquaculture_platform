@@ -32,11 +32,17 @@ import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryReportStoreService } from './regulatory-report-store.service';
 import { RegulatorySubmissionService } from './regulatory-submission.service';
+import { RegulatoryReportDraftService } from './regulatory-report-draft.service';
+import {
+  AUTO_SUBMIT_ACTOR_ID,
+  RegulatoryDraftSubmissionService,
+} from './regulatory-draft-submission.service';
 import { isoWeekOf } from '../assembly/period.util';
 import { computeDueDate, osloDateString } from './report-deadlines';
 import { ReportDraftStatus } from '../entities/regulatory-report-draft.entity';
@@ -78,6 +84,8 @@ export class ReportSchedulerService {
     private readonly settingsService: RegulatorySettingsService,
     private readonly reportStore: RegulatoryReportStoreService,
     private readonly submissionService: RegulatorySubmissionService,
+    private readonly draftService: RegulatoryReportDraftService,
+    private readonly draftSubmissionService: RegulatoryDraftSubmissionService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -87,16 +95,26 @@ export class ReportSchedulerService {
 
   @Cron('0 3 * * 1', { name: 'regulatory-weekly-rollover', timeZone: 'Europe/Oslo' })
   async weeklyRollover(now: Date = new Date()): Promise<void> {
-    await this.runJob('regulatory-weekly-rollover', (tenantId) =>
-      this.rolloverForTenant(tenantId, ReportSchedulerService.weeklyJobs(now)),
-    );
+    await this.runJob('regulatory-weekly-rollover', async (tenantId) => {
+      const created = await this.rolloverForTenant(
+        tenantId,
+        ReportSchedulerService.weeklyJobs(now),
+      );
+      await this.autoSubmitForTenant(tenantId);
+      return created;
+    });
   }
 
   @Cron('0 3 1 * *', { name: 'regulatory-monthly-rollover', timeZone: 'Europe/Oslo' })
   async monthlyRollover(now: Date = new Date()): Promise<void> {
-    await this.runJob('regulatory-monthly-rollover', (tenantId) =>
-      this.rolloverForTenant(tenantId, ReportSchedulerService.monthlyJobs(now)),
-    );
+    await this.runJob('regulatory-monthly-rollover', async (tenantId) => {
+      const created = await this.rolloverForTenant(
+        tenantId,
+        ReportSchedulerService.monthlyJobs(now),
+      );
+      await this.autoSubmitForTenant(tenantId);
+      return created;
+    });
   }
 
   @Cron('0 7 * * *', { name: 'regulatory-deadline-sweep', timeZone: 'Europe/Oslo' })
@@ -295,6 +313,50 @@ export class ReportSchedulerService {
     return submitted;
   }
 
+  /**
+   * Auto-submit every READY draft whose report type the tenant has opted into
+   * (autoSubmitPolicies[type] === true). Each submission goes through the SAME
+   * approveAndSubmit path as an operator, so persistence, classification, and
+   * retry scheduling are identical; a per-draft failure never aborts the batch.
+   * Runs inside the per-tenant withTenantContext frame established by runJob.
+   */
+  async autoSubmitForTenant(tenantId: string): Promise<number> {
+    const settings = await this.settingsService.getSettings(tenantId);
+    const policies = settings?.autoSubmitPolicies ?? {};
+    const enabledTypes = Object.entries(policies)
+      .filter(([, enabled]) => enabled)
+      .map(([type]) => type);
+    if (enabledTypes.length === 0) return 0;
+
+    const ready = await this.draftService.listDrafts(tenantId, {
+      status: ReportDraftStatus.READY,
+    });
+    const due = ready.filter((draft) => enabledTypes.includes(draft.reportType));
+
+    let submitted = 0;
+    for (const draft of due) {
+      try {
+        const result = await this.draftSubmissionService.approveAndSubmit(
+          tenantId,
+          AUTO_SUBMIT_ACTOR_ID,
+          draft.id,
+        );
+        if (result.success) submitted += 1;
+      } catch (error) {
+        this.logger.error(
+          `Auto-submit failed for draft ${draft.id.slice(0, 8)}…: ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+      }
+    }
+    if (due.length > 0) {
+      this.logger.log(
+        `Tenant ${tenantId.slice(0, 8)}…: auto-submitted ${submitted}/${due.length} READY draft(s)`,
+      );
+    }
+    return submitted;
+  }
+
   // ==========================================================================
   // ORCHESTRATION (advisory lock + tenant discovery)
   // ==========================================================================
@@ -314,7 +376,11 @@ export class ReportSchedulerService {
       const tenantIds = await this.discoverTenantIds();
       for (const tenantId of tenantIds) {
         try {
-          total += await perTenant(tenantId);
+          // Establish the tenant AsyncLocalStorage frame so every scoped-repo
+          // read inside perTenant (settings, drafts) resolves search_path to
+          // tenant_<uuid>; without it the connection bootstrap falls back to the
+          // source `farm` schema and the job silently reads an empty template.
+          total += await withTenantContext(tenantId, () => perTenant(tenantId));
           tenants += 1;
         } catch (error) {
           this.logger.error(

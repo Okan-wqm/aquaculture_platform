@@ -32,6 +32,7 @@ import { CreateEscapeIncidents1803000000000 } from './1803000000000-CreateEscape
 import { AddHarvestNorwegianQualityClass1803100000000 } from './1803100000000-AddHarvestNorwegianQualityClass';
 import { AddTankRegulatoryUnitId1803200000000 } from './1803200000000-AddTankRegulatoryUnitId';
 import { AddBatchInputTypeSmolt1803300000000 } from './1803300000000-AddBatchInputTypeSmolt';
+import { AddWorkerVeterinaryFields1803400000000 } from './1803400000000-AddWorkerVeterinaryFields';
 import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
 import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-CreateSensorTemperatureDaily';
 
@@ -78,6 +79,7 @@ export const FARM_MIGRATIONS = [
   AddHarvestNorwegianQualityClass1803100000000,
   AddTankRegulatoryUnitId1803200000000,
   AddBatchInputTypeSmolt1803300000000,
+  AddWorkerVeterinaryFields1803400000000,
   CreateSlaughterFacilities1803450000000,
   CreateSensorTemperatureDaily1803500000000,
 ] as const;

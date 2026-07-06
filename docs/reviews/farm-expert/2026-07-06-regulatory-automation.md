@@ -58,3 +58,22 @@ new CQRS queries `GetMortalityByCauseQuery`, `GetTransfersSummaryQuery`,
 `BiomassReportTab` client aggregation **deleted** (guarded by a stay-deleted spec) and the
 wizard seeds every section from the assembled draft. Remaining report types' assemblers are
 Phase 1b/2 of the tracked plan.
+
+## FARM-HIGH-148 — the five Mattilsynet REST report types had no server-side assembly (plan Phase 1b)
+
+Only the biomass draft assembled server-side after Phase 1a; sea lice, settefisk, rensefisk and
+both slakt reports still computed nothing — operators typed every value, including data the
+platform owns (per-tank stock and weights, monthly mortality/cull splits, cleaner-fish ledger
+movements, weekly harvest totals, planned-harvest weekday quantities, site water temperature).
+
+Phase 1b fix: assemblers for all five REST types (`regulatory/assembly/assemblers/`), a shared
+`period.util.ts` (month + ISO-week math, one implementation), and provenance discipline —
+values the platform lacks are flagged MANUAL_REQUIRED (blocking when the official schema
+requires them: lice counts, quality-class splits, godkjenningsnummer) and never guessed.
+`WaterTemperatureService` gains `getSiteCurrentTemperature` + provenance fields
+(measuredAt/sensorId) — the ONE temperature path now serves feed-rate AND reporting.
+Frontend: SeaLice seeds sjøtemperatur from the draft with a sensor/records badge (the stale
+"until sensor integration is enabled" copy is gone); Smolt's Load-from-System now consumes the
+server draft instead of client tank math (guard spec keeps both wired). CleanerFish/Slaughter
+tabs consume their assemblers in the Phase 4 review-and-approve rework — building interim
+seeding UI there would duplicate structures Phase 4 replaces (dedup principle).

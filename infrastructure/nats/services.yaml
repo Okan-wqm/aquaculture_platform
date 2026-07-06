@@ -228,6 +228,7 @@ services:
       - "request.messaging.resolveNotificationRef"
       - "request.messaging.getMessageForBroadcast"
       - "request.sensor.verifyDeviceOwnership"
+      - "request.ai.chat"
       - "request.messaging.admin.complianceStats"
       - "request.messaging.admin.getLegalHolds"
       - "request.messaging.admin.createLegalHold"

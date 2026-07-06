@@ -125,4 +125,36 @@ describe('MQTT-auth negative-result cache bounds unknown-username floods (SENSOR
     );
     expect(schemataScans).toHaveLength(1);
   });
+
+  it('also bounds the unauthenticated verifyDeviceCredentials (CONNECT) path', async () => {
+    const query = jest.fn().mockImplementation((sql: string) => {
+      if (typeof sql === 'string' && sql.includes('information_schema.schemata')) {
+        return Promise.resolve([{ schema_name: 'tenant_aaaaaaaaaaaaaaaa' }]);
+      }
+      return Promise.resolve([]); // device not found
+    });
+    const directory = {
+      lookupTenantId: jest.fn().mockResolvedValue(null),
+      backfill: jest.fn(),
+      upsert: jest.fn(),
+      remove: jest.fn(),
+    };
+    const service = new MqttAuthService(
+      config as never,
+      {} as never,
+      { query } as never,
+      directory as never,
+    );
+
+    // Two CONNECT attempts with the same unknown edge- client id.
+    await service.verifyDeviceCredentials('edge-flooder', 'pw');
+    await service.verifyDeviceCredentials('edge-flooder', 'pw');
+
+    // The shared negative cache means only the first attempt scanned.
+    expect(directory.lookupTenantId).toHaveBeenCalledTimes(1);
+    const schemataScans = query.mock.calls.filter((c) =>
+      String(c[0]).includes('information_schema.schemata'),
+    );
+    expect(schemataScans).toHaveLength(1);
+  });
 });

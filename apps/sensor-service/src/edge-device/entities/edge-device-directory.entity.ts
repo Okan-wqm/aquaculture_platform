@@ -32,12 +32,19 @@ export class EdgeDeviceDirectory {
   @PrimaryColumn({ type: 'uuid', name: 'device_id' })
   deviceId!: string;
 
+  // NOT unique: device_code (and, derived from it, mqtt_client_id) is only
+  // unique WITHIN a tenant's edge_devices — the source schema is per-tenant, so
+  // two tenants can independently mint the same 32-bit device_code. The public
+  // lookups this directory accelerates already tolerate that (UNION-ALL LIMIT 1
+  // picks one arbitrarily), so the index is plain: a global UNIQUE here would
+  // turn a rare cross-tenant collision into an unhandled insert failure that
+  // 500s device creation AFTER the edge_devices row committed.
   @Column({ type: 'varchar', name: 'device_code', length: 50 })
-  @Index('idx_edge_device_directory_device_code', { unique: true })
+  @Index('idx_edge_device_directory_device_code')
   deviceCode!: string;
 
   @Column({ type: 'varchar', name: 'mqtt_client_id', length: 200, nullable: true })
-  @Index('idx_edge_device_directory_mqtt_client_id', { unique: true })
+  @Index('idx_edge_device_directory_mqtt_client_id')
   mqttClientId?: string | null;
 
   @Column({ type: 'uuid', name: 'tenant_id' })

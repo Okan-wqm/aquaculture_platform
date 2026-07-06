@@ -28,12 +28,15 @@ export class CreateEdgeDeviceDirectory1805000000000 implements MigrationInterfac
         updated_at timestamptz NOT NULL DEFAULT now()
       )
     `);
+    // Plain (non-unique) indexes: device_code is only per-tenant unique in the
+    // source, so a global UNIQUE would fail the insert on a rare cross-tenant
+    // collision. The lookups resolve LIMIT 1, matching the pre-existing scan.
     await queryRunner.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_edge_device_directory_device_code
+      `CREATE INDEX IF NOT EXISTS idx_edge_device_directory_device_code
          ON sensor.edge_device_directory (device_code)`,
     );
     await queryRunner.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_edge_device_directory_mqtt_client_id
+      `CREATE INDEX IF NOT EXISTS idx_edge_device_directory_mqtt_client_id
          ON sensor.edge_device_directory (mqtt_client_id)`,
     );
     await queryRunner.query(

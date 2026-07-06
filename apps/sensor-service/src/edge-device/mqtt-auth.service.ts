@@ -63,15 +63,18 @@ export class MqttAuthService implements OnModuleInit {
   private readonly TENANT_CACHE_TTL_MS = 300_000; // 5 minutes
   private static readonly TENANT_CACHE_MAX_SIZE = 10_000;
 
-  // SENSOR-MEDIUM-004: negative-result cache for ACL tenant lookups. A device
-  // lookup that misses BOTH the O(1) directory and the fallback scan is recorded
-  // here for a short window so a flood of the same unknown mqtt_client_id is not
-  // re-scanned across every tenant schema on every ACL check. Short TTL so a
-  // freshly-provisioned device becomes resolvable quickly; bounded size with
-  // LRU eviction so the flood cannot itself grow memory unboundedly.
-  private readonly negativeTenantIdCache = new Map<string, number>(); // username → expiresAt
-  private readonly NEGATIVE_TENANT_CACHE_TTL_MS = 30_000; // 30 seconds
-  private static readonly NEGATIVE_TENANT_CACHE_MAX_SIZE = 10_000;
+  // SENSOR-MEDIUM-004: negative-result cache for cross-schema device lookups.
+  // A lookup that misses BOTH the O(1) directory and the fallback UNION-ALL scan
+  // is recorded here (keyed `${column}:${value}`) for a short window, so a flood
+  // of the same unknown identifier is not re-scanned across every tenant schema.
+  // It lives in findDeviceAcrossSchemas so EVERY public entry point benefits —
+  // the unauthenticated verifyDeviceCredentials (MQTT CONNECT) and the ACL
+  // own-device check, not just getDeviceTenantId. Short TTL so a freshly
+  // provisioned device becomes resolvable quickly; bounded with LRU eviction so
+  // the flood cannot itself grow memory unboundedly.
+  private readonly negativeLookupCache = new Map<string, number>(); // `${column}:${value}` → expiresAt
+  private readonly NEGATIVE_LOOKUP_CACHE_TTL_MS = 30_000; // 30 seconds
+  private static readonly NEGATIVE_LOOKUP_CACHE_MAX_SIZE = 10_000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -360,34 +363,15 @@ export class MqttAuthService implements OnModuleInit {
       return cached.tenantId;
     }
 
-    // SENSOR-MEDIUM-004: short-circuit known-absent usernames so a flood of the
-    // same unknown client id does not re-scan every tenant schema per ACL check.
-    const negativeExpiry = this.negativeTenantIdCache.get(username);
-    if (negativeExpiry !== undefined) {
-      if (now < negativeExpiry) {
-        return null;
-      }
-      this.negativeTenantIdCache.delete(username);
-    }
-
+    // SENSOR-MEDIUM-004: the negative-result cache now lives one level down in
+    // findDeviceAcrossSchemas, so an unknown-username flood is bounded here AND
+    // on the unauthenticated auth/own-device paths.
     const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
 
     if (!device?.tenantId) {
-      // Remove stale positive entry and record a bounded, short-lived negative
-      // so repeated lookups of this unknown username stay O(1).
-      this.tenantIdCache.delete(username);
-      if (this.negativeTenantIdCache.size >= MqttAuthService.NEGATIVE_TENANT_CACHE_MAX_SIZE) {
-        const oldestNegative = this.negativeTenantIdCache.keys().next().value;
-        if (oldestNegative !== undefined) {
-          this.negativeTenantIdCache.delete(oldestNegative);
-        }
-      }
-      this.negativeTenantIdCache.set(username, now + this.NEGATIVE_TENANT_CACHE_TTL_MS);
+      this.tenantIdCache.delete(username); // drop any stale positive entry
       return null;
     }
-
-    // Positive resolution supersedes any stale negative entry.
-    this.negativeTenantIdCache.delete(username);
 
     // Enforce max cache size: evict the oldest entry (first inserted) before adding new one
     if (this.tenantIdCache.size >= MqttAuthService.TENANT_CACHE_MAX_SIZE) {
@@ -410,9 +394,10 @@ export class MqttAuthService implements OnModuleInit {
    */
   invalidateTenantCache(username: string): void {
     this.tenantIdCache.delete(username);
-    // Also clear any negative entry so a just-provisioned device resolves
-    // immediately rather than waiting out the negative TTL (SENSOR-MEDIUM-004).
-    this.negativeTenantIdCache.delete(username);
+    // Also clear any negative entry so a just-provisioned/revoked device is
+    // re-resolved immediately rather than waiting out the negative TTL
+    // (SENSOR-MEDIUM-004). The lookup key is column-qualified.
+    this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -433,6 +418,19 @@ export class MqttAuthService implements OnModuleInit {
     column: 'mqtt_client_id' | 'id',
     value: string,
   ): Promise<EdgeDevice | null> {
+    // SENSOR-MEDIUM-004: short-circuit recently-confirmed-absent identifiers so a
+    // flood of the same unknown value (auth CONNECT, ACL, own-device) does not
+    // re-scan every tenant schema. Bounds the DoS on the unauthenticated path.
+    const negativeKey = `${column}:${value}`;
+    const now = Date.now();
+    const negativeExpiry = this.negativeLookupCache.get(negativeKey);
+    if (negativeExpiry !== undefined) {
+      if (now < negativeExpiry) {
+        return null;
+      }
+      this.negativeLookupCache.delete(negativeKey);
+    }
+
     const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
     if (tenantId) {
       const schema = getTenantSchemaName(tenantId);
@@ -455,8 +453,19 @@ export class MqttAuthService implements OnModuleInit {
         mqttClientId: device.mqttClientId ?? null,
         tenantId: device.tenantId,
       });
+      return device;
     }
-    return device;
+
+    // Confirmed absent by both the directory and the scan: record a bounded,
+    // short-lived negative so repeated lookups of this identifier stay O(1).
+    if (this.negativeLookupCache.size >= MqttAuthService.NEGATIVE_LOOKUP_CACHE_MAX_SIZE) {
+      const oldest = this.negativeLookupCache.keys().next().value;
+      if (oldest !== undefined) {
+        this.negativeLookupCache.delete(oldest);
+      }
+    }
+    this.negativeLookupCache.set(negativeKey, now + this.NEGATIVE_LOOKUP_CACHE_TTL_MS);
+    return null;
   }
 
   /**
@@ -580,6 +589,11 @@ export class MqttAuthService implements OnModuleInit {
    * In file mode: writes to Mosquitto password file.
    */
   async addDeviceCredentials(username: string, passwordHash: string): Promise<boolean> {
+    // SENSOR-MEDIUM-004: a device just gained credentials — drop any negative
+    // lookup entry so its first CONNECT resolves immediately instead of being
+    // rejected for the remainder of the negative TTL.
+    this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
+
     if (this.authMode === 'http') {
       // In HTTP mode, credentials are stored in edge_devices table
       // Mosquitto verifies via HTTP callbacks to /mqtt/auth

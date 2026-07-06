@@ -198,35 +198,37 @@ export class SensorRegistrationService {
       isActive: false,
     });
 
-    // Save draft AND enqueue the SensorRegistrationStarted event atomically
-    // (SENSOR-LOW-007): the outbox INSERT joins the sensor save's transaction,
-    // so the durable lifecycle event can never be lost independently of the
-    // row it describes.
-    const savedSensor = await this.dataSource.transaction(async (manager) => {
-      const persisted = await manager.save(Sensor, sensor);
-      await this.outboxPublisher.enqueue(
-        this.buildRegistrationStartedEvent(persisted, input.protocolCode),
-        manager,
-      );
-      return persisted;
-    });
-
-    // SENSOR-HIGH-018: persist the data channels collected by the wizard.
-    // Previously RegisterSensorInput.dataChannels was validated then silently
-    // dropped. Registration is all-or-nothing: if channel creation fails
-    // (e.g. duplicate channelKey) the just-created sensor is removed so the
-    // caller does not end up with a channel-less orphan reported as success.
-    if (input.dataChannels && input.dataChannels.length > 0) {
-      try {
-        await this.channelManagement.createChannelsForSensor(
-          savedSensor.id,
-          tenantId,
-          this.toChannelInputs(input.dataChannels),
+    // Save draft, persist the wizard's data channels, AND enqueue the
+    // SensorRegistrationStarted event — all in ONE transaction (SENSOR-LOW-007 +
+    // SENSOR-HIGH-018). Because channel creation joins the same transaction, a
+    // failure (e.g. duplicate channelKey) rolls back the sensor row AND the
+    // durable Started event together: no channel-less orphan, and no dangling
+    // lifecycle event for a sensor that was never really registered. This
+    // replaces the previous "commit sensor+event, then create channels, then
+    // delete-on-failure" flow, which could leave a committed Started event for a
+    // just-deleted sensor.
+    let savedSensor: Sensor;
+    try {
+      savedSensor = await this.dataSource.transaction(async (manager) => {
+        const persisted = await manager.save(Sensor, sensor);
+        if (input.dataChannels && input.dataChannels.length > 0) {
+          await this.channelManagement.createChannelsForSensor(
+            persisted.id,
+            tenantId,
+            this.toChannelInputs(input.dataChannels),
+            manager,
+          );
+        }
+        await this.outboxPublisher.enqueue(
+          this.buildRegistrationStartedEvent(persisted, input.protocolCode),
+          manager,
         );
-      } catch (err) {
-        await this.sensorRepository.delete({ id: savedSensor.id, tenantId });
-        return { success: false, error: (err as Error).message };
-      }
+        return persisted;
+      });
+    } catch (err) {
+      // Full rollback already undid the sensor row and the Started event, so
+      // there is nothing to compensate — just report the failure.
+      return { success: false, error: (err as Error).message };
     }
 
     // Test connection if not skipped

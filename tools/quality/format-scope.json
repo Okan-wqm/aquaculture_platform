@@ -48753,6 +48753,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/components/settings/AiAssistantSettings.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/settings/GeneralSettings.tsx",
       "prettier_managed": true
     },
@@ -48867,6 +48873,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/graphql/ai-queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/graphql/billing-queries.ts",
       "prettier_managed": true
     },
@@ -48922,6 +48934,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/hooks/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/tenant-admin/src/hooks/useAiProviderSettings.ts",
       "prettier_managed": true
     },
     {
@@ -50262,10 +50280,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8231,
+  "file_count": 8234,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8056,
-  "managed_file_list_sha256": "da413ece117286db60fdc67b441b3556e9a01233a7c5cdbb746b8e123ac31321",
+  "managed_count": 8059,
+  "managed_file_list_sha256": "6d8eec18437b62613bf866a2d9a6d97c758fee4bba612806d17dd5eeaaff58d7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

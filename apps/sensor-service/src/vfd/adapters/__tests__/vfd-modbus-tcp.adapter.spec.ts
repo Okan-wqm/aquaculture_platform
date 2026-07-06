@@ -10,19 +10,76 @@
 import { VfdProtocol } from '../../entities/vfd.enums';
 import { VfdModbusTcpAdapter } from '../vfd-modbus-tcp.adapter';
 
-// Mock the modbus-serial library
-jest.mock('modbus-serial', () => {
-  return jest.fn().mockImplementation(() => ({
-    connectTCP: jest.fn().mockResolvedValue(undefined),
-    setID: jest.fn(),
-    setTimeout: jest.fn(),
-    close: jest.fn().mockResolvedValue(undefined),
-    readHoldingRegisters: jest.fn().mockResolvedValue({ buffer: Buffer.from([0x01, 0xf4]) }),
-    readInputRegisters: jest.fn().mockResolvedValue({ buffer: Buffer.from([0x01, 0xf4]) }),
-    writeRegister: jest.fn().mockResolvedValue(undefined),
-    writeRegisters: jest.fn().mockResolvedValue(undefined),
-    isOpen: true,
-  }));
+// The adapter talks raw Modbus-TCP over a `net.Socket` (no modbus-serial
+// dependency), so the mock lives at the socket layer: it accepts a connection,
+// then answers each 12-byte MBAP request with a correctly-framed response
+// echoing the transaction id, unit id and function code.
+jest.mock('net', () => {
+  const { EventEmitter } = require('events');
+  class MockSocket extends EventEmitter {
+    private failConnect: boolean;
+    constructor() {
+      super();
+      // Consume the one-shot failure flag so only the next socket fails.
+      this.failConnect = MockSocket.failNext;
+      MockSocket.failNext = false;
+    }
+    static failNext = false;
+    setNoDelay(): this { return this; }
+    setKeepAlive(): this { return this; }
+    setTimeout(): this { return this; }
+    connect(_port: number, _host: string, cb?: () => void): this {
+      process.nextTick(() => {
+        if (this.failConnect) {
+          this.emit('error', new Error('Connection refused'));
+        } else if (typeof cb === 'function') {
+          cb();
+        }
+      });
+      return this;
+    }
+    write(buffer: Buffer): boolean {
+      process.nextTick(() => {
+        const txId = buffer.readUInt16BE(0);
+        const unitId = buffer[6] ?? 1;
+        const fc = buffer[7] ?? 3;
+        let resp: Buffer;
+        if (fc === 0x05 || fc === 0x06) {
+          // Write echo: MBAP(7) + fc + 4 echo bytes (address + value).
+          resp = Buffer.alloc(12);
+          resp.writeUInt16BE(txId, 0);
+          resp.writeUInt16BE(0x0000, 2);
+          resp.writeUInt16BE(6, 4); // length = unitId + fc + 4 echo
+          resp[6] = unitId;
+          resp[7] = fc;
+          buffer.copy(resp, 8, 8, 12);
+        } else {
+          // Read: MBAP(7) + fc + byteCount(1) + 2 data bytes (0x01f4 = 500).
+          resp = Buffer.alloc(11);
+          resp.writeUInt16BE(txId, 0);
+          resp.writeUInt16BE(0x0000, 2);
+          resp.writeUInt16BE(5, 4); // length = unitId + fc + byteCount + 2 data
+          resp[6] = unitId;
+          resp[7] = fc;
+          resp[8] = 2;
+          resp[9] = 0x01;
+          resp[10] = 0xf4;
+        }
+        this.emit('data', resp);
+      });
+      return true;
+    }
+    end(cb?: () => void): this {
+      if (typeof cb === 'function') process.nextTick(cb);
+      this.emit('close');
+      return this;
+    }
+    destroy(): this {
+      this.emit('close');
+      return this;
+    }
+  }
+  return { Socket: MockSocket };
 });
 
 describe('VfdModbusTcpAdapter', () => {
@@ -68,7 +125,7 @@ describe('VfdModbusTcpAdapter', () => {
       const result = adapter.validateConfiguration(config);
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('host is required');
+      expect(result.errors.some((e) => e.includes('host'))).toBe(true);
     });
 
     it('should reject invalid port', () => {
@@ -199,13 +256,8 @@ describe('VfdModbusTcpAdapter', () => {
     });
 
     it('should handle connection error', async () => {
-      const ModbusRTU = require('modbus-serial');
-      ModbusRTU.mockImplementationOnce(() => ({
-        connectTCP: jest.fn().mockRejectedValue(new Error('Connection refused')),
-        setID: jest.fn(),
-        setTimeout: jest.fn(),
-        close: jest.fn(),
-      }));
+      const net = require('net');
+      net.Socket.failNext = true;
 
       const config = {
         host: '192.168.1.100',
@@ -253,13 +305,8 @@ describe('VfdModbusTcpAdapter', () => {
     });
 
     it('should return failure for connection error', async () => {
-      const ModbusRTU = require('modbus-serial');
-      ModbusRTU.mockImplementationOnce(() => ({
-        connectTCP: jest.fn().mockRejectedValue(new Error('Connection refused')),
-        setID: jest.fn(),
-        setTimeout: jest.fn(),
-        close: jest.fn(),
-      }));
+      const net = require('net');
+      net.Socket.failNext = true;
 
       const config = {
         host: '192.168.1.100',

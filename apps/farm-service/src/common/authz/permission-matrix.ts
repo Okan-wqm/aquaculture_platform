@@ -20,6 +20,15 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   applyParameterTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveInventoryCount: [Role.TENANT_ADMIN],
+  // Finance mutations — financial data, manager-class like createHarvestRecord.
+  // Category archival + tenant-wide settings (currency SSoT) are admin-only.
+  archiveFinanceCategory: [Role.TENANT_ADMIN],
+  createFinanceCategory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  createFinanceEntry: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  deleteFinanceEntry: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateFinanceCategory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateFinanceEntry: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateFinanceSettings: [Role.TENANT_ADMIN],
   approvePurchaseOrder: [Role.TENANT_ADMIN],
   assignFeedsToBatch: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   assignTemperatureSensor: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -128,6 +137,9 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   recordMortality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordSparePartStockMovement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordStockMovement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Phase-2a manual temperature entry (commit 1ea08524) shipped with @Roles
+  // but without a matrix entry — classified here to restore the invariant.
+  recordWaterTemperature: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   removeChemicalDocument: [Role.TENANT_ADMIN],
   removeCleanerFish: [Role.TENANT_ADMIN],
   removeFeedAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -253,6 +265,9 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   // are financial signals beyond the operator's scope.
   batchPerformance: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   batches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Phase-6 traceability report (read-only composition) shipped with @Roles
+  // but without a matrix entry — classified here to restore the invariant.
+  batchTraceability: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   chemical: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -309,6 +324,13 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   feedingRecords: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feeds: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Finance reads restricted to MANAGER + ADMIN — aggregate financial
+  // signals, same authorisation shape as harvestStatistics / batchPerformance.
+  financeBatchTotals: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  financeCategories: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  financeLedger: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  financeSettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  financeSummary: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   feedsByPelletSize: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedsByType: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedsForSpecies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

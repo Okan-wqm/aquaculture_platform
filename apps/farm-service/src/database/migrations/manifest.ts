@@ -23,6 +23,7 @@ import { AddEquipmentTemperatureSensorId1802100000000 } from './1802100000000-Ad
 import { CreateSensorTemperatureLatest1802200000000 } from './1802200000000-CreateSensorTemperatureLatest';
 import { AddTankTemperatureSensorId1802300000000 } from './1802300000000-AddTankTemperatureSensorId';
 import { AddExecutionGrowthAppliedAt1802400000000 } from './1802400000000-AddExecutionGrowthAppliedAt';
+import { CreateFinanceTables1802500000000 } from './1802500000000-CreateFinanceTables';
 
 /**
  * Canonical farm-service migration class list.
@@ -58,4 +59,5 @@ export const FARM_MIGRATIONS = [
   CreateSensorTemperatureLatest1802200000000,
   AddTankTemperatureSensorId1802300000000,
   AddExecutionGrowthAppliedAt1802400000000,
+  CreateFinanceTables1802500000000,
 ] as const;

@@ -1,0 +1,61 @@
+/**
+ * ComputedRuleEvaluator — pure, read-time evaluation of category
+ * computation rules.
+ *
+ * Contract for PERCENT_OF_SCOPE_TOTAL:
+ *   value(category) = percent% × Σ totals of NON-computed categories in
+ *   the same scope and period.
+ *
+ * The base is restricted to non-computed categories, which makes the
+ * definition non-self-referential ("Other variable cost = 5% of total
+ * operational cost" means 5% of the real, booked operational cost — not
+ * of a total that already contains the 5% line). One deterministic pass,
+ * no fixpoint iteration, and two computed categories in one scope cannot
+ * feed each other.
+ *
+ * Pure function of its inputs — no I/O — so the table-driven unit spec
+ * covers it exhaustively.
+ */
+import { Injectable } from '@nestjs/common';
+
+import {
+  FinanceCategory,
+} from '../entities/finance-category.entity';
+
+export interface ComputedCategoryValue {
+  categoryId: string;
+  code: string | null;
+  value: number;
+}
+
+@Injectable()
+export class ComputedRuleEvaluator {
+  /**
+   * @param categories categories of ONE scope (mixed computed + regular)
+   * @param baseTotals categoryId → booked total for the queried period
+   *                   (manual + derived; computed categories absent)
+   * @returns value per computed category, rounded to 2 decimals
+   */
+  evaluate(
+    categories: readonly FinanceCategory[],
+    baseTotals: ReadonlyMap<string, number>,
+  ): ComputedCategoryValue[] {
+    const nonComputedTotal = categories
+      .filter((c) => !c.computedRule)
+      .reduce((sum, c) => sum + (baseTotals.get(c.id) ?? 0), 0);
+
+    return categories
+      .filter((c): c is FinanceCategory & { computedRule: NonNullable<FinanceCategory['computedRule']> } =>
+        Boolean(c.computedRule),
+      )
+      .map((category) => {
+        const { percent } = category.computedRule;
+        const raw = (nonComputedTotal * percent) / 100;
+        return {
+          categoryId: category.id,
+          code: category.code ?? null,
+          value: Math.round(raw * 100) / 100,
+        };
+      });
+  }
+}

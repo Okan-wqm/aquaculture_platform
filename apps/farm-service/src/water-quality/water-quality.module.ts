@@ -67,6 +67,7 @@ import { SpeciesModule } from '../species/species.module';
 import { FeedModule } from '../feed/feed.module';
 import { RegulatoryModule } from '../regulatory/regulatory.module';
 import { EquipmentModule } from '../equipment/equipment.module';
+import { FinanceModule } from '../finance/finance.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -98,6 +99,7 @@ const CommandHandlers = [
     FeedModule,
     RegulatoryModule,
     EquipmentModule,
+    FinanceModule,
   ],
   providers: [
     WaterQualityService,

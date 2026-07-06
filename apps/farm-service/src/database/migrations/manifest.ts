@@ -35,6 +35,7 @@ import { AddBatchInputTypeSmolt1803300000000 } from './1803300000000-AddBatchInp
 import { AddWorkerVeterinaryFields1803400000000 } from './1803400000000-AddWorkerVeterinaryFields';
 import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
 import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-CreateSensorTemperatureDaily';
+import { CreateRegulatoryReportDrafts1803600000000 } from './1803600000000-CreateRegulatoryReportDrafts';
 
 /**
  * Canonical farm-service migration class list.
@@ -82,4 +83,5 @@ export const FARM_MIGRATIONS = [
   AddWorkerVeterinaryFields1803400000000,
   CreateSlaughterFacilities1803450000000,
   CreateSensorTemperatureDaily1803500000000,
+  CreateRegulatoryReportDrafts1803600000000,
 ] as const;

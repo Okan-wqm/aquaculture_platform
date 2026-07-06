@@ -30,6 +30,7 @@ import { RegulatoryReport } from './entities/regulatory-report.entity';
 import { RegulatoryReportStoreService } from './services/regulatory-report-store.service';
 import { RegulatoryReportResolver } from './regulatory-report.resolver';
 import { SlaughterFacility } from './entities/slaughter-facility.entity';
+import { RegulatoryReportDraft } from './entities/regulatory-report-draft.entity';
 import { SlaughterFacilityService } from './services/slaughter-facility.service';
 import { SlaughterFacilityResolver } from './resolvers/slaughter-facility.resolver';
 import { ListSlaughterFacilitiesHandler } from './handlers/list-slaughter-facilities.handler';
@@ -62,6 +63,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
       BiomassReport,
       RegulatoryReport,
       SlaughterFacility,
+      RegulatoryReportDraft,
       Site,
     ]),
     // BiomassCalculatorService (exported by BatchModule) is the standing-stock

@@ -458,6 +458,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Persisted Mattilsynet report submissions (FARM-HIGH-125) — the
       // legal record of what was reported; per-tenant like biomass_reports.
       'regulatory_reports',
+      // Scheduler-assembled report drafts awaiting review/approval (RPT-003).
+      'regulatory_report_drafts',
       'sentinel_hub_settings',
 
       // Weather & Marine observations

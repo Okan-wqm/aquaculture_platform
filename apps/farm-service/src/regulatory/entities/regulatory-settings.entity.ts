@@ -142,6 +142,19 @@ export class RegulatorySettings {
   slaughterApprovalNumber?: string;
 
   // ==========================================================================
+  // Automated submission (opt-in per report type — user decision, RPT-003)
+  // ==========================================================================
+
+  /**
+   * Per-report-type auto-submit opt-in, keyed by ReportPrefillType value, e.g.
+   * `{ "SEA_LICE": true }`. Absent/false → the scheduler assembles the draft
+   * but leaves submission to operator approval.
+   */
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ name: 'auto_submit_policies', type: 'jsonb', default: '{}' })
+  autoSubmitPolicies: Record<string, boolean>;
+
+  // ==========================================================================
   // Metadata
   // ==========================================================================
 

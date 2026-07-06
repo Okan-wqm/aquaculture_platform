@@ -77,3 +77,12 @@ Frontend: SeaLice seeds sjøtemperatur from the draft with a sensor/records badg
 server draft instead of client tank math (guard spec keeps both wired). CleanerFish/Slaughter
 tabs consume their assemblers in the Phase 4 review-and-approve rework — building interim
 seeding UI there would duplicate structures Phase 4 replaces (dedup principle).
+
+## FARM-HIGH-149 — regulatory identity + operational capture entities missing (plan Phase 2, umbrella)
+
+The remaining data the regulator requires has no platform home: official species codes
+(artskode), site lokalitetsnummer as an intrinsic Site attribute, lice counts, per-application
+treatments, welfare scores, escape incidents, the slaughter-facility catalog, external-transfer
+identity, and the temperature period series. Phase 2 of the automated-reporting plan closes
+these one sub-slice at a time; every sub-slice commit carries this finding's trailer, and the
+plan's RPT-004..016 rows track the individual verdicts.

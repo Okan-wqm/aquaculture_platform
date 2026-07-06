@@ -1,8 +1,15 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
-import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
+
+import { federation } from '@module-federation/vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
+
+// WHY: the federation shared-deps SSoT lives in shared-ui SOURCE. This vite
+// config is evaluated by Node before shared-ui's runtime barrel (dist) exists,
+// so the SSoT must be imported by relative source path — every module's
+// vite.config does the same (the nx-boundary is relaxed for vite configs in
+// eslint.config.mjs, since a build config cannot go through the npm scope).
 import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**

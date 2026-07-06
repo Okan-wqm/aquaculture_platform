@@ -1083,6 +1083,11 @@ if [ "$FULL_DEPLOY" = "true" ]; then
 
   # Application secrets
   generate_credential "WEBHOOK_ENCRYPTION_KEY"
+  # AES-256-GCM key for per-tenant BYOK AI credentials at rest (ai-service).
+  # generate_credential emits exactly 32 chars, which the encrypted-column
+  # transformer accepts as a 32-byte utf8 key. Persisted in .env → STABLE across
+  # deploys (rotating it would make every stored tenant AI key undecryptable).
+  generate_credential "AI_TENANT_SECRET_ENCRYPTION_KEY"
 
   echo "=== Per-service credentials provisioned ==="
 
@@ -1237,6 +1242,11 @@ else
 
   # Application secrets
   generate_credential "WEBHOOK_ENCRYPTION_KEY"
+  # AES-256-GCM key for per-tenant BYOK AI credentials at rest (ai-service).
+  # generate_credential emits exactly 32 chars, which the encrypted-column
+  # transformer accepts as a 32-byte utf8 key. Persisted in .env → STABLE across
+  # deploys (rotating it would make every stored tenant AI key undecryptable).
+  generate_credential "AI_TENANT_SECRET_ENCRYPTION_KEY"
 
   # Ensure infrastructure services required for migrations are running.
   # nginx starts/reloads only after db-migrate and app restarts succeed.

@@ -52,35 +52,52 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
   async execute(command: DeleteHarvestRecordCommand): Promise<boolean> {
     const { tenantId, harvestRecordId, deletedBy } = command;
 
-    // Find the harvest record
-    const harvestRecord = await this.harvestRepository.findOne({
-      where: { id: harvestRecordId, tenantId },
-    });
-
-    if (!harvestRecord) {
-      throw new NotFoundException(`Harvest record ${harvestRecordId} not found`);
-    }
-
-    // Prevent deletion of dispatched/delivered harvests
-    if (harvestRecord.status === HarvestRecordStatus.DISPATCHED ||
-        harvestRecord.status === HarvestRecordStatus.DELIVERED) {
-      throw new BadRequestException('Cannot delete dispatched or delivered harvest records');
-    }
-
-    // All reversal operations in a single transaction for data consistency
+    // All reversal operations in a single transaction. The record is read
+    // INSIDE the transaction under a pessimistic_write lock and the reversal is
+    // gated on an atomic not-yet-CANCELLED → CANCELLED transition: cancellation
+    // is a STATE TRANSITION, not a repeatable side effect. Before this, the
+    // record was read outside the transaction with no lock and CANCELLED passed
+    // the guard — a double-click / client retry / concurrent pair re-added
+    // quantityHarvested to the batch AND the tank on every call.
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      // Reverse the batch quantity changes
+      const harvestRecord = await queryRunner.manager.findOne(HarvestRecord, {
+        where: { id: harvestRecordId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!harvestRecord) {
+        throw new NotFoundException(`Harvest record ${harvestRecordId} not found`);
+      }
+
+      // Prevent deletion of dispatched/delivered harvests — and re-deletion of
+      // an already-cancelled one (its stock reversal was already applied).
+      if (harvestRecord.status === HarvestRecordStatus.DISPATCHED ||
+          harvestRecord.status === HarvestRecordStatus.DELIVERED) {
+        throw new BadRequestException('Cannot delete dispatched or delivered harvest records');
+      }
+      if (harvestRecord.status === HarvestRecordStatus.CANCELLED) {
+        throw new BadRequestException(
+          `Harvest record ${harvestRecordId} is already cancelled — its stock reversal has already been applied`,
+        );
+      }
+
+      // Reverse the batch quantity changes. A missing batch row is a data
+      // integrity error — silently skipping it would restock the tank while
+      // leaving the batch aggregates un-reversed (a half-reversal).
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: harvestRecord.batchId, tenantId },
       });
-
-      if (batch) {
-        batch.currentQuantity += harvestRecord.quantityHarvested;
-        batch.harvestedQuantity = Math.max(0, (batch.harvestedQuantity || 0) - harvestRecord.quantityHarvested);
-        batch.retentionRate = batch.getRetentionRate();
-        batch.updatedBy = deletedBy;
-        await queryRunner.manager.save(Batch, batch);
+      if (!batch) {
+        throw new NotFoundException(
+          `Batch ${harvestRecord.batchId} for harvest record ${harvestRecordId} not found — refusing a partial reversal`,
+        );
       }
+
+      batch.currentQuantity += harvestRecord.quantityHarvested;
+      batch.harvestedQuantity = Math.max(0, (batch.harvestedQuantity || 0) - harvestRecord.quantityHarvested);
+      batch.retentionRate = batch.getRetentionRate();
+      batch.updatedBy = deletedBy;
+      await queryRunner.manager.save(Batch, batch);
 
       // Reverse the tank batch changes
       if (harvestRecord.tankId) {
@@ -101,7 +118,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
           harvestRecord.tankId,
           {
             batchId: harvestRecord.batchId,
-            batchNumber: batch?.batchNumber ?? '',
+            batchNumber: batch.batchNumber,
             quantityDelta: harvestRecord.quantityHarvested,
             biomassDelta: biomassKg,
           },

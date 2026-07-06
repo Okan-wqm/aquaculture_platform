@@ -49,6 +49,7 @@ import { WaterTemperatureService } from '../water-quality/services/water-tempera
 import { ReportAssemblyService } from './assembly/report-assembly.service';
 import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
 import { ReportPrefillResolver } from './report-prefill.resolver';
+import { ReportSchedulerService } from './services/report-scheduler.service';
 
 // Regulatory-report read handlers (FARM-HIGH-125)
 import { ListRegulatoryReportsHandler } from './handlers/list-regulatory-reports.handler';
@@ -101,6 +102,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     ReportAssemblyService,
     GetReportPrefillHandler,
     ReportPrefillResolver,
+    ReportSchedulerService,
   ],
   exports: [
     MaskinportenService,

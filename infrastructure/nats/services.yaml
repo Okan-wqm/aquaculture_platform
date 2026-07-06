@@ -151,6 +151,7 @@ services:
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
       - "request.farm.createTask"
+      - "request.farm.getTankRegistry"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -311,6 +312,7 @@ services:
       - "events.security.events.>"
       # create_task actuation tool → farm-service responder (request-reply)
       - "request.farm.createTask"
+      - "request.farm.getTankRegistry"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

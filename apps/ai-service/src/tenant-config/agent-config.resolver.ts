@@ -39,13 +39,15 @@ import { LlmProviderFactory } from '../agent/providers/llm-provider.factory';
  */
 @ObjectType()
 export class AiSettings {
-  @Field()
+  // GraphQL cannot infer a TS string-union type — declare it as String explicitly
+  // (bare @Field() emits an "Undefined type" SDL error on the union types).
+  @Field(() => String)
   provider!: LlmProviderId;
 
   @Field()
   isEnabled!: boolean;
 
-  @Field()
+  @Field(() => String)
   enablementReason!: 'ok' | 'disabled' | 'key_missing';
 
   @Field(() => String, { nullable: true })

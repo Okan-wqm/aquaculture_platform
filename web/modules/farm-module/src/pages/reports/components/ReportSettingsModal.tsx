@@ -34,7 +34,6 @@ const GET_REGULATORY_SETTINGS = gql`
         lokalitetsnummer
         siteName
       }
-      slaughterApprovalNumber
       autoSubmitPolicies {
         reportType
         enabled
@@ -116,7 +115,6 @@ interface RegulatorySettings {
   defaultContactEmail?: string;
   defaultContactPhone?: string;
   siteLocalityMappings?: SiteLocalityMapping[];
-  slaughterApprovalNumber?: string;
   autoSubmitPolicies?: AutoSubmitPolicy[];
   updatedAt?: string;
 }
@@ -191,7 +189,6 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
     defaultContactName: '',
     defaultContactEmail: '',
     defaultContactPhone: '',
-    slaughterApprovalNumber: '',
   });
 
   const [siteMappings, setSiteMappings] = useState<{ [siteId: string]: string }>({});
@@ -293,7 +290,6 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
         defaultContactName: settingsData.defaultContactName || '',
         defaultContactEmail: settingsData.defaultContactEmail || '',
         defaultContactPhone: settingsData.defaultContactPhone || '',
-        slaughterApprovalNumber: settingsData.slaughterApprovalNumber || '',
       });
 
       if (settingsData.siteLocalityMappings) {
@@ -323,10 +319,6 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
     if (formData.defaultContactName) input.defaultContactName = formData.defaultContactName;
     if (formData.defaultContactEmail) input.defaultContactEmail = formData.defaultContactEmail;
     if (formData.defaultContactPhone) input.defaultContactPhone = formData.defaultContactPhone;
-
-    // Slaughter
-    if (formData.slaughterApprovalNumber)
-      input.slaughterApprovalNumber = formData.slaughterApprovalNumber;
 
     // Site mappings
     const mappingsArray = Object.entries(siteMappings)
@@ -663,25 +655,26 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
               )}
             </div>
 
-            {/* Slaughter Facility */}
+            {/* Slaughter Facility — managed in the facility catalog (SSoT) */}
             <div className="border border-gray-200 rounded-lg p-4">
               <h3 className="text-base font-semibold text-gray-900 mb-3">Slaughter Facility</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Configure slaughter facility approval number for slaughter reports (Slakterapport).
+              <p className="text-sm text-gray-600">
+                Slaughter facilities and their approval numbers (godkjenningsnummer) are managed in
+                Setup → Slaughter Facilities. The default facility supplies the godkjenningsnummer on
+                the executed/planned slaughter reports — no approval number is entered here.
               </p>
-              <div className="max-w-md">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Approval Number (Godkjenningsnummer)
-                </label>
-                <input
-                  type="text"
-                  value={formData.slaughterApprovalNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, slaughterApprovalNumber: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g., N-123"
-                />
+              <div className="mt-2">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
+                    statusData?.hasSlaughterApproval
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {statusData?.hasSlaughterApproval
+                    ? 'Default facility configured'
+                    : 'No default facility yet'}
+                </span>
               </div>
             </div>
 

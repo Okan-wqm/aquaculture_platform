@@ -132,14 +132,10 @@ export class RegulatorySettings {
   @Column({ name: 'site_locality_mappings', type: 'jsonb', default: '{}' })
   siteLocalityMappings: Record<string, number>;
 
-  // ==========================================================================
-  // Slaughter Facility
-  // ==========================================================================
-
-  /** Slaughter approval number for Slakterapport */
-  @Field({ nullable: true })
-  @Column({ name: 'slaughter_approval_number', length: 50, nullable: true })
-  slaughterApprovalNumber?: string;
+  // Slaughter approval number moved to the slaughter_facilities catalog
+  // (SSoT — CreateSlaughterFacilities1803450000000); the legacy
+  // regulatory_settings.slaughter_approval_number column is dropped by
+  // DropRegulatorySettingsSlaughterApprovalNumber1804100000000 (Phase 4 dedup).
 
   // ==========================================================================
   // Automated submission (opt-in per report type — user decision, RPT-003)

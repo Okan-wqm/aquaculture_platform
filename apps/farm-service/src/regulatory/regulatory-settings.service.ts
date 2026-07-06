@@ -39,7 +39,6 @@ export interface UpdateRegulatorySettingsInput {
   defaultContactEmail?: string;
   defaultContactPhone?: string;
   siteLocalityMappings?: Record<string, number>;
-  slaughterApprovalNumber?: string;
 }
 
 @Injectable()
@@ -153,9 +152,6 @@ export class RegulatorySettingsService {
         for (const [siteId, lokalitetsnummer] of Object.entries(input.siteLocalityMappings)) {
           await this.siteRepo.update({ id: siteId, tenantId }, { lokalitetsnummer });
         }
-      }
-      if (input.slaughterApprovalNumber !== undefined) {
-        settings.slaughterApprovalNumber = input.slaughterApprovalNumber;
       }
       if (input.maskinportenEnvironment !== undefined) {
         settings.maskinportenEnvironment = input.maskinportenEnvironment;

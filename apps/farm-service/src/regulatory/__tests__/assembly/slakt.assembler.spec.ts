@@ -1,12 +1,12 @@
 /**
  * SlaktReportAssembler — executed kg split across the official quality classes
  * from harvest_records.qualityClass (RECORDS); planned kg into ISO weekday
- * buckets; godkjenningsnummer from the facility catalog's default (settings
- * field is the transition fallback), fail-closed when neither exists.
+ * buckets; godkjenningsnummer from the slaughter-facility catalog's default
+ * facility (the sole SSoT — Phase 4 dedup), blocking MANUAL_REQUIRED when no
+ * default facility exists.
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
-import { RegulatorySettingsService } from '../../regulatory-settings.service';
 import { SlaughterFacilityService } from '../../services/slaughter-facility.service';
 import { SlaughterFacility } from '../../entities/slaughter-facility.entity';
 import { SlaktReportAssembler } from '../../assembly/assemblers/slakt.assembler';
@@ -18,7 +18,6 @@ const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
 function makeAssembler(options: {
   executed?: unknown[];
   planned?: unknown[];
-  approvalNumber?: string;
   defaultFacilityNumber?: string;
 }): SlaktReportAssembler {
   const { mockDataSource, mockQueryRunner } = createMockDataSource();
@@ -27,15 +26,6 @@ function makeAssembler(options: {
     if (sql.includes('FROM harvest_plans')) return Promise.resolve(options.planned ?? []);
     return Promise.resolve([]);
   });
-  const settings: Pick<RegulatorySettingsService, 'getSettings'> = {
-    getSettings: jest
-      .fn()
-      .mockResolvedValue(
-        options.approvalNumber === undefined
-          ? null
-          : { slaughterApprovalNumber: options.approvalNumber },
-      ),
-  };
   const facilities: Pick<SlaughterFacilityService, 'getDefaultFacility'> = {
     getDefaultFacility: jest
       .fn()
@@ -45,11 +35,7 @@ function makeAssembler(options: {
           : ({ godkjenningsnummer: options.defaultFacilityNumber } as SlaughterFacility),
       ),
   };
-  return new SlaktReportAssembler(
-    mockDataSource,
-    settings as RegulatorySettingsService,
-    facilities as SlaughterFacilityService,
-  );
+  return new SlaktReportAssembler(mockDataSource, facilities as SlaughterFacilityService);
 }
 
 describe('SlaktReportAssembler', () => {
@@ -59,7 +45,7 @@ describe('SlaktReportAssembler', () => {
         { artskode: 'SAL', qualityClass: 'superior', totalKg: '18000.44', recordCount: '3' },
         { artskode: 'SAL', qualityClass: 'produksjonsfisk', totalKg: '3440.016', recordCount: '1' },
       ],
-      approvalNumber: 'S123',
+      defaultFacilityNumber: 'S123',
     });
 
     const { draftPayload, fields } = await assembler.assembleExecuted(tenantId, siteId, 2026, 27);
@@ -79,10 +65,9 @@ describe('SlaktReportAssembler', () => {
     expect(meta?.provenance).toBe(ReportFieldProvenance.RECORDS);
   });
 
-  it('prefers the default catalog facility over the legacy settings field', async () => {
+  it('sources godkjenningsnummer from the default facility catalog (the sole SSoT)', async () => {
     const assembler = makeAssembler({
       executed: [],
-      approvalNumber: 'OLD1',
       defaultFacilityNumber: 'NEW99',
     });
 
@@ -93,8 +78,8 @@ describe('SlaktReportAssembler', () => {
     expect(meta?.sourceQuery).toBe('SlaughterFacilityService.defaultFacility');
   });
 
-  it('executed: blocks when neither a facility nor the legacy field is configured', async () => {
-    const assembler = makeAssembler({ executed: [], approvalNumber: undefined });
+  it('executed: blocks when no default facility is configured', async () => {
+    const assembler = makeAssembler({ executed: [], defaultFacilityNumber: undefined });
 
     const { fields } = await assembler.assembleExecuted(tenantId, siteId, 2026, 27);
 
@@ -108,7 +93,7 @@ describe('SlaktReportAssembler', () => {
         { artskode: 'SAL', weekday: '4', totalKg: '8000.336' },
         { artskode: 'SAL', weekday: '4', totalKg: '1000' },
       ],
-      approvalNumber: 'S123',
+      defaultFacilityNumber: 'S123',
     });
 
     const { draftPayload } = await assembler.assemblePlanned(tenantId, siteId, 2026, 29);
@@ -119,7 +104,7 @@ describe('SlaktReportAssembler', () => {
   });
 
   it('planned: empty week is a blocking manual field naming the range', async () => {
-    const assembler = makeAssembler({ planned: [], approvalNumber: 'S123' });
+    const assembler = makeAssembler({ planned: [], defaultFacilityNumber: 'S123' });
 
     const { fields } = await assembler.assemblePlanned(tenantId, siteId, 2026, 29);
 

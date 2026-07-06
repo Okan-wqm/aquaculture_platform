@@ -58,7 +58,6 @@ const REGULATORY_SETTINGS_FIELDS = `
     lokalitetsnummer
     siteName
   }
-  slaughterApprovalNumber
   createdAt
   updatedAt
 `;

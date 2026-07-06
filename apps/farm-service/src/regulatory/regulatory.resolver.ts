@@ -54,6 +54,7 @@ import {
 } from './dto/regulatory-varsling-inputs.dto';
 import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
 import { RegulatorySubmissionService } from './services/regulatory-submission.service';
+import { SlaughterFacilityService } from './services/slaughter-facility.service';
 import { RegulatoryReportType } from './entities/regulatory-report.entity';
 import {
   RegulatorySettingsOutput,
@@ -136,6 +137,7 @@ export class RegulatoryResolver {
     private readonly varslingService: RegulatoryVarslingService,
     private readonly schemaValidator: MattilsynetSchemaValidatorService,
     private readonly submissionService: RegulatorySubmissionService,
+    private readonly slaughterFacilityService: SlaughterFacilityService,
   ) {}
 
   /**
@@ -232,7 +234,6 @@ export class RegulatoryResolver {
       defaultContactEmail: settings.defaultContactEmail,
       defaultContactPhone: settings.defaultContactPhone,
       siteLocalityMappings: mappingsArray,
-      slaughterApprovalNumber: settings.slaughterApprovalNumber,
       autoSubmitPolicies: Object.entries(settings.autoSubmitPolicies ?? {}).map(
         ([reportType, enabled]) => ({ reportType, enabled }),
       ),
@@ -279,7 +280,11 @@ export class RegulatoryResolver {
     const siteMappingsCount = Object.keys(
       await this.settingsService.getEffectiveSiteLocalityMappings(tenantId),
     ).length;
-    const hasSlaughterApproval = !!settings?.slaughterApprovalNumber;
+    // The slaughter-facility catalog is the SSoT — a configured default facility
+    // is what makes the slakt godkjenningsnummer resolvable (Phase 4 dedup).
+    const hasSlaughterApproval = !!(await this.slaughterFacilityService.getDefaultFacility(
+      tenantId,
+    ));
 
     return {
       hasCompanyInfo,
@@ -334,7 +339,6 @@ export class RegulatoryResolver {
       defaultContactEmail: input.defaultContactEmail,
       defaultContactPhone: input.defaultContactPhone,
       siteLocalityMappings: mappings,
-      slaughterApprovalNumber: input.slaughterApprovalNumber,
     });
 
     return this.mapSettingsToOutput(tenantId);

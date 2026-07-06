@@ -23,6 +23,7 @@ import { MaskinportenService } from '../maskinporten.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
+import { SlaughterFacilityService } from '../services/slaughter-facility.service';
 import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
 import { RegulatoryReportType } from '../entities/regulatory-report.entity';
 import { SubmitSeaLiceReportInput } from '../dto/regulatory-inputs.dto';
@@ -79,6 +80,7 @@ describe('RegulatoryResolver — REST submit schema gate + delegation', () => {
       // hand a schema-valid payload to the submission service.
       new MattilsynetSchemaValidatorService(),
       submissionService as RegulatorySubmissionService,
+      {} as SlaughterFacilityService,
     );
   });
 

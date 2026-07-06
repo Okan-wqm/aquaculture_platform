@@ -19,7 +19,6 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { KvalitetsklasserPerArtPayload, UkeplanPerArtPayload } from '../../mattilsynet-api.service';
-import { RegulatorySettingsService } from '../../regulatory-settings.service';
 import { SlaughterFacilityService } from '../../services/slaughter-facility.service';
 import { AssembledDraft, ReportFieldMeta, fromRecords, manualRequired } from '../provenance.types';
 import { isoWeekRange, round2 } from '../period.util';
@@ -128,7 +127,6 @@ export class SlaktReportAssembler {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly settingsService: RegulatorySettingsService,
     private readonly facilityService: SlaughterFacilityService,
   ) {}
 
@@ -271,23 +269,18 @@ export class SlaktReportAssembler {
   }
 
   /**
-   * Facility catalog first (default facility is the SSoT), legacy
-   * regulatory_settings field as the transition fallback (dropped Phase 4).
+   * The slaughter-facility catalog's default facility is the sole SSoT for the
+   * godkjenningsnummer (RPT-007). The legacy regulatory_settings field was the
+   * transition fallback and is now dropped (Phase 4 dedup) — no default facility
+   * means the field is blocking MANUAL_REQUIRED, resolved in Setup → Facilities.
    */
   private async resolveApprovalNumber(
     tenantId: string,
   ): Promise<{ value?: string; source: string }> {
     const facility = await this.facilityService.getDefaultFacility(tenantId);
-    if (facility) {
-      return {
-        value: facility.godkjenningsnummer,
-        source: 'SlaughterFacilityService.defaultFacility',
-      };
-    }
-    const settings = await this.settingsService.getSettings(tenantId);
     return {
-      value: settings?.slaughterApprovalNumber || undefined,
-      source: 'RegulatorySettingsService.slaughterApprovalNumber',
+      value: facility?.godkjenningsnummer || undefined,
+      source: 'SlaughterFacilityService.defaultFacility',
     };
   }
 

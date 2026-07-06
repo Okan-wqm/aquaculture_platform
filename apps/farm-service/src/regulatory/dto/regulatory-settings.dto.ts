@@ -123,11 +123,8 @@ export class UpdateRegulatorySettingsInput {
   @Type(() => SiteLocalityMappingInput)
   siteLocalityMappings?: SiteLocalityMappingInput[];
 
-  // Slaughter
-  @Field({ nullable: true, description: 'Slaughter facility approval number' })
-  @IsOptional()
-  @IsString()
-  slaughterApprovalNumber?: string;
+  // Slaughter approval numbers are managed in the slaughter-facility catalog
+  // (Setup → Facilities), the SSoT — not here (Phase 4 dedup).
 }
 
 // =============================================================================
@@ -202,10 +199,6 @@ export class RegulatorySettingsOutput {
   // Site Mappings
   @Field(() => [SiteLocalityMappingOutput], { nullable: true })
   siteLocalityMappings?: SiteLocalityMappingOutput[];
-
-  // Slaughter
-  @Field({ nullable: true })
-  slaughterApprovalNumber?: string;
 
   // Automated submission opt-in per report type (RPT-003).
   @Field(() => [AutoSubmitPolicyEntry], { nullable: true })

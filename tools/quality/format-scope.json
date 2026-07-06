@@ -8673,18 +8673,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/database/migrations/1801300000000-BackfillFeedInventoryIntoStorageLedger.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/database/migrations/1801310000000-DropFeedInventoryCreateConvergedView.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1801400000000-AddSiteContractFields.ts",
       "prettier_managed": true
     },
@@ -50418,10 +50406,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8257,
+  "file_count": 8255,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8082,
-  "managed_file_list_sha256": "274a240ba3201d3d53256f4d8befb19bd70e70e931566fd4ef144329540905a6",
+  "managed_count": 8080,
+  "managed_file_list_sha256": "8ff4986f845bd7e1683e8a79be50178f449b1b216cf474d11d0f4038998c0644",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

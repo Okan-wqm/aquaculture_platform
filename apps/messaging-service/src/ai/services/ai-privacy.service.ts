@@ -54,8 +54,9 @@ import { UserAiConsent } from '../entities/user-ai-consent.entity';
  * consent, AI features must stop within a reasonable window. 10 minutes was
  * too long — a user who revokes consent would still have their messages
  * analyzed for up to 10 minutes. 60s is the maximum acceptable staleness
- * for consent decisions. Additionally, consent changes explicitly
- * invalidate the cache (see setUserAiConsent and setTenantAiEnabled).
+ * for consent decisions. Additionally, a consent change explicitly
+ * invalidates the cache (see setUserAiConsent); tenant enablement is
+ * ai-service's SSoT and its 60s cache expires on its own.
  * @see MSG-MEDIUM-037
  */
 const CACHE_TTL_SECONDS = 60;

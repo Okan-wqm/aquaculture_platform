@@ -47,4 +47,26 @@ equipment in another silently books in different currencies.
 resolved exclusively through `FinanceSettingsService`; the hardcoded feeding
 literal deleted; `FinanceSettingsUpdated` outbox event projects the currency
 into hr-service so a second tenant-editable source never exists; a
-currency-literal ban invariant spec makes regressions detectable at PR time.
+currency-literal ban invariant spec (`finance-currency-ssot.spec.ts`) makes
+regressions detectable at PR time.
+
+## FARM-HIGH-146 — Remaining farm create-handlers still seed an entity currency default from a hardcoded literal
+
+**Severity:** HIGH · **Owner:** farm-expert · **Deadline:** 2026-08-15
+
+The FARM-MEDIUM-145 fix migrated the two handlers the finding named
+(`create-feeding-record`, HR `create-employee`) and the whole finance domain
+to the currency SSoT. Eight further farm create-handlers still carry an
+`input.currency || 'TRY'` / `?? 'TRY'` (and one `?? 'NOK'`) entity-seed default:
+`create-batch`, `create-cleaner-batch`, `create-chemical`, `create-consumable`,
+`create-equipment`, `create-feed`, `add-feed-inventory`, plus the purchase-order
+path. These feed the finance ledger as DERIVED costs (e.g. `batch.purchaseCost`
+→ FINGERLINGS), so a tenant whose default currency is NOK can still see a
+`TRY`-stamped fingerling cost in the ledger.
+
+**Why not closed here:** each handler needs `FinanceSettingsService` injected +
+its unit spec's constructor updated — an 8-handler change with real regression
+surface that should not ride into the finance-capability PR blind. The
+`finance-currency-ssot.spec.ts` invariant's `GUARDED_FILES` set is the ratchet:
+migrate a handler, add it to the guarded set. Tracked as HIGH debt with owner +
+deadline per the CLAUDE.md partial-fix rule.

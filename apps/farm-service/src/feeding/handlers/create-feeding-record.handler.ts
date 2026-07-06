@@ -157,9 +157,9 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         feedingDurationMinutes: payload.feedingDurationMinutes,
 
         feedCost: payload.feedCost || this.calculateFeedCost(feed, payload.actualAmount),
-        // Currency SSoT: the tenant's finance settings — never a hardcoded
-        // literal (the old `|| 'NOK'` fallback is what drifted against the
-        // entities' 'TRY' defaults and HR's 'USD').
+        // Currency SSoT: the tenant's finance settings resolve the default —
+        // never a hardcoded literal. The previous NOK fallback here is what
+        // drifted against the farm entities' TRY defaults and HR's USD.
         currency:
           payload.currency ||
           (await this.financeSettings.getDefaultCurrencyInTx(queryRunner.manager, tenantId)),

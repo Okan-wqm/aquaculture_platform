@@ -62,8 +62,8 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
 
       // Currency SSoT: the tenant default (projected from the farm
       // finance_settings SSoT into hr_payroll_cost_settings), never a
-      // hardcoded literal — the old `|| 'USD'` fallback is what drifted
-      // against the farm entities' 'TRY' and the feeding handler's 'NOK'.
+      // hardcoded literal. The previous USD fallback here is what drifted
+      // against the farm entities' TRY default and the feeding handler.
       const defaultCurrency = await this.payrollCostSettings.getDefaultCurrencyInTx(
         queryRunner.manager,
         tenantId,

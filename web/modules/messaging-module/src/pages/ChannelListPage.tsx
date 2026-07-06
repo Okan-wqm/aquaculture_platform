@@ -3,17 +3,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useChannels } from '../hooks/useMessagingData';
+import { channelTitle } from '../lib/channelDisplay';
 import type { Channel } from '../types/messaging';
-
-/** A channel's display name — group/AI use `name`; DMs fall back to members. */
-function channelTitle(c: Channel): string {
-  if (c.name) return c.name;
-  const others = (c.members ?? [])
-    .map((m) => m.user)
-    .filter(Boolean)
-    .map((u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || 'Member');
-  return others.join(', ') || 'Direct message';
-}
 
 function ChannelIcon({ channel }: { channel: Channel }): React.ReactElement {
   if (channel.type === 'AI') return <Sparkles className="h-5 w-5 text-tenant-600" />;

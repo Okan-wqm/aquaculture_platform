@@ -44488,6 +44488,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/channelDisplay.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/channelDisplay.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/main.tsx",
       "prettier_managed": true
     },
@@ -50382,10 +50394,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8251,
+  "file_count": 8253,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8076,
-  "managed_file_list_sha256": "49d87dfc551e4d852a85561b2a151e87cf47637c094985b9d49da05f4fb47547",
+  "managed_count": 8078,
+  "managed_file_list_sha256": "65f3cb4c6fbd7dfe69aa20ffc33b5c7b1a5110994b465754110323ec289cf909",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

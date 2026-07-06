@@ -15,7 +15,8 @@ import {
 } from '../../../hooks/useBiomassReports';
 import { BiomassSpeciesBreakdown } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
-import { useTanksList, Tank } from '../../../hooks/useTanks';
+import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
+import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
 import { CREATE_BIOMASS_REPORT_MUTATION } from '../../../graphql/regulatory.operations';
 
 // ============================================================================
@@ -139,8 +140,20 @@ function formatDate(date: Date): string {
 }
 
 function getMonthLabel(month: number, year: number): string {
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   return `${monthNames[month]} ${year}`;
 }
 
@@ -156,84 +169,16 @@ function formatWeight(kg: number): string {
 }
 
 /**
- * Aggregate biomass data by species from tank batch metrics
+ * Map an internal mortality-cause value ('water_quality') to the Title Case
+ * label the form's cause grid uses ('Water Quality'). Idempotent for values
+ * that are already labels, so persisted drafts and server prefill share one
+ * mapper.
  */
-function aggregateBiomassFromTanks(tanks: Tank[]): {
-  bySpecies: BiomassSpeciesBreakdown[];
-  totalKg: number;
-  totalMortality: number;
-} {
-  const speciesMap = new Map<string, {
-    fishCount: number;
-    biomassKg: number;
-    totalMortality: number;
-  }>();
-
-  for (const tank of tanks) {
-    const metrics = tank.batchMetrics;
-    if (!metrics || !metrics.speciesCode) continue;
-
-    const code = metrics.speciesCode;
-    const existing = speciesMap.get(code) || { fishCount: 0, biomassKg: 0, totalMortality: 0 };
-    existing.fishCount += metrics.pieces || 0;
-    existing.biomassKg += metrics.biomass || 0;
-    existing.totalMortality += metrics.totalMortality || 0;
-    speciesMap.set(code, existing);
-  }
-
-  const bySpecies: BiomassSpeciesBreakdown[] = [];
-  let totalKg = 0;
-  let totalMortality = 0;
-
-  for (const [code, data] of speciesMap.entries()) {
-    const avgWeightG = data.fishCount > 0 ? (data.biomassKg * 1000) / data.fishCount : 0;
-    bySpecies.push({
-      speciesId: code,
-      speciesName: code,
-      fishCount: data.fishCount,
-      biomassKg: data.biomassKg,
-      avgWeightG,
-    });
-    totalKg += data.biomassKg;
-    totalMortality += data.totalMortality;
-  }
-
-  return { bySpecies, totalKg, totalMortality };
-}
-
-/**
- * Aggregate feed data from tank batch metrics
- */
-function aggregateFeedFromTanks(tanks: Tank[]): {
-  byFeedType: { feedName: string; brandName?: string; quantityKg: number }[];
-  totalKg: number;
-} {
-  const feedMap = new Map<string, { feedName: string; dailyKg: number }>();
-
-  for (const tank of tanks) {
-    const metrics = tank.batchMetrics;
-    if (!metrics || !metrics.feedCode) continue;
-
-    const key = metrics.feedCode;
-    const existing = feedMap.get(key) || { feedName: metrics.feedName || metrics.feedCode, dailyKg: 0 };
-    existing.dailyKg += metrics.dailyFeedKg || 0;
-    feedMap.set(key, existing);
-  }
-
-  const byFeedType: { feedName: string; brandName?: string; quantityKg: number }[] = [];
-  let totalKg = 0;
-
-  for (const [_code, data] of feedMap.entries()) {
-    // Estimate monthly consumption from daily feed rate (30 days)
-    const monthlyKg = Math.round(data.dailyKg * 30);
-    byFeedType.push({
-      feedName: data.feedName,
-      quantityKg: monthlyKg,
-    });
-    totalKg += monthlyKg;
-  }
-
-  return { byFeedType, totalKg };
+function causeLabel(cause: string): string {
+  return cause
+    .split(/[_\s]+/)
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
+    .join(' ');
 }
 
 function getInitialFormData(): BiomassFormData {
@@ -293,13 +238,13 @@ export function hydrateFormFromPayload(
     mortality: {
       totalCount: payload.mortality.totalCount,
       byCause: payload.mortality.byCause.map((c) => ({
-        cause: c.cause,
+        cause: causeLabel(c.cause),
         count: c.count,
       })),
       details: payload.mortality.details.map((d) => ({
         id: crypto.randomUUID(),
         date: d.date,
-        cause: d.cause,
+        cause: causeLabel(d.cause),
         speciesName: d.speciesCode,
         count: d.count,
         biomassLossKg: d.biomassLossKg ?? undefined,
@@ -345,6 +290,15 @@ export function hydrateFormFromPayload(
   };
 }
 
+/** Renders the provenance badge governing a draft-payload section, if any. */
+const SectionProvenance: React.FC<{
+  prefill?: ReportPrefill<BiomassReportPayload>;
+  path: string;
+}> = ({ prefill, path }) => {
+  const meta = prefill ? findFieldMeta(prefill.fields, path) : undefined;
+  return meta ? <ProvenanceBadge meta={meta} /> : null;
+};
+
 // ============================================================================
 // Wizard Step Components
 // ============================================================================
@@ -380,41 +334,72 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
       <h4 className="text-sm font-medium text-blue-800">Report Contents</h4>
       <p className="text-sm text-blue-600 mt-1">
-        This report includes biomass, stocking records, mortality, harvests, transfers, and feed consumption for the reporting period.
+        This report includes biomass, stocking records, mortality, harvests, transfers, and feed
+        consumption for the reporting period.
       </p>
       <ul className="mt-3 space-y-1 text-sm text-blue-700">
         <li className="flex items-center">
-          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 mr-2 text-blue-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           Current biomass by species
         </li>
         <li className="flex items-center">
-          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 mr-2 text-blue-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           Stocking records (fish arrivals)
         </li>
         <li className="flex items-center">
-          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 mr-2 text-blue-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           Mortality by cause
         </li>
         <li className="flex items-center">
-          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 mr-2 text-blue-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           Slaughter/harvest records
         </li>
         <li className="flex items-center">
-          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 mr-2 text-blue-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           Feed consumption
         </li>
         <li className="flex items-center">
-          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 mr-2 text-blue-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           Transfers in/out
@@ -429,19 +414,19 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
 interface BiomassStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
-  tanks: Tank[];
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) => {
+const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }) => {
   const handleLoadFromSystem = () => {
-    if (!tanks || tanks.length === 0) return;
-    const aggregated = aggregateBiomassFromTanks(tanks);
-    if (aggregated.bySpecies.length === 0) return;
+    if (!prefill) return;
+    const { currentBiomass } = prefill.draftPayload;
+    if (currentBiomass.bySpecies.length === 0) return;
 
     onChange({
       currentBiomass: {
-        bySpecies: aggregated.bySpecies,
-        totalKg: aggregated.totalKg,
+        bySpecies: currentBiomass.bySpecies.map((entry) => ({ ...entry })),
+        totalKg: currentBiomass.totalKg,
       },
       biomassLoadedFromSystem: true,
     });
@@ -497,18 +482,26 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Current Biomass by Species</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            Current Biomass by Species
+            <SectionProvenance prefill={prefill} path="/currentBiomass" />
+          </h4>
           <p className="text-xs text-gray-500">End of month standing stock</p>
         </div>
         <div className="flex items-center gap-2">
-          {tanks.length > 0 && (
+          {prefill && (
             <button
               type="button"
               onClick={handleLoadFromSystem}
               className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
               </svg>
               Load from System
             </button>
@@ -526,10 +519,17 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) 
       {/* Auto-populated notice */}
       {formData.biomassLoadedFromSystem && formData.currentBiomass.bySpecies.length > 0 && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 text-green-600 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span className="text-sm text-green-700">Auto-populated from current tank data. You can adjust values manually.</span>
+          <span className="text-sm text-green-700">
+            Assembled from batch and tank records. You can adjust values manually.
+          </span>
         </div>
       )}
 
@@ -545,20 +545,33 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) 
 
       {formData.currentBiomass.bySpecies.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          <svg
+            className="w-12 h-12 mx-auto text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+            />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No species added</p>
           <p className="text-xs text-gray-400">
-            {tanks.length > 0
-              ? 'Click "Load from System" to auto-populate from tank data, or "Add Species" to enter manually'
+            {prefill
+              ? 'Click "Load from System" to auto-populate from batch records, or "Add Species" to enter manually'
               : 'Click "Add Species" to enter biomass data'}
           </p>
         </div>
       ) : (
         <div className="space-y-3">
           {formData.currentBiomass.bySpecies.map((species, index) => (
-            <div key={species.speciesId} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div
+              key={species.speciesId}
+              className="p-4 bg-gray-50 border border-gray-200 rounded-lg"
+            >
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Species #{index + 1}</span>
                 <button
@@ -567,7 +580,12 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) 
                   className="text-red-500 hover:text-red-700"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -588,7 +606,9 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) 
                     type="number"
                     min="0"
                     value={species.fishCount || ''}
-                    onChange={(e) => updateSpecies(index, { fishCount: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateSpecies(index, { fishCount: parseInt(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -599,7 +619,9 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) 
                     type="number"
                     min="0"
                     value={species.biomassKg || ''}
-                    onChange={(e) => updateSpecies(index, { biomassKg: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateSpecies(index, { biomassKg: parseFloat(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -644,9 +666,7 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
   };
 
   const updateStockingRecord = (index: number, updates: Partial<StockingFormRecord>) => {
-    const stockings = formData.stockings.map((r, i) =>
-      i === index ? { ...r, ...updates } : r
-    );
+    const stockings = formData.stockings.map((r, i) => (i === index ? { ...r, ...updates } : r));
     onChange({ stockings });
   };
 
@@ -659,7 +679,9 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium text-gray-700">Stocking Records</h4>
-          <p className="text-xs text-gray-500">Fish arrivals during the reporting period (required by Fiskeridirektoratet)</p>
+          <p className="text-xs text-gray-500">
+            Fish arrivals during the reporting period (required by Fiskeridirektoratet)
+          </p>
         </div>
         <button
           type="button"
@@ -682,11 +704,23 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
 
       {formData.stockings.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          <svg
+            className="w-12 h-12 mx-auto text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M12 4v16m8-8H4"
+            />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No stocking records</p>
-          <p className="text-xs text-gray-400">Click "+ Add Stocking Record" if fish were received this period</p>
+          <p className="text-xs text-gray-400">
+            Click "+ Add Stocking Record" if fish were received this period
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -700,7 +734,12 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
                   className="text-red-500 hover:text-red-700"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -730,7 +769,9 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
                     type="number"
                     min="0"
                     value={record.quantity || ''}
-                    onChange={(e) => updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -742,7 +783,9 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
                     min="0"
                     step="0.1"
                     value={record.avgWeightG || ''}
-                    onChange={(e) => updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -781,24 +824,33 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
 interface MortalityStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
-  tanks: Tank[];
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, tanks }) => {
+const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefill }) => {
   const handleLoadMortalityFromSystem = () => {
-    if (!tanks || tanks.length === 0) return;
-    const aggregated = aggregateBiomassFromTanks(tanks);
-    if (aggregated.totalMortality > 0) {
-      // Put total mortality under "Unknown" cause since we don't have per-cause breakdown from tanks
-      const byCause = [{ cause: 'Unknown', count: aggregated.totalMortality }];
-      onChange({
-        mortality: {
-          ...formData.mortality,
-          byCause,
-          totalCount: aggregated.totalMortality,
-        },
-      });
-    }
+    if (!prefill) return;
+    // Real per-cause aggregation from mortality_records — no more lumping
+    // everything under "Unknown".
+    const { mortality } = prefill.draftPayload;
+    onChange({
+      mortality: {
+        totalCount: mortality.totalCount,
+        byCause: mortality.byCause.map((entry) => ({
+          cause: causeLabel(entry.cause),
+          count: entry.count,
+        })),
+        details: mortality.details.map((detail) => ({
+          id: crypto.randomUUID(),
+          date: detail.date,
+          cause: causeLabel(detail.cause),
+          speciesName: detail.speciesCode,
+          count: detail.count,
+          biomassLossKg: detail.biomassLossKg ?? undefined,
+          notes: detail.notes ?? undefined,
+        })),
+      },
+    });
   };
 
   const updateByCause = (cause: string, count: number) => {
@@ -832,17 +884,25 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, tanks
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Mortality by Cause</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            Mortality by Cause
+            <SectionProvenance prefill={prefill} path="/mortality" />
+          </h4>
           <p className="text-xs text-gray-500">Record fish losses during the reporting period</p>
         </div>
-        {tanks.length > 0 && (
+        {prefill && (
           <button
             type="button"
             onClick={handleLoadMortalityFromSystem}
             className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
             </svg>
             Load from System
           </button>
@@ -884,19 +944,24 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, tanks
 interface FeedStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
-  tanks: Tank[];
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
+const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
   const handleLoadFeedFromSystem = () => {
-    if (!tanks || tanks.length === 0) return;
-    const aggregated = aggregateFeedFromTanks(tanks);
-    if (aggregated.byFeedType.length === 0) return;
+    if (!prefill) return;
+    // Real period sums from feeding_records — the old "daily rate × 30"
+    // estimate is gone with the client-side aggregation.
+    const { feedConsumption } = prefill.draftPayload;
+    if (feedConsumption.byFeedType.length === 0) return;
 
     onChange({
       feedConsumption: {
-        byFeedType: aggregated.byFeedType,
-        totalKg: aggregated.totalKg,
+        byFeedType: feedConsumption.byFeedType.map((entry) => ({
+          ...entry,
+          brandName: entry.brandName ?? undefined,
+        })),
+        totalKg: feedConsumption.totalKg,
       },
       feedLoadedFromSystem: true,
     });
@@ -913,9 +978,12 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
     });
   };
 
-  const updateFeedType = (index: number, updates: Partial<{ feedName: string; brandName: string; quantityKg: number }>) => {
+  const updateFeedType = (
+    index: number,
+    updates: Partial<{ feedName: string; brandName: string; quantityKg: number }>,
+  ) => {
     const byFeedType = formData.feedConsumption.byFeedType.map((f, i) =>
-      i === index ? { ...f, ...updates } : f
+      i === index ? { ...f, ...updates } : f,
     );
     onChange({
       feedConsumption: {
@@ -939,18 +1007,26 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Feed Consumption</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            Feed Consumption
+            <SectionProvenance prefill={prefill} path="/feedConsumption" />
+          </h4>
           <p className="text-xs text-gray-500">Total feed used during the reporting period</p>
         </div>
         <div className="flex items-center gap-2">
-          {tanks.length > 0 && (
+          {prefill && (
             <button
               type="button"
               onClick={handleLoadFeedFromSystem}
               className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
               </svg>
               Load from System
             </button>
@@ -968,10 +1044,17 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
       {/* Auto-populated notice */}
       {formData.feedLoadedFromSystem && formData.feedConsumption.byFeedType.length > 0 && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-4 h-4 text-green-600 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span className="text-sm text-green-700">Auto-populated from current tank data (estimated from daily feed rates x 30 days). Adjust as needed.</span>
+          <span className="text-sm text-green-700">
+            Summed from feeding records for the reporting period. Adjust as needed.
+          </span>
         </div>
       )}
 
@@ -987,13 +1070,23 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
 
       {formData.feedConsumption.byFeedType.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          <svg
+            className="w-12 h-12 mx-auto text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+            />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No feed records added</p>
           <p className="text-xs text-gray-400">
-            {tanks.length > 0
-              ? 'Click "Load from System" to auto-populate, or "Add Feed Type" to enter manually'
+            {prefill
+              ? 'Click "Load from System" to load feeding-record sums, or "Add Feed Type" to enter manually'
               : 'Click "Add Feed Type" to enter feed data'}
           </p>
         </div>
@@ -1009,7 +1102,12 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
                   className="text-red-500 hover:text-red-700"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -1040,7 +1138,9 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
                     type="number"
                     min="0"
                     value={feed.quantityKg || ''}
-                    onChange={(e) => updateFeedType(index, { quantityKg: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateFeedType(index, { quantityKg: parseFloat(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -1078,9 +1178,7 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
   };
 
   const updateTransfer = (index: number, updates: Partial<TransferFormRecord>) => {
-    const transfers = formData.transfers.map((t, i) =>
-      i === index ? { ...t, ...updates } : t
-    );
+    const transfers = formData.transfers.map((t, i) => (i === index ? { ...t, ...updates } : t));
     onChange({ transfers });
   };
 
@@ -1096,7 +1194,9 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium text-gray-700">Transfers</h4>
-          <p className="text-xs text-gray-500">Record fish transfers in and out during the reporting period</p>
+          <p className="text-xs text-gray-500">
+            Record fish transfers in and out during the reporting period
+          </p>
         </div>
         <button
           type="button"
@@ -1125,11 +1225,23 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
 
       {formData.transfers.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          <svg
+            className="w-12 h-12 mx-auto text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+            />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No transfers recorded</p>
-          <p className="text-xs text-gray-400">Click "+ Add Transfer" if fish were transferred this period</p>
+          <p className="text-xs text-gray-400">
+            Click "+ Add Transfer" if fish were transferred this period
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1138,11 +1250,13 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-gray-700">Transfer #{index + 1}</span>
-                  <span className={`px-2 py-0.5 text-xs rounded-full ${
-                    transfer.direction === 'incoming'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-purple-100 text-purple-700'
-                  }`}>
+                  <span
+                    className={`px-2 py-0.5 text-xs rounded-full ${
+                      transfer.direction === 'incoming'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-purple-100 text-purple-700'
+                    }`}
+                  >
                     {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
                   </span>
                 </div>
@@ -1152,7 +1266,12 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
                   className="text-red-500 hover:text-red-700"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -1161,7 +1280,11 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
                   <label className="block text-xs text-gray-500 mb-1">Direction</label>
                   <select
                     value={transfer.direction}
-                    onChange={(e) => updateTransfer(index, { direction: e.target.value as 'incoming' | 'outgoing' })}
+                    onChange={(e) =>
+                      updateTransfer(index, {
+                        direction: e.target.value as 'incoming' | 'outgoing',
+                      })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                   >
                     <option value="incoming">Incoming</option>
@@ -1193,7 +1316,9 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
                     type="number"
                     min="0"
                     value={transfer.quantity || ''}
-                    onChange={(e) => updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -1204,7 +1329,9 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
                     type="number"
                     min="0"
                     value={transfer.biomassKg || ''}
-                    onChange={(e) => updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
+                    }
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     placeholder="0"
                   />
@@ -1259,14 +1386,16 @@ interface ReviewStepProps {
 
 const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   // Estimated FCR - show raw ratio only, label as estimated
-  const estimatedFcr = formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
-    ? 'N/A (insufficient data for accurate calculation)'
-    : 'N/A';
+  const estimatedFcr =
+    formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
+      ? 'N/A (insufficient data for accurate calculation)'
+      : 'N/A';
 
   // Simple display FCR if we have both feed and biomass
-  const fcrDisplay = formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
-    ? (formData.feedConsumption.totalKg / formData.currentBiomass.totalKg).toFixed(2)
-    : 'N/A';
+  const fcrDisplay =
+    formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
+      ? (formData.feedConsumption.totalKg / formData.currentBiomass.totalKg).toFixed(2)
+      : 'N/A';
 
   const incomingTransfers = formData.transfers.filter((t) => t.direction === 'incoming');
   const outgoingTransfers = formData.transfers.filter((t) => t.direction === 'outgoing');
@@ -1284,15 +1413,21 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{formatWeight(formData.currentBiomass.totalKg)}</div>
+          <div className="text-2xl font-bold text-green-600">
+            {formatWeight(formData.currentBiomass.totalKg)}
+          </div>
           <div className="text-xs text-gray-500">Total Biomass</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{formatNumber(formData.mortality.totalCount)}</div>
+          <div className="text-2xl font-bold text-red-600">
+            {formatNumber(formData.mortality.totalCount)}
+          </div>
           <div className="text-xs text-gray-500">Total Mortality</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-orange-600">{formatWeight(formData.feedConsumption.totalKg)}</div>
+          <div className="text-2xl font-bold text-orange-600">
+            {formatWeight(formData.feedConsumption.totalKg)}
+          </div>
           <div className="text-xs text-gray-500">Feed Used</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
@@ -1325,14 +1460,21 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Stocking Records</h5>
           <div className="space-y-2">
             {formData.stockings.map((s, i) => (
-              <div key={i} className="flex items-center justify-between text-sm bg-indigo-50 rounded p-2">
+              <div
+                key={i}
+                className="flex items-center justify-between text-sm bg-indigo-50 rounded p-2"
+              >
                 <div>
                   <span className="text-gray-700">{s.speciesName || 'Unknown'}</span>
                   {s.date && <span className="text-gray-400 ml-2 text-xs">{s.date}</span>}
                 </div>
                 <div className="text-right">
-                  <span className="font-medium text-indigo-700">{formatNumber(s.quantity)} fish</span>
-                  {s.avgWeightG > 0 && <span className="text-gray-500 ml-2">({s.avgWeightG.toFixed(0)}g avg)</span>}
+                  <span className="font-medium text-indigo-700">
+                    {formatNumber(s.quantity)} fish
+                  </span>
+                  {s.avgWeightG > 0 && (
+                    <span className="text-gray-500 ml-2">({s.avgWeightG.toFixed(0)}g avg)</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -1346,7 +1488,10 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Mortality by Cause</h5>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {formData.mortality.byCause.map((c, i) => (
-              <div key={i} className="flex items-center justify-between text-sm bg-red-50 rounded p-2">
+              <div
+                key={i}
+                className="flex items-center justify-between text-sm bg-red-50 rounded p-2"
+              >
                 <span className="text-gray-700">{c.cause}</span>
                 <span className="font-medium text-red-700">{formatNumber(c.count)}</span>
               </div>
@@ -1361,10 +1506,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Feed Consumption</h5>
           <div className="space-y-2">
             {formData.feedConsumption.byFeedType.map((f, i) => (
-              <div key={i} className="flex items-center justify-between text-sm bg-orange-50 rounded p-2">
+              <div
+                key={i}
+                className="flex items-center justify-between text-sm bg-orange-50 rounded p-2"
+              >
                 <div>
                   <span className="text-gray-700">{f.feedName || 'Unknown'}</span>
-                  {f.brandName && <span className="text-gray-400 ml-2 text-xs">({f.brandName})</span>}
+                  {f.brandName && (
+                    <span className="text-gray-400 ml-2 text-xs">({f.brandName})</span>
+                  )}
                 </div>
                 <span className="font-medium text-orange-700">{formatWeight(f.quantityKg)}</span>
               </div>
@@ -1382,13 +1532,20 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
               <p className="text-xs font-medium text-blue-600 mb-1">Incoming</p>
               <div className="space-y-1">
                 {incomingTransfers.map((t, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm bg-blue-50 rounded p-2">
+                  <div
+                    key={i}
+                    className="flex items-center justify-between text-sm bg-blue-50 rounded p-2"
+                  >
                     <div>
                       <span className="text-gray-700">{t.speciesName || 'Unknown'}</span>
-                      {t.fromToSite && <span className="text-gray-400 ml-2 text-xs">from {t.fromToSite}</span>}
+                      {t.fromToSite && (
+                        <span className="text-gray-400 ml-2 text-xs">from {t.fromToSite}</span>
+                      )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-blue-700">{formatNumber(t.quantity)} fish</span>
+                      <span className="font-medium text-blue-700">
+                        {formatNumber(t.quantity)} fish
+                      </span>
                       <span className="text-gray-500 ml-2">({formatWeight(t.biomassKg)})</span>
                     </div>
                   </div>
@@ -1401,13 +1558,20 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
               <p className="text-xs font-medium text-purple-600 mb-1">Outgoing</p>
               <div className="space-y-1">
                 {outgoingTransfers.map((t, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm bg-purple-50 rounded p-2">
+                  <div
+                    key={i}
+                    className="flex items-center justify-between text-sm bg-purple-50 rounded p-2"
+                  >
                     <div>
                       <span className="text-gray-700">{t.speciesName || 'Unknown'}</span>
-                      {t.fromToSite && <span className="text-gray-400 ml-2 text-xs">to {t.fromToSite}</span>}
+                      {t.fromToSite && (
+                        <span className="text-gray-400 ml-2 text-xs">to {t.fromToSite}</span>
+                      )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-purple-700">{formatNumber(t.quantity)} fish</span>
+                      <span className="font-medium text-purple-700">
+                        {formatNumber(t.quantity)} fish
+                      </span>
                       <span className="text-gray-500 ml-2">({formatWeight(t.biomassKg)})</span>
                     </div>
                   </div>
@@ -1421,8 +1585,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* FCR Note */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
         <p className="text-xs text-yellow-700">
-          <span className="font-medium">Note on Estimated FCR:</span> The displayed FCR is a simplified ratio
-          (total feed / current biomass). Accurate FCR requires: total feed consumed / (current biomass - initial biomass + harvested biomass + mortality biomass).
+          <span className="font-medium">Note on Estimated FCR:</span> The displayed FCR is a
+          simplified ratio (total feed / current biomass). Accurate FCR requires: total feed
+          consumed / (current biomass - initial biomass + harvested biomass + mortality biomass).
           Please verify with your production records.
         </p>
       </div>
@@ -1430,8 +1595,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Submission Notice */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-600">
-          By submitting this report, you confirm that the data is accurate and complete.
-          This report will be submitted to Fiskeridirektoratet.
+          By submitting this report, you confirm that the data is accurate and complete. This report
+          will be submitted to Fiskeridirektoratet.
         </p>
       </div>
     </div>
@@ -1447,10 +1612,6 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   const [formData, setFormData] = useState<BiomassFormData>(getInitialFormData());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Fetch active tanks for auto-populate
-  const { data: tanksData } = useTanksList({ isActive: true });
-  const tanks = tanksData?.items || [];
 
   // Regulatory settings supply contact info + the site↔locality mappings
   // that drive site selection when the tab is mounted without a siteId
@@ -1495,6 +1656,13 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   const periodDraftExists = periodRow?.status === 'DRAFT';
   const periodSubmitted = periodRow?.status === 'SUBMITTED';
 
+  // Server-assembled draft for the target period: every section aggregated
+  // from the operational SSoTs with per-field provenance (plan Phase 1).
+  const { data: prefill } = useReportPrefill<BiomassReportPayload>('BIOMASS', effectiveSiteId, {
+    year: targetPeriod.year,
+    month: targetPeriod.month + 1,
+  });
+
   // Fetch the full JSONB payload for the target period only when a DRAFT exists,
   // so the wizard opens pre-filled instead of overwriting it.
   const { data: existingDraft } = useBiomassReport(
@@ -1518,53 +1686,26 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     // user continues the draft instead of blanking it.
     if (existingDraft?.reportData) {
       setFormData(
-        hydrateFormFromPayload(
-          existingDraft.reportData,
-          targetPeriod.month,
-          targetPeriod.year,
-        ),
+        hydrateFormFromPayload(existingDraft.reportData, targetPeriod.month, targetPeriod.year),
       );
       setIsWizardOpen(true);
       return;
     }
 
-    {
-      const initialData = getInitialFormData();
-
-      // Auto-populate from tanks if available
-      if (tanks.length > 0) {
-        const biomassAggregated = aggregateBiomassFromTanks(tanks);
-        if (biomassAggregated.bySpecies.length > 0) {
-          initialData.currentBiomass = {
-            bySpecies: biomassAggregated.bySpecies,
-            totalKg: biomassAggregated.totalKg,
-          };
-          initialData.biomassLoadedFromSystem = true;
-
-          // Pre-populate mortality total if available
-          if (biomassAggregated.totalMortality > 0) {
-            initialData.mortality = {
-              totalCount: biomassAggregated.totalMortality,
-              byCause: [{ cause: 'Unknown', count: biomassAggregated.totalMortality }],
-              details: [],
-            };
-          }
-        }
-
-        const feedAggregated = aggregateFeedFromTanks(tanks);
-        if (feedAggregated.byFeedType.length > 0) {
-          initialData.feedConsumption = {
-            byFeedType: feedAggregated.byFeedType,
-            totalKg: feedAggregated.totalKg,
-          };
-          initialData.feedLoadedFromSystem = true;
-        }
-      }
-
-      setFormData(initialData);
+    // Fresh month: seed the whole wizard from the server-assembled draft —
+    // biomass, stockings, mortality by cause, slaughter, transfers and feed
+    // all arrive aggregated from the operational records.
+    if (prefill) {
+      setFormData({
+        ...hydrateFormFromPayload(prefill.draftPayload, targetPeriod.month, targetPeriod.year),
+        biomassLoadedFromSystem: prefill.draftPayload.currentBiomass.bySpecies.length > 0,
+        feedLoadedFromSystem: prefill.draftPayload.feedConsumption.byFeedType.length > 0,
+      });
+    } else {
+      setFormData(getInitialFormData());
     }
     setIsWizardOpen(true);
-  }, [tanks, periodSubmitted, existingDraft, targetPeriod]);
+  }, [prefill, periodSubmitted, existingDraft, targetPeriod]);
 
   const createReportMutation = useMutation({
     mutationFn: async (payload: { input: Record<string, unknown> }) => {
@@ -1693,7 +1834,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'biomass',
         title: 'Biomass',
         description: 'Current stock levels',
-        content: <BiomassStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
+        content: <BiomassStep formData={formData} onChange={handleFormChange} prefill={prefill} />,
         isValid: () => formData.currentBiomass.bySpecies.length > 0,
       },
       {
@@ -1706,13 +1847,15 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'mortality',
         title: 'Mortality',
         description: 'Fish losses by cause',
-        content: <MortalityStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
+        content: (
+          <MortalityStep formData={formData} onChange={handleFormChange} prefill={prefill} />
+        ),
       },
       {
         id: 'feed',
         title: 'Feed',
         description: 'Feed consumption data',
-        content: <FeedStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
+        content: <FeedStep formData={formData} onChange={handleFormChange} prefill={prefill} />,
         isValid: () => formData.feedConsumption.totalKg > 0,
       },
       {
@@ -1728,7 +1871,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         content: <ReviewStep formData={formData} siteName={effectiveSiteName} />,
       },
     ],
-    [formData, handleFormChange, effectiveSiteName, tanks]
+    [formData, handleFormChange, effectiveSiteName, prefill],
   );
 
   return (
@@ -1737,7 +1880,9 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Biomass Reports</h2>
-          <p className="text-sm text-gray-500">Monthly reports for Fiskeridirektoratet - Due 7th of each month</p>
+          <p className="text-sm text-gray-500">
+            Monthly reports for Fiskeridirektoratet - Due 7th of each month
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {!siteId && siteMappings.length > 0 && (
@@ -1765,7 +1910,12 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
             </svg>
             {periodDraftExists ? 'Continue Draft' : 'New Report'}
           </button>
@@ -1775,9 +1925,8 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       {periodSubmitted && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-700">
-            The {getMonthLabel(targetPeriod.month, targetPeriod.year)} report is
-            already submitted and cannot be edited. Start a correction flow if the
-            period needs revision.
+            The {getMonthLabel(targetPeriod.month, targetPeriod.year)} report is already submitted
+            and cannot be edited. Start a correction flow if the period needs revision.
           </p>
         </div>
       )}

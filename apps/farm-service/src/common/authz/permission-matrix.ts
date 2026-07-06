@@ -381,6 +381,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   // audience as biomassReports (operators read what was reported).
   regulatoryReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatoryReportSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  reportPrefill: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   regulatoryReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatorySettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

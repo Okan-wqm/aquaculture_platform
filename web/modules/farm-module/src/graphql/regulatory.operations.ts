@@ -378,3 +378,37 @@ export const REGULATORY_REPORT_SUMMARY_QUERY = `
     }
   }
 `;
+
+// ============================================================================
+// SERVER-ASSEMBLED PREFILL (automated-reporting plan Phase 1)
+// ============================================================================
+
+/**
+ * Server-assembled report draft with per-field provenance. The form stops
+ * computing: values the platform owns arrive pre-aggregated from the
+ * operational SSoTs; the operator fills only MANUAL_REQUIRED fields.
+ */
+export const REPORT_PREFILL_QUERY = `
+  query ReportPrefill($input: ReportPrefillInput!) {
+    reportPrefill(input: $input) {
+      reportType
+      siteId
+      periodYear
+      periodWeek
+      periodMonth
+      draftPayload
+      fields {
+        path
+        provenance
+        sourceRecordCount
+        sourceQuery
+        sensorId
+        measuredAt
+        message
+        blocking
+      }
+      schemaValid
+      assembledAt
+    }
+  }
+`;

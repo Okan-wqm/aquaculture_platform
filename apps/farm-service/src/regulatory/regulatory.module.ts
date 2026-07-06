@@ -12,6 +12,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { BatchModule } from '../batch/batch.module';
 import { MaskinportenService } from './maskinporten.service';
 import { MattilsynetApiService } from './mattilsynet-api.service';
 import { MattilsynetSchemaValidatorService } from './services/mattilsynet-schema-validator.service';
@@ -31,6 +33,12 @@ import { RegulatoryReportResolver } from './regulatory-report.resolver';
 import { GetBiomassReportByPeriodHandler } from './handlers/get-biomass-report-by-period.handler';
 import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-reports-for-site.handler';
 
+// Server-side report assembly (automated-reporting plan Phase 1)
+import { BiomassReportAssembler } from './assembly/biomass.assembler';
+import { ReportAssemblyService } from './assembly/report-assembly.service';
+import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
+import { ReportPrefillResolver } from './report-prefill.resolver';
+
 // Regulatory-report read handlers (FARM-HIGH-125)
 import { ListRegulatoryReportsHandler } from './handlers/list-regulatory-reports.handler';
 import { GetRegulatoryReportHandler } from './handlers/get-regulatory-report.handler';
@@ -40,6 +48,9 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([RegulatorySettings, BiomassReport, RegulatoryReport]),
+    // BiomassCalculatorService (exported by BatchModule) is the standing-stock
+    // SSoT the biomass assembler reads (RPT-012 dedup verdict).
+    BatchModule,
   ],
   providers: [
     MaskinportenService,
@@ -58,6 +69,10 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     ListRegulatoryReportsHandler,
     GetRegulatoryReportHandler,
     GetRegulatoryReportSummaryHandler,
+    BiomassReportAssembler,
+    ReportAssemblyService,
+    GetReportPrefillHandler,
+    ReportPrefillResolver,
   ],
   exports: [
     MaskinportenService,

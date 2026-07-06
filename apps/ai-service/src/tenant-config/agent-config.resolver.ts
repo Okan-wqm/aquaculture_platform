@@ -131,16 +131,25 @@ export class AgentConfigResolver {
     private readonly providerFactory: LlmProviderFactory,
   ) {}
 
-  @Query(() => AiSettings, { description: "The tenant's AI (BYOK) settings, keys masked" })
-  async aiSettings(@Context() ctx: GqlContext): Promise<AiSettings> {
+  // Named aiProviderSettings (not aiSettings) — the messaging subgraph already
+  // owns Query.aiSettings for channel-level AI persona/consent; this is the
+  // distinct tenant BYOK provider config, so the two federate without collision.
+  @Query(() => AiSettings, {
+    name: 'aiProviderSettings',
+    description: "The tenant's AI provider (BYOK) settings, keys masked",
+  })
+  async aiProviderSettings(@Context() ctx: GqlContext): Promise<AiSettings> {
     const { tenantId, user } = this.requireContext(ctx);
     // Faz 7c: reading masked settings needs ai_settings:view (admins bypass).
     this.assertCapability(user, 'ai_settings:view');
     return this.buildView(tenantId);
   }
 
-  @Mutation(() => AiSettings, { description: "Update the tenant's AI (BYOK) settings" })
-  async updateAiSettings(
+  @Mutation(() => AiSettings, {
+    name: 'updateAiProviderSettings',
+    description: "Update the tenant's AI provider (BYOK) settings",
+  })
+  async updateAiProviderSettings(
     @Args('input') input: UpdateAiSettingsInput,
     @Context() ctx: GqlContext,
   ): Promise<AiSettings> {

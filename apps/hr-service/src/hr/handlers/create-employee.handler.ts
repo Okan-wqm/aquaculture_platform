@@ -6,6 +6,7 @@ import { CreateEmployeeCommand } from '../commands/create-employee.command';
 import { Employee } from '../entities/employee.entity';
 import { createEmployeeCreatedEvent } from '../events/hr.events';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { PayrollCostSettingsService } from '../../finance/services/payroll-cost-settings.service';
 
 @Injectable()
 @CommandHandler(CreateEmployeeCommand)
@@ -15,6 +16,7 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly payrollCostSettings: PayrollCostSettingsService,
   ) {}
 
   async execute(command: CreateEmployeeCommand): Promise<Employee> {
@@ -58,6 +60,15 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
         throw new ConflictException('Hire date cannot be more than 1 year in the future');
       }
 
+      // Currency SSoT: the tenant default (projected from the farm
+      // finance_settings SSoT into hr_payroll_cost_settings), never a
+      // hardcoded literal — the old `|| 'USD'` fallback is what drifted
+      // against the farm entities' 'TRY' and the feeding handler's 'NOK'.
+      const defaultCurrency = await this.payrollCostSettings.getDefaultCurrencyInTx(
+        queryRunner.manager,
+        tenantId,
+      );
+
       // Create employee entity
       const employee = employeeRepo.create({
         ...input,
@@ -65,7 +76,7 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
         employeeNumber,
         dateOfBirth,
         hireDate,
-        currency: input.currency || 'USD',
+        currency: input.currency || defaultCurrency,
         createdBy: userId,
         updatedBy: userId,
       });

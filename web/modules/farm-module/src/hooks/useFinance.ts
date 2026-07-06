@@ -5,13 +5,7 @@
  * key is tenant-scoped via createTenantQueryKey (FE-CRITICAL-014 —
  * cross-tenant cache-leak guard).
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  useAuth,
-  graphqlClient,
-  createTenantQueryKey,
-  createTenantInvalidationKey,
-} from '@aquaculture/shared-ui';
+import { graphqlClient, useTenantMutation, useTenantQuery } from '@aquaculture/shared-ui';
 
 import {
   ARCHIVE_FINANCE_CATEGORY,
@@ -169,195 +163,169 @@ export interface UpdateFinanceSettingsInput {
 }
 
 // ============================================================================
-// Query hooks
+// Query hooks — useTenantQuery adds the tenant prefix + auth gating for us.
 // ============================================================================
 
-const useTenantId = (): string | null => {
-  const { tenantId } = useAuth();
-  return tenantId;
-};
-
 export function useFinanceCategories(scope?: FinanceCategoryScope, includeArchived = false) {
-  const tenantId = useTenantId();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'finance', 'categories', scope ?? 'all', includeArchived),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['finance', 'categories', scope ?? 'all', includeArchived],
+    async () => {
       const data = await graphqlClient.request<{ financeCategories: FinanceCategory[] }>(
         GET_FINANCE_CATEGORIES,
         { scope, includeArchived },
       );
       return data.financeCategories;
     },
-    enabled: Boolean(tenantId),
-  });
+  );
 }
 
 export function useFinanceLedger(filter: FinanceLedgerFilter) {
-  const tenantId = useTenantId();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'finance', 'ledger', filter),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['finance', 'ledger', filter],
+    async () => {
       const data = await graphqlClient.request<{ financeLedger: FinanceLineItem[] }>(
         GET_FINANCE_LEDGER,
         { includeDerived: true, limit: 50, offset: 0, ...filter },
       );
       return data.financeLedger;
     },
-    enabled: Boolean(tenantId),
-  });
+  );
 }
 
 export function useFinanceSummary(from: string, to: string, granularity: FinanceGranularity) {
-  const tenantId = useTenantId();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'finance', 'summary', from, to, granularity),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['finance', 'summary', from, to, granularity],
+    async () => {
       const data = await graphqlClient.request<{ financeSummary: FinanceSummary }>(
         GET_FINANCE_SUMMARY,
         { from, to, granularity },
       );
       return data.financeSummary;
     },
-    enabled: Boolean(tenantId && from && to),
-  });
+    { enabled: Boolean(from && to) },
+  );
 }
 
 export function useFinanceBatchTotals(from: string, to: string) {
-  const tenantId = useTenantId();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'finance', 'batchTotals', from, to),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['finance', 'batchTotals', from, to],
+    async () => {
       const data = await graphqlClient.request<{ financeBatchTotals: FinanceBatchTotal[] }>(
         GET_FINANCE_BATCH_TOTALS,
         { from, to },
       );
       return data.financeBatchTotals;
     },
-    enabled: Boolean(tenantId && from && to),
-  });
+    { enabled: Boolean(from && to) },
+  );
 }
 
 export function useFinanceSettings() {
-  const tenantId = useTenantId();
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'finance', 'settings'),
-    queryFn: async () => {
+  return useTenantQuery(
+    ['finance', 'settings'],
+    async () => {
       const data = await graphqlClient.request<{ financeSettings: FinanceSettings }>(
         GET_FINANCE_SETTINGS,
       );
       return data.financeSettings;
     },
-    enabled: Boolean(tenantId),
-  });
+  );
 }
 
 // ============================================================================
-// Mutation hooks — each invalidates the tenant-scoped finance key prefix
+// Mutation hooks — useTenantMutation invalidates the tenant-scoped finance
+// prefix on success (declare domain segments; the tenant prefix is added).
 // ============================================================================
 
-function useInvalidateFinance() {
-  const tenantId = useTenantId();
-  const queryClient = useQueryClient();
-  return () =>
-    queryClient.invalidateQueries({
-      queryKey: createTenantInvalidationKey(tenantId, 'finance'),
-    });
-}
+const INVALIDATE_FINANCE: ReadonlyArray<readonly unknown[]> = [['finance']];
 
 export function useCreateFinanceEntry() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async (input: CreateFinanceEntryInput) => {
+  return useTenantMutation(
+    async (input: CreateFinanceEntryInput) => {
       const data = await graphqlClient.request<{ createFinanceEntry: FinanceEntry }>(
         CREATE_FINANCE_ENTRY,
         { input },
       );
       return data.createFinanceEntry;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }
 
 export function useUpdateFinanceEntry() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async ({ id, input }: { id: string; input: UpdateFinanceEntryInput }) => {
+  return useTenantMutation(
+    async ({ id, input }: { id: string; input: UpdateFinanceEntryInput }) => {
       const data = await graphqlClient.request<{ updateFinanceEntry: FinanceEntry }>(
         UPDATE_FINANCE_ENTRY,
         { id, input },
       );
       return data.updateFinanceEntry;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }
 
 export function useDeleteFinanceEntry() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async (id: string) => {
+  return useTenantMutation(
+    async (id: string) => {
       const data = await graphqlClient.request<{ deleteFinanceEntry: boolean }>(
         DELETE_FINANCE_ENTRY,
         { id },
       );
       return data.deleteFinanceEntry;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }
 
 export function useCreateFinanceCategory() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async (input: CreateFinanceCategoryInput) => {
+  return useTenantMutation(
+    async (input: CreateFinanceCategoryInput) => {
       const data = await graphqlClient.request<{ createFinanceCategory: FinanceCategory }>(
         CREATE_FINANCE_CATEGORY,
         { input },
       );
       return data.createFinanceCategory;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }
 
 export function useUpdateFinanceCategory() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async ({ id, input }: { id: string; input: UpdateFinanceCategoryInput }) => {
+  return useTenantMutation(
+    async ({ id, input }: { id: string; input: UpdateFinanceCategoryInput }) => {
       const data = await graphqlClient.request<{ updateFinanceCategory: FinanceCategory }>(
         UPDATE_FINANCE_CATEGORY,
         { id, input },
       );
       return data.updateFinanceCategory;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }
 
 export function useArchiveFinanceCategory() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async (id: string) => {
+  return useTenantMutation(
+    async (id: string) => {
       const data = await graphqlClient.request<{ archiveFinanceCategory: FinanceCategory }>(
         ARCHIVE_FINANCE_CATEGORY,
         { id },
       );
       return data.archiveFinanceCategory;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }
 
 export function useUpdateFinanceSettings() {
-  const invalidate = useInvalidateFinance();
-  return useMutation({
-    mutationFn: async (input: UpdateFinanceSettingsInput) => {
+  return useTenantMutation(
+    async (input: UpdateFinanceSettingsInput) => {
       const data = await graphqlClient.request<{ updateFinanceSettings: FinanceSettings }>(
         UPDATE_FINANCE_SETTINGS,
         { input },
       );
       return data.updateFinanceSettings;
     },
-    onSuccess: () => invalidate(),
-  });
+    { invalidate: INVALIDATE_FINANCE },
+  );
 }

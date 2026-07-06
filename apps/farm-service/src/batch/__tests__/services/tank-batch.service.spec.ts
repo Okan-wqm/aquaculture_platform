@@ -99,4 +99,55 @@ describe('TankBatchService.applyBatchDelta (tank composition SSoT)', () => {
     expect(tb.batchDetails).toHaveLength(2);
     expect(tb.batchDetails!.find((d) => d.batchId === 'batch-1')!.quantity).toBe(800);
   });
+
+  it('REJECTS a per-tank overdraft instead of clamping (multi-tank divergence class)', async () => {
+    // Handlers validate against the batch-GLOBAL count; a 200-fish removal
+    // against an 83-fish tank share used to clamp to 0 and silently absorb 117
+    // fish, permanently diverging batch vs tank aggregates.
+    const m = manager({
+      tenantId, tankId, totalQuantity: 83, totalBiomassKg: 4,
+      batchDetails: [
+        { batchId: 'batch-1', batchNumber: 'B-1', quantity: 83, avgWeightG: 48, biomassKg: 4, percentageOfTank: 100 },
+      ],
+    } as TankBatch);
+    await expect(
+      svc.applyBatchDelta(
+        m as never, tenantId, tankId,
+        { batchId: 'batch-1', batchNumber: 'B-1', quantityDelta: -200, biomassDelta: -9.6 },
+        { code: 'T-1' },
+      ),
+    ).rejects.toThrow(/has only 83 fish in tank T-1; cannot remove 200/);
+  });
+
+  it('REJECTS removal from a batch not present in the tank (was a silent no-op)', async () => {
+    const m = manager({
+      tenantId, tankId, totalQuantity: 500, totalBiomassKg: 25,
+      batchDetails: [
+        { batchId: 'batch-1', batchNumber: 'B-1', quantity: 500, avgWeightG: 50, biomassKg: 25, percentageOfTank: 100 },
+      ],
+    } as TankBatch);
+    await expect(
+      svc.applyBatchDelta(
+        m as never, tenantId, tankId,
+        { batchId: 'batch-OTHER', batchNumber: 'B-9', quantityDelta: -10, biomassDelta: -0.5 },
+        { code: 'T-1' },
+      ),
+    ).rejects.toThrow(/has no fish in tank T-1; cannot remove 10/);
+  });
+
+  it('still allows an exact-to-zero removal (batch leaves the composition)', async () => {
+    const m = manager({
+      tenantId, tankId, totalQuantity: 83, totalBiomassKg: 4,
+      batchDetails: [
+        { batchId: 'batch-1', batchNumber: 'B-1', quantity: 83, avgWeightG: 48, biomassKg: 4, percentageOfTank: 100 },
+      ],
+    } as TankBatch);
+    const tb = await svc.applyBatchDelta(
+      m as never, tenantId, tankId,
+      { batchId: 'batch-1', batchNumber: 'B-1', quantityDelta: -83, biomassDelta: -4 },
+      {},
+    );
+    expect(tb.totalQuantity).toBe(0);
+    expect(tb.batchDetails).toHaveLength(0);
+  });
 });

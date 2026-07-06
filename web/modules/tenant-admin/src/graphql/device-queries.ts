@@ -145,7 +145,6 @@ export const LIST_PROVISIONING_KEYS_QUERY = `
   query TenantProvisioningKeys {
     tenantProvisioningKeys {
       id
-      keyToken
       name
       isActive
       maxDevices

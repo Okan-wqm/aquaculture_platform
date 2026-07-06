@@ -46,8 +46,12 @@ export class TenantKeyService {
    * the token by UNION-ALL across all tenant schemas. keyToken is a 256-bit
    * crypto-random value, so a cross-schema collision is not a practical concern
    * for the LIMIT 1 resolution.
+   *
+   * SENSOR-MEDIUM-001: `key_token` is stored as the SHA-256 hex digest, so the
+   * lookup matches on `sha256(providedToken)` — the raw token is never in the
+   * database and the query still hits the existing unique index on the digest.
    */
-  private async findKeyAcrossSchemas(token: string): Promise<TenantProvisioningKey | null> {
+  private async findKeyAcrossSchemas(tokenHash: string): Promise<TenantProvisioningKey | null> {
     const schemas: { schema_name: string }[] = await this.dataSource.query(
       `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
     );
@@ -59,11 +63,21 @@ export class TenantKeyService {
       (s) => `SELECT * FROM "${s.schema_name}".tenant_provisioning_keys WHERE key_token = $1`,
     );
     const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
-    const rows = await this.dataSource.query(sql, [token]);
+    const rows = await this.dataSource.query(sql, [tokenHash]);
     if (!rows || rows.length === 0) {
       return null;
     }
     return this.mapRowToKey(rows[0]);
+  }
+
+  /**
+   * SENSOR-MEDIUM-001: hash a provisioning key for at-rest storage / lookup.
+   * The raw key is a 256-bit crypto-random value, so a plain SHA-256 is
+   * sufficient to make a DB leak non-replayable while fitting the existing
+   * `varchar(64)` column (SHA-256 hex = 64 chars).
+   */
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
   }
 
   private mapRowToKey(row: Record<string, unknown>): TenantProvisioningKey {
@@ -102,7 +116,7 @@ export class TenantKeyService {
 
     const key = this.tenantKeyRepository.create({
       tenantId,
-      keyToken,
+      keyToken: this.hashToken(keyToken),
       name: input.name,
       isActive: true,
       maxDevices: input.maxDevices,
@@ -116,11 +130,13 @@ export class TenantKeyService {
     const saved = await this.tenantKeyRepository.save(key);
     this.logger.log(`Created tenant provisioning key ${saved.id} for tenant ${tenantId}`);
 
+    // Surface the PLAINTEXT key exactly once. `saved.keyToken` is the digest at
+    // rest; the installer link and the one-time response carry the raw value.
     return {
       id: saved.id,
-      keyToken: saved.keyToken,
-      installerUrl: await this.installerScriptService.buildTenantInstallerUrl(saved.keyToken),
-      installerCommand: await this.installerScriptService.buildTenantInstallerCommand(saved.keyToken),
+      keyToken,
+      installerUrl: await this.installerScriptService.buildTenantInstallerUrl(keyToken),
+      installerCommand: await this.installerScriptService.buildTenantInstallerCommand(keyToken),
       expiresAt: saved.expiresAt,
       maxDevices: saved.maxDevices,
       autoApprove: saved.autoApprove,
@@ -160,20 +176,23 @@ export class TenantKeyService {
    * Throws appropriate HTTP exceptions if the key is invalid, revoked, expired, or at capacity.
    */
   async validateAndGetKey(token: string): Promise<TenantProvisioningKey> {
+    // SENSOR-MEDIUM-001: the column stores sha256(rawKey); resolve by digest.
+    const tokenHash = this.hashToken(token);
     // SENSOR-HIGH-027: resolve across tenant schemas (see findKeyAcrossSchemas).
-    const key = await this.findKeyAcrossSchemas(token);
+    const key = await this.findKeyAcrossSchemas(tokenHash);
 
     if (!key) {
       throw new NotFoundException('Invalid installer token');
     }
 
-    // Constant-time comparison to prevent timing oracle on token value
-    const storedBuf = Buffer.from(key.keyToken);
-    const inboundBuf = Buffer.from(token);
-    const safeLen = Math.max(storedBuf.length, inboundBuf.length);
-    const a = Buffer.concat([storedBuf, Buffer.alloc(safeLen - storedBuf.length)]);
-    const b = Buffer.concat([inboundBuf, Buffer.alloc(safeLen - inboundBuf.length)]);
-    if (!crypto.timingSafeEqual(a, b)) {
+    // Constant-time comparison over the fixed-width digests (both 32 bytes),
+    // defeating any timing oracle on the resolved row.
+    const storedBuf = Buffer.from(key.keyToken, 'hex');
+    const inboundBuf = Buffer.from(tokenHash, 'hex');
+    if (
+      storedBuf.length !== inboundBuf.length ||
+      !crypto.timingSafeEqual(storedBuf, inboundBuf)
+    ) {
       throw new NotFoundException('Invalid installer token');
     }
 

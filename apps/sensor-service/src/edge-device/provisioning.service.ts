@@ -76,6 +76,21 @@ export class ProvisioningService {
   }
 
   /**
+   * SENSOR-MEDIUM-001: hash a provisioning token for at-rest storage.
+   *
+   * The plaintext token is a 256-bit crypto-random value, so a plain SHA-256
+   * (no salt/stretching needed for high-entropy secrets) is sufficient to make
+   * a database leak non-replayable: an attacker who reads `provisioning_token`
+   * cannot recover the token an agent must present to activate. SHA-256 hex is
+   * exactly 64 chars, so it fits the existing `varchar(64)` column with no
+   * schema change. The plaintext is returned to the operator exactly once at
+   * creation/regeneration and never persisted in clear.
+   */
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  /**
    * Generate device code from model and random suffix
    */
   generateDeviceCode(model?: DeviceModel): string {
@@ -132,7 +147,7 @@ export class ProvisioningService {
       description: input.description,
       siteId: input.siteId,
       lifecycleState: DeviceLifecycleState.REGISTERED,
-      provisioningToken,
+      provisioningToken: this.hashToken(provisioningToken),
       tokenExpiresAt,
       mqttClientId,
       isOnline: false,
@@ -184,10 +199,12 @@ export class ProvisioningService {
     const tokenExpiresAt = new Date(Date.now() + this.TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
     await this.deviceRepository.update(device.id, {
-      provisioningToken,
+      provisioningToken: this.hashToken(provisioningToken),
       tokenExpiresAt,
     });
-    device.provisioningToken = provisioningToken;
+    // Keep the in-memory entity consistent with what is persisted (the hash);
+    // the plaintext is surfaced only through the installer URL/command below.
+    device.provisioningToken = this.hashToken(provisioningToken);
     device.tokenExpiresAt = tokenExpiresAt;
     const saved = device;
     this.logger.log(`Regenerated token for device ${device.deviceCode}`);
@@ -241,7 +258,9 @@ export class ProvisioningService {
     const variables: InstallerScriptVariables = {
       deviceId: device.id,
       deviceCode: device.deviceCode,
-      provisioningToken: device.provisioningToken,
+      // The device bakes this into its config and presents it to activate; the
+      // stored value is a SHA-256 hash, so embed the validated plaintext param.
+      provisioningToken,
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
       mqttBroker: config.mqttBroker,
@@ -285,7 +304,9 @@ export class ProvisioningService {
     return this.installerScriptService.renderSuderraOsInstallManifest({
       deviceId: device.id,
       deviceCode: device.deviceCode,
-      provisioningToken: device.provisioningToken,
+      // Stored value is a SHA-256 hash; embed the validated plaintext param so
+      // the OS appliance can present it back to activate.
+      provisioningToken,
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
       mqttBroker: config.mqttBroker,
@@ -508,7 +529,7 @@ export class ProvisioningService {
 
     // Reset activation state
     await this.deviceRepository.update(device.id, {
-      provisioningToken,
+      provisioningToken: this.hashToken(provisioningToken),
       tokenExpiresAt,
       tokenUsedAt: null, // TypeORM: sends SET token_used_at = NULL
       lifecycleState: DeviceLifecycleState.REGISTERED,
@@ -591,7 +612,9 @@ export class ProvisioningService {
     const config = await this.installerScriptService.getProvisioningConfig();
 
     const variables: TenantInstallerScriptVariables = {
-      tenantToken: key.keyToken,
+      // key.keyToken is now the SHA-256 hash at rest; the installer must carry
+      // the validated plaintext the agent presents at self-register.
+      tenantToken,
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
       mqttPort: config.mqttPort,
@@ -869,23 +892,31 @@ export class ProvisioningService {
   /**
    * SECURITY: Single source of truth for provisioning token validation.
    *
-   * Uses SHA-256 hashing + crypto.timingSafeEqual to prevent:
-   * - Timing side-channel attacks (constant-time comparison)
-   * - Length-based leaks (hash normalizes to 32 bytes)
+   * SENSOR-MEDIUM-001: the column now stores `sha256(token)` (hex), not the
+   * plaintext. Validation therefore hashes the provided plaintext once and
+   * compares it, in constant time, against the stored digest bytes:
+   * - Timing side-channel attacks are defeated by crypto.timingSafeEqual.
+   * - A database leak of `provisioning_token` is non-replayable (pre-image
+   *   resistance) — the raw token an agent must present is never at rest.
    *
    * All code paths that compare provisioning tokens MUST use this method.
    * Direct `===` comparison on tokens is FORBIDDEN (SENSOR-CRITICAL-001).
    *
-   * @param storedToken - The token stored on the device entity (may be null)
-   * @param providedToken - The token provided by the caller
+   * @param storedHash - The SHA-256 hex digest stored on the device (may be null)
+   * @param providedToken - The plaintext token provided by the caller
    * @returns true if tokens match, false otherwise
    */
-  private validateProvisioningToken(storedToken: string | null | undefined, providedToken: string): boolean {
-    if (!storedToken) {
+  private validateProvisioningToken(storedHash: string | null | undefined, providedToken: string): boolean {
+    if (!storedHash) {
       return false;
     }
-    const providedHash = crypto.createHash('sha256').update(providedToken).digest();
-    const storedHash = crypto.createHash('sha256').update(storedToken).digest();
-    return crypto.timingSafeEqual(providedHash, storedHash);
+    const providedHashBytes = crypto.createHash('sha256').update(providedToken).digest();
+    const storedHashBytes = Buffer.from(storedHash, 'hex');
+    // A malformed/legacy value that is not a 32-byte SHA-256 digest can never
+    // match — length divergence short-circuits before the constant-time compare.
+    if (storedHashBytes.length !== providedHashBytes.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(providedHashBytes, storedHashBytes);
   }
 }

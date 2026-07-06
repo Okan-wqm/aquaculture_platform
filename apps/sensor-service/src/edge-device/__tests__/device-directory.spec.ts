@@ -87,3 +87,42 @@ describe('MQTT-auth device resolution is O(1) on a directory hit (SENSOR-MEDIUM-
     }
   });
 });
+
+describe('MQTT-auth negative-result cache bounds unknown-username floods (SENSOR-MEDIUM-004)', () => {
+  const config = { get: (_k: string, fallback?: unknown) => fallback };
+
+  it('scans once for a repeated unknown client id, then serves from the negative cache', async () => {
+    const query = jest.fn().mockImplementation((sql: string) => {
+      if (typeof sql === 'string' && sql.includes('information_schema.schemata')) {
+        return Promise.resolve([{ schema_name: 'tenant_aaaaaaaaaaaaaaaa' }]);
+      }
+      return Promise.resolve([]); // UNION-ALL scan → device not found
+    });
+    const directory = {
+      lookupTenantId: jest.fn().mockResolvedValue(null), // directory miss
+      backfill: jest.fn(),
+      upsert: jest.fn(),
+      remove: jest.fn(),
+    };
+    const service = new MqttAuthService(
+      config as never,
+      {} as never,
+      { query } as never,
+      directory as never,
+    );
+
+    // Tenant id must be hex to match the ACL topic regex; device == username so
+    // the own-device check short-circuits and only the tenant lookup scans.
+    const topic = 'tenants/abc123/devices/edge-unknown/data';
+    await service.checkTopicAccess('edge-unknown', topic, 1);
+    await service.checkTopicAccess('edge-unknown', topic, 1);
+
+    // Only the FIRST ACL check resolved via a scan; the second hit the negative
+    // cache and issued no directory lookup and no cross-schema scan.
+    expect(directory.lookupTenantId).toHaveBeenCalledTimes(1);
+    const schemataScans = query.mock.calls.filter((c) =>
+      String(c[0]).includes('information_schema.schemata'),
+    );
+    expect(schemataScans).toHaveLength(1);
+  });
+});

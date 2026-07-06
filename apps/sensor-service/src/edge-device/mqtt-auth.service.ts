@@ -63,6 +63,16 @@ export class MqttAuthService implements OnModuleInit {
   private readonly TENANT_CACHE_TTL_MS = 300_000; // 5 minutes
   private static readonly TENANT_CACHE_MAX_SIZE = 10_000;
 
+  // SENSOR-MEDIUM-004: negative-result cache for ACL tenant lookups. A device
+  // lookup that misses BOTH the O(1) directory and the fallback scan is recorded
+  // here for a short window so a flood of the same unknown mqtt_client_id is not
+  // re-scanned across every tenant schema on every ACL check. Short TTL so a
+  // freshly-provisioned device becomes resolvable quickly; bounded size with
+  // LRU eviction so the flood cannot itself grow memory unboundedly.
+  private readonly negativeTenantIdCache = new Map<string, number>(); // username → expiresAt
+  private readonly NEGATIVE_TENANT_CACHE_TTL_MS = 30_000; // 30 seconds
+  private static readonly NEGATIVE_TENANT_CACHE_MAX_SIZE = 10_000;
+
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(EdgeDevice)
@@ -350,13 +360,34 @@ export class MqttAuthService implements OnModuleInit {
       return cached.tenantId;
     }
 
+    // SENSOR-MEDIUM-004: short-circuit known-absent usernames so a flood of the
+    // same unknown client id does not re-scan every tenant schema per ACL check.
+    const negativeExpiry = this.negativeTenantIdCache.get(username);
+    if (negativeExpiry !== undefined) {
+      if (now < negativeExpiry) {
+        return null;
+      }
+      this.negativeTenantIdCache.delete(username);
+    }
+
     const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
 
     if (!device?.tenantId) {
-      // Remove stale cache entry if device no longer exists
+      // Remove stale positive entry and record a bounded, short-lived negative
+      // so repeated lookups of this unknown username stay O(1).
       this.tenantIdCache.delete(username);
+      if (this.negativeTenantIdCache.size >= MqttAuthService.NEGATIVE_TENANT_CACHE_MAX_SIZE) {
+        const oldestNegative = this.negativeTenantIdCache.keys().next().value;
+        if (oldestNegative !== undefined) {
+          this.negativeTenantIdCache.delete(oldestNegative);
+        }
+      }
+      this.negativeTenantIdCache.set(username, now + this.NEGATIVE_TENANT_CACHE_TTL_MS);
       return null;
     }
+
+    // Positive resolution supersedes any stale negative entry.
+    this.negativeTenantIdCache.delete(username);
 
     // Enforce max cache size: evict the oldest entry (first inserted) before adding new one
     if (this.tenantIdCache.size >= MqttAuthService.TENANT_CACHE_MAX_SIZE) {
@@ -379,6 +410,9 @@ export class MqttAuthService implements OnModuleInit {
    */
   invalidateTenantCache(username: string): void {
     this.tenantIdCache.delete(username);
+    // Also clear any negative entry so a just-provisioned device resolves
+    // immediately rather than waiting out the negative TTL (SENSOR-MEDIUM-004).
+    this.negativeTenantIdCache.delete(username);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

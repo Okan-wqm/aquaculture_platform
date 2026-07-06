@@ -94,8 +94,6 @@ export type ClockOutInput = {
 export type CreateChannelInput = {
   /** AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels. */
   aiPersona?: string | null | undefined;
-  /** Custom MCP server URL override. Only for AI channels. */
-  aiServiceUrl?: string | null | undefined;
   /** Channel description */
   description?: string | null | undefined;
   /** Member user IDs to add to the channel */

@@ -277,6 +277,29 @@ export class RegulatorySettingsService {
   }
 
   /**
+   * Toggle per-report-type auto-submit opt-in (RPT-003, user decision). Merges
+   * one key into `autoSubmitPolicies` so enabling SEA_LICE never disturbs a
+   * SMOLT opt-in. Absent/false leaves the scheduler assembling drafts for
+   * operator approval; true lets the auto-submit path transmit a READY draft.
+   */
+  async updateAutoSubmitPolicy(
+    tenantId: string,
+    reportType: string,
+    enabled: boolean,
+  ): Promise<RegulatorySettings> {
+    let settings = await this.getSettings(tenantId);
+    if (!settings) {
+      settings = this.repo.create({ tenantId });
+    }
+    settings.autoSubmitPolicies = { ...(settings.autoSubmitPolicies ?? {}), [reportType]: enabled };
+    const saved = await this.repo.save(settings);
+    this.logger.log(
+      `Auto-submit policy for ${reportType} set to ${enabled} (tenant ${tenantId.slice(0, 8)}…)`,
+    );
+    return saved;
+  }
+
+  /**
    * Delete regulatory settings for a tenant (for data cleanup)
    */
   async deleteSettings(tenantId: string): Promise<boolean> {

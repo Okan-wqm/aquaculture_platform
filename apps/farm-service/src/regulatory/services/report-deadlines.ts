@@ -109,3 +109,15 @@ export function osloDateString(now: Date): string {
 export function isOverdueInOslo(dueDate: string, now: Date): boolean {
   return dueDate <= osloDateString(now);
 }
+
+/**
+ * Whole Oslo-calendar days from today until `dueDate` (yyyy-mm-dd): 0 = due
+ * today, positive = future, negative = overdue. Both endpoints are compared as
+ * calendar dates (UTC midnight of each yyyy-mm-dd) so DST never shifts the
+ * count — the Oslo calendar date is resolved once via osloDateString.
+ */
+export function osloDaysUntil(dueDate: string, now: Date): number {
+  const todayMs = Date.parse(`${osloDateString(now)}T00:00:00Z`);
+  const dueMs = Date.parse(`${dueDate}T00:00:00Z`);
+  return Math.round((dueMs - todayMs) / 86_400_000);
+}

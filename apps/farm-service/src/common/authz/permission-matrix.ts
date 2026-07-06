@@ -185,6 +185,15 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   submitSeaLiceReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitSmoltReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitWelfareEvent: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Retry-replay of a persisted FAILED REST submission (RPT-018) — same
+  // audience as the interactive submit mutations.
+  resubmitRegulatoryReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Scheduled report-draft review workflow (RPT-003). Operators review +
+  // fill/dismiss; enabling automated submission is a tenant-admin decision.
+  refreshReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  saveReportDraftOverrides: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  dismissReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateAutoSubmitPolicy: [Role.TENANT_ADMIN],
   syncWeatherData: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   testMaskinportenConnection: [Role.TENANT_ADMIN],
   transferBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -393,6 +402,9 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   regulatoryReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatoryReportSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   reportPrefill: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Scheduled report-draft review + deadline views (RPT-003).
+  reportDrafts: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  reportDeadlines: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   regulatoryReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatorySettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

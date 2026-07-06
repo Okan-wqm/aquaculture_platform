@@ -48,11 +48,22 @@ export interface AssembledReport {
   periodYear: number;
   periodWeek?: number;
   periodMonth?: number;
-  draftPayload: object;
+  /**
+   * The assembled wire-body as a plain JSON record — the single widening from
+   * the per-assembler's concrete payload type to the jsonb shape the draft
+   * table + `reportPrefill` GraphQL JSON scalar carry, so every downstream
+   * consumer reads a keyed record without a cast.
+   */
+  draftPayload: Record<string, unknown>;
   fields: ReportFieldMeta[];
   /** True when zero blocking fields remain (submission-ready draft). */
   schemaValid: boolean;
   assembledAt: Date;
+}
+
+/** Widen a concrete assembler payload to the jsonb record shape (cast-free). */
+function toJsonRecord(payload: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(payload));
 }
 
 @Injectable()
@@ -78,7 +89,7 @@ export class ReportAssemblyService {
       periodYear: period.year,
       periodWeek: period.week,
       periodMonth: period.month,
-      draftPayload: draft.draftPayload,
+      draftPayload: toJsonRecord(draft.draftPayload),
       fields: draft.fields,
       schemaValid: !draft.fields.some((field) => field.blocking),
       assembledAt: new Date(),

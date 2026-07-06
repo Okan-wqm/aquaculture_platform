@@ -25,6 +25,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import type { ReportFieldMeta } from '../assembly/provenance.types';
+
 /**
  * Draft lifecycle. DRAFT → READY (zero blocking fields) → APPROVED → SUBMITTED
  * (terminal); DISMISSED is the operator opt-out (terminal). READY↔DRAFT flips
@@ -90,7 +92,7 @@ export class RegulatoryReportDraft {
   /** Per-field provenance (ReportFieldMeta[]) — what is RECORDS vs MANUAL. */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  fieldMeta!: unknown[];
+  fieldMeta!: ReportFieldMeta[];
 
   /** Operator-supplied values for the blocking MANUAL_REQUIRED JSON pointers. */
   @Field(() => GraphQLJSON, { nullable: true })

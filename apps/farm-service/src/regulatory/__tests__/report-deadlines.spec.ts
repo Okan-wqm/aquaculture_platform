@@ -2,7 +2,12 @@
  * Report deadline engine — the official Mattilsynet deadlines encoded once.
  */
 import { ReportPrefillType } from '../assembly/report-assembly.service';
-import { computeDueDate, isOverdueInOslo, osloDateString } from '../services/report-deadlines';
+import {
+  computeDueDate,
+  isOverdueInOslo,
+  osloDateString,
+  osloDaysUntil,
+} from '../services/report-deadlines';
 
 describe('computeDueDate', () => {
   it('sea-lice weekly is due the Tuesday of the following week', () => {
@@ -68,5 +73,27 @@ describe('osloDateString / isOverdueInOslo', () => {
     expect(isOverdueInOslo('2026-07-07', beforeMidnightOslo)).toBe(false);
     const afterMidnightOslo = new Date('2026-07-06T22:30:00Z'); // Oslo 2026-07-07
     expect(isOverdueInOslo('2026-07-07', afterMidnightOslo)).toBe(true);
+  });
+});
+
+describe('osloDaysUntil', () => {
+  const oslo6 = new Date('2026-07-06T09:00:00Z'); // Oslo 2026-07-06
+
+  it('is 0 when the deadline is today (Oslo)', () => {
+    expect(osloDaysUntil('2026-07-06', oslo6)).toBe(0);
+  });
+
+  it('is positive for a future deadline', () => {
+    expect(osloDaysUntil('2026-07-09', oslo6)).toBe(3);
+  });
+
+  it('is negative once overdue', () => {
+    expect(osloDaysUntil('2026-07-04', oslo6)).toBe(-2);
+  });
+
+  it('counts calendar days across a DST-neutral span', () => {
+    // Uses the Oslo calendar date of `now`, so the count is unaffected by the
+    // UTC offset of the instant.
+    expect(osloDaysUntil('2026-07-07', new Date('2026-07-06T22:30:00Z'))).toBe(0); // now is Oslo 07-07
   });
 });

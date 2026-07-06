@@ -40,3 +40,21 @@ error), pre-persist validation in the resolvers (invalid payloads return field-l
 `valideringsfeil` and never create a PENDING row), and a golden-fixture contract suite as the
 two-way TS-interface ↔ JSON-Schema drift trap. The live-swagger diff (x-verified flip) remains
 operator-gated — the schemas are transcribed from `docs/integrations/mattilsynet-reporting-api.md`.
+
+## FARM-HIGH-147 — no server-side report assembly: prefill was client-side tank math (plan RPT-002 + RPT-012, Phase 1a)
+
+The report forms computed their own "Load from System" values in the browser from
+`useTanksList` batch metrics — biomass by species from tank cards, mortality lumped under
+"Unknown" (no cause breakdown), and feed estimated as `daily rate × 30` instead of the real
+ledger. The dormant `BiomassCalculatorService.getSiteBiomassReport` (species-aware, N+1-free)
+had no caller, and no aggregation existed for mortality-by-cause (despite the purpose-built
+`(tenantId, cause)` index), cross-site transfers, or site feed consumption.
+
+Phase 1a fix: server-side assembly — `ReportAssemblyService` + `BiomassReportAssembler` +
+`reportPrefill` GraphQL query with per-field provenance (RECORDS / SENSOR / MANUAL_REQUIRED);
+new CQRS queries `GetMortalityByCauseQuery`, `GetTransfersSummaryQuery`,
+`GetSiteFeedConsumptionQuery`; `BiomassCalculatorService` wired as THE standing-stock source
+(RPT-012 dedup verdict). Frontend: `useReportPrefill` + `ProvenanceBadge`;
+`BiomassReportTab` client aggregation **deleted** (guarded by a stay-deleted spec) and the
+wizard seeds every section from the assembled draft. Remaining report types' assemblers are
+Phase 1b/2 of the tracked plan.

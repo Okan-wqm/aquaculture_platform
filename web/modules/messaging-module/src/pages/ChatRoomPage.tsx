@@ -29,7 +29,7 @@ const ChatRoomPage: React.FC = () => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
-  const handleSend = async () => {
+  const handleSend = async (): Promise<void> => {
     const text = draft.trim();
     if (!text || sendMutation.isPending) return;
     setDraft('');

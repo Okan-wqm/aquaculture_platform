@@ -9,6 +9,7 @@ import {
   useTenantMutation,
   graphqlClient,
 } from '@aquaculture/shared-ui';
+import type { UseQueryResult, UseMutationResult } from '@tanstack/react-query';
 
 import {
   MY_CHANNELS_QUERY,
@@ -27,7 +28,7 @@ interface SendMessageResult {
   sendMessage: Message;
 }
 
-export function useChannels() {
+export function useChannels(): UseQueryResult<Channel[], Error> {
   return useTenantQuery<Channel[]>(['messaging', 'channels'], async () => {
     const data = await graphqlClient.request<MyChannelsResult>(MY_CHANNELS_QUERY, {
       filter: { limit: 100, offset: 0 },
@@ -36,7 +37,9 @@ export function useChannels() {
   });
 }
 
-export function useChannelMessages(channelId: string | undefined) {
+export function useChannelMessages(
+  channelId: string | undefined,
+): UseQueryResult<Message[], Error> {
   return useTenantQuery<Message[]>(
     ['messaging', 'messages', channelId ?? ''],
     async () => {
@@ -51,7 +54,9 @@ export function useChannelMessages(channelId: string | undefined) {
   );
 }
 
-export function useSendMessage(channelId: string | undefined) {
+export function useSendMessage(
+  channelId: string | undefined,
+): UseMutationResult<Message, Error, string> {
   return useTenantMutation<Message, Error, string>(
     async (content: string) => {
       const data = await graphqlClient.request<SendMessageResult>(SEND_MESSAGE_MUTATION, {

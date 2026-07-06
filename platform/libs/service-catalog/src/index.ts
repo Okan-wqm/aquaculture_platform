@@ -921,6 +921,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     'sensor-module',
     'hr-module',
     'hydroponics-module',
+    'messaging-module',
     'admin-panel',
     'tenant-admin',
     'aquamobil',

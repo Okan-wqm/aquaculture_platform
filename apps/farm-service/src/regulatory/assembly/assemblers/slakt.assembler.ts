@@ -10,9 +10,9 @@
  * the weekday bucket per species (statuses that still represent an intent:
  * planned/approved/scheduled/in_progress).
  *
- * godkjenningsnummer (slaughter-facility approval) comes from
- * regulatory_settings; absent → blocking MANUAL_REQUIRED (the facility
- * catalog lands in Phase 2).
+ * godkjenningsnummer comes from the slaughter-facility catalog's default
+ * facility (SSoT), falling back to the legacy regulatory_settings field
+ * until Phase 4 drops it; absent in both → blocking MANUAL_REQUIRED.
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
@@ -21,6 +21,7 @@ import { DataSource } from 'typeorm';
 
 import { KvalitetsklasserPerArtPayload, UkeplanPerArtPayload } from '../../mattilsynet-api.service';
 import { RegulatorySettingsService } from '../../regulatory-settings.service';
+import { SlaughterFacilityService } from '../../services/slaughter-facility.service';
 import { AssembledDraft, ReportFieldMeta, fromRecords, manualRequired } from '../provenance.types';
 import { isoWeekRange, round2 } from '../period.util';
 
@@ -106,6 +107,7 @@ export class SlaktReportAssembler {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly settingsService: RegulatorySettingsService,
+    private readonly facilityService: SlaughterFacilityService,
   ) {}
 
   async assembleExecuted(
@@ -115,7 +117,7 @@ export class SlaktReportAssembler {
     week: number,
   ): Promise<AssembledDraft<SlaktUtfortPrefillPayload>> {
     const { fromDate, toDate } = isoWeekRange(year, week);
-    const [rows, godkjenningsnummer, fields] = await Promise.all([
+    const [rows, approval, fields] = await Promise.all([
       this.queryExecuted(tenantId, siteId, fromDate, toDate),
       this.resolveApprovalNumber(tenantId),
       Promise.resolve([] as ReportFieldMeta[]),
@@ -123,7 +125,7 @@ export class SlaktReportAssembler {
 
     const recordCount = rows.reduce((sum, row) => sum + Number(row.recordCount), 0);
     fields.push(fromRecords('/totalKgPerArt', 'SlaktReportAssembler.queryExecuted', recordCount));
-    this.pushApprovalProvenance(fields, godkjenningsnummer);
+    this.pushApprovalProvenance(fields, approval);
 
     const arter: KvalitetsklasserPerArtPayload[] = rows.map((row) => ({
       art: row.artskode,
@@ -155,7 +157,7 @@ export class SlaktReportAssembler {
       draftPayload: {
         slakteuke: week,
         slakteår: year,
-        godkjenningsnummer: godkjenningsnummer ?? '',
+        godkjenningsnummer: approval.value ?? '',
         arter,
         totalKgPerArt: rows.map((row) => ({
           artskode: row.artskode,
@@ -173,7 +175,7 @@ export class SlaktReportAssembler {
     week: number,
   ): Promise<AssembledDraft<SlaktPlanlagtPrefillPayload>> {
     const { fromDate, toDate } = isoWeekRange(year, week);
-    const [rows, godkjenningsnummer] = await Promise.all([
+    const [rows, approval] = await Promise.all([
       this.queryPlanned(tenantId, siteId, fromDate, toDate),
       this.resolveApprovalNumber(tenantId),
     ]);
@@ -189,7 +191,7 @@ export class SlaktReportAssembler {
     const fields = [
       fromRecords('/ukeplanPerArt', 'SlaktReportAssembler.queryPlanned', rows.length),
     ];
-    this.pushApprovalProvenance(fields, godkjenningsnummer);
+    this.pushApprovalProvenance(fields, approval);
     if (bySpecies.size === 0) {
       fields.push(
         manualRequired(
@@ -204,7 +206,7 @@ export class SlaktReportAssembler {
       draftPayload: {
         uke: week,
         år: year,
-        godkjenningsnummer: godkjenningsnummer ?? '',
+        godkjenningsnummer: approval.value ?? '',
         ukeplanPerArt: Array.from(bySpecies.values()),
       },
       fields,
@@ -213,24 +215,40 @@ export class SlaktReportAssembler {
 
   private pushApprovalProvenance(
     fields: ReportFieldMeta[],
-    godkjenningsnummer: string | undefined,
+    approval: { value?: string; source: string },
   ): void {
-    if (godkjenningsnummer) {
-      fields.push(fromRecords('/godkjenningsnummer', 'RegulatorySettingsService', 1));
+    if (approval.value) {
+      fields.push(fromRecords('/godkjenningsnummer', approval.source, 1));
     } else {
       fields.push(
         manualRequired(
           '/godkjenningsnummer',
-          'No slaughter-facility approval number configured — set it in Report Settings.',
+          'No slaughter facility configured — add one (with its godkjenningsnummer) in Setup → Slaughter facilities.',
           true,
         ),
       );
     }
   }
 
-  private async resolveApprovalNumber(tenantId: string): Promise<string | undefined> {
+  /**
+   * Facility catalog first (default facility is the SSoT), legacy
+   * regulatory_settings field as the transition fallback (dropped Phase 4).
+   */
+  private async resolveApprovalNumber(
+    tenantId: string,
+  ): Promise<{ value?: string; source: string }> {
+    const facility = await this.facilityService.getDefaultFacility(tenantId);
+    if (facility) {
+      return {
+        value: facility.godkjenningsnummer,
+        source: 'SlaughterFacilityService.defaultFacility',
+      };
+    }
     const settings = await this.settingsService.getSettings(tenantId);
-    return settings?.slaughterApprovalNumber || undefined;
+    return {
+      value: settings?.slaughterApprovalNumber || undefined,
+      source: 'RegulatorySettingsService.slaughterApprovalNumber',
+    };
   }
 
   private async queryExecuted(

@@ -42,3 +42,14 @@ export function toIsoDate(date: Date): string {
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+/** ISO-8601 year + week of a calendar date (Thursday-anchored). */
+export function isoWeekOf(date: Date): { isoYear: number; isoWeek: number } {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const isoYear = d.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  const isoWeek = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { isoYear, isoWeek };
+}

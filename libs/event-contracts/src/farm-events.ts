@@ -1214,6 +1214,24 @@ export interface EscapeReportedEvent extends BaseEvent {
 }
 
 /**
+ * Operational escape incident recorded (distinct from EscapeReported, which
+ * is the varsling SUBMISSION event). Emitted when a field operator records
+ * that an escape happened; consumed by notification-service to remind the
+ * responsible manager that the romming varsling is legally immediate.
+ */
+export interface EscapeIncidentRecordedEvent extends BaseEvent {
+  eventType: 'EscapeIncidentRecorded';
+  incidentId: string;
+  siteId: string;
+  tankId?: string;
+  speciesId: string;
+  estimatedCount: number;
+  cause: string;
+  detectedAt: string;
+  recordedBy: string;
+}
+
+/**
  * Notifiable disease outbreak reported to Mattilsynet (varsling).
  *
  * Emitted when an operator submits a Liste A/C/F disease outbreak.
@@ -1407,6 +1425,7 @@ export type FarmEvent =
   | FeedInventoryLowEvent
   | WelfareEventReportedEvent
   | EscapeReportedEvent
+  | EscapeIncidentRecordedEvent
   | DiseaseOutbreakReportedEvent
   | MortalityAlertRaisedEvent
   | HarvestRegulatoryRecordedEvent

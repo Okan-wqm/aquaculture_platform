@@ -1,11 +1,14 @@
 /**
  * SlaktReportAssembler — executed totals per species with a blocking quality
  * class split (never guessed); planned kg into ISO weekday buckets;
- * godkjenningsnummer fail-closed from settings.
+ * godkjenningsnummer from the facility catalog's default (settings field is
+ * the transition fallback), fail-closed when neither exists.
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
 import { RegulatorySettingsService } from '../../regulatory-settings.service';
+import { SlaughterFacilityService } from '../../services/slaughter-facility.service';
+import { SlaughterFacility } from '../../entities/slaughter-facility.entity';
 import { SlaktReportAssembler } from '../../assembly/assemblers/slakt.assembler';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -15,6 +18,7 @@ function makeAssembler(options: {
   executed?: unknown[];
   planned?: unknown[];
   approvalNumber?: string;
+  defaultFacilityNumber?: string;
 }): SlaktReportAssembler {
   const { mockDataSource, mockQueryRunner } = createMockDataSource();
   (mockQueryRunner.query as jest.Mock).mockImplementation((sql: string) => {
@@ -31,7 +35,20 @@ function makeAssembler(options: {
           : { slaughterApprovalNumber: options.approvalNumber },
       ),
   };
-  return new SlaktReportAssembler(mockDataSource, settings as RegulatorySettingsService);
+  const facilities: Pick<SlaughterFacilityService, 'getDefaultFacility'> = {
+    getDefaultFacility: jest
+      .fn()
+      .mockResolvedValue(
+        options.defaultFacilityNumber === undefined
+          ? null
+          : ({ godkjenningsnummer: options.defaultFacilityNumber } as SlaughterFacility),
+      ),
+  };
+  return new SlaktReportAssembler(
+    mockDataSource,
+    settings as RegulatorySettingsService,
+    facilities as SlaughterFacilityService,
+  );
 }
 
 describe('SlaktReportAssembler', () => {
@@ -57,7 +74,21 @@ describe('SlaktReportAssembler', () => {
     expect(split?.message).toContain('21440.46');
   });
 
-  it('executed: blocks when no approval number is configured', async () => {
+  it('prefers the default catalog facility over the legacy settings field', async () => {
+    const assembler = makeAssembler({
+      executed: [],
+      approvalNumber: 'OLD1',
+      defaultFacilityNumber: 'NEW99',
+    });
+
+    const { draftPayload, fields } = await assembler.assembleExecuted(tenantId, siteId, 2026, 27);
+
+    expect(draftPayload.godkjenningsnummer).toBe('NEW99');
+    const meta = fields.find((f) => f.path === '/godkjenningsnummer');
+    expect(meta?.sourceQuery).toBe('SlaughterFacilityService.defaultFacility');
+  });
+
+  it('executed: blocks when neither a facility nor the legacy field is configured', async () => {
     const assembler = makeAssembler({ executed: [], approvalNumber: undefined });
 
     const { fields } = await assembler.assembleExecuted(tenantId, siteId, 2026, 27);

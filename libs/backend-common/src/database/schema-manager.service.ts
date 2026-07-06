@@ -416,6 +416,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'water_quality_param_equipment',
       'sensor_temperature_latest',
       'health_events',
+      'lice_counts',
+      'treatment_applications',
+      'welfare_assessments',
+      'escape_incidents',
+      'slaughter_facilities',
       'harvest_plans',
       'harvest_records',
 

@@ -30,6 +30,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   cancelPurchaseOrder: [Role.TENANT_ADMIN],
   cloneFeedingProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   closeBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  closeEscapeIncident: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   completeFeedingProgram: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   completeHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   completeMaintenance: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -63,6 +64,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   createPurchaseOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createRecurringTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createSite: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  createSlaughterFacility: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createSparePart: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createSpecies: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createStorageLocation: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -124,9 +126,15 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   // FARM-MEDIUM-117: grading moves stock across tanks — manager-class like transferBatch.
   recordGrading: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordDailyFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Regulatory field capture (Phase 2a): operator-recordable like
+  // createHealthEvent/recordMortality — these rows feed report assembly.
+  recordEscapeIncident: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordGrowthSample: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  recordLiceCount: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordMortality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordSparePartStockMovement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  recordTreatmentApplication: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  recordWelfareAssessment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordStockMovement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   // Tenant-wide roles only: bypasses per-site authorization by role
   // hierarchy; finer-grained recording flows through the full
@@ -217,6 +225,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   updateRegulatorySettings: [Role.TENANT_ADMIN],
   updateSentinelHubInstanceId: [Role.TENANT_ADMIN],
   updateSite: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  updateSlaughterFacility: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSparePart: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSpecies: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateStorageLocation: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -293,6 +302,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   equipmentSuppliers: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   equipmentType: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   equipmentTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  escapeIncidents: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   estimateSGR: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   farm: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   farmAnomalies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -344,6 +354,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   inventoryCounts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   latestGrowthMeasurement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   latestWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  liceCounts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   lowStockAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   maintenanceAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   marineObservations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -393,6 +404,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   siteContacts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   siteDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   sites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  slaughterFacilities: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   sparePart: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   sparePartByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   sparePartByPartNumber: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -438,11 +450,13 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   todaysDailyOpsCounts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   todaysTasks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   traceLot: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  treatmentApplications: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   treatmentChemicals: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingMaintenanceSchedules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityChart: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  welfareAssessments: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityChartBySystem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -471,91 +485,93 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
  * added after phase 6.1 MUST come with @Roles or fail the
  * invariant test — the set is frozen to the baseline.
  */
-export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
-  // All mutations have now been classified (phase 6.1.1 complete
-  // through health-event + system + feed batches). Remaining
-  // entries are queries only. Phase 6.1.1 (batch-queries) moved
-  // 11 batch-related reads out: batch / batches / batchFeedAssignment
-  // / batchGrowthHistory / batchGrowthPrediction / batchHarvestEligibility
-  // / batchHistory / batchPerformance / availableTanks /
-  // generateBatchNumber / projectHarvestDate. Phase 6.1.1
-  // (site-dept-system-tank queries) moved 20 more: activeSites /
-  // activeTanks / site / sites / siteDeletePreview / department /
-  // departments / departmentsBySite / departmentDeletePreview /
-  // system / systems / systemsBySite / systemsByDepartment /
-  // systemDeletePreview / rootSystems / childSystems / tank /
-  // tanks / tanksByDepartment / tankCleanerFish / tankRiskAssessment.
-  // Phase 6.1.1 (equipment-supplier-storage queries) moved 23:
-  // equipment / equipmentByDepartment / equipmentDeletePreview /
-  // equipmentList / equipmentParameters / equipmentSuppliers /
-  // equipmentType / equipmentTypes / sparePart / sparePartByCode /
-  // sparePartByPartNumber / spareParts / sparePartsByEquipmentType /
-  // storageInventory / storageLocation / storageLocations /
-  // storageOverview / supplier / suppliers / suppliersByType /
-  // supplierTypes / feedSuppliers / chemicalSuppliers /
-  // lowStockAlerts / stockSummary.
-  // Phase 6.1.1 (feeding-growth-WQ queries) moved 37:
-  // feed / feeds / feedsByType / feedsByPelletSize / feedsForSpecies /
-  // feedTypes / feedingProtocol / feedingProtocols /
-  // feedingProtocolsBySpecies / defaultFeedingProtocol /
-  // feedingRecord / feedingRecords / dailyFeedingPlan /
-  // feedingSummary / feedInventory / growthSimulation /
-  // feedConsumptionForecast / estimateSGR / feederCalibrations /
-  // feedingAdvice / growthMeasurement / growthMeasurements /
-  // growthAnalysis / latestGrowthMeasurement / waterQuality /
-  // waterQualityMeasurements / latestWaterQuality /
-  // criticalWaterQuality / waterQualityChart /
-  // waterQualityChartBySystem / waterQualityStatistics /
-  // waterQualityStatisticsBySystem / parameterConfig /
-  // parameterConfigByCode / parameterConfigs /
-  // parameterEquipmentMappings / parameterTemplates.
-  // Phase 6.1.1 (health-chemical-species-subEq queries) moved 26:
-  // healthEvent / healthEvents / healthEventsByBatch /
-  // healthEventStats / criticalHealthEvents /
-  // overdueHealthFollowUps / chemical / chemicals /
-  // chemicalsByType / chemicalTypes / disinfectantChemicals /
-  // treatmentChemicals / species / speciesByCode / speciesList /
-  // speciesTags / activeSpecies / predefinedSpeciesTags /
-  // cleanerFishSpecies / consumable / consumables / traceLot /
-  // stockMovements / subEquipment / subEquipmentByParent /
-  // subEquipmentList / subEquipmentType / subEquipmentTypes /
-  // subEquipmentTypesForEquipment.
-  // Phase 6.1.1 (task-workOrder-maintenance-automation queries)
-  // moved 22: task / tasks / taskStats / todaysTasks / myTasks /
-  // workOrder / workOrders / workOrderByCode / workOrderStatistics /
-  // myWorkOrders / overdueWorkOrders / maintenanceSchedule /
-  // maintenanceScheduleByCode / maintenanceSchedules /
-  // upcomingMaintenanceSchedules / overdueMaintenanceSchedules /
-  // maintenanceAlerts / maintenanceComplianceReport / autoRule /
-  // autoRules / recurringTemplate / recurringTemplates.
-  // Phase 6.1.1 (sensitive-regulatory-credentials queries)
-  // moved 10 with tighter gates: sentinelHubStatus /
-  // isSentinelHubConfigured / sentinelHubWmtsConfig
-  // (MANAGER + ADMIN), sentinelHubToken (ADMIN only —
-  // deepest credential), maskinportenStatus /
-  // mattilsynetStatus / regulatoryConfigurationStatus /
-  // regulatoryHealth / regulatorySettings (MANAGER + ADMIN),
-  // workers (MANAGER + ADMIN — HR-adjacent PII).
-  // Phase 6.1.1 final — farm-legacy / harvest / weather /
-  // purchase / inventory / cleaner-fish / AI queries — moved 21:
-  // farm / farms / pond (legacy); harvest / harvests /
-  // harvestsByBatch (MODULE_USER+MANAGER+ADMIN);
-  // harvestStatistics (MANAGER+ADMIN — financial aggregate);
-  // weatherObservations / marineObservations / currentWeather /
-  // weatherForecast (MODULE_USER+MANAGER+ADMIN);
-  // weatherSettings (MANAGER+ADMIN — sync config);
-  // purchaseOrder / purchaseOrders / pendingDeliveries /
-  // inventoryCount / inventoryCounts (MODULE_USER+MANAGER+ADMIN);
-  // cleanerFishBatches (MODULE_USER+MANAGER+ADMIN — note:
-  // cleanerFishReport was removed as a dead zero-returning stub);
-  // farmAnomalies / farmDashboardInsights
-  // (MODULE_USER+MANAGER+ADMIN).
-  // Empty after phase 6.1.1 complete. Every @Mutation and @Query
-  // surface in farm-service now appears in MUTATION_ROLES or
-  // QUERY_ROLES with an explicit @Roles decorator matching the
-  // matrix entry. New operations added after this point MUST
-  // ship with @Roles or fail the invariant test.
-] as const));
+export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(
+  new Set([
+    // All mutations have now been classified (phase 6.1.1 complete
+    // through health-event + system + feed batches). Remaining
+    // entries are queries only. Phase 6.1.1 (batch-queries) moved
+    // 11 batch-related reads out: batch / batches / batchFeedAssignment
+    // / batchGrowthHistory / batchGrowthPrediction / batchHarvestEligibility
+    // / batchHistory / batchPerformance / availableTanks /
+    // generateBatchNumber / projectHarvestDate. Phase 6.1.1
+    // (site-dept-system-tank queries) moved 20 more: activeSites /
+    // activeTanks / site / sites / siteDeletePreview / department /
+    // departments / departmentsBySite / departmentDeletePreview /
+    // system / systems / systemsBySite / systemsByDepartment /
+    // systemDeletePreview / rootSystems / childSystems / tank /
+    // tanks / tanksByDepartment / tankCleanerFish / tankRiskAssessment.
+    // Phase 6.1.1 (equipment-supplier-storage queries) moved 23:
+    // equipment / equipmentByDepartment / equipmentDeletePreview /
+    // equipmentList / equipmentParameters / equipmentSuppliers /
+    // equipmentType / equipmentTypes / sparePart / sparePartByCode /
+    // sparePartByPartNumber / spareParts / sparePartsByEquipmentType /
+    // storageInventory / storageLocation / storageLocations /
+    // storageOverview / supplier / suppliers / suppliersByType /
+    // supplierTypes / feedSuppliers / chemicalSuppliers /
+    // lowStockAlerts / stockSummary.
+    // Phase 6.1.1 (feeding-growth-WQ queries) moved 37:
+    // feed / feeds / feedsByType / feedsByPelletSize / feedsForSpecies /
+    // feedTypes / feedingProtocol / feedingProtocols /
+    // feedingProtocolsBySpecies / defaultFeedingProtocol /
+    // feedingRecord / feedingRecords / dailyFeedingPlan /
+    // feedingSummary / feedInventory / growthSimulation /
+    // feedConsumptionForecast / estimateSGR / feederCalibrations /
+    // feedingAdvice / growthMeasurement / growthMeasurements /
+    // growthAnalysis / latestGrowthMeasurement / waterQuality /
+    // waterQualityMeasurements / latestWaterQuality /
+    // criticalWaterQuality / waterQualityChart /
+    // waterQualityChartBySystem / waterQualityStatistics /
+    // waterQualityStatisticsBySystem / parameterConfig /
+    // parameterConfigByCode / parameterConfigs /
+    // parameterEquipmentMappings / parameterTemplates.
+    // Phase 6.1.1 (health-chemical-species-subEq queries) moved 26:
+    // healthEvent / healthEvents / healthEventsByBatch /
+    // healthEventStats / criticalHealthEvents /
+    // overdueHealthFollowUps / chemical / chemicals /
+    // chemicalsByType / chemicalTypes / disinfectantChemicals /
+    // treatmentChemicals / species / speciesByCode / speciesList /
+    // speciesTags / activeSpecies / predefinedSpeciesTags /
+    // cleanerFishSpecies / consumable / consumables / traceLot /
+    // stockMovements / subEquipment / subEquipmentByParent /
+    // subEquipmentList / subEquipmentType / subEquipmentTypes /
+    // subEquipmentTypesForEquipment.
+    // Phase 6.1.1 (task-workOrder-maintenance-automation queries)
+    // moved 22: task / tasks / taskStats / todaysTasks / myTasks /
+    // workOrder / workOrders / workOrderByCode / workOrderStatistics /
+    // myWorkOrders / overdueWorkOrders / maintenanceSchedule /
+    // maintenanceScheduleByCode / maintenanceSchedules /
+    // upcomingMaintenanceSchedules / overdueMaintenanceSchedules /
+    // maintenanceAlerts / maintenanceComplianceReport / autoRule /
+    // autoRules / recurringTemplate / recurringTemplates.
+    // Phase 6.1.1 (sensitive-regulatory-credentials queries)
+    // moved 10 with tighter gates: sentinelHubStatus /
+    // isSentinelHubConfigured / sentinelHubWmtsConfig
+    // (MANAGER + ADMIN), sentinelHubToken (ADMIN only —
+    // deepest credential), maskinportenStatus /
+    // mattilsynetStatus / regulatoryConfigurationStatus /
+    // regulatoryHealth / regulatorySettings (MANAGER + ADMIN),
+    // workers (MANAGER + ADMIN — HR-adjacent PII).
+    // Phase 6.1.1 final — farm-legacy / harvest / weather /
+    // purchase / inventory / cleaner-fish / AI queries — moved 21:
+    // farm / farms / pond (legacy); harvest / harvests /
+    // harvestsByBatch (MODULE_USER+MANAGER+ADMIN);
+    // harvestStatistics (MANAGER+ADMIN — financial aggregate);
+    // weatherObservations / marineObservations / currentWeather /
+    // weatherForecast (MODULE_USER+MANAGER+ADMIN);
+    // weatherSettings (MANAGER+ADMIN — sync config);
+    // purchaseOrder / purchaseOrders / pendingDeliveries /
+    // inventoryCount / inventoryCounts (MODULE_USER+MANAGER+ADMIN);
+    // cleanerFishBatches (MODULE_USER+MANAGER+ADMIN — note:
+    // cleanerFishReport was removed as a dead zero-returning stub);
+    // farmAnomalies / farmDashboardInsights
+    // (MODULE_USER+MANAGER+ADMIN).
+    // Empty after phase 6.1.1 complete. Every @Mutation and @Query
+    // surface in farm-service now appears in MUTATION_ROLES or
+    // QUERY_ROLES with an explicit @Roles decorator matching the
+    // matrix entry. New operations added after this point MUST
+    // ship with @Roles or fail the invariant test.
+  ] as const),
+);
 
 /**
  * Resolve the allowed roles for an operation. Returns `null` when
@@ -564,9 +580,7 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
  * unknown — the runtime guard / invariant test treats that as a
  * fail-closed 403 for mutations.
  */
-export function resolveAllowedRoles(
-  operation: string,
-): readonly Role[] | null | undefined {
+export function resolveAllowedRoles(operation: string): readonly Role[] | null | undefined {
   if (UNGATED_OPERATIONS.has(operation)) return null;
   if (operation in MUTATION_ROLES) return MUTATION_ROLES[operation];
   if (operation in QUERY_ROLES) return QUERY_ROLES[operation];

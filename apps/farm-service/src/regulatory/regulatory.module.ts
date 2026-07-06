@@ -29,6 +29,10 @@ import { RegulatoryVarslingService } from './services/regulatory-varsling.servic
 import { RegulatoryReport } from './entities/regulatory-report.entity';
 import { RegulatoryReportStoreService } from './services/regulatory-report-store.service';
 import { RegulatoryReportResolver } from './regulatory-report.resolver';
+import { SlaughterFacility } from './entities/slaughter-facility.entity';
+import { SlaughterFacilityService } from './services/slaughter-facility.service';
+import { SlaughterFacilityResolver } from './resolvers/slaughter-facility.resolver';
+import { ListSlaughterFacilitiesHandler } from './handlers/list-slaughter-facilities.handler';
 
 // Biomass-report read handlers (fail-closed tenant boundary — FARM-HIGH-060)
 import { GetBiomassReportByPeriodHandler } from './handlers/get-biomass-report-by-period.handler';
@@ -53,7 +57,13 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([RegulatorySettings, BiomassReport, RegulatoryReport, Site]),
+    TypeOrmModule.forFeature([
+      RegulatorySettings,
+      BiomassReport,
+      RegulatoryReport,
+      SlaughterFacility,
+      Site,
+    ]),
     // BiomassCalculatorService (exported by BatchModule) is the standing-stock
     // SSoT the biomass assembler reads (RPT-012 dedup verdict).
     BatchModule,
@@ -72,6 +82,9 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     RegulatoryVarslingService,
     RegulatoryReportStoreService,
     RegulatoryReportResolver,
+    SlaughterFacilityService,
+    SlaughterFacilityResolver,
+    ListSlaughterFacilitiesHandler,
     ListRegulatoryReportsHandler,
     GetRegulatoryReportHandler,
     GetRegulatoryReportSummaryHandler,
@@ -94,6 +107,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     RegulatorySettingsService,
     BiomassReportService,
     RegulatorySettingsSeederService,
+    SlaughterFacilityService,
   ],
 })
 export class RegulatoryModule {}

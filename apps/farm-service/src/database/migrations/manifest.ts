@@ -25,6 +25,11 @@ import { AddTankTemperatureSensorId1802300000000 } from './1802300000000-AddTank
 import { AddExecutionGrowthAppliedAt1802400000000 } from './1802400000000-AddExecutionGrowthAppliedAt';
 import { AddSpeciesOfficialCode1802500000000 } from './1802500000000-AddSpeciesOfficialCode';
 import { AddSiteRegulatoryIdentity1802600000000 } from './1802600000000-AddSiteRegulatoryIdentity';
+import { CreateLiceCounts1802700000000 } from './1802700000000-CreateLiceCounts';
+import { CreateTreatmentApplications1802800000000 } from './1802800000000-CreateTreatmentApplications';
+import { CreateWelfareAssessments1802900000000 } from './1802900000000-CreateWelfareAssessments';
+import { CreateEscapeIncidents1803000000000 } from './1803000000000-CreateEscapeIncidents';
+import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
 
 /**
  * Canonical farm-service migration class list.
@@ -62,4 +67,9 @@ export const FARM_MIGRATIONS = [
   AddExecutionGrowthAppliedAt1802400000000,
   AddSpeciesOfficialCode1802500000000,
   AddSiteRegulatoryIdentity1802600000000,
+  CreateLiceCounts1802700000000,
+  CreateTreatmentApplications1802800000000,
+  CreateWelfareAssessments1802900000000,
+  CreateEscapeIncidents1803000000000,
+  CreateSlaughterFacilities1803450000000,
 ] as const;

@@ -60,40 +60,54 @@ export interface LusetellingPayload {
   fastsittendeLus: number;
 }
 
+export const STYRKE_ENHETER = [
+  'MILLIGRAM_PER_GRAM',
+  'MILLIGRAM_PER_MILLILITER',
+  'GRAM_PER_KILO',
+  'MILLIGRAM_PER_KILO',
+  'PROSENT',
+] as const;
+export type StyrkeEnhetPayload = (typeof STYRKE_ENHETER)[number];
+
 export interface VirkestoffStyrkePayload {
   verdi: number;
-  enhet:
-    | 'MILLIGRAM_PER_GRAM'
-    | 'MILLIGRAM_PER_MILLILITER'
-    | 'GRAM_PER_KILO'
-    | 'MILLIGRAM_PER_KILO'
-    | 'PROSENT';
+  enhet: StyrkeEnhetPayload;
 }
+
+export const MENGDE_ENHETER = ['GRAM', 'KILO', 'TONN', 'LITER'] as const;
+export type MengdeEnhetPayload = (typeof MENGDE_ENHETER)[number];
 
 export interface VirkestoffMengdePayload {
   verdi: number;
-  enhet: 'GRAM' | 'KILO' | 'TONN' | 'LITER';
+  enhet: MengdeEnhetPayload;
 }
 
-// Enum types aligned with official API
-export type VirkestoffTypePayload =
-  | 'AZAMETHIPHOS'
-  | 'CYPERMETHRIN'
-  | 'DELTAMETHRIN'
-  | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID'
-  | 'DIFLUBENZURON'
-  | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON'
-  | 'ANNET_VIRKESTOFF';
+// Enum types aligned with official API. The runtime const arrays are the
+// SSoT — write-time validation (TreatmentApplicationService) and the wire
+// types derive from the SAME list, so they structurally cannot drift.
+export const VIRKESTOFF_TYPES = [
+  'AZAMETHIPHOS',
+  'CYPERMETHRIN',
+  'DELTAMETHRIN',
+  'IMIDAKLOPRID',
+  'HYDROGENPEROKSID',
+  'DIFLUBENZURON',
+  'EMAMECTIN_BENZOAT',
+  'TEFLUBENZURON',
+  'ANNET_VIRKESTOFF',
+] as const;
+export type VirkestoffTypePayload = (typeof VIRKESTOFF_TYPES)[number];
 
-export type IkkeMedikamentellTypePayload =
-  | 'TERMISK_BEHANDLING'
-  | 'MEKANISK_BEHANDLING'
-  | 'FERSKVANNSBEHANDLING'
-  | 'ANNEN_BEHANDLING';
+export const IKKE_MEDIKAMENTELL_TYPES = [
+  'TERMISK_BEHANDLING',
+  'MEKANISK_BEHANDLING',
+  'FERSKVANNSBEHANDLING',
+  'ANNEN_BEHANDLING',
+] as const;
+export type IkkeMedikamentellTypePayload = (typeof IKKE_MEDIKAMENTELL_TYPES)[number];
 
-export type MedikamentellTypePayload = 'FORBEHANDLING' | 'BADEBEHANDLING' | 'ANNEN_BEHANDLING';
+export const MEDIKAMENTELL_TYPES = ['FORBEHANDLING', 'BADEBEHANDLING', 'ANNEN_BEHANDLING'] as const;
+export type MedikamentellTypePayload = (typeof MEDIKAMENTELL_TYPES)[number];
 
 export type ResistensTypePayload =
   | 'AZAMETHIPHOS'

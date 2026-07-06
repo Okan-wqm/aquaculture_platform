@@ -1,16 +1,12 @@
 /**
  * Tenant AI (BYOK) provider settings — read + update.
  *
- * Tenant-scoped query keys via createTenantQueryKey (web/ CLAUDE.md: cross-tenant
- * cache leak otherwise). Backed by the ai-service federated subgraph; the update
- * invalidates the read so the masked key hint + enablement reflect immediately.
+ * Uses the useTenantQuery / useTenantMutation SSoT (tenant-scoped keys +
+ * invalidation are handled for you — web/ CLAUDE.md cross-tenant cache rule).
+ * Backed by the ai-service federated subgraph; the update invalidates the read
+ * so the masked key hint + enablement reflect immediately.
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  createTenantQueryKey,
-  createTenantInvalidationKey,
-  getTenantId,
-} from '@aquaculture/shared-ui';
+import { useTenantQuery, useTenantMutation } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../services/tenant-api.service';
 import {
   AI_PROVIDER_SETTINGS_QUERY,
@@ -47,37 +43,26 @@ export interface UpdateAiProviderSettingsInput {
   hourlyRequestLimit?: number;
 }
 
-const aiSettingsKey = (): readonly unknown[] =>
-  createTenantQueryKey(getTenantId(), 'aiProviderSettings');
+/** Domain key segments — the tenant prefix + epoch are added by useTenantQuery. */
+const AI_SETTINGS_SEGMENTS = ['aiProviderSettings'] as const;
 
 export function useAiProviderSettings() {
-  return useQuery({
-    queryKey: aiSettingsKey(),
-    queryFn: async () => {
-      const data = await graphqlRequest<{ aiProviderSettings: AiProviderSettings }>(
-        AI_PROVIDER_SETTINGS_QUERY,
-      );
-      return data.aiProviderSettings;
-    },
+  return useTenantQuery<AiProviderSettings>(AI_SETTINGS_SEGMENTS, async () => {
+    const data = await graphqlRequest<{ aiProviderSettings: AiProviderSettings }>(
+      AI_PROVIDER_SETTINGS_QUERY,
+    );
+    return data.aiProviderSettings;
   });
 }
 
 export function useUpdateAiProviderSettings() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: UpdateAiProviderSettingsInput) => {
+  return useTenantMutation<AiProviderSettings, Error, UpdateAiProviderSettingsInput>(
+    async (input) => {
       const data = await graphqlRequest<{
         updateAiProviderSettings: AiProviderSettings;
       }>(UPDATE_AI_PROVIDER_SETTINGS_MUTATION, { input });
       return data.updateAiProviderSettings;
     },
-    onSuccess: (updated) => {
-      // Seed the read cache with the fresh masked view, then invalidate so any
-      // other observer refetches the authoritative state.
-      queryClient.setQueryData(aiSettingsKey(), updated);
-      void queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(getTenantId(), 'aiProviderSettings'),
-      });
-    },
-  });
+    { invalidate: [AI_SETTINGS_SEGMENTS] },
+  );
 }

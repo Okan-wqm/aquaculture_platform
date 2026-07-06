@@ -44,6 +44,10 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   createBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   createBatchWaterQualityMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   createBiomassReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Biomass Altinn manual-submission state machine (RPT-001).
+  markBiomassReportReady: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  revertBiomassReportToDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  confirmBiomassReportSubmitted: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createChemical: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createCleanerFishBatch: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createConsumable: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],

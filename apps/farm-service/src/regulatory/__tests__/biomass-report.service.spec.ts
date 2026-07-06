@@ -8,6 +8,7 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { createMockRepository } from '@aquaculture/testing';
 
 import { BiomassReportService } from '../services/biomass-report.service';
 import {
@@ -216,4 +217,83 @@ describe('BiomassReportService', () => {
   // fail-closed read handlers (FARM-HIGH-060, #741). Their coverage — tenant
   // scoping, the composite-key lookup, and the [1,120] limit clamp — now lives
   // in biomass-report-read-handlers.spec.ts. createOrUpdate (the write) stays here.
+
+  describe('Altinn manual-submission state machine (RPT-001)', () => {
+    function row(status: BiomassReportStatus): BiomassReport {
+      return {
+        id: 'row-1',
+        tenantId,
+        siteId: '00000000-0000-4000-8000-000000000001',
+        reportMonth: 4,
+        reportYear: 2026,
+        status,
+        reportData: {} as BiomassReport['reportData'],
+        totalBiomassKg: '1.00',
+        generatedBy: userId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+
+    function serviceWith(existing: BiomassReport | null): {
+      service: BiomassReportService;
+      repo: jest.Mocked<Repository<BiomassReport>>;
+    } {
+      const repo = createMockRepository<BiomassReport>();
+      repo.findOne.mockResolvedValue(existing);
+      return { service: new BiomassReportService(repo), repo };
+    }
+
+    it('markReady: DRAFT → READY and stamps readyAt', async () => {
+      const { service } = serviceWith(row(BiomassReportStatus.DRAFT));
+      const result = await service.markReady(tenantId, 'row-1', userId);
+      expect(result.status).toBe(BiomassReportStatus.READY);
+      expect(result.readyAt).toBeInstanceOf(Date);
+    });
+
+    it('markReady rejects a non-DRAFT report', async () => {
+      const { service, repo } = serviceWith(row(BiomassReportStatus.READY));
+      await expect(service.markReady(tenantId, 'row-1', userId)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('revertToDraft: READY → DRAFT and clears readyAt', async () => {
+      const ready = row(BiomassReportStatus.READY);
+      ready.readyAt = new Date();
+      const { service } = serviceWith(ready);
+      const result = await service.revertToDraft(tenantId, 'row-1');
+      expect(result.status).toBe(BiomassReportStatus.DRAFT);
+      expect(result.readyAt).toBeUndefined();
+    });
+
+    it('confirmSubmitted: READY → CONFIRMED_SUBMITTED with the Altinn reference', async () => {
+      const { service } = serviceWith(row(BiomassReportStatus.READY));
+      const result = await service.confirmSubmitted(tenantId, 'row-1', '  AR-42  ', userId);
+      expect(result.status).toBe(BiomassReportStatus.CONFIRMED_SUBMITTED);
+      expect(result.altinnReference).toBe('AR-42');
+      expect(result.confirmedBy).toBe(userId);
+      expect(result.submittedAt).toBeInstanceOf(Date);
+    });
+
+    it('confirmSubmitted rejects a non-READY report and an empty reference', async () => {
+      const draft = serviceWith(row(BiomassReportStatus.DRAFT));
+      await expect(draft.service.confirmSubmitted(tenantId, 'row-1', 'AR-1', userId)).rejects.toThrow(
+        BadRequestException,
+      );
+      const ready = serviceWith(row(BiomassReportStatus.READY));
+      await expect(ready.service.confirmSubmitted(tenantId, 'row-1', '   ', userId)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('createOrUpdate rejects editing a terminal CONFIRMED_SUBMITTED report', async () => {
+      const { service, repo } = serviceWith(row(BiomassReportStatus.CONFIRMED_SUBMITTED));
+      await expect(service.createOrUpdate(tenantId, makeInput(), userId)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -27,10 +27,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { NotFoundException } from '@nestjs/common';
+
 import {
   BiomassReport,
   BiomassReportPayload,
   BiomassReportStatus,
+  TERMINAL_BIOMASS_STATUSES,
 } from '../entities/biomass-report.entity';
 import { CreateBiomassReportInput } from '../dto/create-biomass-report.input';
 
@@ -57,11 +60,11 @@ export class BiomassReportService {
       },
     });
 
-    if (existing && existing.status === BiomassReportStatus.SUBMITTED) {
+    if (existing && TERMINAL_BIOMASS_STATUSES.has(existing.status)) {
       throw new BadRequestException(
         `Biomass report for site ${input.siteId} / ${input.reportYear}-` +
           `${input.reportMonth.toString().padStart(2, '0')} is already ` +
-          `SUBMITTED and cannot be edited. Start a correction flow if the ` +
+          `${existing.status} and cannot be edited. Start a correction flow if the ` +
           `period needs revision.`,
       );
     }
@@ -106,6 +109,82 @@ export class BiomassReportService {
         `(${input.reportYear}-${input.reportMonth}) — status=${saved.status}`,
     );
     return saved;
+  }
+
+  // ==========================================================================
+  // Altinn manual-submission state machine (RPT-001)
+  //
+  //   DRAFT ──markReady──▶ READY ──confirmSubmitted──▶ CONFIRMED_SUBMITTED (terminal)
+  //     ▲                    │
+  //     └──revertToDraft─────┘
+  //
+  // The biomass report is submitted to Fiskeridirektoratet MANUALLY via Altinn,
+  // so the platform never claims an electronic submission — CONFIRMED_SUBMITTED
+  // is reached ONLY when the operator confirms the Altinn receipt.
+  // ==========================================================================
+
+  /** DRAFT → READY: the report is reviewed and ready for the Altinn export. */
+  async markReady(tenantId: string, id: string, userId: string): Promise<BiomassReport> {
+    const report = await this.getOrThrow(tenantId, id);
+    if (report.status !== BiomassReportStatus.DRAFT) {
+      throw new BadRequestException(
+        `Biomass report ${id} is ${report.status}; only a DRAFT can be marked READY`,
+      );
+    }
+    report.status = BiomassReportStatus.READY;
+    report.readyAt = new Date();
+    report.generatedBy = userId;
+    return this.repo.save(report);
+  }
+
+  /** READY → DRAFT: reopen for editing / re-assembly before submission. */
+  async revertToDraft(tenantId: string, id: string): Promise<BiomassReport> {
+    const report = await this.getOrThrow(tenantId, id);
+    if (report.status !== BiomassReportStatus.READY) {
+      throw new BadRequestException(
+        `Biomass report ${id} is ${report.status}; only a READY report can revert to DRAFT`,
+      );
+    }
+    report.status = BiomassReportStatus.DRAFT;
+    report.readyAt = undefined;
+    return this.repo.save(report);
+  }
+
+  /**
+   * READY → CONFIRMED_SUBMITTED (terminal): the operator submitted the FD-0001
+   * form via Altinn and confirms it with the receipt reference. This is the ONLY
+   * path to a terminal biomass state under the honest channel model.
+   */
+  async confirmSubmitted(
+    tenantId: string,
+    id: string,
+    altinnReference: string,
+    userId: string,
+  ): Promise<BiomassReport> {
+    const report = await this.getOrThrow(tenantId, id);
+    if (report.status !== BiomassReportStatus.READY) {
+      throw new BadRequestException(
+        `Biomass report ${id} is ${report.status}; confirm the Altinn submission only from READY`,
+      );
+    }
+    const reference = altinnReference.trim();
+    if (!reference) {
+      throw new BadRequestException('An Altinn reference is required to confirm the submission');
+    }
+    report.status = BiomassReportStatus.CONFIRMED_SUBMITTED;
+    report.altinnReference = reference;
+    report.confirmedBy = userId;
+    report.submittedBy = userId;
+    report.submittedAt = new Date();
+    return this.repo.save(report);
+  }
+
+  private async getOrThrow(tenantId: string, id: string): Promise<BiomassReport> {
+    const report = await this.repo.findOne({ where: { id, tenantId } });
+    if (!report) {
+      throw new NotFoundException(`Biomass report ${id} not found`);
+    }
+    return report;
   }
 
   /**

@@ -38,6 +38,7 @@ import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-Creat
 import { CreateRegulatoryReportDrafts1803600000000 } from './1803600000000-CreateRegulatoryReportDrafts';
 import { AddRegulatoryReportRetryColumns1803700000000 } from './1803700000000-AddRegulatoryReportRetryColumns';
 import { AddReportDraftDeadlineNotifiedBucket1803750000000 } from './1803750000000-AddReportDraftDeadlineNotifiedBucket';
+import { ExtendBiomassReportStatusAltinnManual1804000000000 } from './1804000000000-ExtendBiomassReportStatusAltinnManual';
 
 /**
  * Canonical farm-service migration class list.
@@ -88,4 +89,5 @@ export const FARM_MIGRATIONS = [
   CreateRegulatoryReportDrafts1803600000000,
   AddRegulatoryReportRetryColumns1803700000000,
   AddReportDraftDeadlineNotifiedBucket1803750000000,
+  ExtendBiomassReportStatusAltinnManual1804000000000,
 ] as const;

@@ -59,6 +59,44 @@ export class BiomassReportResolver {
     return this.biomassReportService.createOrUpdate(tenantId, input, user.sub);
   }
 
+  @Mutation(() => BiomassReport, {
+    description: 'Mark a DRAFT biomass report READY for the manual Altinn (FD-0001) export.',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async markBiomassReportReady(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<BiomassReport> {
+    return this.biomassReportService.markReady(tenantId, id, user.sub);
+  }
+
+  @Mutation(() => BiomassReport, {
+    description: 'Reopen a READY biomass report back to DRAFT for editing.',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async revertBiomassReportToDraft(
+    @CurrentTenant() tenantId: string,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<BiomassReport> {
+    return this.biomassReportService.revertToDraft(tenantId, id);
+  }
+
+  @Mutation(() => BiomassReport, {
+    description:
+      'Confirm a READY biomass report was submitted to Fiskeridirektoratet via Altinn, ' +
+      'recording the Altinn receipt reference (terminal, immutable).',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async confirmBiomassReportSubmitted(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+    @Args('id', { type: () => ID }) id: string,
+    @Args('altinnReference') altinnReference: string,
+  ): Promise<BiomassReport> {
+    return this.biomassReportService.confirmSubmitted(tenantId, id, altinnReference, user.sub);
+  }
+
   @Query(() => BiomassReport, {
     nullable: true,
     description:

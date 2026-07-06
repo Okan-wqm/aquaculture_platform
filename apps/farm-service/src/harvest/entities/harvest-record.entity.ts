@@ -96,8 +96,16 @@ registerEnumType(QualityGrade, {
 /**
  * Norwegian official slaughter quality class (kvalitetsklasse) — the taxonomy
  * the Mattilsynet slakt report requires. This is the STORED regulatory truth
- * (RPT-007); `qualityGrade` above is the platform's 5-level display grade and
- * becomes a resolved alias, dropped in Phase 4.
+ * (RPT-007), the lossy 4-level projection of `qualityGrade` derived at write
+ * time.
+ *
+ * NOTE: `qualityGrade` (5-level) is NOT a droppable alias of this class. The
+ * grade→class map is lossy (PREMIUM and GRADE_A both collapse to SUPERIOR), so
+ * the class cannot reconstruct the grade. `qualityGrade` remains the operator-
+ * facing SOURCE and is load-bearing for display, harvest statistics (grouped by
+ * grade), filters, and the HarvestCompleted event contract. The Phase-4
+ * "DropHarvestQualityGrade" step is therefore CANCELLED — dropping the column
+ * would destroy the Premium/Grade-A distinction (see the plan's Phase 4 note).
  */
 export enum QualityClass {
   SUPERIOR = 'superior',
@@ -423,8 +431,9 @@ export class HarvestRecord {
 
   /**
    * Official Norwegian quality class — stored regulatory truth for the slakt
-   * report (RPT-007). Derived from qualityGrade at write time; the DB default
-   * only guards blue-green cutover inserts by not-yet-upgraded code.
+   * report (RPT-007), the lossy projection of qualityGrade derived at write
+   * time (see QualityClass docs). qualityGrade stays as the richer source; the
+   * DB default only guards blue-green cutover inserts by not-yet-upgraded code.
    */
   @Field(() => QualityClass)
   @Column({

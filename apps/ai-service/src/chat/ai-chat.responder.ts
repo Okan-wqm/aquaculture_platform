@@ -65,10 +65,13 @@ export class AiChatResponder {
   async handleChat(@Payload() payload: AiChatNatsRequest): Promise<AiChatNatsResponse> {
     const message = (payload.message ?? payload.content ?? '').trim();
     if (!payload.tenantId || !payload.userId || !message) {
+      // `content` carries a user-facing message so the messaging bridge (which
+      // posts response.content as the AI reply and does not inspect `error`)
+      // degrades gracefully; `error` lets the socket.io assistant emit ai:error.
       return {
-        content: '',
+        content: 'The AI request was missing required information.',
         conversationId: null,
-        metadata: null,
+        metadata: { errorCode: 'BAD_REQUEST' },
         error: { code: 'BAD_REQUEST', message: 'tenantId, userId and a message are required' },
       };
     }
@@ -112,15 +115,18 @@ export class AiChatResponder {
           }`,
         );
       }
+      const userFacing = isKeyMissing
+        ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
+        : 'The AI is temporarily unavailable. Please try again later.';
       return {
-        content: '',
+        // Non-empty so the messaging bridge posts a meaningful AI reply; `error`
+        // lets the socket.io assistant route the user to AI settings.
+        content: userFacing,
         conversationId: null,
-        metadata: null,
+        metadata: { errorCode: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL' },
         error: {
           code: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL',
-          message: isKeyMissing
-            ? 'No valid AI API key is configured for this tenant.'
-            : 'The AI request could not be completed.',
+          message: userFacing,
         },
       };
     }

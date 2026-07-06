@@ -72,9 +72,3 @@ export const SEND_MESSAGE_MUTATION = `
     sendMessage(input: $input) { ${MESSAGE_FIELDS} }
   }
 `;
-
-export const AVAILABLE_AI_PERSONAS_QUERY = `
-  query AvailableAiPersonas {
-    availableAiPersonas { id name description }
-  }
-`;

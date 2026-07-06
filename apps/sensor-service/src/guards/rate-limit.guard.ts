@@ -9,6 +9,7 @@ import {
   OnModuleDestroy,
   SetMetadata,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { Request, Response } from 'express';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -61,7 +62,7 @@ export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
   private readonly logger = new Logger(SimpleRateLimitGuard.name);
   private readonly distributedStore?: RateLimitStore;
   private readonly fallbackStore = new InMemoryRateLimitStore();
-  private readonly isProduction = process.env.NODE_ENV === 'production';
+  private readonly isProduction: boolean;
 
   // Default limits for public endpoints (conservative for security)
   private readonly defaultLimit = 10;
@@ -69,8 +70,10 @@ export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
 
   constructor(
     private readonly reflector: Reflector,
+    private readonly configService: ConfigService,
     @Optional() redisService?: RedisService,
   ) {
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     if (redisService) {
       this.distributedStore = new RedisRateLimitStore(redisService, 'sensor:ratelimit:');
     } else {

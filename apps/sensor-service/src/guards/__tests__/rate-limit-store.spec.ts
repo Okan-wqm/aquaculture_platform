@@ -26,11 +26,15 @@ const buildContext = (ip: string, path: string): ExecutionContext => {
 const reflectorFor = (config: RateLimitConfig): Reflector =>
   ({ getAllAndOverride: (key: string) => (key === RATE_LIMIT_KEY ? config : undefined) }) as never;
 
+// Non-production config (isProduction=false) so the dev fallback path is used
+// when no distributed store is healthy.
+const devConfig = { get: () => undefined } as never;
+
 describe('SimpleRateLimitGuard shared-store counting (SENSOR-LOW-008)', () => {
   it('rejects once the shared window exceeds the limit', async () => {
     // No RedisService => in-process fallback store; the counting contract is
     // identical to the Redis path.
-    const guard = new SimpleRateLimitGuard(reflectorFor({ limit: 2, windowMs: 60_000 }));
+    const guard = new SimpleRateLimitGuard(reflectorFor({ limit: 2, windowMs: 60_000 }), devConfig);
     const ctx = buildContext('1.2.3.4', '/install/EDGE-1');
 
     await expect(guard.canActivate(ctx)).resolves.toBe(true); // 1
@@ -54,6 +58,7 @@ describe('SimpleRateLimitGuard shared-store counting (SENSOR-LOW-008)', () => {
 
     const guard = new SimpleRateLimitGuard(
       reflectorFor({ limit: 1, windowMs: 60_000 }),
+      devConfig,
       redisService as never,
     );
     const ctx = buildContext('9.9.9.9', '/api/devices/activate');

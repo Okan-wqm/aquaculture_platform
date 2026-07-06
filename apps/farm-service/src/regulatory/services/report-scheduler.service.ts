@@ -10,7 +10,11 @@
  *                                   falls this week).
  *   - 1st 03:00  monthly rollover → SMOLT + CLEANER_FISH + BIOMASS for the
  *                                   previous month.
- *   - Daily 07:00 deadline sweep  → detect non-terminal drafts already due.
+ *   - Daily 07:00 deadline sweep  → raise an outbox reminder per draft whose
+ *                                   deadline bucket transitions (approaching →
+ *                                   due-soon → due → overdue).
+ *   - 30-minute retry sweep       → replay FAILED+TRANSIENT submissions.
+ *   After each rollover, READY drafts opted into auto-submit are transmitted.
  *
  * Fail-closed: a draft is created ONLY for a site that carries a
  * lokalitetsnummer (the regulator keys reports by lokalitet). A tenant with
@@ -29,10 +33,12 @@ import * as crypto from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { RegulatoryReportDeadlineApproachingEvent } from '@platform/event-contracts';
 
 import { ReportAssemblyService, ReportPrefillType } from '../assembly/report-assembly.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
@@ -44,8 +50,16 @@ import {
   RegulatoryDraftSubmissionService,
 } from './regulatory-draft-submission.service';
 import { isoWeekOf } from '../assembly/period.util';
-import { computeDueDate, osloDateString } from './report-deadlines';
-import { ReportDraftStatus } from '../entities/regulatory-report-draft.entity';
+import { computeDueDate, deadlineBucket, osloDaysUntil } from './report-deadlines';
+import {
+  RegulatoryReportDraft,
+  ReportDraftStatus,
+} from '../entities/regulatory-report-draft.entity';
+
+const TERMINAL_DRAFT_STATUSES: ReadonlySet<ReportDraftStatus> = new Set([
+  ReportDraftStatus.SUBMITTED,
+  ReportDraftStatus.DISMISSED,
+]);
 
 /** 'RPRT' in hex — the advisory-lock namespace for regulatory scheduling. */
 const ADVISORY_LOCK_NAMESPACE = 0x52505254;
@@ -65,14 +79,6 @@ export interface RolloverJob {
   month?: number;
 }
 
-export interface OverdueDraftRow {
-  id: string;
-  reportType: string;
-  siteId: string;
-  dueAt: string;
-  status: string;
-}
-
 @Injectable()
 export class ReportSchedulerService {
   private readonly logger = new Logger(ReportSchedulerService.name);
@@ -86,7 +92,7 @@ export class ReportSchedulerService {
     private readonly submissionService: RegulatorySubmissionService,
     private readonly draftService: RegulatoryReportDraftService,
     private readonly draftSubmissionService: RegulatoryDraftSubmissionService,
-    private readonly eventEmitter: EventEmitter2,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   // ==========================================================================
@@ -119,21 +125,9 @@ export class ReportSchedulerService {
 
   @Cron('0 7 * * *', { name: 'regulatory-deadline-sweep', timeZone: 'Europe/Oslo' })
   async deadlineSweep(now: Date = new Date()): Promise<void> {
-    await this.runJob('regulatory-deadline-sweep', async (tenantId) => {
-      const overdue = await this.sweepOverdueForTenant(tenantId, now);
-      if (overdue.length > 0) {
-        this.eventEmitter.emit('regulatory.deadline.overdue', {
-          tenantId,
-          count: overdue.length,
-          drafts: overdue,
-          detectedAt: osloDateString(now),
-        });
-        this.logger.warn(
-          `Tenant ${tenantId.slice(0, 8)}…: ${overdue.length} regulatory report(s) past due`,
-        );
-      }
-      return overdue.length;
-    });
+    await this.runJob('regulatory-deadline-sweep', (tenantId) =>
+      this.notifyDeadlinesForTenant(tenantId, now),
+    );
   }
 
   @Cron('*/30 * * * *', { name: 'regulatory-retry-sweep', timeZone: 'Europe/Oslo' })
@@ -265,21 +259,56 @@ export class ReportSchedulerService {
     });
   }
 
-  /** Non-terminal drafts whose deadline has passed (Oslo calendar date). */
-  async sweepOverdueForTenant(tenantId: string, now: Date): Promise<OverdueDraftRow[]> {
-    const today = osloDateString(now);
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.manager.query(
-        `SELECT id, "reportType", "siteId", "dueAt"::text AS "dueAt", status
-           FROM "regulatory_report_drafts"
-          WHERE "tenantId" = $1
-            AND "dueAt" IS NOT NULL
-            AND "dueAt" <= $2
-            AND status IN ('draft', 'ready', 'approved')
-          ORDER BY "dueAt" ASC`,
-        [tenantId, today],
-      );
-    });
+  /**
+   * Raise one outbox RegulatoryReportDeadlineApproachingEvent per non-terminal
+   * draft whose deadline bucket has CHANGED since the last reminder (APPROACHING
+   * → DUE_SOON → DUE → OVERDUE). The event enqueue and the draft's
+   * deadlineNotifiedBucket update commit in ONE transaction, so a reminder fires
+   * exactly once per transition (no reliance on catching the outbox unique-key
+   * violation). Returns the number of reminders raised this run.
+   */
+  async notifyDeadlinesForTenant(tenantId: string, now: Date): Promise<number> {
+    const drafts = await this.draftService.listDrafts(tenantId);
+    let notified = 0;
+    for (const draft of drafts) {
+      if (TERMINAL_DRAFT_STATUSES.has(draft.status) || !draft.dueAt) continue;
+      const bucket = deadlineBucket(draft.dueAt, now);
+      if (!bucket || bucket === draft.deadlineNotifiedBucket) continue;
+
+      const dueAt = draft.dueAt;
+      await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+        await queryRunner.manager.update(
+          RegulatoryReportDraft,
+          { id: draft.id, tenantId },
+          { deadlineNotifiedBucket: bucket },
+        );
+        const event: RegulatoryReportDeadlineApproachingEvent = {
+          ...createBaseEvent<RegulatoryReportDeadlineApproachingEvent>(
+            'RegulatoryReportDeadlineApproaching',
+            tenantId,
+            { aggregateId: draft.id, aggregateType: 'RegulatoryReportDraft' },
+          ),
+          draftId: draft.id,
+          reportType: draft.reportType,
+          siteId: draft.siteId,
+          reportYear: draft.periodYear,
+          reportWeek: draft.periodWeek,
+          reportMonth: draft.periodMonth,
+          dueAt,
+          bucket,
+          daysUntilDue: osloDaysUntil(dueAt, now),
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+          idempotencyKey: `deadline:${draft.id}:${bucket}`,
+          aggregateId: draft.id,
+        });
+      });
+      notified += 1;
+    }
+    if (notified > 0) {
+      this.logger.log(`Tenant ${tenantId.slice(0, 8)}…: raised ${notified} deadline reminder(s)`);
+    }
+    return notified;
   }
 
   /**

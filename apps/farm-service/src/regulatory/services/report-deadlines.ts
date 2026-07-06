@@ -121,3 +121,22 @@ export function osloDaysUntil(dueDate: string, now: Date): number {
   const dueMs = Date.parse(`${dueDate}T00:00:00Z`);
   return Math.round((dueMs - todayMs) / 86_400_000);
 }
+
+/** Deadline-reminder buckets, one outbox notification per transition. */
+export const DEADLINE_BUCKETS = ['APPROACHING', 'DUE_SOON', 'DUE', 'OVERDUE'] as const;
+export type DeadlineBucket = (typeof DEADLINE_BUCKETS)[number];
+
+/**
+ * Which reminder bucket a draft sits in for `now`, or null when its deadline is
+ * more than three Oslo-calendar days away (not yet worth a reminder). The daily
+ * sweep raises one event per bucket TRANSITION: APPROACHING (2–3 days out) →
+ * DUE_SOON (1 day) → DUE (today) → OVERDUE (past).
+ */
+export function deadlineBucket(dueDate: string, now: Date): DeadlineBucket | null {
+  const days = osloDaysUntil(dueDate, now);
+  if (days < 0) return 'OVERDUE';
+  if (days === 0) return 'DUE';
+  if (days === 1) return 'DUE_SOON';
+  if (days <= 3) return 'APPROACHING';
+  return null;
+}

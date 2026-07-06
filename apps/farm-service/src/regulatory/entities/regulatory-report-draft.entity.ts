@@ -118,6 +118,15 @@ export class RegulatoryReportDraft {
   @Column('uuid', { nullable: true })
   submittedReportId?: string;
 
+  /**
+   * Last deadline bucket an outbox reminder was raised for (RPT-003) — the
+   * sweep enqueues a RegulatoryReportDeadlineApproachingEvent only when the
+   * computed bucket differs, so a reminder fires once per bucket transition.
+   */
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  deadlineNotifiedBucket?: string | null;
+
   @Field(() => ID, { nullable: true })
   @Column('uuid', { nullable: true })
   approvedBy?: string;

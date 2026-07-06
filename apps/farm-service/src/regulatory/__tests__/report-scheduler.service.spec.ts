@@ -1,11 +1,12 @@
 /**
  * ReportSchedulerService — period math (previous ISO week / week+2 / previous
  * month), fail-closed on unmapped tenants, idempotent per-site assembly+upsert,
- * and the overdue sweep. The @Cron orchestration (advisory lock + tenant
- * discovery) is integration surface; here we drive the pure + per-tenant core.
+ * the deadline-reminder sweep, retry replay, and auto-submit. The @Cron
+ * orchestration (advisory lock + tenant discovery) is integration surface; here
+ * we drive the pure + per-tenant core.
  */
 import { DataSource, EntityManager } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OutboxPublisher } from '@platform/outbox';
 
 const runInTenantTransaction = jest.fn();
 
@@ -23,7 +24,10 @@ import { RegulatorySubmissionService } from '../services/regulatory-submission.s
 import { RegulatoryReportDraftService } from '../services/regulatory-report-draft.service';
 import { RegulatoryDraftSubmissionService } from '../services/regulatory-draft-submission.service';
 import { RegulatoryReport } from '../entities/regulatory-report.entity';
-import { RegulatoryReportDraft } from '../entities/regulatory-report-draft.entity';
+import {
+  RegulatoryReportDraft,
+  ReportDraftStatus,
+} from '../entities/regulatory-report-draft.entity';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
 const SITE = 'ssssssss-1111-4222-8333-444444444444';
@@ -32,17 +36,17 @@ function makeService(options: {
   mappings?: Record<string, number>;
   assembled?: { schemaValid: boolean };
   insertRows?: unknown[];
-  overdueRows?: unknown[];
   dueRetries?: RegulatoryReport[];
   resubmit?: jest.Mock;
   autoSubmitPolicies?: Record<string, boolean>;
-  readyDrafts?: RegulatoryReportDraft[];
+  drafts?: RegulatoryReportDraft[];
   approveAndSubmit?: jest.Mock;
 }): {
   service: ReportSchedulerService;
   assemble: jest.Mock;
   query: jest.Mock;
-  emit: jest.Mock;
+  update: jest.Mock;
+  enqueue: jest.Mock;
   listDueRetries: jest.Mock;
   resubmit: jest.Mock;
   listDrafts: jest.Mock;
@@ -57,17 +61,18 @@ function makeService(options: {
   const query = jest.fn((sql: string) => {
     if (sql.includes('INSERT INTO')) return Promise.resolve(options.insertRows ?? [{ id: 'd-1' }]);
     if (sql.includes('FROM "regulatory_report_drafts"')) {
-      return Promise.resolve(options.overdueRows ?? []);
+      return Promise.resolve([]);
     }
     return Promise.resolve([]);
   });
+  const update = jest.fn().mockResolvedValue({ affected: 1 });
   runInTenantTransaction.mockImplementation(
     async (
       _ds,
       _schema,
       _tenant,
       cb: (qr: { manager: Partial<EntityManager> }) => Promise<unknown>,
-    ) => cb({ manager: { query } as Partial<EntityManager> }),
+    ) => cb({ manager: { query, update } as Partial<EntityManager> }),
   );
   const assemblyService = { assemble } as Partial<ReportAssemblyService> as ReportAssemblyService;
   const settingsService = {
@@ -76,8 +81,8 @@ function makeService(options: {
       .fn()
       .mockResolvedValue({ autoSubmitPolicies: options.autoSubmitPolicies ?? {} }),
   } as Partial<RegulatorySettingsService> as RegulatorySettingsService;
-  const emit = jest.fn();
-  const eventEmitter = { emit } as Partial<EventEmitter2> as EventEmitter2;
+  const enqueue = jest.fn().mockResolvedValue(undefined);
+  const outboxPublisher = { enqueue } as Partial<OutboxPublisher> as OutboxPublisher;
 
   const listDueRetries = jest.fn().mockResolvedValue(options.dueRetries ?? []);
   const reportStore = {
@@ -88,7 +93,7 @@ function makeService(options: {
     resubmit,
   } as Partial<RegulatorySubmissionService> as RegulatorySubmissionService;
 
-  const listDrafts = jest.fn().mockResolvedValue(options.readyDrafts ?? []);
+  const listDrafts = jest.fn().mockResolvedValue(options.drafts ?? []);
   const draftService = {
     listDrafts,
   } as Partial<RegulatoryReportDraftService> as RegulatoryReportDraftService;
@@ -106,9 +111,19 @@ function makeService(options: {
     submissionService,
     draftService,
     draftSubmissionService,
-    eventEmitter,
+    outboxPublisher,
   );
-  return { service, assemble, query, emit, listDueRetries, resubmit, listDrafts, approveAndSubmit };
+  return {
+    service,
+    assemble,
+    query,
+    update,
+    enqueue,
+    listDueRetries,
+    resubmit,
+    listDrafts,
+    approveAndSubmit,
+  };
 }
 
 describe('ReportSchedulerService period math', () => {
@@ -195,20 +210,79 @@ describe('ReportSchedulerService.rolloverForTenant', () => {
   });
 });
 
-describe('ReportSchedulerService.sweepOverdueForTenant', () => {
-  it('returns the tenant overdue drafts queried against the Oslo date', async () => {
-    const overdue = [
-      { id: 'd-1', reportType: 'SEA_LICE', siteId: SITE, dueAt: '2026-07-05', status: 'draft' },
-    ];
-    const { service, query } = makeService({ overdueRows: overdue });
+describe('ReportSchedulerService.notifyDeadlinesForTenant', () => {
+  const NOW = new Date('2026-07-06T09:00:00Z'); // Oslo 2026-07-06
 
-    const rows = await service.sweepOverdueForTenant(TENANT, new Date('2026-07-06T22:30:00Z'));
+  function draft(over: Partial<RegulatoryReportDraft>): RegulatoryReportDraft {
+    const d = new RegulatoryReportDraft();
+    d.id = 'd-1';
+    d.tenantId = TENANT;
+    d.reportType = ReportPrefillType.SEA_LICE;
+    d.siteId = SITE;
+    d.periodYear = 2026;
+    d.periodWeek = 27;
+    d.status = ReportDraftStatus.READY;
+    Object.assign(d, over);
+    return d;
+  }
 
-    expect(rows).toEqual(overdue);
-    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
-    expect(sql).toContain("status IN ('draft', 'ready', 'approved')");
-    // 2026-07-06T22:30Z is already 2026-07-07 in Oslo.
-    expect(params[1]).toBe('2026-07-07');
+  it('raises an outbox event + records the bucket when the deadline bucket transitions', async () => {
+    const { service, enqueue, update } = makeService({
+      // Due 2026-07-07 → 1 day out → DUE_SOON; never notified before.
+      drafts: [draft({ dueAt: '2026-07-07', deadlineNotifiedBucket: undefined })],
+    });
+
+    const notified = await service.notifyDeadlinesForTenant(TENANT, NOW);
+
+    expect(notified).toBe(1);
+    expect(update).toHaveBeenCalledWith(
+      RegulatoryReportDraft,
+      { id: 'd-1', tenantId: TENANT },
+      { deadlineNotifiedBucket: 'DUE_SOON' },
+    );
+    const [event, , opts] = enqueue.mock.calls[0];
+    expect(event.eventType).toBe('RegulatoryReportDeadlineApproaching');
+    expect(event.bucket).toBe('DUE_SOON');
+    expect(event.daysUntilDue).toBe(1);
+    expect(opts.idempotencyKey).toBe('deadline:d-1:DUE_SOON');
+  });
+
+  it('does not re-notify when the bucket is unchanged', async () => {
+    const { service, enqueue } = makeService({
+      drafts: [draft({ dueAt: '2026-07-07', deadlineNotifiedBucket: 'DUE_SOON' })],
+    });
+
+    const notified = await service.notifyDeadlinesForTenant(TENANT, NOW);
+
+    expect(notified).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('skips terminal and undated drafts, and drafts more than 3 days out', async () => {
+    const { service, enqueue } = makeService({
+      drafts: [
+        draft({ id: 'd-submitted', dueAt: '2026-07-07', status: ReportDraftStatus.SUBMITTED }),
+        draft({ id: 'd-dismissed', dueAt: '2026-07-07', status: ReportDraftStatus.DISMISSED }),
+        draft({ id: 'd-undated', dueAt: undefined }),
+        draft({ id: 'd-far', dueAt: '2026-07-20' }), // >3 days → no bucket
+      ],
+    });
+
+    const notified = await service.notifyDeadlinesForTenant(TENANT, NOW);
+
+    expect(notified).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('raises OVERDUE for a past deadline', async () => {
+    const { service, enqueue } = makeService({
+      drafts: [draft({ dueAt: '2026-07-04', deadlineNotifiedBucket: 'DUE' })],
+    });
+
+    const notified = await service.notifyDeadlinesForTenant(TENANT, NOW);
+
+    expect(notified).toBe(1);
+    expect(enqueue.mock.calls[0][0].bucket).toBe('OVERDUE');
   });
 });
 
@@ -280,7 +354,7 @@ describe('ReportSchedulerService.autoSubmitForTenant', () => {
     const approveAndSubmit = jest.fn().mockResolvedValue({ success: true });
     const { service, listDrafts } = makeService({
       autoSubmitPolicies: { SEA_LICE: true, SMOLT: false },
-      readyDrafts: [
+      drafts: [
         readyDraft('d-lice', ReportPrefillType.SEA_LICE),
         readyDraft('d-smolt', ReportPrefillType.SMOLT),
       ],
@@ -316,7 +390,7 @@ describe('ReportSchedulerService.autoSubmitForTenant', () => {
       .mockResolvedValueOnce({ success: true });
     const { service } = makeService({
       autoSubmitPolicies: { SEA_LICE: true },
-      readyDrafts: [
+      drafts: [
         readyDraft('d-1', ReportPrefillType.SEA_LICE),
         readyDraft('d-2', ReportPrefillType.SEA_LICE),
       ],

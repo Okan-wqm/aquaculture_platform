@@ -1343,6 +1343,30 @@ export interface RegulatoryReportSubmissionFailedEvent extends BaseEvent {
 }
 
 /**
+ * A scheduled regulatory report draft is approaching (or past) its official
+ * Mattilsynet deadline (RPT-003). Raised by the daily deadline sweep once per
+ * bucket transition (APPROACHING → DUE_SOON → DUE → OVERDUE), deduped by the
+ * draft's deadlineNotifiedBucket + the outbox idempotencyKey
+ * `deadline:{draftId}:{bucket}`. Consumed by notification-service to remind the
+ * operator to review + approve the draft before the deadline.
+ */
+export interface RegulatoryReportDeadlineApproachingEvent extends BaseEvent {
+  eventType: 'RegulatoryReportDeadlineApproaching';
+  draftId: string;
+  reportType: string;
+  siteId: string;
+  reportYear: number;
+  reportWeek?: number;
+  reportMonth?: number;
+  /** Official deadline (Oslo calendar date, ISO yyyy-mm-dd). */
+  dueAt: string;
+  /** APPROACHING | DUE_SOON | DUE | OVERDUE. */
+  bucket: string;
+  /** Whole Oslo-calendar days until the deadline (negative when overdue). */
+  daysUntilDue: number;
+}
+
+/**
  * Tank cleared — emitted when a final harvest empties the last batch out of a
  * tank, so the tank is now free for re-stocking. A dashboard/read-model signal:
  * consumed by the gateway FarmNatsBridge and broadcast into the tenant room so
@@ -1448,5 +1472,6 @@ export type FarmEvent =
   | MortalityAlertRaisedEvent
   | HarvestRegulatoryRecordedEvent
   | RegulatoryReportSubmissionFailedEvent
+  | RegulatoryReportDeadlineApproachingEvent
   | TankClearedEvent
   | BatchProductionCompletedEvent;

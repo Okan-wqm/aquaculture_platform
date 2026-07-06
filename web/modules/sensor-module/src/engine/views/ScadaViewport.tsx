@@ -13,6 +13,7 @@ import type { ScreenDef } from '../../store/scada/types';
 import type { AnimationRule } from '../animation/types';
 import { WidgetRenderer } from '../../components/scada-builder/WidgetRenderer';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+import { getWidgetTagBinding } from '../tags';
 
 /* ------------------------------------------------------------------ */
 /*  Variable resolution helpers                                        */
@@ -113,11 +114,10 @@ const ScadaViewport: React.FC<ScadaViewportProps> = ({
     <div style={wrapperStyle}>
       <div style={innerStyle}>
         {screen.widgets.map((widget) => {
-          // Resolve config tags via variable mapping
+          // Resolve config tags via variable mapping, then read the binding
+          // through the shared accessor (config.tagRef → legacy keys).
           const resolvedCfg = resolveConfig(widget.config, variableMap);
-          const tagName = (resolvedCfg.tagName ?? resolvedCfg.tag) as
-            | string
-            | undefined;
+          const tagName = getWidgetTagBinding(resolvedCfg);
           const liveValue = tagName ? tagValues[tagName] : undefined;
 
           // Resolve animation rule tagNames via variable mapping

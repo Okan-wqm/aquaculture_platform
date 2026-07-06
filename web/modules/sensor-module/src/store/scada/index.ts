@@ -1,5 +1,5 @@
 // Store hooks
-export { useScadaStore, useScadaPackageStore, createScadaStore } from './createScadaStore';
+export { useScadaPackageStore, createScadaStore } from './createScadaStore';
 
 // All types
 export type {

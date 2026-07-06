@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useScadaStore } from '../store/scada';
+import { useScadaPackageStore } from '../store/scada';
 
 interface UseScadaKeyboardShortcutsOptions {
   /** Called when Ctrl+S is pressed. The hook prevents default browser save. */
@@ -27,7 +27,7 @@ export function useScadaKeyboardShortcuts(
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
 
-    const s = useScadaStore.getState();
+    const s = useScadaPackageStore.getState();
 
     // Ctrl+S — Save
     if (mod && key === 's') {

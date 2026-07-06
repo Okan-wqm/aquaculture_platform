@@ -458,9 +458,9 @@ describe('AnimationsPanel renders new animation types', () => {
   // several dependencies (TagBrowser, store). For isolation, we verify
   // the exported constants by importing and checking the options.
   //
-  // NOTE: If the project has module mocks for TagBrowser/store, a full
-  // render test can be added later. For now, the dropdown options are
-  // validated by the animation engine integration above.
+  // NOTE: A full render test requires module mocks for TagBrowser/store;
+  // until those exist, the dropdown options are validated through the
+  // animation engine integration above.
 
   it('opacity type is recognized by the animation engine', () => {
     const rules: AnimationRule[] = [
@@ -511,7 +511,7 @@ describe('AnimationsPanel renders new animation types', () => {
 
 describe('EventsPanel new action types', () => {
   // Verify that the new action types work end-to-end at the handler level.
-  // Full UI render tests would require mocking useScadaStore and TagBrowser.
+  // Full UI render tests would require mocking useScadaPackageStore and TagBrowser.
 
   it('setProperty action type exists in EventAction union', () => {
     // TypeScript compilation validates the union, but we also verify

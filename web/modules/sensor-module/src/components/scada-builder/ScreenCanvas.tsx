@@ -32,9 +32,10 @@ import { ReactFlow,
 import '@xyflow/react/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import type { ConnectionPointKey } from '../../types/scada-widget.types';
-import { useScadaDataOptional } from '../../context/ScadaDataProvider';
+import { useRealtimeData } from '../../hooks/useRealtimeData';
+import { getWidgetTagBinding } from '../../engine/tags';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import type { ScadaWidgetNodeData, ScadaWidgetType } from '../../types/scada-widget.types';
 import type { ScadaEdge, ScadaEdgeType } from '../../types/scada-edge.types';
@@ -68,6 +69,8 @@ const nodeTypes = { scadaWidget: ScadaWidgetNode };
 
 const EMPTY_WIDGETS: ScreenWidget[] = [];
 const EMPTY_EDGES: ScadaEdge[] = [];
+/** Stable empty tag-id list so edit mode subscribes to nothing without a new array each render. */
+const EMPTY_TAG_IDS: string[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  Helper: generate unique ID                                         */
@@ -112,11 +115,9 @@ const ANIMATED_EDGE_CSS = `
 
 interface CanvasInnerProps {
   isPreview?: boolean;
-  /** Device code for live data lookups in preview mode */
-  deviceCode?: string | null;
 }
 
-const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode }) => {
+const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const rfInstance = useReactFlow();
 
   // Track whether we're currently syncing FROM store to prevent loops
@@ -203,8 +204,22 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
   const widgets = activeScreen?.widgets ?? EMPTY_WIDGETS;
   const storeEdges = activeScreen?.edges ?? EMPTY_EDGES;
 
-  // Live data context (only available when ScadaDataProvider is mounted in preview mode)
-  const scadaData = useScadaDataOptional();
+  // Live data — canonical Layer-B path (single data plane): the same
+  // IDataProvider / useRealtimeData chain the operator runtime uses, keyed
+  // by the device-local tag id `getWidgetTagBinding` yields. StableModeProvider
+  // mounts the matching DataProviderRoot (simulation in edit/simulation modes,
+  // live in preview). Only subscribe while previewing/simulating so edit mode
+  // opens no socket.
+  const liveTagIds = useMemo(
+    () =>
+      isPreview
+        ? widgets
+            .map((w) => getWidgetTagBinding(w.config))
+            .filter((t): t is string => typeof t === 'string' && t.length > 0)
+        : EMPTY_TAG_IDS,
+    [isPreview, widgets],
+  );
+  const { values: liveValues } = useRealtimeData(liveTagIds);
 
   // Keep a ref of last active screen to detect transitions
   const prevScreenIdRef = useRef(activeScreenId);
@@ -252,11 +267,13 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
     // Widgets with visible === undefined or true are shown.
     return widgets.filter((w) => w.visible !== false).map((w) => {
       const px = gridToPixel(w.position);
-      // Resolve live tag value in preview mode
-      const tagName = (w.config?.tagName || w.config?.tag) as string | undefined;
+      // Resolve live tag value in preview/simulation mode — single binding
+      // accessor (config.tagRef → legacy keys) shared with the operator
+      // runtime, indexed into the Layer-B values map by the same key.
+      const tagName = getWidgetTagBinding(w.config);
       let liveValue: number | string | boolean | undefined;
-      if (isPreview && scadaData && deviceCode && tagName) {
-        const rawValue = scadaData.getTagValue(deviceCode, tagName);
+      if (isPreview && tagName) {
+        const rawValue = liveValues[tagName]?.value;
         liveValue =
           typeof rawValue === 'string' ||
           typeof rawValue === 'number' ||
@@ -289,7 +306,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
       };
     });
      
-  }, [widgets, activeScreenId, handleWidgetResize, isPreview, scadaData, deviceCode]);
+  }, [widgets, activeScreenId, handleWidgetResize, isPreview, liveValues]);
 
   /**
    * Convert store edges to ReactFlow edges.
@@ -1043,15 +1060,13 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
 
 interface ScreenCanvasProps {
   isPreview?: boolean;
-  /** Device code for live data lookups in preview mode */
-  deviceCode?: string | null;
 }
 
-export const ScreenCanvas: React.FC<ScreenCanvasProps> = ({ isPreview, deviceCode }) => {
+export const ScreenCanvas: React.FC<ScreenCanvasProps> = ({ isPreview }) => {
   return (
     <ScadaRuntime>
       <ReactFlowProvider>
-        <CanvasInner isPreview={isPreview} deviceCode={deviceCode} />
+        <CanvasInner isPreview={isPreview} />
       </ReactFlowProvider>
       <OverlayStack />
     </ScadaRuntime>

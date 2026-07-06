@@ -162,6 +162,7 @@ services:
       - "events.*.AutomationProgramDeployed"
       - "events.*.AutomationProgramSaved"
       - "events.*.AutomationTagsUpdated"
+      - "events.*.DeployBundleRequested"
       - "events.*.EdgeDeviceAlarm"
       - "events.*.EdgeDeviceHeartbeat"
       - "events.*.EdgeDeviceIoData"

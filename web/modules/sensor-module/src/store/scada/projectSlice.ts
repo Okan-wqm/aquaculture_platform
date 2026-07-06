@@ -21,6 +21,7 @@ import {
   DEFAULT_TREND_CONFIG,
 } from './types';
 import type { WidgetPosition } from './types';
+import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
 
 export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) => ({
   // State
@@ -221,6 +222,9 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
     const state = get();
     return {
       meta: {
+        // Versioned document contract (ScadaPackageDocV2 in
+        // @platform/sensor-contracts); loadFromJSON upcasts older docs.
+        schemaVersion: 2,
         version: 1,
         packageName: state.packageName,
         processId: state.processId,
@@ -241,14 +245,20 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
           widgetType: w.widgetType,
           position: w.position,
           config: w.config,
+          ...(w.name != null ? { name: w.name } : {}),
           ...(w.groupId != null ? { groupId: w.groupId } : {}),
           ...(w.locked ? { locked: w.locked } : {}),
+          ...(w.visible != null ? { visible: w.visible } : {}),
+          ...(w.zIndex != null && w.zIndex !== 0 ? { zIndex: w.zIndex } : {}),
+          ...(w.permissions != null ? { permissions: w.permissions } : {}),
           ...(w.animations && w.animations.length > 0 ? { animations: w.animations } : {}),
           ...(w.events && w.events.length > 0 ? { events: w.events } : {}),
         })),
         ...(s.edges.length > 0 ? { edges: s.edges } : {}),
         ...(s.parentId != null ? { parentId: s.parentId } : {}),
         ...(s.sortOrder != null && s.sortOrder !== 0 ? { sortOrder: s.sortOrder } : {}),
+        ...(s.backgroundImage != null ? { backgroundImage: s.backgroundImage } : {}),
+        ...(s.backgroundOpacity != null ? { backgroundOpacity: s.backgroundOpacity } : {}),
       })),
       alarmRules: state.alarmRules.map((r) => ({
         id: r.id,
@@ -271,7 +281,12 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
   //  Serialization — Import
   // ----------------------------------------------------------------
 
-  loadFromJSON: (json) => {
+  loadFromJSON: (rawJson) => {
+    // Upcast every incoming document to the current V2 contract (legacy
+    // tagName/tag/tagId widget bindings gain a canonical config.tagRef;
+    // full refs adopt without device context, device-local names promote
+    // once the backend supplies deviceCode in later phases).
+    const json = upcastScadaPackageDoc(rawJson) as ScadaPackageJSON;
     const screens: ScreenDef[] = (json.screens || []).map((s: ScreenJSON) => ({
       id: s.id || generateId(),
       name: s.name || 'Unnamed',
@@ -284,8 +299,12 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
         widgetType: normalizeWidgetType(w.widgetType || 'unknown'),
         position: (w.position as WidgetPosition) || { col: 0, row: 0, w: 2, h: 2 },
         config: (w.config || {}) as Record<string, unknown>,
+        ...(w.name != null ? { name: w.name } : {}),
         groupId: w.groupId ?? null,
         locked: w.locked ?? false,
+        ...(w.visible != null ? { visible: w.visible } : {}),
+        ...(w.zIndex != null ? { zIndex: w.zIndex } : {}),
+        ...(w.permissions != null ? { permissions: w.permissions } : {}),
         animations: w.animations,
         events: w.events,
       })),
@@ -309,6 +328,8 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
         })),
       parentId: s.parentId ?? null,
       sortOrder: s.sortOrder ?? 0,
+      ...(s.backgroundImage != null ? { backgroundImage: s.backgroundImage } : {}),
+      ...(s.backgroundOpacity != null ? { backgroundOpacity: s.backgroundOpacity } : {}),
     }));
 
     const alarmRules: AlarmRuleDef[] = (json.alarmRules || []).map((r: AlarmRuleJSON) => ({

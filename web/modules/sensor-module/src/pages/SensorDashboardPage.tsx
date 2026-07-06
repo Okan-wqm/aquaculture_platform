@@ -23,7 +23,7 @@ import {
   Loader2,
 } from 'lucide-react';
 
-import { useScadaStore } from '../store/scadaStore';
+import { useScadaViewerStore } from '../store/scadaViewerStore';
 import { useSensorReadings } from '../hooks/useSensorReadings';
 import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
@@ -82,7 +82,7 @@ const SensorDashboardPage: React.FC = () => {
   // ============================================
 
   // 1. Store hooks
-  const { isLiveMode, setIsLiveMode, lastUpdate, selectedProcess } = useScadaStore();
+  const { isLiveMode, setIsLiveMode, lastUpdate, selectedProcess } = useScadaViewerStore();
 
   // 2. State hooks
   const [refreshInterval, setRefreshInterval] = useState(10000);

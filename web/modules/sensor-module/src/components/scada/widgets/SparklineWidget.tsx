@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { SensorReading, SensorStatus } from '../../../store/scadaStore';
+import { SensorReading, SensorStatus } from '../../../store/scadaViewerStore';
 
 interface SparklineWidgetProps {
   reading: SensorReading;

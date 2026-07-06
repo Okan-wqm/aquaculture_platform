@@ -90,6 +90,24 @@ export interface LoRaDeviceEventEvent extends BaseEvent {
   devAddr?: string;
 }
 
+/**
+ * Deploy Bundle Requested Event (enterprise plan Faz 5)
+ *
+ * Enqueued TRANSACTIONALLY (via @platform/outbox) together with the
+ * `release_bundles` PENDING row by the bundle builder, and consumed by
+ * sensor-service's own DeployBundleDispatcherService which publishes the
+ * `deploy_bundle` MQTT command to the device. The outbox relay's
+ * at-least-once delivery means a crash between DB commit and broker
+ * publish can never lose (or double-apply — the edge dedupes on
+ * commandId) a bundle dispatch.
+ */
+export interface DeployBundleRequestedEvent extends BaseEvent {
+  eventType: 'DeployBundleRequested';
+  bundleId: string;
+  deviceId: string;
+  commandId: string;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -101,4 +119,5 @@ export type EdgeDeviceEvent =
   | EdgeDeviceIoDataEvent
   | EdgeDeviceAlarmEvent
   | IoConfigPushResultEvent
-  | LoRaDeviceEventEvent;
+  | LoRaDeviceEventEvent
+  | DeployBundleRequestedEvent;

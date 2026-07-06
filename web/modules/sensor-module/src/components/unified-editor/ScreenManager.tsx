@@ -7,9 +7,10 @@
  * - PostMessage communication with the canvas iframe for node visibility
  */
 
+import { CANVAS_SOURCE, HOST_SOURCE } from '../../canvas-contract';
 import React, { useCallback, useEffect, useRef } from 'react';
 import ScreenTabBar from '../scada-builder/ScreenTabBar';
-import { useScadaPackageStore, ScreenViewport } from '../../store/scadaPackageStore';
+import { useScadaPackageStore, ScreenViewport } from '../../store/scada';
 
 interface ScreenManagerProps {
   /** Ref to the canvas iframe for sending postMessage */
@@ -33,7 +34,7 @@ const ScreenManager: React.FC<ScreenManagerProps> = ({ iframeRef, isCanvasReady 
     (type: string, data?: unknown) => {
       if (iframeRef.current?.contentWindow) {
         iframeRef.current.contentWindow.postMessage(
-          { type, data, source: 'process-editor-host' },
+          { type, data, source: HOST_SOURCE },
           window.location.origin,
         );
       }
@@ -65,7 +66,7 @@ const ScreenManager: React.FC<ScreenManagerProps> = ({ iframeRef, isCanvasReady 
       const handler = (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
         const msg = event.data || {};
-        if (msg.source === 'process-editor-canvas' && msg.type === 'viewportState') {
+        if (msg.source === CANVAS_SOURCE && msg.type === 'viewportState') {
           const vp = msg.data as ScreenViewport;
           if (vp) saveScreenViewport(prevId, vp);
           controller.abort();

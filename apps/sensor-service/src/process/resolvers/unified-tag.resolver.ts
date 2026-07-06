@@ -8,14 +8,19 @@ import {
   UnifiedTagType,
   UnifiedTagListType,
   TagDiscoveryResultType,
+  TagResolutionResultType,
 } from '../dto/unified-tag.dto';
 import { ProcessPaginationInput } from '../dto/process.dto';
 import { UnifiedTag } from '../entities/unified-tag.entity';
 import { UnifiedTagService } from '../services/unified-tag.service';
+import { TagResolutionService } from '../services/tag-resolution.service';
 
 @Resolver(() => UnifiedTagType)
 export class UnifiedTagResolver {
-  constructor(private readonly unifiedTagService: UnifiedTagService) {}
+  constructor(
+    private readonly unifiedTagService: UnifiedTagService,
+    private readonly tagResolutionService: TagResolutionService,
+  ) {}
 
   // ============================================================================
   // Queries
@@ -52,6 +57,32 @@ export class UnifiedTagResolver {
   ): Promise<UnifiedTagType[]> {
     const tags = await this.unifiedTagService.tagSearch(query, tenantId, limit);
     return tags.map((t) => this.mapToType(t));
+  }
+
+  /**
+   * Resolve canonical TagRefs (`deviceCode/localName`) against the tag
+   * registry by exact FQN. Invalid grammar and unknown refs come back as
+   * structured `unresolved` entries — never a silent pass.
+   */
+  @Query(() => TagResolutionResultType, { name: 'resolveTagRefs' })
+  async resolveTagRefs(
+    @Args('refs', { type: () => [String] }) refs: string[],
+    @Tenant() tenantId: string = '',
+  ): Promise<TagResolutionResultType> {
+    const result = await this.tagResolutionService.resolve(tenantId, refs);
+    return {
+      resolved: result.resolved.map((binding) => ({
+        ref: binding.ref,
+        unifiedTagId: binding.unifiedTagId,
+        ioType: binding.ioType,
+        dataType: binding.dataType,
+        direction: binding.direction,
+        engUnit: binding.engUnit,
+        source: binding.source as Record<string, unknown>,
+        revision: binding.revision,
+      })),
+      unresolved: result.unresolved.map((entry) => ({ ...entry })),
+    };
   }
 
   // ============================================================================
@@ -165,6 +196,8 @@ export class UnifiedTagResolver {
       deadband: tag.deadband,
       source: tag.source as Record<string, unknown>,
       hierarchy: tag.hierarchy as Record<string, unknown>,
+      status: tag.status,
+      revision: tag.revision,
       createdAt: tag.createdAt,
       updatedAt: tag.updatedAt,
     };

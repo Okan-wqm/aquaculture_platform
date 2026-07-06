@@ -20,6 +20,14 @@ import {
 } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
+import {
+  formatValidationErrors,
+  validateCommandEnvelope,
+  validateDeployProgramParams,
+} from '@platform/sensor-contracts/validators';
+
+import { ArtifactService } from '../deploy-artifact/artifact.service';
+import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
@@ -68,6 +76,19 @@ import {
  * Automation Service
  * Manages IEC 61131-3 compliant automation programs (SFC, ST, FBD, LD)
  */
+/**
+ * One program's contribution to a release bundle (Faz 5): the
+ * content-addressed artifact reference plus the deployment-log
+ * correlation id the bundle-ack fan-out resolves on CONFIRMED/FAILED.
+ */
+export interface ProgramBundleArtifact {
+  programId: string;
+  version: number;
+  logCommandId: string;
+  artifactId: string;
+  sha256: string;
+}
+
 @Injectable()
 export class AutomationService {
   private readonly logger = new Logger(AutomationService.name);
@@ -93,6 +114,8 @@ export class AutomationService {
     private readonly deploymentLogService: DeploymentLogService,
     @Optional()
     private readonly eventsPublisher: AutomationEventsPublisher,
+    @Optional()
+    private readonly artifactService: ArtifactService,
   ) {}
 
   // ============================================
@@ -690,12 +713,10 @@ export class AutomationService {
         throw new NotFoundException(`Program ${input.programId} not found`);
       }
 
-      // ProgramVariable has no tenantId column — scoping is inherited
-      // from the parent AutomationProgram row (validated above via the
-      // programId WHERE clause). See ORPHAN-DIC-001 for the broader
-      // architectural question about adding tenantId to child entities.
-      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
-      const varRepo = manager.getRepository(ProgramVariable);
+      // Tenant scoping is first-class on ProgramVariable (ORPHAN-DIC-001
+      // resolved for this entity): tenant_id is NOT NULL and the scoped
+      // repository injects it into every query and write.
+      const varRepo = tenantManagerRepo(manager, ProgramVariable, tenantId);
 
       // Check for duplicate variable name
       const existing = await varRepo.findOne({
@@ -706,6 +727,7 @@ export class AutomationService {
       }
 
       const variable = varRepo.create({
+        tenantId,
         programId: input.programId,
         varName: input.varName,
         displayName: input.displayName,
@@ -867,12 +889,10 @@ export class AutomationService {
       let updated = 0;
       let unchanged = 0;
 
-      // ProgramVariable has no tenantId column — scoping is inherited
-      // from the parent AutomationProgram row (validated above via the
-      // programId WHERE clause). See ORPHAN-DIC-001 for the broader
-      // architectural question about adding tenantId to child entities.
-      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
-      const varRepo = manager.getRepository(ProgramVariable);
+      // Tenant scoping is first-class on ProgramVariable (ORPHAN-DIC-001
+      // resolved for this entity): tenant_id is NOT NULL and the scoped
+      // repository injects it into every query and write.
+      const varRepo = tenantManagerRepo(manager, ProgramVariable, tenantId);
 
       // Process each incoming variable
       for (let i = 0; i < variables.length; i++) {
@@ -883,6 +903,7 @@ export class AutomationService {
         if (!ex) {
           // Missing: create new variable
           const newVar = varRepo.create({
+            tenantId,
             programId,
             varName: v.varName,
             dataType: v.dataType,
@@ -1200,6 +1221,7 @@ export class AutomationService {
         const newVariables = variables.map(variable => manager.create(ProgramVariable, {
           ...variable,
           id: undefined,
+          tenantId: savedProgram.tenantId,
           programId: savedProgram.id,
           createdAt: undefined,
           updatedAt: undefined,
@@ -1386,7 +1408,40 @@ export class AutomationService {
       }
     }
 
-    // 4. Create deployment log entry
+    // 3b. Publish-boundary contract validation (Faz 4): the RUST_ENGINE
+    // payload must match the canonical ProgramDefinition schema the agent
+    // is parity-tested against (other targets carry raw ST / setpoints).
+    if (deployCommand['command'] === 'deploy_program') {
+      if (!validateDeployProgramParams(deployCommand['params'])) {
+        throw new BadRequestException(
+          `deploy_program payload violates the canonical contract: ${formatValidationErrors(validateDeployProgramParams)}`,
+        );
+      }
+    }
+    if (!validateCommandEnvelope(deployCommand)) {
+      throw new BadRequestException(
+        `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
+      );
+    }
+
+    // 4. Content-addressed snapshot (Faz 3) + deployment log entry
+    let artifact = null;
+    if (this.artifactService) {
+      try {
+        artifact = await this.artifactService.snapshot(tenantId, {
+          artifactType: DeployArtifactType.AUTOMATION_PROGRAM,
+          content: deployCommand['params'] as Record<string, unknown>,
+          sourceEntityId: programId,
+          sourceEntityVersion: program.version,
+          createdBy: deployedBy,
+        });
+      } catch (snapshotError) {
+        this.logger.error(
+          `Failed to snapshot program artifact: ${(snapshotError as Error).message}`,
+        );
+      }
+    }
+
     if (this.deploymentLogService) {
       await this.deploymentLogService.createLog({
         tenantId,
@@ -1396,6 +1451,8 @@ export class AutomationService {
         version: program.version,
         edgeScript: deployCommand['params'] as Record<string, unknown>,
         deployedBy,
+        artifactId: artifact?.id,
+        checksumSha256: artifact?.contentSha256,
       });
     }
 
@@ -1446,6 +1503,97 @@ export class AutomationService {
         `Failed to send deployment command: ${(error as Error).message}`,
       );
     }
+  }
+
+  /**
+   * Prepare a RUST_ENGINE program for a release bundle (enterprise plan
+   * Faz 5): everything `deployProgram` does EXCEPT the MQTT publish —
+   * the bundle command carries the artifact instead. Guards, atomic
+   * version increment, contract validation, content-addressed snapshot,
+   * deployment log (own correlation id) and the DEPLOYING status
+   * transition are identical, so bundle-borne and single-command deploys
+   * stay indistinguishable to every downstream consumer.
+   */
+  async prepareProgramBundleArtifact(
+    programId: string,
+    deviceId: string,
+    tenantId: string,
+    deployedBy: string,
+  ): Promise<ProgramBundleArtifact> {
+    if (!this.artifactService) {
+      throw new BadRequestException(
+        'Artifact service not available — bundle deploys require the content-addressed store',
+      );
+    }
+
+    const program = await this.findByIdOrFail(programId, tenantId);
+    if (program.status !== ProgramStatus.APPROVED) {
+      throw new BadRequestException(
+        `Program must be APPROVED before deployment. Current status: ${program.status}`,
+      );
+    }
+    if (program.deployTarget && program.deployTarget !== DeployTarget.RUST_ENGINE) {
+      throw new BadRequestException(
+        `Program "${program.programName}" targets ${program.deployTarget} — only RUST_ENGINE programs can ride a release bundle`,
+      );
+    }
+
+    // Atomic version increment — same race guard as deployProgram.
+    await this.programRepo
+      .createQueryBuilder()
+      .update(AutomationProgram)
+      .set({ version: () => 'version + 1' })
+      .where('id = :id AND tenant_id = :tenantId', { id: programId, tenantId })
+      .execute();
+    const refreshedProgram = await this.findByIdOrFail(programId, tenantId);
+    program.version = refreshedProgram.version;
+
+    const edgeScript = await this.translateProgramToEdgeScript(program);
+    if (!validateDeployProgramParams(edgeScript)) {
+      throw new BadRequestException(
+        `deploy_program payload violates the canonical contract: ${formatValidationErrors(validateDeployProgramParams)}`,
+      );
+    }
+
+    const artifact = await this.artifactService.snapshot(tenantId, {
+      artifactType: DeployArtifactType.AUTOMATION_PROGRAM,
+      content: edgeScript,
+      sourceEntityId: programId,
+      sourceEntityVersion: program.version,
+      createdBy: deployedBy,
+    });
+
+    const logCommandId = randomUUID();
+    if (this.deploymentLogService) {
+      await this.deploymentLogService.createLog({
+        tenantId,
+        programId,
+        deviceId,
+        commandId: logCommandId,
+        version: program.version,
+        edgeScript,
+        deployedBy,
+        artifactId: artifact.id,
+        checksumSha256: artifact.contentSha256,
+      });
+      await this.deploymentLogService.markDeploying(logCommandId);
+    }
+
+    await this.programRepo.update(program.id, {
+      status: ProgramStatus.DEPLOYING,
+      deployedVersion: program.version,
+      deployedAt: new Date(),
+      deployedBy: deployedBy,
+      deviceId: deviceId,
+    });
+
+    return {
+      programId,
+      version: program.version,
+      logCommandId,
+      artifactId: artifact.id,
+      sha256: artifact.contentSha256,
+    };
   }
 
   /**
@@ -1519,10 +1667,21 @@ export class AutomationService {
    * catches shape errors at compile time.
    */
 
-  /** Mirrors sens-api-gateway FBParams (camelCase via serde rename_all). */
-  private static readonly KNOWN_FB_PARAMS = [
-    'ptMs', 'pv', 'kp', 'ki', 'kd', 'outMin', 'outMax',
-  ] as const;
+  /**
+   * FB parameter key map: SFC editor params (camelCase, left) → the
+   * agent's FBParams serde fields (snake_case, right — FBParams carries
+   * NO rename_all). Pinned by the sensor-contracts fixtures + the Rust
+   * contract_fixtures integration test.
+   */
+  private static readonly FB_PARAM_KEY_MAP: Readonly<Record<string, string>> = {
+    ptMs: 'pt_ms',
+    pv: 'pv',
+    kp: 'kp',
+    ki: 'ki',
+    kd: 'kd',
+    outMin: 'out_min',
+    outMax: 'out_max',
+  };
 
   /** IEC 61131-3 FB types supported by the Rust engine. */
   private static readonly SUPPORTED_FB_TYPES =
@@ -1644,7 +1803,12 @@ export class AutomationService {
         // the top-level conditions array stays empty.
         conditions: [],
         actions:   actions.length   > 0 ? actions   : [{ type: 'noop' }],
-        onError: [
+        // Wire key is snake_case: the agent's nested scripting types
+        // (ScriptDefinition/Trigger/Action/FBDefinition) carry NO serde
+        // rename_all — only the top-level ProgramDefinition is camelCase.
+        // Pinned by libs/sensor-contracts fixtures + the Rust
+        // contract_fixtures integration test.
+        on_error: [
           {
             type: 'alert',
             level: 'error',
@@ -1823,15 +1987,21 @@ export class AutomationService {
       const outputs = this.resolveWiringMap(rawParams['outputs'], varSourceMap);
 
       // Copy only known FB parameters to prevent unexpected keys from
-      // reaching the agent's serde deserialiser.
+      // reaching the agent's serde deserialiser, translating editor
+      // camelCase to the agent's snake_case FBParams fields.
       const fbParams: Record<string, unknown> = {};
-      for (const key of AutomationService.KNOWN_FB_PARAMS) {
-        if (rawParams[key] != null) {
-          fbParams[key] = rawParams[key];
+      for (const [editorKey, wireKey] of Object.entries(
+        AutomationService.FB_PARAM_KEY_MAP,
+      )) {
+        if (rawParams[editorKey] != null) {
+          fbParams[wireKey] = rawParams[editorKey];
         }
       }
 
-      fbMap.set(fbId, { id: fbId, fbType, params: fbParams, inputs, outputs });
+      // `fb_type` is a REQUIRED snake_case field on the agent's
+      // FBDefinition — emitting `fbType` made the whole program parse
+      // fail on the edge for any FB-carrying program.
+      fbMap.set(fbId, { id: fbId, fb_type: fbType, params: fbParams, inputs, outputs });
     }
 
     // --- Strategy 2: Regex fallback from ST code ---
@@ -1890,8 +2060,8 @@ export class AutomationService {
       // Default parameters based on FB type — users should migrate to
       // explicit CALL_FB StepActions for production-quality wiring.
       const defaultParams = fbType.startsWith('CT')
-        ? { pv: 10 }     // Counter preset value
-        : { ptMs: 1000 }; // Timer preset time (1s)
+        ? { pv: 10 }        // Counter preset value
+        : { pt_ms: 1000 };  // Timer preset time (1s) — agent FBParams field
 
       this.logger.debug(
         `Extracted FB "${instanceName}" (type=${fbType}) from ST code — ` +
@@ -1900,7 +2070,7 @@ export class AutomationService {
 
       fbMap.set(instanceName, {
         id: instanceName,
-        fbType,
+        fb_type: fbType,
         params: defaultParams,
         inputs: {},
         outputs: {},
@@ -1932,7 +2102,8 @@ export class AutomationService {
       if (t.conditionType === TransitionConditionType.TIMEOUT && t.timeoutMs) {
         triggers.push({
           type: 'interval',
-          intervalSecs: Math.max(1, Math.round(t.timeoutMs / 1000)),
+          // snake_case: Rust Trigger.interval_secs has no serde rename.
+          interval_secs: Math.max(1, Math.round(t.timeoutMs / 1000)),
         });
         continue;
       }
@@ -2122,7 +2293,8 @@ export class AutomationService {
         return this.translateAlarm(sa);
 
       case StepActionType.TIMER:
-        return { type: 'delay', delayMs: sa.durationMs || sa.delayMs || 1000 };
+        // snake_case: Rust Action.delay_ms has no serde rename.
+        return { type: 'delay', delay_ms: sa.durationMs || sa.delayMs || 1000 };
 
       case StepActionType.CUSTOM_ST:
         return this.translateCustomSt(sa, varSourceMap);

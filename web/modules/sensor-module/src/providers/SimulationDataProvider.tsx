@@ -15,7 +15,7 @@ import React, {
   useRef,
   type ReactNode,
 } from 'react';
-import { useScadaStore } from '../store/scada';
+import { useScadaPackageStore } from '../store/scada';
 import { DataProviderContext } from './DataProviderContext';
 import type {
   IDataProvider,
@@ -44,8 +44,8 @@ export function SimulationDataProviderInner({
   children,
 }: SimulationDataProviderInnerProps): React.ReactElement {
   // Fine-grained selector: re-render only when simTagValues reference changes.
-  const simTagValues = useScadaStore((s) => s.simTagValues);
-  const setSimTagValue = useScadaStore((s) => s.setSimTagValue);
+  const simTagValues = useScadaPackageStore((s) => s.simTagValues);
+  const setSimTagValue = useScadaPackageStore((s) => s.setSimTagValue);
 
   // Keep a ref to simTagValues so getTagValue reads the latest snapshot
   // without requiring it to be in the useMemo dependency array (which

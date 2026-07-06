@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import type { AlarmRuleDef } from '../../store/scada';
 
 /* ------------------------------------------------------------------ */
@@ -47,9 +47,9 @@ const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'warning', 'info'];
 /* ------------------------------------------------------------------ */
 
 export const GlobalAlarmBanner: React.FC = () => {
-  const alarmRules = useScadaStore((s) => s.alarmRules);
-  const simulationMode = useScadaStore((s) => s.simulationMode);
-  const simAlarms = useScadaStore((s) => s.simAlarms);
+  const alarmRules = useScadaPackageStore((s) => s.alarmRules);
+  const simulationMode = useScadaPackageStore((s) => s.simulationMode);
+  const simAlarms = useScadaPackageStore((s) => s.simAlarms);
 
   const { counts, total, highestSeverity } = useMemo(() => {
     // In simulation mode, show fired simulation alarms

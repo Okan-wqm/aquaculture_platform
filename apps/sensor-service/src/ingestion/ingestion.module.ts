@@ -10,6 +10,7 @@ import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 
 import { BatchProcessorService } from './batch-processor.service';
 import { DataIngestionService } from './data-ingestion.service';
@@ -28,6 +29,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
     AutomationModule, // For deployment confirmation in MQTT responses
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
+    ReleaseBundleModule, // Faz 5 — bundle ack transitions in MQTT response handling
     SensorServiceConfigModule, // ADR-022 — exports SensorServiceProfileService
   ],
   providers: [

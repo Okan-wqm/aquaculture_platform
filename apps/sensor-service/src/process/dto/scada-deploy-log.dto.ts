@@ -16,8 +16,12 @@ export class ScadaDeployLogType {
   @Field()
   tenantId!: string;
 
-  @Field()
-  packageId!: string;
+  /** Nullable since Faz 3 — a log row targets a package OR a process. */
+  @Field(() => ID, { nullable: true })
+  packageId?: string;
+
+  @Field(() => ID, { nullable: true })
+  processId?: string;
 
   @Field()
   deviceId!: string;
@@ -51,6 +55,13 @@ export class ScadaDeployLogType {
 
   @Field(() => Int, { nullable: true })
   rolledBackTo?: number;
+
+  /** Content-addressed snapshot this deploy shipped (deploy_artifacts.id). */
+  @Field(() => ID, { nullable: true })
+  artifactId?: string;
+
+  @Field({ nullable: true })
+  checksumSha256?: string;
 
   @Field({ nullable: true })
   deployedBy?: string;

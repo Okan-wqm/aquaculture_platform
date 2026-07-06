@@ -5,8 +5,8 @@
   "description": "Aquaculture Platform - Sensor Module Microfrontend",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite build --config vite.canvas.config.ts && vite",
+    "build": "vite build --config vite.canvas.config.ts && vite build && node assert-canvas-artifact.mjs",
     "preview": "vite preview",
     "lint": "eslint src",
     "test": "vitest"

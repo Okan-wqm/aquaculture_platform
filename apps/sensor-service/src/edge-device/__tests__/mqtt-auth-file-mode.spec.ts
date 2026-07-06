@@ -10,7 +10,7 @@ const buildConfig = (env: Record<string, string>) => ({
 });
 
 const buildService = (env: Record<string, string>): MqttAuthService =>
-  new MqttAuthService(buildConfig(env) as never, {} as never, {} as never);
+  new MqttAuthService(buildConfig(env) as never, {} as never, {} as never, {} as never);
 
 describe('MqttAuthService legacy file mode guard (SENSOR-LOW-008)', () => {
   it('refuses to start in production with file mode and no explicit opt-in', async () => {

@@ -29,7 +29,7 @@ import {
   type HarvestRecordUpdatedEvent,
 } from '@platform/event-contracts';
 import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
-import { HarvestRecord, QualityGrade, qualityGradeToClass } from '../entities/harvest-record.entity';
+import { HarvestRecord, qualityGradeToClass } from '../entities/harvest-record.entity';
 
 const UPDATABLE_FIELDS = [
   'status',
@@ -89,13 +89,14 @@ export class UpdateHarvestRecordHandler
         }
       }
 
-      // quality_class is the sole stored quality taxonomy (RPT-007). The retired
-      // qualityGrade input (deprecated display grade) still maps onto it: when a
-      // grade is supplied, derive and store the class. qualityGrade itself is a
-      // read-only derived alias on the entity — never assigned/persisted.
-      const incomingGrade = (data as { qualityGrade?: QualityGrade }).qualityGrade;
-      if (incomingGrade !== undefined) {
-        harvestRecord.qualityClass = qualityGradeToClass(incomingGrade);
+      // quality_class is the sole stored quality taxonomy (RPT-007). Prefer the
+      // SSoT-native qualityClass input; a deprecated qualityGrade maps onto it.
+      // qualityGrade itself is a read-only derived alias — never persisted.
+      if (data.qualityClass !== undefined) {
+        harvestRecord.qualityClass = data.qualityClass;
+        changedFields.push('qualityClass');
+      } else if (data.qualityGrade !== undefined) {
+        harvestRecord.qualityClass = qualityGradeToClass(data.qualityGrade);
         changedFields.push('qualityClass');
       }
 

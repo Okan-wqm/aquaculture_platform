@@ -119,8 +119,19 @@ export class CreateHarvestRecordHandler
       subjectLabel: `batch ${input.batchId}`,
     });
 
-    // Parse qualityGrade early (no DB needed)
-    const qualityGrade = this.parseQualityGrade(input.qualityGrade);
+    // Resolve the stored quality taxonomy (RPT-007): qualityClass is the SSoT
+    // input; a legacy qualityGrade is mapped onto its class. At least one is
+    // required — fail closed (no silent default onto ORDINAER).
+    const qualityClass =
+      input.qualityClass ??
+      (input.qualityGrade !== undefined
+        ? qualityGradeToClass(this.parseQualityGrade(input.qualityGrade))
+        : undefined);
+    if (!qualityClass) {
+      throw new BadRequestException(
+        'qualityClass is required (or the deprecated qualityGrade).',
+      );
+    }
 
     // All reads and writes inside a single transaction with pessimistic locks.
     // The fail-closed tenant boundary pins search_path + the RLS GUC and
@@ -308,9 +319,8 @@ export class CreateHarvestRecordHandler
           averageWeight: input.averageWeight,
           productForm: ProductForm.FRESH_WHOLE,
           // Official Norwegian quality class is the sole stored quality taxonomy
-          // (RPT-007), derived from the deprecated display grade via the entity's
-          // SSoT mapping. qualityGrade is a read-only derived alias — not stored.
-          qualityClass: qualityGradeToClass(qualityGrade),
+          // (RPT-007). qualityGrade is a read-only derived alias — not stored.
+          qualityClass,
           lotInfo,
           supervisorId: recordedBy,
           notes: input.notes,

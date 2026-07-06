@@ -233,6 +233,9 @@ export class RegulatoryResolver {
       defaultContactPhone: settings.defaultContactPhone,
       siteLocalityMappings: mappingsArray,
       slaughterApprovalNumber: settings.slaughterApprovalNumber,
+      autoSubmitPolicies: Object.entries(settings.autoSubmitPolicies ?? {}).map(
+        ([reportType, enabled]) => ({ reportType, enabled }),
+      ),
       createdAt: settings.createdAt,
       updatedAt: settings.updatedAt,
     };

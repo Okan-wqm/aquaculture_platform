@@ -35,7 +35,20 @@ const GET_REGULATORY_SETTINGS = gql`
         siteName
       }
       slaughterApprovalNumber
+      autoSubmitPolicies {
+        reportType
+        enabled
+      }
       updatedAt
+    }
+  }
+`;
+
+const UPDATE_AUTO_SUBMIT_POLICY = gql`
+  mutation UpdateAutoSubmitPolicy($input: UpdateAutoSubmitPolicyInput!) {
+    updateAutoSubmitPolicy(input: $input) {
+      reportType
+      enabled
     }
   }
 `;
@@ -104,8 +117,23 @@ interface RegulatorySettings {
   defaultContactPhone?: string;
   siteLocalityMappings?: SiteLocalityMapping[];
   slaughterApprovalNumber?: string;
+  autoSubmitPolicies?: AutoSubmitPolicy[];
   updatedAt?: string;
 }
+
+interface AutoSubmitPolicy {
+  reportType: string;
+  enabled: boolean;
+}
+
+/** The five Mattilsynet REST report types that can be auto-submitted. */
+const AUTO_SUBMIT_REPORT_TYPES: { value: string; label: string }[] = [
+  { value: 'SEA_LICE', label: 'Sea Lice' },
+  { value: 'CLEANER_FISH', label: 'Cleaner Fish' },
+  { value: 'SMOLT', label: 'Smolt' },
+  { value: 'SLAUGHTER_PLANNED', label: 'Planned Slaughter' },
+  { value: 'SLAUGHTER_EXECUTED', label: 'Executed Slaughter' },
+];
 
 interface ConfigurationStatus {
   hasMaskinportenCredentials: boolean;
@@ -217,6 +245,17 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
+    },
+  });
+
+  const updateAutoSubmitMutation = useMutation({
+    mutationFn: async (input: { reportType: string; enabled: boolean }) => {
+      return graphqlClient.request(UPDATE_AUTO_SUBMIT_POLICY, { input });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'regulatorySettings'),
+      });
     },
   });
 
@@ -644,6 +683,50 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                   placeholder="e.g., N-123"
                 />
               </div>
+            </div>
+
+            {/* Automated submission (RPT-003) */}
+            <div className="border border-gray-200 rounded-lg p-4">
+              <h3 className="text-base font-semibold text-gray-900 mb-1">Automated submission</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                When enabled, a READY draft for the report type is submitted to Mattilsynet
+                automatically each period — no manual approval needed. Leave off to review and
+                approve every submission yourself.
+              </p>
+              <ul className="divide-y divide-gray-100">
+                {AUTO_SUBMIT_REPORT_TYPES.map((rt) => {
+                  const enabled =
+                    settingsData?.autoSubmitPolicies?.find((p) => p.reportType === rt.value)
+                      ?.enabled ?? false;
+                  return (
+                    <li key={rt.value} className="flex items-center justify-between py-2">
+                      <span className="text-sm text-gray-800">{rt.label}</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={enabled}
+                        aria-label={`Auto-submit ${rt.label}`}
+                        disabled={updateAutoSubmitMutation.isPending}
+                        onClick={() =>
+                          updateAutoSubmitMutation.mutate({
+                            reportType: rt.value,
+                            enabled: !enabled,
+                          })
+                        }
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                          enabled ? 'bg-blue-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           </>
         )}

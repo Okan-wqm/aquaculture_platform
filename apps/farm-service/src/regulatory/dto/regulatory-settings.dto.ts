@@ -16,6 +16,8 @@ import {
 import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
 
+import { AutoSubmitPolicyEntry } from './regulatory-report-draft.dto';
+
 // =============================================================================
 // INPUT TYPES
 // =============================================================================
@@ -204,6 +206,10 @@ export class RegulatorySettingsOutput {
   // Slaughter
   @Field({ nullable: true })
   slaughterApprovalNumber?: string;
+
+  // Automated submission opt-in per report type (RPT-003).
+  @Field(() => [AutoSubmitPolicyEntry], { nullable: true })
+  autoSubmitPolicies?: AutoSubmitPolicyEntry[];
 
   // Metadata
   @Field({ nullable: true })

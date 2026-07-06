@@ -7,11 +7,13 @@ import { SimpleRateLimitGuard } from '../guards/rate-limit.guard';
 import { PlcAlarm } from '../plc-control/entities/plc-alarm.entity';
 // SharedMqttModule is @Global, no need to import explicitly
 
+import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceEventService } from './device-event.service';
 import { EdgeDeviceNatsController } from './edge-device-nats.controller';
 import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
+import { EdgeDeviceDirectory } from './entities/edge-device-directory.entity';
 import { EdgeDevice } from './entities/edge-device.entity';
 import { LoRaDevice } from './entities/lora-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
@@ -37,6 +39,7 @@ import { TenantKeyService } from './tenant-key.service';
   imports: [
     TypeOrmModule.forFeature([
       EdgeDevice,
+      EdgeDeviceDirectory,
       EdgeDeviceV2,
       EdgePolicyV2,
       EdgeLicenseV2,
@@ -63,9 +66,10 @@ import { TenantKeyService } from './tenant-key.service';
     InstallerScriptService,
     TenantKeyService,
     DeviceEventService,
+    DeviceDirectoryService,
     MqttAuthService,
     SimpleRateLimitGuard, // Rate limiting for provisioning endpoints
   ],
-  exports: [EdgeDeviceService, ProvisioningService, MqttAuthService, InstallerScriptService],
+  exports: [EdgeDeviceService, ProvisioningService, MqttAuthService, InstallerScriptService, DeviceDirectoryService],
 })
 export class EdgeDeviceModule {}

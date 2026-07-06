@@ -43,6 +43,7 @@ import { MqttAuthService } from './mqtt-auth.service';
 import { InstallerScriptService } from './installer-script.service';
 import { TenantKeyService } from './tenant-key.service';
 import { DeviceEventService } from './device-event.service';
+import { DeviceDirectoryService } from './device-directory.service';
 
 /**
  * Provisioning Service
@@ -64,6 +65,7 @@ export class ProvisioningService {
     private readonly installerScriptService: InstallerScriptService,
     private readonly tenantKeyService: TenantKeyService,
     private readonly deviceEventService: DeviceEventService,
+    private readonly deviceDirectory: DeviceDirectoryService,
   ) {
     this.TOKEN_TTL_HOURS = this.configService.get<number>('PROVISIONING_TOKEN_TTL_HOURS', 24);
   }
@@ -165,6 +167,14 @@ export class ProvisioningService {
       throw error;
     }
     this.logger.log(`Created provisioned device ${deviceCode} for tenant ${tenantId}`);
+
+    // SENSOR-MEDIUM-004: publish the O(1) directory route for public lookups.
+    await this.deviceDirectory.upsert({
+      deviceId: saved.id,
+      deviceCode: saved.deviceCode,
+      mqttClientId: saved.mqttClientId ?? null,
+      tenantId,
+    });
 
     return await this.buildProvisioningResponse(saved, provisioningToken);
   }
@@ -730,6 +740,18 @@ export class ProvisioningService {
         throw new Error('Failed to write MQTT credentials');
       }
 
+      // SENSOR-MEDIUM-004: publish the directory route in the same transaction
+      // so a committed device is always resolvable in O(1).
+      await this.deviceDirectory.upsert(
+        {
+          deviceId: saved.id,
+          deviceCode: saved.deviceCode,
+          mqttClientId: saved.mqttClientId ?? null,
+          tenantId: key.tenantId,
+        },
+        transactionalManager,
+      );
+
       return saved;
     });
 
@@ -795,6 +817,41 @@ export class ProvisioningService {
    * UNION ALL query across all tenant schemas to find the device.
    */
   private async findDeviceAcrossSchemas(
+    column: 'device_code' | 'id',
+    value: string,
+  ): Promise<EdgeDevice | null> {
+    // SENSOR-MEDIUM-004: O(1) directory route first — resolve the tenant with a
+    // single indexed lookup, then query only that tenant's edge_devices.
+    const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
+    if (tenantId) {
+      const schema = this.getTenantSchemaFromId(tenantId);
+      const rows = await this.dataSource.query(
+        `SELECT * FROM "${schema}".edge_devices WHERE ${column} = $1 LIMIT 1`,
+        [value],
+      );
+      if (rows && rows.length > 0) {
+        return this.mapRowToEdgeDevice(rows[0]);
+      }
+      // Stale directory entry (device moved/deleted): fall through to the scan.
+    }
+
+    const device = await this.scanDeviceAcrossSchemas(column, value);
+    if (device) {
+      await this.deviceDirectory.backfill({
+        deviceId: device.id,
+        deviceCode: device.deviceCode,
+        mqttClientId: device.mqttClientId ?? null,
+        tenantId: device.tenantId,
+      });
+    }
+    return device;
+  }
+
+  /**
+   * Authoritative fallback: UNION-ALL scan across every tenant schema. Used only
+   * when the directory misses (SENSOR-MEDIUM-004).
+   */
+  private async scanDeviceAcrossSchemas(
     column: 'device_code' | 'id',
     value: string,
   ): Promise<EdgeDevice | null> {

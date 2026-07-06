@@ -31,6 +31,7 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
       };
       const configService = { get: jest.fn((_k: string, fallback?: unknown) => fallback) };
 
+      const deviceDirectory = { upsert: jest.fn().mockResolvedValue(undefined) };
       const service = new ProvisioningService(
         deviceRepository as never,
         {} as never, // dataSource — unused on this path
@@ -39,6 +40,7 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
         installerScriptService as never,
         {} as never, // tenantKeyService
         {} as never, // deviceEventService
+        deviceDirectory as never,
       );
 
       const response = await service.createProvisionedDevice(

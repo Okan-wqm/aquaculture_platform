@@ -99,7 +99,20 @@ function createService(
   const ds = opts.dataSource ?? createMockDataSource();
   const repo = opts.repository ?? createMockRepository();
   const cfg = createMockConfigService(opts.configOverrides);
-  return { service: new MqttAuthService(cfg, repo, ds), dataSource: ds, repo, cfg };
+  // Directory misses by default so tests exercise the authoritative scan path.
+  const directory = {
+    lookupTenantId: jest.fn().mockResolvedValue(null),
+    backfill: jest.fn().mockResolvedValue(undefined),
+    upsert: jest.fn().mockResolvedValue(undefined),
+    remove: jest.fn().mockResolvedValue(undefined),
+  };
+  return {
+    service: new MqttAuthService(cfg, repo, ds, directory as never),
+    dataSource: ds,
+    repo,
+    cfg,
+    directory,
+  };
 }
 
 // Helper: make the dataSource.query mock return a device for cross-schema lookup

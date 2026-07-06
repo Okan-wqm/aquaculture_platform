@@ -7,7 +7,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
+import { DeviceDirectoryService } from './device-directory.service';
 import { EdgeDevice } from './entities/edge-device.entity';
 
 const execFileAsync = promisify(execFile);
@@ -66,6 +68,7 @@ export class MqttAuthService implements OnModuleInit {
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
     private readonly dataSource: DataSource,
+    private readonly deviceDirectory: DeviceDirectoryService,
   ) {
     // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
     // at only 101 PBKDF2 iterations (Mosquitto password_file parser limit),
@@ -383,11 +386,50 @@ export class MqttAuthService implements OnModuleInit {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Find a device across all tenant schemas by a given column.
-   * Devices are stored in tenant-specific schemas (tenant_*), not the default
-   * search_path. This builds a UNION ALL query across all tenant schemas.
+   * Resolve a device by a public identifier without tenant context.
+   *
+   * SENSOR-MEDIUM-004: consult the O(1) sensor.edge_device_directory first and,
+   * on a hit, issue a single targeted query against the owning tenant's
+   * edge_devices. Only a directory miss (or a stale entry) falls back to the
+   * O(number-of-tenants) UNION-ALL scan, which then backfills the directory so
+   * the next lookup is O(1). This removes the per-request cross-schema fan-out
+   * that the un-rate-limited MQTT-auth path could be driven into as a DoS.
    */
   private async findDeviceAcrossSchemas(
+    column: 'mqtt_client_id' | 'id',
+    value: string,
+  ): Promise<EdgeDevice | null> {
+    const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
+    if (tenantId) {
+      const schema = getTenantSchemaName(tenantId);
+      const rows = await this.dataSource.query(
+        `SELECT * FROM "${schema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
+        [value],
+      );
+      if (rows && rows.length > 0) {
+        return this.mapRowToEdgeDevice(rows[0]);
+      }
+      // Directory pointed at a tenant that no longer holds the row (moved /
+      // deleted): fall through to the authoritative scan.
+    }
+
+    const device = await this.scanDeviceAcrossSchemas(column, value);
+    if (device) {
+      await this.deviceDirectory.backfill({
+        deviceId: device.id,
+        deviceCode: device.deviceCode,
+        mqttClientId: device.mqttClientId ?? null,
+        tenantId: device.tenantId,
+      });
+    }
+    return device;
+  }
+
+  /**
+   * Authoritative fallback: UNION-ALL scan of edge_devices across every tenant
+   * schema. Used only when the directory misses.
+   */
+  private async scanDeviceAcrossSchemas(
     column: 'mqtt_client_id' | 'id',
     value: string,
   ): Promise<EdgeDevice | null> {

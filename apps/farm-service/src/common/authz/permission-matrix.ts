@@ -128,6 +128,10 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   recordMortality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recordSparePartStockMovement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   recordStockMovement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Tenant-wide roles only: bypasses per-site authorization by role
+  // hierarchy; finer-grained recording flows through the full
+  // water-quality measurement path (see water-quality.resolver.ts).
+  recordWaterTemperature: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   removeChemicalDocument: [Role.TENANT_ADMIN],
   removeCleanerFish: [Role.TENANT_ADMIN],
   removeFeedAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -252,6 +256,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   // exposes cost-per-kg, treatment totals, and labour costs which
   // are financial signals beyond the operator's scope.
   batchPerformance: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  batchTraceability: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

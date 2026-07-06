@@ -37,8 +37,8 @@ import {
   MattilsynetSchemaValidatorService,
   MattilsynetSchemaValidationError,
 } from './services/mattilsynet-schema-validator.service';
-import { MattilsynetRestReportType } from './schemas/schema-registry';
-import type { ValidatedPayload } from './schemas/validated-payload';
+import { MattilsynetRestReportType } from './schemas';
+import type { ValidatedPayload } from './schemas';
 import {
   SubmitSeaLiceReportInput,
   SubmitCleanerFishReportInput,

@@ -11,8 +11,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ErrorObject } from 'ajv';
 
 import { MattilsynetBasePayload } from '../mattilsynet-api.service';
-import { getOfficialSchemaValidator, MattilsynetRestReportType } from '../schemas/schema-registry';
-import { ValidatedPayload } from '../schemas/validated-payload';
+import { getOfficialSchemaValidator, MattilsynetRestReportType } from '../schemas';
+import type { ValidatedPayload } from '../schemas';
 
 export interface SchemaValideringsfeil {
   felt: string;

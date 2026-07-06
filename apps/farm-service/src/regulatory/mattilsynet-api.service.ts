@@ -20,7 +20,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
-import type { ValidatedPayload } from './schemas/validated-payload';
+import type { ValidatedPayload } from './schemas';
 
 // ============================================================================
 // Types - Common

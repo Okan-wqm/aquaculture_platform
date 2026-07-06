@@ -35,6 +35,11 @@ import { ListBiomassReportsForSiteHandler } from './handlers/list-biomass-report
 
 // Server-side report assembly (automated-reporting plan Phase 1)
 import { BiomassReportAssembler } from './assembly/biomass.assembler';
+import { LakselusReportAssembler } from './assembly/assemblers/lakselus.assembler';
+import { RensefiskReportAssembler } from './assembly/assemblers/rensefisk.assembler';
+import { SettefiskReportAssembler } from './assembly/assemblers/settefisk.assembler';
+import { SlaktReportAssembler } from './assembly/assemblers/slakt.assembler';
+import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { ReportAssemblyService } from './assembly/report-assembly.service';
 import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
 import { ReportPrefillResolver } from './report-prefill.resolver';
@@ -70,6 +75,13 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     GetRegulatoryReportHandler,
     GetRegulatoryReportSummaryHandler,
     BiomassReportAssembler,
+    LakselusReportAssembler,
+    SettefiskReportAssembler,
+    RensefiskReportAssembler,
+    SlaktReportAssembler,
+    // Same local-provider pattern feeding.module/equipment.module use — the
+    // service only injects DataSource; no module cycle with water-quality.
+    WaterTemperatureService,
     ReportAssemblyService,
     GetReportPrefillHandler,
     ReportPrefillResolver,

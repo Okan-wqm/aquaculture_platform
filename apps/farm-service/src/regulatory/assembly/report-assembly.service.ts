@@ -13,6 +13,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { BiomassReportAssembler } from './biomass.assembler';
+import { LakselusReportAssembler } from './assemblers/lakselus.assembler';
+import { RensefiskReportAssembler } from './assemblers/rensefisk.assembler';
+import { SettefiskReportAssembler } from './assemblers/settefisk.assembler';
+import { SlaktReportAssembler } from './assemblers/slakt.assembler';
 import { AssembledDraft, ReportFieldMeta } from './provenance.types';
 
 /**
@@ -53,7 +57,13 @@ export interface AssembledReport {
 
 @Injectable()
 export class ReportAssemblyService {
-  constructor(private readonly biomassAssembler: BiomassReportAssembler) {}
+  constructor(
+    private readonly biomassAssembler: BiomassReportAssembler,
+    private readonly lakselusAssembler: LakselusReportAssembler,
+    private readonly settefiskAssembler: SettefiskReportAssembler,
+    private readonly rensefiskAssembler: RensefiskReportAssembler,
+    private readonly slaktAssembler: SlaktReportAssembler,
+  ) {}
 
   async assemble(
     tenantId: string,
@@ -82,18 +92,69 @@ export class ReportAssemblyService {
     period: ReportPrefillPeriod,
   ): Promise<AssembledDraft<object>> {
     switch (reportType) {
-      case ReportPrefillType.BIOMASS: {
-        if (!period.month) {
-          throw new BadRequestException('BIOMASS prefill requires periodMonth (1-12).');
-        }
-        return this.biomassAssembler.assemble(tenantId, siteId, period.year, period.month);
-      }
+      case ReportPrefillType.BIOMASS:
+        return this.biomassAssembler.assemble(
+          tenantId,
+          siteId,
+          period.year,
+          this.requireMonth(reportType, period),
+        );
+      case ReportPrefillType.SMOLT:
+        return this.settefiskAssembler.assemble(
+          tenantId,
+          siteId,
+          period.year,
+          this.requireMonth(reportType, period),
+        );
+      case ReportPrefillType.CLEANER_FISH:
+        return this.rensefiskAssembler.assemble(
+          tenantId,
+          siteId,
+          period.year,
+          this.requireMonth(reportType, period),
+        );
+      case ReportPrefillType.SEA_LICE:
+        return this.lakselusAssembler.assemble(
+          tenantId,
+          siteId,
+          period.year,
+          this.requireWeek(reportType, period),
+        );
+      case ReportPrefillType.SLAUGHTER_EXECUTED:
+        return this.slaktAssembler.assembleExecuted(
+          tenantId,
+          siteId,
+          period.year,
+          this.requireWeek(reportType, period),
+        );
+      case ReportPrefillType.SLAUGHTER_PLANNED:
+        return this.slaktAssembler.assemblePlanned(
+          tenantId,
+          siteId,
+          period.year,
+          this.requireWeek(reportType, period),
+        );
       default:
         throw new BadRequestException(
           `Server-side assembly for ${reportType} has not landed yet — tracked in ` +
-            'docs/plans/2026-07-06-mattilsynet-automated-reporting/PLAN.md (Phases 1b/2). ' +
+            'docs/plans/2026-07-06-mattilsynet-automated-reporting/PLAN.md (Phase 2: the varsling ' +
+            'types assemble from the escape/welfare/disease operational entities once they exist). ' +
             'Use the manual form for this report type until its assembler ships.',
         );
     }
+  }
+
+  private requireMonth(reportType: ReportPrefillType, period: ReportPrefillPeriod): number {
+    if (!period.month) {
+      throw new BadRequestException(`${reportType} prefill requires periodMonth (1-12).`);
+    }
+    return period.month;
+  }
+
+  private requireWeek(reportType: ReportPrefillType, period: ReportPrefillPeriod): number {
+    if (!period.week) {
+      throw new BadRequestException(`${reportType} prefill requires periodWeek (ISO 1-53).`);
+    }
+    return period.week;
   }
 }

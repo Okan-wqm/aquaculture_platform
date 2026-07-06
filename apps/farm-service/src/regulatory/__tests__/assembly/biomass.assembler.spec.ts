@@ -18,9 +18,7 @@ import { BiomassReportPayload } from '../../entities/biomass-report.entity';
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
 
-function makeQueryBus(overrides?: {
-  feedRecordCount?: number;
-}): Pick<QueryBus, 'execute'> {
+function makeQueryBus(overrides?: { feedRecordCount?: number }): Pick<QueryBus, 'execute'> {
   return {
     execute: jest.fn().mockImplementation((query: object) => {
       if (query instanceof GetMortalityByCauseQuery) {
@@ -31,7 +29,13 @@ function makeQueryBus(overrides?: {
             { cause: 'oxygen', count: 30 },
           ],
           details: [
-            { date: '2026-06-03', cause: 'disease', speciesCode: 'SEABASS', count: 120, biomassLossKg: 84.5 },
+            {
+              date: '2026-06-03',
+              cause: 'disease',
+              speciesCode: 'SEABASS',
+              count: 120,
+              biomassLossKg: 84.5,
+            },
           ],
           recordCount: 7,
         });
@@ -78,7 +82,13 @@ function makeCalculator(): Pick<BiomassCalculatorService, 'getSiteBiomassReport'
       batchCount: 3,
       tankCount: 6,
       speciesBreakdown: [
-        { speciesId: 'sp-1', speciesName: 'European seabass', biomassKg: 42000.339, quantity: 120000, percentage: 100 },
+        {
+          speciesId: 'sp-1',
+          speciesName: 'European seabass',
+          biomassKg: 42000.339,
+          quantity: 120000,
+          percentage: 100,
+        },
       ],
     }),
   };
@@ -117,7 +127,13 @@ describe('BiomassReportAssembler', () => {
       }
       if (sql.includes('FROM harvest_records')) {
         return Promise.resolve([
-          { date: '2026-06-28', speciesCode: 'SEABASS', quantity: '8000', biomassKg: '3600.75', buyer: null },
+          {
+            date: '2026-06-28',
+            speciesCode: 'SEABASS',
+            quantity: '8000',
+            biomassKg: '3600.75',
+            buyer: null,
+          },
         ]);
       }
       return Promise.resolve([]);
@@ -152,7 +168,14 @@ describe('BiomassReportAssembler', () => {
 
     // Every section carries RECORDS provenance with the query named.
     const paths = fields.map((f) => f.path);
-    for (const section of ['/currentBiomass', '/stockings', '/mortality', '/slaughter', '/transfers', '/feedConsumption']) {
+    for (const section of [
+      '/currentBiomass',
+      '/stockings',
+      '/mortality',
+      '/slaughter',
+      '/transfers',
+      '/feedConsumption',
+    ]) {
       expect(paths).toContain(section);
     }
     expect(fields.every((f) => !f.blocking)).toBe(true);
@@ -164,7 +187,8 @@ describe('BiomassReportAssembler', () => {
     const { fields } = await assembler.assemble(tenantId, siteId, 2026, 6);
 
     const warning = fields.find(
-      (f) => f.path === '/feedConsumption' && f.provenance === ReportFieldProvenance.MANUAL_REQUIRED,
+      (f) =>
+        f.path === '/feedConsumption' && f.provenance === ReportFieldProvenance.MANUAL_REQUIRED,
     );
     expect(warning).toBeDefined();
     expect(warning?.blocking).toBe(false);

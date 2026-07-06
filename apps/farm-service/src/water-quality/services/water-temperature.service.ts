@@ -30,6 +30,10 @@ export type WaterTemperatureSource = 'manual' | 'sensor';
 export interface WaterTemperatureReading {
   celsius: number;
   source: WaterTemperatureSource;
+  /** When the winning reading was measured (provenance for reporting). */
+  measuredAt: Date;
+  /** Sensor identity when source === 'sensor'. */
+  sensorId?: string;
 }
 
 /**
@@ -43,11 +47,13 @@ export const WATER_TEMPERATURE_MAX_C = 45;
 interface DatedTemperature {
   celsius: number;
   measuredAt: Date;
+  sensorId?: string;
 }
 
 interface DatedTemperatureRow {
   celsius: string | number | null;
   measuredAt: string | Date | null;
+  sensorId?: string | null;
 }
 
 @Injectable()
@@ -69,19 +75,88 @@ export class WaterTemperatureService {
         this.getManualTemperature(queryRunner, tenantId, tankId),
       ]);
 
-      if (sensor && manual) {
-        return sensor.measuredAt >= manual.measuredAt
-          ? { celsius: sensor.celsius, source: 'sensor' as const }
-          : { celsius: manual.celsius, source: 'manual' as const };
-      }
-      if (sensor) {
-        return { celsius: sensor.celsius, source: 'sensor' as const };
-      }
-      if (manual) {
-        return { celsius: manual.celsius, source: 'manual' as const };
-      }
-      return null;
+      return WaterTemperatureService.pickNewest(sensor, manual);
     });
+  }
+
+  /**
+   * Latest known water temperature (°C) across every tank of a site, or null
+   * when none is on record. The reporting SSoT for site-level fields such as
+   * the lakselus report's sjøtemperatur: sensor projection and manual
+   * measurements compete on recency exactly like the per-tank read — one
+   * temperature path, never a second implementation.
+   */
+  async getSiteCurrentTemperature(
+    tenantId: string,
+    siteId: string,
+  ): Promise<WaterTemperatureReading | null> {
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const sensorRows: DatedTemperatureRow[] = await queryRunner.manager.query(
+        `SELECT stl."temperatureC" AS celsius,
+                stl."measuredAt" AS "measuredAt",
+                stl."sensorId" AS "sensorId"
+           FROM sensor_temperature_latest stl
+          WHERE stl."tenantId" = $1
+            AND stl."sensorId" IN (
+              SELECT t."temperatureSensorId"
+                FROM tanks t
+                JOIN departments d ON d.id = t."departmentId"
+               WHERE t."tenantId" = $1
+                 AND d."siteId" = $2
+                 AND t."temperatureSensorId" IS NOT NULL
+            )
+          ORDER BY stl."measuredAt" DESC
+          LIMIT 1`,
+        [tenantId, siteId],
+      );
+      const manualRows: DatedTemperatureRow[] = await queryRunner.manager.query(
+        `SELECT m."temperature" AS celsius, m."measuredAt" AS "measuredAt"
+           FROM water_quality_measurements m
+           JOIN tanks t ON t.id = m."tankId" AND t."tenantId" = m."tenantId"
+           JOIN departments d ON d.id = t."departmentId"
+          WHERE m."tenantId" = $1
+            AND d."siteId" = $2
+            AND m."temperature" IS NOT NULL
+          ORDER BY m."measuredAt" DESC
+          LIMIT 1`,
+        [tenantId, siteId],
+      );
+      return WaterTemperatureService.pickNewest(
+        WaterTemperatureService.toDatedTemperature(sensorRows[0]),
+        WaterTemperatureService.toDatedTemperature(manualRows[0]),
+      );
+    });
+  }
+
+  /** Newest-wins merge of the sensor and manual candidates. */
+  private static pickNewest(
+    sensor: DatedTemperature | null,
+    manual: DatedTemperature | null,
+  ): WaterTemperatureReading | null {
+    if (sensor && manual) {
+      return sensor.measuredAt >= manual.measuredAt
+        ? WaterTemperatureService.toReading(sensor, 'sensor')
+        : WaterTemperatureService.toReading(manual, 'manual');
+    }
+    if (sensor) {
+      return WaterTemperatureService.toReading(sensor, 'sensor');
+    }
+    if (manual) {
+      return WaterTemperatureService.toReading(manual, 'manual');
+    }
+    return null;
+  }
+
+  private static toReading(
+    dated: DatedTemperature,
+    source: WaterTemperatureSource,
+  ): WaterTemperatureReading {
+    return {
+      celsius: dated.celsius,
+      source,
+      measuredAt: dated.measuredAt,
+      sensorId: source === 'sensor' ? dated.sensorId : undefined,
+    };
   }
 
   /**
@@ -97,7 +172,9 @@ export class WaterTemperatureService {
     tankId: string,
   ): Promise<DatedTemperature | null> {
     const rows: DatedTemperatureRow[] = await queryRunner.manager.query(
-      `SELECT stl."temperatureC" AS celsius, stl."measuredAt" AS "measuredAt"
+      `SELECT stl."temperatureC" AS celsius,
+              stl."measuredAt" AS "measuredAt",
+              stl."sensorId" AS "sensorId"
          FROM sensor_temperature_latest stl
         WHERE stl."tenantId" = $2
           AND stl."sensorId" = (
@@ -141,6 +218,10 @@ export class WaterTemperatureService {
     if (!row || row.celsius == null || row.measuredAt == null) {
       return null;
     }
-    return { celsius: Number(row.celsius), measuredAt: new Date(row.measuredAt) };
+    return {
+      celsius: Number(row.celsius),
+      measuredAt: new Date(row.measuredAt),
+      sensorId: row.sensorId ?? undefined,
+    };
   }
 }

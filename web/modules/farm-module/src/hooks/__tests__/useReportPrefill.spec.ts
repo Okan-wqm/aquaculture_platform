@@ -20,7 +20,12 @@ import { findFieldMeta, type ReportFieldMeta } from '../useReportPrefill';
 
 const fields: ReportFieldMeta[] = [
   { path: '/mortality', provenance: 'RECORDS', sourceRecordCount: 7, blocking: false },
-  { path: '/feedConsumption', provenance: 'MANUAL_REQUIRED', message: 'empty ledger', blocking: false },
+  {
+    path: '/feedConsumption',
+    provenance: 'MANUAL_REQUIRED',
+    message: 'empty ledger',
+    blocking: false,
+  },
 ];
 
 describe('findFieldMeta', () => {
@@ -49,4 +54,16 @@ describe('client-side aggregation stays deleted (dedup verdict RPT-012)', () => 
     expect(source).not.toContain('useTanksList');
     expect(source).toContain('useReportPrefill');
   });
+
+  it.each(['SeaLiceReportTab', 'SmoltReportTab'])(
+    '%s consumes the server prefill (Phase 1b seeding stays wired)',
+    (tab) => {
+      const source = readFileSync(
+        resolve(__dirname, `../../pages/reports/tabs/${tab}.tsx`),
+        'utf8',
+      );
+      expect(source).toContain('useReportPrefill');
+      expect(source).toContain('ProvenanceBadge');
+    },
+  );
 });

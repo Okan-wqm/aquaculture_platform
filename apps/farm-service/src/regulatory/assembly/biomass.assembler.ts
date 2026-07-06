@@ -38,6 +38,7 @@ import {
 } from '../../feeding/queries/get-site-feed-consumption.query';
 import { BiomassReportPayload } from '../entities/biomass-report.entity';
 import { AssembledDraft, fromRecords, manualRequired } from './provenance.types';
+import { monthRange, round2 } from './period.util';
 
 interface StockingRow {
   date: string;
@@ -255,14 +256,4 @@ export class BiomassReportAssembler {
       );
     });
   }
-}
-
-function monthRange(year: number, month: number): { fromDate: string; toDate: string } {
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const mm = String(month).padStart(2, '0');
-  return { fromDate: `${year}-${mm}-01`, toDate: `${year}-${mm}-${String(lastDay).padStart(2, '0')}` };
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }

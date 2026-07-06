@@ -45,17 +45,19 @@ const at = (iso: string, celsius: number): Row => ({ celsius, measuredAt: iso })
 describe('WaterTemperatureService', () => {
   it('returns the linked-sensor reading when only the sensor has data', async () => {
     const service = routingService([at('2026-07-04T10:00:00.000Z', 12.5)], []);
-    expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
+    expect(await service.getCurrentTemperature(TENANT, TANK)).toMatchObject({
       celsius: 12.5,
       source: 'sensor',
+      measuredAt: expect.any(Date),
     });
   });
 
   it('returns the manual reading when only a manual measurement exists', async () => {
     const service = routingService([], [at('2026-07-04T10:00:00.000Z', 9)]);
-    expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
+    expect(await service.getCurrentTemperature(TENANT, TANK)).toMatchObject({
       celsius: 9,
       source: 'manual',
+      measuredAt: expect.any(Date),
     });
   });
 
@@ -64,9 +66,10 @@ describe('WaterTemperatureService', () => {
       [at('2026-07-04T12:00:00.000Z', 14)], // newer
       [at('2026-07-04T08:00:00.000Z', 10)],
     );
-    expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
+    expect(await service.getCurrentTemperature(TENANT, TANK)).toMatchObject({
       celsius: 14,
       source: 'sensor',
+      measuredAt: expect.any(Date),
     });
   });
 
@@ -75,9 +78,10 @@ describe('WaterTemperatureService', () => {
       [at('2026-07-04T08:00:00.000Z', 14)],
       [at('2026-07-04T12:00:00.000Z', 11)], // newer
     );
-    expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
+    expect(await service.getCurrentTemperature(TENANT, TANK)).toMatchObject({
       celsius: 11,
       source: 'manual',
+      measuredAt: expect.any(Date),
     });
   });
 

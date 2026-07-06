@@ -44,6 +44,7 @@ const SensorModule = lazy(() => import('sensorModule/Module'));
  * Hydroponics module (Remote)
  */
 const HydroponicsModule = lazy(() => import('hydroponicsModule/Module'));
+const MessagingModule = lazy(() => import('messagingModule/Module'));
 
 /**
  * Admin Panel module (Remote) - SUPER_ADMIN Only
@@ -232,6 +233,21 @@ const App: React.FC = () => {
               <ErrorBoundary moduleName="Hydroponics">
                 <Suspense fallback={<RemoteModuleLoader moduleName="Hydroponics" />}>
                   <HydroponicsModule />
+                </Suspense>
+              </ErrorBoundary>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Messaging Module — auth-only (channels are per-user; the backend
+            gates channel access), not a tenant-module-gated remote. */}
+        <Route
+          path="/messaging/*"
+          element={
+            <ProtectedRoute>
+              <ErrorBoundary moduleName="Messaging">
+                <Suspense fallback={<RemoteModuleLoader moduleName="Messaging" />}>
+                  <MessagingModule />
                 </Suspense>
               </ErrorBoundary>
             </ProtectedRoute>

@@ -14624,7 +14624,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8744d0fd1164b89f3ddaa77fd21f8ed53a6f76f0735973144092867e9efb18cc",
+      "content_sha256": "fe14f21ca7ef5dca070e687fa5e81d8e6a752fb331b17c108aa95beef3c54be4",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -31448,7 +31448,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c98f077a81e8de6fe4e618b8d731c05bd70817cfb8928cebffbfd29acf415159",
+      "content_sha256": "5177a396da61e294a95cc48fd935ad7a38460b44539235468842d76a6d318c97",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -31471,7 +31471,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6e04221ae80598cf7ddbe95eb3f76c1f21ebc2e4249ff04c7f0f11abe678fc27",
+      "content_sha256": "c0eb6aeb237ec0eeb8773d326b632826107ff4526cc0f2884a6fe1e9a9c11124",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -35850,7 +35850,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d167ac0ab473c8d17eb346f7096d7573c27515d8ab9fd91140080a3b178774e9",
+      "content_sha256": "f8674a3f82bde40bd6895da541115258c4dc0ec23b37257d1e7a2170ceff36bf",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -44452,6 +44452,108 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/postcss.config.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/graphql/messaging-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/useMessagingData.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/useMessagingSocket.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/channelDisplay.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/channelDisplay.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/main.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/Module.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/ChannelListPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/ChatRoomPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/types/messaging.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/tsconfig.eslint.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/tsconfig.node.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/vite.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/assert-canvas-artifact.mjs",
       "prettier_managed": true
     },
@@ -50292,10 +50394,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8236,
+  "file_count": 8253,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8061,
-  "managed_file_list_sha256": "835fee6253f491392e3335f61a966565491977549222cfe99e664656d20d5ed8",
+  "managed_count": 8078,
+  "managed_file_list_sha256": "65f3cb4c6fbd7dfe69aa20ffc33b5c7b1a5110994b465754110323ec289cf909",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

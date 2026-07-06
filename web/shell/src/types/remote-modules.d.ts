@@ -144,3 +144,9 @@ declare module 'hydroponicsModule/Module' {
   const HydroponicsModule: FC;
   export default HydroponicsModule;
 }
+
+declare module 'messagingModule/Module' {
+  import { FC } from 'react';
+  const MessagingModule: FC;
+  export default MessagingModule;
+}

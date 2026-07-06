@@ -1,0 +1,41 @@
+{
+  "name": "@aquaculture/messaging-module",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5178 --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 5178",
+    "lint": "eslint src --report-unused-disable-directives --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aquaculture/shared-ui": "file:../../shared-ui",
+    "@tanstack/react-query": "5.90.10",
+    "lucide-react": "0.469.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "6.30.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@module-federation/vite": "^1.16.7",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.32",
+    "tailwindcss": "4.3.1",
+    "typescript": "5.9.3",
+    "vite": "^7.3.5",
+    "vitest": "^3.2.4",
+    "@tailwindcss/postcss": "4.3.1"
+  }
+}

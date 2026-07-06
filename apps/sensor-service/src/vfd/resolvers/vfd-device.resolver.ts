@@ -121,6 +121,7 @@ export class VfdDeviceResolver {
 
       let connectionTestPassed: boolean | undefined;
       let latencyMs: number | undefined;
+      let connectionTestError: string | undefined;
 
       // If skipConnectionTest is not set, attempt connection test
       if (!input.skipConnectionTest) {
@@ -129,7 +130,11 @@ export class VfdDeviceResolver {
           connectionTestPassed = testResult.success;
           latencyMs = testResult.latencyMs;
         } catch (err) {
-          this.logger.warn(`Connection test failed during registration: ${(err as Error).message}`);
+          // Registration still succeeds (the device is persisted), but surface
+          // WHY the connection test failed so the operator can act on it rather
+          // than silently dropping the diagnostic.
+          connectionTestError = (err as Error).message;
+          this.logger.warn(`Connection test failed during registration: ${connectionTestError}`);
           connectionTestPassed = false;
         }
       }
@@ -139,6 +144,7 @@ export class VfdDeviceResolver {
         vfdDevice: device,
         connectionTestPassed,
         latencyMs,
+        error: connectionTestError,
       };
     } catch (err) {
       this.logger.error(`VFD registration failed: ${(err as Error).message}`);

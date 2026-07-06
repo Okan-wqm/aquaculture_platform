@@ -296,6 +296,10 @@ describe('VfdDeviceService', () => {
     it('should throw if device has no successful connection', async () => {
       const deviceWithoutConnection = {
         ...mockDevice,
+        // Pin status explicitly: the describe-level mockDevice is shared and an
+        // earlier test can leave it mutated; without a non-ACTIVE status the
+        // activate() early-return for already-ACTIVE devices masks the guard.
+        status: VfdDeviceStatus.DRAFT,
         connectionStatus: { isConnected: false },
       };
       repository.findOne.mockResolvedValue(deviceWithoutConnection as VfdDevice);

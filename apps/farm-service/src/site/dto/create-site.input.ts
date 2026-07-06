@@ -13,6 +13,8 @@ import {
   IsEnum,
   IsObject,
   IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
 import { SiteStatus } from '../entities/site.entity';

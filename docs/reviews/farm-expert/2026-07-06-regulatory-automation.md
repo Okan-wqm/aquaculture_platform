@@ -86,3 +86,15 @@ treatments, welfare scores, escape incidents, the slaughter-facility catalog, ex
 identity, and the temperature period series. Phase 2 of the automated-reporting plan closes
 these one sub-slice at a time; every sub-slice commit carries this finding's trailer, and the
 plan's RPT-004..016 rows track the individual verdicts.
+
+## FARM-HIGH-150 — create-site DTO uses @Min/@Max without importing them (schema-registration build-break)
+
+Found while running `tsc --noEmit -p apps/farm-service/tsconfig.app.json` during the Phase 5
+biomass-Altinn frontend slice. The Phase 2b-ii site regulatory-identity slice added the 5-digit
+`lokalitetsnummer` field with `@IsInt @Min(10000) @Max(99999)`, but the class-validator import
+block only pulled `IsInt` — `Min` and `Max` were never imported. At class-decoration time the
+decorators evaluate to `undefined` and the module throws when it loads during GraphQL schema
+build, so the service cannot boot. The test suite masked it (vitest/jest transpile without a full
+type-check and no spec imports the DTO); `tsc` is the gate that caught it. Fix: add `Min, Max` to
+the import. Sibling DTOs (`update-site.input.ts`, `site-contact.input.ts`) already import what
+they use.

@@ -55,7 +55,7 @@ export class GetMortalityByCauseHandler implements IQueryHandler<GetMortalityByC
       const detailRows: DetailRow[] = await queryRunner.query(
         `SELECT mr."recordDate"::text AS date,
                 mr.cause AS cause,
-                s.code AS "speciesCode",
+                COALESCE(s."officialCode", s.code) AS "speciesCode",
                 SUM(mr.count)::bigint AS count,
                 SUM(mr."estimatedBiomassLoss")::numeric AS "biomassLossKg"
            FROM mortality_records mr

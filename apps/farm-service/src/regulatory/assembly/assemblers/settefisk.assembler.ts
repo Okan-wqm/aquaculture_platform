@@ -142,7 +142,7 @@ export class SettefiskReportAssembler {
          )
          SELECT st.id AS "tankId",
                 st.code AS "karId",
-                s.code AS artskode,
+                COALESCE(s."officialCode", s.code) AS artskode,
                 tb."totalQuantity"::bigint AS beholdning,
                 CASE WHEN tb."totalQuantity" > 0
                      THEN tb."totalBiomassKg" * 1000.0 / tb."totalQuantity"

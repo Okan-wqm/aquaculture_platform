@@ -196,7 +196,7 @@ export class BiomassReportAssembler {
       // (primary or combined-batch detail) points at a tank under the site.
       return queryRunner.query(
         `SELECT DISTINCT b."stockedAt"::date::text AS date,
-                s.code AS "speciesCode",
+                COALESCE(s."officialCode", s.code) AS "speciesCode",
                 b."supplierBatchNumber" AS supplier,
                 b."initialQuantity"::bigint AS "fishCount",
                 (b.weight->'initial'->>'avgWeight')::numeric AS "avgWeightG",
@@ -239,7 +239,7 @@ export class BiomassReportAssembler {
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       return queryRunner.query(
         `SELECT hr."harvestDate"::date::text AS date,
-                s.code AS "speciesCode",
+                COALESCE(s."officialCode", s.code) AS "speciesCode",
                 SUM(hr."quantityHarvested")::bigint AS quantity,
                 SUM(hr."totalBiomass")::numeric AS "biomassKg",
                 NULL::text AS buyer

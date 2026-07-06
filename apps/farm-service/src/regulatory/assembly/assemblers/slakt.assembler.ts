@@ -241,7 +241,7 @@ export class SlaktReportAssembler {
   ): Promise<ExecutedRow[]> {
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       return queryRunner.query(
-        `SELECT s.code AS artskode,
+        `SELECT COALESCE(s."officialCode", s.code) AS artskode,
                 SUM(hr."totalBiomass")::numeric AS "totalKg",
                 COUNT(*)::bigint AS "recordCount"
            FROM harvest_records hr
@@ -268,7 +268,7 @@ export class SlaktReportAssembler {
       // Site scope resolves through the plan's batch → current tank
       // allocation (harvest plans carry no tank/site column).
       return queryRunner.query(
-        `SELECT s.code AS artskode,
+        `SELECT COALESCE(s."officialCode", s.code) AS artskode,
                 EXTRACT(ISODOW FROM hp."plannedDate")::int::text AS weekday,
                 SUM(hp."estimatedBiomass")::numeric AS "totalKg"
            FROM harvest_plans hp

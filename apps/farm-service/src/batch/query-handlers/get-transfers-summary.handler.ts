@@ -45,7 +45,7 @@ export class GetTransfersSummaryHandler implements IQueryHandler<GetTransfersSum
          )
          SELECT o."operationDate"::date::text AS date,
                 CASE WHEN o."operationType" = 'transfer_out' THEN 'OUT' ELSE 'IN' END AS direction,
-                s.code AS "speciesCode",
+                COALESCE(s."officialCode", s.code) AS "speciesCode",
                 SUM(o.quantity)::bigint AS "fishCount",
                 SUM(o."biomassKg")::numeric AS "biomassKg",
                 other_side.site_name AS counterparty

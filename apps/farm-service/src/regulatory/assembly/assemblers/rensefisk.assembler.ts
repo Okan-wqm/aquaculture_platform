@@ -205,7 +205,7 @@ export class RensefiskReportAssembler {
         `SELECT t.id AS "tankId",
                 t.code AS "merdId",
                 cfd->>'speciesId' AS "speciesId",
-                s.code AS artskode,
+                COALESCE(s."officialCode", s.code) AS artskode,
                 cfd->>'sourceType' AS "sourceType",
                 COALESCE(cfd->>'quantity', '0') AS quantity
            FROM tanks t

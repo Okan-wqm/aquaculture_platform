@@ -22,15 +22,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  Directive,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, Directive, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
 // ============================================================================
@@ -41,13 +33,13 @@ import GraphQLJSON from 'graphql-type-json';
  * Tür kategorisi - Ana sınıflandırma
  */
 export enum SpeciesCategory {
-  FISH = 'fish',                   // Balık
-  SHRIMP = 'shrimp',               // Karides
-  PRAWN = 'prawn',                 // Karidesler (tatlı su)
-  CRAB = 'crab',                   // Yengeç
-  LOBSTER = 'lobster',             // Istakoz
-  MOLLUSK = 'mollusk',             // Yumuşakçalar (midye, istiridye)
-  SEAWEED = 'seaweed',             // Deniz yosunu
+  FISH = 'fish', // Balık
+  SHRIMP = 'shrimp', // Karides
+  PRAWN = 'prawn', // Karidesler (tatlı su)
+  CRAB = 'crab', // Yengeç
+  LOBSTER = 'lobster', // Istakoz
+  MOLLUSK = 'mollusk', // Yumuşakçalar (midye, istiridye)
+  SEAWEED = 'seaweed', // Deniz yosunu
   OTHER = 'other',
 }
 
@@ -60,9 +52,9 @@ registerEnumType(SpeciesCategory, {
  * Su tipi - Türün yaşadığı su ortamı
  */
 export enum SpeciesWaterType {
-  FRESHWATER = 'freshwater',       // Tatlı su
-  SALTWATER = 'saltwater',         // Tuzlu su (deniz)
-  BRACKISH = 'brackish',           // Acı su (karışım)
+  FRESHWATER = 'freshwater', // Tatlı su
+  SALTWATER = 'saltwater', // Tuzlu su (deniz)
+  BRACKISH = 'brackish', // Acı su (karışım)
 }
 
 registerEnumType(SpeciesWaterType, {
@@ -74,10 +66,10 @@ registerEnumType(SpeciesWaterType, {
  * Tür durumu
  */
 export enum SpeciesStatus {
-  ACTIVE = 'active',               // Aktif olarak yetiştiriliyor
-  INACTIVE = 'inactive',           // Şu an yetiştirilmiyor
-  EXPERIMENTAL = 'experimental',   // Deneme aşamasında
-  DISCONTINUED = 'discontinued',   // Artık yetiştirilmiyor
+  ACTIVE = 'active', // Aktif olarak yetiştiriliyor
+  INACTIVE = 'inactive', // Şu an yetiştirilmiyor
+  EXPERIMENTAL = 'experimental', // Deneme aşamasında
+  DISCONTINUED = 'discontinued', // Artık yetiştirilmiyor
 }
 
 registerEnumType(SpeciesStatus, {
@@ -89,16 +81,16 @@ registerEnumType(SpeciesStatus, {
  * Büyüme aşaması - Türün yaşam döngüsündeki aşamalar
  */
 export enum GrowthStage {
-  EGG = 'egg',                     // Yumurta
-  LARVAE = 'larvae',               // Larva
-  POST_LARVAE = 'post_larvae',     // Post-larva
-  FRY = 'fry',                     // Yavru (balık)
-  FINGERLING = 'fingerling',       // Parmak boy
-  JUVENILE = 'juvenile',           // Genç
-  GROWER = 'grower',               // Büyütme
-  PRE_ADULT = 'pre_adult',         // Erişkin öncesi
-  ADULT = 'adult',                 // Erişkin
-  BROODSTOCK = 'broodstock',       // Anaç
+  EGG = 'egg', // Yumurta
+  LARVAE = 'larvae', // Larva
+  POST_LARVAE = 'post_larvae', // Post-larva
+  FRY = 'fry', // Yavru (balık)
+  FINGERLING = 'fingerling', // Parmak boy
+  JUVENILE = 'juvenile', // Genç
+  GROWER = 'grower', // Büyütme
+  PRE_ADULT = 'pre_adult', // Erişkin öncesi
+  ADULT = 'adult', // Erişkin
+  BROODSTOCK = 'broodstock', // Anaç
 }
 
 registerEnumType(GrowthStage, {
@@ -115,12 +107,12 @@ registerEnumType(GrowthStage, {
  */
 export interface OptimalConditions {
   temperature: {
-    min: number;                   // Minimum sıcaklık
-    max: number;                   // Maksimum sıcaklık
-    optimal: number;               // Optimal sıcaklık
+    min: number; // Minimum sıcaklık
+    max: number; // Maksimum sıcaklık
+    optimal: number; // Optimal sıcaklık
     unit: 'celsius' | 'fahrenheit';
-    criticalMin?: number;          // Kritik minimum (ölüm sınırı)
-    criticalMax?: number;          // Kritik maksimum (ölüm sınırı)
+    criticalMin?: number; // Kritik minimum (ölüm sınırı)
+    criticalMax?: number; // Kritik maksimum (ölüm sınırı)
   };
   ph: {
     min: number;
@@ -128,20 +120,20 @@ export interface OptimalConditions {
     optimal?: number;
   };
   dissolvedOxygen: {
-    min: number;                   // Minimum DO (mg/L)
-    optimal: number;               // Optimal DO
-    critical?: number;             // Kritik seviye
+    min: number; // Minimum DO (mg/L)
+    optimal: number; // Optimal DO
+    critical?: number; // Kritik seviye
     unit: 'mg/L' | 'ppm';
   };
   salinity?: {
-    min: number;                   // ppt
+    min: number; // ppt
     max: number;
     optimal?: number;
     unit: 'ppt' | 'psu';
   };
   ammonia?: {
-    max: number;                   // Maksimum tolere edilen (mg/L)
-    warning?: number;              // Uyarı seviyesi
+    max: number; // Maksimum tolere edilen (mg/L)
+    warning?: number; // Uyarı seviyesi
   };
   nitrite?: {
     max: number;
@@ -162,14 +154,14 @@ export interface OptimalConditions {
     unit: 'mg/L CaCO3' | 'dH';
   };
   co2?: {
-    min: number;                   // Minimum CO2 (mg/L)
-    max: number;                   // Maksimum CO2 (mg/L)
-    warning?: number;              // Uyarı seviyesi
+    min: number; // Minimum CO2 (mg/L)
+    max: number; // Maksimum CO2 (mg/L)
+    warning?: number; // Uyarı seviyesi
   };
   lightRegime?: {
-    lightHours: number;            // Günlük aydınlık saat
-    darkHours: number;             // Günlük karanlık saat
-    notes?: string;                // Ek notlar
+    lightHours: number; // Günlük aydınlık saat
+    darkHours: number; // Günlük karanlık saat
+    notes?: string; // Ek notlar
   };
 }
 
@@ -178,37 +170,37 @@ export interface OptimalConditions {
  */
 export interface GrowthParameters {
   // Yoğunluk limitleri
-  maxDensity: number;              // Maksimum yoğunluk (kg/m³)
-  optimalDensity?: number;         // Optimal yoğunluk
+  maxDensity: number; // Maksimum yoğunluk (kg/m³)
+  optimalDensity?: number; // Optimal yoğunluk
   densityUnit: 'kg/m3' | 'pcs/m3'; // Birim
 
   // Büyüme oranları
-  avgDailyGrowth: number;          // Ortalama günlük büyüme (g/gün)
+  avgDailyGrowth: number; // Ortalama günlük büyüme (g/gün)
   minDailyGrowth?: number;
   maxDailyGrowth?: number;
 
   // Hasat bilgileri
-  avgHarvestWeight: number;        // Ortalama hasat ağırlığı (g)
-  minHarvestWeight?: number;       // Minimum hasat ağırlığı
-  maxHarvestWeight?: number;       // Maksimum hasat ağırlığı
+  avgHarvestWeight: number; // Ortalama hasat ağırlığı (g)
+  minHarvestWeight?: number; // Minimum hasat ağırlığı
+  maxHarvestWeight?: number; // Maksimum hasat ağırlığı
   harvestWeightUnit: 'gram' | 'kg';
 
   // Süre bilgileri
-  avgTimeToHarvestDays: number;    // Ortalama yetiştirme süresi (gün)
+  avgTimeToHarvestDays: number; // Ortalama yetiştirme süresi (gün)
   minTimeToHarvestDays?: number;
   maxTimeToHarvestDays?: number;
 
   // Yem dönüşüm oranı
-  targetFCR: number;               // Hedef FCR
-  minFCR?: number;                 // En iyi FCR
-  maxFCR?: number;                 // Kabul edilebilir maksimum FCR
+  targetFCR: number; // Hedef FCR
+  minFCR?: number; // En iyi FCR
+  maxFCR?: number; // Kabul edilebilir maksimum FCR
 
   // Hayatta kalma
-  expectedSurvivalRate: number;    // Beklenen hayatta kalma oranı (%)
-  minAcceptableSurvival?: number;  // Kabul edilebilir minimum (%)
+  expectedSurvivalRate: number; // Beklenen hayatta kalma oranı (%)
+  minAcceptableSurvival?: number; // Kabul edilebilir minimum (%)
 
   // Spesifik büyüme oranı
-  avgSGR?: number;                 // Specific Growth Rate (%)
+  avgSGR?: number; // Specific Growth Rate (%)
 }
 
 /**
@@ -216,12 +208,12 @@ export interface GrowthParameters {
  * Batch oluşturulurken input_type seçimine göre otomatik hesaplama yapılır
  */
 export interface HarvestDaysPerInputType {
-  egg?: number;                    // Yumurtadan başlama (gün)
-  larvae?: number;                 // Larvadan başlama (gün)
-  postLarvae?: number;             // Post-larvadan başlama (gün)
-  fry?: number;                    // Yavrudan başlama (gün)
-  fingerling?: number;             // Parmak boydan başlama (gün)
-  juvenile?: number;               // Gençten başlama (gün)
+  egg?: number; // Yumurtadan başlama (gün)
+  larvae?: number; // Larvadan başlama (gün)
+  postLarvae?: number; // Post-larvadan başlama (gün)
+  fry?: number; // Yavrudan başlama (gün)
+  fingerling?: number; // Parmak boydan başlama (gün)
+  juvenile?: number; // Gençten başlama (gün)
 }
 
 /**
@@ -229,30 +221,30 @@ export interface HarvestDaysPerInputType {
  */
 export interface GrowthStageDefinition {
   stage: GrowthStage;
-  name: string;                    // Gösterim adı
-  order: number;                   // Sıralama (1, 2, 3...)
+  name: string; // Gösterim adı
+  order: number; // Sıralama (1, 2, 3...)
 
   // Ağırlık aralığı
-  minWeight: number;               // Bu aşamadaki min ağırlık (g)
-  maxWeight: number;               // Bu aşamadaki max ağırlık (g)
+  minWeight: number; // Bu aşamadaki min ağırlık (g)
+  maxWeight: number; // Bu aşamadaki max ağırlık (g)
   weightUnit: 'gram' | 'kg';
 
   // Süre
-  typicalDurationDays: number;     // Tipik süre (gün)
+  typicalDurationDays: number; // Tipik süre (gün)
   minDurationDays?: number;
   maxDurationDays?: number;
 
   // Besleme
-  recommendedFeedType: string;     // Önerilen yem tipi (STARTER, GROWER, vb.)
-  feedingFrequency: number;        // Günlük öğün sayısı
-  feedingRate: number;             // % body weight / gün
+  recommendedFeedType: string; // Önerilen yem tipi (STARTER, GROWER, vb.)
+  feedingFrequency: number; // Günlük öğün sayısı
+  feedingRate: number; // % body weight / gün
 
   // FCR
   targetFCR: number;
-  expectedSGR?: number;            // Specific Growth Rate
+  expectedSGR?: number; // Specific Growth Rate
 
   // Yoğunluk
-  recommendedDensity?: number;     // Önerilen yoğunluk (kg/m³ veya adet/m³)
+  recommendedDensity?: number; // Önerilen yoğunluk (kg/m³ veya adet/m³)
   densityUnit?: 'kg/m3' | 'pcs/m3';
 
   // Özel gereksinimler
@@ -264,24 +256,24 @@ export interface GrowthStageDefinition {
  * Pazar bilgileri - Ekonomik değerlendirme için
  */
 export interface MarketInfo {
-  marketPrice: number;             // Piyasa fiyatı
-  currency: string;                // Para birimi (TRY, USD, EUR)
-  priceUnit: 'kg' | 'piece';       // Fiyat birimi
+  marketPrice: number; // Piyasa fiyatı
+  currency: string; // Para birimi (TRY, USD, EUR)
+  priceUnit: 'kg' | 'piece'; // Fiyat birimi
   lastUpdated?: Date;
 
   // Talep bilgileri
   demandLevel?: 'low' | 'medium' | 'high' | 'very_high';
   seasonalDemand?: {
-    highSeason: string[];          // Yüksek talep ayları
-    lowSeason: string[];           // Düşük talep ayları
+    highSeason: string[]; // Yüksek talep ayları
+    lowSeason: string[]; // Düşük talep ayları
   };
 
   // Pazar kategorileri
   marketCategories?: Array<{
-    name: string;                  // Örn: "A Class", "Export Quality"
+    name: string; // Örn: "A Class", "Export Quality"
     minWeight: number;
     maxWeight: number;
-    priceMultiplier: number;       // Baz fiyata çarpan
+    priceMultiplier: number; // Baz fiyata çarpan
   }>;
 }
 
@@ -289,16 +281,16 @@ export interface MarketInfo {
  * Üreme bilgileri - Broodstock yönetimi için
  */
 export interface BreedingInfo {
-  breedingAge: number;             // Üreme yaşı (ay)
-  breedingSeason?: string[];       // Üreme mevsimi
+  breedingAge: number; // Üreme yaşı (ay)
+  breedingSeason?: string[]; // Üreme mevsimi
   spawningTemperature?: {
     min: number;
     max: number;
   };
-  eggsPerSpawn?: number;           // Yumurtlama başına yumurta sayısı
-  incubationDays?: number;         // Kuluçka süresi
-  hatchRate?: number;              // Çıkış oranı (%)
-  fertilizationRate?: number;      // Döllenme oranı (%)
+  eggsPerSpawn?: number; // Yumurtlama başına yumurta sayısı
+  incubationDays?: number; // Kuluçka süresi
+  hatchRate?: number; // Çıkış oranı (%)
+  fertilizationRate?: number; // Döllenme oranı (%)
 }
 
 // ============================================================================
@@ -330,19 +322,30 @@ export class Species {
 
   @Field()
   @Column({ length: 100 })
-  scientificName: string;          // Bilimsel ad: "Dicentrarchus labrax"
+  scientificName: string; // Bilimsel ad: "Dicentrarchus labrax"
 
   @Field()
   @Column({ length: 100 })
-  commonName: string;              // Yaygın ad: "European Seabass"
+  commonName: string; // Yaygın ad: "European Seabass"
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
-  localName?: string;              // Yerel ad: "Levrek"
+  localName?: string; // Yerel ad: "Levrek"
 
   @Field()
   @Column({ length: 50 })
-  code: string;                    // Kısa kod: "SEABASS"
+  code: string; // Kısa kod: "SEABASS"
+
+  /**
+   * Official regulatory species code (artskode) used by the Norwegian
+   * reporting APIs — FAO 3-alpha for grow-out (SAL), USB/BER/GRO/BNB for
+   * cleaner fish. Nullable: non-reportable species legitimately have none;
+   * report assembly fails closed on unmapped reportable species.
+   * Seed map SSoT: species/data/official-species-codes.ts.
+   */
+  @Field({ nullable: true })
+  @Column({ length: 16, nullable: true })
+  officialCode?: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -370,11 +373,11 @@ export class Species {
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
-  family?: string;                 // Familya: "Moronidae"
+  family?: string; // Familya: "Moronidae"
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
-  genus?: string;                  // Cins: "Dicentrarchus"
+  genus?: string; // Cins: "Dicentrarchus"
 
   // -------------------------------------------------------------------------
   // OPTİMAL KOŞULLAR
@@ -487,7 +490,7 @@ export class Species {
 
   @Field({ nullable: true })
   @Column({ length: 500, nullable: true })
-  imageUrl?: string;               // Tür görseli
+  imageUrl?: string; // Tür görseli
 
   // -------------------------------------------------------------------------
   // SUPPLIER İLİŞKİSİ
@@ -496,7 +499,7 @@ export class Species {
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   @Index()
-  supplierId?: string;             // Yavru/Yumurta tedarikçisi
+  supplierId?: string; // Yavru/Yumurta tedarikçisi
 
   // Note: Supplier import is done via string reference to avoid circular dependency
   // The actual relation is resolved at runtime by TypeORM
@@ -629,7 +632,11 @@ export class Species {
     nitrite?: number;
     nitrate?: number;
   }): Array<{ parameter: string; status: 'ok' | 'warning' | 'critical'; message: string }> {
-    const results: Array<{ parameter: string; status: 'ok' | 'warning' | 'critical'; message: string }> = [];
+    const results: Array<{
+      parameter: string;
+      status: 'ok' | 'warning' | 'critical';
+      message: string;
+    }> = [];
 
     if (params.temperature !== undefined && this.optimalConditions?.temperature) {
       const temp = this.optimalConditions.temperature;
@@ -726,7 +733,10 @@ export class Species {
   /**
    * Input tipine göre beklenen hasat tarihini hesaplar
    */
-  calculateExpectedHarvestDate(inputType: GrowthStage, startDate: Date = new Date()): Date | undefined {
+  calculateExpectedHarvestDate(
+    inputType: GrowthStage,
+    startDate: Date = new Date(),
+  ): Date | undefined {
     const days = this.getHarvestDaysByInputType(inputType);
     if (!days) return undefined;
 

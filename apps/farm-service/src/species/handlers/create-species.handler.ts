@@ -9,11 +9,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
-import {
-  ConflictException,
-  Logger,
-  BadRequestException,
-} from '@nestjs/common';
+import { ConflictException, Logger, BadRequestException } from '@nestjs/common';
 import { CreateSpeciesCommand } from '../commands/create-species.command';
 import { Species, SpeciesCategory, SpeciesWaterType } from '../entities/species.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
@@ -21,9 +17,7 @@ import { CodeGeneratorService } from '../../database/services/code-generator.ser
 import { AuditAction } from '../../database/entities/audit-log.entity';
 
 @CommandHandler(CreateSpeciesCommand)
-export class CreateSpeciesHandler
-  implements ICommandHandler<CreateSpeciesCommand, Species>
-{
+export class CreateSpeciesHandler implements ICommandHandler<CreateSpeciesCommand, Species> {
   private readonly logger = new Logger(CreateSpeciesHandler.name);
 
   constructor(
@@ -35,20 +29,13 @@ export class CreateSpeciesHandler
   async execute(command: CreateSpeciesCommand): Promise<Species> {
     const { tenantId, userId, input } = command;
 
-    this.logger.log(
-      `Creating species: ${input.scientificName} for tenant: ${tenantId}`,
-    );
+    this.logger.log(`Creating species: ${input.scientificName} for tenant: ${tenantId}`);
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const speciesRepo = tenantManagerRepo(queryRunner.manager, Species, tenantId);
 
       // Validate unique constraints
-      await this.validateUniqueness(
-        speciesRepo,
-        tenantId,
-        input.scientificName,
-        input.code,
-      );
+      await this.validateUniqueness(speciesRepo, tenantId, input.scientificName, input.code);
 
       // Validate growth stages if provided
       if (input.growthStages?.length) {
@@ -67,6 +54,7 @@ export class CreateSpeciesHandler
         commonName: input.commonName,
         localName: input.localName,
         code: input.code.toUpperCase(),
+        officialCode: input.officialCode?.toUpperCase(),
         description: input.description,
         category: input.category ?? SpeciesCategory.FISH,
         waterType: input.waterType ?? SpeciesWaterType.SALTWATER,
@@ -140,18 +128,14 @@ export class CreateSpeciesHandler
     });
 
     if (existingByCode) {
-      throw new ConflictException(
-        `Species with code "${code}" already exists`,
-      );
+      throw new ConflictException(`Species with code "${code}" already exists`);
     }
   }
 
   /**
    * Validates growth stages ordering and consistency
    */
-  private validateGrowthStages(
-    stages: Species['growthStages'],
-  ): void {
+  private validateGrowthStages(stages: Species['growthStages']): void {
     if (!stages || stages.length === 0) return;
 
     // Sort by order
@@ -165,10 +149,8 @@ export class CreateSpeciesHandler
       if (!prev || !curr) continue;
 
       // Convert to grams for comparison
-      const prevMaxWeight =
-        prev.weightUnit === 'kg' ? prev.maxWeight * 1000 : prev.maxWeight;
-      const currMinWeight =
-        curr.weightUnit === 'kg' ? curr.minWeight * 1000 : curr.minWeight;
+      const prevMaxWeight = prev.weightUnit === 'kg' ? prev.maxWeight * 1000 : prev.maxWeight;
+      const currMinWeight = curr.weightUnit === 'kg' ? curr.minWeight * 1000 : curr.minWeight;
 
       if (currMinWeight < prevMaxWeight) {
         throw new BadRequestException(
@@ -191,9 +173,7 @@ export class CreateSpeciesHandler
   /**
    * Validates optimal conditions for logical consistency
    */
-  private validateOptimalConditions(
-    conditions: Partial<Species['optimalConditions']>,
-  ): void {
+  private validateOptimalConditions(conditions: Partial<Species['optimalConditions']>): void {
     if (!conditions) return;
 
     // Temperature validation

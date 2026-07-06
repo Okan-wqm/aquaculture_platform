@@ -91,6 +91,12 @@ export class SiteResponse {
   @Field(() => Float, { nullable: true })
   totalArea?: number;
 
+  @Field(() => Int, { nullable: true })
+  lokalitetsnummer?: number;
+
+  @Field({ nullable: true })
+  organisationNumberOverride?: string;
+
   @Field({ nullable: true })
   siteManager?: string;
 

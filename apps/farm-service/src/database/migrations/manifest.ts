@@ -24,6 +24,7 @@ import { CreateSensorTemperatureLatest1802200000000 } from './1802200000000-Crea
 import { AddTankTemperatureSensorId1802300000000 } from './1802300000000-AddTankTemperatureSensorId';
 import { AddExecutionGrowthAppliedAt1802400000000 } from './1802400000000-AddExecutionGrowthAppliedAt';
 import { AddSpeciesOfficialCode1802500000000 } from './1802500000000-AddSpeciesOfficialCode';
+import { AddSiteRegulatoryIdentity1802600000000 } from './1802600000000-AddSiteRegulatoryIdentity';
 
 /**
  * Canonical farm-service migration class list.
@@ -60,4 +61,5 @@ export const FARM_MIGRATIONS = [
   AddTankTemperatureSensorId1802300000000,
   AddExecutionGrowthAppliedAt1802400000000,
   AddSpeciesOfficialCode1802500000000,
+  AddSiteRegulatoryIdentity1802600000000,
 ] as const;

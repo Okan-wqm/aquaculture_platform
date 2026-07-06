@@ -19,10 +19,7 @@ import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
-import {
-  RegulatoryReport,
-  RegulatoryReportType,
-} from '../entities/regulatory-report.entity';
+import { RegulatoryReport, RegulatoryReportType } from '../entities/regulatory-report.entity';
 import { SubmitSeaLiceReportInput } from '../dto/regulatory-inputs.dto';
 
 const TENANT_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
@@ -50,6 +47,7 @@ describe('RegulatoryResolver — REST submit persist-first flow', () => {
   let markSubmitted: jest.Mock;
   let markFailed: jest.Mock;
   let getSettings: jest.Mock;
+  let getEffectiveSiteLocalityMappings: jest.Mock;
 
   beforeEach(() => {
     submitSeaLice = jest.fn();
@@ -63,11 +61,15 @@ describe('RegulatoryResolver — REST submit persist-first flow', () => {
     getSettings = jest.fn().mockResolvedValue({
       siteLocalityMappings: { 'site-1': 12345 },
     });
+    getEffectiveSiteLocalityMappings = jest.fn().mockResolvedValue({ 'site-1': 12345 });
 
     const mattilsynet: Pick<MattilsynetApiService, 'submitSeaLiceReport'> = {
       submitSeaLiceReport: submitSeaLice,
     };
-    const settings: Pick<RegulatorySettingsService, 'getSettings'> = { getSettings };
+    const settings: Pick<
+      RegulatorySettingsService,
+      'getSettings' | 'getEffectiveSiteLocalityMappings'
+    > = { getSettings, getEffectiveSiteLocalityMappings };
     const store: Pick<
       RegulatoryReportStoreService,
       'recordPending' | 'markSubmitted' | 'markFailed'
@@ -134,7 +136,11 @@ describe('RegulatoryResolver — REST submit persist-first flow', () => {
   it('does NOT relabel an accepted submission FAILED when persisting the outcome throws (FARM-LOW-134)', async () => {
     markSubmitted.mockRejectedValueOnce(new Error('db write timeout'));
 
-    submitSeaLice.mockResolvedValue({ success: true, referanse: 'MT-1', klientReferanse: 'ref-777' });
+    submitSeaLice.mockResolvedValue({
+      success: true,
+      referanse: 'MT-1',
+      klientReferanse: 'ref-777',
+    });
 
     const result = await resolver.submitSeaLiceReport(input, ctx());
 

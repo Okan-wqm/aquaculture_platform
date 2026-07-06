@@ -14,6 +14,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { BatchModule } from '../batch/batch.module';
+import { Site } from '../site/entities/site.entity';
 import { MaskinportenService } from './maskinporten.service';
 import { MattilsynetApiService } from './mattilsynet-api.service';
 import { MattilsynetSchemaValidatorService } from './services/mattilsynet-schema-validator.service';
@@ -52,7 +53,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([RegulatorySettings, BiomassReport, RegulatoryReport]),
+    TypeOrmModule.forFeature([RegulatorySettings, BiomassReport, RegulatoryReport, Site]),
     // BiomassCalculatorService (exported by BatchModule) is the standing-stock
     // SSoT the biomass assembler reads (RPT-012 dedup verdict).
     BatchModule,

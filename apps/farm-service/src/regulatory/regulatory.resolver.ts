@@ -205,8 +205,7 @@ export class RegulatoryResolver {
     lokalitetsnummer: number,
   ): Promise<string | undefined> {
     if (explicitSiteId) return explicitSiteId;
-    const settings = await this.settingsService.getSettings(tenantId);
-    const mappings = settings?.siteLocalityMappings || {};
+    const mappings = await this.settingsService.getEffectiveSiteLocalityMappings(tenantId);
     for (const [siteId, mappedLokalitet] of Object.entries(mappings)) {
       if (mappedLokalitet === lokalitetsnummer) return siteId;
     }
@@ -295,6 +294,7 @@ export class RegulatoryResolver {
   private async mapSettingsToOutput(tenantId: string): Promise<RegulatorySettingsOutput> {
     const settings = await this.settingsService.getSettings(tenantId);
     const maskedClientId = await this.settingsService.getMaskedClientId(tenantId);
+    const effectiveMappings = await this.settingsService.getEffectiveSiteLocalityMappings(tenantId);
 
     if (!settings) {
       return {
@@ -303,13 +303,14 @@ export class RegulatoryResolver {
       };
     }
 
-    // Transform siteLocalityMappings to array format
-    const mappingsArray: SiteLocalityMappingOutput[] = Object.entries(
-      settings.siteLocalityMappings || {},
-    ).map(([siteId, lokalitetsnummer]) => ({
-      siteId,
-      lokalitetsnummer,
-    }));
+    // Transform the EFFECTIVE mappings (sites-first SSoT, jsonb fallback)
+    // to array format — the frontend identity SSoT consumes this output.
+    const mappingsArray: SiteLocalityMappingOutput[] = Object.entries(effectiveMappings).map(
+      ([siteId, lokalitetsnummer]) => ({
+        siteId,
+        lokalitetsnummer,
+      }),
+    );
 
     return {
       id: settings.id,
@@ -367,7 +368,9 @@ export class RegulatoryResolver {
       settings?.maskinportenClientId && settings?.maskinportenPrivateKeyEncrypted
     );
     const hasDefaultContact = !!(settings?.defaultContactName && settings?.defaultContactEmail);
-    const siteMappingsCount = Object.keys(settings?.siteLocalityMappings || {}).length;
+    const siteMappingsCount = Object.keys(
+      await this.settingsService.getEffectiveSiteLocalityMappings(tenantId),
+    ).length;
     const hasSlaughterApproval = !!settings?.slaughterApprovalNumber;
 
     return {

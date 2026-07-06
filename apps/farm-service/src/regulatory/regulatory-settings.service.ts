@@ -18,12 +18,11 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
+
+import { Site } from '../site/entities/site.entity';
 import { TenantContextError } from '@aquaculture/backend-common/database';
-import {
-  RegulatorySettings,
-  CompanyAddress,
-} from './entities/regulatory-settings.entity';
+import { RegulatorySettings, CompanyAddress } from './entities/regulatory-settings.entity';
 
 /**
  * Input for updating regulatory settings
@@ -50,6 +49,8 @@ export class RegulatorySettingsService {
   constructor(
     @InjectRepository(RegulatorySettings)
     private readonly repo: Repository<RegulatorySettings>,
+    @InjectRepository(Site)
+    private readonly siteRepo: Repository<Site>,
   ) {}
 
   /**
@@ -83,6 +84,36 @@ export class RegulatorySettingsService {
   /**
    * Save or update regulatory settings for a tenant
    */
+  /**
+   * Effective site → lokalitetsnummer mappings. `sites.lokalitetsnummer` is
+   * the SSoT (RPT-015); the legacy settings jsonb is a transition fallback
+   * (removed in Phase 4). When both exist and disagree, sites wins and the
+   * drift is logged for the operator to reconcile.
+   */
+  async getEffectiveSiteLocalityMappings(tenantId: string): Promise<Record<string, number>> {
+    const [settings, sites] = await Promise.all([
+      this.getSettings(tenantId),
+      this.siteRepo.find({
+        where: { tenantId, lokalitetsnummer: Not(IsNull()) },
+        select: ['id', 'lokalitetsnummer'],
+      }),
+    ]);
+
+    const merged: Record<string, number> = { ...(settings?.siteLocalityMappings ?? {}) };
+    for (const site of sites) {
+      if (site.lokalitetsnummer == null) continue;
+      const legacy = merged[site.id];
+      if (legacy !== undefined && legacy !== site.lokalitetsnummer) {
+        this.logger.warn(
+          `Site ${site.id} lokalitetsnummer drift: sites=${site.lokalitetsnummer} ` +
+            `settings-jsonb=${legacy} — sites is the SSoT and wins.`,
+        );
+      }
+      merged[site.id] = site.lokalitetsnummer;
+    }
+    return merged;
+  }
+
   async saveSettings(
     tenantId: string,
     input: UpdateRegulatorySettingsInput,
@@ -115,6 +146,13 @@ export class RegulatorySettingsService {
       }
       if (input.siteLocalityMappings !== undefined) {
         settings.siteLocalityMappings = input.siteLocalityMappings;
+        // Transition write-through (RPT-015): sites.lokalitetsnummer is the
+        // SSoT — mirror every mapping onto the site rows so old readers (the
+        // jsonb) and new readers (sites) stay consistent until the jsonb is
+        // dropped in Phase 4.
+        for (const [siteId, lokalitetsnummer] of Object.entries(input.siteLocalityMappings)) {
+          await this.siteRepo.update({ id: siteId, tenantId }, { lokalitetsnummer });
+        }
       }
       if (input.slaughterApprovalNumber !== undefined) {
         settings.slaughterApprovalNumber = input.slaughterApprovalNumber;
@@ -192,10 +230,7 @@ export class RegulatorySettingsService {
    */
   async isConfigured(tenantId: string): Promise<boolean> {
     const settings = await this.getSettings(tenantId);
-    return !!(
-      settings?.maskinportenClientId &&
-      settings?.maskinportenPrivateKeyEncrypted
-    );
+    return !!(settings?.maskinportenClientId && settings?.maskinportenPrivateKeyEncrypted);
   }
 
   /**

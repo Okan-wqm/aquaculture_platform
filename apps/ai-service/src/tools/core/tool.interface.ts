@@ -37,6 +37,9 @@ export interface ToolMetadata {
   requiresConfirmation: boolean;
 }
 
+/** The tenant/persona actuation policy resolved for this run. */
+export type ActuationPolicy = 'blocked' | 'confirm_required' | 'allowed';
+
 /** Context passed to every tool execution - populated from JWT, never from Claude */
 export interface ToolExecutionContext {
   tenantId: string;
@@ -47,6 +50,13 @@ export interface ToolExecutionContext {
   correlationId: string;
   /** The agent persona executing this tool */
   persona: string;
+  /**
+   * AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant, most
+   * restrictive wins). REQUIRED so the executor can never fail open — an
+   * actuation tool runs autonomously only under 'allowed'. Populated by the
+   * agent runner from the resolved profile; never from Claude.
+   */
+  actuationPolicy: ActuationPolicy;
 }
 
 /** Result wrapper for tool execution */
@@ -60,6 +70,13 @@ export interface ToolResult<T = unknown> {
   cacheable: boolean;
   /** Cache TTL in seconds (if cacheable) */
   cacheTtlSeconds?: number;
+  /**
+   * AISAFETY-MEDIUM-017: set when an actuation tool was NOT executed because it
+   * needs human confirmation (the tool did not run). Lets the runner/UI render
+   * a confirmation prompt rather than treat it as a plain failure. The full
+   * propose→confirm→execute round-trip is Faz 6; this flag is its seam.
+   */
+  requiresConfirmation?: boolean;
 }
 
 /** Core tool interface - every tool must implement this */
@@ -72,5 +89,12 @@ export interface ITool<TInput = unknown, TOutput = unknown> {
   execute(input: TInput, ctx: ToolExecutionContext): Promise<ToolResult<TOutput>>;
 }
 
-/** Token for NestJS multi-provider injection */
-export const TOOL_PROVIDERS = Symbol('TOOL_PROVIDERS');
+// WHY no TOOL_PROVIDERS token here anymore (FAZ0-BOOT-01): the previous
+// `Symbol('TOOL_PROVIDERS')` design assumed Angular-style `multi: true`
+// providers, which NestJS does not have — every module-level
+// `{ provide: TOOL_PROVIDERS, useExisting: X }` silently LOST to the
+// registry module's own `useValue: []`, so the registry always booted with
+// ZERO tools. Discovery is now automatic: any @Injectable() provider
+// decorated with @Tool() is found via DiscoveryService at startup
+// (see ToolRegistryService). Registering a new tool = declare the class as
+// a provider in any module + decorate it. Nothing else.

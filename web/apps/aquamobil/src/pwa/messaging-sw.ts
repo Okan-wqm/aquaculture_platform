@@ -265,8 +265,22 @@ function handleFetchEvent(event: FetchEvent): void {
     return;
   }
 
-  // StaleWhileRevalidate for media/attachment files
-  if (MEDIA_PATTERN.test(url.pathname) && event.request.method === 'GET') {
+  // StaleWhileRevalidate for media/attachment files.
+  //
+  // MSG-MEDIUM-073: MUST exclude top-level navigations. MEDIA_PATTERN matches
+  // any path under /messaging/ — which is ALSO the SPA route for the messaging
+  // page (/mobile/messaging/…). Without the mode guard, navigating to the
+  // messaging page (a `navigate` request returning the app-shell HTML) was
+  // treated as a media GET and its HTML was cached under the media cache,
+  // polluting it and risking a stale document. `mode === 'navigate'` is true
+  // only for document navigations; a real attachment fetch (<img>, <audio>, a
+  // download) is 'cors'/'no-cors', so this cleanly keeps only genuine media in
+  // the media cache and lets navigations fall through to the app-shell route.
+  if (
+    MEDIA_PATTERN.test(url.pathname) &&
+    event.request.method === 'GET' &&
+    event.request.mode !== 'navigate'
+  ) {
     event.respondWith(staleWhileRevalidateStrategy(event.request));
     return;
   }

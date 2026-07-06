@@ -1,36 +1,32 @@
 import { Module } from '@nestjs/common';
+import { DiscoveryModule } from '@nestjs/core';
 import { ToolRegistryService } from './tool-registry.service';
 import { ToolExecutorService } from './core/tool-executor.service';
-import { TOOL_PROVIDERS } from './core/tool.interface';
+import { AuditModule } from '../audit/audit.module';
 
 /**
  * Tool Registry Module
  *
- * Provides the central tool registry and executor.
- * Tool category modules register their tools via the TOOL_PROVIDERS multi-provider token.
+ * Provides the central tool registry and executor. Tools are discovered
+ * automatically at startup: ToolRegistryService scans every instantiated
+ * provider (DiscoveryService) and registers the ones decorated with @Tool().
  *
- * Usage in category modules:
+ * Registering a new tool in any category module:
  * ```
  * @Module({
- *   providers: [
- *     MyTool1,
- *     MyTool2,
- *     { provide: TOOL_PROVIDERS, useExisting: MyTool1, multi: true },
- *     { provide: TOOL_PROVIDERS, useExisting: MyTool2, multi: true },
- *   ],
+ *   providers: [MyTool1, MyTool2], // nothing else — discovery is automatic
  * })
  * ```
+ *
+ * WHY (FAZ0-BOOT-01): the previous TOOL_PROVIDERS multi-provider token relied
+ * on Angular semantics NestJS does not implement, so the registry always
+ * received the empty default and no tool was ever callable by the agent.
  */
 @Module({
-  providers: [
-    ToolRegistryService,
-    ToolExecutorService,
-    // Default empty array for TOOL_PROVIDERS if no tools are registered
-    {
-      provide: TOOL_PROVIDERS,
-      useValue: [],
-    },
-  ],
+  // AuditModule: the executor persists every tool outcome to the audit trail
+  // (AISAFETY-MEDIUM-017 — the old inline logExecution was a TODO no-op).
+  imports: [DiscoveryModule, AuditModule],
+  providers: [ToolRegistryService, ToolExecutorService],
   exports: [ToolRegistryService, ToolExecutorService],
 })
 export class ToolRegistryModule {}

@@ -30,6 +30,12 @@ export interface JwtPayload {
   assignedSiteIds?: string[];
   // SEC-HIGH-052: enabled mobile feature keys the user is entitled to.
   mobileFeatures?: string[];
+  // MT-HIGH-054: tenant-RBAC capability strings (`resource:action`) minted by
+  // auth-service TokenService. Carried through the gateway so the verified
+  // assertion can fold it in for subgraph @RequireTenantPermission checks.
+  // (Distinct from the legacy `permissions` field above, which the token never
+  // populates under that name.)
+  resourcePermissions?: string[];
   type?: 'access' | 'refresh'; // Optional for backward compat with legacy tokens
   iat: number;
   exp: number;

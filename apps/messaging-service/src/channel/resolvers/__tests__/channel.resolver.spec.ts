@@ -36,6 +36,7 @@ jest.mock('@aquaculture/backend-common', () => ({
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole, NotificationPreference } from '../../entities/channel-member.entity';
@@ -69,13 +70,16 @@ describe('ChannelResolver', () => {
     saveMember: jest.fn(),
   };
 
-  function mockUser() {
+  function mockUser(resourcePermissions: string[] = ['channels:create_group']) {
     return {
       sub: userId,
       email: 'test@example.com',
       tenantId,
       roles: ['MODULE_MANAGER'],
       role: 'MODULE_MANAGER',
+      // Faz 7c: a properly-provisioned member carries tenant-RBAC capabilities;
+      // default includes channels:create_group (the WhatsApp-like seed default).
+      resourcePermissions,
     };
   }
 
@@ -148,6 +152,34 @@ describe('ChannelResolver', () => {
 
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
     expect(result.name).toBe('New Channel');
+  });
+
+  it('createChannel forbids GROUP creation without the channels:create_group capability', async () => {
+    const input = {
+      type: ChannelType.GROUP,
+      name: 'No Perm Group',
+      memberIds: [fakeUuid('usr')],
+    };
+
+    // Member with NO tenant grant → group creation denied (Faz 7c). The FE hides
+    // the button; the backend enforces independently.
+    await expect(
+      resolver.createChannel(tenantId, mockUser([]) as never, input as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(mockCommandBusExecute).not.toHaveBeenCalled();
+  });
+
+  it('createChannel allows a DIRECT channel WITHOUT the group capability (only GROUP is gated)', async () => {
+    const newChannel = createMockChannel({ type: ChannelType.DIRECT });
+    mockCommandBusExecute.mockResolvedValue(newChannel);
+
+    const input = {
+      type: ChannelType.DIRECT,
+      memberIds: [fakeUuid('usr')],
+    };
+
+    await resolver.createChannel(tenantId, mockUser([]) as never, input as never);
+    expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
   });
 
   // -----------------------------------------------------------------------

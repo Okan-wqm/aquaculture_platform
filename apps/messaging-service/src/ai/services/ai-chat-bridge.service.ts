@@ -27,11 +27,11 @@ import { sanitizeContent } from '../../shared/sanitize';
 import {
   InputFilterService,
   OutputPiiScannerService,
-  SsrfValidatorService,
 } from '@aquaculture/backend-common/ai-safety';
 import { InstructionHierarchyService } from '../safety/instruction-hierarchy.service';
 import { ToolSchemaValidatorService } from '../safety/tool-schema-validator.service';
 import { AiPersonasRegistryService } from './ai-personas-registry.service';
+import { AiEgressGateService } from './ai-egress-gate.service';
 
 /** Virtual AI user UUID -- consistent across all tenants. */
 const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -92,11 +92,11 @@ export class AiChatBridgeService {
     private readonly natsClient: ClientProxy,
     private readonly inputFilter: InputFilterService,
     private readonly outputPiiScanner: OutputPiiScannerService,
-    private readonly ssrfValidator: SsrfValidatorService,
     private readonly instructionHierarchy: InstructionHierarchyService,
     private readonly toolSchemaValidator: ToolSchemaValidatorService,
     private readonly personasRegistry: AiPersonasRegistryService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly egressGate: AiEgressGateService,
   ) {}
 
   /**
@@ -122,6 +122,26 @@ export class AiChatBridgeService {
     });
 
     if (!channel || channel.type !== ChannelType.AI) {
+      return;
+    }
+
+    // MSG-HIGH-061: route the chat egress through the fail-closed egress gate
+    // SSoT (the same boundary sentiment/embedding use, with the pre-declared
+    // 'ai-chat' purpose). This enforces BOTH the tenant AI master switch AND
+    // per-user consent — canAnalyzeMessage = isTenantAiEnabled AND
+    // hasUserConsented — and treats a consent-resolution error as denial. The
+    // gate lives here, at the single AI-chat egress point, so no caller (the
+    // handler forwards unconditionally) can bypass it. A tenant that disables
+    // AI now stops chat too; previously the chat path ignored the switch.
+    const egressAllowed = await this.egressGate.isAllowed(
+      tenantId,
+      senderId,
+      'ai-chat',
+    );
+    if (!egressAllowed) {
+      this.logger.debug(
+        `AI chat egress denied for channel ${channelId} (tenant AI disabled or user consent absent) — not forwarding`,
+      );
       return;
     }
 
@@ -167,10 +187,11 @@ export class AiChatBridgeService {
       contextMessages,
     };
 
-    // If channel has a custom MCP server URL, try HTTP POST first with NATS fallback
-    const response = channel.aiServiceUrl
-      ? await this.forwardViaHttpWithFallback(channel.aiServiceUrl, request)
-      : await this.forwardViaNats(request, messageId);
+    // MSG-HIGH-060: AI always runs through ai-service over NATS with the
+    // tenant's BYOK key. The per-channel HTTP override was removed — it let a
+    // member exfiltrate conversation context + tenantId to an arbitrary public
+    // endpoint (SSRF checks only blocked internal targets, not exfiltration).
+    const response = await this.forwardViaNats(request, messageId);
 
     if (!response) {
       return;
@@ -407,65 +428,10 @@ export class AiChatBridgeService {
     return response;
   }
 
-  /**
-   * Forward AI chat request via HTTP POST to a custom MCP server URL.
-   * Falls back to NATS if the HTTP request fails.
-   *
-   * SECURITY: validates that the URL uses HTTPS and does not target private
-   * IP ranges (SSRF prevention). Only public HTTPS endpoints are allowed.
-   *
-   * @param url - Custom MCP server endpoint URL
-   * @param request - AI chat request payload
-   * @returns AI chat response from the custom server or NATS fallback
-   */
-  private async forwardViaHttpWithFallback(
-    url: string,
-    request: AiChatRequest,
-  ): Promise<AiChatResponse> {
-    // SECURITY: SSRF prevention with DNS rebinding defense — resolve DNS
-    // and validate resolved IPs BEFORE making the HTTP connection.
-    // @see MSG-CRITICAL-029 (DNS rebinding defense)
-    const ssrfResult = await this.ssrfValidator.validateUrl(url);
-    if (!ssrfResult.safe) {
-      this.logger.warn(
-        `SECURITY: Rejected AI service URL: ${url} (SSRF: ${ssrfResult.reason})`,
-      );
-      return this.forwardViaNats(request, request.messageId);
-    }
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
-
-      const safeFetchOptions = this.ssrfValidator.getSafeFetchOptions();
-
-      const httpResponse = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-        // SECURITY: Merge SSRF-safe defaults (no redirect following)
-        ...safeFetchOptions,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!httpResponse.ok) {
-        throw new Error(`HTTP ${httpResponse.status}: ${httpResponse.statusText}`);
-      }
-
-      const body = (await httpResponse.json()) as AiChatResponse;
-      return body;
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(
-        `Custom AI service at ${url} failed (${errMsg}), falling back to NATS`,
-      );
-      return this.forwardViaNats(request, request.messageId);
-    }
-  }
-
-  // SECURITY: isSafeExternalUrl() removed in favor of SsrfValidatorService
-  // which adds DNS rebinding defense (pre-connect DNS resolution + IP pinning).
-  // @see MSG-CRITICAL-029
+  // MSG-HIGH-060: forwardViaHttpWithFallback + the SsrfValidatorService
+  // dependency were removed. That path POSTed the chat request (tenantId + the
+  // last 50 context messages) to a member-supplied `aiServiceUrl`. SSRF checks
+  // only blocked internal targets, so a member could still exfiltrate the
+  // conversation to any public endpoint they controlled. All AI now routes
+  // through forwardViaNats → ai-service with the tenant's BYOK key.
 }

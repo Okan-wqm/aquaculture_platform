@@ -1,10 +1,21 @@
-import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { ITool, TOOL_PROVIDERS, ToolMetadata, ToolCategory } from './core/tool.interface';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { DiscoveryService } from '@nestjs/core';
+import { ITool, ToolMetadata, ToolCategory } from './core/tool.interface';
 import { getToolMetadata } from './core/tool.decorator';
 
 /**
- * Central tool registry - discovers all @Tool() decorated classes
- * injected via the TOOL_PROVIDERS multi-provider token.
+ * Central tool registry — discovers all @Tool() decorated providers at
+ * application startup via NestJS DiscoveryService.
+ *
+ * WHY DiscoveryService (FAZ0-BOOT-01): the previous implementation injected a
+ * `TOOL_PROVIDERS` token expecting Angular-style `multi: true` accumulation.
+ * NestJS has no multi-providers — the registry module's own
+ * `{ provide: TOOL_PROVIDERS, useValue: [] }` always won DI resolution and the
+ * registry initialized with ZERO tools, so every agent run had an empty tool
+ * belt. DiscoveryService is the framework-native pattern: it enumerates every
+ * instantiated provider across all modules; we register the ones carrying
+ * @Tool() metadata. Correct behaviour is now the zero-effort default — a new
+ * tool only needs to be a provider in any module (architectural tier 2).
  */
 @Injectable()
 export class ToolRegistryService implements OnModuleInit {
@@ -12,26 +23,45 @@ export class ToolRegistryService implements OnModuleInit {
   private readonly tools = new Map<string, ITool>();
   private readonly metadataCache = new Map<string, ToolMetadata>();
 
-  constructor(
-    @Inject(TOOL_PROVIDERS)
-    private readonly toolProviders: ITool[],
-  ) {}
+  constructor(private readonly discovery: DiscoveryService) {}
 
   onModuleInit(): void {
-    for (const tool of this.toolProviders) {
-      const metadata = getToolMetadata(tool.constructor);
-      if (!metadata) {
-        this.logger.warn(
-          `Tool provider ${tool.constructor.name} is missing @Tool() decorator - skipping`,
-        );
+    // Lifecycle guarantee: Nest instantiates ALL static providers before any
+    // onModuleInit hook fires, so every tool instance exists by the time this
+    // runs — no import-order coupling between the registry and tool modules.
+    for (const wrapper of this.discovery.getProviders()) {
+      const instance: unknown = wrapper.instance;
+      if (instance === null || typeof instance !== 'object') {
         continue;
       }
 
+      const metadata = getToolMetadata(instance.constructor);
+      if (!metadata) {
+        continue; // not a tool — the overwhelmingly common case
+      }
+
+      if (
+        typeof (instance as ITool).execute !== 'function' ||
+        typeof (instance as ITool).validate !== 'function'
+      ) {
+        this.logger.warn(
+          `@Tool()-decorated provider ${instance.constructor.name} does not implement ITool — skipping`,
+        );
+        continue;
+      }
+      const tool = instance as ITool;
+
       const existing = this.tools.get(metadata.name);
       if (existing) {
+        // Same class provided by two modules yields two instances — benign
+        // registration duplication, first one wins. Two DIFFERENT classes
+        // claiming one tool name is a real conflict Claude cannot resolve.
+        if (existing.constructor === tool.constructor) {
+          continue;
+        }
         throw new Error(
           `Duplicate tool name: "${metadata.name}" registered by both ` +
-          `${existing.constructor.name} and ${tool.constructor.name}`,
+            `${existing.constructor.name} and ${tool.constructor.name}`,
         );
       }
 

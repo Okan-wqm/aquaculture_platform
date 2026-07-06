@@ -17,6 +17,13 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly mobileFeatures?: readonly string[];
   /** SSOT-C-13: tenant plan tier ordinal for per-plan quota enforcement. */
   readonly planLevel?: number;
+  /**
+   * MT-HIGH-054: tenant-RBAC capability strings (`resource:action`) the user is
+   * granted. Threaded so subgraph @RequireTenantPermission / hasResourcePermission
+   * checks work on the production gateway path (where req.user is rebuilt from
+   * the assertion, not the raw JWT). Without this every non-admin fails closed.
+   */
+  readonly resourcePermissions?: readonly string[];
   /** ORPHAN-MEDIUM-319: gateway-resolved end-client IP (req.ip under TRUST_PROXY). */
   readonly clientIp?: string | null;
   /** ORPHAN-MEDIUM-319: end-client User-Agent as received by the gateway. */
@@ -60,6 +67,12 @@ export function buildGatewayVerifiedUserAssertion(
     // the assertionHash with no signing change, same as the claims above.
     ...(typeof input.planLevel === 'number'
       ? { planLevel: input.planLevel }
+      : {}),
+    // MT-HIGH-054: carry tenant-RBAC capabilities into the HMAC-protected blob
+    // only when present (admins carry none — they bypass). Integrity-protected by
+    // the assertionHash with no signing change, same as the claims above.
+    ...(input.resourcePermissions && input.resourcePermissions.length > 0
+      ? { resourcePermissions: [...input.resourcePermissions] }
       : {}),
     // ORPHAN-MEDIUM-319: carry the gateway-resolved client network identity
     // into the HMAC-protected blob only when present. Integrity-protected by

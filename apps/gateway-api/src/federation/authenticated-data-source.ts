@@ -277,6 +277,10 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           // enforce site + mobile-feature gates on the production gateway path.
           assignedSiteIds: user.assignedSiteIds,
           mobileFeatures: user.mobileFeatures,
+          // MT-HIGH-054: thread the tenant-RBAC capabilities so subgraph
+          // @RequireTenantPermission / hasResourcePermission checks work on the
+          // production gateway path (else every non-admin fails closed).
+          resourcePermissions: (user as JwtPayload & { resourcePermissions?: string[] }).resourcePermissions,
           // SSOT-C-13: thread the plan tier ordinal so farm/sensor resolvers can
           // enforce per-plan resource quotas on the production gateway path.
           planLevel: (user as JwtPayload & { planLevel?: number }).planLevel,

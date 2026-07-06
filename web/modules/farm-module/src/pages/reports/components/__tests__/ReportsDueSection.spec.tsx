@@ -44,9 +44,45 @@ const DEADLINES = [
   },
 ];
 
+const DRAFTS = [
+  {
+    id: 'draft-ready',
+    reportType: 'SEA_LICE',
+    siteId: 'site-1',
+    periodYear: 2026,
+    periodWeek: 27,
+    periodMonth: null,
+    status: 'ready',
+    schemaValid: true,
+    dueAt: '2026-07-07',
+    assembledPayload: { sjøtemperatur: 12.4, godkjenningsnummer: null },
+    fieldMeta: [
+      { path: '/sjøtemperatur', provenance: 'SENSOR', blocking: false },
+      {
+        path: '/godkjenningsnummer',
+        provenance: 'MANUAL_REQUIRED',
+        blocking: true,
+        message: 'Enter it',
+      },
+    ],
+    manualOverrides: null,
+  },
+];
+
 function routeGraphql(overrides?: { approve?: unknown }): void {
   requestMock.mockImplementation((query: string) => {
     if (query.includes('reportDeadlines')) return Promise.resolve({ reportDeadlines: DEADLINES });
+    if (query.includes('reportDrafts')) return Promise.resolve({ reportDrafts: DRAFTS });
+    if (query.includes('saveReportDraftOverrides')) {
+      return Promise.resolve({
+        saveReportDraftOverrides: {
+          id: 'draft-ready',
+          status: 'ready',
+          schemaValid: true,
+          manualOverrides: { '/godkjenningsnummer': 'A12345' },
+        },
+      });
+    }
     if (query.includes('approveAndSubmitReportDraft')) {
       return Promise.resolve({
         approveAndSubmitReportDraft: overrides?.approve ?? {
@@ -136,6 +172,32 @@ describe('ReportsDueSection', () => {
     await userEvent.click(screen.getByRole('button', { name: /Approve & Submit/i }));
 
     await waitFor(() => expect(screen.getByText(/lusetelling: påkrevd/i)).toBeInTheDocument());
+  });
+
+  it('reviews a draft: RECORDS/SENSOR read-only, MANUAL editable, and saves overrides', async () => {
+    routeGraphql();
+    renderSection();
+    await waitFor(() => expect(screen.getByText('Sea Lice')).toBeInTheDocument());
+
+    // First row is the READY sea-lice draft (draft-ready).
+    await userEvent.click(screen.getAllByRole('button', { name: /^Review$/i })[0]);
+
+    // The review panel renders the assembled fields via PrefilledField.
+    await waitFor(() => expect(screen.getByText('sjøtemperatur')).toBeInTheDocument());
+    // SENSOR value is read-only (no input); the manual field is editable.
+    expect(screen.getByText('12.4')).toBeInTheDocument();
+    const manualInput = screen.getByRole('textbox', { name: 'godkjenningsnummer' });
+    await userEvent.type(manualInput, 'A12345');
+
+    await userEvent.click(screen.getByRole('button', { name: /Save manual values/i }));
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+    const savedCall = requestMock.mock.calls.find((c) =>
+      String(c[0]).includes('saveReportDraftOverrides'),
+    );
+    expect(savedCall?.[1]).toEqual({
+      input: { draftId: 'draft-ready', overrides: { '/godkjenningsnummer': 'A12345' } },
+    });
   });
 
   it('renders the empty state when nothing is due', async () => {

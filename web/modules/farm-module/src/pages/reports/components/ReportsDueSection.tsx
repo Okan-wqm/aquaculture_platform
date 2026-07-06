@@ -7,8 +7,10 @@
  * blocking fields) can be approved & submitted straight to Mattilsynet; any
  * draft can be re-assembled from source records (refresh) or dismissed.
  *
- * Corrections still flow to the source records — this surface only reviews +
- * approves; the per-field editing lands with the Phase 4 form rework.
+ * Expanding a row (Review) opens the DraftReviewPanel — every assembled field
+ * shown read-only with its provenance, and ONLY the MANUAL_REQUIRED fields
+ * editable (Phase 4). Corrections to RECORDS/SENSOR values still flow to the
+ * source records, never the report.
  */
 import React, { useState } from 'react';
 
@@ -21,6 +23,7 @@ import {
   useReportDeadlines,
 } from '../../../hooks/useReportDeadlines';
 import { DeadlineIndicator } from './common/DeadlineIndicator';
+import { DraftReviewPanel } from './DraftReviewPanel';
 import { ReportStatus } from '../types/reports.types';
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -68,6 +71,7 @@ export const ReportsDueSection: React.FC = () => {
   const refresh = useRefreshReportDraft();
   const dismiss = useDismissReportDraft();
   const [results, setResults] = useState<Record<string, RowResult>>({});
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const busyId =
     (approve.isPending && approve.variables) ||
@@ -111,60 +115,72 @@ export const ReportsDueSection: React.FC = () => {
           {deadlines.map((d) => {
             const rowResult = results[d.id];
             const isBusy = busyId === d.id;
+            const isReviewing = reviewingId === d.id;
             return (
-              <li key={d.id} className="py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900">
-                    {reportTypeLabel(d.reportType)}
-                  </p>
-                  <p className="text-xs text-gray-500">{periodLabel(d)}</p>
-                  {rowResult && (
-                    <p
-                      className={`text-xs mt-1 ${rowResult.ok ? 'text-green-700' : 'text-red-600'}`}
-                    >
-                      {rowResult.text}
+              <li key={d.id} className="py-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {reportTypeLabel(d.reportType)}
                     </p>
+                    <p className="text-xs text-gray-500">{periodLabel(d)}</p>
+                    {rowResult && (
+                      <p
+                        className={`text-xs mt-1 ${rowResult.ok ? 'text-green-700' : 'text-red-600'}`}
+                      >
+                        {rowResult.text}
+                      </p>
+                    )}
+                  </div>
+
+                  {d.dueAt && (
+                    <DeadlineIndicator
+                      deadline={new Date(d.dueAt)}
+                      status={toIndicatorStatus(d.status)}
+                      daysUntilDue={d.daysUntilDue ?? undefined}
+                      overdue={d.overdue}
+                      size="sm"
+                    />
                   )}
-                </div>
 
-                {d.dueAt && (
-                  <DeadlineIndicator
-                    deadline={new Date(d.dueAt)}
-                    status={toIndicatorStatus(d.status)}
-                    daysUntilDue={d.daysUntilDue ?? undefined}
-                    overdue={d.overdue}
-                    size="sm"
-                  />
-                )}
-
-                <div className="flex items-center gap-2">
-                  {d.status === 'ready' && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleApprove(d.id)}
-                      disabled={isBusy}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                      onClick={() => setReviewingId(isReviewing ? null : d.id)}
+                      aria-expanded={isReviewing}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-white border border-gray-300 hover:bg-gray-50"
                     >
-                      Approve &amp; Submit
+                      {isReviewing ? 'Hide' : 'Review'}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => refresh.mutate(d.id)}
-                    disabled={isBusy}
-                    className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Refresh
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => dismiss.mutate(d.id)}
-                    disabled={isBusy}
-                    className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                  >
-                    Dismiss
-                  </button>
+                    {d.status === 'ready' && (
+                      <button
+                        type="button"
+                        onClick={() => handleApprove(d.id)}
+                        disabled={isBusy}
+                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Approve &amp; Submit
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => refresh.mutate(d.id)}
+                      disabled={isBusy}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dismiss.mutate(d.id)}
+                      disabled={isBusy}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
+                {isReviewing && <DraftReviewPanel draftId={d.id} />}
               </li>
             );
           })}

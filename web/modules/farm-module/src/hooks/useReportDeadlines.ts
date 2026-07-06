@@ -15,7 +15,10 @@ import {
   DISMISS_REPORT_DRAFT_MUTATION,
   REFRESH_REPORT_DRAFT_MUTATION,
   REPORT_DEADLINES_QUERY,
+  REPORT_DRAFTS_QUERY,
+  SAVE_REPORT_DRAFT_OVERRIDES_MUTATION,
 } from '../graphql/regulatory-drafts.operations';
+import type { ReportFieldMeta } from './useReportPrefill';
 
 // ============================================================================
 // TYPES (mirror apps/farm-service dto/regulatory-report-draft.dto.ts)
@@ -34,6 +37,27 @@ export interface ReportDeadline {
   dueAt?: string | null;
   overdue: boolean;
   daysUntilDue?: number | null;
+}
+
+export interface ReportDraft {
+  id: string;
+  reportType: string;
+  siteId: string;
+  periodYear: number;
+  periodWeek?: number | null;
+  periodMonth?: number | null;
+  status: ReportDraftStatusValue;
+  schemaValid: boolean;
+  dueAt?: string | null;
+  assembledPayload: Record<string, unknown>;
+  fieldMeta: ReportFieldMeta[];
+  manualOverrides?: Record<string, unknown> | null;
+}
+
+export interface ReportDraftFilter {
+  status?: ReportDraftStatusValue;
+  reportType?: string;
+  siteId?: string;
 }
 
 export interface ReportValidationError {
@@ -61,6 +85,32 @@ export function useReportDeadlines() {
     );
     return data.reportDeadlines;
   });
+}
+
+export function useReportDrafts(filter?: ReportDraftFilter) {
+  return useTenantQuery<ReportDraft[]>(['reportDrafts', filter ?? null], async () => {
+    const data = await graphqlClient.request<{ reportDrafts: ReportDraft[] }>(REPORT_DRAFTS_QUERY, {
+      filter,
+    });
+    return data.reportDrafts;
+  });
+}
+
+export function useSaveReportDraftOverrides() {
+  return useTenantMutation<
+    ReportDraft,
+    Error,
+    { draftId: string; overrides: Record<string, unknown> }
+  >(
+    async ({ draftId, overrides }) => {
+      const data = await graphqlClient.request<{ saveReportDraftOverrides: ReportDraft }>(
+        SAVE_REPORT_DRAFT_OVERRIDES_MUTATION,
+        { input: { draftId, overrides } },
+      );
+      return data.saveReportDraftOverrides;
+    },
+    { invalidate: [['reportDrafts'], ['reportDeadlines']] },
+  );
 }
 
 export function useApproveAndSubmitReportDraft() {

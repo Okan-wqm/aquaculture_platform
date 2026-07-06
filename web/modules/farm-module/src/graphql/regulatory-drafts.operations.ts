@@ -26,6 +26,36 @@ export const REPORT_DEADLINES_QUERY = `
   }
 `;
 
+export const REPORT_DRAFTS_QUERY = `
+  query ReportDrafts($filter: ReportDraftFilterInput) {
+    reportDrafts(filter: $filter) {
+      id
+      reportType
+      siteId
+      periodYear
+      periodWeek
+      periodMonth
+      status
+      schemaValid
+      dueAt
+      assembledPayload
+      fieldMeta
+      manualOverrides
+    }
+  }
+`;
+
+export const SAVE_REPORT_DRAFT_OVERRIDES_MUTATION = `
+  mutation SaveReportDraftOverrides($input: SaveReportDraftOverridesInput!) {
+    saveReportDraftOverrides(input: $input) {
+      id
+      status
+      schemaValid
+      manualOverrides
+    }
+  }
+`;
+
 export const REFRESH_REPORT_DRAFT_MUTATION = `
   mutation RefreshReportDraft($draftId: ID!) {
     refreshReportDraft(draftId: $draftId) {

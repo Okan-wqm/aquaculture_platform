@@ -1,10 +1,10 @@
 /**
  * Lakselus (sea lice) weekly report assembler.
  *
- * sjøtemperatur → WaterTemperatureService.getSiteCurrentTemperature — the ONE
- * temperature path (sensor projection vs manual measurement, newest wins),
- * with SENSOR/RECORDS provenance carrying sensor id + measurement time so
- * the operator can judge freshness before submitting to the regulator.
+ * sjøtemperatur → WaterTemperatureService.getPeriodTemperature over the REPORT
+ * week — the ONE temperature path (sensor daily rollup preferred, manual
+ * measurements as fallback), aggregated to the report period so the value is
+ * the week's temperature rather than wall-clock "now" at assembly time.
  *
  * lusetelling → lice_counts rows for the ISO week: per-stage averages
  * weighted by fishSampled across the site's pens (the regulator wants the
@@ -39,13 +39,7 @@ import {
   VirkestoffTypePayload,
 } from '../../mattilsynet-api.service';
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
-import {
-  AssembledDraft,
-  ReportFieldMeta,
-  fromRecords,
-  fromSensor,
-  manualRequired,
-} from '../provenance.types';
+import { AssembledDraft, ReportFieldMeta, fromRecords, manualRequired } from '../provenance.types';
 import { isoWeekRange, round2 } from '../period.util';
 
 /** Data portion of the lakselus wire payload (identity is a form concern). */
@@ -113,25 +107,30 @@ export class LakselusReportAssembler {
     week: number,
   ): Promise<AssembledDraft<LakselusPrefillPayload>> {
     const { fromDate, toDate } = isoWeekRange(year, week);
-    const [reading, counts, treatments] = await Promise.all([
-      this.waterTemperature.getSiteCurrentTemperature(tenantId, siteId),
+    const [temperature, counts, treatments] = await Promise.all([
+      // Period temperature over the REPORT week — not wall-clock "now" — so a
+      // draft assembled after the week (scheduler rollover / backfill) carries
+      // the week's temperature. Aggregated from the sensor daily rollup or the
+      // week's manual measurements.
+      this.waterTemperature.getPeriodTemperature(tenantId, siteId, fromDate, toDate),
       this.queryLiceCounts(tenantId, siteId, year, week),
       this.queryTreatments(tenantId, siteId, fromDate, toDate),
     ]);
 
     const fields: ReportFieldMeta[] = [];
-    if (reading && reading.source === 'sensor' && reading.sensorId) {
-      fields.push(fromSensor('/sjøtemperatur', reading.sensorId, reading.measuredAt));
-    } else if (reading) {
-      fields.push({
-        ...fromRecords('/sjøtemperatur', 'WaterTemperatureService.manual', 1),
-        measuredAt: reading.measuredAt,
-      });
+    if (temperature) {
+      fields.push(
+        fromRecords(
+          '/sjøtemperatur',
+          `WaterTemperatureService.period(${temperature.source})`,
+          temperature.coverageDays,
+        ),
+      );
     } else {
       fields.push(
         manualRequired(
           '/sjøtemperatur',
-          'No water temperature on record for the site — link a temperature sensor or record a manual measurement (3 m depth, at least weekly per lakselusforskriften).',
+          `No water temperature on record for the site in ISO week ${week}/${year} — link a temperature sensor or record a manual measurement (3 m depth, at least weekly per lakselusforskriften).`,
           true,
         ),
       );
@@ -179,7 +178,7 @@ export class LakselusReportAssembler {
       draftPayload: {
         rapporteringsår: year,
         rapporteringsuke: week,
-        sjøtemperatur: reading ? reading.celsius : null,
+        sjøtemperatur: temperature ? temperature.celsius : null,
         lusetelling,
         ikkeMedikamentelleBehandlinger: ikkeMedikamentelle,
         medikamentelleBehandlinger: medikamentelle,

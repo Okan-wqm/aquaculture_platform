@@ -37,6 +37,41 @@ export interface WaterTemperatureReading {
 }
 
 /**
+ * Period-representative temperature over a reporting window (e.g. the lakselus
+ * report week). Unlike the point-in-time reading, this is aggregated across the
+ * period so a report for week N carries week N's temperature — not wall-clock
+ * "now" at assembly time.
+ */
+export interface PeriodTemperature {
+  /** Mean over the period (°C), rounded to 2 decimals. */
+  celsius: number;
+  source: WaterTemperatureSource;
+  /** Distinct calendar days in the period that carried data (coverage). */
+  coverageDays: number;
+  minC: number;
+  maxC: number;
+}
+
+interface SensorPeriodRow {
+  sumC: string | number | null;
+  sampleCount: string | number | null;
+  minC: string | number | null;
+  maxC: string | number | null;
+  coverageDays: string | number | null;
+}
+
+interface ManualPeriodRow {
+  avgC: string | number | null;
+  minC: string | number | null;
+  maxC: string | number | null;
+  coverageDays: string | number | null;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
  * Biologically plausible water-temperature bounds (°C) — the SSoT shared by the
  * manual entry path and the sensor projection so no source can feed the
  * feeding-rate calculation an absurd value.
@@ -125,6 +160,85 @@ export class WaterTemperatureService {
         WaterTemperatureService.toDatedTemperature(sensorRows[0]),
         WaterTemperatureService.toDatedTemperature(manualRows[0]),
       );
+    });
+  }
+
+  /**
+   * Representative water temperature over a reporting period for a site,
+   * aggregated from the sensor daily rollup (preferred, continuous) or the
+   * period's manual measurements (fallback). Returns null when the site has
+   * no temperature data in the window — the caller flags MANUAL_REQUIRED
+   * rather than guessing.
+   *
+   * `fromDate`/`toDate` are inclusive UTC ISO dates (yyyy-mm-dd) matching the
+   * daily rollup's `day` grain, so the aggregate is tied to the report period
+   * and never to wall-clock now.
+   */
+  async getPeriodTemperature(
+    tenantId: string,
+    siteId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<PeriodTemperature | null> {
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const sensorRows: SensorPeriodRow[] = await queryRunner.manager.query(
+        `SELECT SUM(std."sumC") AS "sumC",
+                SUM(std."sampleCount") AS "sampleCount",
+                MIN(std."minC") AS "minC",
+                MAX(std."maxC") AS "maxC",
+                COUNT(DISTINCT std."day") AS "coverageDays"
+           FROM sensor_temperature_daily std
+          WHERE std."tenantId" = $1
+            AND std."day" BETWEEN $3 AND $4
+            AND std."sensorId" IN (
+              SELECT t."temperatureSensorId"
+                FROM tanks t
+                JOIN departments d ON d.id = t."departmentId"
+               WHERE t."tenantId" = $1
+                 AND d."siteId" = $2
+                 AND t."temperatureSensorId" IS NOT NULL
+            )`,
+        [tenantId, siteId, fromDate, toDate],
+      );
+      const sensor = sensorRows[0];
+      const sampleCount = sensor ? Number(sensor.sampleCount ?? 0) : 0;
+      if (sensor && sampleCount > 0) {
+        return {
+          celsius: round2(Number(sensor.sumC) / sampleCount),
+          source: 'sensor',
+          coverageDays: Number(sensor.coverageDays ?? 0),
+          minC: round2(Number(sensor.minC)),
+          maxC: round2(Number(sensor.maxC)),
+        };
+      }
+
+      const manualRows: ManualPeriodRow[] = await queryRunner.manager.query(
+        `SELECT AVG(m."temperature") AS "avgC",
+                MIN(m."temperature") AS "minC",
+                MAX(m."temperature") AS "maxC",
+                COUNT(DISTINCT (m."measuredAt" AT TIME ZONE 'UTC')::date) AS "coverageDays"
+           FROM water_quality_measurements m
+           JOIN tanks t ON t.id = m."tankId" AND t."tenantId" = m."tenantId"
+           JOIN departments d ON d.id = t."departmentId"
+          WHERE m."tenantId" = $1
+            AND d."siteId" = $2
+            AND m."temperature" IS NOT NULL
+            AND (m."measuredAt" AT TIME ZONE 'UTC')::date BETWEEN $3 AND $4`,
+        [tenantId, siteId, fromDate, toDate],
+      );
+      const manual = manualRows[0];
+      const coverageDays = manual ? Number(manual.coverageDays ?? 0) : 0;
+      if (manual && manual.avgC != null && coverageDays > 0) {
+        return {
+          celsius: round2(Number(manual.avgC)),
+          source: 'manual',
+          coverageDays,
+          minC: round2(Number(manual.minC)),
+          maxC: round2(Number(manual.maxC)),
+        };
+      }
+
+      return null;
     });
   }
 

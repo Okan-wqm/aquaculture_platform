@@ -22,6 +22,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
 import { SensorTemperatureLatest } from './entities/sensor-temperature-latest.entity';
+import { SensorTemperatureDaily } from './entities/sensor-temperature-daily.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
 import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
 
@@ -89,6 +90,7 @@ const CommandHandlers = [
       Tank,
       Equipment,
       SensorTemperatureLatest,
+      SensorTemperatureDaily,
     ]),
     // Onboarding handler fans out to sibling seeders. Each source
     // module re-exports its seeder service so the handler can

@@ -30,6 +30,7 @@ import { CreateTreatmentApplications1802800000000 } from './1802800000000-Create
 import { CreateWelfareAssessments1802900000000 } from './1802900000000-CreateWelfareAssessments';
 import { CreateEscapeIncidents1803000000000 } from './1803000000000-CreateEscapeIncidents';
 import { CreateSlaughterFacilities1803450000000 } from './1803450000000-CreateSlaughterFacilities';
+import { CreateSensorTemperatureDaily1803500000000 } from './1803500000000-CreateSensorTemperatureDaily';
 
 /**
  * Canonical farm-service migration class list.
@@ -72,4 +73,5 @@ export const FARM_MIGRATIONS = [
   CreateWelfareAssessments1802900000000,
   CreateEscapeIncidents1803000000000,
   CreateSlaughterFacilities1803450000000,
+  CreateSensorTemperatureDaily1803500000000,
 ] as const;

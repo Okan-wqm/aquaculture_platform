@@ -55,12 +55,34 @@ describe('SensorTemperatureProjectionListener', () => {
   it('upserts the latest temperature for the sensor (newest-wins guard in SQL)', async () => {
     await listener.handle(makeEvent({}));
     expect(runInTenantTransaction).toHaveBeenCalledTimes(1);
-    expect(managerQuery).toHaveBeenCalledTimes(1);
+    // Two writes in the one transaction: latest read-model + daily rollup.
+    expect(managerQuery).toHaveBeenCalledTimes(2);
     const [sql, params] = managerQuery.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('INSERT INTO "sensor_temperature_latest"');
     expect(sql).toContain('ON CONFLICT ("tenantId", "sensorId") DO UPDATE');
     expect(sql).toContain('"sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"');
     expect(params).toEqual([TENANT, SENSOR, 13.2, new Date('2026-07-04T10:00:00.000Z')]);
+  });
+
+  it('accumulates the daily rollup with a watermark guard for idempotency (RPT-005)', async () => {
+    await listener.handle(makeEvent({}));
+    const [sql, params] = managerQuery.mock.calls[1] as [string, unknown[]];
+    expect(sql).toContain('INSERT INTO "sensor_temperature_daily"');
+    expect(sql).toContain('"sampleCount" = "sensor_temperature_daily"."sampleCount" + 1');
+    expect(sql).toContain('LEAST("sensor_temperature_daily"."minC", EXCLUDED."minC")');
+    expect(sql).toContain('GREATEST("sensor_temperature_daily"."maxC", EXCLUDED."maxC")');
+    // Watermark: only advance on a strictly newer reading (redelivery-safe).
+    expect(sql).toContain(
+      '"sensor_temperature_daily"."lastMeasuredAt" < EXCLUDED."lastMeasuredAt"',
+    );
+    // day bucket is the UTC date of the reading; value + measuredAt follow.
+    expect(params).toEqual([
+      TENANT,
+      SENSOR,
+      '2026-07-04',
+      13.2,
+      new Date('2026-07-04T10:00:00.000Z'),
+    ]);
   });
 
   it('skips readings with no temperature', async () => {

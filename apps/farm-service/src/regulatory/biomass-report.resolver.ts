@@ -7,8 +7,12 @@
  * noktalar" plan.
  *
  * Exposes:
- *   - `createBiomassReport(input)` — create-or-update-if-draft,
- *     optionally finalise with `input.submit=true`
+ *   - `createBiomassReport(input)` — create-or-update the DRAFT (never
+ *     finalises; the Altinn state machine below owns finalisation)
+ *   - `markBiomassReportReady` / `revertBiomassReportToDraft` /
+ *     `confirmBiomassReportSubmitted` — the manual Altinn submission
+ *     state machine (RPT-001)
+ *   - `biomassReportAltinnExport(id)` — the FD-0001 export
  *   - `biomassReport(siteId, reportMonth, reportYear)` — single
  *     period lookup
  *   - `biomassReports(siteId, limit)` — period history for one site
@@ -47,8 +51,10 @@ export class BiomassReportResolver {
 
   @Mutation(() => BiomassReport, {
     description:
-      'Create or update (if draft) a monthly biomass report for a site. ' +
-      'Pass submit=true to finalise — a SUBMITTED report becomes immutable.',
+      'Create or update the DRAFT monthly biomass report for a site. Idempotent ' +
+      'per (siteId, reportMonth, reportYear). Finalisation is never done here — ' +
+      'the report is submitted to Fiskeridirektoratet manually via Altinn ' +
+      '(markBiomassReportReady → confirmBiomassReportSubmitted).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createBiomassReport(
@@ -57,7 +63,7 @@ export class BiomassReportResolver {
     @Args('input') input: CreateBiomassReportInput,
   ): Promise<BiomassReport> {
     this.logger.log(
-      `createBiomassReport site=${input.siteId} period=${input.reportYear}-${input.reportMonth} submit=${input.submit ?? false}`,
+      `createBiomassReport site=${input.siteId} period=${input.reportYear}-${input.reportMonth}`,
     );
     return this.biomassReportService.createOrUpdate(tenantId, input, user.sub);
   }

@@ -11,12 +11,15 @@ import {
   useBiomassReport,
   useBiomassReports,
   useInvalidateBiomassReports,
+  isTerminalBiomassStatus,
   BiomassReportPayload,
+  BiomassReportStatusValue,
 } from '../../../hooks/useBiomassReports';
 import { BiomassSpeciesBreakdown } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
 import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
+import { BiomassAltinnPanel } from '../components/BiomassAltinnPanel';
 import { CREATE_BIOMASS_REPORT_MUTATION } from '../../../graphql/regulatory.operations';
 
 // ============================================================================
@@ -1592,11 +1595,13 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         </p>
       </div>
 
-      {/* Submission Notice */}
+      {/* Submission Notice — honest manual-Altinn channel (RPT-001) */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-600">
-          By submitting this report, you confirm that the data is accurate and complete. This report
-          will be submitted to Fiskeridirektoratet.
+          Saving stores this report as a draft. Biomass reports are submitted to Fiskeridirektoratet
+          manually via Altinn (FD-0001): after saving, mark the report ready, download the FD-0001
+          export, transcribe it into the Altinn form, then confirm the submission with the Altinn
+          receipt reference.
         </p>
       </div>
     </div>
@@ -1606,6 +1611,21 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 // ============================================================================
 // Main Component
 // ============================================================================
+
+/** Honest per-status list chip — DRAFT / READY / CONFIRMED / legacy SUBMITTED. */
+function biomassStatusChip(status: BiomassReportStatusValue): { label: string; className: string } {
+  switch (status) {
+    case 'CONFIRMED_SUBMITTED':
+      return { label: 'Submitted (Altinn)', className: 'bg-green-100 text-green-800' };
+    case 'SUBMITTED':
+      return { label: 'Submitted (legacy)', className: 'bg-green-100 text-green-800' };
+    case 'READY':
+      return { label: 'Ready for Altinn', className: 'bg-blue-100 text-blue-800' };
+    case 'DRAFT':
+    default:
+      return { label: 'Draft', className: 'bg-amber-100 text-amber-800' };
+  }
+}
 
 export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) => {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -1637,8 +1657,10 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   const stats = useMemo(
     () => ({
       total: biomassReports.length,
-      drafts: biomassReports.filter((r) => r.status === 'DRAFT').length,
-      submitted: biomassReports.filter((r) => r.status === 'SUBMITTED').length,
+      // Not-yet-submitted (DRAFT + READY-for-Altinn).
+      inProgress: biomassReports.filter((r) => !isTerminalBiomassStatus(r.status)).length,
+      // Confirmed submitted via Altinn (+ legacy SUBMITTED).
+      submitted: biomassReports.filter((r) => isTerminalBiomassStatus(r.status)).length,
     }),
     [biomassReports],
   );
@@ -1654,7 +1676,11 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     (r) => r.reportMonth === targetPeriod.month + 1 && r.reportYear === targetPeriod.year,
   );
   const periodDraftExists = periodRow?.status === 'DRAFT';
-  const periodSubmitted = periodRow?.status === 'SUBMITTED';
+  // A terminal (confirmed/legacy) period is immutable. A READY period is a
+  // reviewed snapshot — it must be reopened to DRAFT (via the Altinn panel)
+  // before the wizard can edit it, so both block the editable wizard.
+  const periodTerminal = periodRow ? isTerminalBiomassStatus(periodRow.status) : false;
+  const periodEditable = !periodRow || periodRow.status === 'DRAFT';
 
   // Server-assembled draft for the target period: every section aggregated
   // from the operational SSoTs with per-field provenance (plan Phase 1).
@@ -1678,9 +1704,10 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   }, []);
 
   const handleOpenWizard = useCallback(() => {
-    // A finalised period is immutable server-side — do not open an editable
-    // wizard that would only fail on submit.
-    if (periodSubmitted) return;
+    // Only a DRAFT (or a brand-new period) is editable. A READY snapshot must
+    // be reopened via the Altinn panel and a terminal period is immutable —
+    // opening the wizard for either would only fail on save.
+    if (!periodEditable) return;
 
     // Returning to a drafted month: hydrate from the persisted payload so the
     // user continues the draft instead of blanking it.
@@ -1705,7 +1732,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       setFormData(getInitialFormData());
     }
     setIsWizardOpen(true);
-  }, [prefill, periodSubmitted, existingDraft, targetPeriod]);
+  }, [prefill, periodEditable, existingDraft, targetPeriod]);
 
   const createReportMutation = useMutation({
     mutationFn: async (payload: { input: Record<string, unknown> }) => {
@@ -1738,7 +1765,6 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         siteId: effectiveSiteId,
         reportMonth: formData.month + 1,
         reportYear: formData.year,
-        submit: true,
         currentBiomass: {
           totalKg: formData.currentBiomass.totalKg,
           bySpecies: formData.currentBiomass.bySpecies.map((s) => ({
@@ -1867,7 +1893,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       {
         id: 'review',
         title: 'Review',
-        description: 'Verify and submit',
+        description: 'Verify and save',
         content: <ReviewStep formData={formData} siteName={effectiveSiteName} />,
       },
     ],
@@ -1901,11 +1927,13 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           )}
           <button
             onClick={() => handleOpenWizard()}
-            disabled={periodSubmitted}
+            disabled={!periodEditable}
             title={
-              periodSubmitted
+              periodTerminal
                 ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is already submitted and immutable`
-                : undefined
+                : !periodEditable
+                  ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is ready for Altinn — reopen it to draft to edit`
+                  : undefined
             }
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
@@ -1922,12 +1950,13 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         </div>
       </div>
 
-      {periodSubmitted && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <p className="text-sm text-blue-700">
-            The {getMonthLabel(targetPeriod.month, targetPeriod.year)} report is already submitted
-            and cannot be edited. Start a correction flow if the period needs revision.
+      {/* Altinn manual-submission panel for the target period's saved report */}
+      {periodRow && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">
+            {getMonthLabel(targetPeriod.month, targetPeriod.year)} — Fiskeridirektoratet submission
           </p>
+          <BiomassAltinnPanel report={periodRow} />
         </div>
       )}
 
@@ -1938,8 +1967,8 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           <div className="text-sm text-gray-500">Total Reports</div>
         </div>
         <div className="bg-white rounded-lg border border-amber-200 p-4">
-          <div className="text-2xl font-bold text-amber-600">{stats.drafts}</div>
-          <div className="text-sm text-gray-500">Drafts</div>
+          <div className="text-2xl font-bold text-amber-600">{stats.inProgress}</div>
+          <div className="text-sm text-gray-500">In Progress</div>
         </div>
         <div className="bg-white rounded-lg border border-green-200 p-4">
           <div className="text-2xl font-bold text-green-600">{stats.submitted}</div>
@@ -1981,12 +2010,10 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
                   </span>
                   <span
                     className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
-                      row.status === 'SUBMITTED'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-amber-100 text-amber-800'
+                      biomassStatusChip(row.status).className
                     }`}
                   >
-                    {row.status === 'SUBMITTED' ? 'Submitted' : 'Draft'}
+                    {biomassStatusChip(row.status).label}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
@@ -2015,7 +2042,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         isSubmitting={isSubmitting}
         error={error}
         onClearError={() => setError(null)}
-        submitButtonText="Submit Report"
+        submitButtonText="Save Draft"
         maxWidth="max-w-4xl"
       />
     </div>

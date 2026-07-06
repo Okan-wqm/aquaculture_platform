@@ -1,8 +1,8 @@
 /**
  * BiomassReportService
  *
- * Owns the create / update-if-draft / finalise lifecycle of
- * `farm.biomass_reports`. Phase 2.1 of the "kalan kör noktalar" plan.
+ * Owns the create / update-if-draft lifecycle of `farm.biomass_reports`
+ * plus the manual Altinn submission state machine (RPT-001).
  *
  * Behaviour rules:
  *
@@ -10,11 +10,16 @@
  *     natural key. Two calls for the same period do NOT produce two
  *     rows; the second one updates the existing DRAFT in place.
  *
- *   - A SUBMITTED report is immutable. Re-submitting the same period
- *     after finalising throws `BadRequestException` so accidental
- *     overwrites cannot happen. A caller that genuinely needs to
- *     revise a submitted period must re-submit through a separate
- *     correction workflow (out of scope for phase 2.1).
+ *   - `createOrUpdate` ONLY ever writes a DRAFT. The report is never
+ *     finalised through this write path — the biomass report is
+ *     submitted to Fiskeridirektoratet MANUALLY via Altinn, so the
+ *     platform never claims an electronic submission. Finalisation
+ *     flows exclusively through markReady → confirmSubmitted below.
+ *
+ *   - A READY report is a reviewed snapshot; it must be reopened
+ *     (revertToDraft) before its data can change. A terminal
+ *     (CONFIRMED_SUBMITTED, or the legacy SUBMITTED) report is
+ *     immutable and rejects edits with `BadRequestException`.
  *
  *   - `totalBiomassKg` is denormalised at write time — the list UI
  *     can sort/filter on it without scanning JSONB.
@@ -60,12 +65,20 @@ export class BiomassReportService {
       },
     });
 
-    if (existing && TERMINAL_BIOMASS_STATUSES.has(existing.status)) {
+    // Only a DRAFT is editable. A READY report is a reviewed snapshot awaiting
+    // the Altinn export — it must be explicitly reopened before its data can
+    // change; a terminal (confirmed/legacy) report is immutable. Finalisation
+    // NEVER happens through this write: the report leaves DRAFT only via the
+    // Altinn state machine below (markReady → confirmSubmitted).
+    if (existing && existing.status !== BiomassReportStatus.DRAFT) {
+      const period = `${input.reportYear}-${input.reportMonth.toString().padStart(2, '0')}`;
       throw new BadRequestException(
-        `Biomass report for site ${input.siteId} / ${input.reportYear}-` +
-          `${input.reportMonth.toString().padStart(2, '0')} is already ` +
-          `${existing.status} and cannot be edited. Start a correction flow if the ` +
-          `period needs revision.`,
+        TERMINAL_BIOMASS_STATUSES.has(existing.status)
+          ? `Biomass report for site ${input.siteId} / ${period} is already ` +
+              `${existing.status} and cannot be edited. Start a correction flow if the ` +
+              `period needs revision.`
+          : `Biomass report for site ${input.siteId} / ${period} is READY for the ` +
+              `Altinn export; reopen it to DRAFT before editing.`,
       );
     }
 
@@ -76,11 +89,6 @@ export class BiomassReportService {
       existing.reportData = payload;
       existing.totalBiomassKg = totalBiomassKg.toFixed(2);
       existing.generatedBy = userId;
-      if (input.submit) {
-        existing.status = BiomassReportStatus.SUBMITTED;
-        existing.submittedAt = new Date();
-        existing.submittedBy = userId;
-      }
       const saved = await this.repo.save(existing);
       this.logger.log(
         `Updated biomass report ${saved.id} for site ${input.siteId} ` +
@@ -94,14 +102,10 @@ export class BiomassReportService {
       siteId: input.siteId,
       reportMonth: input.reportMonth,
       reportYear: input.reportYear,
-      status: input.submit
-        ? BiomassReportStatus.SUBMITTED
-        : BiomassReportStatus.DRAFT,
+      status: BiomassReportStatus.DRAFT,
       reportData: payload,
       totalBiomassKg: totalBiomassKg.toFixed(2),
       generatedBy: userId,
-      submittedAt: input.submit ? new Date() : undefined,
-      submittedBy: input.submit ? userId : undefined,
     });
     const saved = await this.repo.save(fresh);
     this.logger.log(

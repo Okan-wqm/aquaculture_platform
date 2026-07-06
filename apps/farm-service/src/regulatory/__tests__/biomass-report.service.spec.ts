@@ -41,7 +41,6 @@ function makeInput(
     siteId: '00000000-0000-4000-8000-000000000001',
     reportMonth: 4,
     reportYear: 2026,
-    submit: false,
     currentBiomass: {
       totalKg: 42000,
       bySpecies: [
@@ -96,29 +95,50 @@ describe('BiomassReportService', () => {
           reportYear: 2026,
           status: BiomassReportStatus.DRAFT,
           generatedBy: userId,
-          submittedAt: undefined,
         }),
       );
       expect(result.status).toBe(BiomassReportStatus.DRAFT);
+      expect(result.submittedAt).toBeUndefined();
       expect(result.totalBiomassKg).toBe('42000.00');
     });
 
-    it('creates SUBMITTED when submit=true', async () => {
+    it('never finalises through the write path — always DRAFT, no submission stamps', async () => {
       const repo = makeRepoDouble();
       repo.findOne.mockResolvedValue(null);
       const service = new BiomassReportService(
         repo as unknown as Repository<BiomassReport>,
       );
 
-      const result = await service.createOrUpdate(
-        tenantId,
-        makeInput({ submit: true }),
-        userId,
-      );
+      const result = await service.createOrUpdate(tenantId, makeInput(), userId);
 
-      expect(result.status).toBe(BiomassReportStatus.SUBMITTED);
-      expect(result.submittedBy).toBe(userId);
-      expect(result.submittedAt).toBeInstanceOf(Date);
+      expect(result.status).toBe(BiomassReportStatus.DRAFT);
+      expect(result.submittedAt).toBeUndefined();
+      expect(result.submittedBy).toBeUndefined();
+    });
+
+    it('rejects editing a READY report until it is reopened to DRAFT', async () => {
+      const ready: BiomassReport = {
+        id: 'row-1',
+        tenantId,
+        siteId: '00000000-0000-4000-8000-000000000001',
+        reportMonth: 4,
+        reportYear: 2026,
+        status: BiomassReportStatus.READY,
+        reportData: {} as BiomassReport['reportData'],
+        totalBiomassKg: '1.00',
+        generatedBy: userId,
+        readyAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const repo = createMockRepository<BiomassReport>();
+      repo.findOne.mockResolvedValue(ready);
+      const service = new BiomassReportService(repo);
+
+      await expect(
+        service.createOrUpdate(tenantId, makeInput(), userId),
+      ).rejects.toThrow(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
     });
 
     it('updates an existing DRAFT in place (idempotent per period)', async () => {

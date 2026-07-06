@@ -348,9 +348,4 @@ export class CreateBiomassReportInput {
   @ValidateNested()
   @Type(() => BiomassFeedConsumptionInput)
   feedConsumption: BiomassFeedConsumptionInput;
-
-  /** When true the row lands as SUBMITTED and becomes immutable. */
-  @Field({ nullable: true, defaultValue: false })
-  @IsOptional()
-  submit?: boolean;
 }

@@ -612,7 +612,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'retention_policies',
       'legal_holds',
       'compliance_audit_log',
-      'tenant_ai_settings',
       'user_ai_consents',
     ],
   },

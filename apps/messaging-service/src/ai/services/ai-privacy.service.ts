@@ -6,10 +6,10 @@
  *
  * # Architecture (ADR-011 + Tier-1 Make-Impossible)
  *
- * Reads + writes go through TypeORM repositories on the canonical
- * `TenantAiSetting` and `UserAiConsent` entities. They intentionally do
- * not declare an entity-level schema; TenantConnectionBootstrap routes
- * each request to the tenant schema through PostgreSQL search_path.
+ * User-level consent reads/writes go through the TypeORM repository on the
+ * canonical `UserAiConsent` entity (no entity-level schema; search_path routes
+ * to the tenant schema). Tenant-level AI enablement is NOT stored here — it is
+ * owned by ai-service and queried over `request.ai.isEnabled` (SSoT).
  *
  * Repositories derive table names + column names + schema qualification
  * from entity metadata at compile time — drift between the SQL the
@@ -37,14 +37,15 @@
  * @see docs/reviews/messaging-expert/2026-04-14-ai-privacy-naming-drift.md
  */
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 import { DataSource } from 'typeorm';
+import { firstValueFrom, timeout } from 'rxjs';
 import Redis from 'ioredis';
 import {
   BypassRlsService,
   runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
-import { TenantAiSetting } from '../entities/tenant-ai-setting.entity';
 import { UserAiConsent } from '../entities/user-ai-consent.entity';
 
 /**
@@ -58,6 +59,9 @@ import { UserAiConsent } from '../entities/user-ai-consent.entity';
  * @see MSG-MEDIUM-037
  */
 const CACHE_TTL_SECONDS = 60;
+
+/** Timeout for the request.ai.isEnabled NATS round-trip (fail closed on breach). */
+const AI_ENABLED_TIMEOUT_MS = 3000;
 
 /** Redis key prefix for tenant AI settings. */
 const TENANT_KEY_PREFIX = 'ai:tenant:';
@@ -74,6 +78,9 @@ export class AiPrivacyService {
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly bypassRls: BypassRlsService,
+    // SSoT: tenant AI enablement is answered by ai-service over request.ai.isEnabled.
+    @Inject('NATS_SERVICE')
+    private readonly natsClient: ClientProxy,
   ) {}
 
   /**
@@ -117,14 +124,26 @@ export class AiPrivacyService {
       return cached === 'true';
     }
 
-    const setting = await runInTenantTransaction(
-      this.dataSource,
-      'messaging',
-      tenantId,
-      (queryRunner) =>
-        queryRunner.manager.findOne(TenantAiSetting, { where: { tenantId } }),
-    );
-    const enabled = setting?.aiEnabled ?? false;
+    // SSoT: ai-service owns tenant AI enablement (config.isEnabled AND a valid
+    // provider key). Ask it over NATS instead of a duplicate local flag that
+    // could disagree (enabled here but no key there → wasted AI_KEY_MISSING
+    // round-trips). The 60s Redis cache keeps this off the hot path.
+    let enabled = false;
+    try {
+      const response = await firstValueFrom(
+        this.natsClient
+          .send<{ enabled: boolean }>('request.ai.isEnabled', { tenantId })
+          .pipe(timeout(AI_ENABLED_TIMEOUT_MS)),
+      );
+      enabled = response?.enabled === true;
+    } catch (err: unknown) {
+      // Fail closed — an unreachable ai-service must not present AI as available.
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `request.ai.isEnabled failed for tenant=${tenantId}; defaulting to disabled: ${message}`,
+      );
+      enabled = false;
+    }
     await this.safeRedisSetEx(cacheKey, CACHE_TTL_SECONDS, String(enabled));
     return enabled;
   }
@@ -156,26 +175,8 @@ export class AiPrivacyService {
     return consented;
   }
 
-  /**
-   * Update the tenant-level AI flag. Only TENANT_ADMIN should call this
-   * via the resolver. Invalidates the Redis cache atomically with the
-   * write so the new value is observable on the next read.
-   */
-  async setTenantAiEnabled(tenantId: string, enabled: boolean): Promise<void> {
-    await runInTenantTransaction(
-      this.dataSource,
-      'messaging',
-      tenantId,
-      (queryRunner) =>
-        queryRunner.manager.upsert(
-          TenantAiSetting,
-          { tenantId, aiEnabled: enabled },
-          { conflictPaths: ['tenantId'] },
-        ),
-    );
-    await this.safeRedisDel(`${TENANT_KEY_PREFIX}${tenantId}`);
-    this.logger.log(`Tenant ${tenantId} AI flag set to: ${enabled}`);
-  }
+  // setTenantAiEnabled removed — tenant AI enablement is owned by ai-service
+  // (updateAiProviderSettings.isEnabled). Messaging reads it via request.ai.isEnabled.
 
   /**
    * Update user-level AI consent. Each user controls their own opt-in.

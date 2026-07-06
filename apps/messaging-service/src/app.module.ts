@@ -93,7 +93,6 @@ import { MessageAnalysis } from './ai/entities/message-analysis.entity';
 import { MessageEntityReference } from './ai/entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
-import { TenantAiSetting } from './ai/entities/tenant-ai-setting.entity';
 import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 
 // Migrations — imported as class references so webpack bundles them into main.js.
@@ -185,7 +184,6 @@ type QueryComplexityOperationContext = {
             MessageEntityReference,
             KnowledgeEntry,
             EmbeddingsMetadata,
-            TenantAiSetting,
             UserAiConsent,
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,

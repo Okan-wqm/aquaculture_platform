@@ -29485,6 +29485,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-06-stock-integrity-fixes.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -50250,10 +50256,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8229,
+  "file_count": 8230,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8054,
-  "managed_file_list_sha256": "b4cc314a89267e4f077074d8b16ab1a556bfe61e47f535713da91d281ccbe87f",
+  "managed_count": 8055,
+  "managed_file_list_sha256": "90d1bc2c289a60681f3929069dc289902752bacdcb23a225e2656b7574ffcf78",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

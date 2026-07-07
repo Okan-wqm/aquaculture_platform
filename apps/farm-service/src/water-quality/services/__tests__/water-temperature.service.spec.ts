@@ -136,6 +136,7 @@ describe('WaterTemperatureService', () => {
       expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
         celsius: 9,
         source: 'manual',
+        measuredAt: expect.any(Date),
       });
       // the failed source was rolled back to its savepoint, not left to poison
       // the surrounding READ COMMITTED transaction (25P02)
@@ -152,6 +153,7 @@ describe('WaterTemperatureService', () => {
       expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
         celsius: 12.5,
         source: 'sensor',
+        measuredAt: expect.any(Date),
       });
       expect(metrics.recordWaterTemperatureReadFailure).toHaveBeenCalledWith({ source: 'manual' });
     });

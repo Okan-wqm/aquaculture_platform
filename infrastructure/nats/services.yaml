@@ -155,6 +155,7 @@ services:
       - "request.farm.getBatchOverview"
       - "request.farm.getWaterQualityOverview"
       - "request.farm.getHarvestOverview"
+      - "request.farm.getFeedingOverview"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -319,6 +320,7 @@ services:
       - "request.farm.getBatchOverview"
       - "request.farm.getWaterQualityOverview"
       - "request.farm.getHarvestOverview"
+      - "request.farm.getFeedingOverview"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

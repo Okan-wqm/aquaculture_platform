@@ -24,6 +24,7 @@ import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
 import { FeedingRecord } from './entities/feeding-record.entity';
+import { GetFeedingOverviewResponder } from './responders/get-feeding-overview.responder';
 import { FeedInventory } from './entities/feed-inventory.entity';
 import { FeedingProgram } from './entities/feeding-program.entity';
 import { FeedingProgramTank } from './entities/feeding-program-tank.entity';
@@ -92,6 +93,7 @@ import { InventoryModule } from '../storage/storage.module';
     BatchModule,
     InventoryModule,
   ],
+  controllers: [GetFeedingOverviewResponder],
   providers: [
     FeedSelectorService,
     WaterTemperatureService,

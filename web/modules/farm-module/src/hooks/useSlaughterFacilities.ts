@@ -5,11 +5,11 @@
  * number): the default facility feeds the server-side slakt assembler. Each
  * tenant may slaughter through several facilities and marks one default.
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   useAuth,
   graphqlClient,
-  createTenantQueryKey,
+  useTenantQuery,
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 
@@ -81,20 +81,17 @@ const UPDATE_SLAUGHTER_FACILITY_MUTATION = `
  * Fetch the slaughter-facility catalog (active first, default first).
  */
 export function useSlaughterFacilities(includeInactive = false) {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'slaughterFacilities', 'list', { includeInactive }),
-    queryFn: async () => {
+  return useTenantQuery<SlaughterFacility[]>(
+    ['slaughterFacilities', 'list', { includeInactive }],
+    async () => {
       const data = await graphqlClient.request<{ slaughterFacilities: SlaughterFacility[] }>(
         SLAUGHTER_FACILITIES_QUERY,
         { includeInactive },
       );
       return data.slaughterFacilities;
     },
-    staleTime: 30000,
-    enabled: !!token && !!tenantId,
-  });
+    { staleTime: 30000 },
+  );
 }
 
 export function useCreateSlaughterFacility() {

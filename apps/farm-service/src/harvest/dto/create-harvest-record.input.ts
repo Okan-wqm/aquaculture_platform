@@ -22,7 +22,7 @@ import {
 } from 'class-validator';
 
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
-import { QualityGrade } from '../entities/harvest-record.entity';
+import { QualityClass, QualityGrade } from '../entities/harvest-record.entity';
 
 @InputType()
 export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
@@ -63,10 +63,21 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @Min(0.01)
   totalBiomass!: number;
 
-  @Field(() => QualityGrade, { description: 'Quality grade of harvested fish' })
-  @IsNotEmpty()
+  @Field(() => QualityClass, {
+    nullable: true,
+    description: 'Norwegian quality class (kvalitetsklasse) — the stored SSoT. Preferred input.',
+  })
+  @IsOptional()
+  @IsEnum(QualityClass)
+  qualityClass?: QualityClass;
+
+  @Field(() => QualityGrade, {
+    nullable: true,
+    description: 'DEPRECATED legacy display grade — mapped onto qualityClass when supplied.',
+  })
+  @IsOptional()
   @IsEnum(QualityGrade)
-  qualityGrade!: QualityGrade;
+  qualityGrade?: QualityGrade;
 
   @Field({ description: 'Harvest date (ISO 8601 format)' })
   @IsNotEmpty()

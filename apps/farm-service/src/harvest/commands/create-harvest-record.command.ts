@@ -9,7 +9,7 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 
-import { QualityGrade } from '../entities/harvest-record.entity';
+import { QualityClass, QualityGrade } from '../entities/harvest-record.entity';
 
 export interface CreateHarvestRecordInput {
   batchId: string;
@@ -17,7 +17,10 @@ export interface CreateHarvestRecordInput {
   quantityHarvested: number;
   averageWeight: number;
   totalBiomass: number;
-  qualityGrade: QualityGrade | string;
+  /** Norwegian quality class — the stored SSoT (RPT-007). Preferred input. */
+  qualityClass?: QualityClass;
+  /** DEPRECATED legacy display grade — mapped onto qualityClass when supplied. */
+  qualityGrade?: QualityGrade | string;
   harvestDate: string | Date;
   pricePerKg?: number;
   buyerName?: string;

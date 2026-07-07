@@ -22,7 +22,14 @@
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { Injectable, Logger, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Optional,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso, createBaseEvent } from '@platform/event-contracts';
@@ -48,13 +55,22 @@ import { BatchHarvestEligibilityService } from '../../fish-health/services/batch
 import { Tank } from '../../tank/entities/tank.entity';
 import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
-import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
+import {
+  HarvestRecord,
+  HarvestRecordStatus,
+  QualityGrade,
+  qualityGradeToClass,
+  HarvestOperation,
+  LotInfo,
+} from '../entities/harvest-record.entity';
 import { HarvestPolicyService } from '../services/harvest-policy.service';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
 // Return HarvestRecord so the GraphQL resolver can expose harvest-specific fields to clients
-export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, HarvestRecord> {
+export class CreateHarvestRecordHandler
+  implements ICommandHandler<CreateHarvestRecordCommand, HarvestRecord>
+{
   private readonly logger = new Logger(CreateHarvestRecordHandler.name);
 
   constructor(
@@ -79,12 +95,9 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchService: TankBatchService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     // Required param placed before the default-valued ones below.
-    private readonly siteAuth: SiteAuthorizationService =
-      new SiteAuthorizationService(),
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
-    private readonly mobileCommandReceipts: MobileCommandReceiptService =
-      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
+    private readonly siteAuth: SiteAuthorizationService = new SiteAuthorizationService(),
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService = defaultMobileCommandReceiptsForDirectHandlerConstruction(),
     @Optional()
     private readonly metricsService?: FarmDomainMetricsService,
   ) {}
@@ -93,9 +106,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     const { tenantId, input, recordedBy } = command;
 
     // Parse harvestDate early (no DB needed)
-    const harvestDate = typeof input.harvestDate === 'string'
-      ? new Date(input.harvestDate)
-      : input.harvestDate;
+    const harvestDate =
+      typeof input.harvestDate === 'string' ? new Date(input.harvestDate) : input.harvestDate;
 
     // Backdate policy: harvest may be logged up to HARVEST_BACKDATE_LIMIT_DAYS
     // (default 7) after the physical event. Future dates are rejected
@@ -107,333 +119,355 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       subjectLabel: `batch ${input.batchId}`,
     });
 
-    // Parse qualityGrade early (no DB needed)
-    const qualityGrade = this.parseQualityGrade(input.qualityGrade);
+    // Resolve the stored quality taxonomy (RPT-007): qualityClass is the SSoT
+    // input; a legacy qualityGrade is mapped onto its class. At least one is
+    // required — fail closed (no silent default onto ORDINAER).
+    const qualityClass =
+      input.qualityClass ??
+      (input.qualityGrade !== undefined
+        ? qualityGradeToClass(this.parseQualityGrade(input.qualityGrade))
+        : undefined);
+    if (!qualityClass) {
+      throw new BadRequestException(
+        'qualityClass is required (or the deprecated qualityGrade).',
+      );
+    }
 
     // All reads and writes inside a single transaction with pessimistic locks.
     // The fail-closed tenant boundary pins search_path + the RLS GUC and
     // commits / rolls back / releases around the callback.
-    const result = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
-        tableName: 'farm_mobile_command_receipts',
-        tenantId,
-        envelope: command.mobileCommand,
-        operationType: 'createHarvestRecord',
-        responseType: 'HarvestRecord',
-      });
-      if (receipt.mode === 'replay') {
-        const replayed = receipt.responseId
-          ? await queryRunner.manager.findOne(HarvestRecord, {
-              where: { id: receipt.responseId, tenantId },
-            })
-          : null;
-        if (!replayed) {
-          throw new ConflictException('Mobile command receipt response is no longer available');
+    const result = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+          tableName: 'farm_mobile_command_receipts',
+          tenantId,
+          envelope: command.mobileCommand,
+          operationType: 'createHarvestRecord',
+          responseType: 'HarvestRecord',
+        });
+        if (receipt.mode === 'replay') {
+          const replayed = receipt.responseId
+            ? await queryRunner.manager.findOne(HarvestRecord, {
+                where: { id: receipt.responseId, tenantId },
+              })
+            : null;
+          if (!replayed) {
+            throw new ConflictException('Mobile command receipt response is no longer available');
+          }
+          // Replay short-circuits the write path: no final-harvest close
+          // chain re-runs (the original harvest already dispatched it).
+          return { harvestRecord: replayed, isFinalHarvest: false, recordCode: null };
         }
-        // Replay short-circuits the write path: no final-harvest close
-        // chain re-runs (the original harvest already dispatched it).
-        return { harvestRecord: replayed, isFinalHarvest: false, recordCode: null };
-      }
 
-      // Batch bul with pessimistic lock
-      const batch = await queryRunner.manager.findOne(Batch, {
-        where: { id: input.batchId, tenantId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!batch) {
-        throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
-      }
-
-      // ── COMPLIANCE GATE: medicine withdrawal period ─────────────────────
-      //
-      // Food-safety rule (Norwegian Mattilsynet, EU Reg 37/2010):
-      // harvesting a batch before the medicine withdrawal period has
-      // elapsed puts unsafe fish on the market. The check runs outside
-      // the batch row's pessimistic_write lock (separate table) so it
-      // cannot deadlock; it runs INSIDE the transaction so a concurrent
-      // resolveHealthEvent cannot clear the block between the check and
-      // the harvest write.
-      //
-      // Blocking logic lives in BatchHarvestEligibilityService so the
-      // GraphQL query `batchHarvestEligibility` can reuse it for UI
-      // pre-submit warnings. See docs/illustrator/ (Girdi 14h).
-      const eligibility = await this.harvestEligibility.checkEligibility(
-        tenantId,
-        input.batchId,
-        harvestDate,
-      );
-      if (!eligibility.eligible) {
-        this.metricsService?.incWithdrawalBlock({
-          tenantId,
-          surface: 'harvest_record',
+        // Batch bul with pessimistic lock
+        const batch = await queryRunner.manager.findOne(Batch, {
+          where: { id: input.batchId, tenantId, isActive: true },
+          lock: { mode: 'pessimistic_write' },
         });
-        throw new BatchWithdrawalBlockedError({
-          userMessage:
-            eligibility.reason ??
-            'Harvest blocked by active medicine withdrawal period.',
-          activeTreatments: eligibility.blockingEvents.map((e) => ({
-            eventCode: e.id,
-            productName: e.title,
-            earliestHarvestDate: e.earliestHarvestDate.toISOString(),
-            daysRemaining: Math.max(
-              0,
-              Math.ceil(
-                (e.earliestHarvestDate.getTime() - Date.now()) / 86_400_000,
+
+        if (!batch) {
+          throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
+        }
+
+        // ── COMPLIANCE GATE: medicine withdrawal period ─────────────────────
+        //
+        // Food-safety rule (Norwegian Mattilsynet, EU Reg 37/2010):
+        // harvesting a batch before the medicine withdrawal period has
+        // elapsed puts unsafe fish on the market. The check runs outside
+        // the batch row's pessimistic_write lock (separate table) so it
+        // cannot deadlock; it runs INSIDE the transaction so a concurrent
+        // resolveHealthEvent cannot clear the block between the check and
+        // the harvest write.
+        //
+        // Blocking logic lives in BatchHarvestEligibilityService so the
+        // GraphQL query `batchHarvestEligibility` can reuse it for UI
+        // pre-submit warnings. See docs/illustrator/ (Girdi 14h).
+        const eligibility = await this.harvestEligibility.checkEligibility(
+          tenantId,
+          input.batchId,
+          harvestDate,
+        );
+        if (!eligibility.eligible) {
+          this.metricsService?.incWithdrawalBlock({
+            tenantId,
+            surface: 'harvest_record',
+          });
+          throw new BatchWithdrawalBlockedError({
+            userMessage:
+              eligibility.reason ?? 'Harvest blocked by active medicine withdrawal period.',
+            activeTreatments: eligibility.blockingEvents.map((e) => ({
+              eventCode: e.id,
+              productName: e.title,
+              earliestHarvestDate: e.earliestHarvestDate.toISOString(),
+              daysRemaining: Math.max(
+                0,
+                Math.ceil((e.earliestHarvestDate.getTime() - Date.now()) / 86_400_000),
               ),
-            ),
-          })),
-          fieldPath: ['createHarvestRecord', 'batchId'],
-        });
-      }
+            })),
+            fieldPath: ['createHarvestRecord', 'batchId'],
+          });
+        }
 
-      // ── POLICY GATE: harvest-plan mandatory for large harvests ──────
-      //
-      // Large harvests (over the biomass or quantity threshold — env
-      // overridable) MUST cite an APPROVED / SCHEDULED / IN_PROGRESS
-      // harvest plan for the same batch. Small harvests may continue
-      // without a plan but land a log entry so ops can track how often
-      // the shortcut is used. See HarvestPolicyService for the rule
-      // details and Girdi 15-B10 in
-      // docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md.
-      await this.harvestPolicy.evaluate({
-        tenantId,
-        batchId: input.batchId,
-        projectedBiomassKg: Number(input.totalBiomass || 0),
-        projectedQuantity: Number(input.quantityHarvested || 0),
-        harvestPlanId: input.harvestPlanId ?? null,
-      });
-
-      // Tank bul with pessimistic lock
-      const tank = await queryRunner.manager.findOne(Tank, {
-        where: { id: input.tankId, tenantId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!tank) {
-        throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
-      }
-
-      // SEC-HIGH-051: object-level site authorization. Resolve the tank's owning
-      // site inside this transaction and assert the caller is assigned to it
-      // BEFORE any harvest write. MODULE_MANAGER+ bypasses (and the @Roles floor
-      // already restricts harvest to MODULE_MANAGER+, see SEC-MEDIUM-050); a
-      // site-less/unresolved tank is DENIED.
-      const tankSiteId = await resolveTankSiteId(queryRunner.manager, input.tankId, tenantId);
-      this.siteAuth.assertSiteAssignment({
-        caller: {
-          sub: recordedBy,
-          roles: command.userRoles,
-          assignedSiteIds: command.callerAssignedSiteIds,
-        },
-        siteId: tankSiteId,
-      });
-
-      if (input.quantityHarvested > batch.currentQuantity) {
-        throw new BadRequestException(
-          `Harvest miktarı (${input.quantityHarvested}) batch'in mevcut miktarından (${batch.currentQuantity}) fazla olamaz`
-        );
-      }
-
-      // TankBatch with pessimistic lock
-      const tankBatch = await queryRunner.manager.findOne(TankBatch, {
-        where: { tenantId, tankId: input.tankId },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (tankBatch && input.quantityHarvested > tankBatch.totalQuantity) {
-        throw new BadRequestException(
-          `Harvest miktarı (${input.quantityHarvested}) tank'taki miktardan (${tankBatch.totalQuantity}) fazla olamaz`
-        );
-      }
-
-      // Biomass hesapla
-      const biomassKg = input.totalBiomass || (input.quantityHarvested * input.averageWeight) / 1000;
-
-      // Record code ve lot number oluştur — pass queryRunner.manager so the
-      // pessimistic_read lock runs inside this transaction, preventing concurrent
-      // inserts from allocating the same sequence (duplicate lot number = regulatory violation).
-      const recordCode = await this.generateCode(tenantId, 'HR', queryRunner.manager);
-      const lotNumber = await this.generateCode(tenantId, 'LOT', queryRunner.manager);
-
-      // Operation detaylarını oluştur
-      const operation: HarvestOperation = {
-        startTime: harvestDate,
-        method: HarvestMethod.NET,
-      };
-
-      // Lot bilgilerini oluştur
-      const lotInfo: LotInfo = {
-        lotNumber,
-        productionDate: harvestDate,
-      };
-
-      // Pre-operation state kaydet
-      const preOperationState = tankBatch ? {
-        quantity: tankBatch.totalQuantity,
-        biomassKg: tankBatch.totalBiomassKg,
-        densityKgM3: tankBatch.densityKgM3,
-      } : undefined;
-
-      // HarvestRecord oluştur
-      const harvestRecord = queryRunner.manager.create(HarvestRecord, {
-        tenantId,
-        recordCode,
-        lotNumber,
-        batchId: input.batchId,
-        tankId: input.tankId,
-        harvestPlanId: input.harvestPlanId,
-        status: HarvestRecordStatus.COMPLETED,
-        harvestDate,
-        operation,
-        method: HarvestMethod.NET,
-        quantityHarvested: input.quantityHarvested,
-        totalBiomass: biomassKg,
-        averageWeight: input.averageWeight,
-        productForm: ProductForm.FRESH_WHOLE,
-        qualityGrade,
-        lotInfo,
-        supervisorId: recordedBy,
-        notes: input.notes,
-        totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined,
-        currency: input.pricePerKg ? 'TRY' : undefined,
-      });
-
-      // Customer delivery bilgisi ekle
-      if (input.buyerName) {
-        harvestRecord.customerDeliveries = [{
-          customerId: 'direct-buyer',
-          customerName: input.buyerName,
-          quantity: biomassKg,
-          quantityUnit: 'kg',
-          unitPrice: input.pricePerKg || 0,
-          totalValue: input.pricePerKg ? biomassKg * input.pricePerKg : 0,
-          currency: 'TRY',
-          deliveryStatus: 'pending',
-        }];
-      }
-
-      await queryRunner.manager.save(HarvestRecord, harvestRecord);
-
-      // TankOperation kaydı oluştur
-      const tankOperation = queryRunner.manager.create(TankOperation, {
-        tenantId,
-        tankId: input.tankId,
-        batchId: input.batchId,
-        operationType: OperationType.HARVEST,
-        operationDate: harvestDate,
-        quantity: input.quantityHarvested,
-        avgWeightG: input.averageWeight,
-        biomassKg,
-        preOperationState,
-        performedBy: recordedBy,
-        notes: input.notes,
-        isDeleted: false,
-      });
-
-      await queryRunner.manager.save(TankOperation, tankOperation);
-
-      // Batch güncelle (Math.max to prevent negative values)
-      batch.currentQuantity = Math.max(0, batch.currentQuantity - input.quantityHarvested);
-      batch.harvestedQuantity = (batch.harvestedQuantity || 0) + input.quantityHarvested;
-      batch.retentionRate = batch.getRetentionRate();
-      batch.updatedBy = recordedBy;
-
-      // Tüm stok hasad edildiyse batch'i HARVESTED olarak işaretle.
-      // Single source for the BatchHarvested.isFinal signal (FARM-LOW-004):
-      // the SAME post-decrement value gates the HARVESTED status below AND
-      // the event field — no recompute, no drift.
-      const isFinalHarvest = batch.currentQuantity <= 0;
-      if (isFinalHarvest) {
-        batch.status = BatchStatus.HARVESTED;
-        batch.statusChangedAt = new Date();
-        batch.actualHarvestDate = new Date();
-      }
-
-      await queryRunner.manager.save(Batch, batch);
-
-      // TankBatch: route the harvest decrement through the single SSoT writer
-      // (TankBatchService.applyBatchDelta) so batchDetails[] — the per-batch
-      // truth the web + mobile read models render — is decremented in lock-step
-      // with the aggregates, instead of being left stale (the class of drift that
-      // made the web panel show 900 while mobile showed 719). Derives every
-      // aggregate + removes the batch from the composition when it reaches zero.
-      // Mirrors the mortality/cull/transfer write paths (one writer, no drift).
-      if (tankBatch) {
-        await this.tankBatchService.applyBatchDelta(
-          queryRunner.manager,
+        // ── POLICY GATE: harvest-plan mandatory for large harvests ──────
+        //
+        // Large harvests (over the biomass or quantity threshold — env
+        // overridable) MUST cite an APPROVED / SCHEDULED / IN_PROGRESS
+        // harvest plan for the same batch. Small harvests may continue
+        // without a plan but land a log entry so ops can track how often
+        // the shortcut is used. See HarvestPolicyService for the rule
+        // details and Girdi 15-B10 in
+        // docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md.
+        await this.harvestPolicy.evaluate({
           tenantId,
-          input.tankId,
-          {
-            batchId: batch.id,
-            batchNumber: batch.batchNumber,
-            quantityDelta: -input.quantityHarvested,
-            biomassDelta: -biomassKg,
+          batchId: input.batchId,
+          projectedBiomassKg: Number(input.totalBiomass || 0),
+          projectedQuantity: Number(input.quantityHarvested || 0),
+          harvestPlanId: input.harvestPlanId ?? null,
+        });
+
+        // Tank bul with pessimistic lock
+        const tank = await queryRunner.manager.findOne(Tank, {
+          where: { id: input.tankId, tenantId, isActive: true },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!tank) {
+          throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
+        }
+
+        // SEC-HIGH-051: object-level site authorization. Resolve the tank's owning
+        // site inside this transaction and assert the caller is assigned to it
+        // BEFORE any harvest write. MODULE_MANAGER+ bypasses (and the @Roles floor
+        // already restricts harvest to MODULE_MANAGER+, see SEC-MEDIUM-050); a
+        // site-less/unresolved tank is DENIED.
+        const tankSiteId = await resolveTankSiteId(queryRunner.manager, input.tankId, tenantId);
+        this.siteAuth.assertSiteAssignment({
+          caller: {
+            sub: recordedBy,
+            roles: command.userRoles,
+            assignedSiteIds: command.callerAssignedSiteIds,
           },
-          { volumeM3: Number(tank.waterVolume || tank.volume) || 0 },
-        );
-      }
+          siteId: tankSiteId,
+        });
 
-      // Tank biomass update. currentCount is derived + written by
-      // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
-      // independent count write here (that drifted from tank_batches). biomass-ONLY
-      // UPDATE so it can't clobber the derived currentCount.
-      await queryRunner.manager
-        .createQueryBuilder()
-        .update(Tank)
-        .set({ currentBiomass: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg) })
-        .where('id = :id', { id: tank.id })
-        .execute();
-      await this.farmStockProjection.refreshContainers(
-        queryRunner.manager,
-        tenantId,
-        [input.tankId],
-      );
+        if (input.quantityHarvested > batch.currentQuantity) {
+          throw new BadRequestException(
+            `Harvest miktarı (${input.quantityHarvested}) batch'in mevcut miktarından (${batch.currentQuantity}) fazla olamaz`,
+          );
+        }
 
-      // Post-operation state güncelle
-      const updatedTankBatch = await queryRunner.manager.findOne(TankBatch, {
-        where: { tenantId, tankId: input.tankId },
-      });
+        // TankBatch with pessimistic lock
+        const tankBatch = await queryRunner.manager.findOne(TankBatch, {
+          where: { tenantId, tankId: input.tankId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-      if (updatedTankBatch) {
-        tankOperation.postOperationState = {
-          quantity: updatedTankBatch.totalQuantity,
-          biomassKg: updatedTankBatch.totalBiomassKg,
-          densityKgM3: updatedTankBatch.densityKgM3,
+        if (tankBatch && input.quantityHarvested > tankBatch.totalQuantity) {
+          throw new BadRequestException(
+            `Harvest miktarı (${input.quantityHarvested}) tank'taki miktardan (${tankBatch.totalQuantity}) fazla olamaz`,
+          );
+        }
+
+        // Biomass hesapla
+        const biomassKg =
+          input.totalBiomass || (input.quantityHarvested * input.averageWeight) / 1000;
+
+        // Record code ve lot number oluştur — pass queryRunner.manager so the
+        // pessimistic_read lock runs inside this transaction, preventing concurrent
+        // inserts from allocating the same sequence (duplicate lot number = regulatory violation).
+        const recordCode = await this.generateCode(tenantId, 'HR', queryRunner.manager);
+        const lotNumber = await this.generateCode(tenantId, 'LOT', queryRunner.manager);
+
+        // Operation detaylarını oluştur
+        const operation: HarvestOperation = {
+          startTime: harvestDate,
+          method: HarvestMethod.NET,
         };
+
+        // Lot bilgilerini oluştur
+        const lotInfo: LotInfo = {
+          lotNumber,
+          productionDate: harvestDate,
+        };
+
+        // Pre-operation state kaydet
+        const preOperationState = tankBatch
+          ? {
+              quantity: tankBatch.totalQuantity,
+              biomassKg: tankBatch.totalBiomassKg,
+              densityKgM3: tankBatch.densityKgM3,
+            }
+          : undefined;
+
+        // HarvestRecord oluştur
+        const harvestRecord = queryRunner.manager.create(HarvestRecord, {
+          tenantId,
+          recordCode,
+          lotNumber,
+          batchId: input.batchId,
+          tankId: input.tankId,
+          harvestPlanId: input.harvestPlanId,
+          status: HarvestRecordStatus.COMPLETED,
+          harvestDate,
+          operation,
+          method: HarvestMethod.NET,
+          quantityHarvested: input.quantityHarvested,
+          totalBiomass: biomassKg,
+          averageWeight: input.averageWeight,
+          productForm: ProductForm.FRESH_WHOLE,
+          // Official Norwegian quality class is the sole stored quality taxonomy
+          // (RPT-007). qualityGrade is a read-only derived alias — not stored.
+          qualityClass,
+          lotInfo,
+          supervisorId: recordedBy,
+          notes: input.notes,
+          totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined,
+          currency: input.pricePerKg ? 'TRY' : undefined,
+        });
+
+        // Customer delivery bilgisi ekle
+        if (input.buyerName) {
+          harvestRecord.customerDeliveries = [
+            {
+              customerId: 'direct-buyer',
+              customerName: input.buyerName,
+              quantity: biomassKg,
+              quantityUnit: 'kg',
+              unitPrice: input.pricePerKg || 0,
+              totalValue: input.pricePerKg ? biomassKg * input.pricePerKg : 0,
+              currency: 'TRY',
+              deliveryStatus: 'pending',
+            },
+          ];
+        }
+
+        await queryRunner.manager.save(HarvestRecord, harvestRecord);
+
+        // TankOperation kaydı oluştur
+        const tankOperation = queryRunner.manager.create(TankOperation, {
+          tenantId,
+          tankId: input.tankId,
+          batchId: input.batchId,
+          operationType: OperationType.HARVEST,
+          operationDate: harvestDate,
+          quantity: input.quantityHarvested,
+          avgWeightG: input.averageWeight,
+          biomassKg,
+          preOperationState,
+          performedBy: recordedBy,
+          notes: input.notes,
+          isDeleted: false,
+        });
+
         await queryRunner.manager.save(TankOperation, tankOperation);
-      }
 
-      // Enqueue BatchHarvestedEvent into the transactional outbox BEFORE commit.
-      // Field names match the BatchHarvestedEvent contract exactly:
-      // `harvestedQuantity`, `harvestedAt`, `averageWeight`, `totalWeight`.
-      // The previous implementation sent `harvestRecordId`/`lotNumber`/
-      // `totalQuantity`/`totalBiomassKg` — none of those are contract fields,
-      // so consumers reading `event.harvestedQuantity` got `undefined`.
-      const harvestEvent: BatchHarvestedEvent = {
-        ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, { aggregateId: harvestRecord.batchId, aggregateType: 'Batch', version: 2 }),
-        userId: recordedBy,
-        batchId: harvestRecord.batchId,
-        harvestedQuantity: harvestRecord.quantityHarvested,
-        harvestedAt: toEventIso(harvestRecord.harvestDate),
-        averageWeight: harvestRecord.averageWeight,
-        totalWeight: harvestRecord.totalBiomass,
-        isFinal: isFinalHarvest,
-      };
-      await this.outboxPublisher.enqueue(harvestEvent, queryRunner.manager);
-      await this.mobileCommandReceipts.complete(queryRunner.manager, {
-        tableName: 'farm_mobile_command_receipts',
-        receipt,
-        responseType: 'HarvestRecord',
-        responseId: harvestRecord.id,
-        responsePayload: { id: harvestRecord.id },
-      });
+        // Batch güncelle (Math.max to prevent negative values)
+        batch.currentQuantity = Math.max(0, batch.currentQuantity - input.quantityHarvested);
+        batch.harvestedQuantity = (batch.harvestedQuantity || 0) + input.quantityHarvested;
+        batch.retentionRate = batch.getRetentionRate();
+        batch.updatedBy = recordedBy;
 
-      // Domain writes + outbox row commit atomically when the boundary
-      // commits the callback. The final-harvest close chain runs AFTER the
-      // commit (below), never inside this transaction.
-      return { harvestRecord, isFinalHarvest, recordCode };
-    });
+        // Tüm stok hasad edildiyse batch'i HARVESTED olarak işaretle.
+        // Single source for the BatchHarvested.isFinal signal (FARM-LOW-004):
+        // the SAME post-decrement value gates the HARVESTED status below AND
+        // the event field — no recompute, no drift.
+        const isFinalHarvest = batch.currentQuantity <= 0;
+        if (isFinalHarvest) {
+          batch.status = BatchStatus.HARVESTED;
+          batch.statusChangedAt = new Date();
+          batch.actualHarvestDate = new Date();
+        }
+
+        await queryRunner.manager.save(Batch, batch);
+
+        // TankBatch: route the harvest decrement through the single SSoT writer
+        // (TankBatchService.applyBatchDelta) so batchDetails[] — the per-batch
+        // truth the web + mobile read models render — is decremented in lock-step
+        // with the aggregates, instead of being left stale (the class of drift that
+        // made the web panel show 900 while mobile showed 719). Derives every
+        // aggregate + removes the batch from the composition when it reaches zero.
+        // Mirrors the mortality/cull/transfer write paths (one writer, no drift).
+        if (tankBatch) {
+          await this.tankBatchService.applyBatchDelta(
+            queryRunner.manager,
+            tenantId,
+            input.tankId,
+            {
+              batchId: batch.id,
+              batchNumber: batch.batchNumber,
+              quantityDelta: -input.quantityHarvested,
+              biomassDelta: -biomassKg,
+            },
+            { volumeM3: Number(tank.waterVolume || tank.volume) || 0 },
+          );
+        }
+
+        // Tank biomass update. currentCount is derived + written by
+        // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
+        // independent count write here (that drifted from tank_batches). biomass-ONLY
+        // UPDATE so it can't clobber the derived currentCount.
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Tank)
+          .set({ currentBiomass: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg) })
+          .where('id = :id', { id: tank.id })
+          .execute();
+        await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [
+          input.tankId,
+        ]);
+
+        // Post-operation state güncelle
+        const updatedTankBatch = await queryRunner.manager.findOne(TankBatch, {
+          where: { tenantId, tankId: input.tankId },
+        });
+
+        if (updatedTankBatch) {
+          tankOperation.postOperationState = {
+            quantity: updatedTankBatch.totalQuantity,
+            biomassKg: updatedTankBatch.totalBiomassKg,
+            densityKgM3: updatedTankBatch.densityKgM3,
+          };
+          await queryRunner.manager.save(TankOperation, tankOperation);
+        }
+
+        // Enqueue BatchHarvestedEvent into the transactional outbox BEFORE commit.
+        // Field names match the BatchHarvestedEvent contract exactly:
+        // `harvestedQuantity`, `harvestedAt`, `averageWeight`, `totalWeight`.
+        // The previous implementation sent `harvestRecordId`/`lotNumber`/
+        // `totalQuantity`/`totalBiomassKg` — none of those are contract fields,
+        // so consumers reading `event.harvestedQuantity` got `undefined`.
+        const harvestEvent: BatchHarvestedEvent = {
+          ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, {
+            aggregateId: harvestRecord.batchId,
+            aggregateType: 'Batch',
+            version: 2,
+          }),
+          userId: recordedBy,
+          batchId: harvestRecord.batchId,
+          harvestedQuantity: harvestRecord.quantityHarvested,
+          harvestedAt: toEventIso(harvestRecord.harvestDate),
+          averageWeight: harvestRecord.averageWeight,
+          totalWeight: harvestRecord.totalBiomass,
+          isFinal: isFinalHarvest,
+        };
+        await this.outboxPublisher.enqueue(harvestEvent, queryRunner.manager);
+        await this.mobileCommandReceipts.complete(queryRunner.manager, {
+          tableName: 'farm_mobile_command_receipts',
+          receipt,
+          responseType: 'HarvestRecord',
+          responseId: harvestRecord.id,
+          responsePayload: { id: harvestRecord.id },
+        });
+
+        // Domain writes + outbox row commit atomically when the boundary
+        // commits the callback. The final-harvest close chain runs AFTER the
+        // commit (below), never inside this transaction.
+        return { harvestRecord, isFinalHarvest, recordCode };
+      },
+    );
 
     const { harvestRecord, isFinalHarvest, recordCode } = result;
 
@@ -532,7 +566,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       .createQueryBuilder(HarvestRecord, 'hr')
       .where('hr.tenantId = :tenantId', { tenantId })
       .andWhere(prefix === 'HR' ? 'hr.recordCode LIKE :pattern' : 'hr.lotNumber LIKE :pattern', {
-        pattern: `${prefix}-${year}-%`
+        pattern: `${prefix}-${year}-%`,
       })
       .orderBy(prefix === 'HR' ? 'hr.recordCode' : 'hr.lotNumber', 'DESC')
       .setLock('pessimistic_read')
@@ -555,16 +589,16 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
    */
   private parseQualityGrade(grade: string | QualityGrade): QualityGrade {
     const gradeMap: Record<string, QualityGrade> = {
-      'PREMIUM': QualityGrade.PREMIUM,
-      'premium': QualityGrade.PREMIUM,
-      'GRADE_A': QualityGrade.GRADE_A,
-      'grade_a': QualityGrade.GRADE_A,
-      'GRADE_B': QualityGrade.GRADE_B,
-      'grade_b': QualityGrade.GRADE_B,
-      'GRADE_C': QualityGrade.GRADE_C,
-      'grade_c': QualityGrade.GRADE_C,
-      'REJECT': QualityGrade.REJECT,
-      'reject': QualityGrade.REJECT,
+      PREMIUM: QualityGrade.PREMIUM,
+      premium: QualityGrade.PREMIUM,
+      GRADE_A: QualityGrade.GRADE_A,
+      grade_a: QualityGrade.GRADE_A,
+      GRADE_B: QualityGrade.GRADE_B,
+      grade_b: QualityGrade.GRADE_B,
+      GRADE_C: QualityGrade.GRADE_C,
+      grade_c: QualityGrade.GRADE_C,
+      REJECT: QualityGrade.REJECT,
+      reject: QualityGrade.REJECT,
     };
 
     const parsed = gradeMap[grade];

@@ -22,8 +22,8 @@
  *     off on live credentials.
  *   - All credential columns left NULL — no secrets created blindly.
  *     The tenant-admin provides them via the settings mutation.
- *   - `siteLocalityMappings` defaults to `{}` (the entity declares
- *     this at the column level; the seeder does not override).
+ *   - Site → lokalitetsnummer lives on the site rows (RPT-015), not here —
+ *     the seeder creates no mapping.
  *
  * # Idempotency
  *
@@ -79,7 +79,6 @@ export class RegulatorySettingsSeederService {
     const row = this.settingsRepository.create({
       tenantId,
       maskinportenEnvironment: 'TEST',
-      siteLocalityMappings: {},
     });
     await this.settingsRepository.save(row);
 

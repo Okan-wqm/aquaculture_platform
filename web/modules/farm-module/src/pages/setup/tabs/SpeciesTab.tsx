@@ -45,6 +45,7 @@ interface SpeciesFormData {
   commonName: string;
   scientificName: string;
   code: string;
+  officialCode: string;
   localName: string;
   description: string;
   // Tags
@@ -81,6 +82,7 @@ const initialFormData: SpeciesFormData = {
   commonName: '',
   scientificName: '',
   code: '',
+  officialCode: '',
   localName: '',
   description: '',
   tags: [],
@@ -257,6 +259,7 @@ export const SpeciesTab: React.FC = () => {
         commonName: formData.commonName,
         scientificName: formData.scientificName,
         code: formData.code,
+        officialCode: formData.officialCode || undefined,
         localName: formData.localName || undefined,
         description: formData.description || undefined,
         category: formData.category as SpeciesCategory,
@@ -297,6 +300,7 @@ export const SpeciesTab: React.FC = () => {
       commonName: species.commonName,
       scientificName: species.scientificName,
       code: species.code,
+      officialCode: species.officialCode || '',
       localName: species.localName || '',
       description: species.description || '',
       tags: species.tags || [],
@@ -522,7 +526,10 @@ export const SpeciesTab: React.FC = () => {
                     {species.localName && (
                       <p className="text-sm text-gray-400">({species.localName})</p>
                     )}
-                    <p className="text-xs text-gray-400 mt-1">Code: {species.code}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Code: {species.code}
+                      {species.officialCode ? ` · Artskode: ${species.officialCode}` : ''}
+                    </p>
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     <span
@@ -841,6 +848,27 @@ export const SpeciesTab: React.FC = () => {
                     placeholder="e.g., SEABASS"
                     className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Official Code (artskode)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.officialCode}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        officialCode: e.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)"
+                    maxLength={16}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Required for Norwegian regulatory reports — submissions fail closed without it.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Local Name</label>

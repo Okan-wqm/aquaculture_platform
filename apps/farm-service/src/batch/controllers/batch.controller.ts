@@ -30,7 +30,7 @@ import { CommandBus, PaginatedQueryResult, QueryBus } from '@platform/cqrs';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CreateHarvestRecordCommand } from '../../harvest/commands/create-harvest-record.command';
-import { QualityGrade } from '../../harvest/entities/harvest-record.entity';
+import { QualityClass } from '../../harvest/entities/harvest-record.entity';
 import {
   AllocateToTankCommand,
   AllocationType,
@@ -606,7 +606,9 @@ export class TankOperationsController {
           quantityHarvested: dto.quantity,
           averageWeight: dto.avgWeightG ?? 0,
           totalBiomass,
-          qualityGrade: QualityGrade.GRADE_A,
+          // Internal batch-harvest default; SUPERIOR preserves the prior
+          // GRADE_A→SUPERIOR class mapping now that quality_class is the SSoT.
+          qualityClass: QualityClass.SUPERIOR,
           harvestDate: new Date(dto.operationDate),
           pricePerKg: dto.pricePerKg,
           buyerName: dto.buyer,

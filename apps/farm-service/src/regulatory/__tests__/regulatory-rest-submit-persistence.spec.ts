@@ -1,27 +1,31 @@
 /**
- * REST report submissions — persist-first flow (FARM-HIGH-125).
+ * REST report resolver — schema gate + delegation (FARM-HIGH-125 / RPT-018).
  *
- * Locks the record-of-submission contract for the five Mattilsynet REST
- * report types (sea lice exercised as the representative — all five run
- * through the same submitWithRecord path):
- *   - the PENDING row is persisted BEFORE the Mattilsynet call;
- *   - API success   → markSubmitted with the returned referanse;
- *   - API rejection → markFailed with the validation detail, result
- *                     passed through (success=false) + reportId attached;
- *   - API throw     → markFailed with the error, NO fake-success;
- *   - a store failure fails the submit — an unrecorded report must never
- *     reach the regulator.
+ * After the persist-first flow was extracted into RegulatorySubmissionService
+ * (so the interactive submit path and the retry sweep share ONE outcome
+ * handler), the resolver owns exactly two responsibilities for the five REST
+ * report types, locked here (sea lice as the representative — all five share
+ * the same shape):
+ *   - schema gate: a payload that fails the official Mattilsynet schema is
+ *     rejected BEFORE any persistence — the submission service is never called
+ *     and no PENDING row is created;
+ *   - delegation: a schema-valid payload is handed to
+ *     RegulatorySubmissionService.submitWithRecord with the correct report
+ *     type + reporting period, and the submit closure calls the matching
+ *     MattilsynetApiService method with the branded ValidatedPayload.
+ *
+ * The persist-first / classify / retry behaviour itself is covered in
+ * regulatory-submission.service.spec.ts — it is not re-tested here.
  */
 import { RegulatoryResolver } from '../regulatory.resolver';
 import { MattilsynetApiService } from '../mattilsynet-api.service';
 import { MaskinportenService } from '../maskinporten.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
-import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
-import {
-  RegulatoryReport,
-  RegulatoryReportType,
-} from '../entities/regulatory-report.entity';
+import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
+import { SlaughterFacilityService } from '../services/slaughter-facility.service';
+import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
+import { RegulatoryReportType } from '../entities/regulatory-report.entity';
 import { SubmitSeaLiceReportInput } from '../dto/regulatory-inputs.dto';
 
 const TENANT_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
@@ -42,119 +46,104 @@ const input: SubmitSeaLiceReportInput = {
   lusetelling: { voksneHunnlus: 0.2, bevegeligeLus: 0.4, fastsittendeLus: 0.1 },
 } as SubmitSeaLiceReportInput;
 
-describe('RegulatoryResolver — REST submit persist-first flow', () => {
+describe('RegulatoryResolver — REST submit schema gate + delegation', () => {
   let resolver: RegulatoryResolver;
+  let submitWithRecord: jest.Mock;
+  let resubmit: jest.Mock;
   let submitSeaLice: jest.Mock;
-  let recordPending: jest.Mock;
-  let markSubmitted: jest.Mock;
-  let markFailed: jest.Mock;
-  let getSettings: jest.Mock;
 
   beforeEach(() => {
-    submitSeaLice = jest.fn();
-    recordPending = jest.fn().mockImplementation(() => {
-      const row = new RegulatoryReport();
-      row.id = 'row-777';
-      return Promise.resolve(row);
-    });
-    markSubmitted = jest.fn().mockResolvedValue(undefined);
-    markFailed = jest.fn().mockResolvedValue(undefined);
-    getSettings = jest.fn().mockResolvedValue({
-      siteLocalityMappings: { 'site-1': 12345 },
-    });
+    submitSeaLice = jest.fn().mockResolvedValue({ success: true, referanse: 'MT-1' });
+    // Capture the submit closure the resolver builds so we can prove it wires
+    // the validated payload to the correct MattilsynetApiService method.
+    submitWithRecord = jest
+      .fn()
+      .mockResolvedValue({ success: true, reportId: 'row-777', referanse: 'MT-1' });
+    resubmit = jest
+      .fn()
+      .mockResolvedValue({ success: true, reportId: 'row-777', referanse: 'MT-2' });
 
     const mattilsynet: Pick<MattilsynetApiService, 'submitSeaLiceReport'> = {
       submitSeaLiceReport: submitSeaLice,
     };
-    const settings: Pick<RegulatorySettingsService, 'getSettings'> = { getSettings };
-    const store: Pick<
-      RegulatoryReportStoreService,
-      'recordPending' | 'markSubmitted' | 'markFailed'
-    > = {
-      recordPending,
-      markSubmitted,
-      markFailed,
+    const submissionService: Pick<RegulatorySubmissionService, 'submitWithRecord' | 'resubmit'> = {
+      submitWithRecord,
+      resubmit,
     };
 
     resolver = new RegulatoryResolver(
       mattilsynet as MattilsynetApiService,
       {} as MaskinportenService,
-      settings as RegulatorySettingsService,
+      {} as RegulatorySettingsService,
       {} as RegulatoryVarslingService,
-      store as RegulatoryReportStoreService,
+      // The REAL validator (pure, no deps): the delegation path must only ever
+      // hand a schema-valid payload to the submission service.
+      new MattilsynetSchemaValidatorService(),
+      submissionService as RegulatorySubmissionService,
+      {} as SlaughterFacilityService,
     );
   });
 
-  it('persists PENDING before the API call and marks SUBMITTED on success', async () => {
-    submitSeaLice.mockImplementation(() => {
-      // The record must already exist when the regulator is called.
-      expect(recordPending).toHaveBeenCalledTimes(1);
-      return Promise.resolve({ success: true, referanse: 'MT-1', klientReferanse: 'ref-777' });
-    });
-
+  it('delegates a schema-valid payload to submitWithRecord with the right type + period', async () => {
     const result = await resolver.submitSeaLiceReport(input, ctx());
 
     expect(result.success).toBe(true);
     expect(result.reportId).toBe('row-777');
-    expect(recordPending).toHaveBeenCalledWith(
-      TENANT_ID,
+    expect(submitWithRecord).toHaveBeenCalledTimes(1);
+    const call = submitWithRecord.mock.calls[0];
+    expect(call[0]).toBe(TENANT_ID);
+    expect(call[1]).toBe(USER_ID);
+    expect(call[2]).toBe(RegulatoryReportType.SEA_LICE);
+    expect(call[3]).toBe(input); // routing (klientReferanse / lokalitetsnummer)
+    expect(call[4]).toEqual({ year: 2026, week: 26 });
+    // The STORED payload is the validated Mattilsynet WIRE shape (Norwegian
+    // field names), NOT the GraphQL input DTO — so the retry sweep replays the
+    // exact bytes that crossed the trust boundary.
+    expect(call[5]).toEqual(
       expect.objectContaining({
-        reportType: RegulatoryReportType.SEA_LICE,
-        klientReferanse: 'ref-777',
-        siteId: 'site-1', // reverse-mapped from lokalitetsnummer 12345
+        sjøtemperatur: 12.5,
+        rapporteringsår: 2026,
         lokalitetsnummer: 12345,
-        reportYear: 2026,
-        reportWeek: 26,
-        submittedBy: USER_ID,
       }),
     );
-    expect(markSubmitted).toHaveBeenCalledWith(TENANT_ID, 'row-777', 'MT-1');
-    expect(markFailed).not.toHaveBeenCalled();
+    expect(call[6]).toEqual(expect.any(Function));
   });
 
-  it('marks FAILED with the validation detail when Mattilsynet rejects', async () => {
-    submitSeaLice.mockResolvedValue({
-      success: false,
-      klientReferanse: 'ref-777',
-      valideringsfeil: [{ felt: 'lusetelling', melding: 'ugyldig' }],
-    });
+  it('wires the submit closure to MattilsynetApiService with the validated payload', async () => {
+    await resolver.submitSeaLiceReport(input, ctx());
 
-    const result = await resolver.submitSeaLiceReport(input, ctx());
+    // Invoke the closure the resolver passed as the 7th argument.
+    const submitClosure = submitWithRecord.mock.calls[0][6] as () => Promise<unknown>;
+    await submitClosure();
+
+    expect(submitSeaLice).toHaveBeenCalledTimes(1);
+    expect(submitSeaLice).toHaveBeenCalledWith(
+      TENANT_ID,
+      expect.objectContaining({ klientReferanse: 'ref-777', lokalitetsnummer: 12345 }),
+    );
+  });
+
+  it('rejects a schema-invalid payload BEFORE delegating — no submitWithRecord, no API call', async () => {
+    const invalid = {
+      ...input,
+      // Official schema: lokalitetsnummer is a 5-digit number (10000–99999).
+      lokalitetsnummer: 5,
+    } as SubmitSeaLiceReportInput;
+
+    const result = await resolver.submitSeaLiceReport(invalid, ctx());
 
     expect(result.success).toBe(false);
-    expect(result.reportId).toBe('row-777');
-    expect(markFailed).toHaveBeenCalledWith(TENANT_ID, 'row-777', 'lusetelling: ugyldig');
-    expect(markSubmitted).not.toHaveBeenCalled();
-  });
-
-  it('does NOT relabel an accepted submission FAILED when persisting the outcome throws (FARM-LOW-134)', async () => {
-    markSubmitted.mockRejectedValueOnce(new Error('db write timeout'));
-
-    submitSeaLice.mockResolvedValue({ success: true, referanse: 'MT-1', klientReferanse: 'ref-777' });
-
-    const result = await resolver.submitSeaLiceReport(input, ctx());
-
-    // The regulator accepted it — the operator must NOT be told to resubmit.
-    expect(result.success).toBe(true);
-    expect(markSubmitted).toHaveBeenCalledTimes(1);
-    expect(markFailed).not.toHaveBeenCalled();
-  });
-
-  it('marks FAILED and returns an honest failure when the API throws', async () => {
-    submitSeaLice.mockRejectedValue(new Error('mattilsynet 502'));
-
-    const result = await resolver.submitSeaLiceReport(input, ctx());
-
-    expect(result.success).toBe(false);
-    expect(result.feilmelding).toBe('mattilsynet 502');
-    expect(result.reportId).toBe('row-777');
-    expect(markFailed).toHaveBeenCalledWith(TENANT_ID, 'row-777', 'mattilsynet 502');
-  });
-
-  it('fails the submit when the record cannot be persisted (never report unrecorded)', async () => {
-    recordPending.mockRejectedValue(new Error('db down'));
-
-    await expect(resolver.submitSeaLiceReport(input, ctx())).rejects.toThrow('db down');
+    expect(result.valideringsfeil).toEqual(
+      expect.arrayContaining([expect.objectContaining({ felt: 'lokalitetsnummer' })]),
+    );
+    expect(submitWithRecord).not.toHaveBeenCalled();
     expect(submitSeaLice).not.toHaveBeenCalled();
+  });
+
+  it('resubmitRegulatoryReport delegates to the submission service replay path', async () => {
+    const result = await resolver.resubmitRegulatoryReport('row-777', ctx());
+
+    expect(result.success).toBe(true);
+    expect(resubmit).toHaveBeenCalledWith(TENANT_ID, 'row-777');
   });
 });

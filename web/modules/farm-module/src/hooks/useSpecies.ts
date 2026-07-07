@@ -3,7 +3,12 @@
  * Handles CRUD operations for species via GraphQL API
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantInvalidationKey, useTenantQuery } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantInvalidationKey,
+  useTenantQuery,
+} from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SpeciesCategory {
@@ -122,6 +127,8 @@ export interface Species {
   commonName: string;
   localName?: string;
   code: string;
+  /** Official regulatory artskode (FAO 3-alpha / USB-BER-GRO-BNB); reports fail closed without it. */
+  officialCode?: string;
   description?: string;
   category: SpeciesCategory;
   waterType: SpeciesWaterType;
@@ -145,6 +152,7 @@ export interface CreateSpeciesInput {
   commonName: string;
   localName?: string;
   code: string;
+  officialCode?: string;
   description?: string;
   category: SpeciesCategory;
   waterType: SpeciesWaterType;
@@ -185,6 +193,7 @@ const SPECIES_LIST_QUERY = `
         commonName
         localName
         code
+        officialCode
         description
         category
         waterType
@@ -220,6 +229,7 @@ const SPECIES_QUERY = `
       commonName
       localName
       code
+      officialCode
       description
       category
       waterType
@@ -246,6 +256,7 @@ const CREATE_SPECIES_MUTATION = `
       scientificName
       commonName
       code
+      officialCode
       category
       waterType
       status
@@ -262,6 +273,7 @@ const UPDATE_SPECIES_MUTATION = `
       scientificName
       commonName
       code
+      officialCode
       category
       waterType
       status
@@ -288,6 +300,7 @@ const ACTIVE_SPECIES_QUERY = `
       commonName
       localName
       code
+      officialCode
       category
       waterType
       status
@@ -319,7 +332,7 @@ export function useSpeciesList(filter?: {
     async () => {
       const data = await graphqlClient.request<{ speciesList: PaginatedResponse }>(
         SPECIES_LIST_QUERY,
-        { filter }
+        { filter },
       );
       return data.speciesList;
     },
@@ -334,10 +347,7 @@ export function useSpecies(id: string) {
   return useTenantQuery(
     ['species', 'detail', id],
     async () => {
-      const data = await graphqlClient.request<{ species: Species }>(
-        SPECIES_QUERY,
-        { id }
-      );
+      const data = await graphqlClient.request<{ species: Species }>(SPECIES_QUERY, { id });
       return data.species;
     },
     { staleTime: 30000, enabled: !!id },
@@ -353,7 +363,7 @@ export function useActiveSpecies() {
     async () => {
       const data = await graphqlClient.request<{ activeSpecies: Species[] }>(
         ACTIVE_SPECIES_QUERY,
-        {}
+        {},
       );
       return data.activeSpecies;
     },
@@ -378,13 +388,17 @@ export function useCreateSpecies() {
       }
       const data = await graphqlClient.request<{ createSpecies: Species }>(
         CREATE_SPECIES_MUTATION,
-        { input }
+        { input },
       );
       return data.createSpecies;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'active') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'active'),
+      });
     },
   });
 }
@@ -406,14 +420,20 @@ export function useUpdateSpecies() {
       }
       const data = await graphqlClient.request<{ updateSpecies: Species }>(
         UPDATE_SPECIES_MUTATION,
-        { input }
+        { input },
       );
       return data.updateSpecies;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'active') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'detail', variables.id) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'active'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'detail', variables.id),
+      });
     },
   });
 }
@@ -433,15 +453,18 @@ export function useDeleteSpecies() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ deleteSpecies: { success: boolean; message?: string } }>(
-        DELETE_SPECIES_MUTATION,
-        { id }
-      );
+      const data = await graphqlClient.request<{
+        deleteSpecies: { success: boolean; message?: string };
+      }>(DELETE_SPECIES_MUTATION, { id });
       return data.deleteSpecies;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'species', 'active') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'species', 'active'),
+      });
     },
   });
 }

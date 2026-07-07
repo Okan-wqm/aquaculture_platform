@@ -7,7 +7,7 @@
  *   - a resubmit with the same (reportType, klientReferanse) UPDATES the
  *     existing row (fresh payload, status back to PENDING, stale
  *     feilmelding cleared) instead of duplicating;
- *   - markSubmitted / markFailed transition the row and populate
+ *   - markSubmitted / recordFailure transition the row and populate
  *     referanse / feilmelding respectively;
  *   - recordQueued writes through the CALLER's EntityManager so the row
  *     commits atomically with the varsling outbox enqueue.
@@ -16,24 +16,27 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
 import {
+  RegulatoryFailureClass,
   RegulatoryReport,
   RegulatoryReportSubmissionStatus,
   RegulatoryReportType,
 } from '../entities/regulatory-report.entity';
-import type { SubmitSeaLiceReportInput } from '../dto/regulatory-inputs.dto';
+import type { SeaLicePayload } from '../mattilsynet-api.service';
 
 const TENANT_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
 
-const seaLicePayload = {
+// The store persists the Mattilsynet WIRE payload for REST reports (Norwegian
+// field names) — the exact bytes submitted, so the retry sweep can replay them.
+const seaLicePayload: SeaLicePayload = {
   klientReferanse: 'ref-123',
   organisasjonsnummer: '987654321',
   lokalitetsnummer: 12345,
   kontaktperson: { navn: 'Ola', epost: 'ola@farm.no', telefonnummer: '+47' },
-  rapporteringsaar: 2026,
+  rapporteringsår: 2026,
   rapporteringsuke: 26,
-  sjotemperatur: 12.5,
+  sjøtemperatur: 12.5,
   lusetelling: { voksneHunnlus: 0.2, bevegeligeLus: 0.4, fastsittendeLus: 0.1 },
-} as SubmitSeaLiceReportInput;
+};
 
 const baseParams = {
   reportType: RegulatoryReportType.SEA_LICE,
@@ -98,12 +101,14 @@ describe('RegulatoryReportStoreService', () => {
   });
 
   describe('markSubmitted', () => {
-    it('transitions to SUBMITTED with referanse and clears feilmelding', async () => {
+    it('transitions to SUBMITTED, clears feilmelding, and closes the retry pipeline', async () => {
       const row = new RegulatoryReport();
       row.id = 'row-1';
       row.tenantId = TENANT_ID;
-      row.status = RegulatoryReportSubmissionStatus.PENDING;
+      row.status = RegulatoryReportSubmissionStatus.FAILED;
       row.feilmelding = 'stale';
+      row.failureClass = RegulatoryFailureClass.TRANSIENT;
+      row.nextAttemptAt = new Date('2026-07-06T10:00:00Z');
       (mocks.mockManager.findOneOrFail as jest.Mock) = jest.fn().mockResolvedValue(row);
 
       await service.markSubmitted(TENANT_ID, 'row-1', 'MT-REF-9');
@@ -111,27 +116,83 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.status).toBe(RegulatoryReportSubmissionStatus.SUBMITTED);
       expect(row.referanse).toBe('MT-REF-9');
       expect(row.feilmelding).toBeNull();
+      // A success closes the retry pipeline for this row.
+      expect(row.nextAttemptAt).toBeNull();
+      expect(row.failureClass).toBeNull();
       expect(row.submittedAt).toBeInstanceOf(Date);
       expect(mocks.mockManager.save).toHaveBeenCalledWith(RegulatoryReport, row);
     });
   });
 
-  describe('markFailed', () => {
-    it('transitions to FAILED and records the error message', async () => {
+  describe('recordFailure', () => {
+    it('transitions to FAILED, increments attemptCount, and schedules the next replay', async () => {
       const row = new RegulatoryReport();
       row.id = 'row-1';
       row.tenantId = TENANT_ID;
-      row.status = RegulatoryReportSubmissionStatus.SUBMITTED;
+      row.status = RegulatoryReportSubmissionStatus.PENDING;
       row.referanse = 'MT-STALE-9';
+      row.attemptCount = 1;
       (mocks.mockManager.findOneOrFail as jest.Mock) = jest.fn().mockResolvedValue(row);
+      const nextAttemptAt = new Date('2026-07-06T12:00:00Z');
 
-      await service.markFailed(TENANT_ID, 'row-1', 'Mattilsynet 502');
+      await service.recordFailure(
+        TENANT_ID,
+        'row-1',
+        'Mattilsynet 502',
+        RegulatoryFailureClass.TRANSIENT,
+        nextAttemptAt,
+      );
 
       expect(row.status).toBe(RegulatoryReportSubmissionStatus.FAILED);
       expect(row.feilmelding).toBe('Mattilsynet 502');
       // FARM-LOW-133: a failed submission has no valid receipt.
       expect(row.referanse).toBeNull();
+      expect(row.attemptCount).toBe(2);
+      expect(row.failureClass).toBe(RegulatoryFailureClass.TRANSIENT);
+      expect(row.nextAttemptAt).toBe(nextAttemptAt);
       expect(mocks.mockManager.save).toHaveBeenCalledWith(RegulatoryReport, row);
+    });
+  });
+
+  describe('applyFailure', () => {
+    it('writes through the caller EntityManager (atomic with the outbox enqueue) for a PERMANENT failure', async () => {
+      const row = new RegulatoryReport();
+      row.id = 'row-1';
+      row.tenantId = TENANT_ID;
+      row.status = RegulatoryReportSubmissionStatus.PENDING;
+      row.attemptCount = 0;
+      (mocks.mockManager.findOneOrFail as jest.Mock) = jest.fn().mockResolvedValue(row);
+
+      const saved = await service.applyFailure(
+        mocks.mockManager,
+        TENANT_ID,
+        'row-1',
+        'Invalid payload',
+        RegulatoryFailureClass.PERMANENT,
+        null,
+      );
+
+      // No transaction of its own — the caller owns the boundary.
+      expect(mocks.mockDataSource.createQueryRunner).not.toHaveBeenCalled();
+      expect(saved.status).toBe(RegulatoryReportSubmissionStatus.FAILED);
+      expect(saved.failureClass).toBe(RegulatoryFailureClass.PERMANENT);
+      expect(saved.nextAttemptAt).toBeNull();
+      expect(saved.attemptCount).toBe(1);
+    });
+  });
+
+  describe('findById', () => {
+    it('returns the row scoped to the tenant', async () => {
+      const row = new RegulatoryReport();
+      row.id = 'row-1';
+      mocks.mockManager.findOne.mockResolvedValueOnce(row);
+
+      const found = await service.findById(TENANT_ID, 'row-1');
+
+      expect(found).toBe(row);
+      expect(mocks.mockManager.findOne).toHaveBeenCalledWith(RegulatoryReport, {
+        where: { id: 'row-1', tenantId: TENANT_ID },
+      });
     });
   });
 

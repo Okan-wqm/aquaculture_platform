@@ -23,7 +23,7 @@ import {
 } from 'class-validator';
 import { StandardPaginationInput } from '@aquaculture/backend-common/pagination';
 import { Type } from 'class-transformer';
-import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
+import { HarvestRecordStatus, QualityClass, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 /**
@@ -74,12 +74,32 @@ export class HarvestFilterInput {
   @IsEnum(HarvestRecordStatus, { each: true })
   statuses?: HarvestRecordStatus[];
 
-  @Field(() => QualityGrade, { nullable: true, description: 'Filter by quality grade' })
+  @Field(() => QualityClass, { nullable: true, description: 'Filter by Norwegian quality class' })
+  @IsOptional()
+  @IsEnum(QualityClass)
+  qualityClass?: QualityClass;
+
+  @Field(() => [QualityClass], {
+    nullable: true,
+    description: 'Filter by multiple Norwegian quality classes',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(QualityClass, { each: true })
+  qualityClasses?: QualityClass[];
+
+  @Field(() => QualityGrade, {
+    nullable: true,
+    description: 'DEPRECATED — filter by legacy display grade (mapped to quality class)',
+  })
   @IsOptional()
   @IsEnum(QualityGrade)
   qualityGrade?: QualityGrade;
 
-  @Field(() => [QualityGrade], { nullable: true, description: 'Filter by multiple quality grades' })
+  @Field(() => [QualityGrade], {
+    nullable: true,
+    description: 'DEPRECATED — filter by multiple legacy display grades (mapped to quality class)',
+  })
   @IsOptional()
   @IsArray()
   @IsEnum(QualityGrade, { each: true })

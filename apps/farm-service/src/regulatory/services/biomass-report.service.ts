@@ -1,8 +1,8 @@
 /**
  * BiomassReportService
  *
- * Owns the create / update-if-draft / finalise lifecycle of
- * `farm.biomass_reports`. Phase 2.1 of the "kalan kör noktalar" plan.
+ * Owns the create / update-if-draft lifecycle of `farm.biomass_reports`
+ * plus the manual Altinn submission state machine (RPT-001).
  *
  * Behaviour rules:
  *
@@ -10,11 +10,16 @@
  *     natural key. Two calls for the same period do NOT produce two
  *     rows; the second one updates the existing DRAFT in place.
  *
- *   - A SUBMITTED report is immutable. Re-submitting the same period
- *     after finalising throws `BadRequestException` so accidental
- *     overwrites cannot happen. A caller that genuinely needs to
- *     revise a submitted period must re-submit through a separate
- *     correction workflow (out of scope for phase 2.1).
+ *   - `createOrUpdate` ONLY ever writes a DRAFT. The report is never
+ *     finalised through this write path — the biomass report is
+ *     submitted to Fiskeridirektoratet MANUALLY via Altinn, so the
+ *     platform never claims an electronic submission. Finalisation
+ *     flows exclusively through markReady → confirmSubmitted below.
+ *
+ *   - A READY report is a reviewed snapshot; it must be reopened
+ *     (revertToDraft) before its data can change. A terminal
+ *     (CONFIRMED_SUBMITTED, or the legacy SUBMITTED) report is
+ *     immutable and rejects edits with `BadRequestException`.
  *
  *   - `totalBiomassKg` is denormalised at write time — the list UI
  *     can sort/filter on it without scanning JSONB.
@@ -27,10 +32,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { NotFoundException } from '@nestjs/common';
+
 import {
   BiomassReport,
   BiomassReportPayload,
   BiomassReportStatus,
+  TERMINAL_BIOMASS_STATUSES,
 } from '../entities/biomass-report.entity';
 import { CreateBiomassReportInput } from '../dto/create-biomass-report.input';
 
@@ -57,12 +65,20 @@ export class BiomassReportService {
       },
     });
 
-    if (existing && existing.status === BiomassReportStatus.SUBMITTED) {
+    // Only a DRAFT is editable. A READY report is a reviewed snapshot awaiting
+    // the Altinn export — it must be explicitly reopened before its data can
+    // change; a terminal (confirmed/legacy) report is immutable. Finalisation
+    // NEVER happens through this write: the report leaves DRAFT only via the
+    // Altinn state machine below (markReady → confirmSubmitted).
+    if (existing && existing.status !== BiomassReportStatus.DRAFT) {
+      const period = `${input.reportYear}-${input.reportMonth.toString().padStart(2, '0')}`;
       throw new BadRequestException(
-        `Biomass report for site ${input.siteId} / ${input.reportYear}-` +
-          `${input.reportMonth.toString().padStart(2, '0')} is already ` +
-          `SUBMITTED and cannot be edited. Start a correction flow if the ` +
-          `period needs revision.`,
+        TERMINAL_BIOMASS_STATUSES.has(existing.status)
+          ? `Biomass report for site ${input.siteId} / ${period} is already ` +
+              `${existing.status} and cannot be edited. Start a correction flow if the ` +
+              `period needs revision.`
+          : `Biomass report for site ${input.siteId} / ${period} is READY for the ` +
+              `Altinn export; reopen it to DRAFT before editing.`,
       );
     }
 
@@ -73,11 +89,6 @@ export class BiomassReportService {
       existing.reportData = payload;
       existing.totalBiomassKg = totalBiomassKg.toFixed(2);
       existing.generatedBy = userId;
-      if (input.submit) {
-        existing.status = BiomassReportStatus.SUBMITTED;
-        existing.submittedAt = new Date();
-        existing.submittedBy = userId;
-      }
       const saved = await this.repo.save(existing);
       this.logger.log(
         `Updated biomass report ${saved.id} for site ${input.siteId} ` +
@@ -91,14 +102,10 @@ export class BiomassReportService {
       siteId: input.siteId,
       reportMonth: input.reportMonth,
       reportYear: input.reportYear,
-      status: input.submit
-        ? BiomassReportStatus.SUBMITTED
-        : BiomassReportStatus.DRAFT,
+      status: BiomassReportStatus.DRAFT,
       reportData: payload,
       totalBiomassKg: totalBiomassKg.toFixed(2),
       generatedBy: userId,
-      submittedAt: input.submit ? new Date() : undefined,
-      submittedBy: input.submit ? userId : undefined,
     });
     const saved = await this.repo.save(fresh);
     this.logger.log(
@@ -106,6 +113,83 @@ export class BiomassReportService {
         `(${input.reportYear}-${input.reportMonth}) — status=${saved.status}`,
     );
     return saved;
+  }
+
+  // ==========================================================================
+  // Altinn manual-submission state machine (RPT-001)
+  //
+  //   DRAFT ──markReady──▶ READY ──confirmSubmitted──▶ CONFIRMED_SUBMITTED (terminal)
+  //     ▲                    │
+  //     └──revertToDraft─────┘
+  //
+  // The biomass report is submitted to Fiskeridirektoratet MANUALLY via Altinn,
+  // so the platform never claims an electronic submission — CONFIRMED_SUBMITTED
+  // is reached ONLY when the operator confirms the Altinn receipt.
+  // ==========================================================================
+
+  /** Load a report by id within the tenant, or throw NotFound. */
+  async getById(tenantId: string, id: string): Promise<BiomassReport> {
+    const report = await this.repo.findOne({ where: { id, tenantId } });
+    if (!report) {
+      throw new NotFoundException(`Biomass report ${id} not found`);
+    }
+    return report;
+  }
+
+  /** DRAFT → READY: the report is reviewed and ready for the Altinn export. */
+  async markReady(tenantId: string, id: string, userId: string): Promise<BiomassReport> {
+    const report = await this.getById(tenantId, id);
+    if (report.status !== BiomassReportStatus.DRAFT) {
+      throw new BadRequestException(
+        `Biomass report ${id} is ${report.status}; only a DRAFT can be marked READY`,
+      );
+    }
+    report.status = BiomassReportStatus.READY;
+    report.readyAt = new Date();
+    report.generatedBy = userId;
+    return this.repo.save(report);
+  }
+
+  /** READY → DRAFT: reopen for editing / re-assembly before submission. */
+  async revertToDraft(tenantId: string, id: string): Promise<BiomassReport> {
+    const report = await this.getById(tenantId, id);
+    if (report.status !== BiomassReportStatus.READY) {
+      throw new BadRequestException(
+        `Biomass report ${id} is ${report.status}; only a READY report can revert to DRAFT`,
+      );
+    }
+    report.status = BiomassReportStatus.DRAFT;
+    report.readyAt = undefined;
+    return this.repo.save(report);
+  }
+
+  /**
+   * READY → CONFIRMED_SUBMITTED (terminal): the operator submitted the FD-0001
+   * form via Altinn and confirms it with the receipt reference. This is the ONLY
+   * path to a terminal biomass state under the honest channel model.
+   */
+  async confirmSubmitted(
+    tenantId: string,
+    id: string,
+    altinnReference: string,
+    userId: string,
+  ): Promise<BiomassReport> {
+    const report = await this.getById(tenantId, id);
+    if (report.status !== BiomassReportStatus.READY) {
+      throw new BadRequestException(
+        `Biomass report ${id} is ${report.status}; confirm the Altinn submission only from READY`,
+      );
+    }
+    const reference = altinnReference.trim();
+    if (!reference) {
+      throw new BadRequestException('An Altinn reference is required to confirm the submission');
+    }
+    report.status = BiomassReportStatus.CONFIRMED_SUBMITTED;
+    report.altinnReference = reference;
+    report.confirmedBy = userId;
+    report.submittedBy = userId;
+    report.submittedAt = new Date();
+    return this.repo.save(report);
   }
 
   /**

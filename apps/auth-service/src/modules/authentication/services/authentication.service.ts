@@ -212,6 +212,50 @@ export class AuthenticationService {
   // path (UserLifecycleService).
 
   /**
+   * Confirm a user's CURRENT password without ANY login side effects.
+   *
+   * WHY separate from `login()`: this backs the credential-confirmation NATS
+   * responder (request.auth.verifyPassword) that gates messaging's
+   * irreversible GDPR `anonymizeMyData` erasure. It is a RE-confirmation, not
+   * an authentication:
+   *   - It does NOT touch `failedLoginAttempts` / `lockedUntil` — locking an
+   *     account because its owner mistyped a GDPR confirmation would be
+   *     hostile and would turn a data-subject right into a self-DoS.
+   *   - It does NOT check `isActive` / `isLocked` / tenant status — a user
+   *     with a valid session reaching the erasure flow may exercise their
+   *     Article-17 right regardless of those operational states.
+   *   - It runs the SAME peppered-bcrypt pipeline against a valid dummy hash
+   *     for a missing/invitation-pending user (getDummyPasswordHash) and
+   *     enforces `ensureMinDuration`, so a caller cannot distinguish
+   *     "no such user" from "wrong password" by timing (no enumeration).
+   *   - On a legacy-hash match it lazily re-hashes to the peppered format,
+   *     identical to the login path, so a confirmed password migrates.
+   *
+   * Returns only a boolean; the responder never surfaces anything richer.
+   */
+  async confirmUserPassword(userId: string, password: string): Promise<boolean> {
+    const startTime = Date.now();
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    if (!user || user.isPendingInvitation()) {
+      // SEC (enumeration): identical instruction path to a real user — the
+      // dummy hash goes through the same applyPepper → bcrypt.compare — and
+      // it can never match because it is a hash of random material.
+      await verifyPassword(password, await this.getDummyPasswordHash());
+      await this.ensureMinDuration(startTime);
+      return false;
+    }
+
+    const { matched, shouldMigrate } = await user.verifyPasswordAndSignalMigration(password);
+    if (matched && shouldMigrate) {
+      user.password = await hashPassword(password);
+      await this.userRepository.save(user);
+    }
+    await this.ensureMinDuration(startTime);
+    return matched;
+  }
+
+  /**
    * Login user - supports all roles including SUPER_ADMIN
    *
    * SECURITY:

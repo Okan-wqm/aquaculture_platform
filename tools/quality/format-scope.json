@@ -4517,6 +4517,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-credential-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/auth-credential-nats.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/auth-public-nats.handler.ts",
       "prettier_managed": true
     },
@@ -34333,6 +34345,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/auth-credential-queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/auth-events.ts",
       "prettier_managed": true
     },
@@ -34502,6 +34520,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/tenant-events.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/auth-credential-queries.schema.ts",
       "prettier_managed": true
     },
     {
@@ -50586,10 +50610,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8285,
+  "file_count": 8289,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8110,
-  "managed_file_list_sha256": "e82f3b7749461f5eaeace97d53f9a3a7601acc8aeca80b487a317a4fc53d0a37",
+  "managed_count": 8114,
+  "managed_file_list_sha256": "a840bb1bce18bf7d17e44947f082a208df5c268e1c6dd36d1c73022f1c69f5ba",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

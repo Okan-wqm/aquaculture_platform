@@ -30145,6 +30145,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -32714,6 +32726,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/rls/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger-rls.helper.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger-rls.helper.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger.ssot.ts",
       "prettier_managed": true
     },
     {
@@ -38100,6 +38130,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/infrastructure-ledger-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/init-scripts-no-schema-ddl.spec.ts",
       "prettier_managed": true
     },
@@ -39445,6 +39481,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -50580,10 +50628,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8284,
+  "file_count": 8292,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8109,
-  "managed_file_list_sha256": "21faf096606a76376593f746f020dcbe2e3701381c3adbf6d02effe75d28f215",
+  "managed_count": 8117,
+  "managed_file_list_sha256": "29432ccca367134d3a76299e959d704cf4435610f935d463b6cd3324743c0089",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

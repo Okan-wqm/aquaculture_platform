@@ -239,7 +239,7 @@ export class RegulatoryReport {
   attemptCount: number;
 
   /** When the retry sweep may next replay a TRANSIENT failure (null = never). */
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column('timestamptz', { nullable: true })
   nextAttemptAt?: Date | null;
 

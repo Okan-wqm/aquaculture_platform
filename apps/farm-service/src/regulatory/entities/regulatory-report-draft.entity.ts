@@ -123,7 +123,7 @@ export class RegulatoryReportDraft {
    * sweep enqueues a RegulatoryReportDeadlineApproachingEvent only when the
    * computed bucket differs, so a reminder fires once per bucket transition.
    */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 16, nullable: true })
   deadlineNotifiedBucket?: string | null;
 

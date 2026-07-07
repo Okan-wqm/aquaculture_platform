@@ -12,18 +12,18 @@ export class CreateConsumableInput {
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field(() => ConsumableCategory)
   @IsEnum(ConsumableCategory)
-  category: ConsumableCategory;
+  category!: ConsumableCategory;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -35,7 +35,7 @@ export class CreateConsumableInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(20)
-  unit: string;
+  unit!: string;
 
   @Field({ nullable: true })
   @IsOptional()

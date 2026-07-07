@@ -2,7 +2,7 @@ import { BaseEntity, BaseEntityWithCode } from '../entities/base.entity';
 
 // Test için concrete class
 class TestEntity extends BaseEntity {
-  name: string;
+  name!: string;
 }
 
 class TestEntityWithCode extends BaseEntityWithCode {}

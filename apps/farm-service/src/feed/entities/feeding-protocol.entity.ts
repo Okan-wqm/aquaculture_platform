@@ -55,14 +55,14 @@ export interface GrowthStageProtocol {
 @Index(['tenantId', 'feedId'])
 export class FeedingProtocol {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -75,14 +75,14 @@ export class FeedingProtocol {
   feed?: Feed;
 
   @Column({ length: 100 })
-  species: string;
+  species!: string;
 
   @Column({
     type: 'enum',
     enum: FeedType,
     default: FeedType.GROWER,
   })
-  stage: FeedType;
+  stage!: FeedType;
 
   /**
    * Sıcaklık aralıkları ve besleme çarpanları
@@ -140,16 +140,16 @@ export class FeedingProtocol {
   notes?: string;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ default: false })
-  isDefault: boolean; // Tür için varsayılan protokol
+  isDefault!: boolean; // Tür için varsayılan protokol
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column('uuid', { nullable: true })
   createdBy?: string;
@@ -158,5 +158,5 @@ export class FeedingProtocol {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 }

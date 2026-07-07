@@ -72,12 +72,12 @@ interface VerifiedBatchContext {
 // ============================================================================
 
 class CreateBatchDto {
-  batchNumber: string;
-  speciesId: string;
-  inputType: string;
-  initialQuantity: number;
-  initialAvgWeightG: number;
-  stockedAt: string;
+  batchNumber!: string;
+  speciesId!: string;
+  inputType!: string;
+  initialQuantity!: number;
+  initialAvgWeightG!: number;
+  stockedAt!: string;
   supplierId?: string;
   purchaseCost?: number;
   currency?: string;
@@ -93,10 +93,10 @@ class UpdateBatchDto {
 }
 
 class AllocateBatchDto {
-  tankId: string;
-  quantity: number;
-  avgWeightG: number;
-  allocationType: AllocationType;
+  tankId!: string;
+  quantity!: number;
+  avgWeightG!: number;
+  allocationType!: AllocationType;
   notes?: string;
 }
 
@@ -106,12 +106,12 @@ class AllocateBatchDto {
 // mortality/cull/transfer. clientCommandId + payloadHash are required here so
 // the REST path furnishes the key in the SAME change as the handler reject.
 class RecordMortalityDto {
-  clientCommandId: string;
-  payloadHash: string;
-  tankId: string;
-  batchId: string;
-  operationDate: string;
-  quantity: number;
+  clientCommandId!: string;
+  payloadHash!: string;
+  tankId!: string;
+  batchId!: string;
+  operationDate!: string;
+  quantity!: number;
   avgWeightG?: number;
   reason?: string;
   detail?: string;
@@ -119,12 +119,12 @@ class RecordMortalityDto {
 }
 
 class RecordCullDto {
-  clientCommandId: string;
-  payloadHash: string;
-  tankId: string;
-  batchId: string;
-  operationDate: string;
-  quantity: number;
+  clientCommandId!: string;
+  payloadHash!: string;
+  tankId!: string;
+  batchId!: string;
+  operationDate!: string;
+  quantity!: number;
   avgWeightG?: number;
   reason?: string;
   detail?: string;
@@ -132,23 +132,23 @@ class RecordCullDto {
 }
 
 class RecordTransferDto {
-  clientCommandId: string;
-  payloadHash: string;
-  tankId: string;
-  batchId: string;
-  destinationTankId: string;
-  operationDate: string;
-  quantity: number;
+  clientCommandId!: string;
+  payloadHash!: string;
+  tankId!: string;
+  batchId!: string;
+  destinationTankId!: string;
+  operationDate!: string;
+  quantity!: number;
   avgWeightG?: number;
   reason?: string;
   notes?: string;
 }
 
 class RecordHarvestDto {
-  tankId: string;
-  batchId: string;
-  operationDate: string;
-  quantity: number;
+  tankId!: string;
+  batchId!: string;
+  operationDate!: string;
+  quantity!: number;
   avgWeightG?: number;
   totalWeightKg?: number;
   pricePerKg?: number;

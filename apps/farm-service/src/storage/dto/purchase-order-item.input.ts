@@ -5,11 +5,11 @@ import { IsUUID, IsString, IsNumber, IsOptional, Min } from 'class-validator';
 export class PurchaseOrderItemInput {
   @Field(() => ID)
   @IsUUID()
-  itemId: string;
+  itemId!: string;
 
   @Field()
   @IsString()
-  itemName: string;
+  itemName!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -19,11 +19,11 @@ export class PurchaseOrderItemInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0.01)
-  quantity: number;
+  quantity!: number;
 
   @Field()
   @IsString()
-  unit: string;
+  unit!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()

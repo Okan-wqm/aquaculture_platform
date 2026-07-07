@@ -37,7 +37,7 @@ export class TaskLifecycleInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 }
 
 /**
@@ -52,17 +52,17 @@ export class SetChecklistItemInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  taskId: string;
+  taskId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  itemId: string;
+  itemId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsBoolean()
-  isCompleted: boolean;
+  isCompleted!: boolean;
 }
 
 /**
@@ -73,7 +73,7 @@ export class UpdateTaskInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

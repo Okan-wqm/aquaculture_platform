@@ -34,13 +34,13 @@ export class RecordDailyFeedingInput extends MobileCommandEnvelopeInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  executionId: string;
+  executionId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  actualKg: number;
+  actualKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -67,13 +67,13 @@ export class SkipDailyFeedingInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  executionId: string;
+  executionId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(500)
-  skipReason: string;
+  skipReason!: string;
 }
 
 // ============================================================================
@@ -88,13 +88,13 @@ export class FeedingRecordItemInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  executionId: string;
+  executionId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  actualKg: number;
+  actualKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -114,7 +114,7 @@ export class RecordBulkDailyFeedingInput {
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => FeedingRecordItemInput)
-  records: FeedingRecordItemInput[];
+  records!: FeedingRecordItemInput[];
 }
 
 // ============================================================================
@@ -130,7 +130,7 @@ export class MortalityInfoInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  count: number;
+  count!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -153,13 +153,13 @@ export class RecordDailyFeedingWithMortalityInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  executionId: string;
+  executionId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  actualKg: number;
+  actualKg!: number;
 
   @Field(() => MortalityInfoInput, { nullable: true })
   @IsOptional()
@@ -186,7 +186,7 @@ export class UpdateDailyFeedingRecordInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  executionId: string;
+  executionId!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -219,20 +219,20 @@ export class RecordDailyFeedingWithFCRInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  executionId: string;
+  executionId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  actualKg: number;
+  actualKg!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.5)
   @Max(5)
-  overrideFCR: number;
+  overrideFCR!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -259,12 +259,12 @@ export class ForceFeedTransitionInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedingProgramTankId: string;
+  feedingProgramTankId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  newFeedId: string;
+  newFeedId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -286,9 +286,9 @@ export class GenerateDailyPlanInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  programId: string;
+  programId!: string;
 
   @Field()
   @IsNotEmpty()
-  date: Date;
+  date!: Date;
 }

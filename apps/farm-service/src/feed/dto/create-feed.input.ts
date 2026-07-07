@@ -107,7 +107,7 @@ export class NutritionalContentInput {
 export class FeedSpeciesMappingInput {
   @Field(() => ID)
   @IsUUID()
-  speciesId: string;
+  speciesId!: string;
 
   @Field(() => FeedGrowthStage, { nullable: true })
   @IsOptional()
@@ -147,17 +147,17 @@ export class FeedDocumentInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  type: 'datasheet' | 'certificate' | 'label' | 'analysis' | 'other';
+  type!: 'datasheet' | 'certificate' | 'label' | 'analysis' | 'other';
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  url: string;
+  url!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -168,15 +168,15 @@ export class FeedDocumentInput {
 export class FeedingCurvePointInput {
   @Field(() => Float, { description: 'Fish weight in grams' })
   @IsNumber()
-  fishWeightG: number;
+  fishWeightG!: number;
 
   @Field(() => Float, { description: 'Feeding rate as percentage of body weight' })
   @IsNumber()
-  feedingRatePercent: number;
+  feedingRatePercent!: number;
 
   @Field(() => Float, { description: 'Feed Conversion Ratio' })
   @IsNumber()
-  fcr: number;
+  fcr!: number;
 }
 
 @InputType()
@@ -201,16 +201,16 @@ export class FeedingMatrix2DInput {
   @Field(() => [Float], { description: 'Temperature axis values (°C)' })
   @IsArray()
   @IsNumber({}, { each: true })
-  temperatures: number[];
+  temperatures!: number[];
 
   @Field(() => [Float], { description: 'Weight axis values (grams)' })
   @IsArray()
   @IsNumber({}, { each: true })
-  weights: number[];
+  weights!: number[];
 
   @Field(() => [[Float]], { description: '2D array: rates[tempIndex][weightIndex] = feeding rate %' })
   @IsArray()
-  rates: number[][];
+  rates!: number[][];
 
   @Field(() => [[Float]], { nullable: true, description: 'Optional: FCR values at each point' })
   @IsOptional()
@@ -241,18 +241,18 @@ export class CreateFeedInput {
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field(() => FeedType)
   @IsEnum(FeedType)
-  type: FeedType;
+  type!: FeedType;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -279,7 +279,7 @@ export class CreateFeedInput {
 
   @Field(() => ID, { description: 'Site this feed is available in' })
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field({ nullable: true, description: 'Target species (legacy text field)', deprecationReason: 'Use speciesMappings (feed_type_species) instead.' })
   @IsOptional()

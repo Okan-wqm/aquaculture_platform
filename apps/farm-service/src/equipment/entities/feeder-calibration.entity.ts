@@ -17,32 +17,32 @@ import { DecimalTransformer } from '@aquaculture/backend-common/database';
 @Index(['tenantId', 'equipmentId', 'feedSizeMm'], { unique: true })
 export class FeederCalibration {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', name: 'equipment_id' })
-  equipmentId: string;
+  equipmentId!: string;
 
   @Column({ type: 'decimal', precision: 5, scale: 2, name: 'feed_size_mm', transformer: new DecimalTransformer() })
-  feedSizeMm: number;
+  feedSizeMm!: number;
 
   @Column({ type: 'varchar', length: 100, nullable: true, name: 'feed_size_label' })
-  feedSizeLabel: string;
+  feedSizeLabel!: string;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, name: 'grams_per_dispensing', transformer: new DecimalTransformer() })
-  gramsPerDispensing: number;
+  gramsPerDispensing!: number;
 
   @Column({ type: 'decimal', precision: 8, scale: 2, name: 'silo_capacity_kg', transformer: new DecimalTransformer() })
-  siloCapacityKg: number;
+  siloCapacityKg!: number;
 
   @Column({ type: 'text', nullable: true, name: 'notes' })
-  notes: string;
+  notes!: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

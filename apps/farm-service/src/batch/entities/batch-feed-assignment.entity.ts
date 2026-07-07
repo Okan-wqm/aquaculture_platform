@@ -45,17 +45,17 @@ export interface FeedAssignmentEntry {
 export class BatchFeedAssignment {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { nullable: true })
   @JoinColumn({ name: 'batchId' })
@@ -72,11 +72,11 @@ export class BatchFeedAssignment {
    */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', default: [] })
-  feedAssignments: FeedAssignmentEntry[];
+  feedAssignments!: FeedAssignmentEntry[];
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -89,7 +89,7 @@ export class BatchFeedAssignment {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -104,11 +104,11 @@ export class BatchFeedAssignment {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column('uuid', { nullable: true })
   createdBy?: string;
@@ -118,7 +118,7 @@ export class BatchFeedAssignment {
 
   @Field(() => Int)
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

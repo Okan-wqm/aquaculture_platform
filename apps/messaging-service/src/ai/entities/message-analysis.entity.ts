@@ -65,7 +65,7 @@ export interface TopicResult {
 export class MessageAnalysis {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from parent message in migration
@@ -73,36 +73,36 @@ export class MessageAnalysis {
    * tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @Field()
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Field(() => AnalysisType)
   @Column({ type: 'varchar', length: 20 })
-  analysisType: AnalysisType;
+  analysisType!: AnalysisType;
 
   @Field(() => String, { description: 'JSONB analysis result' })
   @Column({ type: 'jsonb' })
-  result: SentimentResult | EntityResult | TopicResult;
+  result!: SentimentResult | EntityResult | TopicResult;
 
   @Field()
   @Column({ type: 'varchar', length: 64 })
-  modelVersion: string;
+  modelVersion!: string;
 
   @Field()
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
-  analyzedAt: Date;
+  analyzedAt!: Date;
 
   @ManyToOne(() => Message, { onDelete: 'CASCADE' })
   @JoinColumn([
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  message: Message;
+  message!: Message;
 }

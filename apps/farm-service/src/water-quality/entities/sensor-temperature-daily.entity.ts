@@ -18,33 +18,33 @@ import { DecimalTransformer } from '@aquaculture/backend-common/database';
 @Entity('sensor_temperature_daily')
 export class SensorTemperatureDaily {
   @PrimaryColumn('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   /** sensor-service `sensors.id`. */
   @PrimaryColumn('uuid')
-  sensorId: string;
+  sensorId!: string;
 
   /** UTC calendar day of the accumulated readings. */
   @PrimaryColumn({ type: 'date' })
-  day: string;
+  day!: string;
 
   /** Sum of the day's readings (°C) — period mean = sumC / sampleCount. */
   @Column({ type: 'decimal', precision: 14, scale: 2, transformer: new DecimalTransformer() })
-  sumC: number;
+  sumC!: number;
 
   @Column({ type: 'decimal', precision: 6, scale: 2, transformer: new DecimalTransformer() })
-  minC: number;
+  minC!: number;
 
   @Column({ type: 'decimal', precision: 6, scale: 2, transformer: new DecimalTransformer() })
-  maxC: number;
+  maxC!: number;
 
   @Column({ type: 'int' })
-  sampleCount: number;
+  sampleCount!: number;
 
   /** Idempotency watermark — the newest reading folded into this day's row. */
   @Column({ type: 'timestamptz' })
-  lastMeasuredAt: Date;
+  lastMeasuredAt!: Date;
 
   @Column({ type: 'timestamptz', default: () => 'now()' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

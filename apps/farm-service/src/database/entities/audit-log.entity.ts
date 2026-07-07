@@ -67,24 +67,24 @@ export interface AuditMetadata {
 // retention-sweep regressions.
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index('IDX_farm_audit_tenant')
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ length: 100 })
   @Index('IDX_farm_audit_entity_type')
-  entityType: string; // 'Site', 'Department', 'Batch', etc.
+  entityType!: string; // 'Site', 'Department', 'Batch', etc.
 
   @Column('uuid')
-  entityId: string;
+  entityId!: string;
 
   @Column({
     type: 'enum',
     enum: AuditAction,
   })
-  action: AuditAction;
+  action!: AuditAction;
 
   @Column('uuid', { nullable: true })
   userId?: string;
@@ -100,7 +100,7 @@ export class AuditLog {
 
   @CreateDateColumn({ type: 'timestamptz' })
   @Index('IDX_farm_audit_created_col')
-  createdAt: Date;
+  createdAt!: Date;
 
   /**
    * Entity version at the time of change

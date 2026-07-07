@@ -139,12 +139,12 @@ export interface MortalityDocument {
 export class MortalityRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -153,11 +153,11 @@ export class MortalityRecord {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: Batch;
+  batch!: Batch;
 
   // -------------------------------------------------------------------------
   // LOKASYON (Opsiyonel - hangi tank/pond'da oldu)
@@ -181,11 +181,11 @@ export class MortalityRecord {
 
   @Field()
   @Column({ type: 'date' })
-  recordDate: Date;                      // Ölüm tarihi
+  recordDate!: Date;                      // Ölüm tarihi
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  count: number;                         // Ölüm adedi
+  count!: number;                         // Ölüm adedi
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -205,7 +205,7 @@ export class MortalityRecord {
     enum: MortalityCause,
     default: MortalityCause.UNKNOWN,
   })
-  cause: MortalityCause;
+  cause!: MortalityCause;
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
@@ -217,7 +217,7 @@ export class MortalityRecord {
     enum: MortalitySeverity,
     default: MortalitySeverity.NORMAL,
   })
-  severity: MortalitySeverity;
+  severity!: MortalitySeverity;
 
   // -------------------------------------------------------------------------
   // SU KALİTESİ SNAPSHOT
@@ -277,7 +277,7 @@ export class MortalityRecord {
 
   @Field()
   @Column('uuid')
-  recordedBy: string;                    // Kaydeden kullanıcı
+  recordedBy!: string;                    // Kaydeden kullanıcı
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -297,11 +297,11 @@ export class MortalityRecord {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

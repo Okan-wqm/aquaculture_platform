@@ -11157,6 +11157,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/harvest/dto/create-harvest-record.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/harvest/dto/create-harvest-record.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/harvest/dto/harvest-filter.input.ts",
       "prettier_managed": true
     },
@@ -11188,6 +11200,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/harvest/entities/harvest-plan.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/harvest/entities/harvest-record.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/harvest/entities/harvest-record.entity.ts",
       "prettier_managed": true
     },
     {
@@ -12183,6 +12207,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/dto/create-biomass-report.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/dto/create-biomass-report.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/dto/regulatory-inputs.dto.ts",
       "prettier_managed": true
     },
@@ -12238,6 +12274,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/entities/regulatory-report.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/entities/regulatory-settings.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/entities/regulatory-settings.entity.ts",
       "prettier_managed": true
     },
     {
@@ -12910,6 +12958,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/species/entities/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/species/entities/species.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/species/entities/species.entity.ts",
       "prettier_managed": true
     },
     {
@@ -15255,7 +15315,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/worker/dto/create-worker.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/worker/dto/create-worker.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/worker/dto/update-worker.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/worker/dto/worker.response.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/worker/dto/worker.response.ts",
       "prettier_managed": true
     },
     {
@@ -28627,6 +28711,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
       "prettier_managed": true
     },
@@ -30038,6 +30134,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/2026-07-05-sensor-vfd-device-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-07-farm-messaging-strict-property-init.md",
       "prettier_managed": true
     },
     {
@@ -39378,6 +39480,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/strict-property-initialization-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/strip-internal-headers-mounted.spec.ts",
       "prettier_managed": true
     },
@@ -40303,6 +40411,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -51564,10 +51684,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8448,
+  "file_count": 8468,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8273,
-  "managed_file_list_sha256": "9af6b585b6c2ec937f163ec59fea6339f348011aadc1d504281ec3303f4bff92",
+  "managed_count": 8293,
+  "managed_file_list_sha256": "64c408e83302bb07f02c25dea1ae500b08dd4b6cdf119b1cdf68b514993d8c7a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

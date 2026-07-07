@@ -23,7 +23,7 @@ export class MessageFilterInput {
   @IsInt()
   @Min(1)
   @Max(100)
-  limit: number;
+  limit!: number;
 
   @Field(() => Date, {
     nullable: true,

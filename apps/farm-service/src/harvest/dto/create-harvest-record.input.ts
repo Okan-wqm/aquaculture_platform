@@ -29,12 +29,12 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Batch ID' })
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { description: 'Tank ID' })
   @IsNotEmpty()
   @IsUUID()
-  tankId: string;
+  tankId!: string;
 
   @Field(() => ID, { nullable: true, description: 'Pond ID (alternative to tank)' })
   @IsOptional()
@@ -46,7 +46,7 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @IsNumber()
   @IsPositive()
   @Min(1)
-  quantityHarvested: number;
+  quantityHarvested!: number;
 
   @Field(() => Float, { description: 'Average weight in grams' })
   @IsNotEmpty()
@@ -54,14 +54,14 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @IsPositive()
   @Min(0.01)
   @Max(100000)
-  averageWeight: number;
+  averageWeight!: number;
 
   @Field(() => Float, { description: 'Total biomass in kg' })
   @IsNotEmpty()
   @IsNumber()
   @IsPositive()
   @Min(0.01)
-  totalBiomass: number;
+  totalBiomass!: number;
 
   @Field(() => QualityClass, {
     nullable: true,
@@ -82,7 +82,7 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @Field({ description: 'Harvest date (ISO 8601 format)' })
   @IsNotEmpty()
   @IsDateString()
-  harvestDate: string;
+  harvestDate!: string;
 
   @Field(() => HarvestMethod, { nullable: true, description: 'Harvest method used' })
   @IsOptional()

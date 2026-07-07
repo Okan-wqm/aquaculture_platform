@@ -53,57 +53,57 @@ import { LegalHoldService } from '../services/legal-hold.service';
 @ObjectType()
 export class AuditLogPageType {
   @Field(() => [ComplianceAuditLog])
-  items: ComplianceAuditLog[];
+  items!: ComplianceAuditLog[];
 
   @Field()
-  hasMore: boolean;
+  hasMore!: boolean;
 
   @Field(() => String, { nullable: true })
-  cursor: string | null;
+  cursor!: string | null;
 
   @Field(() => Int)
-  totalCount: number;
+  totalCount!: number;
 }
 
 /** Compliance statistics. */
 @ObjectType()
 export class ComplianceStats {
   @Field(() => Int)
-  messagesUnderHold: number;
+  messagesUnderHold!: number;
 
   @Field(() => Int)
-  activeHoldsCount: number;
+  activeHoldsCount!: number;
 
   @Field(() => Int)
-  retentionPoliciesCount: number;
+  retentionPoliciesCount!: number;
 
   @Field(() => Int)
-  auditLogEntriesCount: number;
+  auditLogEntriesCount!: number;
 }
 
 /** Export job result. */
 @ObjectType()
 export class ExportJobType {
   @Field()
-  jobId: string;
+  jobId!: string;
 
   @Field()
-  status: string;
+  status!: string;
 
   @Field()
-  format: string;
+  format!: string;
 
   @Field(() => Int)
-  recordCount: number;
+  recordCount!: number;
 
   @Field()
-  data: string;
+  data!: string;
 
   @Field()
-  isUnderLegalHold: boolean;
+  isUnderLegalHold!: boolean;
 
   @Field()
-  exportedAt: string;
+  exportedAt!: string;
 }
 
 /** Supported export format enum for GraphQL. */
@@ -123,56 +123,56 @@ export class SetRetentionPolicyInput {
   @Field(() => String, { nullable: true, description: 'Channel ID for channel-level override. Null = tenant default.' })
   @IsOptional()
   @IsUUID('4')
-  channelId: string | null;
+  channelId!: string | null;
 
   @Field(() => Int, { description: 'Retention period in days: 90, 365, 1095, or -1 (indefinite).' })
   @IsInt()
   @Min(-1)
-  retentionDays: number;
+  retentionDays!: number;
 }
 
 @InputType()
 export class ToggleLegalHoldInput {
   @Field({ description: 'True to activate, false to release.' })
   @IsBoolean()
-  activate: boolean;
+  activate!: boolean;
 
   @Field(() => String, { nullable: true, description: 'Required when releasing. The hold ID.' })
   @IsOptional()
   @IsUUID('4')
-  holdId: string | null;
+  holdId!: string | null;
 
   @Field(() => String, { nullable: true, description: 'Required when activating. Null = tenant-wide.' })
   @IsOptional()
   @IsUUID('4')
-  channelId: string | null;
+  channelId!: string | null;
 
   @Field(() => String, { nullable: true, description: 'Required when activating. Reason for the hold.' })
   @IsOptional()
   @IsString()
   @MaxLength(1000)
-  reason: string | null;
+  reason!: string | null;
 
   @Field(() => String, { nullable: true, description: 'Required when activating. UUID of the legal matter (GDPR proportionality).' })
   @IsOptional()
   @IsUUID('4')
-  legalMatterId: string | null;
+  legalMatterId!: string | null;
 
   @Field(() => String, { nullable: true, description: 'Optional description of the legal matter.' })
   @IsOptional()
   @IsString()
   @MaxLength(1000)
-  legalMatterDescription: string | null;
+  legalMatterDescription!: string | null;
 
   @Field(() => String, { nullable: true, description: 'Optional UUID of the user/entity that requested the hold.' })
   @IsOptional()
   @IsUUID('4')
-  requestedBy: string | null;
+  requestedBy!: string | null;
 
   @Field(() => Date, { nullable: true, description: 'Optional expiration date for the hold (GDPR proportionality).' })
   @IsOptional()
   @IsDate()
-  expiresAt: Date | null;
+  expiresAt!: Date | null;
 
   /**
    * Required when releasing — dual-approver protocol per LEGAL-MEDIUM-002.
@@ -183,7 +183,7 @@ export class ToggleLegalHoldInput {
   @Field(() => String, { nullable: true, description: 'Required when releasing. ID of the second SUPER_ADMIN countersigning (dual-approver protocol).' })
   @IsOptional()
   @IsUUID('4')
-  approverId: string | null;
+  approverId!: string | null;
 
   /**
    * Required when releasing — ≥ 50 chars per spec. Recorded on the
@@ -193,7 +193,7 @@ export class ToggleLegalHoldInput {
   @IsOptional()
   @IsString()
   @MaxLength(1000)
-  releaseReason: string | null;
+  releaseReason!: string | null;
 }
 
 @InputType()
@@ -201,27 +201,27 @@ export class AuditLogFilterInput {
   @Field(() => String, { nullable: true })
   @IsOptional()
   @IsUUID('4')
-  userId: string | null;
+  userId!: string | null;
 
   @Field(() => ComplianceAction, { nullable: true })
   @IsOptional()
-  action: ComplianceAction | null;
+  action!: ComplianceAction | null;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  resourceType: string | null;
+  resourceType!: string | null;
 
   @Field(() => Date, { nullable: true })
   @IsOptional()
   @IsDate()
-  startDate: Date | null;
+  startDate!: Date | null;
 
   @Field(() => Date, { nullable: true })
   @IsOptional()
   @IsDate()
-  endDate: Date | null;
+  endDate!: Date | null;
 }
 
 // ============================================================================

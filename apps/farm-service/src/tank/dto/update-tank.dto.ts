@@ -11,7 +11,7 @@ export class UpdateTankInput extends PartialType(CreateTankInput) {
   @Field(() => ID)
   @IsUUID()
   @IsNotEmpty()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

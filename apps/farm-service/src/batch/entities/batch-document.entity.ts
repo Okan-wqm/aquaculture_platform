@@ -63,21 +63,21 @@ registerEnumType(BatchDocumentType, {
 export class BatchDocument {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: Batch;
+  batch!: Batch;
 
   // -------------------------------------------------------------------------
   // DOCUMENT INFO
@@ -88,11 +88,11 @@ export class BatchDocument {
     type: 'enum',
     enum: BatchDocumentType,
   })
-  documentType: BatchDocumentType;
+  documentType!: BatchDocumentType;
 
   @Field()
   @Column({ length: 255 })
-  documentName: string;
+  documentName!: string;
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
@@ -104,23 +104,23 @@ export class BatchDocument {
 
   @Field()
   @Column({ length: 500 })
-  storagePath: string;
+  storagePath!: string;
 
   @Field()
   @Column({ length: 500 })
-  storageUrl: string;
+  storageUrl!: string;
 
   @Field()
   @Column({ length: 255 })
-  originalFilename: string;
+  originalFilename!: string;
 
   @Field()
   @Column({ length: 100 })
-  mimeType: string;
+  mimeType!: string;
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  fileSize: number;
+  fileSize!: number;
 
   // -------------------------------------------------------------------------
   // DOCUMENT METADATA
@@ -148,7 +148,7 @@ export class BatchDocument {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -156,7 +156,7 @@ export class BatchDocument {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

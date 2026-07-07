@@ -36,7 +36,7 @@ export class TankAssignmentInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => ProgramEquipmentType, { defaultValue: ProgramEquipmentType.TANK })
   @IsOptional()
@@ -63,19 +63,19 @@ export class FeedAssignmentInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  minWeightG: number;
+  minWeightG!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  maxWeightG: number;
+  maxWeightG!: number;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
@@ -100,19 +100,19 @@ export class FCRTableInput {
   @IsNotEmpty()
   @IsArray()
   @ArrayMinSize(2)
-  temperatures: number[];
+  temperatures!: number[];
 
   @Field(() => [Float])
   @IsNotEmpty()
   @IsArray()
   @ArrayMinSize(2)
-  weights: number[];
+  weights!: number[];
 
   @Field(() => [[Float]])
   @IsNotEmpty()
   @IsArray()
   @ArrayMinSize(2)
-  fcrValues: number[][];
+  fcrValues!: number[][];
 
   @Field({ nullable: true, defaultValue: 'celsius' })
   @IsOptional()
@@ -198,13 +198,13 @@ export class CreateFeedingProgramInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -226,7 +226,7 @@ export class CreateFeedingProgramInput {
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => FeedAssignmentInput)
-  feedAssignments: FeedAssignmentInput[];
+  feedAssignments!: FeedAssignmentInput[];
 
   @Field(() => FCRTableInput, { nullable: true })
   @IsOptional()
@@ -243,7 +243,7 @@ export class CreateFeedingProgramInput {
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @Field({ nullable: true })
   @IsOptional()

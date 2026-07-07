@@ -220,12 +220,12 @@ export interface MeasurementConditions {
 export class GrowthMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -234,7 +234,7 @@ export class GrowthMeasurement {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -259,7 +259,7 @@ export class GrowthMeasurement {
   @Field()
   @Column({ type: 'date' })
   @Index()
-  measurementDate: Date;
+  measurementDate!: Date;
 
   @Field(() => MeasurementType)
   @Column({
@@ -267,7 +267,7 @@ export class GrowthMeasurement {
     enum: MeasurementType,
     default: MeasurementType.ROUTINE,
   })
-  measurementType: MeasurementType;
+  measurementType!: MeasurementType;
 
   @Field(() => MeasurementMethod)
   @Column({
@@ -275,7 +275,7 @@ export class GrowthMeasurement {
     enum: MeasurementMethod,
     default: MeasurementMethod.MANUAL_SCALE,
   })
-  measurementMethod: MeasurementMethod;
+  measurementMethod!: MeasurementMethod;
 
   // -------------------------------------------------------------------------
   // ÖRNEK BİLGİLERİ
@@ -283,15 +283,15 @@ export class GrowthMeasurement {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  sampleSize: number;                // Kaç balık ölçüldü
+  sampleSize!: number;                // Kaç balık ölçüldü
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  populationSize: number;            // Batch toplam adet
+  populationSize!: number;            // Batch toplam adet
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 5, scale: 2, transformer: new DecimalTransformer() })
-  samplePercent: number;             // Örnekleme oranı (%)
+  samplePercent!: number;             // Örnekleme oranı (%)
 
   // -------------------------------------------------------------------------
   // BİREYSEL ÖLÇÜMLER
@@ -299,7 +299,7 @@ export class GrowthMeasurement {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  individualMeasurements: IndividualMeasurement[];
+  individualMeasurements!: IndividualMeasurement[];
 
   // -------------------------------------------------------------------------
   // İSTATİSTİKSEL ÖZET
@@ -307,7 +307,7 @@ export class GrowthMeasurement {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  statistics: StatisticalSummary;
+  statistics!: StatisticalSummary;
 
   // -------------------------------------------------------------------------
   // ANA SONUÇLAR (quick access)
@@ -315,7 +315,7 @@ export class GrowthMeasurement {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
-  averageWeight: number;             // Ortalama ağırlık (g)
+  averageWeight!: number;             // Ortalama ağırlık (g)
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -323,7 +323,7 @@ export class GrowthMeasurement {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 6, scale: 2, transformer: new DecimalTransformer() })
-  weightCV: number;                  // Weight CV (%)
+  weightCV!: number;                  // Weight CV (%)
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true, transformer: new DecimalTransformer() })
@@ -359,7 +359,7 @@ export class GrowthMeasurement {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  estimatedBiomass: number;          // Tahmini toplam biomass (kg)
+  estimatedBiomass!: number;          // Tahmini toplam biomass (kg)
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -391,7 +391,7 @@ export class GrowthMeasurement {
 
   @Field()
   @Column({ default: false })
-  isVerified: boolean;
+  isVerified!: boolean;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -407,7 +407,7 @@ export class GrowthMeasurement {
 
   @Field()
   @Column('uuid')
-  measuredBy: string;                // Ölçümü yapan
+  measuredBy!: string;                // Ölçümü yapan
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -419,11 +419,11 @@ export class GrowthMeasurement {
 
   @Field()
   @Column({ default: true })
-  updateBatchWeight: boolean;        // Batch ağırlığını güncelle
+  updateBatchWeight!: boolean;        // Batch ağırlığını güncelle
 
   @Field()
   @Column({ default: false })
-  isProcessed: boolean;              // Batch'e işlendi mi
+  isProcessed!: boolean;              // Batch'e işlendi mi
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -431,11 +431,11 @@ export class GrowthMeasurement {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // COMPUTED FIELDS

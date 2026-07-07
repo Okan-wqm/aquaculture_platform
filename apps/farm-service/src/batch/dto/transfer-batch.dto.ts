@@ -22,7 +22,7 @@ import { TransferReason } from '../entities/batch-location.entity';
 export class TransferDestinationInput {
   @Field()
   @IsNotEmpty()
-  locationType: 'tank' | 'pond';
+  locationType!: 'tank' | 'pond';
 
   @Field({ nullable: true })
   @IsOptional()
@@ -37,12 +37,12 @@ export class TransferDestinationInput {
   @Field(() => Int)
   @IsNumber()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  biomass: number;
+  biomass!: number;
 }
 
 @InputType('MultiDestTransferInput')
@@ -50,23 +50,23 @@ export class MultiDestTransferInput {
   @Field()
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsUUID()
-  sourceLocationId: string;        // Kaynak BatchLocation ID
+  sourceLocationId!: string;        // Kaynak BatchLocation ID
 
   @Field(() => [TransferDestinationInput])
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => TransferDestinationInput)
-  destinations: TransferDestinationInput[];
+  destinations!: TransferDestinationInput[];
 
   @Field(() => TransferReason, { defaultValue: TransferReason.OTHER })
   @IsEnum(TransferReason)
-  reason: TransferReason;
+  reason!: TransferReason;
 
   @Field({ nullable: true })
   @IsOptional()

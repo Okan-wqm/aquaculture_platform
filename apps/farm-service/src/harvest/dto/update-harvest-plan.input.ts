@@ -40,7 +40,7 @@ import {
 export class UpdateHarvestPlanInput {
   @Field(() => ID, { description: 'Harvest Plan ID' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   // -------------------------------------------------------------------------
   // BASIC INFORMATION

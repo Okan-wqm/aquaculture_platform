@@ -9,22 +9,22 @@ import { ObjectType, Field, ID, Float, Int } from '@nestjs/graphql';
 @ObjectType()
 export class FeedAssignmentEntryResponse {
   @Field(() => ID, { description: 'Feed ID' })
-  feedId: string;
+  feedId!: string;
 
   @Field({ description: 'Feed code' })
-  feedCode: string;
+  feedCode!: string;
 
   @Field({ description: 'Feed name' })
-  feedName: string;
+  feedName!: string;
 
   @Field(() => Float, { description: 'Minimum fish weight in grams' })
-  minWeightG: number;
+  minWeightG!: number;
 
   @Field(() => Float, { description: 'Maximum fish weight in grams' })
-  maxWeightG: number;
+  maxWeightG!: number;
 
   @Field(() => Int, { description: 'Priority for overlapping ranges' })
-  priority: number;
+  priority!: number;
 }
 
 /**
@@ -33,28 +33,28 @@ export class FeedAssignmentEntryResponse {
 @ObjectType()
 export class BatchFeedAssignmentResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field(() => [FeedAssignmentEntryResponse], { description: 'List of feed assignments with weight ranges' })
-  feedAssignments: FeedAssignmentEntryResponse[];
+  feedAssignments!: FeedAssignmentEntryResponse[];
 
   @Field({ description: 'Active status' })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true, description: 'Notes' })
   notes?: string;
 
   @Field({ description: 'Created at timestamp' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field({ description: 'Updated at timestamp' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field(() => ID, { nullable: true, description: 'Created by user ID' })
   createdBy?: string;

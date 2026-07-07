@@ -160,12 +160,12 @@ export interface FeedingTableSummary {
 export class FeedingTable {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -174,7 +174,7 @@ export class FeedingTable {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -186,7 +186,7 @@ export class FeedingTable {
 
   @Field()
   @Column('uuid')
-  feedId: string;
+  feedId!: string;
 
   @ManyToOne('Feed', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'feedId' })
@@ -198,7 +198,7 @@ export class FeedingTable {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  version: number;                 // Her regeneration'da +1
+  version!: number;                 // Her regeneration'da +1
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -214,7 +214,7 @@ export class FeedingTable {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  parameters: FeedingTableParameters;
+  parameters!: FeedingTableParameters;
 
   // -------------------------------------------------------------------------
   // SCHEDULE
@@ -222,7 +222,7 @@ export class FeedingTable {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  schedule: FeedingScheduleEntry[];
+  schedule!: FeedingScheduleEntry[];
 
   // -------------------------------------------------------------------------
   // ÖZET
@@ -230,7 +230,7 @@ export class FeedingTable {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  summary: FeedingTableSummary;
+  summary!: FeedingTableSummary;
 
   // -------------------------------------------------------------------------
   // FCR BİLGİLERİ
@@ -238,7 +238,7 @@ export class FeedingTable {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 5, scale: 3, transformer: new DecimalTransformer() })
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 5, scale: 3, nullable: true, transformer: new DecimalTransformer() })
@@ -250,11 +250,11 @@ export class FeedingTable {
 
   @Field()
   @Column({ type: 'date' })
-  startDate: Date;
+  startDate!: Date;
 
   @Field()
   @Column({ type: 'date' })
-  endDate: Date;
+  endDate!: Date;
 
   // -------------------------------------------------------------------------
   // DURUM
@@ -266,12 +266,12 @@ export class FeedingTable {
     enum: FeedingTableStatus,
     default: FeedingTableStatus.DRAFT,
   })
-  status: FeedingTableStatus;
+  status!: FeedingTableStatus;
 
   @Field()
   @Column({ default: false })
   @Index()
-  isActive: boolean;               // Aktif yemleme tablosu mu
+  isActive!: boolean;               // Aktif yemleme tablosu mu
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -283,11 +283,11 @@ export class FeedingTable {
 
   @Field()
   @Column({ type: 'timestamptz' })
-  calculatedAt: Date;
+  calculatedAt!: Date;
 
   @Field()
   @Column('uuid')
-  calculatedBy: string;
+  calculatedBy!: string;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -295,14 +295,14 @@ export class FeedingTable {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @VersionColumn()
-  entityVersion: number;
+  entityVersion!: number;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

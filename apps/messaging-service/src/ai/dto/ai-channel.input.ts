@@ -37,7 +37,7 @@ export class SentimentTrendsInput {
   @IsInt()
   @Min(1)
   @Max(52)
-  weeks: number;
+  weeks!: number;
 }
 
 /**
@@ -51,7 +51,7 @@ export class SimilarMessagesInput {
   })
   @IsString()
   @MaxLength(1000)
-  query: string;
+  query!: string;
 
   @Field(() => ID, {
     nullable: true,
@@ -68,5 +68,5 @@ export class SimilarMessagesInput {
   @IsInt()
   @Min(1)
   @Max(50)
-  limit: number;
+  limit!: number;
 }

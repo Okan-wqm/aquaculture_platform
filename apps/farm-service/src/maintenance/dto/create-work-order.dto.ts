@@ -33,7 +33,7 @@ export class ChecklistItemInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(500)
-  description: string;
+  description!: string;
 
   @Field(() => Boolean, { defaultValue: false })
   @IsOptional()
@@ -67,19 +67,19 @@ export class RequiredMaterialInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.01)
-  quantity: number;
+  quantity!: number;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(20)
-  unit: string;
+  unit!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -96,12 +96,12 @@ export class RelatedAssetInput {
   @Field(() => AssetType)
   @IsNotEmpty()
   @IsEnum(AssetType)
-  assetType: AssetType;
+  assetType!: AssetType;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  assetId: string;
+  assetId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -125,7 +125,7 @@ export class CreateWorkOrderInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -134,11 +134,11 @@ export class CreateWorkOrderInput {
 
   @Field(() => WorkOrderType, { defaultValue: WorkOrderType.CORRECTIVE })
   @IsEnum(WorkOrderType)
-  type: WorkOrderType;
+  type!: WorkOrderType;
 
   @Field(() => WorkOrderPriority, { defaultValue: WorkOrderPriority.MEDIUM })
   @IsEnum(WorkOrderPriority)
-  priority: WorkOrderPriority;
+  priority!: WorkOrderPriority;
 
   @Field(() => RelatedAssetInput, { nullable: true })
   @IsOptional()

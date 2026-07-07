@@ -15,13 +15,13 @@ import {
 @Index(['isActive'])
 export class SupplierType {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50, unique: true })
-  code: string;
+  code!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -30,17 +30,17 @@ export class SupplierType {
   icon?: string;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ default: false })
-  isSystem: boolean;
+  isSystem!: boolean;
 
   @Column({ type: 'int', default: 0 })
-  sortOrder: number;
+  sortOrder!: number;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

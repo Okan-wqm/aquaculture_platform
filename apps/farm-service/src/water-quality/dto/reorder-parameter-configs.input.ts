@@ -9,5 +9,5 @@ export class ReorderParameterConfigsInput {
   @Field(() => [ID], { description: 'Parameter config IDs in desired display order' })
   @IsArray()
   @IsUUID('4', { each: true })
-  orderedIds: string[];
+  orderedIds!: string[];
 }

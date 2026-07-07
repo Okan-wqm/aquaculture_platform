@@ -5,7 +5,7 @@ import { IsBoolean, IsUUID, IsOptional, IsString, IsEmail, MaxLength } from 'cla
 export class UpdateWorkerInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

@@ -22,25 +22,25 @@ import { EquipmentStatus } from '../entities/equipment.entity';
 export class CreateSubEquipmentInput {
   @Field(() => ID)
   @IsUUID()
-  parentEquipmentId: string;
+  parentEquipmentId!: string;
 
   @Field(() => ID)
   @IsUUID()
-  subEquipmentTypeId: string;
+  subEquipmentTypeId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -93,7 +93,7 @@ export class CreateSubEquipmentInput {
 export class UpdateSubEquipmentInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

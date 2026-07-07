@@ -164,25 +164,25 @@ export interface BiomassReportPayload {
 export class BiomassReport {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('uuid')
-  siteId: string;
+  siteId!: string;
 
   /** Calendar month, 1–12 (not zero-based — matches the frontend form). */
   @Field(() => Int)
   @Column('int')
-  reportMonth: number;
+  reportMonth!: number;
 
   @Field(() => Int)
   @Column('int')
-  reportYear: number;
+  reportYear!: number;
 
   @Field(() => BiomassReportStatus)
   @Column({
@@ -190,7 +190,7 @@ export class BiomassReport {
     enum: BiomassReportStatus,
     default: BiomassReportStatus.DRAFT,
   })
-  status: BiomassReportStatus;
+  status!: BiomassReportStatus;
 
   /**
    * Full form snapshot. Typed as `BiomassReportPayload` at the
@@ -200,12 +200,12 @@ export class BiomassReport {
    */
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  reportData: BiomassReportPayload;
+  reportData!: BiomassReportPayload;
 
   /** Denormalised for fast list queries (sum of bySpecies.biomassKg). */
   @Field()
   @Column('decimal', { precision: 14, scale: 2, default: 0 })
-  totalBiomassKg: string;
+  totalBiomassKg!: string;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -236,9 +236,9 @@ export class BiomassReport {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

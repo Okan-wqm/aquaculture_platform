@@ -34,7 +34,7 @@ export class RecurrenceRuleInput {
   @Field(() => RecurrenceType)
   @IsNotEmpty()
   @IsEnum(RecurrenceType)
-  type: RecurrenceType;
+  type!: RecurrenceType;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -93,23 +93,23 @@ export class AlertSettingsInput {
   @IsNumber()
   @Min(1)
   @Max(90)
-  daysBeforeDue: number;
+  daysBeforeDue!: number;
 
   @Field(() => Boolean, { defaultValue: true })
   @IsBoolean()
-  notifyAssignee: boolean;
+  notifyAssignee!: boolean;
 
   @Field(() => Boolean, { defaultValue: true })
   @IsBoolean()
-  notifyManager: boolean;
+  notifyManager!: boolean;
 
   @Field(() => Boolean, { defaultValue: true })
   @IsBoolean()
-  emailNotification: boolean;
+  emailNotification!: boolean;
 
   @Field(() => Boolean, { defaultValue: false })
   @IsBoolean()
-  smsNotification: boolean;
+  smsNotification!: boolean;
 }
 
 /**
@@ -121,7 +121,7 @@ export class CreateMaintenanceScheduleInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -130,7 +130,7 @@ export class CreateMaintenanceScheduleInput {
 
   @Field(() => MaintenanceCategory, { defaultValue: MaintenanceCategory.GENERAL })
   @IsEnum(MaintenanceCategory)
-  category: MaintenanceCategory;
+  category!: MaintenanceCategory;
 
   @Field(() => AssetType, { nullable: true })
   @IsOptional()
@@ -152,12 +152,12 @@ export class CreateMaintenanceScheduleInput {
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => RecurrenceRuleInput)
-  recurrenceRule: RecurrenceRuleInput;
+  recurrenceRule!: RecurrenceRuleInput;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -217,13 +217,13 @@ export class CreateMaintenanceScheduleInput {
 
   @Field(() => Boolean, { defaultValue: true })
   @IsBoolean()
-  autoGenerateWorkOrder: boolean;
+  autoGenerateWorkOrder!: boolean;
 
   @Field(() => Int, { defaultValue: 7, description: 'Due date\'den kaç gün önce iş emri oluştur' })
   @IsNumber()
   @Min(0)
   @Max(30)
-  generateDaysBefore: number;
+  generateDaysBefore!: number;
 
   @Field({ nullable: true })
   @IsOptional()

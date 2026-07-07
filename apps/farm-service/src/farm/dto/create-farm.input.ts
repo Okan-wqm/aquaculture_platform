@@ -20,13 +20,13 @@ export class LocationInput {
   @IsNumber()
   @Min(-90)
   @Max(90)
-  lat: number;
+  lat!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(-180)
   @Max(180)
-  lng: number;
+  lng!: number;
 }
 
 /**
@@ -39,10 +39,10 @@ export class CreateFarmInput {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @Field(() => LocationInput)
-  location: LocationInput;
+  location!: LocationInput;
 
   @Field({ nullable: true })
   @IsString()

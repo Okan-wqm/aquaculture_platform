@@ -6,6 +6,7 @@ import { GetFarmTanksTool } from './get-farm-tanks.tool';
 import { GetFarmBatchesTool } from './get-farm-batches.tool';
 import { GetFarmWaterQualityTool } from './get-farm-water-quality.tool';
 import { GetFarmHarvestTool } from './get-farm-harvest.tool';
+import { GetFarmFeedingTool } from './get-farm-feeding.tool';
 
 const TOOLS = [
   CreateTaskTool,
@@ -13,6 +14,7 @@ const TOOLS = [
   GetFarmBatchesTool,
   GetFarmWaterQualityTool,
   GetFarmHarvestTool,
+  GetFarmFeedingTool,
 ];
 
 /**

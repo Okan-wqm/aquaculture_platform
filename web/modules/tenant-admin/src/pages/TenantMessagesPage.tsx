@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
+  ArrowLeft,
   MessageSquare,
   Send,
   Search,
@@ -101,9 +102,11 @@ const TenantMessagesPage: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-180px)] flex flex-col">
+    // dvh (not vh): mobile browser chrome makes 100vh taller than the visible
+    // viewport, which pushed the composer off-screen on phones.
+    <div className="h-[calc(100dvh-180px)] flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-xl">
+      <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 rounded-t-xl">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
@@ -129,7 +132,7 @@ const TenantMessagesPage: React.FC = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-sm text-gray-500">Total Threads</div>
             <div className="text-xl font-semibold text-gray-900">{threads.length}</div>
@@ -155,10 +158,17 @@ const TenantMessagesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content — master-detail: below `md` only ONE pane is visible at a
+          time (the fixed 384px list column alone is wider than a phone viewport
+          and squeezed the message pane to zero width, so the page looked like it
+          never loaded on mobile). */}
       <div className="flex-1 flex overflow-hidden bg-white rounded-b-xl">
         {/* Thread List */}
-        <div className="w-96 border-r border-gray-200 flex flex-col">
+        <div
+          className={`w-full md:w-96 border-r border-gray-200 flex-col ${
+            selectedThread ? 'hidden md:flex' : 'flex'
+          }`}
+        >
           {/* Search & Filter */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
@@ -256,15 +266,28 @@ const TenantMessagesPage: React.FC = () => {
         </div>
 
         {/* Message Area */}
-        <div className="flex-1 flex flex-col bg-gray-50">
+        <div
+          className={`flex-1 flex-col bg-gray-50 ${
+            selectedThread ? 'flex' : 'hidden md:flex'
+          }`}
+        >
           {selectedThread ? (
             <>
               {/* Thread Header */}
-              <div className="bg-white border-b border-gray-200 px-6 py-4">
+              <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
                 <div className="flex items-center justify-between">
-                  <div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {/* Mobile-only back to the thread list (master-detail) */}
+                    <button
+                      onClick={() => setSelectedThread(null)}
+                      className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      aria-label="Back to conversations"
+                    >
+                      <ArrowLeft size={20} />
+                    </button>
+                    <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold text-gray-900">{selectedThread.subject}</h2>
+                      <h2 className="text-lg font-semibold text-gray-900 truncate">{selectedThread.subject}</h2>
                       {selectedThread.isClosed && (
                         <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
                           Closed
@@ -272,6 +295,7 @@ const TenantMessagesPage: React.FC = () => {
                       )}
                     </div>
                     <p className="text-sm text-gray-500">{selectedThread.messageCount} messages</p>
+                    </div>
                   </div>
                   <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                     <MoreVertical size={18} />

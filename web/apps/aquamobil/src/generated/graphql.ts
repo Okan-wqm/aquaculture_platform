@@ -194,8 +194,20 @@ export type CullReason =
   | 'SMALL_SIZE';
 
 export type EditMessageInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
   /** New message content (max 4000 chars) */
   content: string;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
 };
 
 /** Günlük yemleme çalıştırma durumu */
@@ -268,8 +280,20 @@ export type LeaveRequestStatus =
 export type MarkReadInput = {
   /** Channel UUID */
   channelId: string | number;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
   /** Last read message UUID */
   messageId: string | number;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
 };
 
 export type MessageContentType =

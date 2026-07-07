@@ -292,14 +292,23 @@ export class MessageResolver {
         .leftJoinAndSelect('m.attachments', 'att')
         .where('m."tenantId" = :tenantId', { tenantId })
         .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
-        .andWhere('m."isDeleted" = false')
-        .andWhere('m."createdAt" > :cursorDate', { cursorDate });
+        .andWhere('m."isDeleted" = false');
 
       if (cursorId) {
+        // MSG-HIGH-067: composite (createdAt, id) keyset — the ONLY cursor clause.
+        // The previous code ALSO applied an unconditional `createdAt > :cursorDate`,
+        // which subsumed the `createdAt = cursorDate AND id > cursorId` branch (the
+        // outer AND already required a strictly-greater timestamp), so every message
+        // sharing the cursor's exact timestamp was silently and permanently dropped
+        // from the sync delta. Mirrors the get-messages.handler keyset (no redundant
+        // strict clause).
         qb.andWhere(
           '(m."createdAt" > :cursorDate OR (m."createdAt" = :cursorDate AND m."id" > :cursorId))',
           { cursorDate, cursorId },
         );
+      } else {
+        // First page from the `since` watermark — the boundary is exclusive.
+        qb.andWhere('m."createdAt" > :cursorDate', { cursorDate });
       }
 
       qb.orderBy('m.createdAt', 'ASC')
@@ -460,12 +469,8 @@ export class MessageResolver {
       ),
     );
 
-    // Increment unread for other channel members (fire-and-forget)
-    this.messageService
-      .incrementUnreadForChannelMembers(input.channelId, user.sub, tenantId)
-      .catch((err: Error) => {
-        this.logger.warn(`Failed to increment unread: ${err.message}`);
-      });
+    // MSG-HIGH-066: unread is computed from the DB on read (single authority);
+    // no Redis HASH increment on send — the previous counter only ever grew.
 
     return message;
   }
@@ -790,12 +795,7 @@ export class MessageResolver {
       ),
     );
 
-    // Increment unread for target channel members (fire-and-forget)
-    this.messageService
-      .incrementUnreadForChannelMembers(targetChannelId, user.sub, tenantId)
-      .catch((err: Error) => {
-        this.logger.warn(`Failed to increment unread after forward: ${err.message}`);
-      });
+    // MSG-HIGH-066: unread is DB-authoritative on read; no HASH increment on forward.
 
     return message;
   }

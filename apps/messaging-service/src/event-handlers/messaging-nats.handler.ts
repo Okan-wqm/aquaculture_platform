@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 import { Repository, DataSource, In, IsNull, QueryRunner } from 'typeorm';
 
 import { ChannelMember } from '../channel/entities/channel-member.entity';
+import { AttachmentObjectPurgeService } from '../compliance/services/attachment-object-purge.service';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { Message } from '../message/entities/message.entity';
 import { MessageContentType } from '../message/entities/message.entity';
@@ -164,6 +165,9 @@ export class MessagingNatsHandler {
     private readonly mediaService: MediaService,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    // MSG-CRITICAL-058: the UserDeleted cascade must delete the MinIO attachment
+    // binaries (the user's PII media) for messages it erases, not just the DB rows.
+    private readonly attachmentObjectPurge: AttachmentObjectPurgeService,
   ) {}
 
   /**
@@ -517,7 +521,11 @@ export class MessagingNatsHandler {
     );
 
     try {
-      await this.withTenantQueryRunner(data.tenantId, async (queryRunner) => {
+      // MSG-CRITICAL-058: attachment MinIO object keys collected inside the tx for
+      // the erased (non-held) messages; purged AFTER commit so the DB row is already
+      // gone before we drop the binary (a failed purge leaves an orphan, not a live
+      // PII reference). Held channels are excluded — legal hold preserves their media.
+      const objectKeysToPurge = await this.withTenantQueryRunner(data.tenantId, async (queryRunner) => {
         // SECURITY: Verify user has actual presence in claimed tenant before destructive cascade
         const userMessages: unknown = await queryRunner.query(
           `SELECT EXISTS(SELECT 1 FROM messages WHERE "senderId" = $1 LIMIT 1) AS has_messages`,
@@ -535,7 +543,7 @@ export class MessagingNatsHandler {
           this.logger.log(
             `UserDeleted: deletedUserId=${deletedUserId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
           );
-          return;
+          return [];
         }
 
         // Collect ALL message IDs for this user BEFORE any anonymization.
@@ -578,6 +586,31 @@ export class MessagingNatsHandler {
               [ANONYMOUS_USER_ID, deletedUserId, channelId],
             );
           }
+        }
+
+        // MSG-CRITICAL-058: for messages in NON-HELD channels (whose content we are
+        // about to wipe), delete the attachment rows and collect their MinIO object
+        // keys so the binaries are purged after commit. Held-channel attachments are
+        // preserved — legal hold outranks erasure. Mirrors GdprService.anonymizeMyData.
+        const erasableMessageIds = userMsgRows
+          .filter((r) => !heldChannelIds.has(r.channelId))
+          .map((r) => r.id);
+        const objectKeys: string[] = [];
+        if (erasableMessageIds.length > 0) {
+          const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
+            await queryRunner.query(
+              `SELECT "storageKey", "thumbnailKey" FROM message_attachments
+               WHERE "messageId" = ANY($1::uuid[])`,
+              [erasableMessageIds],
+            );
+          for (const row of attachmentRows) {
+            if (row.storageKey) objectKeys.push(row.storageKey);
+            if (row.thumbnailKey) objectKeys.push(row.thumbnailKey);
+          }
+          await queryRunner.query(
+            `DELETE FROM message_attachments WHERE "messageId" = ANY($1::uuid[])`,
+            [erasableMessageIds],
+          );
         }
 
         // Non-held channels: anonymize sender + wipe content + clear embedding.
@@ -637,7 +670,26 @@ export class MessagingNatsHandler {
           `UPDATE channel_members SET "leftAt" = NOW() WHERE "userId" = $1 AND "leftAt" IS NULL`,
           [deletedUserId],
         );
+
+        return objectKeys;
       });
+
+      // MSG-CRITICAL-058: the attachment ROWS are committed-deleted; purge the MinIO
+      // binaries (best-effort, post-commit). Tenant-prefix isolation is enforced
+      // inside purgeObjects. A failed purge orphans the object for a reaper — it does
+      // not leave a live, resolvable PII reference.
+      if (objectKeysToPurge.length > 0) {
+        const purge = await this.attachmentObjectPurge.purgeObjects(
+          data.tenantId,
+          objectKeysToPurge,
+        );
+        if (purge.failed > 0) {
+          this.logger.error(
+            `UserDeleted erasure: ${purge.failed}/${purge.requested} attachment object(s) failed ` +
+              `to delete for tenant ${data.tenantId}; orphaned objects require reaper cleanup`,
+          );
+        }
+      }
       this.logger.log(`UserDeleted cascade completed for deletedUserId ${deletedUserId}`);
     } catch (err: unknown) {
       this.logger.error(

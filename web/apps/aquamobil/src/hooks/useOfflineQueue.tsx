@@ -16,7 +16,7 @@ import {
   removePendingBlob,
   MAX_RETRY_COUNT,
 } from '@/pwa/offline-queue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+import { authenticatedFetch, graphqlRequest } from '@/services/authenticated-fetch';
 import type {
   QueuedOperation,
   OperationType,
@@ -29,7 +29,7 @@ import { logger } from '@/utils/logger';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 
-interface SyncResult {
+export interface SyncResult {
   success: number;
   failed: number;
 }
@@ -314,7 +314,7 @@ async function replayUploadAndSendMessage(
 }
 
 export function OfflineProvider({ children }: { children: ReactNode }): ReactElement {
-  const { accessToken, tenantId, user, refreshAuth } = useAuth();
+  const { accessToken, tenantId, user } = useAuth();
   const queryClient = useQueryClient();
   const isOnline = useNetworkStatus();
   const [pendingCount, setPendingCount] = useState(0);
@@ -449,15 +449,17 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         variables = { input: payload };
       }
 
-      const response = await fetch('/graphql', {
+      // MSG-CRITICAL-057 / MSG-HIGH-060: route replay through authenticatedFetch —
+      // the ONE auth lane (auth-ready barrier + single-flight 401 refresh, reading
+      // the current token from the auth store, not a stale React closure). The
+      // previous raw fetch used the closure's accessToken and had no 401 refresh,
+      // while syncNow separately called refreshAuth() before the batch — two
+      // uncoalesced refresh-token rotations that tripped reuse-detection and
+      // force-logged-out mid-sync, wiping the whole offline queue. Headers
+      // (Content-Type, Authorization, X-Tenant-Id, X-Requested-With) are injected
+      // by authenticatedFetch, so a mid-batch token rotation is transparent.
+      const response = await authenticatedFetch('/graphql', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Tenant-Id': tenantId,
-          // SEC-06: CSRF defense header
-          'X-Requested-With': 'XMLHttpRequest',
-        },
         body: JSON.stringify({
           query: MUTATIONS[type],
           variables,
@@ -481,14 +483,8 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
           throw new Error('Leave request was created without an id');
         }
 
-        const submitResponse = await fetch('/graphql', {
+        const submitResponse = await authenticatedFetch('/graphql', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-            'X-Tenant-Id': tenantId,
-            'X-Requested-With': 'XMLHttpRequest',
-          },
           body: JSON.stringify({
             query: MUTATIONS.submitLeaveRequest,
             variables: { id: createdId },
@@ -521,29 +517,15 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
     setSyncError(null);
 
     try {
-      // Ensure token is fresh before starting sync to avoid 401s mid-batch
-      if (accessToken) {
-        try {
-          // WHY typed parse: JSON.parse returns `any`; narrow to the one claim we
-          // read (`exp`) so the expiry math is type-safe. A malformed token (no
-          // numeric exp) falls through to the catch below, which refreshes anyway.
-          const payload: unknown = JSON.parse(atob(accessToken.split('.')[1]));
-          const exp =
-            typeof payload === 'object' && payload !== null && 'exp' in payload
-              ? payload.exp
-              : undefined;
-          if (typeof exp !== 'number') {
-            throw new Error('token has no numeric exp claim');
-          }
-          const expiresAt = exp * 1000;
-          if (expiresAt - Date.now() < 60_000) { // less than 60s remaining
-            await refreshAuth();
-          }
-        } catch {
-          // If token parsing fails, attempt refresh as a safety measure
-          await refreshAuth();
-        }
-      }
+      // MSG-CRITICAL-057: no separate pre-sync refresh. The previous "refresh the
+      // token before the batch to avoid mid-batch 401s" block called refreshAuth()
+      // directly — a SECOND refresh-token rotation lane racing authenticatedFetch's
+      // single-flight refresh. Two concurrent rotations of one refresh cookie trip
+      // server-side reuse detection, force a logout, and clearAllOperations() wipes
+      // every unsynced queued write. Freshness is now owned entirely by
+      // authenticatedFetch (per-request single-flight 401 refresh, see
+      // executeGraphQL), so a stale token self-heals transparently without a
+      // second rotation lane.
 
       // SECURITY (C11): Only sync operations belonging to the active tenant
       if (!tenantId) {
@@ -607,7 +589,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, accessToken, refreshAuth, tenantId, queryClient]);
+  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, tenantId, queryClient]);
 
   const getSyncStatus = useCallback(
     (id: string): SyncStatus => {

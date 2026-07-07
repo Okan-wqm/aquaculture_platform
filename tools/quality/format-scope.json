@@ -15320,6 +15320,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/websocket/__tests__/messaging.gateway.hydration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/websocket/adapters/redis-io.adapter.ts",
       "prettier_managed": true
     },
@@ -18968,6 +18974,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/compliance/services/__tests__/attachment-object-purge.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/compliance/services/__tests__/compliance-audit.service.spec.ts",
       "prettier_managed": true
     },
@@ -18999,6 +19011,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/compliance/services/__tests__/retention-policy.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/compliance/services/attachment-object-purge.service.ts",
       "prettier_managed": true
     },
     {
@@ -19070,6 +19088,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/event-handlers/messaging-nats.handler.user-deleted.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/gdpr/__tests__/gdpr.service.spec.ts",
       "prettier_managed": true
     },
@@ -19119,6 +19143,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/message/commands/__tests__/delete-message.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/message/commands/__tests__/edit-message.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -19191,6 +19221,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/message/commands/send-message.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/message/dto/__tests__/mobile-command-envelope-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -19869,6 +19905,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/shared/messaging-s3-client.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/shared/redis.provider.ts",
       "prettier_managed": true
     },
@@ -20234,6 +20276,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/services/__tests__/email.service.regulatory-recipients.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/push.service.data-only.spec.ts",
       "prettier_managed": true
     },
     {
@@ -40084,7 +40132,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9824d1c1e2ce1b0893d7d8c6f494687da02a5ee99dc01e9c719be16b98f60652",
+      "content_sha256": "eec338b84baa6bc0a807d75e058be581f573d4e9b270dc717711a94f4977fbcf",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -40174,6 +40222,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useMessageSocket-channel-eviction.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useMessageSocket-join-ack.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useMessageSocket-reconnect.spec.ts",
       "prettier_managed": true
     },
@@ -40211,6 +40271,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useOfflineQueue-rearm.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useOfflineQueue-sync-auth-lane.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -40852,6 +40918,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/messaging-query-keys.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/__tests__/normalize-role.spec.ts",
       "prettier_managed": true
     },
@@ -40907,6 +40979,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/utils/messaging-helpers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/messaging-query-keys.ts",
       "prettier_managed": true
     },
     {
@@ -49317,6 +49395,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/tenant-admin/src/pages/__tests__/TenantMessagesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/tenant-admin/src/pages/__tests__/TenantUsers.spec.tsx",
       "prettier_managed": true
     },
@@ -50586,10 +50670,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8285,
+  "file_count": 8299,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8110,
-  "managed_file_list_sha256": "e82f3b7749461f5eaeace97d53f9a3a7601acc8aeca80b487a317a4fc53d0a37",
+  "managed_count": 8124,
+  "managed_file_list_sha256": "dd6e17458eaf2934c61d98ad6c42f7894f71cdfe39c89f7eb079212c262d0691",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

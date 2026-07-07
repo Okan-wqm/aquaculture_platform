@@ -509,17 +509,34 @@ export class MessagingGateway
       );
       if (!response?.message) {
         this.logger.warn(
-          `Hydration returned no message for ${messageId} in ${channelId}; dropping ${eventName}`,
+          `Hydration returned no message for ${messageId} in ${channelId}; emitting sync hint`,
         );
+        this.broadcastMessageSyncHint(tenantId, channelId);
         return;
       }
       const envelope: MessageEnvelope = { channelId, message: response.message };
       this.server.to(`channel:${tenantId}:${channelId}`).emit(eventName, envelope);
     } catch (error) {
       this.logger.warn(
-        `Hydration request failed for ${messageId} in ${channelId}: ${(error as Error).message}`,
+        `Hydration request failed for ${messageId} in ${channelId}: ${(error as Error).message}; emitting sync hint`,
       );
+      this.broadcastMessageSyncHint(tenantId, channelId);
     }
+  }
+
+  /**
+   * MSG-HIGH-063: emit a content-free "something is new in this channel, refetch"
+   * hint. The newMessage/messageUpdated fan-out requires a synchronous NATS
+   * hydration round-trip; when that times out or returns nothing the gateway would
+   * otherwise DROP the event with no redelivery (the NATS bridge consumes core
+   * NATS, not a JetStream durable consumer), leaving the message permanently absent
+   * from an open chat until a manual refresh. This hint makes the drop RECOVERABLE:
+   * the client invalidates the channel's message cache and refetches, converging on
+   * server truth. It carries no message content, so it cannot corrupt the client
+   * cache the way a mis-shaped envelope would.
+   */
+  private broadcastMessageSyncHint(tenantId: string, channelId: string): void {
+    this.server.to(`channel:${tenantId}:${channelId}`).emit('messageSyncHint', { channelId });
   }
 
   /**

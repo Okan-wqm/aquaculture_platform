@@ -21419,6 +21419,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1802000000000-AddVfdDeviceModelSeriesPumpTags.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1803000000000-HashProvisioningSecretsAtRest.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1804000000000-ConsolidateVfdRegisterMappingsToSensorSchema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1805000000000-CreateEdgeDeviceDirectory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -21491,7 +21515,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/device-directory.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/edge-device.resolver.permissions.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/installer-token-header.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/mqtt-auth-file-mode.spec.ts",
       "prettier_managed": true
     },
     {
@@ -21504,6 +21546,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/provisioning-config.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/provisioning-token-hashing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/device-directory.service.ts",
       "prettier_managed": true
     },
     {
@@ -21558,6 +21612,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/entities/edge-device-directory.entity.ts",
       "prettier_managed": true
     },
     {
@@ -21666,6 +21726,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/filters/global-exception.filter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/guards/__tests__/rate-limit-store.spec.ts",
       "prettier_managed": true
     },
     {
@@ -22410,6 +22476,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/services/protocol-validator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/registration-outbox-events.spec.ts",
       "prettier_managed": true
     },
     {
@@ -29221,6 +29293,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-05-sensor-vfd-device-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -31922,6 +32000,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/ai-safety/__tests__/ssrf-validator.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -38454,6 +38538,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-enum-fe-be-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/sensor-ingestion-honest-deployment.spec.ts",
       "prettier_managed": true
     },
@@ -38563,6 +38653,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tenant-fanout-entity-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tenant-permission-guard-adoption.spec.ts",
       "prettier_managed": true
     },
     {
@@ -48315,6 +48411,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/pages/VfdDeviceDetailPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/pages/VfdProgrammingPage.tsx",
       "prettier_managed": true
     },
@@ -49922,7 +50024,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "02c2afeb8e2a1b9d3907854de9d65b0130a05ac26df9e6446a191376957f9002",
+      "content_sha256": "f89b35e44f54e93534dcb5f7f32e223e8e9b466149281cf4f1de8a5f782394f7",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -50580,10 +50682,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8284,
+  "file_count": 8301,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8109,
-  "managed_file_list_sha256": "fa809779e50e4f25131c3e070d8956f19f701c15b4ca565a60e49271bc3ddecc",
+  "managed_count": 8126,
+  "managed_file_list_sha256": "130aadc22be888c322ae566725d7de50e1b99f1f2dddcf8874f4d521fdfc80cd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

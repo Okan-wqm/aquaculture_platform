@@ -177,6 +177,19 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
     icon: 'users',
   },
   {
+    // Tenant-configurable RBAC entry point. WHY: the /tenant/roles page + the
+    // TenantRoleService role CRUD already exist end-to-end, but no rendered
+    // sidebar linked to them — a tenant admin could only reach role management
+    // by typing the URL. (The one sidebar that DID list it,
+    // tenant-admin/components/TenantAdminSidebar.tsx, was dead code never
+    // mounted, and has been removed.) This makes "tenants create their own
+    // roles" actually discoverable.
+    id: 'tenant-roles',
+    label: 'Roles & Permissions',
+    path: '/tenant/roles',
+    icon: 'shield',
+  },
+  {
     id: 'tenant-modules',
     label: 'Modules',
     path: '/tenant/modules',

@@ -231,7 +231,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
   // Deterministic SQL router: resource-permission JOIN, plan lookup, modules.
   const buildQueryRouter = (overrides?: {
-    resourcePermissions?: Array<{ resource_permissions: string[] | null }>;
+    resourcePermissions?: Array<{
+      resource_permissions: string[] | null;
+      permission_overrides?: unknown;
+    }>;
     plan?: string;
     onResourceQuery?: (sql: string) => Promise<unknown>;
   }): jest.Mock =>
@@ -599,6 +602,29 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect(capturedPayload().resourcePermissions).toEqual(
         expect.arrayContaining(['sites:view', 'tanks:edit']),
       );
+    });
+
+    it('folds per-user permission_overrides (revoke then grant) into the resourcePermissions claim', async () => {
+      // Role base = {sites:view, sites:edit}; the assignment revokes sites:edit
+      // and grants roles:view. Proves overrides reach the JWT end-to-end — before
+      // this fold they were never selected here, so a per-user grant/revoke had
+      // zero runtime effect (the guard enforced only the role's base set).
+      service = await createService({
+        query: buildQueryRouter({
+          resourcePermissions: [
+            {
+              resource_permissions: ['sites:view', 'sites:edit'],
+              permission_overrides: { grants: ['roles:view'], revokes: ['sites:edit'] },
+            },
+          ],
+        }),
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const claim = capturedPayload().resourcePermissions ?? [];
+      expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
+      expect(claim).not.toContain('sites:edit');
     });
   });
 

@@ -13,18 +13,18 @@ import {
 } from '../_shared/RecordEntityPage';
 
 import { useTanks } from '@/hooks/useTanks';
-import type { HarvestInput, QualityGrade } from '@/types';
+import type { HarvestInput, QualityClass } from '@/types';
 
 interface HarvestFormErrors extends BaseFormErrors {
   avgWeight?: string;
 }
 
-const QUALITY_GRADES: ReadonlyArray<{ value: QualityGrade; label: string; color: string }> = [
-  { value: 'PREMIUM', label: 'Premium', color: 'bg-amber-400' },
-  { value: 'GRADE_A', label: 'Grade A', color: 'bg-sea-500' },
-  { value: 'GRADE_B', label: 'Grade B', color: 'bg-ocean-500' },
-  { value: 'GRADE_C', label: 'Grade C', color: 'bg-gray-400' },
-  { value: 'REJECT', label: 'Reject', color: 'bg-mortality' },
+// Norwegian official kvalitetsklasser (RPT-007) — the stored SSoT, best → reject.
+const QUALITY_CLASSES: ReadonlyArray<{ value: QualityClass; label: string; color: string }> = [
+  { value: 'SUPERIOR', label: 'Superior', color: 'bg-amber-400' },
+  { value: 'ORDINAER', label: 'Ordinær', color: 'bg-sea-500' },
+  { value: 'PRODUKSJONSFISK', label: 'Produksjonsfisk', color: 'bg-gray-400' },
+  { value: 'UTKAST', label: 'Utkast', color: 'bg-mortality' },
 ];
 
 const HARVEST_THEME: RecordEntityTheme = {
@@ -48,7 +48,7 @@ export function RecordHarvestPage(): JSX.Element {
   const [selectedTankId, setSelectedTankId] = useState(tankId || '');
   const [quantity, setQuantity] = useState('');
   const [avgWeight, setAvgWeight] = useState('');
-  const [qualityGrade, setQualityGrade] = useState<QualityGrade>('GRADE_A');
+  const [qualityClass, setQualityClass] = useState<QualityClass>('SUPERIOR');
   const [pricePerKg, setPricePerKg] = useState('');
   const [buyerName, setBuyerName] = useState('');
   const [notes, setNotes] = useState('');
@@ -97,7 +97,7 @@ export function RecordHarvestPage(): JSX.Element {
       quantityHarvested: quantityNum,
       averageWeight: avgWeightNum,
       totalBiomass,
-      qualityGrade,
+      qualityClass,
       harvestDate: new Date().toISOString().split('T')[0],
       pricePerKg: priceNum > 0 ? priceNum : undefined,
       buyerName: buyerName.trim() || undefined,
@@ -105,7 +105,7 @@ export function RecordHarvestPage(): JSX.Element {
     };
   };
 
-  const gradeLabel = QUALITY_GRADES.find((g) => g.value === qualityGrade)?.label ?? qualityGrade;
+  const classLabel = QUALITY_CLASSES.find((g) => g.value === qualityClass)?.label ?? qualityClass;
 
   return (
     <RecordEntityPage<HarvestInput, HarvestFormErrors>
@@ -142,7 +142,7 @@ export function RecordHarvestPage(): JSX.Element {
           />
           <SummaryRow label="Avg Weight" value={`${avgWeightNum}g`} />
           <SummaryRow label="Total Biomass" value={`${totalBiomass.toFixed(1)} kg`} />
-          <SummaryRow label="Quality" value={gradeLabel} />
+          <SummaryRow label="Quality" value={classLabel} />
           {estimatedValue > 0 && (
             <>
               <SummaryDivider />
@@ -200,16 +200,16 @@ export function RecordHarvestPage(): JSX.Element {
         </div>
       )}
 
-      {/* Quality Grade — uses horizontal scroll + color dots, distinct from cull/mortality 4-col emoji grid */}
+      {/* Quality class — uses horizontal scroll + color dots, distinct from cull/mortality 4-col emoji grid */}
       <div className="px-4 mt-5">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quality Grade</h3>
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quality Class</h3>
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {QUALITY_GRADES.map((g) => {
-            const selected = qualityGrade === g.value;
+          {QUALITY_CLASSES.map((g) => {
+            const selected = qualityClass === g.value;
             return (
               <button
                 key={g.value}
-                onClick={() => setQualityGrade(g.value)}
+                onClick={() => setQualityClass(g.value)}
                 className={clsx(
                   'flex-shrink-0 px-4 py-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
                   selected

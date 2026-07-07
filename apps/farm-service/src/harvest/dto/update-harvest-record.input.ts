@@ -20,7 +20,7 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
-import { HarvestRecordStatus, QualityClass, QualityGrade } from '../entities/harvest-record.entity';
+import { HarvestRecordStatus, QualityClass } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 @InputType()
@@ -64,14 +64,6 @@ export class UpdateHarvestRecordInput {
   @IsOptional()
   @IsEnum(QualityClass)
   qualityClass?: QualityClass;
-
-  @Field(() => QualityGrade, {
-    nullable: true,
-    description: 'DEPRECATED legacy display grade — mapped onto qualityClass when supplied.',
-  })
-  @IsOptional()
-  @IsEnum(QualityGrade)
-  qualityGrade?: QualityGrade;
 
   @Field(() => HarvestMethod, { nullable: true, description: 'Update harvest method' })
   @IsOptional()

@@ -339,13 +339,13 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
       quantityHarvested: number;
       averageWeight: number;
       totalBiomass: number;
-      qualityGrade: string;
+      qualityClass: string;
     };
     expect(opName).toBe('createHarvestRecord');
     expect(payload.quantityHarvested).toBe(100);
     expect(payload.averageWeight).toBe(200);
     expect(payload.totalBiomass).toBeCloseTo((100 * 200) / 1000, 5);
-    expect(payload.qualityGrade).toBe('GRADE_A');
+    expect(payload.qualityClass).toBe('SUPERIOR');
   });
 });
 

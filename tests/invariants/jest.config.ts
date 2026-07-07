@@ -128,6 +128,7 @@ export default {
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
+        '<rootDir>/schema-role-drift-ssot.spec.ts',
         '<rootDir>/deploy-isolated-checkout-ssot.spec.ts',
         '<rootDir>/script-graphql-client-ssot.spec.ts',
         '<rootDir>/graphql-fe-drift-baseline-no-grow.spec.ts',

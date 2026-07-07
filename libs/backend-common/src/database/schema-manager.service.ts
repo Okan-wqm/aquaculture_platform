@@ -810,6 +810,19 @@ export function getRlsExcludeTablesForService(moduleName: string): string[] {
 }
 
 /**
+ * Auth is the ONE service whose RLS exclusions include DOMAIN tables, not just
+ * infrastructure: auth resolves a tenant by reading `users`/`tenants` pre-auth
+ * (SUPER_ADMIN rows carry `tenantId=NULL`), so those tables cannot carry a
+ * tenant-RLS policy. `getRlsExcludeTablesForService('auth')` only knows the
+ * infrastructure tables, so auth's list is declared HERE as the single SSoT —
+ * imported by BOTH the runtime `RlsModule.forPoolService` (auth app.module) AND
+ * the db-migrate provisioner's SCHEMA_REGISTRY (schema-registry.ts) so the two
+ * hand-maintained copies can never drift. Add a new auth cross-tenant/identity
+ * table here and both sides pick it up.
+ */
+export const AUTH_RLS_EXCLUDE_TABLES: readonly string[] = ['auth_outbox', 'users', 'tenants'];
+
+/**
  * Provisioning status to distinguish total failure from partial success
  */
 export enum ProvisioningStatus {

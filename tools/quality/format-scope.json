@@ -30277,6 +30277,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-07-07-harvest-qualitygrade-tenant-enum.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -39181,6 +39187,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/no-shared-entity-decorators-via-main-barrel.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/no-unguarded-drop-type-in-migration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51582,10 +51594,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8451,
+  "file_count": 8453,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8276,
-  "managed_file_list_sha256": "47861ef45e5e747bcb1a225292a26387ee1cf5f6ac3068fb4d72fa2063a244ea",
+  "managed_count": 8278,
+  "managed_file_list_sha256": "fcc300e569fd4fe26410187a0349476a9aa3c681ddde7c18869ba2febb083943",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

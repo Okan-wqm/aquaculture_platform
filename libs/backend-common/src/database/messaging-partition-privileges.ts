@@ -26,6 +26,14 @@ import { TENANT_SCHEMA_NAME_RE } from './tenant-aware-schemas';
 const MESSAGING_PARTITION_OWNER_ROLE = 'messaging_schema_owner';
 
 /**
+ * The runtime role that serves messaging queries. It must retain DML on the
+ * partitioned relations after they are re-owned to the definer role below —
+ * Stage 010's EXECUTE-only lockdown removes raw DDL from this role by design,
+ * NOT DML. `runtime_role` for the `messaging` schema in the Stage-008 role map.
+ */
+const MESSAGING_RUNTIME_ROLE = 'messaging_service';
+
+/**
  * Parents and their partition children: `messages` / `message_receipts`
  * plus the `<table>_<year>_<month>` naming the partition function preserves.
  */
@@ -43,7 +51,15 @@ export interface MessagingPartitionAuthorityOptions {
 export interface MessagingPartitionAuthorityGrant {
   tenantSchema: string;
   ownerRole: string;
+  /** The runtime role re-granted DML on the partitioned relations. */
+  runtimeRole: string;
   reownedRelations: string[];
+  /**
+   * Relations (parents + existing children) explicitly re-granted DML to the
+   * runtime role. Future children are covered by the ALTER DEFAULT PRIVILEGES
+   * keyed to the owner role, so they never appear here.
+   */
+  runtimeGrantedRelations: string[];
 }
 
 function assertTenantSchema(value: string): void {
@@ -56,9 +72,28 @@ function assertTenantSchema(value: string): void {
 }
 
 /**
- * Grant `messaging_schema_owner` the authority the partition definer
- * function needs inside one tenant schema: USAGE+CREATE on the schema and
- * ownership of the messaging-domain partitioned relations.
+ * Grant the two authorities the messaging partition model needs inside one
+ * tenant schema:
+ *
+ *   1. `messaging_schema_owner` — USAGE+CREATE on the schema and ownership of
+ *      the messaging-domain partitioned relations, so the SECURITY DEFINER
+ *      partition function can place new monthly children (pg16 requires
+ *      parent OWNERSHIP for `PARTITION OF`).
+ *   2. `messaging_service` (the runtime role) — DML on those same relations.
+ *      Re-owning them to the definer role (1) moves them OUT of the reach the
+ *      runtime role has on the aquaculture-owned messaging tables, so without
+ *      this the app hits "permission denied for table messages" and the
+ *      Messages surface cannot load. Restored the canonical Postgres way:
+ *      ALTER DEFAULT PRIVILEGES keyed to the DEFINER role so every FUTURE
+ *      monthly child the definer creates is auto-granted (no per-partition
+ *      ceremony, no blind spot), plus an explicit GRANT on the parents and
+ *      already-created children (default privileges are forward-only). This is
+ *      the same GRANT + ALTER DEFAULT PRIVILEGES idiom Stage 008 uses for the
+ *      source schemas — the runtime role keeps EXECUTE-only DDL (raw DDL stays
+ *      structurally impossible) while regaining the DML it needs to serve rows.
+ *
+ * Idempotent: GRANT is a set operation and ALTER ... OWNER TO / ALTER DEFAULT
+ * PRIVILEGES no-op when already applied — safe to re-run for backfill.
  */
 export async function grantTenantMessagingPartitionAuthority(
   executor: MessagingPartitionAuthorityQueryExecutor,
@@ -69,6 +104,16 @@ export async function grantTenantMessagingPartitionAuthority(
   await executor.query(
     `GRANT USAGE, CREATE ON SCHEMA "${options.tenantSchema}" ` +
       `TO "${MESSAGING_PARTITION_OWNER_ROLE}"`,
+  );
+
+  // Forward cover: any table the definer role creates in this schema (every
+  // future monthly partition child) auto-grants the runtime role. Keyed FOR
+  // ROLE the definer because the SECURITY DEFINER function creates children as
+  // that role, not as the executing connection.
+  await executor.query(
+    `ALTER DEFAULT PRIVILEGES FOR ROLE "${MESSAGING_PARTITION_OWNER_ROLE}" ` +
+      `IN SCHEMA "${options.tenantSchema}" ` +
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${MESSAGING_RUNTIME_ROLE}"`,
   );
 
   const relations = (await executor.query(
@@ -82,17 +127,28 @@ export async function grantTenantMessagingPartitionAuthority(
   )) as Array<{ qualified_name: string }>;
 
   const reowned: string[] = [];
+  const runtimeGranted: string[] = [];
   for (const relation of relations) {
     await executor.query(
       `ALTER TABLE ${relation.qualified_name} ` +
         `OWNER TO "${MESSAGING_PARTITION_OWNER_ROLE}"`,
     );
     reowned.push(relation.qualified_name);
+
+    // Explicit backfill: default privileges only bind future objects, so the
+    // parents and every already-created child are granted here.
+    await executor.query(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ${relation.qualified_name} ` +
+        `TO "${MESSAGING_RUNTIME_ROLE}"`,
+    );
+    runtimeGranted.push(relation.qualified_name);
   }
 
   return {
     tenantSchema: options.tenantSchema,
     ownerRole: MESSAGING_PARTITION_OWNER_ROLE,
+    runtimeRole: MESSAGING_RUNTIME_ROLE,
     reownedRelations: reowned,
+    runtimeGrantedRelations: runtimeGranted,
   };
 }

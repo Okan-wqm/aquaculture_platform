@@ -41,12 +41,26 @@
 -- ============================================================================
 
 -- Tenant-schema normalization (idempotent — GRANT is a set operation and
--- ALTER ... OWNER TO is a no-op when the owner already matches):
+-- ALTER ... OWNER TO / ALTER DEFAULT PRIVILEGES no-op when already applied):
 --   * messaging_schema_owner needs USAGE+CREATE on each tenant schema to
 --     place new partition children there.
 --   * messaging-domain parents AND their existing partition children move
 --     to messaging_schema_owner (ALTER on the parent does NOT cascade to
 --     existing children — both relation classes are enumerated).
+--   * The runtime role (messaging_service) regains DML on those relations.
+--     Re-owning them to the definer moves them OUT of the reach the runtime
+--     role has on the aquaculture-owned messaging tables, so without this the
+--     app hits "permission denied for table messages" and the tenant-member
+--     Messages surface cannot load. The EXECUTE-only DDL lockdown above is
+--     deliberate; DML is not — restore it the canonical way (same GRANT +
+--     ALTER DEFAULT PRIVILEGES idiom Stage 008 uses for source schemas):
+--       - ALTER DEFAULT PRIVILEGES FOR ROLE messaging_schema_owner so every
+--         FUTURE monthly child the definer function creates is auto-granted
+--         (no per-partition ceremony, no blind spot), plus
+--       - an explicit GRANT on the parents + already-created children
+--         (default privileges bind future objects only).
+--     This mirrors grantTenantMessagingPartitionAuthority (the provisioner's
+--     forward path for new tenants); this loop is the backfill for existing.
 DO $messaging_partition_authority_backfill$
 DECLARE
   tenant_schema text;
@@ -61,6 +75,11 @@ BEGIN
       'GRANT USAGE, CREATE ON SCHEMA %I TO messaging_schema_owner',
       tenant_schema
     );
+    EXECUTE format(
+      'ALTER DEFAULT PRIVILEGES FOR ROLE messaging_schema_owner IN SCHEMA %I '
+      || 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO messaging_service',
+      tenant_schema
+    );
     FOR rel IN
       SELECT c.oid::regclass::text AS qualified_name
         FROM pg_catalog.pg_class c
@@ -71,6 +90,10 @@ BEGIN
     LOOP
       EXECUTE format(
         'ALTER TABLE %s OWNER TO messaging_schema_owner',
+        rel.qualified_name
+      );
+      EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %s TO messaging_service',
         rel.qualified_name
       );
     END LOOP;

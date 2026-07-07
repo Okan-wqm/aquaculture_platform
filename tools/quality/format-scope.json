@@ -30043,6 +30043,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-07-farm-messaging-strict-property-init.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -39384,6 +39390,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/strict-property-initialization-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/strip-internal-headers-mounted.spec.ts",
       "prettier_managed": true
     },
@@ -40309,6 +40321,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -51570,10 +51594,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8449,
+  "file_count": 8453,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8274,
-  "managed_file_list_sha256": "87a255ca8cfae0f5e0a6d6371d0b1a24f557469dc71c80f950617a2d45da32b5",
+  "managed_count": 8278,
+  "managed_file_list_sha256": "c44dcab1b9985f8b9cfcd4b133d301960fc2f9d4b6a0ad8186266d78ce94be97",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

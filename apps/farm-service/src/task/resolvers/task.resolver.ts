@@ -65,22 +65,22 @@ class TaskListResponse extends StandardPaginatedResponse(Task) {}
 @ObjectType()
 class TaskStatsResponse {
   @Field(() => Int)
-  totalToday: number;
+  totalToday!: number;
 
   @Field(() => Int)
-  completedToday: number;
+  completedToday!: number;
 
   @Field(() => Int)
-  overdueCount: number;
+  overdueCount!: number;
 
   @Field(() => Int)
-  upcomingCount: number;
+  upcomingCount!: number;
 
   @Field(() => Float)
-  completionRate: number;
+  completionRate!: number;
 
   @Field(() => Float)
-  avgCompletionMinutes: number;
+  avgCompletionMinutes!: number;
 }
 
 // ============================================================================

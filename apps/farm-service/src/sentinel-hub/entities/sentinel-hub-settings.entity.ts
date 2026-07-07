@@ -29,11 +29,11 @@ import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/se
 export class SentinelHubSettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   @Column({
     name: 'client_id',
@@ -41,7 +41,7 @@ export class SentinelHubSettings {
     nullable: true,
     transformer: createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY'),
   })
-  clientId: string; // AES-256-GCM encrypted at rest (transparent on read/write)
+  clientId!: string; // AES-256-GCM encrypted at rest (transparent on read/write)
 
   @Column({
     name: 'client_secret',
@@ -49,7 +49,7 @@ export class SentinelHubSettings {
     nullable: true,
     transformer: createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY'),
   })
-  clientSecret: string; // AES-256-GCM encrypted at rest (transparent on read/write)
+  clientSecret!: string; // AES-256-GCM encrypted at rest (transparent on read/write)
 
   @Column({
     name: 'instance_id',
@@ -57,27 +57,27 @@ export class SentinelHubSettings {
     nullable: true,
     transformer: createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY'),
   })
-  instanceId: string; // AES-256-GCM encrypted at rest - WMTS Configuration Instance ID
+  instanceId!: string; // AES-256-GCM encrypted at rest - WMTS Configuration Instance ID
 
   @Field()
   @Column({ name: 'is_configured', default: false })
-  isConfigured: boolean;
+  isConfigured!: boolean;
 
   @Field({ nullable: true })
   @Column({ name: 'last_used', type: 'timestamptz', nullable: true })
-  lastUsed: Date;
+  lastUsed!: Date;
 
   @Field(() => Int)
   @Column({ name: 'usage_count', default: 0 })
-  usageCount: number;
+  usageCount!: number;
 
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 /**
@@ -87,7 +87,7 @@ export class SentinelHubSettings {
 @ObjectType()
 export class SentinelHubStatus {
   @Field()
-  isConfigured: boolean;
+  isConfigured!: boolean;
 
   @Field({ nullable: true })
   clientIdMasked?: string;
@@ -99,22 +99,22 @@ export class SentinelHubStatus {
   lastUsed?: Date;
 
   @Field(() => Int)
-  usageCount: number;
+  usageCount!: number;
 }
 
 @ObjectType()
 export class SentinelHubCredentials {
   @Field()
-  clientId: string;
+  clientId!: string;
 
   @Field({ nullable: true })
   instanceId?: string;
 
   @Field()
-  hasClientSecret: boolean;
+  hasClientSecret!: boolean;
 
   @Field({ description: 'Indicates credentials are configured and valid' })
-  isConfigured: boolean;
+  isConfigured!: boolean;
 }
 
 /**
@@ -131,10 +131,10 @@ export class SentinelHubCredentials {
 @ObjectType()
 export class SentinelHubToken {
   @HideField()
-  accessToken: string;
+  accessToken!: string;
 
   @Field(() => Int)
-  expiresIn: number;
+  expiresIn!: number;
 }
 
 /**
@@ -147,11 +147,11 @@ export class SentinelHubToken {
 @ObjectType()
 export class SentinelHubWmtsConfig {
   @Field()
-  instanceId: string;
+  instanceId!: string;
 
   @HideField()
-  accessToken: string;
+  accessToken!: string;
 
   @Field(() => Int)
-  expiresIn: number;
+  expiresIn!: number;
 }

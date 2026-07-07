@@ -20,5 +20,5 @@ export class UpdateUserAiConsentInput {
     description: 'User opt-in consent for AI analysis of their messages',
   })
   @IsBoolean()
-  consent: boolean;
+  consent!: boolean;
 }

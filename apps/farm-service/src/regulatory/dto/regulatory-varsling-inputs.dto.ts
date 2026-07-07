@@ -76,12 +76,12 @@ export class VarslingKontaktpersonInput {
   @Field({ description: 'Contact person name' })
   @IsNotEmpty()
   @IsString()
-  navn: string;
+  navn!: string;
 
   @Field({ description: 'Contact person email' })
   @IsNotEmpty()
   @IsEmail()
-  epost: string;
+  epost!: string;
 
   @Field({ nullable: true, description: 'Contact person phone number (e.g., +4798989898)' })
   @IsOptional()
@@ -97,26 +97,26 @@ export class VarslingBaseInput {
   @Field({ description: 'Client reference — unique identifier for the submission (UUID)' })
   @IsNotEmpty()
   @IsString()
-  klientReferanse: string;
+  klientReferanse!: string;
 
   @Field({ description: 'Norwegian organization number (9 digits)' })
   @IsNotEmpty()
   @IsString()
-  organisasjonsnummer: string;
+  organisasjonsnummer!: string;
 
   @Field(() => Int, { description: 'Site/Locality registration number (NUMBER, not string!)' })
   @IsInt()
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 
   @Field({ description: 'Internal site identifier' })
   @IsNotEmpty()
   @IsString()
-  siteId: string;
+  siteId!: string;
 
   @Field({ description: 'Human-readable site name' })
   @IsNotEmpty()
   @IsString()
-  siteName: string;
+  siteName!: string;
 
   @Field({ nullable: true, description: 'Site code (optional)' })
   @IsOptional()
@@ -126,7 +126,7 @@ export class VarslingBaseInput {
   @Field(() => VarslingKontaktpersonInput, { description: 'Contact person (required object)' })
   @ValidateNested()
   @Type(() => VarslingKontaktpersonInput)
-  kontaktperson: VarslingKontaktpersonInput;
+  kontaktperson!: VarslingKontaktpersonInput;
 
   @Field({ nullable: true, description: 'Site-manager CC recipient' })
   @IsOptional()
@@ -136,12 +136,12 @@ export class VarslingBaseInput {
   @Field({ description: 'When the incident was detected (ISO 8601)' })
   @IsNotEmpty()
   @IsString()
-  detectedAt: string;
+  detectedAt!: string;
 
   @Field({ description: 'Name of the person submitting the report' })
   @IsNotEmpty()
   @IsString()
-  reportedBy: string;
+  reportedBy!: string;
 }
 
 // ============================================================================
@@ -152,11 +152,11 @@ export class VarslingBaseInput {
 export class SubmitWelfareEventInput extends VarslingBaseInput {
   @Field(() => WelfareEventTypeInput, { description: 'Welfare event type' })
   @IsEnum(WelfareEventTypeInput)
-  welfareEventType: WelfareEventTypeInput;
+  welfareEventType!: WelfareEventTypeInput;
 
   @Field(() => WelfareSeverityInput, { description: 'Severity' })
   @IsEnum(WelfareSeverityInput)
-  severity: WelfareSeverityInput;
+  severity!: WelfareSeverityInput;
 
   @Field(() => Float, { nullable: true, description: 'Mortality rate (%) — for mortality_threshold' })
   @IsOptional()
@@ -178,12 +178,12 @@ export class SubmitWelfareEventInput extends VarslingBaseInput {
   @Field({ description: 'Incident description' })
   @IsNotEmpty()
   @IsString()
-  description: string;
+  description!: string;
 
   @Field(() => [String], { description: 'Immediate actions taken (at least one required)' })
   @IsArray()
   @IsString({ each: true })
-  immediateActions: string[];
+  immediateActions!: string[];
 }
 
 // ============================================================================
@@ -195,36 +195,36 @@ export class SubmitEscapeReportInput extends VarslingBaseInput {
   @Field(() => Int, { description: 'Estimated number of escaped fish' })
   @IsInt()
   @Min(0)
-  estimatedCount: number;
+  estimatedCount!: number;
 
   @Field({ description: 'Species' })
   @IsNotEmpty()
   @IsString()
-  species: string;
+  species!: string;
 
   @Field(() => Float, { description: 'Average weight (grams)' })
   @IsNumber()
   @Min(0)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field(() => Float, { description: 'Total escaped biomass (kg)' })
   @IsNumber()
   @Min(0)
-  totalBiomassKg: number;
+  totalBiomassKg!: number;
 
   @Field({ description: 'Cause of escape' })
   @IsNotEmpty()
   @IsString()
-  cause: string;
+  cause!: string;
 
   @Field(() => [String], { description: 'Affected units (cage/tank identifiers)' })
   @IsArray()
   @IsString({ each: true })
-  affectedUnits: string[];
+  affectedUnits!: string[];
 
   @Field({ description: 'Whether recovery efforts are ongoing' })
   @IsBoolean()
-  recoveryOngoing: boolean;
+  recoveryOngoing!: boolean;
 }
 
 // ============================================================================
@@ -235,36 +235,36 @@ export class SubmitEscapeReportInput extends VarslingBaseInput {
 export class SubmitDiseaseOutbreakInput extends VarslingBaseInput {
   @Field(() => DiseaseCategoryInput, { description: 'Disease list category (A/C/F)' })
   @IsEnum(DiseaseCategoryInput)
-  diseaseCategory: DiseaseCategoryInput;
+  diseaseCategory!: DiseaseCategoryInput;
 
   @Field({ description: 'Disease name' })
   @IsNotEmpty()
   @IsString()
-  diseaseName: string;
+  diseaseName!: string;
 
   @Field(() => DiseaseConfirmationInput, { description: 'Suspected or lab-confirmed' })
   @IsEnum(DiseaseConfirmationInput)
-  confirmation: DiseaseConfirmationInput;
+  confirmation!: DiseaseConfirmationInput;
 
   @Field(() => Int, { description: 'Estimated number of affected fish' })
   @IsInt()
   @Min(0)
-  affectedCount: number;
+  affectedCount!: number;
 
   @Field(() => Float, { description: 'Affected percentage of population' })
   @IsNumber()
   @Min(0)
   @Max(100)
-  affectedPercentage: number;
+  affectedPercentage!: number;
 
   @Field(() => [String], { description: 'Observed clinical signs' })
   @IsArray()
   @IsString({ each: true })
-  clinicalSigns: string[];
+  clinicalSigns!: string[];
 
   @Field({ description: 'Whether a veterinarian has been notified' })
   @IsBoolean()
-  veterinarianNotified: boolean;
+  veterinarianNotified!: boolean;
 
   @Field({ nullable: true, description: 'Veterinarian name' })
   @IsOptional()

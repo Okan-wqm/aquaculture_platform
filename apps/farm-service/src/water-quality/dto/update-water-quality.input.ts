@@ -17,7 +17,7 @@ import { ValidateDynamicParameters } from '../validators/dynamic-parameters.vali
 export class UpdateWaterQualityInput {
   @Field(() => ID, { description: 'Ölçüm ID' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   /**
    * Dynamic parameter values to merge onto the existing measurement.

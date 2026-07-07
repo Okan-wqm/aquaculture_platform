@@ -13,7 +13,7 @@ import { IsUUID, IsOptional, IsString, MaxLength } from 'class-validator';
 export class CreateInventoryCountInput {
   @Field(() => ID, { description: 'Target storage location to count' })
   @IsUUID()
-  storageLocationId: string;
+  storageLocationId!: string;
 
   /**
    * Free-text notes for the count session (e.g., "Quarterly compliance count",

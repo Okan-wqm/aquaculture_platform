@@ -144,12 +144,12 @@ export type RegulatoryReportPayload = RegulatoryRestWirePayload | RegulatoryVars
 export class RegulatoryReport {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => RegulatoryReportType)
   @Column({
@@ -157,12 +157,12 @@ export class RegulatoryReport {
     enum: RegulatoryReportType,
     enumName: 'regulatory_reports_type_enum',
   })
-  reportType: RegulatoryReportType;
+  reportType!: RegulatoryReportType;
 
   /** Client reference — the operator-facing idempotency key echoed to Mattilsynet. */
   @Field()
   @Column('varchar', { length: 128 })
-  klientReferanse: string;
+  klientReferanse!: string;
 
   /** Internal site the locality maps to; nullable when no mapping resolves. */
   @Field({ nullable: true })
@@ -171,7 +171,7 @@ export class RegulatoryReport {
 
   @Field(() => Int)
   @Column('int')
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 
   /** Reporting period — which columns apply depends on reportType. */
   @Field(() => Int, { nullable: true })
@@ -193,7 +193,7 @@ export class RegulatoryReport {
     enumName: 'regulatory_reports_status_enum',
     default: RegulatoryReportSubmissionStatus.PENDING,
   })
-  status: RegulatoryReportSubmissionStatus;
+  status!: RegulatoryReportSubmissionStatus;
 
   /**
    * Full submitted form snapshot. Typed as the union of the submit input
@@ -201,7 +201,7 @@ export class RegulatoryReport {
    */
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  payload: RegulatoryReportPayload;
+  payload!: RegulatoryReportPayload;
 
   /**
    * Mattilsynet receipt reference (SUBMITTED) or outbox event id (QUEUED).
@@ -223,7 +223,7 @@ export class RegulatoryReport {
 
   @Field()
   @Column('uuid')
-  submittedBy: string;
+  submittedBy!: string;
 
   @Field({ nullable: true })
   @Column('timestamptz', { nullable: true })
@@ -236,7 +236,7 @@ export class RegulatoryReport {
   /** How many submission attempts this row has seen (0 before the first). */
   @Field(() => Int)
   @Column('int', { default: 0 })
-  attemptCount: number;
+  attemptCount!: number;
 
   /** When the retry sweep may next replay a TRANSIENT failure (null = never). */
   @Field(() => Date, { nullable: true })
@@ -254,9 +254,9 @@ export class RegulatoryReport {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

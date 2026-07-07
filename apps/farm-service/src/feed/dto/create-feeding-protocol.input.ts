@@ -25,11 +25,11 @@ import { FeedType } from '../entities/feed.entity';
 export class FeedingTemperatureRangeInput {
   @Field(() => Float)
   @IsNumber()
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
-  max: number;
+  max!: number;
 
   @Field({ defaultValue: 'celsius' })
   @IsOptional()
@@ -38,7 +38,7 @@ export class FeedingTemperatureRangeInput {
 
   @Field(() => Float, { description: 'Multiplier applied to normal feeding rate' })
   @IsNumber()
-  feedingMultiplier: number;
+  feedingMultiplier!: number;
 }
 
 /**
@@ -51,11 +51,11 @@ export class FeedingProtocolScheduleEntryInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(10)
-  time: string;
+  time!: string;
 
   @Field(() => Float, { description: 'Percentage of daily amount' })
   @IsNumber()
-  percentOfDaily: number;
+  percentOfDaily!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -92,13 +92,13 @@ export class FeedingScheduleAdjustmentsInput {
 export class FeedingScheduleInput {
   @Field(() => Int)
   @IsNumber()
-  totalMealsPerDay: number;
+  totalMealsPerDay!: number;
 
   @Field(() => [FeedingProtocolScheduleEntryInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => FeedingProtocolScheduleEntryInput)
-  schedule: FeedingProtocolScheduleEntryInput[];
+  schedule!: FeedingProtocolScheduleEntryInput[];
 
   @Field(() => FeedingScheduleAdjustmentsInput, { nullable: true })
   @IsOptional()
@@ -114,11 +114,11 @@ export class FeedingScheduleInput {
 export class GrowthStageProtocolInput {
   @Field(() => Float)
   @IsNumber()
-  minWeight: number;
+  minWeight!: number;
 
   @Field(() => Float)
   @IsNumber()
-  maxWeight: number;
+  maxWeight!: number;
 
   @Field({ defaultValue: 'gram' })
   @IsOptional()
@@ -127,12 +127,12 @@ export class GrowthStageProtocolInput {
 
   @Field(() => Float, { description: 'Feed percentage of body weight' })
   @IsNumber()
-  feedPercent: number;
+  feedPercent!: number;
 
   @Field(() => FeedingScheduleInput)
   @ValidateNested()
   @Type(() => FeedingScheduleInput)
-  schedule: FeedingScheduleInput;
+  schedule!: FeedingScheduleInput;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -148,11 +148,11 @@ export class GrowthStageProtocolInput {
 export class OptimalTemperatureInput {
   @Field(() => Float)
   @IsNumber()
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
-  max: number;
+  max!: number;
 
   @Field({ defaultValue: 'celsius' })
   @IsOptional()
@@ -200,7 +200,7 @@ export class CreateFeedingProtocolInput {
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -217,7 +217,7 @@ export class CreateFeedingProtocolInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  species: string;
+  species!: string;
 
   @Field(() => FeedType, { defaultValue: FeedType.GROWER })
   @IsOptional()

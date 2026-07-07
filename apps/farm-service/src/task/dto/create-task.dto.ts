@@ -26,7 +26,7 @@ export class TaskChecklistItemInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(500)
-  text: string;
+  text!: string;
 
   @Field(() => Boolean, { nullable: true })
   @IsOptional()
@@ -43,7 +43,7 @@ export class CreateTaskInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -54,27 +54,27 @@ export class CreateTaskInput {
   @Field(() => TaskCategory)
   @IsNotEmpty()
   @IsEnum(TaskCategory)
-  category: TaskCategory;
+  category!: TaskCategory;
 
   @Field(() => TaskPriority)
   @IsNotEmpty()
   @IsEnum(TaskPriority)
-  priority: TaskPriority;
+  priority!: TaskPriority;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  assignedTo: string;
+  assignedTo!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  assignedToName: string;
+  assignedToName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  dueDate: string;
+  dueDate!: string;
 
   @Field({ nullable: true })
   @IsOptional()

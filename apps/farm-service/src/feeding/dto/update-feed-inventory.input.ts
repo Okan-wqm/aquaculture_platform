@@ -22,7 +22,7 @@ import { InventoryStatus } from '../entities/feed-inventory.entity';
 export class UpdateFeedInventoryInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -119,16 +119,16 @@ export class UpdateFeedInventoryInput {
 export class AdjustInventoryQuantityInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => Float)
   @IsNumber()
-  adjustmentKg: number;
+  adjustmentKg!: number;
 
   @Field()
   @IsString()
   @MaxLength(500)
-  reason: string;
+  reason!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -143,11 +143,11 @@ export class AdjustInventoryQuantityInput {
 export class TransferInventoryInput {
   @Field(() => ID)
   @IsUUID()
-  sourceInventoryId: string;
+  sourceInventoryId!: string;
 
   @Field(() => ID)
   @IsUUID()
-  targetSiteId: string;
+  targetSiteId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -157,7 +157,7 @@ export class TransferInventoryInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0.01)
-  quantityKg: number;
+  quantityKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()

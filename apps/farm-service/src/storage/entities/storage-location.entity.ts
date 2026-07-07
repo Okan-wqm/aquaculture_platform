@@ -32,28 +32,28 @@ registerEnumType(StorageLocationType, {
 @Index(['tenantId', 'type'])
 export class StorageLocation {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', name: 'site_id' })
   @Index()
-  siteId: string;
+  siteId!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Column({
     type: 'varchar',
     length: 30,
     default: StorageLocationType.WAREHOUSE,
   })
-  type: StorageLocationType;
+  type!: StorageLocationType;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -62,10 +62,10 @@ export class StorageLocation {
   capacity?: number;
 
   @Column({ type: 'varchar', length: 20, default: 'm3', name: 'capacity_unit' })
-  capacityUnit: string;
+  capacityUnit!: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'used_capacity', transformer: new DecimalTransformer() })
-  usedCapacity: number;
+  usedCapacity!: number;
 
   @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'temperature_min', transformer: new DecimalTransformer() })
   temperatureMin?: number;
@@ -80,12 +80,12 @@ export class StorageLocation {
   humidityMax?: number;
 
   @Column({ default: true, name: 'is_active' })
-  isActive: boolean;
+  isActive!: boolean;
 
   // Soft delete
   @Column({ default: false, name: 'is_deleted' })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
   deletedAt?: Date;
@@ -95,10 +95,10 @@ export class StorageLocation {
 
   // Audit
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column({ type: 'uuid', nullable: true, name: 'created_by' })
   createdBy?: string;
@@ -107,7 +107,7 @@ export class StorageLocation {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   softDelete(deletedBy?: string): void {
     this.isDeleted = true;

@@ -29,10 +29,10 @@ describe('HealthService', () => {
 
   /**
    * ARCH-GW-003: Must match the number of services in health.service.ts serviceUrls map.
-   * Currently 10 subgraphs: auth, farm, sensor, alert, hr, billing,
-   * hydroponics, config, notification, messaging.
+   * Currently 11 subgraphs: auth, farm, sensor, alert, hr, billing,
+   * hydroponics, config, notification, messaging, ai.
    */
-  const TOTAL_MONITORED_SERVICES = 10;
+  const TOTAL_MONITORED_SERVICES = 11;
 
   /**
    * ARCH-GW-006: composition readiness mock. Defaults to composed=true so the
@@ -61,6 +61,7 @@ describe('HealthService', () => {
         CONFIG_SERVICE_URL: 'http://config:3007/graphql',
         NOTIFICATION_SERVICE_URL: 'http://notification:4008/graphql',
         MESSAGING_SERVICE_URL: 'http://messaging:3000/graphql',
+        AI_SERVICE_URL: 'http://ai:3008/graphql',
         APP_VERSION: '1.2.3',
       };
       return config[key] ?? defaultValue;

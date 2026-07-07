@@ -59,6 +59,8 @@ import { resolve } from 'node:path';
 import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 import {
   applyTenantRlsToSchema,
+  applyInfrastructureLedgerRls,
+  getInfrastructureAuditLedgers,
   convertAuditColumnsToTimestamptz,
   getTenantSchemaName,
   grantTenantMigrationLedgerReadAccess,
@@ -227,12 +229,22 @@ async function runSchemaPostMigrationHardening(
 
     if (hardening.tenantRls !== undefined) {
       const rlsOptions = hardening.tenantRls === true ? {} : hardening.tenantRls;
+      // ORPHAN-MEDIUM-324: the cross-tenant infrastructure audit ledgers must
+      // NOT receive tenant_isolation_policy (category error — a no-tenant-context
+      // writer can never satisfy it, so the compliance-critical INSERT is
+      // silently denied). Exclude them from the column-driven tenant sweep here,
+      // then install the canonical append/system-read policy in the dedicated
+      // pass below. Merging the SSoT ledgers with any config excludes keeps the
+      // sweep from ever touching them.
+      const ledgerExcludes = getInfrastructureAuditLedgers(schema);
+      const mergedExcludes = [
+        ...(rlsOptions.excludeTables ?? []),
+        ...ledgerExcludes,
+      ];
       await applyTenantRlsToSchema(queryRunner, {
         schemaOverride: schema,
         logger: helperLogger,
-        ...(rlsOptions.excludeTables !== undefined
-          ? { excludeTables: rlsOptions.excludeTables }
-          : {}),
+        ...(mergedExcludes.length > 0 ? { excludeTables: mergedExcludes } : {}),
         ...(rlsOptions.tenantIdColumns !== undefined
           ? { tenantIdColumns: rlsOptions.tenantIdColumns }
           : {}),
@@ -250,6 +262,23 @@ async function runSchemaPostMigrationHardening(
         ...(auditOptions.auditColumns !== undefined
           ? { auditColumns: auditOptions.auditColumns }
           : {}),
+      });
+    }
+
+    // ORPHAN-MEDIUM-324 (+ ORPHAN-HIGH-308): install the canonical cross-tenant
+    // infrastructure audit-ledger policy (append-INSERT + system-aware SELECT,
+    // immutable, NO tenant_isolation_policy) on this schema's SSoT-declared
+    // ledgers. SSoT-DRIVEN (getInfrastructureAuditLedgers) rather than a
+    // per-registry-entry field, so the policy set cannot drift from the SSoT.
+    // Idempotent — self-heals a ledger that a prior deploy wrongly
+    // tenant-RLS'd. shared.audit_logs is NOT a registry-hardened schema and is
+    // handled in platform-bootstrap SQL (006-shared-schema-tables.sql).
+    const infraLedgers = getInfrastructureAuditLedgers(schema);
+    if (infraLedgers.length > 0) {
+      await applyInfrastructureLedgerRls(queryRunner, {
+        schema,
+        ledgers: infraLedgers,
+        logger: helperLogger,
       });
     }
 

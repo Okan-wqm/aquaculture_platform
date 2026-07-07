@@ -218,6 +218,8 @@ export default {
       displayName: 'registry',
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/tenant-permission-guard-adoption.spec.ts',
+        '<rootDir>/sensor-enum-fe-be-parity.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/no-runtime-synchronize.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
@@ -246,6 +248,7 @@ export default {
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
         '<rootDir>/critical-infra-ssot.spec.ts',
+        '<rootDir>/infrastructure-ledger-ssot.spec.ts',
         '<rootDir>/admin-backup-encryption-ssot.spec.ts',
         '<rootDir>/timescale-rls-columnstore-contract.spec.ts',
         '<rootDir>/jwt-rs256-only.spec.ts',

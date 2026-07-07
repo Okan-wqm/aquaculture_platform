@@ -149,6 +149,13 @@ services:
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
+      # ai-service create_task actuation tool (request-reply responder)
+      - "request.farm.createTask"
+      - "request.farm.getTankRegistry"
+      - "request.farm.getBatchOverview"
+      - "request.farm.getWaterQualityOverview"
+      - "request.farm.getHarvestOverview"
+      - "request.farm.getFeedingOverview"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -173,6 +180,9 @@ services:
       - "events.*.SensorDeleted"
       - "events.*.SensorDeprovisioned"
       - "events.*.SensorReading"
+      - "events.*.SensorRegistered"
+      - "events.*.SensorRegistrationCompleted"
+      - "events.*.SensorRegistrationStarted"
       - "st.language.>"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
@@ -229,6 +239,7 @@ services:
       - "request.messaging.resolveNotificationRef"
       - "request.messaging.getMessageForBroadcast"
       - "request.sensor.verifyDeviceOwnership"
+      - "request.ai.chat"
       - "request.messaging.admin.complianceStats"
       - "request.messaging.admin.getLegalHolds"
       - "request.messaging.admin.createLegalHold"
@@ -306,6 +317,13 @@ services:
     publish:
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
+      # create_task actuation tool → farm-service responder (request-reply)
+      - "request.farm.createTask"
+      - "request.farm.getTankRegistry"
+      - "request.farm.getBatchOverview"
+      - "request.farm.getWaterQualityOverview"
+      - "request.farm.getHarvestOverview"
+      - "request.farm.getFeedingOverview"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
@@ -313,6 +331,7 @@ services:
       - "request.ai.executeAction"
       - "request.ai.generateEmbeddings"
       - "request.ai.analyzeSentiment"
+      - "request.ai.isEnabled"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -434,6 +453,7 @@ services:
       - "request.ai.executeAction"
       - "request.ai.generateEmbeddings"
       - "request.ai.analyzeSentiment"
+      - "request.ai.isEnabled"
       - "request.farm.getTankRegistry"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"

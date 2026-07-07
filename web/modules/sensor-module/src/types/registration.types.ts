@@ -119,6 +119,13 @@ export interface UIGroup {
 }
 
 // Sensor types - use lowercase to match backend
+// SENSOR-HIGH-028: this enum MUST stay a subset of the backend SensorType
+// (apps/sensor-service/src/database/entities/sensor.entity.ts). It is a real
+// GraphQL enum, so a value the backend does not define makes registerSensor /
+// registerParentWithChildren fail with a GraphQL enum-validation error.
+// PRESSURE/CAMERA/OTHER were removed because the backend enum (a Postgres enum
+// column) does not define them; unknown/pressure channels now fall back to
+// MULTI_PARAMETER. A parity invariant enforces the subset relationship.
 export enum SensorType {
   TEMPERATURE = 'temperature',
   PH = 'ph',
@@ -130,14 +137,11 @@ export enum SensorType {
   TURBIDITY = 'turbidity',
   WATER_LEVEL = 'water_level',
   FLOW_RATE = 'flow_rate',
-  PRESSURE = 'pressure',
   CONDUCTIVITY = 'conductivity',
   ORP = 'orp',
   CO2 = 'co2',
   CHLORINE = 'chlorine',
   MULTI_PARAMETER = 'multi_parameter',
-  CAMERA = 'camera',
-  OTHER = 'other',
 }
 
 // Sensor status enum
@@ -637,7 +641,9 @@ export const KNOWN_PARAMETERS: Record<string, {
   level: { type: SensorType.WATER_LEVEL, label: 'Water Level', unit: 'm', minValue: 0, maxValue: 10 },
   flow_rate: { type: SensorType.FLOW_RATE, label: 'Flow Rate', unit: 'L/min', minValue: 0, maxValue: 1000 },
   flow: { type: SensorType.FLOW_RATE, label: 'Flow Rate', unit: 'L/min', minValue: 0, maxValue: 1000 },
-  pressure: { type: SensorType.PRESSURE, label: 'Pressure', unit: 'bar', minValue: 0, maxValue: 10 },
+  // SENSOR-HIGH-028: backend has no PRESSURE type; keep the pressure label/unit
+  // but persist as MULTI_PARAMETER (the backend-supported catch-all).
+  pressure: { type: SensorType.MULTI_PARAMETER, label: 'Pressure', unit: 'bar', minValue: 0, maxValue: 10 },
   conductivity: { type: SensorType.CONDUCTIVITY, label: 'Conductivity', unit: 'µS/cm', minValue: 0, maxValue: 100000 },
   ec: { type: SensorType.CONDUCTIVITY, label: 'Conductivity', unit: 'µS/cm', minValue: 0, maxValue: 100000 },
   orp: { type: SensorType.ORP, label: 'ORP', unit: 'mV', minValue: -500, maxValue: 500 },
@@ -663,7 +669,7 @@ export function inferChildSensorConfig(
   return {
     dataPath,
     name: baseName,
-    type: knownParam?.type || SensorType.OTHER,
+    type: knownParam?.type || SensorType.MULTI_PARAMETER,
     unit: knownParam?.unit,
     sampleValue,
     minValue: knownParam?.minValue,

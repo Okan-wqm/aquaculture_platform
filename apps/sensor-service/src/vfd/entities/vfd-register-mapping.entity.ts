@@ -19,10 +19,19 @@ export type { BitDefinition, VfdRegisterMappingInput } from './vfd.types';
 
 /**
  * VFD Register Mapping Entity
- * Stores brand-specific register addresses and configurations
+ * Stores brand-specific register addresses and configurations.
+ *
+ * SENSOR-MEDIUM-009: these are GLOBAL vendor reference data (Danfoss/ABB
+ * register addresses) — identical for every tenant, with no tenantId column and
+ * no per-tenant write path exposed (the resolver only reads; seedBrandMappings /
+ * createCustomMapping are internal-only). It is therefore a cross-tenant table
+ * pinned to the `sensor` schema (declares `schema:`), NOT a per-tenant clone.
+ * Reads resolve to the single `sensor.vfd_register_mappings` regardless of
+ * search_path; the built-in code mappings remain the fallback for brands not
+ * present in the table.
  */
 @ObjectType({ description: 'VFD register mapping configuration' })
-@Entity('vfd_register_mappings')
+@Entity({ name: 'vfd_register_mappings', schema: 'sensor' })
 @Index(['brand'])
 @Index(['brand', 'modelSeries'])
 @Index(['brand', 'parameterName'])

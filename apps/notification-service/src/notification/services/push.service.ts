@@ -21,10 +21,15 @@ interface FirebaseApp {
 
 interface FirebaseMessage {
   token: string;
-  notification: { title: string; body: string };
+  // Presentation blocks are OMITTED for a data-only message (MSG-CRITICAL-056):
+  // when present, the FCM web SDK may auto-display the notification independent of
+  // the service worker's onBackgroundMessage, bypassing the shared-device userId
+  // gate. A data-only message carries everything in `data` so the SW is the sole
+  // presenter and the gate is authoritative by construction.
+  notification?: { title: string; body: string };
   data?: Record<string, string>;
-  android: { notification: { sound: string } };
-  webpush: { notification: { badge?: string } };
+  android?: { notification: { sound: string } };
+  webpush?: { notification: { badge?: string } };
 }
 
 interface FirebaseMessaging {
@@ -80,6 +85,59 @@ export interface PushNotificationData {
   data?: Record<string, unknown>;
   badge?: number;
   sound?: string;
+  /**
+   * MSG-CRITICAL-056: send a DATA-ONLY FCM message — drop the `notification`
+   * presentation block so the service worker is the sole presenter and the
+   * shared-device userId gate cannot be bypassed by SDK auto-display. Title,
+   * body and badge are carried in `data` for the SW to render. Used for the
+   * user-targeted messaging chat push.
+   */
+  dataOnly?: boolean;
+}
+
+/**
+ * Build the FCM message for a push, choosing data-only vs notification-bearing.
+ *
+ * MSG-CRITICAL-056: a data-only message carries NO `notification`/`android`/
+ * `webpush` presentation block, so the FCM web SDK cannot auto-display it; the
+ * service worker is the sole presenter and its shared-device userId gate is
+ * authoritative. title/body/badge travel in `data` for the SW to render. Exported
+ * so the message shape is unit-testable without the optional firebase-admin dep.
+ */
+export function buildFirebaseMessage(
+  deviceToken: string,
+  notification: PushNotificationData,
+): FirebaseMessage {
+  const baseData: Record<string, string> = notification.data
+    ? Object.fromEntries(
+        Object.entries(notification.data).map(([k, v]) => [k, String(v)]),
+      )
+    : {};
+
+  if (notification.dataOnly) {
+    // MSG-MEDIUM-069: the badge count travels in `data.badge` (a number the SW
+    // reads), NOT the webpush badge field (an icon URL) — parsing that as a count
+    // yielded NaN and cleared the app badge to 0 on every push.
+    return {
+      token: deviceToken,
+      data: {
+        ...baseData,
+        title: notification.title,
+        body: notification.body,
+        ...(notification.badge !== undefined
+          ? { badge: notification.badge.toString() }
+          : {}),
+      },
+    };
+  }
+
+  return {
+    token: deviceToken,
+    notification: { title: notification.title, body: notification.body },
+    data: Object.keys(baseData).length > 0 ? baseData : undefined,
+    android: { notification: { sound: notification.sound || 'default' } },
+    webpush: { notification: { badge: notification.badge?.toString() } },
+  };
 }
 
 /**
@@ -340,17 +398,7 @@ export class PushService {
   ): Promise<string> {
     const app = this.getFirebaseApp();
     const admin = this.getFirebaseAdmin();
-    const message: FirebaseMessage = {
-      token: deviceToken,
-      notification: { title: notification.title, body: notification.body },
-      data: notification.data
-        ? Object.fromEntries(
-            Object.entries(notification.data).map(([k, v]) => [k, String(v)]),
-          )
-        : undefined,
-      android: { notification: { sound: notification.sound || 'default' } },
-      webpush: { notification: { badge: notification.badge?.toString() } },
-    };
+    const message = buildFirebaseMessage(deviceToken, notification);
     const result = await admin.messaging(app).send(message);
     return result;
   }

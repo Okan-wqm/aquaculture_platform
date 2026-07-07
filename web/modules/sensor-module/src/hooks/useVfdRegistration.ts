@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import {
   VfdDevice,
   VfdFilter,
@@ -200,113 +201,65 @@ interface Pagination {
  * Hook to fetch a single VFD device
  */
 export function useVfdDevice(id: string | undefined) {
-  const [device, setDevice] = useState<VfdDevice | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  const refetch = useCallback(async () => {
-    if (!id) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await graphqlFetch<{ vfdDevice: VfdDevice }>(GET_VFD_DEVICE_QUERY, { id });
-      setDevice(data.vfdDevice);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  return {
-    device,
-    loading,
-    error,
-    refetch,
-  };
+  // SENSOR-CRITICAL-003: tenant-scoped TanStack Query so the VFD detail page
+  // reads back through a tenant-isolated cache, mirroring useEdgeDevice.
+  // useTenantQuery is the SSoT — it bakes in the tenant-scoped key and the
+  // authenticated-tenant enabled-gate; the caller adds the id gate.
+  return useTenantQuery(
+    ['vfdDevice', id],
+    async () => {
+      const data = await graphqlFetch<{ vfdDevice: VfdDevice | null }>(
+        GET_VFD_DEVICE_QUERY,
+        { id },
+      );
+      return data.vfdDevice;
+    },
+    { staleTime: 10000, enabled: !!id },
+  );
 }
 
 /**
- * Hook to fetch VFD devices list
+ * Hook to fetch VFD devices list (tenant-scoped, auto-refreshing).
  */
+export interface VfdDeviceConnection {
+  items: VfdDevice[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export function useVfdDevices(filter?: VfdFilter, pagination?: Pagination) {
-  const [devices, setDevices] = useState<VfdDevice[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
-  const [totalPages, setTotalPages] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  const refetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await graphqlFetch<{
-        vfdDevices: {
-          items: VfdDevice[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-        };
-      }>(GET_VFD_DEVICES_QUERY, { filter, pagination });
-
-      setDevices(data.vfdDevices.items);
-      setTotal(data.vfdDevices.total);
-      setPage(data.vfdDevices.page);
-      setLimit(data.vfdDevices.limit);
-      setTotalPages(data.vfdDevices.totalPages);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, pagination]);
-
-  return {
-    devices,
-    total,
-    page,
-    limit,
-    totalPages,
-    loading,
-    error,
-    refetch,
-  };
+  // SENSOR-CRITICAL-003: the VFD tab previously rendered the sensor list.
+  // This hook now feeds the tab from the real vfdDevices query with a
+  // tenant-scoped key + refetch interval, matching the edge tab pattern.
+  // useTenantQuery is the SSoT for the tenant key + authenticated-tenant gate.
+  return useTenantQuery(
+    ['vfdDevices', { filter, pagination }],
+    async () => {
+      const data = await graphqlFetch<{ vfdDevices: VfdDeviceConnection }>(
+        GET_VFD_DEVICES_QUERY,
+        { filter, pagination },
+      );
+      return data.vfdDevices;
+    },
+    { staleTime: 10000, refetchInterval: 30000 },
+  );
 }
 
 /**
- * Hook to fetch VFD statistics
+ * Hook to fetch VFD statistics (tenant-scoped).
  */
 export function useVfdStats() {
-  const [stats, setStats] = useState<VfdStats | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  const refetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
+  // useTenantQuery is the SSoT for the tenant-scoped key + authenticated-tenant gate.
+  return useTenantQuery(
+    ['vfdStats'],
+    async () => {
       const data = await graphqlFetch<{ vfdStats: VfdStats }>(GET_VFD_STATS_QUERY);
-      setStats(data.vfdStats);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  return {
-    stats,
-    loading,
-    error,
-    refetch,
-  };
+      return data.vfdStats;
+    },
+    { staleTime: 15000, refetchInterval: 60000 },
+  );
 }
 
 /**

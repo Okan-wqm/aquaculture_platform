@@ -20,10 +20,12 @@
  * `"${schema}".table` raw reads were the only farm read path skipping the
  * boundary; a schema string is never interpolated here again).
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 
 export type WaterTemperatureSource = 'manual' | 'sensor';
 
@@ -93,22 +95,41 @@ interface DatedTemperatureRow {
 
 @Injectable()
 export class WaterTemperatureService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  private readonly logger = new Logger(WaterTemperatureService.name);
+
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    @Optional() private readonly metricsService?: FarmDomainMetricsService,
+  ) {}
 
   /**
    * Latest known water temperature (°C) for a tank/equipment, or null when none
    * is on record. Compares the tank's linked-sensor reading against the latest
    * manual measurement and returns whichever is more recent.
+   *
+   * BULKHEAD (2026-07-06 incident): temperature is ENRICHMENT — an
+   * infrastructure failure of one source (the live case: a missing grant on
+   * sensor_temperature_latest) must not abort the caller. Before this, the
+   * throw escaped and (a) nulled the ENTIRE equipmentList.batchMetrics field —
+   * mobile lost all fish counts while tank_batches was healthy — and (b) failed
+   * every tank's daily feeding plan tenant-wide. Each source now reads under
+   * its own SAVEPOINT (a plain try/catch is NOT enough: Postgres aborts the
+   * surrounding transaction after an error, poisoning the sibling read with
+   * 25P02) and an infrastructure failure degrades to null-for-that-source —
+   * LOUDLY: structured Logger.error + farm_water_temperature_read_failures_total.
+   * The tenant boundary itself (runInTenantRead) stays fail-closed.
    */
   async getCurrentTemperature(
     tenantId: string,
     tankId: string,
   ): Promise<WaterTemperatureReading | null> {
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const [sensor, manual] = await Promise.all([
+      const sensor = await this.readSourceIsolated(queryRunner, 'sensor', tenantId, tankId, () =>
         this.getLinkedSensorTemperature(queryRunner, tenantId, tankId),
+      );
+      const manual = await this.readSourceIsolated(queryRunner, 'manual', tenantId, tankId, () =>
         this.getManualTemperature(queryRunner, tenantId, tankId),
-      ]);
+      );
 
       return WaterTemperatureService.pickNewest(sensor, manual);
     });
@@ -271,6 +292,38 @@ export class WaterTemperatureService {
       measuredAt: dated.measuredAt,
       sensorId: source === 'sensor' ? dated.sensorId : undefined,
     };
+  }
+
+  /**
+   * Run one temperature-source read inside a SAVEPOINT so its failure can be
+   * rolled back without poisoning the surrounding READ COMMITTED transaction,
+   * then degrade that source to null — loudly (error log + metric), never
+   * silently.
+   */
+  private async readSourceIsolated(
+    queryRunner: QueryRunner,
+    source: WaterTemperatureSource,
+    tenantId: string,
+    tankId: string,
+    read: () => Promise<DatedTemperature | null>,
+  ): Promise<DatedTemperature | null> {
+    await queryRunner.query('SAVEPOINT water_temperature_source');
+    try {
+      const result = await read();
+      await queryRunner.query('RELEASE SAVEPOINT water_temperature_source');
+      return result;
+    } catch (error) {
+      await queryRunner.query('ROLLBACK TO SAVEPOINT water_temperature_source');
+      this.logger.error({
+        event: 'WaterTemperatureSourceReadFailed',
+        source,
+        tankId,
+        tenantHash: tenantId.substring(0, 8),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.metricsService?.recordWaterTemperatureReadFailure({ source });
+      return null;
+    }
   }
 
   /**

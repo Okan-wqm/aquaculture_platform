@@ -38,7 +38,9 @@ import type {
   Message,
   MessagePage,
   ChannelMember,
+  ChannelPage,
 } from '@/types/messaging';
+import { messagesQueryKey } from '@/utils/messaging-query-keys';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /** Shape of the per-channel infinite-message-list react-query cache entry. */
@@ -67,11 +69,15 @@ const RECONNECT_SYNC_PAGE_LIMIT = 100;
 function upsertMessageIntoChannelCache(
   qc: QueryClient,
   tenantId: string,
+  userId: string | null | undefined,
   channelId: string,
   message: Message,
 ): void {
   qc.setQueryData(
-    createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
+    // MSG-CRITICAL-055: the SAME key the reader (useMessages) reads, incl. the
+    // user.id segment. `userId` is a required parameter of this helper, so the
+    // live + reconnect callers below cannot silently drop it (tier-1).
+    messagesQueryKey(tenantId, userId, channelId),
     (old: MessagesQueryData | undefined): MessagesQueryData | undefined => {
       if (!old?.pages?.length) return old;
       const firstPage = old.pages[0];
@@ -192,12 +198,82 @@ async function getIo(): Promise<typeof ioFactory> {
   }
 }
 
+/** joinChannel ack-retry bounds (MSG-HIGH-065). */
+const JOIN_ACK_MAX_RETRIES = 3;
+const JOIN_ACK_RETRY_BASE_MS = 500;
+
+type JoinChannelAck = { success?: boolean; reason?: string } | undefined;
+
+/**
+ * Emit `joinChannel` and CONSUME the server ack (MSG-HIGH-065).
+ *
+ * `joinChannel` was fire-and-forget: the gateway returns `{success:false}` when a
+ * NATS membership-verify times out (or the user genuinely is not a member) and
+ * does NOT add the socket to the channel room, but the client discarded that ack,
+ * kept the channel in its "joined" set, and showed a connected socket receiving
+ * ZERO live events for that channel with no error — a flaky NATS window could
+ * leave whole channels permanently live-dead. Now the ack is consumed: a
+ * confirmed join is a no-op; an unconfirmed one is retried with bounded backoff,
+ * and on exhaustion the channel is dropped from the intent set so the client
+ * stops implying live delivery for a room it never entered.
+ */
+function emitJoinChannelWithAck(
+  socket: SocketInstance,
+  channelId: string,
+  joinedChannels: Set<string>,
+  attempt = 0,
+): void {
+  socket.emit('joinChannel', { channelId }, (ack: JoinChannelAck) => {
+    if (ack?.success) return;
+    if (attempt < JOIN_ACK_MAX_RETRIES && joinedChannels.has(channelId)) {
+      const delay = JOIN_ACK_RETRY_BASE_MS * 2 ** attempt;
+      setTimeout(() => {
+        if (socket.connected && joinedChannels.has(channelId)) {
+          emitJoinChannelWithAck(socket, channelId, joinedChannels, attempt + 1);
+        }
+      }, delay);
+    } else {
+      joinedChannels.delete(channelId);
+    }
+  });
+}
+
+/**
+ * The newest SERVER-authoritative message timestamp the client already holds —
+ * the max `lastMessage.createdAt` across every cached channel-list page. Used to
+ * seed the reconnect watermark from server truth instead of the client clock
+ * (MSG-HIGH-064): a skewed local clock otherwise makes the next reconnect's
+ * `allMessagesSince(since)` skip messages whose server createdAt falls in the skew
+ * window. Returns null when no channel has a lastMessage (nothing to reconcile).
+ */
+function newestServerCreatedAt(qc: QueryClient, tenantId: string): string | null {
+  const entries = qc.getQueriesData<ChannelPage>({
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+  });
+  let newest: string | null = null;
+  for (const [, page] of entries) {
+    for (const channel of page?.items ?? []) {
+      const ts = channel.lastMessage?.createdAt;
+      if (ts && (!newest || ts > newest)) {
+        newest = ts;
+      }
+    }
+  }
+  return newest;
+}
+
 export function useMessageSocket(): UseMessageSocketResult {
-  const { accessToken, isAuthenticated, tenantId, refreshAuth } = useAuth();
+  const { accessToken, isAuthenticated, tenantId, user, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<SocketInstance | null>(null);
   const joinedChannelsRef = useRef<Set<string>>(new Set());
+  // MSG-CRITICAL-055: the message cache key is user-scoped (MT-CRITICAL-051), so
+  // every socket cache write must carry the current user.id. Held in a ref —
+  // mirroring queryClientRef/accessTokenRef — so the socket-lifecycle effect
+  // stays keyed on auth identity and never re-subscribes just to see a new id.
+  const userIdRef = useRef<string | null | undefined>(user?.id);
+  userIdRef.current = user?.id;
   // WHY: Ref tracks the latest accessToken for use inside the reAuth callback.
   // refreshAuth() updates React state, but the callback needs the new token
   // in the same tick without waiting for a re-render.
@@ -230,6 +306,9 @@ export function useMessageSocket(): UseMessageSocketResult {
       try {
         let cursor: string | null = null;
         const touchedChannels = new Set<string>();
+        // Track the newest SERVER createdAt we actually fetched, so the watermark
+        // advances on server truth, never the client clock (MSG-HIGH-064).
+        let maxCreatedAt: string | null = null;
         // Drain the delta in pages so a long offline window can't silently
         // drop messages past a single page limit.
         for (;;) {
@@ -241,7 +320,11 @@ export function useMessageSocket(): UseMessageSocketResult {
           const page: AllMessagesSincePage = response.allMessagesSince;
           for (const message of page.messages) {
             touchedChannels.add(message.channelId);
-            upsertMessageIntoChannelCache(qc, tid, message.channelId, message);
+            upsertMessageIntoChannelCache(qc, tid, userIdRef.current, message.channelId, message);
+            // ISO-8601 timestamps compare chronologically as strings.
+            if (!maxCreatedAt || message.createdAt > maxCreatedAt) {
+              maxCreatedAt = message.createdAt;
+            }
           }
           if (!page.hasMore || !page.syncToken) break;
           cursor = page.syncToken;
@@ -258,7 +341,13 @@ export function useMessageSocket(): UseMessageSocketResult {
             }),
           ]);
         }
-        lastSyncAtRef.current = new Date().toISOString();
+        // MSG-HIGH-064: advance the watermark to the newest fetched message's
+        // SERVER createdAt — not `new Date()` (client clock). On an empty delta,
+        // keep the prior watermark so the next reconnect retries from the same
+        // point instead of jumping the window forward on a skewed local clock.
+        if (maxCreatedAt) {
+          lastSyncAtRef.current = maxCreatedAt;
+        }
       } catch {
         // Reconciliation failed (server/network). The live newMessage stream is
         // already restored and lastSyncAtRef is unchanged, so the NEXT reconnect
@@ -316,19 +405,26 @@ export function useMessageSocket(): UseMessageSocketResult {
       nextSocket.on('connect', () => {
         if (!mounted) return;
         setIsConnected(true);
-        // Rejoin all previously joined channels
-        for (const channelId of joinedChannelsRef.current) {
-          nextSocket.emit('joinChannel', { channelId });
+        // Rejoin all previously joined channels — ack-confirmed (MSG-HIGH-065).
+        // Snapshot the set: the ack callback may delete from it on exhaustion.
+        for (const channelId of [...joinedChannelsRef.current]) {
+          emitJoinChannelWithAck(nextSocket, channelId, joinedChannelsRef.current);
         }
-        // M3: on RECONNECT (not the first connect), reconcile messages that
-        // arrived while the socket was down. allMessagesSince(since=watermark)
-        // returns the multi-channel delta; reconcile patches caches + badges.
-        if (hasConnectedRef.current && lastSyncAtRef.current) {
-          void reconcileRef.current(lastSyncAtRef.current);
+        // M3 / MSG-HIGH-064: watermark is always SERVER-authoritative, never the
+        // client clock.
+        if (hasConnectedRef.current) {
+          // RECONNECT: reconcile the gap. Use the tracked watermark, or — if no
+          // live message advanced it since first connect — derive it from server
+          // truth (newest cached message createdAt).
+          const since = lastSyncAtRef.current ?? newestServerCreatedAt(queryClientRef.current, tenantId);
+          if (since) {
+            void reconcileRef.current(since);
+          }
         } else {
-          // First connect: initial queries already loaded fresh state — just
-          // establish the sync watermark going forward.
-          lastSyncAtRef.current = new Date().toISOString();
+          // FIRST connect: initial queries already loaded fresh state — seed the
+          // watermark from server truth (newest cached message createdAt) so the
+          // next reconnect's delta cannot be skewed by a fast/slow local clock.
+          lastSyncAtRef.current = newestServerCreatedAt(queryClientRef.current, tenantId);
         }
         hasConnectedRef.current = true;
       });
@@ -346,7 +442,7 @@ export function useMessageSocket(): UseMessageSocketResult {
         // the M3 reconnect reconciliation path. Enrich the id-only WS sender
         // from the channelMembers cache first (no-PII oracle; MSG-MEDIUM-052).
         const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
-        upsertMessageIntoChannelCache(qc, tenantId, event.channelId, incoming);
+        upsertMessageIntoChannelCache(qc, tenantId, userIdRef.current, event.channelId, incoming);
         // Invalidate channel list to update lastMessage / unread counts
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
@@ -373,7 +469,7 @@ export function useMessageSocket(): UseMessageSocketResult {
         // would vanish on every edit (no-PII oracle; MSG-MEDIUM-052).
         const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
         qc.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
+          messagesQueryKey(tenantId, userIdRef.current, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -392,7 +488,7 @@ export function useMessageSocket(): UseMessageSocketResult {
       nextSocket.on('messageDeleted', (data: unknown) => {
         const event = data as MessageDeletedEvent;
         queryClientRef.current.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
+          messagesQueryKey(tenantId, userIdRef.current, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -417,7 +513,7 @@ export function useMessageSocket(): UseMessageSocketResult {
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') });
         // Update receipt in message cache
         qc.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
+          messagesQueryKey(tenantId, userIdRef.current, event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
             return {
@@ -447,6 +543,55 @@ export function useMessageSocket(): UseMessageSocketResult {
             };
           },
         );
+      });
+
+      // MSG-HIGH-063: the gateway could not hydrate a live message (NATS hydration
+      // timeout / empty) and would otherwise have DROPPED it with no redelivery,
+      // leaving it permanently absent from the open chat. Instead it sends this
+      // content-free hint; invalidate the channel's messages (+ list/badge) so a
+      // refetch converges on server truth — recoverable, not lost.
+      nextSocket.on('messageSyncHint', (data: unknown) => {
+        const event = data as { channelId?: string };
+        if (!event.channelId) return;
+        const qc = queryClientRef.current;
+        void qc.invalidateQueries({
+          queryKey: messagesQueryKey(tenantId, userIdRef.current, event.channelId),
+        });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+      });
+
+      // MSG-HIGH-068: the current user was removed from (or left) this channel.
+      // The gateway sends this to our user room AND has already removed our socket
+      // from the channel room. Evict the channel's client caches so the open
+      // ChatRoom stops rendering a channel we no longer belong to and the channel
+      // drops out of the list — access revocation must reach the read model.
+      nextSocket.on('channelMemberRemoved', (data: unknown) => {
+        const event = data as { channelId?: string };
+        const channelId = event.channelId;
+        if (!channelId) return;
+        const qc = queryClientRef.current;
+        joinedChannelsRef.current.delete(channelId);
+        qc.removeQueries({ queryKey: messagesQueryKey(tenantId, userIdRef.current, channelId) });
+        qc.removeQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', channelId) });
+        qc.removeQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId) });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+      });
+
+      // MSG-MEDIUM-062: channel lifecycle (create / rename / member add-remove /
+      // archive) rides the gateway's `channelEvent` SSoT name. The client used to
+      // listen for a `channelUpdated` name the gateway never emits, so the list
+      // never refreshed live on structural changes. Converge the list + this
+      // channel's members/detail on server truth.
+      nextSocket.on('channelEvent', (data: unknown) => {
+        const event = data as { channelId?: string };
+        const qc = queryClientRef.current;
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        if (event.channelId) {
+          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', event.channelId) });
+          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', event.channelId) });
+        }
       });
 
       // --- reAuth: server requests fresh token ---
@@ -504,7 +649,7 @@ export function useMessageSocket(): UseMessageSocketResult {
   const joinChannel = useCallback((channelId: string) => {
     joinedChannelsRef.current.add(channelId);
     if (socketRef.current?.connected) {
-      socketRef.current.emit('joinChannel', { channelId });
+      emitJoinChannelWithAck(socketRef.current, channelId, joinedChannelsRef.current);
     }
   }, []);
 

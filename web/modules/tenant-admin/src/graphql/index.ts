@@ -67,6 +67,11 @@ export {
 } from './billing-queries';
 
 export {
+  AI_PROVIDER_SETTINGS_QUERY,
+  UPDATE_AI_PROVIDER_SETTINGS_MUTATION,
+} from './ai-queries';
+
+export {
   // Messaging
   MY_THREADS_QUERY,
   THREAD_QUERY,

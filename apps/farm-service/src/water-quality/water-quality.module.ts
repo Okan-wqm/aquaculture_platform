@@ -21,6 +21,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
+import { GetWaterQualityOverviewResponder } from './responders/get-water-quality-overview.responder';
 import { SensorTemperatureLatest } from './entities/sensor-temperature-latest.entity';
 import { SensorTemperatureDaily } from './entities/sensor-temperature-daily.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
@@ -101,6 +102,7 @@ const CommandHandlers = [
     RegulatoryModule,
     EquipmentModule,
   ],
+  controllers: [GetWaterQualityOverviewResponder],
   providers: [
     WaterQualityService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.

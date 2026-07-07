@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: 7366ffef06010e87886550008fcad2ffcfcfdfd648575944e6aad41cce1d298c
+# catalogHash: 3ecb0b77bbfa7abee6999df31022cbefc6fa5a6edf3310ea024cc499cd87d393
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -65,6 +65,9 @@ services:
   - name: observability-service
     level: warning
     reason: "generated from observability-service criticality in platform service catalog"
+  - name: ai-service
+    level: required
+    reason: "generated from ai-service criticality in platform service catalog"
   - name: prometheus
     level: ignored
     reason: "generated from prometheus criticality in platform service catalog"
@@ -98,6 +101,9 @@ services:
   - name: hydroponics-module
     level: warning
     reason: "generated from hydroponics-module criticality in platform service catalog"
+  - name: messaging-module
+    level: warning
+    reason: "generated from messaging-module criticality in platform service catalog"
   - name: admin-panel
     level: warning
     reason: "generated from admin-panel criticality in platform service catalog"

@@ -348,7 +348,9 @@ export interface TenantKeyResponse {
 
 export interface TenantProvisioningKey {
   id: string;
-  keyToken: string;
+  // SENSOR-MEDIUM-001: the raw key is returned once at creation
+  // (TenantKeyResponse). The list view never re-exposes it — the value at rest
+  // is only a SHA-256 digest and is no longer selectable over GraphQL.
   name?: string;
   isActive: boolean;
   maxDevices?: number;

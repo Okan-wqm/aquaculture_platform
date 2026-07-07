@@ -211,6 +211,9 @@ export class EdgeDeviceResolver {
    * Ping a device to check connectivity via MQTT
    * Sends ping command and waits for response (timeout: 5s)
    */
+  // SENSOR-LOW-002: gate the device-command surface at the operator floor,
+  // consistent with reboot/maintenance/scan (was ungated).
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => PingResult, { name: 'pingEdgeDevice' })
   async pingEdgeDevice(
     @Args('id', { type: () => ID }) id: string,
@@ -404,7 +407,11 @@ export class EdgeDeviceResolver {
    *          diğer write mutation'larla aynı yetki seviyesinde olmalı.
    * @CurrentUser — Audit trail için operatörün userId'si kaydedilir.
    */
+  // SENSOR-HIGH-022: physically actuating a digital output requires the same
+  // fine-grained I/O permission as editing I/O config (now enforced — the
+  // guard is wired globally), not merely the operator role.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission('edge:manage-io-config')
   @Mutation(() => SetDigitalOutputResult, { name: 'setDigitalOutput' })
   async setDigitalOutput(
     @Args('input') input: SetDigitalOutputInput,

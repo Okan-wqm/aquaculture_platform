@@ -2,10 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import type { Repository } from 'typeorm';
+import { of, throwError } from 'rxjs';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import { AiPrivacyService } from '../ai-privacy.service';
-import { TenantAiSetting } from '../../entities/tenant-ai-setting.entity';
 import { UserAiConsent } from '../../entities/user-ai-consent.entity';
 import {
   createMockRedis,
@@ -50,6 +50,8 @@ describe('AiPrivacyService', () => {
     };
   };
   let bypassRls: jest.Mocked<Pick<BypassRlsService, 'withBypass'>>;
+  // request.ai.isEnabled NATS client — tenant AI enablement SSoT is ai-service.
+  let natsClient: { send: jest.Mock };
 
   const userId = fakeUuid('usr');
 
@@ -63,6 +65,15 @@ describe('AiPrivacyService', () => {
       query: jest.fn(async (sql: string) => {
         if (sql.includes(`set_config('search_path'`)) {
           return undefined;
+        }
+        // The tenant-context boundary reads back current_schema() to verify the
+        // connection resolved the tenant schema. A mock has no backing
+        // connection, so return NO row — assertTenantTransactionContext then
+        // takes its documented unit-test skip path (tenant-transaction.ts:218).
+        // Returning a non-empty shape here makes it read schema="<none>" and
+        // throw SCHEMA_MISMATCH.
+        if (sql.includes('current_schema()')) {
+          return [];
         }
         return [[], 0];
       }),
@@ -85,12 +96,16 @@ describe('AiPrivacyService', () => {
       }) as jest.MockedFunction<BypassRlsService['withBypass']>,
     } as jest.Mocked<Pick<BypassRlsService, 'withBypass'>>;
 
+    // Default: ai-service reports AI disabled; enablement tests override.
+    natsClient = { send: jest.fn().mockReturnValue(of({ enabled: false })) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AiPrivacyService,
         { provide: DataSource, useValue: dataSource },
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: BypassRlsService, useValue: bypassRls },
+        { provide: 'NATS_SERVICE', useValue: natsClient },
       ],
     }).compile();
 
@@ -128,10 +143,10 @@ describe('AiPrivacyService', () => {
     expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(false);
   });
 
-  it('fail-closed: returns false on unexpected error (e.g. DB outage)', async () => {
-    // Cache miss for both
+  it('fail-closed: returns false on unexpected error (e.g. consent DB outage)', async () => {
+    // Cache miss for both; ai-service says enabled, but the consent DB is down.
     redisClient.get.mockResolvedValue(null);
-    // Simulate DB outage
+    natsClient.send.mockReturnValue(of({ enabled: true }));
     queryRunner.manager.findOne.mockRejectedValueOnce(new Error('DB unreachable'));
 
     expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(false);
@@ -140,35 +155,42 @@ describe('AiPrivacyService', () => {
   // -----------------------------------------------------------------------
   // isTenantAiEnabled — cache → repo fallback
   // -----------------------------------------------------------------------
-  it('isTenantAiEnabled: cache hit returns cached value without DB read', async () => {
+  it('isTenantAiEnabled: cache hit returns cached value without asking ai-service', async () => {
     redisClient.get.mockResolvedValueOnce('true');
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
-    expect(queryRunner.manager.findOne).not.toHaveBeenCalled();
+    expect(natsClient.send).not.toHaveBeenCalled();
   });
 
-  it('isTenantAiEnabled: cache miss queries repo and writes back to cache', async () => {
+  it('isTenantAiEnabled: cache miss queries ai-service (SSoT) and writes back to cache', async () => {
     redisClient.get.mockResolvedValueOnce(null);
-    queryRunner.manager.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
+    natsClient.send.mockReturnValueOnce(of({ enabled: true }));
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
-    expect(queryRunner.manager.findOne).toHaveBeenCalledWith(TenantAiSetting, { where: { tenantId: TENANT_A } });
-    expect(redisClient.setex).toHaveBeenCalledWith(
-      `ai:tenant:${TENANT_A}`,
-      60,
-      'true',
-    );
+    expect(natsClient.send).toHaveBeenCalledWith('request.ai.isEnabled', { tenantId: TENANT_A });
+    // Enablement is ai-service's SSoT — messaging must NOT read a local table.
+    expect(queryRunner.manager.findOne).not.toHaveBeenCalled();
+    expect(redisClient.setex).toHaveBeenCalledWith(`ai:tenant:${TENANT_A}`, 60, 'true');
   });
 
-  it('isTenantAiEnabled: missing row defaults to false (deny-by-default)', async () => {
+  it('isTenantAiEnabled: ai-service reports disabled → false (deny-by-default)', async () => {
     redisClient.get.mockResolvedValueOnce(null);
-    queryRunner.manager.findOne.mockResolvedValueOnce(null);
+    natsClient.send.mockReturnValueOnce(of({ enabled: false }));
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(false);
   });
 
-  it('isTenantAiEnabled: Redis GET failure falls through to repo (resilience)', async () => {
+  it('isTenantAiEnabled: ai-service unreachable → fail closed (false)', async () => {
+    redisClient.get.mockResolvedValueOnce(null);
+    natsClient.send.mockReturnValueOnce(throwError(() => new Error('ai-service down')));
+
+    expect(await service.isTenantAiEnabled(TENANT_A)).toBe(false);
+    // Still caches the fail-closed result for the 60s window.
+    expect(redisClient.setex).toHaveBeenCalledWith(`ai:tenant:${TENANT_A}`, 60, 'false');
+  });
+
+  it('isTenantAiEnabled: Redis GET failure falls through to ai-service (resilience)', async () => {
     redisClient.get.mockRejectedValueOnce(new Error('Redis down'));
-    queryRunner.manager.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
+    natsClient.send.mockReturnValueOnce(of({ enabled: true }));
 
     expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
   });
@@ -193,19 +215,8 @@ describe('AiPrivacyService', () => {
     expect(await service.hasUserConsented(TENANT_A, userId)).toBe(false);
   });
 
-  // -----------------------------------------------------------------------
-  // setTenantAiEnabled — upsert + cache invalidation
-  // -----------------------------------------------------------------------
-  it('setTenantAiEnabled: upserts repo and invalidates cache', async () => {
-    await service.setTenantAiEnabled(TENANT_A, true);
-
-    expect(queryRunner.manager.upsert).toHaveBeenCalledWith(
-      TenantAiSetting,
-      { tenantId: TENANT_A, aiEnabled: true },
-      { conflictPaths: ['tenantId'] },
-    );
-    expect(redisClient.del).toHaveBeenCalledWith(`ai:tenant:${TENANT_A}`);
-  });
+  // setTenantAiEnabled removed — tenant AI enablement is ai-service's SSoT
+  // (updateAiProviderSettings.isEnabled). Messaging holds no local write path.
 
   // -----------------------------------------------------------------------
   // setUserAiConsent — upsert + cache invalidation + sweep on revoke
@@ -226,6 +237,11 @@ describe('AiPrivacyService', () => {
     queryRunner.query.mockImplementation(async (sql: string) => {
       if (sql.includes(`set_config('search_path'`)) {
         return undefined;
+      }
+      // current_schema() readback → no row so the tenant-context assertion skips
+      // (unit-test mock, no backing connection); the sweep UPDATE reports 5 rows.
+      if (sql.includes('current_schema()')) {
+        return [];
       }
       return [[], 5];
     });
@@ -250,10 +266,16 @@ describe('AiPrivacyService', () => {
 
   it('setUserAiConsent: sweep failure does NOT roll back consent change (logged + escalated)', async () => {
     queryRunner.query.mockImplementation(async (sql: string) => {
-      if (sql.includes(`set_config('search_path'`)) {
-        return undefined;
+      // Only the embedding-sweep vector op fails; the search_path pin, the RLS
+      // GUC set_config, and the current_schema() readback (skip path) all pass so
+      // the consent upsert commits and the failure is isolated to the sweep.
+      if (sql.includes('UPDATE "messages"')) {
+        throw new Error('vector op failed');
       }
-      throw new Error('vector op failed');
+      if (sql.includes('current_schema()')) {
+        return [];
+      }
+      return undefined;
     });
 
     // Must NOT throw — consent revocation is GDPR-mandated and persists

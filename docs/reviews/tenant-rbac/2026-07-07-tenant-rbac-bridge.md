@@ -57,8 +57,25 @@ still denied) — it only enables a tenant user whose custom role grants the cap
 regression test (`tenant-role.resolver.gating.spec.ts`) asserts EVERY operation is gated (no method
 can silently fall through both opt-in guards) + verifies the mapping. Convention: a delegated
 user-management role must also carry `roles:view` (you cannot assign a role you cannot see).
-**Remaining half (FE, tracked below):** a delegate still cannot REACH the pages — the shell still
-gates `/tenant/*` on global `TENANT_ADMIN`. That FE panel-access gating is the follow-up.
+**FE half:** now closed by MT-HIGH-061 below.
+
+### MT-HIGH-061 — tenant-admin panel (FE) hard-gated on global TENANT_ADMIN (no delegation reach) — RESOLVED
+The shell gated `/tenant/*` (route + module guard + nav) purely on `role === 'TENANT_ADMIN'`, so a
+delegate whose tenant role grants panel capabilities could not REACH the pages the backend
+(MT-HIGH-060) now lets them use. Fix, reusing the existing FE primitives (no parallel machinery):
+- New capability SSoT `web/shared-ui/src/utils/tenant-capabilities.ts` (`hasResourcePermission`,
+  `hasTenantPanelAccess`, `TENANT_PANEL_CAPABILITIES`) — `useAuth().hasPermission` now delegates to it
+  (removes the duplicated inline check).
+- `App.tsx` `ProtectedRoute` gains `requiredCapabilities` (role OR capability); `/tenant/*` passes for a
+  global tenant admin or any panel capability.
+- tenant-admin `RequireTenantAdmin` becomes the panel-access outer gate; a new `RequireTenantCapability`
+  gates each page — TENANT_ADMIN bypasses, a delegate needs the page's specific capability, and
+  admin-only pages (billing/database/audit/modules/…) accept only a global admin.
+- `MainLayout` surfaces the delegatable tenant nav items (Users/Roles/Settings) to a delegate holding
+  the matching capability.
+Fail-closed throughout; the backend enforces independently. Verified: capability-util spec 6/6;
+Module.spec 15/15 incl. delegation cases (a `users:view` delegate reaches `/tenant/users`, is redirected
+from `/tenant/billing` and from the non-granted `/tenant/roles`); shell + tenant-admin + shared-ui lint green.
 
 ## Tracked, NOT in this PR (owner + follow-up)
 

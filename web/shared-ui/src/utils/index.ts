@@ -184,3 +184,11 @@ export type {
   SpecificationSchema as SpecValidationSchema,
   SpecificationFieldOption as SpecValidationFieldOption,
 } from './specificationValidation';
+
+// Tenant-RBAC capability SSoT (panel access + resource-permission checks)
+export {
+  hasResourcePermission,
+  hasTenantPanelAccess,
+  TENANT_PANEL_CAPABILITIES,
+} from './tenant-capabilities';
+export type { CapabilityUser } from './tenant-capabilities';

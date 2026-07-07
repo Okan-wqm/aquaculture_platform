@@ -10,12 +10,14 @@ import { Tank } from '../entities/tank.entity';
  * tank list. The read runs through runInTenantRead — the fully-sanctioned,
  * RLS-safe tenant-context SSoT (tenantId-keyed).
  *
- * NOTE: messaging-service's KnowledgeExtractionService also targets this subject
- * but sends {tenantSchema} (a lossy tenant_<16hex> it cannot map back to a
- * tenantId). Wiring that caller needs a schema-direct read helper on the
- * tenant-isolation surface — tracked as a follow-up (docs/reviews/orphan-findings.md);
- * this responder validates the payload and answers empty for a non-UUID rather
- * than crashing, so the still-unwired caller degrades exactly as before.
+ * Callers: ai-service's get_farm_tanks tool (ctx.tenantId) and messaging's
+ * KnowledgeExtractionService both send the canonical {tenantId} UUID — the
+ * latter recovers it from its own message rows rather than from the lossy
+ * tenant_<16hex> schema name (ORPHAN-MEDIUM-336, resolved). The responder
+ * remains tenantId-keyed by design: the UUID is the canonical tenant key and
+ * lets runInTenantRead assert the RLS GUC fail-closed. A malformed/non-UUID
+ * payload still gets an empty registry rather than an exception that would
+ * poison the request-reply channel.
  */
 export interface GetTankRegistryRequest {
   tenantId: string;

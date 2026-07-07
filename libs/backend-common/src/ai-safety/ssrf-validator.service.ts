@@ -287,7 +287,8 @@ export class SsrfValidatorService {
     } else {
       try {
         const addresses = await dns.resolve4(hostname);
-        if (addresses.length === 0) {
+        const [firstAddress] = addresses;
+        if (firstAddress === undefined) {
           return { safe: false, reason: `DNS resolution failed: no A records for "${hostname}".` };
         }
         for (const ip of addresses) {
@@ -296,7 +297,7 @@ export class SsrfValidatorService {
             return { safe: false, reason: `DNS resolved to private IP: ${denied}`, resolvedIp: ip };
           }
         }
-        resolvedIp = addresses[0]!;
+        resolvedIp = firstAddress;
       } catch {
         return { safe: false, reason: `DNS resolution failed for hostname "${hostname}".` };
       }

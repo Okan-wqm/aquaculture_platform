@@ -11157,18 +11157,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/harvest/dto/create-harvest-record.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/harvest/dto/create-harvest-record.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/harvest/dto/harvest-filter.input.ts",
       "prettier_managed": true
     },
@@ -11200,18 +11188,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/harvest/entities/harvest-plan.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/harvest/entities/harvest-record.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/harvest/entities/harvest-record.entity.ts",
       "prettier_managed": true
     },
     {
@@ -12207,18 +12183,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/regulatory/dto/create-biomass-report.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/regulatory/dto/create-biomass-report.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/regulatory/dto/regulatory-inputs.dto.ts",
       "prettier_managed": true
     },
@@ -12274,18 +12238,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/entities/regulatory-report.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/regulatory/entities/regulatory-settings.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/regulatory/entities/regulatory-settings.entity.ts",
       "prettier_managed": true
     },
     {
@@ -12958,18 +12910,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/species/entities/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/species/entities/species.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/species/entities/species.entity.ts",
       "prettier_managed": true
     },
     {
@@ -15315,31 +15255,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/worker/dto/create-worker.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/worker/dto/create-worker.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/farm-service/src/worker/dto/update-worker.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/worker/dto/worker.response.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/worker/dto/worker.response.ts",
       "prettier_managed": true
     },
     {
@@ -28711,18 +28627,6 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
-      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
-      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
       "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
       "prettier_managed": true
     },
@@ -40422,18 +40326,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/quality/format-scope.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/quality/format-scope.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -51684,10 +51576,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8468,
+  "file_count": 8450,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8293,
-  "managed_file_list_sha256": "64c408e83302bb07f02c25dea1ae500b08dd4b6cdf119b1cdf68b514993d8c7a",
+  "managed_count": 8275,
+  "managed_file_list_sha256": "bdd8f5252b9b3db7fc8fc7b471fe2431530dbaa5ec4c68a676590ab1a6f0252d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

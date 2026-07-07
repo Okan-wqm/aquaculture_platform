@@ -154,6 +154,7 @@ services:
       - "request.farm.getTankRegistry"
       - "request.farm.getBatchOverview"
       - "request.farm.getWaterQualityOverview"
+      - "request.farm.getHarvestOverview"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -317,6 +318,7 @@ services:
       - "request.farm.getTankRegistry"
       - "request.farm.getBatchOverview"
       - "request.farm.getWaterQualityOverview"
+      - "request.farm.getHarvestOverview"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

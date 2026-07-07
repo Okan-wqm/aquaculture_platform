@@ -5,8 +5,15 @@ import { CreateTaskTool } from './create-task.tool';
 import { GetFarmTanksTool } from './get-farm-tanks.tool';
 import { GetFarmBatchesTool } from './get-farm-batches.tool';
 import { GetFarmWaterQualityTool } from './get-farm-water-quality.tool';
+import { GetFarmHarvestTool } from './get-farm-harvest.tool';
 
-const TOOLS = [CreateTaskTool, GetFarmTanksTool, GetFarmBatchesTool, GetFarmWaterQualityTool];
+const TOOLS = [
+  CreateTaskTool,
+  GetFarmTanksTool,
+  GetFarmBatchesTool,
+  GetFarmWaterQualityTool,
+  GetFarmHarvestTool,
+];
 
 /**
  * Farm actuation tools. The tools reach farm-service over NATS request-reply,

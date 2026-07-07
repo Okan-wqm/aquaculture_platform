@@ -301,12 +301,12 @@ export interface YieldCalculation {
 export class HarvestRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -315,12 +315,12 @@ export class HarvestRecord {
   @Field()
   @Column({ length: 50 })
   @Index()
-  recordCode: string;                // HR-2024-00001
+  recordCode!: string;                // HR-2024-00001
 
   @Field()
   @Column({ length: 50 })
   @Index()
-  lotNumber: string;                 // LOT-2024-00001
+  lotNumber!: string;                 // LOT-2024-00001
 
   // -------------------------------------------------------------------------
   // BATCH & PLAN İLİŞKİSİ
@@ -329,7 +329,7 @@ export class HarvestRecord {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -370,7 +370,7 @@ export class HarvestRecord {
     default: HarvestRecordStatus.IN_PROGRESS,
   })
   @Index()
-  status: HarvestRecordStatus;
+  status!: HarvestRecordStatus;
 
   // -------------------------------------------------------------------------
   // HASAT TARİHİ VE OPERASYON
@@ -379,11 +379,11 @@ export class HarvestRecord {
   @Field()
   @Column({ type: 'date' })
   @Index()
-  harvestDate: Date;
+  harvestDate!: Date;
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  operation: HarvestOperation;
+  operation!: HarvestOperation;
 
   @Field(() => HarvestMethod)
   @Column({
@@ -391,7 +391,7 @@ export class HarvestRecord {
     enum: HarvestMethod,
     default: HarvestMethod.NET,
   })
-  method: HarvestMethod;
+  method!: HarvestMethod;
 
   // -------------------------------------------------------------------------
   // MİKTAR BİLGİLERİ
@@ -399,15 +399,15 @@ export class HarvestRecord {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  quantityHarvested: number;         // Adet
+  quantityHarvested!: number;         // Adet
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  totalBiomass: number;              // kg (brüt)
+  totalBiomass!: number;              // kg (brüt)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
-  averageWeight: number;             // gram
+  averageWeight!: number;             // gram
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -435,7 +435,7 @@ export class HarvestRecord {
     enum: ProductForm,
     default: ProductForm.FRESH_WHOLE,
   })
-  productForm: ProductForm;
+  productForm!: ProductForm;
 
   /**
    * Official Norwegian quality class (kvalitetsklasse) — the sole stored quality
@@ -450,7 +450,7 @@ export class HarvestRecord {
     enum: QualityClass,
     default: QualityClass.ORDINAER,
   })
-  qualityClass: QualityClass;
+  qualityClass!: QualityClass;
 
   /**
    * Retired 5-level display grade, now DERIVED (not stored) from qualityClass
@@ -474,7 +474,7 @@ export class HarvestRecord {
 
   @Field()
   @Column({ default: false })
-  qualityApproved: boolean;
+  qualityApproved!: boolean;
 
   // -------------------------------------------------------------------------
   // LOT BİLGİLERİ
@@ -482,7 +482,7 @@ export class HarvestRecord {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  lotInfo: LotInfo;
+  lotInfo!: LotInfo;
 
   // -------------------------------------------------------------------------
   // VERİM
@@ -542,7 +542,7 @@ export class HarvestRecord {
 
   @Field()
   @Column('uuid')
-  supervisorId: string;              // Hasat sorumlusu
+  supervisorId!: string;              // Hasat sorumlusu
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -570,11 +570,11 @@ export class HarvestRecord {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

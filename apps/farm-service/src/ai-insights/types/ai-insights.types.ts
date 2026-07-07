@@ -14,19 +14,19 @@ import { ObjectType, Field, Float, Int, ID } from '@nestjs/graphql';
 @ObjectType({ description: 'AI-powered risk assessment for a specific tank' })
 export class TankRiskAssessment {
   @Field(() => ID, { description: 'WHY: Identifies which tank this risk belongs to for UI routing' })
-  tankId: string;
+  tankId!: string;
 
   @Field(() => Float, { description: 'WHY: Numeric 0-100 score enables gauge/meter rendering' })
-  riskScore: number;
+  riskScore!: number;
 
   @Field(() => String, { description: 'WHY: Categorical level (LOW/MEDIUM/HIGH/CRITICAL) for color-coding UI' })
-  riskLevel: string;
+  riskLevel!: string;
 
   @Field(() => [String], { description: 'WHY: Explains which factors contribute to risk — transparency for operators' })
-  factors: string[];
+  factors!: string[];
 
   @Field(() => [String], { description: 'WHY: Actionable next steps reduce mean-time-to-resolution' })
-  recommendations: string[];
+  recommendations!: string[];
 }
 
 /**
@@ -36,22 +36,22 @@ export class TankRiskAssessment {
 @ObjectType({ description: 'Growth prediction for a batch over the next 30 days' })
 export class BatchGrowthPrediction {
   @Field(() => ID, { description: 'WHY: Links prediction to the batch entity for drill-down navigation' })
-  batchId: string;
+  batchId!: string;
 
   @Field(() => Float, { description: 'WHY: Current baseline weight anchors the prediction context' })
-  currentAvgWeight: number;
+  currentAvgWeight!: number;
 
   @Field(() => Float, { description: 'WHY: Predicted weight drives harvest planning decisions' })
-  predictedAvgWeight30d: number;
+  predictedAvgWeight30d!: number;
 
   @Field(() => Float, { description: 'WHY: SGR (Specific Growth Rate) indicates biological performance trend' })
-  predictedSGR: number;
+  predictedSGR!: number;
 
   @Field(() => Float, { description: 'WHY: FCR (Feed Conversion Ratio) drives feed cost optimization' })
-  predictedFCR: number;
+  predictedFCR!: number;
 
   @Field(() => Float, { description: 'WHY: Projected biomass enables capacity planning and sales forecasting' })
-  estimatedBiomass30d: number;
+  estimatedBiomass30d!: number;
 }
 
 /**
@@ -61,19 +61,19 @@ export class BatchGrowthPrediction {
 @ObjectType({ description: 'Detected anomaly in farm operations' })
 export class FarmAnomaly {
   @Field(() => String, { description: 'WHY: Anomaly type (e.g. mortality_spike, wq_deviation) enables category filtering' })
-  type: string;
+  type!: string;
 
   @Field(() => String, { description: 'WHY: Severity level (low/medium/high/critical) drives notification priority' })
-  severity: string;
+  severity!: string;
 
   @Field(() => String, { description: 'WHY: Human-readable description for operator situational awareness' })
-  description: string;
+  description!: string;
 
   @Field(() => String, { description: 'WHY: Identifies which entity (tank/batch/site) is affected for navigation' })
-  affectedEntity: string;
+  affectedEntity!: string;
 
   @Field(() => [String], { description: 'WHY: Suggested actions provide immediate remediation guidance' })
-  suggestedActions: string[];
+  suggestedActions!: string[];
 }
 
 /**
@@ -84,19 +84,19 @@ export class FarmAnomaly {
 @ObjectType({ description: 'AI-driven feeding recommendation for a tank' })
 export class FeedingAdvice {
   @Field(() => ID, { description: 'WHY: Links advice to specific tank for targeted feed distribution' })
-  tankId: string;
+  tankId!: string;
 
   @Field(() => Float, { description: 'WHY: Recommended feed amount in kg enables direct operational action' })
-  recommendedAmount: number;
+  recommendedAmount!: number;
 
   @Field(() => String, { description: 'WHY: Feed type recommendation considers species-specific nutritional needs' })
-  feedType: string;
+  feedType!: string;
 
   @Field(() => Int, { description: 'WHY: Feeding frequency affects digestion efficiency and water quality' })
-  feedingFrequency: number;
+  feedingFrequency!: number;
 
   @Field(() => String, { description: 'WHY: Rationale builds operator trust in AI recommendations' })
-  rationale: string;
+  rationale!: string;
 }
 
 /**
@@ -107,14 +107,14 @@ export class FeedingAdvice {
 @ObjectType({ description: 'Aggregated AI insights for the farm dashboard' })
 export class FarmDashboardInsights {
   @Field(() => Float, { description: 'WHY: Single numeric health indicator for the executive summary card' })
-  overallRiskScore: number;
+  overallRiskScore!: number;
 
   @Field(() => [TankRiskAssessment], { description: 'WHY: Per-tank risk breakdown enables targeted intervention' })
-  tankRisks: TankRiskAssessment[];
+  tankRisks!: TankRiskAssessment[];
 
   @Field(() => [FarmAnomaly], { description: 'WHY: Active anomalies drive the notification bell badge count' })
-  anomalies: FarmAnomaly[];
+  anomalies!: FarmAnomaly[];
 
   @Field(() => [FeedingAdvice], { description: 'WHY: Feeding advice powers the daily feeding plan screen' })
-  feedingAdvice: FeedingAdvice[];
+  feedingAdvice!: FeedingAdvice[];
 }

@@ -41,22 +41,22 @@ export class PaginatedHealthEventsResponse extends StandardPaginatedResponse(Hea
 })
 export class BlockingHealthEventOutput {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   diseaseName?: string;
 
   @Field(() => GraphQLISODateTime)
-  earliestHarvestDate: Date;
+  earliestHarvestDate!: Date;
 
   @Field(() => Int, { nullable: true })
   withdrawalPeriodDays?: number;
 
   @Field(() => HealthEventStatus)
-  status: HealthEventStatus;
+  status!: HealthEventStatus;
 }
 
 @ObjectType({
@@ -67,7 +67,7 @@ export class BlockingHealthEventOutput {
 })
 export class HarvestEligibilityOutput {
   @Field()
-  eligible: boolean;
+  eligible!: boolean;
 
   @Field(() => GraphQLISODateTime, {
     nullable: true,
@@ -79,34 +79,34 @@ export class HarvestEligibilityOutput {
   reason?: string;
 
   @Field(() => [BlockingHealthEventOutput])
-  blockingEvents: BlockingHealthEventOutput[];
+  blockingEvents!: BlockingHealthEventOutput[];
 }
 
 @ObjectType()
 export class HealthEventStatsResponse {
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  active: number;
+  active!: number;
 
   @Field(() => Int)
-  critical: number;
+  critical!: number;
 
   @Field(() => Int)
-  underTreatment: number;
+  underTreatment!: number;
 
   @Field(() => Int)
-  quarantined: number;
+  quarantined!: number;
 
   @Field(() => Int)
-  resolved: number;
+  resolved!: number;
 
   @Field(() => GraphQLJSON)
-  byEventType: Record<string, number>;
+  byEventType!: Record<string, number>;
 
   @Field(() => GraphQLJSON)
-  bySeverity: Record<string, number>;
+  bySeverity!: Record<string, number>;
 }
 
 // ============================================================================

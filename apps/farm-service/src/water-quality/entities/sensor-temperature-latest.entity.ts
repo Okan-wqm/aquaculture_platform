@@ -16,15 +16,15 @@ import { DecimalTransformer } from '@aquaculture/backend-common/database';
 @Entity('sensor_temperature_latest')
 export class SensorTemperatureLatest {
   @PrimaryColumn('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   /** sensor-service `sensors.id`. */
   @PrimaryColumn('uuid')
-  sensorId: string;
+  sensorId!: string;
 
   @Column({ type: 'decimal', precision: 6, scale: 2, transformer: new DecimalTransformer() })
-  temperatureC: number;
+  temperatureC!: number;
 
   @Column({ type: 'timestamptz' })
-  measuredAt: Date;
+  measuredAt!: Date;
 }

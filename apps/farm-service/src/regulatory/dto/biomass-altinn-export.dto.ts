@@ -8,17 +8,17 @@ import { Field, ObjectType } from '@nestjs/graphql';
 @ObjectType()
 export class BiomassAltinnExportOutput {
   @Field({ description: 'Suggested download filename for the CSV' })
-  filename: string;
+  filename!: string;
 
   @Field({ description: 'Reporting period label (yyyy-mm)' })
-  periodLabel: string;
+  periodLabel!: string;
 
   @Field({ description: 'Form-ordered CSV (Section,Field,Value)' })
-  csv: string;
+  csv!: string;
 
   @Field({ description: 'Printable, section-ordered transcription block' })
-  printable: string;
+  printable!: string;
 
   @Field({ description: 'When this export was generated' })
-  generatedAt: Date;
+  generatedAt!: Date;
 }

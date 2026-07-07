@@ -66,12 +66,12 @@ registerEnumType(AllocationType, {
 export class TankAllocation {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -80,11 +80,11 @@ export class TankAllocation {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: Batch;
+  batch!: Batch;
 
   // Denormalized batch number for quick access
   @Field({ nullable: true })
@@ -98,7 +98,7 @@ export class TankAllocation {
   @Field()
   @Column('uuid')
   @Index()
-  tankId: string;
+  tankId!: string;
 
   @ManyToOne('Tank', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tankId' })
@@ -123,23 +123,23 @@ export class TankAllocation {
     enum: AllocationType,
     default: AllocationType.INITIAL_STOCKING,
   })
-  allocationType: AllocationType;
+  allocationType!: AllocationType;
 
   @Field()
   @Column({ type: 'date' })
-  allocationDate: Date;
+  allocationDate!: Date;
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  quantity: number;                        // Dağıtılan adet
+  quantity!: number;                        // Dağıtılan adet
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
-  avgWeightG: number;                      // Ortalama ağırlık (g)
+  avgWeightG!: number;                      // Ortalama ağırlık (g)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
-  biomassKg: number;                       // Toplam biomass (kg)
+  biomassKg!: number;                       // Toplam biomass (kg)
 
   // -------------------------------------------------------------------------
   // KAYNAK/HEDEF BİLGİLERİ (Transfer için)
@@ -176,15 +176,15 @@ export class TankAllocation {
 
   @Field()
   @Column('uuid')
-  allocatedBy: string;                     // Dağıtımı yapan kullanıcı
+  allocatedBy!: string;                     // Dağıtımı yapan kullanıcı
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -192,7 +192,7 @@ export class TankAllocation {
 
   @Field()
   @Column({ default: false })
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

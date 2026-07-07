@@ -21,13 +21,13 @@ registerEnumType(ReportFieldProvenance, {
 @InputType()
 export class ReportPrefillInput {
   @Field(() => ReportPrefillType)
-  reportType: ReportPrefillType;
+  reportType!: ReportPrefillType;
 
   @Field(() => ID)
-  siteId: string;
+  siteId!: string;
 
   @Field(() => Int)
-  periodYear: number;
+  periodYear!: number;
 
   @Field(() => Int, { nullable: true, description: 'ISO week (weekly report types)' })
   periodWeek?: number;
@@ -39,10 +39,10 @@ export class ReportPrefillInput {
 @ObjectType()
 export class ReportFieldMetaOutput {
   @Field({ description: 'JSON pointer into draftPayload, e.g. "/mortality/byCause"' })
-  path: string;
+  path!: string;
 
   @Field(() => ReportFieldProvenance)
-  provenance: ReportFieldProvenance;
+  provenance!: ReportFieldProvenance;
 
   @Field(() => Int, { nullable: true, description: 'RECORDS: source rows aggregated' })
   sourceRecordCount?: number;
@@ -60,19 +60,19 @@ export class ReportFieldMetaOutput {
   message?: string;
 
   @Field({ description: 'True when schema-required and still MANUAL_REQUIRED' })
-  blocking: boolean;
+  blocking!: boolean;
 }
 
 @ObjectType()
 export class ReportPrefillOutput {
   @Field(() => ReportPrefillType)
-  reportType: ReportPrefillType;
+  reportType!: ReportPrefillType;
 
   @Field(() => ID)
-  siteId: string;
+  siteId!: string;
 
   @Field(() => Int)
-  periodYear: number;
+  periodYear!: number;
 
   @Field(() => Int, { nullable: true })
   periodWeek?: number;
@@ -81,14 +81,14 @@ export class ReportPrefillOutput {
   periodMonth?: number;
 
   @Field(() => GraphQLJSON, { description: 'Assembled draft in the exact report wire shape' })
-  draftPayload: object;
+  draftPayload!: object;
 
   @Field(() => [ReportFieldMetaOutput])
-  fields: ReportFieldMetaOutput[];
+  fields!: ReportFieldMetaOutput[];
 
   @Field({ description: 'True when zero blocking fields remain' })
-  schemaValid: boolean;
+  schemaValid!: boolean;
 
   @Field()
-  assembledAt: Date;
+  assembledAt!: Date;
 }

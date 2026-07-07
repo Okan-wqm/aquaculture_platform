@@ -309,12 +309,12 @@ export interface BreedingInfo {
 export class Species {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -322,11 +322,11 @@ export class Species {
 
   @Field()
   @Column({ length: 100 })
-  scientificName: string; // Bilimsel ad: "Dicentrarchus labrax"
+  scientificName!: string; // Bilimsel ad: "Dicentrarchus labrax"
 
   @Field()
   @Column({ length: 100 })
-  commonName: string; // Yaygın ad: "European Seabass"
+  commonName!: string; // Yaygın ad: "European Seabass"
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
@@ -334,7 +334,7 @@ export class Species {
 
   @Field()
   @Column({ length: 50 })
-  code: string; // Kısa kod: "SEABASS"
+  code!: string; // Kısa kod: "SEABASS"
 
   /**
    * Official regulatory species code (artskode) used by the Norwegian
@@ -361,7 +361,7 @@ export class Species {
     enum: SpeciesCategory,
     default: SpeciesCategory.FISH,
   })
-  category: SpeciesCategory;
+  category!: SpeciesCategory;
 
   @Field(() => SpeciesWaterType)
   @Column({
@@ -369,7 +369,7 @@ export class Species {
     enum: SpeciesWaterType,
     default: SpeciesWaterType.SALTWATER,
   })
-  waterType: SpeciesWaterType;
+  waterType!: SpeciesWaterType;
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
@@ -438,12 +438,12 @@ export class Species {
     enum: SpeciesStatus,
     default: SpeciesStatus.ACTIVE,
   })
-  status: SpeciesStatus;
+  status!: SpeciesStatus;
 
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // CLEANER FISH FLAGS
@@ -456,7 +456,7 @@ export class Species {
   @Field()
   @Column({ default: false })
   @Index()
-  isCleanerFish: boolean;
+  isCleanerFish!: boolean;
 
   /**
    * Cleaner fish türü
@@ -520,11 +520,11 @@ export class Species {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -535,7 +535,7 @@ export class Species {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -544,7 +544,7 @@ export class Species {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

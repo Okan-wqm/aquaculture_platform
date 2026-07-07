@@ -56,11 +56,11 @@ registerEnumType(RecurrenceFrequency, {
 export class RecurringTemplate {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -68,7 +68,7 @@ export class RecurringTemplate {
 
   @Field()
   @Column({ length: 255 })
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -79,14 +79,14 @@ export class RecurringTemplate {
     type: 'enum',
     enum: TaskCategory,
   })
-  category: TaskCategory;
+  category!: TaskCategory;
 
   @Field(() => TaskPriority)
   @Column({
     type: 'enum',
     enum: TaskPriority,
   })
-  priority: TaskPriority;
+  priority!: TaskPriority;
 
   // -------------------------------------------------------------------------
   // TEKRARLAMA AYARLARI
@@ -97,7 +97,7 @@ export class RecurringTemplate {
     type: 'enum',
     enum: RecurrenceFrequency,
   })
-  frequency: RecurrenceFrequency;
+  frequency!: RecurrenceFrequency;
 
   @Field({ nullable: true })
   @Column({ type: 'varchar', nullable: true })
@@ -124,11 +124,11 @@ export class RecurringTemplate {
 
   @Field()
   @Column('uuid')
-  assignedTo: string;
+  assignedTo!: string;
 
   @Field()
   @Column({ length: 255 })
-  assignedToName: string;
+  assignedToName!: string;
 
   // -------------------------------------------------------------------------
   // DETAYLAR
@@ -144,7 +144,7 @@ export class RecurringTemplate {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', default: [] })
-  checklistItems: TaskChecklistItem[];
+  checklistItems!: TaskChecklistItem[];
 
   // -------------------------------------------------------------------------
   // DURUM
@@ -152,7 +152,7 @@ export class RecurringTemplate {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -180,9 +180,9 @@ export class RecurringTemplate {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

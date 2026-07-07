@@ -37,7 +37,7 @@ registerEnumType(ChannelType, { name: 'ChannelType' });
 export class Channel {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier for multi-tenant isolation.
@@ -47,11 +47,11 @@ export class Channel {
    */
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => ChannelType)
   @Column({ type: 'varchar', length: 20, default: ChannelType.GROUP })
-  type: ChannelType;
+  type!: ChannelType;
 
   /**
    * Channel display name. Limited to 100 characters to reduce index storage
@@ -60,39 +60,39 @@ export class Channel {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  name: string | null;
+  name!: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  description: string | null;
+  description!: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 1024, nullable: true })
-  avatarUrl: string | null;
+  avatarUrl!: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  createdBy: string | null;
+  createdBy!: string | null;
 
   @Field()
   @Column({ type: 'boolean', default: false })
-  isArchived: boolean;
+  isArchived!: boolean;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column({ type: 'varchar', length: 73, nullable: true, unique: true })
-  dmPairKey: string | null;
+  dmPairKey!: string | null;
 
   /** AI persona ID for AI channels (e.g., 'expert-v1', 'operator-v1'). Null = general AI chat. */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
-  aiPersona: string | null;
+  aiPersona!: string | null;
 
   // MSG-HIGH-060: the per-channel `aiServiceUrl` override was removed. It let any
   // channel member point the AI at an arbitrary public HTTPS endpoint they
@@ -122,7 +122,7 @@ export class Channel {
    * to avoid duplicate schema declarations.
    */
   @OneToMany(() => ChannelMember, (member) => member.channel, { cascade: true })
-  members: ChannelMember[];
+  members!: ChannelMember[];
 
   /**
    * Number of active members in this channel.

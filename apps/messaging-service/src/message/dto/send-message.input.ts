@@ -26,7 +26,7 @@ import GraphQLJSON from 'graphql-type-json';
 export class SendMessageInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Target channel UUID' })
   @IsUUID()
-  channelId: string;
+  channelId!: string;
 
   @Field(() => String, {
     nullable: true,
@@ -35,14 +35,14 @@ export class SendMessageInput extends MobileCommandEnvelopeInput {
   @IsOptional()
   @IsString()
   @MaxLength(4000)
-  content: string | null;
+  content!: string | null;
 
   @Field(() => MessageContentType, {
     defaultValue: MessageContentType.TEXT,
     description: 'Content type of the message',
   })
   @IsEnum(MessageContentType)
-  contentType: MessageContentType;
+  contentType!: MessageContentType;
 
   @Field(() => ID, {
     nullable: true,
@@ -66,7 +66,7 @@ export class SendMessageInput extends MobileCommandEnvelopeInput {
     description: 'Client-generated UUID for idempotent send',
   })
   @IsUUID()
-  idempotencyKey: string;
+  idempotencyKey!: string;
 
   @Field(() => GraphQLJSON, {
     nullable: true,

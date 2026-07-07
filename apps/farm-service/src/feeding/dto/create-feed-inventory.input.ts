@@ -24,12 +24,12 @@ export class CreateFeedInventoryInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -40,7 +40,7 @@ export class CreateFeedInventoryInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  quantityKg: number;
+  quantityKg!: number;
 
   @Field(() => Float, { defaultValue: 0 })
   @IsOptional()
@@ -117,17 +117,17 @@ export class InventoryMovementInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedInventoryId: string;
+  feedInventoryId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
-  quantityKg: number;
+  quantityKg!: number;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  movementType: 'purchase' | 'consumption' | 'transfer_in' | 'transfer_out' | 'adjustment' | 'waste' | 'return' | 'expired';
+  movementType!: 'purchase' | 'consumption' | 'transfer_in' | 'transfer_out' | 'adjustment' | 'waste' | 'return' | 'expired';
 
   @Field({ nullable: true })
   @IsOptional()

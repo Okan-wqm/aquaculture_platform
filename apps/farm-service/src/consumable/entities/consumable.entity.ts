@@ -54,30 +54,30 @@ registerEnumType(ConsumableStatus, {
 @Index(['tenantId', 'status'])
 export class Consumable {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Column({
     type: 'varchar',
     length: 30,
     default: ConsumableCategory.OTHER,
   })
-  category: ConsumableCategory;
+  category!: ConsumableCategory;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
 
   @Column({ length: 20, default: 'pcs' })
-  unit: string;
+  unit!: string;
 
   @Column({ length: 255, nullable: true })
   brand?: string;
@@ -91,25 +91,25 @@ export class Consumable {
   supplier?: Supplier;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  quantity: number;
+  quantity!: number;
 
   // DecimalTransformer: minStock threshold compared against current quantity to trigger reorder alerts.
   // String comparison produces wrong results — e.g., "5.0" > "10.0" lexicographically.
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'min_stock', transformer: new DecimalTransformer() })
-  minStock: number;
+  minStock!: number;
 
   @Column({
     type: 'varchar',
     length: 20,
     default: ConsumableStatus.AVAILABLE,
   })
-  status: ConsumableStatus;
+  status!: ConsumableStatus;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'unit_price', transformer: new DecimalTransformer() })
   unitPrice?: number;
 
   @Column({ length: 3, default: 'NOK' })
-  currency: string;
+  currency!: string;
 
   // Storage conditions
   @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_min', transformer: new DecimalTransformer() })
@@ -132,12 +132,12 @@ export class Consumable {
 
   @Column({ default: true, name: 'is_active' })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   // Soft delete
   @Column({ default: false, name: 'is_deleted' })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
   deletedAt?: Date;
@@ -147,10 +147,10 @@ export class Consumable {
 
   // Audit
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column({ type: 'uuid', nullable: true, name: 'created_by' })
   createdBy?: string;
@@ -159,7 +159,7 @@ export class Consumable {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // Business methods
   updateStockStatus(): void {

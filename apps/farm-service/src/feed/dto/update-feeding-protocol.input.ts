@@ -10,7 +10,7 @@ import { FeedType } from '../entities/feed.entity';
 export class UpdateFeedingProtocolInput extends PartialType(CreateFeedingProtocolInput) {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   // Override inherited required fields to make them optional for partial updates
   @Field(() => String, { nullable: true })

@@ -59,31 +59,31 @@ export class WaterQualityListResponse extends StandardPaginatedResponse(WaterQua
 @ObjectType()
 export class WaterQualityStatistics {
   @Field(() => Float, { nullable: true })
-  avgTemperature: number | null;
+  avgTemperature!: number | null;
 
   @Field(() => Float, { nullable: true })
-  avgDO: number | null;
+  avgDO!: number | null;
 
   @Field(() => Float, { nullable: true })
-  avgPH: number | null;
+  avgPH!: number | null;
 
   @Field(() => Float, { nullable: true })
-  avgAmmonia: number | null;
+  avgAmmonia!: number | null;
 
   @Field(() => Float, { nullable: true })
-  avgNitrite: number | null;
+  avgNitrite!: number | null;
 
   @Field(() => Int)
-  measurementCount: number;
+  measurementCount!: number;
 
   @Field(() => Int)
-  criticalCount: number;
+  criticalCount!: number;
 
   @Field(() => Int)
-  warningCount: number;
+  warningCount!: number;
 
   @Field(() => WaterQualityMeasurement, { nullable: true })
-  lastMeasurement: WaterQualityMeasurement | null;
+  lastMeasurement!: WaterQualityMeasurement | null;
 }
 
 // ============================================================================

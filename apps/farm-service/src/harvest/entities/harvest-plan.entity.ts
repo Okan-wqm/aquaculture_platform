@@ -209,12 +209,12 @@ export interface QualityRequirements {
 export class HarvestPlan {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -223,11 +223,11 @@ export class HarvestPlan {
   @Field()
   @Column({ length: 50 })
   @Index()
-  planCode: string;                  // HP-2024-00001
+  planCode!: string;                  // HP-2024-00001
 
   @Field()
   @Column({ length: 200 })
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -240,7 +240,7 @@ export class HarvestPlan {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -257,7 +257,7 @@ export class HarvestPlan {
     default: HarvestPlanStatus.DRAFT,
   })
   @Index()
-  status: HarvestPlanStatus;
+  status!: HarvestPlanStatus;
 
   @Field(() => HarvestType)
   @Column({
@@ -265,7 +265,7 @@ export class HarvestPlan {
     enum: HarvestType,
     default: HarvestType.FULL,
   })
-  harvestType: HarvestType;
+  harvestType!: HarvestType;
 
   // -------------------------------------------------------------------------
   // TARİHLER
@@ -274,7 +274,7 @@ export class HarvestPlan {
   @Field()
   @Column({ type: 'date' })
   @Index()
-  plannedDate: Date;
+  plannedDate!: Date;
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -294,7 +294,7 @@ export class HarvestPlan {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  criteria: HarvestCriteria;
+  criteria!: HarvestCriteria;
 
   @Field(() => HarvestMethod, { nullable: true })
   @Column({
@@ -310,7 +310,7 @@ export class HarvestPlan {
     enum: ProductForm,
     default: ProductForm.FRESH_WHOLE,
   })
-  productForm: ProductForm;
+  productForm!: ProductForm;
 
   // -------------------------------------------------------------------------
   // TAHMİNLER
@@ -318,7 +318,7 @@ export class HarvestPlan {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  estimates: HarvestEstimates;
+  estimates!: HarvestEstimates;
 
   // -------------------------------------------------------------------------
   // FİNANSAL PROJEKSİYON
@@ -386,7 +386,7 @@ export class HarvestPlan {
 
   @Field()
   @Column('uuid')
-  createdBy: string;
+  createdBy!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -402,11 +402,11 @@ export class HarvestPlan {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

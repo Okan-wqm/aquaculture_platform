@@ -12,7 +12,7 @@ export class UpdateSpeciesInput extends PartialType(CreateSpeciesInput) {
   @Field(() => ID)
   @IsUUID()
   @IsNotEmpty()
-  id: string;
+  id!: string;
 
   // Override inherited required fields to make them optional for partial updates
   @Field(() => String, { nullable: true })

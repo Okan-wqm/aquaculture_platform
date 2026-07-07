@@ -20,29 +20,29 @@ import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 export class EmbeddingsMetadata {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'varchar', length: 128 })
-  modelName: string;
+  modelName!: string;
 
   @Field()
   @Column({ type: 'varchar', length: 64 })
-  modelVersion: string;
+  modelVersion!: string;
 
   @Field(() => Int)
   @Column({ type: 'integer' })
-  dimension: number;
+  dimension!: number;
 
   @Field()
   @Column({ type: 'varchar', length: 20 })
-  distanceMetric: string;
+  distanceMetric!: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 }

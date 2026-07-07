@@ -272,6 +272,17 @@ export class Tank {
   @Column({ length: 100, nullable: true })
   equipmentTypeCode?: string;
 
+  /**
+   * Official regulatory unit id (kar-/merd-nummer) reported to Mattilsynet as
+   * `karId` in the settefisk report (RPT-016b). Optional override for when the
+   * regulator's unit number differs from the internal `code`; the settefisk
+   * assembler falls back to `code` when this is unset. Partial-unique per
+   * tenant (only non-null values must be distinct).
+   */
+  @Field({ nullable: true })
+  @Column({ length: 50, nullable: true })
+  regulatoryUnitId?: string;
+
   // -------------------------------------------------------------------------
   // TİP VE MALZEME
   // -------------------------------------------------------------------------

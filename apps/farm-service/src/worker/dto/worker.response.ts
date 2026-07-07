@@ -27,6 +27,12 @@ export class WorkerResponse {
   position: string;
 
   @Field()
+  isVeterinarian: boolean;
+
+  @Field({ nullable: true })
+  veterinaryLicenseNumber?: string;
+
+  @Field()
   status: string;
 
   @Field()

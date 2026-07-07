@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mattilsynet/slakt-planlagt/v1",
+  "title": "Mattilsynet planlagt slakt (planned slaughter) weekly report — POST /api/slakt/v1/planlagt",
+  "description": "Transcribed from docs/integrations/mattilsynet-reporting-api.md §3. x-verified=false until diffed against the live swagger (RPT-017).",
+  "x-verified": false,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "klientReferanse",
+    "organisasjonsnummer",
+    "lokalitetsnummer",
+    "kontaktperson",
+    "uke",
+    "år",
+    "godkjenningsnummer",
+    "planlagteLokaliteter"
+  ],
+  "properties": {
+    "klientReferanse": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+    "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+    "kontaktperson": { "$ref": "#/definitions/kontaktperson" },
+    "uke": { "type": "integer", "minimum": 1, "maximum": 53 },
+    "år": { "type": "integer", "minimum": 2020, "maximum": 2100 },
+    "godkjenningsnummer": { "type": "string", "pattern": "^[A-Za-z0-9]{1,6}$" },
+    "planlagteLokaliteter": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/planlagtLokalitet" }
+    }
+  },
+  "definitions": {
+    "kontaktperson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navn", "epost", "telefonnummer"],
+      "properties": {
+        "navn": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "epost": { "type": "string", "format": "email", "maxLength": 255 },
+        "telefonnummer": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "planlagtLokalitet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organisasjonsnummer", "lokalitetsnummer", "ukeplanPerArt"],
+      "properties": {
+        "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+        "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+        "ukeplanPerArt": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/ukeplanPerArt" }
+        }
+      }
+    },
+    "ukeplanPerArt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artskode"],
+      "properties": {
+        "artskode": { "type": "string", "pattern": "^[A-Z]{2,5}$" },
+        "mandagKg": { "type": "number", "minimum": 0 },
+        "tirsdagKg": { "type": "number", "minimum": 0 },
+        "onsdagKg": { "type": "number", "minimum": 0 },
+        "torsdagKg": { "type": "number", "minimum": 0 },
+        "fredagKg": { "type": "number", "minimum": 0 },
+        "lørdagKg": { "type": "number", "minimum": 0 },
+        "søndagKg": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

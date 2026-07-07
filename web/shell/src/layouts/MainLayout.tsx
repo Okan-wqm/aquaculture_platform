@@ -14,8 +14,11 @@ import {
   type NavigationItem,
   type SidebarTheme,
   useAuthContext,
+  useAuth,
   useTenantContext,
 } from '@aquaculture/shared-ui';
+import { Sparkles } from 'lucide-react';
+import AiAssistantDrawer from '../components/ai/AiAssistantDrawer';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useState, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -160,6 +163,12 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
     label: 'Dashboard',
     path: '/tenant',
     icon: 'dashboard',
+  },
+  {
+    id: 'messaging',
+    label: 'Messages',
+    path: '/messaging',
+    icon: 'message',
   },
   {
     id: 'tenant-users',
@@ -309,6 +318,12 @@ const moduleUserBaseNavigation: NavigationItem[] = [
     icon: 'dashboard',
   },
   {
+    id: 'messaging',
+    label: 'Messages',
+    path: '/messaging',
+    icon: 'message',
+  },
+  {
     id: 'analytics',
     label: 'Analytics',
     path: '/analytics',
@@ -332,12 +347,18 @@ const MainLayout: React.FC = () => {
   const queryClient = useQueryClient();
   const { user, logout, modules } = useAuthContext();
   const { tenant } = useTenantContext();
+  // hasPermission is the resource-permission SSoT (useAuthContext exposes only
+  // roles); gates the AI assistant trigger by ai_assistant:use.
+  const { hasPermission } = useAuth();
 
   // Derive primitive role value to avoid callback identity churn on user object refresh
   const userRole = user?.role;
 
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // AI assistant drawer (shell-level, accessible from every module).
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
+  const canUseAiAssistant = hasPermission('ai_assistant:use');
 
   /**
    * Build module navigation items from tenant's assigned modules.
@@ -488,7 +509,24 @@ const MainLayout: React.FC = () => {
    * Notification panel element — self-contained bell icon with dropdown.
    * Rendered as rightContent in the Header to replace the built-in bell button.
    */
-  const notificationPanelElement = useMemo(() => <NotificationPanel />, []);
+  const notificationPanelElement = useMemo(
+    () => (
+      <div className="flex items-center gap-1">
+        {canUseAiAssistant && (
+          <button
+            onClick={() => setAiDrawerOpen(true)}
+            title="AI Assistant"
+            aria-label="Open AI assistant"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-tenant-600"
+          >
+            <Sparkles className="h-5 w-5" />
+          </button>
+        )}
+        <NotificationPanel />
+      </div>
+    ),
+    [canUseAiAssistant],
+  );
 
   /**
    * Logo element — memoized to avoid Sidebar re-renders
@@ -550,6 +588,10 @@ const MainLayout: React.FC = () => {
 
       {/* GDPR Consent Banner — shown when consent is outdated or missing */}
       <ConsentBanner />
+
+      {canUseAiAssistant && (
+        <AiAssistantDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
+      )}
     </div>
   );
 };

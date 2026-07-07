@@ -19,14 +19,11 @@ const SENSOR_TYPE_LABELS: Record<SensorType, string> = {
   [SensorType.TURBIDITY]: 'Turbidity',
   [SensorType.WATER_LEVEL]: 'Water Level',
   [SensorType.FLOW_RATE]: 'Flow Rate',
-  [SensorType.PRESSURE]: 'Pressure',
   [SensorType.CONDUCTIVITY]: 'Conductivity',
   [SensorType.ORP]: 'ORP',
   [SensorType.CO2]: 'CO2',
   [SensorType.CHLORINE]: 'Chlorine',
   [SensorType.MULTI_PARAMETER]: 'Multi-Parameter',
-  [SensorType.CAMERA]: 'Camera',
-  [SensorType.OTHER]: 'Other',
 };
 
 export function ChildSensorsStep({

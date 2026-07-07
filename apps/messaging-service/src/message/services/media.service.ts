@@ -12,6 +12,7 @@ import {
   STORAGE_OBJECT_VERIFIER,
   StorageObjectVerifier,
 } from './storage-object-verifier.port';
+import { createMessagingS3 } from '../../shared/messaging-s3-client.factory';
 
 /**
  * Voice-note duration metadata key — single source of truth (MSG-HIGH-055).
@@ -67,16 +68,9 @@ export class MediaService {
     @Inject(STORAGE_OBJECT_VERIFIER)
     private readonly storageObjectVerifier: StorageObjectVerifier,
   ) {
-    this.s3Client = new S3Client({
-      endpoint: configService.get<string>('MINIO_ENDPOINT', 'http://localhost:9000'),
-      region: configService.get<string>('MINIO_REGION', 'us-east-1'),
-      credentials: {
-        accessKeyId: configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin'),
-        secretAccessKey: configService.get<string>('MINIO_SECRET_KEY', 'minioadmin'),
-      },
-      forcePathStyle: true, // Required for MinIO
-    });
-    this.bucket = configService.get<string>('MINIO_BUCKET', 'messaging');
+    const { client, bucket } = createMessagingS3(configService);
+    this.s3Client = client;
+    this.bucket = bucket;
   }
 
   /**

@@ -175,8 +175,13 @@ describe('useTenantRoles hooks', () => {
     });
 
     it('should use correct query key', () => {
-      // Tenant-scoped: ['tenant', tenantId, 'tenant-roles', 'list'] (FE-CRITICAL-014).
-      expect(roleKeys.lists()).toEqual(['tenant', getTenantId(), 'tenant-roles', 'list']);
+      // Tenant-scoped: ['tenant', tenantId, 'tenant-roles', 'list', {__sessionEpoch}]
+      // (FE-CRITICAL-014). createTenantQueryKey appends the session-epoch cache
+      // generation LAST; the tenant prefix stays at a fixed position so
+      // prefix-based invalidation keeps matching across generations.
+      const key = roleKeys.lists();
+      expect(key.slice(0, 4)).toEqual(['tenant', getTenantId(), 'tenant-roles', 'list']);
+      expect(key[4]).toEqual({ __sessionEpoch: expect.any(Number) });
     });
   });
 

@@ -1,7 +1,20 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validateSync, ValidationError } from 'class-validator';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
+import {
+  ModbusRtuConfigDto,
+  ModbusTcpConfigDto,
+  ProfinetConfigDto,
+  EthernetIpConfigDto,
+  CanopenConfigDto,
+  BacnetIpConfigDto,
+  BacnetMstpConfigDto,
+  ProfibusDpConfigDto,
+} from '../dto/protocol-config.dto';
 
 interface StatusCountResult {
   status: string;
@@ -26,6 +39,10 @@ export interface CreateVfdDeviceInput {
   farmId?: string;
   tankId?: string;
   tags?: string[];
+  // SENSOR-HIGH-026: previously accepted by the DTO but dropped at persistence.
+  modelSeries?: string;
+  pumpId?: string;
+  notes?: string;
 }
 
 /**
@@ -89,9 +106,14 @@ export class VfdDeviceService {
     // Validate protocol configuration
     this.validateProtocolConfiguration(input.protocol, input.protocolConfiguration);
 
+    const { notes, ...rest } = input;
     const deviceData: DeepPartial<VfdDevice> = {
-      ...input,
+      ...rest,
       tenantId,
+      // SENSOR-HIGH-026: reconcile the wizard's free-text `notes` into the
+      // canonical `description` column (an explicit description wins if both
+      // are present) instead of dropping it.
+      description: input.description ?? notes,
       status: VfdDeviceStatus.DRAFT,
       connectionStatus: {
         isConnected: false,
@@ -475,5 +497,69 @@ export class VfdDeviceService {
         }
         break;
     }
+
+    // SENSOR-HIGH-020: the register mutation validates protocolConfiguration
+    // against the permissive flat union DTO (every field optional, almost no
+    // Min/Max/@IsIP), so out-of-range baudRate/slaveId/unitId and malformed
+    // hosts persist and only fail at the adapter/device layer. Run the strict
+    // per-protocol DTO's class-validator here, keyed on protocol, so bounds and
+    // formats are enforced at the boundary.
+    this.validateAgainstStrictProtocolDto(protocol, config);
+  }
+
+  /**
+   * SENSOR-HIGH-020: validate the raw config against the strict per-protocol
+   * DTO (range/enum/IP constraints). Throws BadRequestException with the
+   * flattened constraint messages on any violation.
+   */
+  private validateAgainstStrictProtocolDto(
+    protocol: VfdProtocol,
+    config: Record<string, unknown>,
+  ): void {
+    const dtoByProtocol: Partial<Record<VfdProtocol, new () => object>> = {
+      [VfdProtocol.MODBUS_RTU]: ModbusRtuConfigDto,
+      [VfdProtocol.MODBUS_TCP]: ModbusTcpConfigDto,
+      [VfdProtocol.PROFINET]: ProfinetConfigDto,
+      [VfdProtocol.ETHERNET_IP]: EthernetIpConfigDto,
+      [VfdProtocol.CANOPEN]: CanopenConfigDto,
+      [VfdProtocol.BACNET_IP]: BacnetIpConfigDto,
+      [VfdProtocol.BACNET_MSTP]: BacnetMstpConfigDto,
+      [VfdProtocol.PROFIBUS_DP]: ProfibusDpConfigDto,
+    };
+
+    const DtoClass = dtoByProtocol[protocol];
+    if (!DtoClass) {
+      return; // no strict schema for this protocol — presence check above applies
+    }
+
+    const instance = plainToInstance(DtoClass, config, {
+      // protocolConfiguration is a JSON scalar; coerce numeric strings so a
+      // well-formed "502" is not spuriously rejected — out-of-range values
+      // still fail the Min/Max constraints.
+      enableImplicitConversion: true,
+    });
+    const errors = validateSync(instance as object, {
+      whitelist: false,
+      forbidNonWhitelisted: false,
+    });
+
+    if (errors.length > 0) {
+      throw new BadRequestException(
+        `Invalid ${protocol} configuration: ${this.flattenValidationErrors(errors).join('; ')}`,
+      );
+    }
+  }
+
+  private flattenValidationErrors(errors: ValidationError[]): string[] {
+    const messages: string[] = [];
+    for (const err of errors) {
+      if (err.constraints) {
+        messages.push(...Object.values(err.constraints));
+      }
+      if (err.children && err.children.length > 0) {
+        messages.push(...this.flattenValidationErrors(err.children));
+      }
+    }
+    return messages;
   }
 }

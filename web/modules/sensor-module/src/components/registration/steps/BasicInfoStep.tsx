@@ -77,14 +77,11 @@ const SENSOR_TYPE_OPTIONS: Array<{ value: SensorType; label: string; description
   { value: SensorType.TURBIDITY, label: 'Turbidity', description: 'Water turbidity sensor' },
   { value: SensorType.WATER_LEVEL, label: 'Water Level', description: 'Water level sensor' },
   { value: SensorType.FLOW_RATE, label: 'Flow Rate', description: 'Water flow rate sensor' },
-  { value: SensorType.PRESSURE, label: 'Pressure', description: 'Pressure sensor' },
   { value: SensorType.CONDUCTIVITY, label: 'Conductivity', description: 'Electrical conductivity sensor' },
   { value: SensorType.ORP, label: 'ORP', description: 'Oxidation-reduction potential sensor' },
   { value: SensorType.CO2, label: 'CO2', description: 'Carbon dioxide sensor' },
   { value: SensorType.CHLORINE, label: 'Chlorine', description: 'Chlorine concentration sensor' },
-  { value: SensorType.MULTI_PARAMETER, label: 'Multi-Parameter', description: 'Multiple parameters sensor' },
-  { value: SensorType.CAMERA, label: 'Camera', description: 'Visual monitoring camera' },
-  { value: SensorType.OTHER, label: 'Other', description: 'Other sensor type' },
+  { value: SensorType.MULTI_PARAMETER, label: 'Multi-Parameter / Other', description: 'Multiple parameters or other sensor type' },
 ];
 
 export function BasicInfoStep({ values, onChange, errors = {} }: BasicInfoStepProps) {
@@ -120,10 +117,11 @@ export function BasicInfoStep({ values, onChange, errors = {} }: BasicInfoStepPr
 
     const selected = dynamicTypes.find((t) => t.id === selectedId);
     if (selected) {
-      // Map typeKey to the legacy SensorType enum if it matches, otherwise default to OTHER
+      // Map typeKey to the legacy SensorType enum if it matches, otherwise
+      // default to MULTI_PARAMETER (SENSOR-HIGH-028: backend has no OTHER type).
       const legacyType = Object.values(SensorType).includes(selected.typeKey as SensorType)
         ? (selected.typeKey as SensorType)
-        : SensorType.OTHER;
+        : SensorType.MULTI_PARAMETER;
 
       onChange({
         type: legacyType,

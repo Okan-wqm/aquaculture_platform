@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 import {
   ProtocolCategory,
@@ -74,6 +75,9 @@ export class WebSocketAdapter extends BaseProtocolAdapter<WebSocketConfiguration
 
   private sockets = new Map<string, WsSocketData>();
 
+  // SVD-HIGH-001: dependency-free SSRF host guard (see http-rest adapter note).
+  private readonly ssrfValidator = new SsrfValidatorService();
+
   async connect(config: WebSocketConfiguration): Promise<ConnectionHandle> {
     const wsConfig = config;
     const WebSocket = (await import('ws')).default;
@@ -83,6 +87,31 @@ export class WebSocketAdapter extends BaseProtocolAdapter<WebSocketConfiguration
       const urlObj = new URL(url);
       urlObj.searchParams.set(wsConfig.authQueryParam, wsConfig.authQueryValue);
       url = urlObj.toString();
+    }
+
+    // SVD-HIGH-001: `url` is operator-supplied (ws://host / wss://host).
+    // Enforce the ws/wss scheme and validate the host against the SSRF
+    // denylist before opening the socket so it cannot target internal
+    // addresses or cloud metadata.
+    {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        throw new Error('Connection failed');
+      }
+      if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+        throw new Error('Connection failed');
+      }
+      const wsPort = parsed.port
+        ? parseInt(parsed.port, 10)
+        : parsed.protocol === 'wss:'
+          ? 443
+          : 80;
+      const verdict = await this.ssrfValidator.validateHost(parsed.hostname, wsPort);
+      if (!verdict.safe) {
+        throw new Error('Connection failed');
+      }
     }
 
     const options: WsConnectOptions = {};

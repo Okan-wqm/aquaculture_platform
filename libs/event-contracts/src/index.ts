@@ -64,6 +64,7 @@ export * from './upcasters';
 
 // Runtime JSON Schema validators for trust-boundary crossing (H-3)
 export * from './auth-user-queries';
+export * from './auth-credential-queries';
 export * from './schemas';
 
 // Re-export all domain union types for convenience

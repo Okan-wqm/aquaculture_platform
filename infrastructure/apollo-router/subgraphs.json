@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 2,
-    "catalogHash": "a462baa20ffd6000cd93fc83914785eedceadeee5f40ebe0c7b81394b486f354",
+    "catalogHash": "3ecb0b77bbfa7abee6999df31022cbefc6fa5a6edf3310ea024cc499cd87d393",
     "note": "do not edit by hand"
   },
   "federationVersion": "=2.10.0",

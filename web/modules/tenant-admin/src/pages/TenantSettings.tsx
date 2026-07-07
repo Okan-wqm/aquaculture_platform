@@ -6,6 +6,7 @@ import {
   Globe,
   Palette,
   Smartphone,
+  Sparkles,
   ChevronRight,
   Lock,
 } from 'lucide-react';
@@ -16,6 +17,7 @@ import {
   SecuritySettings,
   LocalizationSettings,
   MobileSettings,
+  AiAssistantSettings,
 } from '../components/settings';
 
 /**
@@ -26,6 +28,8 @@ interface SettingsSection {
   title: string;
   description: string;
   icon: React.ReactNode;
+  /** When true, the section is only listed for TENANT_ADMIN (or higher). */
+  adminOnly?: boolean;
 }
 
 const settingsSections: SettingsSection[] = [
@@ -65,6 +69,15 @@ const settingsSections: SettingsSection[] = [
     description: 'AquaMobil access and feature permissions',
     icon: <Smartphone className="w-5 h-5" />,
   },
+  {
+    id: 'ai',
+    title: 'AI Assistant',
+    description: 'Bring-your-own-key provider, model, budget and limits',
+    icon: <Sparkles className="w-5 h-5" />,
+    // AI provider settings (BYOK key) are TENANT_ADMIN by default (ai_settings:
+    // manage); hidden from lower roles so they don't hit a 403 on the read.
+    adminOnly: true,
+  },
 ];
 
 /**
@@ -80,6 +93,11 @@ const TenantSettings: React.FC = () => {
   const { hasRoleOrHigher } = useAuthContext();
   const canEditSettings = hasRoleOrHigher('TENANT_ADMIN');
   const [activeSection, setActiveSection] = useState('general');
+
+  // Hide admin-only sections (e.g. AI provider keys) from lower roles.
+  const visibleSections = settingsSections.filter(
+    (section) => !section.adminOnly || canEditSettings,
+  );
 
   const renderSection = () => {
     switch (activeSection) {
@@ -107,6 +125,8 @@ const TenantSettings: React.FC = () => {
         );
       case 'mobileUsers':
         return <MobileSettings />;
+      case 'ai':
+        return <AiAssistantSettings canEdit={canEditSettings} />;
       default:
         return null;
     }
@@ -136,7 +156,7 @@ const TenantSettings: React.FC = () => {
         <div className="lg:col-span-1">
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
             <nav className="divide-y divide-gray-100">
-              {settingsSections.map((section) => (
+              {visibleSections.map((section) => (
                 <button
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}

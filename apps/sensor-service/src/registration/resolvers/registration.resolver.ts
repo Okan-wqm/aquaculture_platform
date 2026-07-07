@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int } from '@nestjs/graphql';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { GraphQLJSON } from 'graphql-scalars';
@@ -51,6 +51,20 @@ export class RegistrationResolver {
 
   constructor(private registrationService: SensorRegistrationService) {}
 
+  /**
+   * SENSOR-HIGH-021: fail closed on missing tenant context. The global
+   * TenantGuard normally supplies it, but the previous `|| 'default-tenant'`
+   * fallback would silently co-mingle sensors into a shared synthetic tenant
+   * if the context were ever absent. Throw instead.
+   */
+  private requireTenant(tenantId?: string, fallback?: string): string {
+    const resolved = tenantId || fallback;
+    if (!resolved) {
+      throw new UnauthorizedException('Tenant context is required');
+    }
+    return resolved;
+  }
+
   // Queries
   @Query(() => RegisteredSensorType, { name: 'sensor', nullable: true })
   async getSensor(
@@ -69,7 +83,7 @@ export class RegistrationResolver {
     @Args('pagination', { nullable: true }) pagination?: PaginationInput,
     @Tenant() tenantId?: string,
   ): Promise<SensorListType> {
-    const effectiveTenantId = tenantId || 'default-tenant';
+    const effectiveTenantId = this.requireTenant(tenantId);
     this.logger.debug(`Listing sensors for tenant ${effectiveTenantId}`);
     const result = await this.registrationService.listSensors(effectiveTenantId, filter, pagination);
     return {
@@ -110,7 +124,7 @@ export class RegistrationResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<SensorRegistrationResultType> {
-    const effectiveTenantId = tenantId || user?.tenantId || 'default-tenant';
+    const effectiveTenantId = this.requireTenant(tenantId, user?.tenantId);
     const userId = user?.sub || 'default-user';
     this.logger.log(`Registering sensor ${input.name} for tenant ${effectiveTenantId}`);
 
@@ -172,7 +186,7 @@ export class RegistrationResolver {
     @Tenant() tenantId?: string,
   ): Promise<RegisteredSensorType> {
     this.logger.log(`Suspending sensor ${sensorId}`);
-    const effectiveTenantId = tenantId || 'default-tenant';
+    const effectiveTenantId = this.requireTenant(tenantId);
     const sensor = await this.registrationService.suspendSensor(sensorId, effectiveTenantId, reason);
     return this.mapSensorToType(sensor);
   }
@@ -257,6 +271,20 @@ export class RegistrationResolver {
       farmId: sensor.farmId,
       pondId: sensor.pondId,
       tankId: sensor.tankId,
+      // SENSOR-HIGH-023: location hierarchy + parent/child + firmware/calibration
+      // were declared on RegisteredSensorType but never mapped here, so they
+      // resolved to null — breaking list grouping and detail read-back. One
+      // mapper feeds both `sensor(id)` and `sensors`, so this fixes both.
+      siteId: sensor.siteId,
+      departmentId: sensor.departmentId,
+      systemId: sensor.systemId,
+      equipmentId: sensor.equipmentId,
+      parentId: sensor.parentId,
+      isParentDevice: sensor.isParentDevice,
+      dataPath: sensor.dataPath,
+      sensorRole: sensor.sensorRole,
+      firmwareVersion: sensor.firmwareVersion,
+      lastCalibratedAt: sensor.lastCalibratedAt,
       location: sensor.location,
       metadata: sensor.metadata,
       tenantId: sensor.tenantId,
@@ -279,7 +307,7 @@ export class RegistrationResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<ParentWithChildrenResultType> {
-    const effectiveTenantId = tenantId || user?.tenantId || 'default-tenant';
+    const effectiveTenantId = this.requireTenant(tenantId, user?.tenantId);
     const userId = user?.sub || 'default-user';
     this.logger.log(`Registering parent with children for tenant ${effectiveTenantId}`);
 
@@ -321,7 +349,7 @@ export class RegistrationResolver {
     @Args('pagination', { nullable: true }) pagination?: PaginationInput,
     @Tenant() tenantId?: string,
   ): Promise<SensorListType> {
-    const effectiveTenantId = tenantId || 'default-tenant';
+    const effectiveTenantId = this.requireTenant(tenantId);
     this.logger.debug(`Listing parent devices for tenant ${effectiveTenantId}`);
     const result = await this.registrationService.listParentDevices(effectiveTenantId, filter, pagination);
     return {

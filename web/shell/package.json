@@ -16,9 +16,11 @@
   "dependencies": {
     "@aquaculture/shared-ui": "file:../shared-ui",
     "@tanstack/react-query": "5.90.10",
+    "lucide-react": "0.469.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router-dom": "6.30.3",
+    "socket.io-client": "^4.8.3",
     "zustand": "4.5.7"
   },
   "devDependencies": {

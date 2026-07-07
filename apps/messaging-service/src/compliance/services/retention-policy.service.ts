@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
   pinTenantTransactionSearchPath,
+  pinTenantSchemaTransactionSearchPath,
   runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
@@ -13,7 +14,19 @@ import { Message } from '../../message/entities/message.entity';
 import { LegalHoldService } from './legal-hold.service';
 import { acquireTenantAdvisoryLock } from './legal-hold.advisory-lock';
 import { ComplianceAuditService } from './compliance-audit.service';
+import { AttachmentObjectPurgeService } from './attachment-object-purge.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
+
+/** Per-tenant schema name guard (mirrors KnowledgeExtractionService). */
+const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
+
+/** Minimal retention-policy shape read from a tenant schema during the sweep. */
+interface RetentionPolicyRow {
+  id: string;
+  tenantId: string;
+  channelId: string | null;
+  retentionDays: number;
+}
 
 /**
  * Manages retention policies and executes nightly message cleanup.
@@ -36,7 +49,58 @@ export class RetentionPolicyService {
     private readonly dataSource: DataSource,
     private readonly legalHoldService: LegalHoldService,
     private readonly auditService: ComplianceAuditService,
+    // MSG-CRITICAL-058: retention deletes DB rows AND the MinIO attachment objects.
+    private readonly attachmentObjectPurge: AttachmentObjectPurgeService,
   ) {}
+
+  /**
+   * Enumerate the tenant schemas (`tenant_<16hex>`), regex-guarded. The nightly
+   * sweep must iterate these — the retention_policies table is per-tenant (cloned
+   * into each tenant schema), so a connection-default read hits the empty
+   * `messaging` template and finds ZERO policies (MT-MEDIUM-054).
+   */
+  private async listTenantSchemas(): Promise<string[]> {
+    const rows: { schema_name: string }[] = await this.dataSource.query(
+      `SELECT schema_name FROM information_schema.schemata
+       WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+       ORDER BY schema_name`,
+    );
+    return rows.map((r) => r.schema_name).filter((name) => TENANT_SCHEMA_REGEX.test(name));
+  }
+
+  /**
+   * Read every tenant's retention policies by pinning each tenant schema in turn
+   * (MT-MEDIUM-054). Each row carries its real tenantId, which every downstream
+   * step (legal-hold checks, advisory lock, search_path pin, object purge) keys on.
+   */
+  private async loadAllPoliciesAcrossTenants(): Promise<RetentionPolicyRow[]> {
+    const schemas = await this.listTenantSchemas();
+    const all: RetentionPolicyRow[] = [];
+    for (const schema of schemas) {
+      const qr = this.dataSource.createQueryRunner();
+      await qr.connect();
+      await qr.startTransaction();
+      try {
+        await pinTenantSchemaTransactionSearchPath(qr, 'messaging', schema);
+        const rows: RetentionPolicyRow[] = await qr.query(
+          `SELECT id, "tenantId", "channelId", "retentionDays" FROM retention_policies`,
+        );
+        await qr.commitTransaction();
+        all.push(...rows);
+      } catch (err: unknown) {
+        try {
+          await qr.rollbackTransaction();
+        } catch {
+          /* rollback on a non-active tx throws — ignore */
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Retention: failed to read policies for schema ${schema}: ${message}`);
+      } finally {
+        await qr.release();
+      }
+    }
+    return all;
+  }
 
   /**
    * Create or update a retention policy for a tenant or channel.
@@ -132,9 +196,10 @@ export class RetentionPolicyService {
     let totalDeleted = 0;
 
     try {
-      const policies = await this.policyRepo.find({
-        where: {},
-      });
+      // MT-MEDIUM-054: read policies from EVERY tenant schema, not the connection-
+      // default `messaging` template (which is empty) — otherwise the sweep finds
+      // zero policies and deletes nothing for anyone.
+      const policies = await this.loadAllPoliciesAcrossTenants();
 
       // LEGAL-LOW-002 cure: emit one audit row PER (tenantId,
       // policyId) processed instead of one anonymous system row
@@ -156,6 +221,21 @@ export class RetentionPolicyService {
         const policyStart = Date.now();
         const result = await this.cleanupForPolicy(policy, cutoffDate);
         totalDeleted += result.deletedCount;
+
+        // MSG-CRITICAL-058: the attachment ROWS for the expired messages are now
+        // committed-deleted; purge their MinIO objects (best-effort, post-commit).
+        if (result.objectKeys.length > 0) {
+          const purge = await this.attachmentObjectPurge.purgeObjects(
+            policy.tenantId,
+            result.objectKeys,
+          );
+          if (purge.failed > 0) {
+            this.logger.error(
+              `Retention: ${purge.failed}/${purge.requested} attachment object(s) failed to ` +
+                `delete for tenant ${policy.tenantId}; orphaned objects require reaper cleanup`,
+            );
+          }
+        }
 
         // Per-policy audit row. tenantId/userId are real (the
         // policy's owning tenant + a system-cron actor identity
@@ -205,23 +285,23 @@ export class RetentionPolicyService {
    * @see MSG-MEDIUM-045
    */
   private async cleanupForPolicy(
-    policy: RetentionPolicy,
+    policy: RetentionPolicyRow,
     cutoffDate: Date,
-  ): Promise<{ deletedCount: number; skipReason: string | null }> {
+  ): Promise<{ deletedCount: number; skipReason: string | null; objectKeys: string[] }> {
     const { tenantId, channelId } = policy;
 
     // Check if entire tenant is under legal hold — skip everything
     const tenantHeld = await this.legalHoldService.isUnderLegalHold(tenantId, null);
     if (tenantHeld) {
       this.logger.debug(`Skipping retention for tenant ${tenantId}: under tenant-wide legal hold`);
-      return { deletedCount: 0, skipReason: 'tenant-wide legal hold' };
+      return { deletedCount: 0, skipReason: 'tenant-wide legal hold', objectKeys: [] };
     }
 
     if (channelId) {
       const channelHeld = await this.legalHoldService.isUnderLegalHold(tenantId, channelId);
       if (channelHeld) {
         this.logger.debug(`Skipping retention for channel ${channelId}: under legal hold`);
-        return { deletedCount: 0, skipReason: 'channel-scoped legal hold' };
+        return { deletedCount: 0, skipReason: 'channel-scoped legal hold', objectKeys: [] };
       }
     }
 
@@ -238,23 +318,13 @@ export class RetentionPolicyService {
       }
     }
 
-    // ── Fast path: TimescaleDB drop_chunks() for tenant-wide, no held channels ──
-    // drop_chunks() is orders of magnitude faster than row-by-row DELETE:
-    // - Drops entire hypertable chunks (file-level operation, ~ms)
-    // - No WAL bloat, no index maintenance, no vacuum needed
-    // Only applicable when we can drop entire time ranges without exclusions.
-    // @see MSG-MEDIUM-045
-    //
-    // LEGAL-MEDIUM-004 cure (TOCTOU): the hold reads above were OUTSIDE
-    // any transaction. Between read and drop_chunks a concurrent
-    // ToggleLegalHoldHandler.activate could land a new hold; pre-cure we
-    // would silently drop chunks for the now-held tenant. The cure: take
-    // a Postgres advisory lock on (tenantId), then RE-CHECK hold state
-    // inside the lock. ToggleLegalHoldHandler acquires the same lock at
-    // activation, so the two paths serialize.
+    // ── Fast path: tenant-wide, no held channels ──
+    // LEGAL-MEDIUM-004 cure (TOCTOU): the hold reads above were OUTSIDE any
+    // transaction. A concurrent ToggleLegalHoldHandler.activate could land a new
+    // hold between the read and the delete; the delete therefore re-checks hold
+    // state inside a Postgres advisory lock that activation also takes.
     if (!channelId && heldChannelIds.length === 0) {
-      const dropped = await this.dropChunksForTenantUnderLock(tenantId, cutoffDate);
-      return { deletedCount: dropped, skipReason: null };
+      return this.deleteExpiredTenantWideUnderLock(tenantId, cutoffDate);
     }
 
     // ── Slow path: row-by-row DELETE for channel-scoped or held-channel-excluded cleanup ──
@@ -276,30 +346,34 @@ export class RetentionPolicyService {
           ? ` AND "channelId" NOT IN (${heldChannelIds.map((_, i) => `$${i + 2}`).join(',')})`
           : '';
 
-      // Delete attachments for expired messages first
-      const deleteAttachmentsQuery = channelId
-        ? `DELETE FROM message_attachments att
-           USING messages m
-           WHERE att."messageId" = m.id
-             AND att."messageCreatedAt" = m."createdAt"
-             AND m."channelId" = $1
-             AND m."createdAt" < $2`
-        : `DELETE FROM message_attachments att
-           USING messages m
-           WHERE att."messageId" = m.id
-             AND att."messageCreatedAt" = m."createdAt"
+      const attachWhere = channelId
+        ? `att."messageId" = m.id AND att."messageCreatedAt" = m."createdAt"
+             AND m."channelId" = $1 AND m."createdAt" < $2`
+        : `att."messageId" = m.id AND att."messageCreatedAt" = m."createdAt"
              AND m."createdAt" < $1${heldExclusion}`;
-
       const attachParams = channelId
         ? [channelId, cutoffDate.toISOString()]
         : [cutoffDate.toISOString(), ...heldChannelIds];
-      await qr.query(deleteAttachmentsQuery, attachParams);
+
+      // MSG-CRITICAL-058: capture the object keys BEFORE the row delete.
+      const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
+        await qr.query(
+          `SELECT att."storageKey", att."thumbnailKey"
+           FROM message_attachments att, messages m WHERE ${attachWhere}`,
+          attachParams,
+        );
+      const objectKeys = collectAttachmentObjectKeys(attachmentRows);
+
+      // Delete attachments for expired messages first
+      await qr.query(
+        `DELETE FROM message_attachments att USING messages m WHERE ${attachWhere}`,
+        attachParams,
+      );
 
       // Hard-delete expired messages
       const deleteMessagesQuery = channelId
         ? `DELETE FROM messages WHERE "channelId" = $1 AND "createdAt" < $2`
         : `DELETE FROM messages WHERE "createdAt" < $1${heldExclusionMsg}`;
-
       const msgParams = channelId
         ? [channelId, cutoffDate.toISOString()]
         : [cutoffDate.toISOString(), ...heldChannelIds];
@@ -313,12 +387,12 @@ export class RetentionPolicyService {
           `Retention cleanup: deleted ${deletedCount} messages for tenant=${tenantId}, channel=${channelId ?? 'all'}`,
         );
       }
-      return { deletedCount, skipReason: null };
+      return { deletedCount, skipReason: null, objectKeys };
     } catch (err: unknown) {
       await qr.rollbackTransaction();
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Retention cleanup failed for policy ${policy.id}: ${message}`);
-      return { deletedCount: 0, skipReason: `error: ${message}` };
+      return { deletedCount: 0, skipReason: `error: ${message}`, objectKeys: [] };
     } finally {
       await qr.release();
     }
@@ -350,10 +424,10 @@ export class RetentionPolicyService {
    * @see MSG-MEDIUM-045
    * @see legal-hold-auditor LEGAL-MEDIUM-004
    */
-  private async dropChunksForTenantUnderLock(
+  private async deleteExpiredTenantWideUnderLock(
     tenantId: string,
     cutoffDate: Date,
-  ): Promise<number> {
+  ): Promise<{ deletedCount: number; skipReason: string | null; objectKeys: string[] }> {
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -361,76 +435,86 @@ export class RetentionPolicyService {
     try {
       await pinTenantTransactionSearchPath(qr, 'messaging', tenantId);
 
-      // Serialize against ToggleLegalHoldHandler.activate which takes the
-      // SAME advisory key. Either we wait for activate to commit (then
-      // see the new hold below and abort), or activate waits for us (its
-      // hold lands AFTER we drop_chunks — by which point the cleanup
-      // already completed against pre-hold state).
+      // Serialize against ToggleLegalHoldHandler.activate which takes the SAME
+      // advisory key. Either we wait for activate to commit (then see the new hold
+      // below and abort), or activate waits for us (its hold lands AFTER our
+      // delete — by which point the cleanup already ran against pre-hold state).
       await acquireTenantAdvisoryLock(qr, tenantId);
 
-      // RE-CHECK hold state inside the lock. The held-channel exclusion
-      // list is not relevant to the fast path (caller already verified
-      // it was empty); we only need to confirm no tenant-wide AND no
-      // channel-scoped hold landed during the lock-wait window.
+      // RE-CHECK hold state inside the lock — a hold may have landed during the
+      // lock-wait window (LEGAL-MEDIUM-004).
       const heldRows: Array<{ id: string }> = await qr.query(
-        `SELECT id FROM legal_holds
-         WHERE "tenantId" = $1::uuid AND "isActive" = true
-         LIMIT 1`,
+        `SELECT id FROM legal_holds WHERE "tenantId" = $1::uuid AND "isActive" = true LIMIT 1`,
         [tenantId],
       );
       if (heldRows.length > 0) {
-        // A hold landed between the outer read and the lock acquisition.
-        // Abort destructively-cleanly: rollback (no-op since we haven't
-        // mutated yet) and return 0 so the caller treats this cycle as
-        // a skip.
         await qr.rollbackTransaction();
         this.logger.warn(
-          `Retention drop_chunks aborted for tenant=${tenantId}: ` +
-            `legal hold landed during lock-wait window`,
+          `Retention delete aborted for tenant=${tenantId}: legal hold landed during lock-wait window`,
         );
-        return 0;
+        return { deletedCount: 0, skipReason: 'legal hold landed during lock', objectKeys: [] };
       }
 
-      // drop_chunks returns the list of dropped chunk names.
-      // First drop attachment chunks (child table), then message chunks (parent).
-      await qr.query(
-        `SELECT drop_chunks('message_attachments', older_than => $1::timestamptz)`,
-        [cutoffDate.toISOString()],
-      ).catch(() => {
-        // message_attachments may not be a hypertable — silently skip
-      });
+      // MSG-HIGH-073: `messages` is PG declarative-partitioned, NOT a TimescaleDB
+      // hypertable, so `drop_chunks('messages')` always throws and the sweep
+      // deleted nothing for the common tenant-wide case. Use a row-level DELETE
+      // (partition pruning still keeps it efficient). MSG-CRITICAL-058: capture the
+      // attachment object keys before the row delete so the MinIO objects are
+      // purged after commit. Child (attachments) before parent (messages).
+      const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
+        await qr.query(
+          `SELECT att."storageKey", att."thumbnailKey"
+           FROM message_attachments att, messages m
+           WHERE att."messageId" = m.id AND att."messageCreatedAt" = m."createdAt"
+             AND m."createdAt" < $1`,
+          [cutoffDate.toISOString()],
+        );
+      const objectKeys = collectAttachmentObjectKeys(attachmentRows);
 
-      const result = await qr.query(
-        `SELECT drop_chunks('messages', older_than => $1::timestamptz)`,
+      await qr.query(
+        `DELETE FROM message_attachments att USING messages m
+         WHERE att."messageId" = m.id AND att."messageCreatedAt" = m."createdAt"
+           AND m."createdAt" < $1`,
         [cutoffDate.toISOString()],
       );
 
-      const droppedChunks = Array.isArray(result) ? result.length : 0;
+      const result = await qr.query(
+        `DELETE FROM messages WHERE "createdAt" < $1`,
+        [cutoffDate.toISOString()],
+      );
+
       await qr.commitTransaction();
 
-      if (droppedChunks > 0) {
+      const deletedCount = Array.isArray(result) ? (result[1] as number) ?? 0 : 0;
+      if (deletedCount > 0) {
         this.logger.log(
-          `Retention: dropped ${droppedChunks} chunk(s) for tenant=${tenantId} (older than ${cutoffDate.toISOString()})`,
+          `Retention: deleted ${deletedCount} message(s) for tenant=${tenantId} (older than ${cutoffDate.toISOString()})`,
         );
       }
-      return droppedChunks;
+      return { deletedCount, skipReason: null, objectKeys };
     } catch (err: unknown) {
-      // Best-effort rollback; if startTransaction never succeeded this is a no-op.
       try {
         await qr.rollbackTransaction();
       } catch {
-        /* ignore — rollback on a non-active transaction throws, that's fine */
+        /* rollback on a non-active tx throws — ignore */
       }
       const message = err instanceof Error ? err.message : String(err);
-      // If drop_chunks fails (e.g., table is not a hypertable), log and return 0.
-      // The caller can handle this as a no-op; manual row DELETE fallback is above.
-      this.logger.warn(
-        `drop_chunks not available for tenant=${tenantId}: ${message}. ` +
-        'Falling back to row-level DELETE on next cycle.',
-      );
-      return 0;
+      this.logger.error(`Retention delete failed for tenant=${tenantId}: ${message}`);
+      return { deletedCount: 0, skipReason: `error: ${message}`, objectKeys: [] };
     } finally {
       await qr.release();
     }
   }
+}
+
+/** Flatten attachment rows into a deduped list of non-null MinIO object keys. */
+function collectAttachmentObjectKeys(
+  rows: ReadonlyArray<{ storageKey: string; thumbnailKey: string | null }>,
+): string[] {
+  const keys: string[] = [];
+  for (const row of rows) {
+    if (row.storageKey) keys.push(row.storageKey);
+    if (row.thumbnailKey) keys.push(row.thumbnailKey);
+  }
+  return keys;
 }

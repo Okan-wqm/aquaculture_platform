@@ -37,6 +37,9 @@ import { TaskResolver } from './resolvers/task.resolver';
 import { RecurringTemplateResolver } from './resolvers/recurring-template.resolver';
 import { AutoRuleResolver } from './resolvers/auto-rule.resolver';
 
+// NATS request-reply responders (cross-service actuation)
+import { CreateTaskResponder } from './responders/create-task.responder';
+
 // Query Handlers (fail-closed reads via runInTenantRead — FARM-HIGH-060)
 import { GetTaskHandler } from './handlers/get-task.handler';
 import { ListTasksHandler } from './handlers/list-tasks.handler';
@@ -66,6 +69,7 @@ const QueryHandlers = [
     // (FARM-HIGH-057) is part of this module's schema metadata.
     TypeOrmModule.forFeature([Task, RecurringTemplate, AutoRule, FarmMobileCommandReceipt]),
   ],
+  controllers: [CreateTaskResponder],
   providers: [
     // Services
     TaskService,

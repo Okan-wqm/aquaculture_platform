@@ -296,6 +296,11 @@ describe('VfdDeviceService', () => {
     it('should throw if device has no successful connection', async () => {
       const deviceWithoutConnection = {
         ...mockDevice,
+        // Pin status explicitly: activate()/updateStatus() mutate the fetched
+        // entity, and a sibling test can leave the shared mockDevice at ACTIVE
+        // (which would early-return here). Being explicit keeps this test
+        // order-independent.
+        status: VfdDeviceStatus.DRAFT,
         connectionStatus: { isConnected: false },
       };
       repository.findOne.mockResolvedValue(deviceWithoutConnection as VfdDevice);

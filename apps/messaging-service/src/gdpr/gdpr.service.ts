@@ -12,6 +12,7 @@ import { REDIS_CLIENT } from '../shared/redis.provider';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
 import { ComplianceAction } from '../compliance/entities/compliance-audit-log.entity';
+import { AttachmentObjectPurgeService } from '../compliance/services/attachment-object-purge.service';
 import { MessagingMetricsService } from '../metrics/messaging-metrics.service';
 
 /** UUID representing an anonymised / deleted user. */
@@ -87,6 +88,9 @@ export class GdprService {
     private readonly complianceAuditService: ComplianceAuditService,
     private readonly metricsService: MessagingMetricsService,
     private readonly outboxPublisher: OutboxPublisher,
+    // MSG-CRITICAL-058: the object-store arm of erasure — deletes the actual
+    // MinIO attachment binaries whose DB rows anonymizeMyData removes.
+    private readonly attachmentObjectPurge: AttachmentObjectPurgeService,
   ) {}
 
   /**
@@ -227,12 +231,14 @@ export class GdprService {
    * Requires password confirmation via the auth-service before proceeding.
    * Performs the following in a single database transaction:
    * 1. Anonymises all messages (sender set to nil UUID, content replaced).
-   * 2. Deletes attachment DB rows (and MinIO objects if applicable).
+   * 2. Deletes attachment DB rows.
    * 3. Deletes all read receipts for the user.
    * 4. Deletes all reactions by the user.
    * 5. Marks all channel memberships as left.
    *
-   * Publishes a `UserDataAnonymized` event via the outbox.
+   * After the transaction commits, purges the attachment MinIO objects captured
+   * in step 2 (MSG-CRITICAL-058) so the binary PII is actually erased, not just
+   * its DB row. Publishes a `UserDataAnonymized` event via the outbox.
    *
    * @returns `true` on success.
    */
@@ -246,6 +252,11 @@ export class GdprService {
     if (!passwordValid) {
       throw new BadRequestException('Invalid password confirmation');
     }
+
+    // MSG-CRITICAL-058: collected inside the transaction (the storage + thumbnail
+    // keys of the attachment rows about to be deleted) and purged from MinIO AFTER
+    // the DB erasure commits. Declared here so it survives the transaction closure.
+    const objectKeysToPurge: string[] = [];
 
     try {
       await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
@@ -290,8 +301,23 @@ export class GdprService {
       );
       const messageIds = userMessages.map((m) => m.id);
 
-      // 1. Delete all message_attachments for user's messages (before anonymising sender)
+      // 1. Delete all message_attachments for user's messages (before anonymising sender).
+      // MSG-CRITICAL-058: capture the storage + thumbnail keys BEFORE the row delete
+      // so the actual MinIO binaries (the PII) are purged after the transaction commits.
       if (messageIds.length > 0) {
+        const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
+          await queryRunner.query(
+            `SELECT "storageKey", "thumbnailKey" FROM message_attachments
+             WHERE "messageId" = ANY($1::uuid[])`,
+            [messageIds],
+          );
+        for (const row of attachmentRows) {
+          objectKeysToPurge.push(row.storageKey);
+          if (row.thumbnailKey) {
+            objectKeysToPurge.push(row.thumbnailKey);
+          }
+        }
+
         await queryRunner.query(
           `DELETE FROM message_attachments
            WHERE "messageId" = ANY($1::uuid[])`,
@@ -422,6 +448,28 @@ export class GdprService {
           ],
         );
       });
+
+      // MSG-CRITICAL-058: the attachment ROWS are now committed-deleted; remove the
+      // actual MinIO objects (the erasure's binary PII). Post-commit + best-effort:
+      // a store failure is logged with the offending key and surfaced in the counts
+      // but does NOT roll back the committed erasure — the row is gone, so the object
+      // is unreferenceable and the residue is a storage leak a reaper finishes, not a
+      // live PII reference. Tenant-prefix isolation is enforced inside purgeObjects.
+      if (objectKeysToPurge.length > 0) {
+        const purge = await this.attachmentObjectPurge.purgeObjects(tenantId, objectKeysToPurge);
+        if (purge.failed > 0) {
+          this.logger.error(
+            `GDPR erasure: ${purge.failed}/${purge.requested} attachment object(s) failed to ` +
+              `delete for user ${userId} (tenant ${tenantId}); orphaned PII objects require ` +
+              `reaper/manual cleanup to complete erasure`,
+          );
+        } else {
+          this.logger.log(
+            `GDPR erasure: purged ${purge.deleted} attachment object(s) for user ${userId} ` +
+              `(tenant ${tenantId}, ${purge.skipped} skipped)`,
+          );
+        }
+      }
 
       // SECURITY: Increment GDPR erasure metric for compliance reporting.
       // @see MSG-HIGH-027 (GDPR erasure metric counter)

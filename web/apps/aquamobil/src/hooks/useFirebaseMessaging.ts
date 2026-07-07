@@ -206,6 +206,19 @@ export function useFirebaseMessaging(): void {
           // unregister call were to fail.
           registerPushTeardown(async () => {
             const activeMessaging = messagingRef.current;
+            // MT-MEDIUM-051: tell the FCM SW the session ended so it clears the
+            // persisted active user (in-memory + IndexedDB). Without this the SW's
+            // gate keeps the prior user active across a logout, and a background
+            // push for that user could surface to the next user on this shared
+            // device before the token deregistration below propagates. Posted
+            // first, and never allowed to block the token teardown.
+            try {
+              const fcmWorker = fcmRegistration?.active ?? fcmRegistration?.installing;
+              fcmWorker?.postMessage({ type: 'LOGOUT' });
+            } catch {
+              // postMessage is best-effort; the token teardown below is the
+              // authoritative stop for push to the prior session.
+            }
             try {
               await authenticatedFetch('/graphql', {
                 method: 'POST',

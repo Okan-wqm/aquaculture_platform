@@ -43,7 +43,7 @@ import { putPendingBlob } from '@/pwa/offline-queue';
 import type { Message } from '@/types/messaging';
 import { runAsyncAction } from '@/utils/async-action';
 import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagesFamilyKey } from '@/utils/messaging-query-keys';
 
 /**
  * Distance (px) from the bottom of the scroll container within which the
@@ -300,10 +300,14 @@ export function ChatRoomPage(): JSX.Element {
       const { graphqlRequest } = await import('@/services/authenticated-fetch');
       const { DELETE_MESSAGE } = await import('@/graphql/messaging-operations');
       await graphqlRequest(DELETE_MESSAGE, { id: messageId });
-      // Invalidate message cache so the deleted message disappears. The refetch
-      // is fire-and-forget — the UI updates reactively once the cache settles.
+      // Invalidate the message cache so the deleted message disappears. The
+      // refetch is fire-and-forget — the UI updates reactively once the cache
+      // settles. MSG-CRITICAL-055: use the messages-FAMILY prefix, not
+      // `(...,'messages',channelId)` — the latter puts channelId in the user.id
+      // slot and prefix-fails to match the reader key, so the invalidation never
+      // fired. `messagesFamilyKey` prefix-matches every user/channel variant.
       void queryClient.invalidateQueries({
-        queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
+        queryKey: messagesFamilyKey(tenantId),
       });
     } else {
       // Queue for offline sync — the main queue supports 'deleteMessage'

@@ -25,6 +25,9 @@ interface RenderedNotificationTemplate {
   message: string;
   pushData?: Record<string, string | number | boolean | null>;
   badge?: number;
+  // MSG-CRITICAL-056: a user-targeted push the mobile SW must present itself
+  // (data-only FCM message) so the shared-device userId gate is authoritative.
+  dataOnly?: boolean;
 }
 
 @Controller()
@@ -98,6 +101,7 @@ export class NotificationCommandHandler {
         message: rendered.message,
         pushData,
         badge: rendered.badge,
+        dataOnly: rendered.dataOnly,
       });
       return {
         success: true,
@@ -276,6 +280,9 @@ export class NotificationCommandHandler {
           subject: `New message from ${senderName}`,
           message: 'Open the app to read the message.',
           badge,
+          // MSG-CRITICAL-056: chat push is data-only so the AquaMobil FCM SW is the
+          // sole presenter and its shared-device userId gate cannot be bypassed.
+          dataOnly: true,
           pushData: {
             type: 'CHAT_MESSAGE',
             notificationRef,

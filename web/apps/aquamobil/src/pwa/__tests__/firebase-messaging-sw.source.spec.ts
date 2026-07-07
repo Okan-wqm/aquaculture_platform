@@ -86,9 +86,9 @@ describe('FE-CRITICAL-050-SW: firebase-messaging-sw.js config wiring', () => {
 describe('MT-HIGH-050: firebase-messaging-sw.js active-user push gate', () => {
   it('learns the active session user from SET_ACTIVE_USER and clears it on LOGOUT', () => {
     // The SW must track the active session user via a SET_ACTIVE_USER message...
-    expect(source).toMatch(/data\.type === 'SET_ACTIVE_USER'[\s\S]*?activeUserId = data\.userId/);
+    expect(source).toMatch(/data\.type === 'SET_ACTIVE_USER'[\s\S]*?setActiveUser\(data\.userId\)/);
     // ...and clear it on LOGOUT so a logged-out device cannot show a user push.
-    expect(source).toMatch(/data\.type === 'LOGOUT'[\s\S]*?activeUserId = null/);
+    expect(source).toMatch(/data\.type === 'LOGOUT'[\s\S]*?clearActiveUser\(\)/);
   });
 
   it('encodes the gate decision: allow no-userId/matching, drop mismatched', () => {
@@ -97,19 +97,54 @@ describe('MT-HIGH-050: firebase-messaging-sw.js active-user push gate', () => {
     // Pinning the exact predicate body is a tier-3 guard — weakening it to e.g.
     // `return true` or dropping the equality check turns this RED.
     const gateBody = source.slice(
-      source.indexOf('function isPushForActiveUser'),
+      source.indexOf('async function isPushForActiveUser'),
       source.indexOf('messaging.onBackgroundMessage'),
     );
     expect(gateBody).toMatch(/if \(!payloadUserId\) return true;/);
-    expect(gateBody).toMatch(/return payloadUserId === activeUserId;/);
+    expect(gateBody).toMatch(/return payloadUserId === active;/);
   });
 
   it('applies the gate inside onBackgroundMessage and suppresses a dropped push', () => {
     // The gate must run at the push entry point and short-circuit (no
     // showNotification) when the recipient is not the active user.
     const obm = source.slice(source.indexOf('messaging.onBackgroundMessage'));
-    expect(obm).toMatch(/if \(!isPushForActiveUser\(notificationData\.userId\)\)/);
+    expect(obm).toMatch(/isPushForActiveUser\(notificationData\.userId\)\.then/);
     // A dropped push returns a resolved promise rather than showing a banner.
-    expect(obm).toMatch(/if \(!isPushForActiveUser[\s\S]*?return Promise\.resolve\(\);/);
+    expect(obm).toMatch(/if \(!allowed\)[\s\S]*?return Promise\.resolve\(\);/);
+  });
+});
+
+describe('MSG-CRITICAL-056: firebase-messaging-sw.js data-only + durable active user', () => {
+  it('persists the active user in the worker IndexedDB so it survives termination', () => {
+    // In-memory activeUserId reset to null on cold start → legit pushes dropped.
+    // The active user must be written to / read from IndexedDB.
+    expect(source).toMatch(/indexedDB\.open\(/);
+    expect(source).toMatch(/async function setActiveUser/);
+    expect(source).toMatch(/async function clearActiveUser/);
+    expect(source).toMatch(/async function getActiveUser/);
+    // The SET_ACTIVE_USER / LOGOUT writes are kept alive past the event.
+    expect(source).toMatch(/event\.waitUntil\(setActiveUser\(data\.userId\)\)/);
+    expect(source).toMatch(/event\.waitUntil\(clearActiveUser\(\)\)/);
+  });
+
+  it('presents a data-only push from the data payload (title/body/badge), not a notification block', () => {
+    const obm = source.slice(source.indexOf('messaging.onBackgroundMessage'));
+    // Title/body read from data first (data-only messages carry no notification block).
+    expect(obm).toMatch(/notificationData\.title \|\|/);
+    expect(obm).toMatch(/notificationData\.body \|\|/);
+    // MSG-MEDIUM-069: the badge count is read from data.badge, not the webpush field.
+    expect(obm).toMatch(/Number\.parseInt\(notificationData\.badge/);
+  });
+});
+
+describe('MSG-HIGH-069: firebase-messaging-sw.js notificationRef deep-link', () => {
+  it('deep-links a chat push via its opaque notificationRef', () => {
+    const click = source.slice(source.indexOf("addEventListener('notificationclick'"));
+    // The ref is validated as a UUID and used to build the /messages?ref deep-link.
+    expect(click).toMatch(/data\.notificationRef/);
+    expect(click).toMatch(/UUID_PATTERN\.test\(rawRef\)/);
+    expect(click).toMatch(/\/messages\?notificationRef=\$\{encodeURIComponent\(notificationRef\)\}/);
+    // A focused window is handed the ref to resolve over its authenticated socket.
+    expect(click).toMatch(/type: 'NAVIGATE_TO_NOTIFICATION_REF', notificationRef/);
   });
 });

@@ -4,8 +4,9 @@ import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { CreateTaskTool } from './create-task.tool';
 import { GetFarmTanksTool } from './get-farm-tanks.tool';
 import { GetFarmBatchesTool } from './get-farm-batches.tool';
+import { GetFarmWaterQualityTool } from './get-farm-water-quality.tool';
 
-const TOOLS = [CreateTaskTool, GetFarmTanksTool, GetFarmBatchesTool];
+const TOOLS = [CreateTaskTool, GetFarmTanksTool, GetFarmBatchesTool, GetFarmWaterQualityTool];
 
 /**
  * Farm actuation tools. The tools reach farm-service over NATS request-reply,

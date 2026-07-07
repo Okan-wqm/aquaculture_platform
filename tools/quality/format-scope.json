@@ -29365,6 +29365,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-07-farm-messaging-strict-property-init.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -38689,6 +38695,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/stock-mutating-handlers-reject-legacy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/strict-property-initialization-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -50796,10 +50808,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8320,
+  "file_count": 8322,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8145,
-  "managed_file_list_sha256": "d5a740df494ae964c74dd2b36134c2c2a63d93d6cad5b6b8eeaf72983c17c95e",
+  "managed_count": 8147,
+  "managed_file_list_sha256": "d9162f389b1d3f6b85358a6dba007aa54b96e21a240948186772b99bcd3dd57a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

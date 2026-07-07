@@ -37,4 +37,18 @@ describe('MSG-MEDIUM-073: messaging-sw media route excludes navigations', () => 
     expect(source).toMatch(/GRAPHQL_PATTERN\.test/);
     expect(source).toContain("event.request.method === 'POST'");
   });
+
+  it('catches a failed GraphQL passthrough fetch (no unhandled respondWith rejection)', () => {
+    // A bare `respondWith(fetch(req))` rejects on any network blip and the
+    // browser logs "FetchEvent.respondWith received an error: TypeError: Load
+    // failed". The passthrough must .catch() the fetch and resolve to a
+    // network-error Response so the SW stays quiet while the app's fetch still
+    // fails (its offline queue / retry handles the real network problem).
+    const graphqlBranch = source.slice(
+      source.indexOf('GRAPHQL_PATTERN.test'),
+      source.indexOf('MEDIA_PATTERN.test'),
+    );
+    expect(graphqlBranch).toMatch(/\.catch\(/);
+    expect(graphqlBranch).toContain('Response.error()');
+  });
 });

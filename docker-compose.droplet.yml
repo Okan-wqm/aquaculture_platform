@@ -1719,6 +1719,22 @@ services:
         limits:
           memory: 64M
 
+  messaging-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/messaging-module:${TAG:?TAG required}
+    container_name: aqua-messaging-module
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
   aquamobil:
     image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:${TAG:?TAG required}
     container_name: aqua-mobile

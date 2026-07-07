@@ -165,6 +165,12 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
     icon: 'dashboard',
   },
   {
+    id: 'messaging',
+    label: 'Messages',
+    path: '/messaging',
+    icon: 'message',
+  },
+  {
     id: 'tenant-users',
     label: 'Users',
     path: '/tenant/users',
@@ -308,6 +314,12 @@ const moduleUserBaseNavigation: NavigationItem[] = [
     label: 'Dashboard',
     path: '/dashboard',
     icon: 'dashboard',
+  },
+  {
+    id: 'messaging',
+    label: 'Messages',
+    path: '/messaging',
+    icon: 'message',
   },
   {
     id: 'analytics',

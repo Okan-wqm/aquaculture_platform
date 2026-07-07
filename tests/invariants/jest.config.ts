@@ -248,6 +248,7 @@ export default {
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
         '<rootDir>/critical-infra-ssot.spec.ts',
+        '<rootDir>/infrastructure-ledger-ssot.spec.ts',
         '<rootDir>/admin-backup-encryption-ssot.spec.ts',
         '<rootDir>/timescale-rls-columnstore-contract.spec.ts',
         '<rootDir>/jwt-rs256-only.spec.ts',

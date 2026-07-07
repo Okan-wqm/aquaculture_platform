@@ -32,6 +32,7 @@ import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile
 import { Tank } from '../tank/entities/tank.entity';
 
 import { HarvestPlan } from './entities/harvest-plan.entity';
+import { GetHarvestOverviewResponder } from './responders/get-harvest-overview.responder';
 import { HarvestRecord } from './entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
 import { DeleteHarvestRecordHandler } from './handlers/delete-harvest-record.handler';
@@ -73,6 +74,7 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
     // boot ("can't resolve TankBatchService"). Guarded by harvest.module.di.spec.ts.
     TankBatchModule,
   ],
+  controllers: [GetHarvestOverviewResponder],
   providers: [
     // Services
     HarvestPlanService,

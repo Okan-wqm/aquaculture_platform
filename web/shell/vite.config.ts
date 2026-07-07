@@ -31,6 +31,7 @@ export default defineConfig(({ command }) => {
           hrModule: { type: 'module', name: 'hrModule', entry: `${remoteBase}/hr-module/remoteEntry.js` },
           sensorModule: { type: 'module', name: 'sensorModule', entry: `${remoteBase}/sensor-module/remoteEntry.js` },
           hydroponicsModule: { type: 'module', name: 'hydroponicsModule', entry: `${remoteBase}/hydroponics-module/remoteEntry.js` },
+          messagingModule: { type: 'module', name: 'messagingModule', entry: `${remoteBase}/messaging-module/remoteEntry.js` },
           adminPanel: { type: 'module', name: 'adminPanel', entry: `${remoteBase}/admin-panel/remoteEntry.js` },
           tenantAdmin: { type: 'module', name: 'tenantAdmin', entry: `${remoteBase}/tenant-admin/remoteEntry.js` },
         },

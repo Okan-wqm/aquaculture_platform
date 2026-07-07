@@ -2,6 +2,7 @@ import { join } from 'path';
 
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
+  AUTH_RLS_EXCLUDE_TABLES,
   RlsModule,
   SchemaDriftModule,
   createSchemaVersionGate,
@@ -324,7 +325,7 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       autoApply: !authSchemaDdlOwnedByDbMigrate,
       // ORPHAN-178: dropped phantom `audit_log`/`audit_logs` (non-existent
       // tables); kept in sync with db-migrate SCHEMA_REGISTRY['auth'].
-      excludeTables: ['auth_outbox', 'users', 'tenants'],
+      excludeTables: [...AUTH_RLS_EXCLUDE_TABLES],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'auth' }),

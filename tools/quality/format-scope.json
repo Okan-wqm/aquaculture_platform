@@ -39300,6 +39300,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/schema-role-drift-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/script-graphql-client-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -51576,10 +51582,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8450,
+  "file_count": 8451,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8275,
-  "managed_file_list_sha256": "bdd8f5252b9b3db7fc8fc7b471fe2431530dbaa5ec4c68a676590ab1a6f0252d",
+  "managed_count": 8276,
+  "managed_file_list_sha256": "47861ef45e5e747bcb1a225292a26387ee1cf5f6ac3068fb4d72fa2063a244ea",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

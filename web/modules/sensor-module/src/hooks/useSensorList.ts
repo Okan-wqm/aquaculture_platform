@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 
 // Types
@@ -111,11 +110,12 @@ export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
   // so the sensor tab's connectivity badges/online count converge on backend
   // truth (parity with the edge tab) instead of a static mount-time snapshot.
   // The tenant-scoped key also closes the cross-tenant cache-leak class.
-  const { token, tenantId } = useAuth();
-
-  const query = useQuery<SensorListResult>({
-    queryKey: createTenantQueryKey(tenantId, 'sensors', { filter, pagination }),
-    queryFn: async () => {
+  // useTenantQuery is the SSoT that bakes in the tenant-scoped key + the
+  // authenticated-tenant enabled-gate (no query before tenant context resolves)
+  // + keepPreviousData, so the connectivity badges never blank on a refetch.
+  const query = useTenantQuery<SensorListResult>(
+    ['sensors', { filter, pagination }],
+    async () => {
       // BUG-020: include filter in variables so server-side filtering is applied.
       const result = await graphqlFetch<{ sensors: SensorListResult }>(GET_SENSORS_QUERY, {
         // Note: only 'page' — the federation schema omits 'limit' (conflict
@@ -128,12 +128,8 @@ export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
       });
       return result.sensors;
     },
-    // AUTH-READINESS GATE: do not query before tenant context is ready,
-    // otherwise the fetch races the auth lifecycle and queries a null tenant.
-    enabled: !!token && !!tenantId,
-    staleTime: 10000,
-    refetchInterval: 30000,
-  });
+    { staleTime: 10000, refetchInterval: 30000 },
+  );
 
   return {
     data: query.data ?? null,

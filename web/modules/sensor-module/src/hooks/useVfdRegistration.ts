@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import {
   VfdDevice,
   VfdFilter,
@@ -204,20 +203,19 @@ interface Pagination {
 export function useVfdDevice(id: string | undefined) {
   // SENSOR-CRITICAL-003: tenant-scoped TanStack Query so the VFD detail page
   // reads back through a tenant-isolated cache, mirroring useEdgeDevice.
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'vfdDevice', id),
-    queryFn: async () => {
+  // useTenantQuery is the SSoT — it bakes in the tenant-scoped key and the
+  // authenticated-tenant enabled-gate; the caller adds the id gate.
+  return useTenantQuery(
+    ['vfdDevice', id],
+    async () => {
       const data = await graphqlFetch<{ vfdDevice: VfdDevice | null }>(
         GET_VFD_DEVICE_QUERY,
         { id },
       );
       return data.vfdDevice;
     },
-    staleTime: 10000,
-    enabled: !!token && !!id,
-  });
+    { staleTime: 10000, enabled: !!id },
+  );
 }
 
 /**
@@ -235,39 +233,33 @@ export function useVfdDevices(filter?: VfdFilter, pagination?: Pagination) {
   // SENSOR-CRITICAL-003: the VFD tab previously rendered the sensor list.
   // This hook now feeds the tab from the real vfdDevices query with a
   // tenant-scoped key + refetch interval, matching the edge tab pattern.
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'vfdDevices', { filter, pagination }),
-    queryFn: async () => {
+  // useTenantQuery is the SSoT for the tenant key + authenticated-tenant gate.
+  return useTenantQuery(
+    ['vfdDevices', { filter, pagination }],
+    async () => {
       const data = await graphqlFetch<{ vfdDevices: VfdDeviceConnection }>(
         GET_VFD_DEVICES_QUERY,
         { filter, pagination },
       );
       return data.vfdDevices;
     },
-    staleTime: 10000,
-    refetchInterval: 30000,
-    enabled: !!token,
-  });
+    { staleTime: 10000, refetchInterval: 30000 },
+  );
 }
 
 /**
  * Hook to fetch VFD statistics (tenant-scoped).
  */
 export function useVfdStats() {
-  const { token, tenantId } = useAuth();
-
-  return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'vfdStats'),
-    queryFn: async () => {
+  // useTenantQuery is the SSoT for the tenant-scoped key + authenticated-tenant gate.
+  return useTenantQuery(
+    ['vfdStats'],
+    async () => {
       const data = await graphqlFetch<{ vfdStats: VfdStats }>(GET_VFD_STATS_QUERY);
       return data.vfdStats;
     },
-    staleTime: 15000,
-    refetchInterval: 60000,
-    enabled: !!token,
-  });
+    { staleTime: 15000, refetchInterval: 60000 },
+  );
 }
 
 /**

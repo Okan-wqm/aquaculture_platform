@@ -1,4 +1,6 @@
 export * from './apply-tenant-rls.helper';
+export * from './infrastructure-ledger.ssot';
+export * from './infrastructure-ledger-rls.helper';
 export * from './rls-connection-bootstrap.service';
 export * from './bypass-rls.service';
 export * from './rls-schema-bootstrap.service';

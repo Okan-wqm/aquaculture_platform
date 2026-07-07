@@ -3322,6 +3322,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-feeding.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-harvest.tool.spec.ts",
       "prettier_managed": true
     },
@@ -3353,6 +3359,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/get-farm-batches.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/get-farm-feeding.tool.ts",
       "prettier_managed": true
     },
     {
@@ -10312,6 +10324,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding/resolvers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/responders/__tests__/get-feeding-overview.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/responders/get-feeding-overview.responder.ts",
       "prettier_managed": true
     },
     {
@@ -30115,6 +30139,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/orphan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -32684,6 +32720,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/rls/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger-rls.helper.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger-rls.helper.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger.ssot.ts",
       "prettier_managed": true
     },
     {
@@ -38058,6 +38112,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/infrastructure-ledger-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/init-scripts-no-schema-ddl.spec.ts",
       "prettier_managed": true
     },
@@ -39403,6 +39463,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -50538,10 +50610,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8277,
+  "file_count": 8289,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8102,
-  "managed_file_list_sha256": "1ba15611163a4c80d07d0231d4246b52c549d08be63c0cc52ea634abc9176e60",
+  "managed_count": 8114,
+  "managed_file_list_sha256": "6babe15e450cc3e2f7584ed4422fd81984a0e9fe651c11794ad75ed3b021079e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -43,6 +43,7 @@ import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './18
 import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
+import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealBehindTenantQualityGrade';
 
 /**
  * Canonical farm-service migration class list.
@@ -98,4 +99,5 @@ export const FARM_MIGRATIONS = [
   DropSiteLocalityMappingsJsonb1804200000000,
   DropHarvestQualityGrade1804300000000,
   DropOrphanQualityGradeEnum1804400000000,
+  HealBehindTenantQualityGrade1804500000000,
 ] as const;

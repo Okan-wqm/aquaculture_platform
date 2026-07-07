@@ -18572,6 +18572,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/ai/services/__tests__/knowledge-extraction.tank-registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/ai/services/__tests__/sentiment-analysis.service.spec.ts",
       "prettier_managed": true
     },
@@ -50508,10 +50514,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8272,
+  "file_count": 8273,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8097,
-  "managed_file_list_sha256": "53e3c9182fc7bf28d25d00c44a485b30180eedb708640d529e22afb1c0792a73",
+  "managed_count": 8098,
+  "managed_file_list_sha256": "e6306a90ce8cbb460f4e117828b9e54be3c13bec4cced9cd905076bfa4a9f943",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

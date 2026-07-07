@@ -516,6 +516,7 @@ const PRE_GATE_SHAS = new Set<string>([
   '59ef849a', // Faz-2 stage 5 — "for now unit + clippy + fmt + test coverage gates merges" (scope-of-CI-coverage description, tracked follow-up in same body)
   'e29c7416', // Faz-2 stage 2 — "for now the trybuild + unit + cargo-deny coverage" (scope-of-CI-coverage, tracked follow-up in same body)
   '0a5043b7', // Faz-0 stage 11b — "temporary-rename comparison" (verification method name, past tense)
+  'f1eb2142', // Phase-5 biomass Altinn backend — "for now" marks the commit's backend-only scope ("...backend now; the frontend three-step Review -> Ready-for-Altinn -> Confirm UI ... follow"); the follow-up frontend landed in 1ba1a394 on this same branch. Immutable message (no-force-push), tracked follow-up delivered — same shape as 59ef849a/e29c7416 above.
   // --- Rust migration delta (/root/.claude/plans/snappy-sniffing-pine.md) amnesty ---
   // Commits landed before this gate was wired to scan the full PR-range
   // (pre-merge-into-main). Same shape as the Faz-0/1/2/3 entries above:

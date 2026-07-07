@@ -3322,6 +3322,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-harvest.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-tanks.tool.spec.ts",
       "prettier_managed": true
     },
@@ -3347,6 +3353,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/get-farm-batches.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/get-farm-harvest.tool.ts",
       "prettier_managed": true
     },
     {
@@ -11032,6 +11044,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/harvest/resolvers/harvest.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/harvest/responders/__tests__/get-harvest-overview.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/harvest/responders/get-harvest-overview.responder.ts",
       "prettier_managed": true
     },
     {
@@ -39390,6 +39414,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -50514,10 +50550,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8273,
+  "file_count": 8279,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8098,
-  "managed_file_list_sha256": "e6306a90ce8cbb460f4e117828b9e54be3c13bec4cced9cd905076bfa4a9f943",
+  "managed_count": 8104,
+  "managed_file_list_sha256": "dc8da984d647df41fecd10e5146cadb02e788e30f83ab1c5174d280b8edc18c3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

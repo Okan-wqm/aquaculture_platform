@@ -37,6 +37,7 @@ import { Tank } from '../tank/entities/tank.entity';
 import { TankModule } from '../tank/tank.module';
 
 import { BatchController, TankOperationsController } from './controllers/batch.controller';
+import { GetBatchOverviewResponder } from './responders/get-batch-overview.responder';
 import { BatchDocumentDataLoader } from './dataloaders/batch-document.dataloader';
 import { BatchFeedAssignmentDataLoader } from './dataloaders/batch-feed-assignment.dataloader';
 import { BatchLocationDataLoader } from './dataloaders/batch-location.dataloader';
@@ -110,6 +111,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
   controllers: [
     BatchController,
     TankOperationsController,
+    GetBatchOverviewResponder,
   ],
   providers: [
     BatchService,

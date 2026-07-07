@@ -3316,6 +3316,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-batches.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-tanks.tool.spec.ts",
       "prettier_managed": true
     },
@@ -3329,6 +3335,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/farm-tools.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/get-farm-batches.tool.ts",
       "prettier_managed": true
     },
     {
@@ -7355,6 +7367,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/resolvers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/responders/__tests__/get-batch-overview.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/responders/get-batch-overview.responder.ts",
       "prettier_managed": true
     },
     {
@@ -50460,10 +50484,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8264,
+  "file_count": 8268,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8089,
-  "managed_file_list_sha256": "ea5a50ccad8c2cebd501a5f1607f5b4808ed9e4d4fc30300c6616e28bedc9f92",
+  "managed_count": 8093,
+  "managed_file_list_sha256": "435cc844d2a9a845de270dfc4303baba966e45d41fb428034f7fc863dcfa9088",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

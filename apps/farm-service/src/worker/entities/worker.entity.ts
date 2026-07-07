@@ -143,6 +143,18 @@ export class Worker {
   @Column({ default: false })
   isFarmWorker: boolean;
 
+  /**
+   * Marks a worker as a veterinarian (RPT-011) so treatment applications can
+   * attribute the responsible vet via `treatment_applications.veterinarianWorkerId`
+   * and the capture forms can offer a vet-only picker.
+   */
+  @Column({ default: false })
+  isVeterinarian: boolean;
+
+  /** Professional veterinary licence number (registrable credential, not PII). */
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  veterinaryLicenseNumber?: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

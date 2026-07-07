@@ -14,6 +14,8 @@ export interface Worker {
   phone?: string;
   department: string;
   position: string;
+  isVeterinarian: boolean;
+  veterinaryLicenseNumber?: string;
   status: string;
   hireDate: string;
   createdAt: string;
@@ -25,6 +27,8 @@ export interface CreateWorkerInput {
   email: string;
   phone?: string;
   position: string;
+  isVeterinarian?: boolean;
+  veterinaryLicenseNumber?: string;
 }
 
 export interface UpdateWorkerInput {
@@ -34,6 +38,8 @@ export interface UpdateWorkerInput {
   email?: string;
   phone?: string;
   position?: string;
+  isVeterinarian?: boolean;
+  veterinaryLicenseNumber?: string;
 }
 
 const WORKERS_LIST_QUERY = `
@@ -47,6 +53,8 @@ const WORKERS_LIST_QUERY = `
       phone
       department
       position
+      isVeterinarian
+      veterinaryLicenseNumber
       status
       hireDate
       createdAt
@@ -65,6 +73,8 @@ const CREATE_WORKER_MUTATION = `
       phone
       department
       position
+      isVeterinarian
+      veterinaryLicenseNumber
       status
       hireDate
       createdAt
@@ -83,6 +93,8 @@ const UPDATE_WORKER_MUTATION = `
       phone
       department
       position
+      isVeterinarian
+      veterinaryLicenseNumber
       status
       hireDate
       createdAt

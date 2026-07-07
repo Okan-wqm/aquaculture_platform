@@ -378,6 +378,17 @@ export class CreateSpeciesInput {
   @MaxLength(50)
   code: string;
 
+  /**
+   * Official regulatory species code (artskode) — FAO 3-alpha for grow-out,
+   * USB/BER/GRO/BNB for cleaner fish. Optional: non-reportable species have
+   * none; report assembly fails closed on unmapped reportable species.
+   */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  officialCode?: string;
+
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
@@ -480,13 +491,13 @@ export class CreateSpeciesInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsUUID()
-  supplierId?: string;             // Yavru/Yumurta tedarikçisi
+  supplierId?: string; // Yavru/Yumurta tedarikçisi
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
-  feedIds?: string[];              // Bu türe uygun yemler
+  feedIds?: string[]; // Bu türe uygun yemler
 
   // -------------------------------------------------------------------------
   // TAGS - Kategorize ve Filtreleme

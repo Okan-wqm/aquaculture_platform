@@ -18,12 +18,11 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
+
+import { Site } from '../site/entities/site.entity';
 import { TenantContextError } from '@aquaculture/backend-common/database';
-import {
-  RegulatorySettings,
-  CompanyAddress,
-} from './entities/regulatory-settings.entity';
+import { RegulatorySettings, CompanyAddress } from './entities/regulatory-settings.entity';
 
 /**
  * Input for updating regulatory settings
@@ -40,7 +39,6 @@ export interface UpdateRegulatorySettingsInput {
   defaultContactEmail?: string;
   defaultContactPhone?: string;
   siteLocalityMappings?: Record<string, number>;
-  slaughterApprovalNumber?: string;
 }
 
 @Injectable()
@@ -50,6 +48,8 @@ export class RegulatorySettingsService {
   constructor(
     @InjectRepository(RegulatorySettings)
     private readonly repo: Repository<RegulatorySettings>,
+    @InjectRepository(Site)
+    private readonly siteRepo: Repository<Site>,
   ) {}
 
   /**
@@ -83,6 +83,25 @@ export class RegulatorySettingsService {
   /**
    * Save or update regulatory settings for a tenant
    */
+  /**
+   * Effective site → lokalitetsnummer mappings, read from the SSoT:
+   * `sites.lokalitetsnummer` (RPT-015). The legacy settings jsonb fallback was
+   * removed with the column (Phase 4 dedup — DropSiteLocalityMappingsJsonb).
+   */
+  async getEffectiveSiteLocalityMappings(tenantId: string): Promise<Record<string, number>> {
+    const sites = await this.siteRepo.find({
+      where: { tenantId, lokalitetsnummer: Not(IsNull()) },
+      select: ['id', 'lokalitetsnummer'],
+    });
+
+    const mappings: Record<string, number> = {};
+    for (const site of sites) {
+      if (site.lokalitetsnummer == null) continue;
+      mappings[site.id] = site.lokalitetsnummer;
+    }
+    return mappings;
+  }
+
   async saveSettings(
     tenantId: string,
     input: UpdateRegulatorySettingsInput,
@@ -114,10 +133,11 @@ export class RegulatorySettingsService {
         settings.defaultContactPhone = input.defaultContactPhone;
       }
       if (input.siteLocalityMappings !== undefined) {
-        settings.siteLocalityMappings = input.siteLocalityMappings;
-      }
-      if (input.slaughterApprovalNumber !== undefined) {
-        settings.slaughterApprovalNumber = input.slaughterApprovalNumber;
+        // sites.lokalitetsnummer is the SSoT (RPT-015): write each mapping onto
+        // the site rows. The legacy settings jsonb is gone (Phase 4 dedup).
+        for (const [siteId, lokalitetsnummer] of Object.entries(input.siteLocalityMappings)) {
+          await this.siteRepo.update({ id: siteId, tenantId }, { lokalitetsnummer });
+        }
       }
       if (input.maskinportenEnvironment !== undefined) {
         settings.maskinportenEnvironment = input.maskinportenEnvironment;
@@ -192,10 +212,7 @@ export class RegulatorySettingsService {
    */
   async isConfigured(tenantId: string): Promise<boolean> {
     const settings = await this.getSettings(tenantId);
-    return !!(
-      settings?.maskinportenClientId &&
-      settings?.maskinportenPrivateKeyEncrypted
-    );
+    return !!(settings?.maskinportenClientId && settings?.maskinportenPrivateKeyEncrypted);
   }
 
   /**
@@ -212,33 +229,43 @@ export class RegulatorySettingsService {
   }
 
   /**
-   * Get site locality mapping for a specific site
+   * The organisation number that identifies a site's reports to Mattilsynet:
+   * the site's `organisationNumberOverride` (RPT-015 — a co-located operator on
+   * another org's licence) when set, else the tenant default from settings.
+   * Returns null when neither is configured — the submission path fails closed.
    */
-  async getLokalitetsnummer(tenantId: string, siteId: string): Promise<number | null> {
-    const settings = await this.getSettings(tenantId);
-    if (!settings?.siteLocalityMappings) return null;
-    return settings.siteLocalityMappings[siteId] || null;
+  async getEffectiveOrganisationNumber(tenantId: string, siteId: string): Promise<string | null> {
+    const [settings, site] = await Promise.all([
+      this.getSettings(tenantId),
+      this.siteRepo.findOne({
+        where: { id: siteId, tenantId },
+        select: ['id', 'organisationNumberOverride'],
+      }),
+    ]);
+    return site?.organisationNumberOverride ?? settings?.organisationNumber ?? null;
   }
 
   /**
-   * Update site locality mapping
+   * Toggle per-report-type auto-submit opt-in (RPT-003, user decision). Merges
+   * one key into `autoSubmitPolicies` so enabling SEA_LICE never disturbs a
+   * SMOLT opt-in. Absent/false leaves the scheduler assembling drafts for
+   * operator approval; true lets the auto-submit path transmit a READY draft.
    */
-  async updateSiteLocalityMapping(
+  async updateAutoSubmitPolicy(
     tenantId: string,
-    siteId: string,
-    lokalitetsnummer: number,
-  ): Promise<void> {
+    reportType: string,
+    enabled: boolean,
+  ): Promise<RegulatorySettings> {
     let settings = await this.getSettings(tenantId);
     if (!settings) {
-      settings = this.repo.create({ tenantId, siteLocalityMappings: {} });
+      settings = this.repo.create({ tenantId });
     }
-
-    const mappings = settings.siteLocalityMappings || {};
-    mappings[siteId] = lokalitetsnummer;
-    settings.siteLocalityMappings = mappings;
-
-    await this.repo.save(settings);
-    this.logger.log(`Updated locality mapping for site ${siteId}: ${lokalitetsnummer}`);
+    settings.autoSubmitPolicies = { ...(settings.autoSubmitPolicies ?? {}), [reportType]: enabled };
+    const saved = await this.repo.save(settings);
+    this.logger.log(
+      `Auto-submit policy for ${reportType} set to ${enabled} (tenant ${tenantId.slice(0, 8)}…)`,
+    );
+    return saved;
   }
 
   /**

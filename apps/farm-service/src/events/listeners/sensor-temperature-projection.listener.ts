@@ -104,6 +104,10 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       return;
     }
 
+    // Day bucket is computed in UTC here so the daily rollup is independent of
+    // the DB session timezone (a report period is a UTC date range).
+    const day = measuredAt.toISOString().slice(0, 10);
+
     try {
       await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
         // Newest-wins: only advance the row when this reading is strictly newer,
@@ -117,6 +121,25 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
                  "measuredAt" = EXCLUDED."measuredAt"
            WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"`,
           [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt],
+        );
+
+        // Daily rollup accumulation (RPT-005). The `lastMeasuredAt` watermark
+        // makes accumulation idempotent under at-least-once redelivery /
+        // out-of-order events: the row only advances on a strictly newer
+        // reading, so the same reading can never be counted twice.
+        await queryRunner.manager.query(
+          `INSERT INTO "sensor_temperature_daily"
+             ("tenantId", "sensorId", "day", "sumC", "minC", "maxC", "sampleCount", "lastMeasuredAt")
+           VALUES ($1, $2, $3, $4, $4, $4, 1, $5)
+           ON CONFLICT ("tenantId", "sensorId", "day") DO UPDATE
+             SET "sumC" = "sensor_temperature_daily"."sumC" + EXCLUDED."sumC",
+                 "minC" = LEAST("sensor_temperature_daily"."minC", EXCLUDED."minC"),
+                 "maxC" = GREATEST("sensor_temperature_daily"."maxC", EXCLUDED."maxC"),
+                 "sampleCount" = "sensor_temperature_daily"."sampleCount" + 1,
+                 "lastMeasuredAt" = EXCLUDED."lastMeasuredAt",
+                 "updatedAt" = now()
+           WHERE "sensor_temperature_daily"."lastMeasuredAt" < EXCLUDED."lastMeasuredAt"`,
+          [event.tenantId, reading.sensorId, day, reading.readingTemperature, measuredAt],
         );
       });
     } catch (error) {

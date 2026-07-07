@@ -17,6 +17,9 @@ import type { BaseEvent } from '@platform/event-contracts';
 import { createMockDataSource } from '@aquaculture/testing';
 import { RegulatoryVarslingService } from '../services/regulatory-varsling.service';
 import { RegulatoryReportStoreService } from '../services/regulatory-report-store.service';
+import { RegulatorySubmissionService } from '../services/regulatory-submission.service';
+import { SlaughterFacilityService } from '../services/slaughter-facility.service';
+import { MattilsynetSchemaValidatorService } from '../services/mattilsynet-schema-validator.service';
 import { RegulatoryReport } from '../entities/regulatory-report.entity';
 import { RegulatoryResolver } from '../regulatory.resolver';
 import { MattilsynetApiService } from '../mattilsynet-api.service';
@@ -108,7 +111,22 @@ describe('RegulatoryResolver — immediate varsling reports', () => {
     const mattilsynet = {} as MattilsynetApiService;
     const maskinporten = {} as MaskinportenService;
     const settings = {} as RegulatorySettingsService;
-    resolver = new RegulatoryResolver(mattilsynet, maskinporten, settings, service, reportStore);
+    // The submission service is unused by the varsling mutations (they route
+    // through RegulatoryVarslingService); an empty stub keeps the resolver
+    // constructable without it.
+    const submissionService = {} as RegulatorySubmissionService;
+    // The slaughter-facility service is unused by the varsling mutations; an
+    // empty stub keeps the resolver constructable without it.
+    const slaughterFacilityService = {} as SlaughterFacilityService;
+    resolver = new RegulatoryResolver(
+      mattilsynet,
+      maskinporten,
+      settings,
+      service,
+      new MattilsynetSchemaValidatorService(),
+      submissionService,
+      slaughterFacilityService,
+    );
   });
 
   describe('submitWelfareEvent', () => {

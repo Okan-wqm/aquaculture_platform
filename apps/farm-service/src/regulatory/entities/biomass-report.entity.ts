@@ -40,6 +40,14 @@ import GraphQLJSON from 'graphql-type-json';
 
 export enum BiomassReportStatus {
   DRAFT = 'DRAFT',
+  /** Reviewed, ready to export for the manual Altinn FD-0001 submission. */
+  READY = 'READY',
+  /** Operator confirmed the report was submitted via Altinn (altinnReference set). */
+  CONFIRMED_SUBMITTED = 'CONFIRMED_SUBMITTED',
+  /**
+   * Legacy terminal state from before the Altinn honesty fix (RPT-001). No new
+   * row reaches it; the immutability guard treats it as CONFIRMED_SUBMITTED.
+   */
   SUBMITTED = 'SUBMITTED',
 }
 
@@ -47,6 +55,12 @@ registerEnumType(BiomassReportStatus, {
   name: 'BiomassReportStatus',
   description: 'Lifecycle of a biomass report snapshot',
 });
+
+/** The terminal, immutable biomass states (confirmed Altinn submission + legacy). */
+export const TERMINAL_BIOMASS_STATUSES: ReadonlySet<BiomassReportStatus> = new Set([
+  BiomassReportStatus.CONFIRMED_SUBMITTED,
+  BiomassReportStatus.SUBMITTED,
+]);
 
 // ============================================================================
 // PAYLOAD SHAPES — mirror the BiomassReportTab.tsx BiomassFormData
@@ -204,6 +218,21 @@ export class BiomassReport {
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   submittedBy?: string;
+
+  /** When the report was marked READY for the Altinn export (RPT-001). */
+  @Field({ nullable: true })
+  @Column('timestamptz', { nullable: true })
+  readyAt?: Date;
+
+  /** Altinn/Fiskeridirektoratet receipt reference the operator confirmed. */
+  @Field(() => String, { nullable: true })
+  @Column('varchar', { length: 64, nullable: true })
+  altinnReference?: string | null;
+
+  /** Operator who confirmed the Altinn submission. */
+  @Field({ nullable: true })
+  @Column('uuid', { nullable: true })
+  confirmedBy?: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })

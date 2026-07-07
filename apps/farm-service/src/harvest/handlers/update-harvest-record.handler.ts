@@ -23,19 +23,19 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type HarvestRecordUpdatedEvent,
 } from '@platform/event-contracts';
 import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
-import { HarvestRecord } from '../entities/harvest-record.entity';
+import { HarvestRecord, qualityGradeToClass } from '../entities/harvest-record.entity';
 
 const UPDATABLE_FIELDS = [
   'status',
   'quantityHarvested',
   'totalBiomass',
   'averageWeight',
-  'qualityGrade',
   'method',
   'productForm',
   'totalRevenue',
@@ -49,7 +49,9 @@ const UPDATABLE_FIELDS = [
 
 @Injectable()
 @CommandHandler(UpdateHarvestRecordCommand)
-export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvestRecordCommand, HarvestRecord> {
+export class UpdateHarvestRecordHandler
+  implements ICommandHandler<UpdateHarvestRecordCommand, HarvestRecord>
+{
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -85,6 +87,17 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
           changedFields.push(field);
           (harvestRecord as unknown as Record<string, unknown>)[field] = incoming;
         }
+      }
+
+      // quality_class is the sole stored quality taxonomy (RPT-007). Prefer the
+      // SSoT-native qualityClass input; a deprecated qualityGrade maps onto it.
+      // qualityGrade itself is a read-only derived alias — never persisted.
+      if (data.qualityClass !== undefined) {
+        harvestRecord.qualityClass = data.qualityClass;
+        changedFields.push('qualityClass');
+      } else if (data.qualityGrade !== undefined) {
+        harvestRecord.qualityClass = qualityGradeToClass(data.qualityGrade);
+        changedFields.push('qualityClass');
       }
 
       const saved = await queryRunner.manager.save(HarvestRecord, harvestRecord);

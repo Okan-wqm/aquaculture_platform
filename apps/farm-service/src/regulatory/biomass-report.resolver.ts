@@ -7,8 +7,12 @@
  * noktalar" plan.
  *
  * Exposes:
- *   - `createBiomassReport(input)` — create-or-update-if-draft,
- *     optionally finalise with `input.submit=true`
+ *   - `createBiomassReport(input)` — create-or-update the DRAFT (never
+ *     finalises; the Altinn state machine below owns finalisation)
+ *   - `markBiomassReportReady` / `revertBiomassReportToDraft` /
+ *     `confirmBiomassReportSubmitted` — the manual Altinn submission
+ *     state machine (RPT-001)
+ *   - `biomassReportAltinnExport(id)` — the FD-0001 export
  *   - `biomassReport(siteId, reportMonth, reportYear)` — single
  *     period lookup
  *   - `biomassReports(siteId, limit)` — period history for one site
@@ -21,6 +25,8 @@ import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 
 import { BiomassReport } from './entities/biomass-report.entity';
 import { BiomassReportService } from './services/biomass-report.service';
+import { BiomassAltinnExportService } from './services/biomass-altinn-export.service';
+import { BiomassAltinnExportOutput } from './dto/biomass-altinn-export.dto';
 import { CreateBiomassReportInput } from './dto/create-biomass-report.input';
 import { QueryBus } from '@platform/cqrs';
 import { GetBiomassReportByPeriodQuery } from './queries/get-biomass-report-by-period.query';
@@ -39,13 +45,16 @@ export class BiomassReportResolver {
 
   constructor(
     private readonly biomassReportService: BiomassReportService,
+    private readonly altinnExportService: BiomassAltinnExportService,
     private readonly queryBus: QueryBus,
   ) {}
 
   @Mutation(() => BiomassReport, {
     description:
-      'Create or update (if draft) a monthly biomass report for a site. ' +
-      'Pass submit=true to finalise — a SUBMITTED report becomes immutable.',
+      'Create or update the DRAFT monthly biomass report for a site. Idempotent ' +
+      'per (siteId, reportMonth, reportYear). Finalisation is never done here — ' +
+      'the report is submitted to Fiskeridirektoratet manually via Altinn ' +
+      '(markBiomassReportReady → confirmBiomassReportSubmitted).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createBiomassReport(
@@ -54,9 +63,47 @@ export class BiomassReportResolver {
     @Args('input') input: CreateBiomassReportInput,
   ): Promise<BiomassReport> {
     this.logger.log(
-      `createBiomassReport site=${input.siteId} period=${input.reportYear}-${input.reportMonth} submit=${input.submit ?? false}`,
+      `createBiomassReport site=${input.siteId} period=${input.reportYear}-${input.reportMonth}`,
     );
     return this.biomassReportService.createOrUpdate(tenantId, input, user.sub);
+  }
+
+  @Mutation(() => BiomassReport, {
+    description: 'Mark a DRAFT biomass report READY for the manual Altinn (FD-0001) export.',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async markBiomassReportReady(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<BiomassReport> {
+    return this.biomassReportService.markReady(tenantId, id, user.sub);
+  }
+
+  @Mutation(() => BiomassReport, {
+    description: 'Reopen a READY biomass report back to DRAFT for editing.',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async revertBiomassReportToDraft(
+    @CurrentTenant() tenantId: string,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<BiomassReport> {
+    return this.biomassReportService.revertToDraft(tenantId, id);
+  }
+
+  @Mutation(() => BiomassReport, {
+    description:
+      'Confirm a READY biomass report was submitted to Fiskeridirektoratet via Altinn, ' +
+      'recording the Altinn receipt reference (terminal, immutable).',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async confirmBiomassReportSubmitted(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+    @Args('id', { type: () => ID }) id: string,
+    @Args('altinnReference') altinnReference: string,
+  ): Promise<BiomassReport> {
+    return this.biomassReportService.confirmSubmitted(tenantId, id, altinnReference, user.sub);
   }
 
   @Query(() => BiomassReport, {
@@ -74,6 +121,20 @@ export class BiomassReportResolver {
     return this.queryBus.execute(
       new GetBiomassReportByPeriodQuery(tenantId, siteId, reportMonth, reportYear),
     );
+  }
+
+  @Query(() => BiomassAltinnExportOutput, {
+    description:
+      'Form-ordered FD-0001 export (CSV + printable) for a biomass report, to ' +
+      'transcribe into the Altinn manual submission.',
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async biomassReportAltinnExport(
+    @CurrentTenant() tenantId: string,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<BiomassAltinnExportOutput> {
+    const report = await this.biomassReportService.getById(tenantId, id);
+    return { ...this.altinnExportService.build(report), generatedAt: new Date() };
   }
 
   @Query(() => [BiomassReport], {

@@ -77,6 +77,7 @@ const inputTypeOptions: { value: BatchInputType; label: string }[] = [
   { value: 'FRY', label: 'Fry' },
   { value: 'FINGERLINGS', label: 'Fingerlings' },
   { value: 'JUVENILES', label: 'Juveniles' },
+  { value: 'SMOLT', label: 'Smolt' },
   { value: 'ADULTS', label: 'Adults' },
   { value: 'BROODSTOCK', label: 'Broodstock' },
 ];

@@ -199,6 +199,13 @@ export class CreateTankInput {
   @MaxLength(100)
   equipmentTypeCode?: string;
 
+  /** Official regulatory unit id (kar-/merd-nummer) for the settefisk report. */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  regulatoryUnitId?: string;
+
   // -------------------------------------------------------------------------
   // TİP VE MALZEME
   // -------------------------------------------------------------------------

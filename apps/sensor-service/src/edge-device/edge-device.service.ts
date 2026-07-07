@@ -27,7 +27,7 @@ import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import { EdgeDevice, DeviceLifecycleState, DeviceModel } from './entities/edge-device.entity';
+import { EdgeDevice, DeviceLifecycleState, DeviceModel, isTerminalLifecycleState } from './entities/edge-device.entity';
 import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
 import { InstallerScriptService } from './installer-script.service';
 
@@ -583,8 +583,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
   async setMaintenanceMode(id: string, tenantId: string, enabled: boolean): Promise<EdgeDevice> {
     const device = await this.findByIdOrFail(id, tenantId);
 
-    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      throw new BadRequestException('Cannot change maintenance mode of a decommissioned device');
+    // SENSOR-MEDIUM-008: REVOKED is terminal too.
+    if (isTerminalLifecycleState(device.lifecycleState)) {
+      throw new BadRequestException(
+        `Cannot change maintenance mode of a device in a terminal state (${device.lifecycleState})`,
+      );
     }
 
     device.lifecycleState = enabled
@@ -973,15 +976,15 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }> {
     const device = await this.findByIdOrFail(deviceId, tenantId);
 
-    // Build install URL/command — use token if available (not yet activated)
-    const token = device.provisioningToken || undefined;
-    const installUrl = await this.installerScriptService.buildInstallerUrl(
-      device.deviceCode,
-      token,
-    );
+    // SENSOR-MEDIUM-001/002: the plaintext provisioning token is never
+    // recoverable from storage (only its SHA-256 digest is kept), so this
+    // display path cannot embed a working token. The command shows the
+    // endpoint; without the X-Provisioning-Token header the server returns 401.
+    // To (re)install, the operator regenerates the token, which returns a fresh
+    // tokenized command exactly once.
+    const installUrl = await this.installerScriptService.buildInstallerUrl(device.deviceCode);
     const installCommand = await this.installerScriptService.buildInstallerCommand(
       device.deviceCode,
-      token,
     );
 
     // Build uninstall URL/command — always available

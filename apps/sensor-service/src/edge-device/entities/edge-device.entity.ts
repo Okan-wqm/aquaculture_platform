@@ -33,6 +33,19 @@ export enum DeviceLifecycleState {
   DECOMMISSIONED = 'decommissioned',
 }
 
+/**
+ * SENSOR-MEDIUM-008: terminal lifecycle states a device can never leave by
+ * re-provisioning / activation / maintenance toggling. REVOKED is terminal
+ * alongside DECOMMISSIONED — a revoked device must not be silently
+ * re-activated back into service.
+ */
+export function isTerminalLifecycleState(state: DeviceLifecycleState): boolean {
+  return (
+    state === DeviceLifecycleState.DECOMMISSIONED ||
+    state === DeviceLifecycleState.REVOKED
+  );
+}
+
 registerEnumType(DeviceLifecycleState, {
   name: 'DeviceLifecycleState',
   description: 'Lifecycle state of the edge device',

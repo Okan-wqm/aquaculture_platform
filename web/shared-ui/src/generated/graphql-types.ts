@@ -20119,7 +20119,6 @@ export type TenantProvisioningKey = {
   expiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
-  keyToken: Scalars['String']['output'];
   maxDevices?: Maybe<Scalars['Int']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];

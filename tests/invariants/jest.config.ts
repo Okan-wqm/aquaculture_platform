@@ -218,6 +218,8 @@ export default {
       displayName: 'registry',
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/tenant-permission-guard-adoption.spec.ts',
+        '<rootDir>/sensor-enum-fe-be-parity.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/no-runtime-synchronize.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',

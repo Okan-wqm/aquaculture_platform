@@ -1,6 +1,7 @@
 import * as net from 'net';
 
 import { Injectable } from '@nestjs/common';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
@@ -24,24 +25,40 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
 
   private sockets: Map<string, net.Socket> = new Map();
 
+  // SVD-HIGH-001: dependency-free SSRF host guard (see http-rest adapter note).
+  private readonly ssrfValidator = new SsrfValidatorService();
+
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const cfg = config as TcpSocketConfig;
     const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
+
+    // SVD-HIGH-001: `host` is operator-supplied — resolve + validate before
+    // connecting so it cannot target loopback/RFC-1918/link-local/metadata.
+    // Connect to the resolved IP (DNS pinned pre-connect); return a single
+    // opaque failure to avoid a network-mapping oracle.
+    const verdict = await this.ssrfValidator.validateHost(
+      String(cfg.host ?? ''),
+      Number(cfg.port ?? 0),
+    );
+    if (!verdict.safe || !verdict.resolvedIp) {
+      throw new Error('Connection failed');
+    }
+    const targetIp = verdict.resolvedIp;
 
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
       const timeout = (config.timeout as number) || 5000;
 
       socket.setTimeout(timeout);
-      socket.connect(config.port as number, config.host as string, () => {
+      socket.connect(config.port as number, targetIp, () => {
         this.sockets.set(handle.id, socket);
         resolve(handle);
       });
 
-      socket.on('error', (err) => reject(err));
+      socket.on('error', () => reject(new Error('Connection failed')));
       socket.on('timeout', () => {
         socket.destroy();
-        reject(new Error('Connection timeout'));
+        reject(new Error('Connection failed'));
       });
     });
   }

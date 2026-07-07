@@ -166,6 +166,21 @@ export class VfdDevice {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
+  // SENSOR-HIGH-026: the registration wizard collects these but they had no
+  // backing columns, so model series / pump linkage / tags were silently
+  // dropped. (The wizard's free-text "notes" maps into `description` above.)
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 100, name: 'model_series', nullable: true })
+  modelSeries?: string;
+
+  @Field({ nullable: true })
+  @Column({ type: 'uuid', name: 'pump_id', nullable: true })
+  pumpId?: string;
+
+  @Field(() => [String], { nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  tags?: string[];
+
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;

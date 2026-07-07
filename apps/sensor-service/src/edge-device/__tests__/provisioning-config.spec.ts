@@ -9,6 +9,8 @@
  
  
 
+import { createHash } from 'crypto';
+
 import {
   NotFoundException,
   ConflictException,
@@ -30,6 +32,7 @@ import { MqttAuthService } from '../mqtt-auth.service';
 import { InstallerScriptService } from '../installer-script.service';
 import { TenantKeyService } from '../tenant-key.service';
 import { DeviceEventService } from '../device-event.service';
+import { DeviceDirectoryService } from '../device-directory.service';
 import { ProvisioningService } from '../provisioning.service';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +40,12 @@ import { ProvisioningService } from '../provisioning.service';
 // ---------------------------------------------------------------------------
 const mockFetch = jest.fn();
 global.fetch = mockFetch as any;
+
+// SENSOR-MEDIUM-011/012: provisioning tokens are hashed at rest. The device
+// stores sha256(token); the caller presents the plaintext, which is embedded in
+// the installer (header) and validated against the stored digest.
+const PLAINTEXT_TOKEN = 'a'.repeat(64);
+const HASHED_TOKEN = createHash('sha256').update(PLAINTEXT_TOKEN).digest('hex');
 
 // ---------------------------------------------------------------------------
 // Repository mocks
@@ -135,7 +144,7 @@ const buildMockDevice = (overrides: Partial<EdgeDevice> = {}): EdgeDevice =>
     deviceName: 'Test Edge',
     deviceModel: DeviceModel.CUSTOM,
     lifecycleState: DeviceLifecycleState.REGISTERED,
-    provisioningToken: 'a'.repeat(64),
+    provisioningToken: HASHED_TOKEN,
     tokenExpiresAt: new Date(Date.now() + 86400000), // 24 h in future
     tokenUsedAt: undefined,
     mqttClientId: 'edge-tenant-u-edge-aabb1122',
@@ -176,6 +185,15 @@ describe('ProvisioningService - Config Management', () => {
         { provide: DataSource, useValue: createMockDataSource(deviceRepo) },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: MqttAuthService, useValue: mockMqttAuthService },
+        {
+          provide: DeviceDirectoryService,
+          useValue: {
+            upsert: jest.fn().mockResolvedValue(undefined),
+            lookupTenantId: jest.fn().mockResolvedValue(null),
+            backfill: jest.fn().mockResolvedValue(undefined),
+            remove: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -205,7 +223,7 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
       // generateInstallerScript calls getProvisioningConfig internally
-      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith('http://admin-api:3010/system/settings/provisioning-config', expect.anything());
@@ -236,11 +254,11 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValue(device);
 
       // First call - fetches from admin API
-      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
       // Second call - should use cache, no additional fetch
-      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
@@ -262,14 +280,14 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValue(device);
 
       // First call
-      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
       // Manually expire the cache on InstallerScriptService
       (installerScriptService as any).configCacheExpiry = new Date(0);
 
       // Third call - cache expired, should fetch again
-      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
@@ -279,7 +297,7 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       // Should contain env var values from ConfigService mock
       expect(script).toContain('http://env-api.example.com');
@@ -296,7 +314,7 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       // Should contain env var fallback values
       expect(script).toContain('http://env-api.example.com');
@@ -327,21 +345,21 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       expect(script).toContain('https://api.test.com');
       expect(script).toContain('4.0.0');
       // Repo comes from the pinned env value, not from the admin API response
       expect(script).toContain('TestOrg/test-repo');
       expect(script).toContain(device.deviceCode);
-      expect(script).toContain(device.provisioningToken!);
+      expect(script).toContain(PLAINTEXT_TOKEN);
     });
 
     it('should include SHA256 checksum verification in script', async () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       expect(script).toContain('sha256sum');
       expect(script).toContain('.sha256');
@@ -352,7 +370,7 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       expect(script).toContain('TARGET_SLUG="x86_64-linux"');
       expect(script).toContain('TARGET_SLUG="aarch64-linux"');
@@ -368,7 +386,7 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValueOnce(expiredDevice);
 
       await expect(
-        service.generateInstallerScript(expiredDevice.deviceCode, expiredDevice.provisioningToken!),
+        service.generateInstallerScript(expiredDevice.deviceCode, PLAINTEXT_TOKEN),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -379,7 +397,7 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValueOnce(usedDevice);
 
       await expect(
-        service.generateInstallerScript(usedDevice.deviceCode, usedDevice.provisioningToken!),
+        service.generateInstallerScript(usedDevice.deviceCode, PLAINTEXT_TOKEN),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -411,8 +429,9 @@ describe('ProvisioningService - Config Management', () => {
         deviceName: 'My Device',
       });
 
+      // SENSOR-MEDIUM-002: the token is carried in a header, never the URL.
       expect(result.installerUrl).toContain('https://custom-domain.example.com/install/');
-      expect(result.installerUrl).toContain('?token=');
+      expect(result.installerUrl).not.toContain('?token=');
     });
   });
 
@@ -442,7 +461,10 @@ describe('ProvisioningService - Config Management', () => {
         deviceName: 'Curl Test Device',
       });
 
-      expect(result.installerCommand).toMatch(/^curl -sSL "https:\/\/edge\.example\.com\/install\/.+\?token=.+" \| sudo bash$/);
+      // SENSOR-MEDIUM-002: token travels in the X-Provisioning-Token header.
+      expect(result.installerCommand).toMatch(
+        /^curl -sSL -H "X-Provisioning-Token: .+" "https:\/\/edge\.example\.com\/install\/.+" \| sudo bash$/,
+      );
     });
   });
 
@@ -470,7 +492,7 @@ describe('ProvisioningService - Config Management', () => {
 
       const result = await service.activateDevice({
         deviceId: device.id,
-        token: device.provisioningToken!,
+        token: PLAINTEXT_TOKEN,
         fingerprint: { machineId: 'machine-123', hostname: 'edge-01' },
         agentVersion: '1.0.0',
       });

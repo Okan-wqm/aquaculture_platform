@@ -26,7 +26,8 @@ interface TenantKeyResponse {
 
 interface TenantProvisioningKey {
   id: string;
-  keyToken: string;
+  // SENSOR-MEDIUM-001: raw key is shown only once at creation; the list never
+  // re-exposes it (stored value is a SHA-256 digest, not selectable).
   name?: string;
   isActive: boolean;
   maxDevices?: number;
@@ -235,7 +236,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                   {existingKeys.map((key) => (
                     <div key={key.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-xs">
                       <div>
-                        <span className="font-medium">{key.name || key.keyToken.substring(0, 12) + '...'}</span>
+                        <span className="font-medium">{key.name || `Key ${key.id.substring(0, 8)}`}</span>
                         <span className={`ml-2 px-1.5 py-0.5 rounded-full ${key.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                           {key.isActive ? 'Active' : 'Revoked'}
                         </span>

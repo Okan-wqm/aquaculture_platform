@@ -1,5 +1,7 @@
 import * as net from 'net';
+import * as tls from 'tls';
 import { Injectable } from '@nestjs/common';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
@@ -25,6 +27,16 @@ export interface ModbusTcpConfig {
   responseTimeout: number;
   keepAlive: boolean;
   reconnectInterval: number;
+  /**
+   * SVD-HIGH-003: when true, the Modbus-TCP link is tunneled over TLS
+   * (Modbus/TCP Security, port 802) instead of plaintext. Required in
+   * environments where the OT segment is not physically isolated per
+   * IEC 62443 FR5. `tlsRejectUnauthorized` defaults to true; `tlsCaCert`
+   * supplies a private-CA bundle for the drive/gateway certificate.
+   */
+  tls?: boolean;
+  tlsRejectUnauthorized?: boolean;
+  tlsCaCert?: string;
 }
 
 /**
@@ -52,6 +64,14 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
   // Active connections map
   private connections: Map<string, ModbusTcpConnectionHandle> = new Map();
 
+  /**
+   * SVD-HIGH-001: instantiated directly (not injected) — VFD adapters are
+   * created via `new AdapterClass()` outside the Nest DI container
+   * (see createVfdAdapter), and SsrfValidatorService is dependency-free, so a
+   * field initializer keeps the pre-connect host guard present unconditionally.
+   */
+  private readonly ssrfValidator = new SsrfValidatorService();
+
   constructor() {
     super('VfdModbusTcpAdapter');
   }
@@ -68,6 +88,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
         validatedConfig.port,
         validatedConfig.connectionTimeout,
         validatedConfig.keepAlive,
+        validatedConfig,
       );
 
       const handle: ModbusTcpConnectionHandle = {
@@ -563,14 +584,45 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
   /**
    * Open a TCP socket to the VFD and return it once connected.
    */
-  private openSocket(
+  private async openSocket(
     host: string,
     port: number,
     connectionTimeout: number,
     keepAlive: boolean,
+    config?: ModbusTcpConfig,
   ): Promise<net.Socket> {
+    // SVD-HIGH-001: `host` is operator-supplied at VFD registration. Resolve
+    // and validate BEFORE opening the socket so it cannot target loopback,
+    // RFC-1918, link-local, or cloud-metadata addresses (internal port-scan /
+    // SSRF). DNS is pinned pre-connect and we connect to the resolved IP, not
+    // the hostname, to close the rebinding window. Industrial ports are
+    // allowed — the control is the IP denylist, not a port allowlist.
+    const verdict = await this.ssrfValidator.validateHost(host, port);
+    if (!verdict.safe || !verdict.resolvedIp) {
+      // Oracle-suppression: return a single opaque failure regardless of the
+      // specific reason so a caller cannot use error text to map the network.
+      this.logger.warn(
+        `Blocked unsafe VFD Modbus target ${host}:${port} — ${verdict.reason ?? 'unresolved'}`,
+      );
+      throw new Error('Connection failed');
+    }
+    const targetIp = verdict.resolvedIp;
+
     return new Promise((resolve, reject) => {
-      const socket = new net.Socket();
+      // SVD-HIGH-003: use a TLS-tunneled socket when configured. The TLS
+      // handshake validates the drive/gateway certificate (servername is the
+      // original hostname for SNI/verification, while the connection targets
+      // the pre-resolved IP to keep the SSRF pin).
+      const socket = config?.tls
+        ? tls.connect({
+            host: targetIp,
+            port,
+            servername: host,
+            rejectUnauthorized: config.tlsRejectUnauthorized ?? true,
+            ca: config.tlsCaCert ? [config.tlsCaCert] : undefined,
+          })
+        : new net.Socket();
+
       socket.setNoDelay(true);
       if (keepAlive) {
         socket.setKeepAlive(true, 10000);
@@ -578,19 +630,28 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
 
       const timer = setTimeout(() => {
         socket.destroy();
-        reject(new Error(`Connection timeout after ${connectionTimeout}ms to ${host}:${port}`));
+        reject(new Error('Connection failed'));
       }, connectionTimeout);
 
-      socket.once('error', (err) => {
+      socket.once('error', () => {
         clearTimeout(timer);
         socket.destroy();
-        reject(err);
+        reject(new Error('Connection failed'));
       });
 
-      socket.connect(port, host, () => {
-        clearTimeout(timer);
-        resolve(socket);
-      });
+      if (config?.tls) {
+        // tls.connect already initiates the connection; wait for the
+        // secure handshake to complete.
+        (socket as tls.TLSSocket).once('secureConnect', () => {
+          clearTimeout(timer);
+          resolve(socket);
+        });
+      } else {
+        (socket as net.Socket).connect(port, targetIp, () => {
+          clearTimeout(timer);
+          resolve(socket);
+        });
+      }
     });
   }
 

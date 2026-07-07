@@ -8,6 +8,7 @@
  
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
 
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../../entities/vfd.enums';
@@ -73,6 +74,18 @@ describe('VfdConnectionTesterService', () => {
             getCriticalMappings: jest.fn().mockResolvedValue([
               { parameterName: 'output_frequency', registerAddress: 16129 },
             ]),
+          },
+        },
+        {
+          provide: CircuitBreakerService,
+          useValue: {
+            // Closed-circuit pass-through: run fn() and let failures propagate
+            // (the real breaker only invokes the fallback once the circuit is
+            // OPEN, not on a single failure), so the existing connection-test
+            // assertions still exercise the adapter + its error path.
+            execute: jest.fn().mockImplementation(async (call: {
+              fn: () => Promise<unknown>;
+            }) => call.fn()),
           },
         },
       ],

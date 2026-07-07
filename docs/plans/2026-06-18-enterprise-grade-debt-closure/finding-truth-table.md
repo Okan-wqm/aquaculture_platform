@@ -19,6 +19,14 @@ would-be closers (`INFRA-CRITICAL-031`/`032`) close it only via a
 sibling-trailer pattern the automated close ceremony does not certify — that is
 tracked separately, not asserted here as resolved.
 
+Updated 2026-07-07: reconciling the sensor/VFD/device-audit registry entries
+(PR #886) onto main's chain surfaced two active CRITICALs whose fixes already
+landed on the audit branch but whose registry rows stay OPEN until the
+post-merge close ceremony records a main-reachable closing commit (PROC-HIGH-001,
+`close` refuses branch-local SHAs): `SENSOR-CRITICAL-002` (HTTP-REST SSRF, closed
+by the W1 network-security workstream) and `SENSOR-CRITICAL-003` (VFD tab
+visibility, closed by the W5 frontend workstream). Both are `already-fixed-needs-close`.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -33,6 +41,8 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-029` | OPEN            | 1.1          | data-expert  | real-open    |
 | `FARM-CRITICAL-061`  | OPEN            | 1.1          | farm-expert  | real-open    |
 | `AISAFETY-CRITICAL-003` | OPEN         | —            | ai-safety-auditor | already-fixed-needs-close |
+| `SENSOR-CRITICAL-002` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
+| `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -52,6 +62,21 @@ Allowed truth buckets:
   the `LlmProvider` abstraction + the settings CRUD) implements the fix; the
   registry row stays OPEN only until the post-merge close ceremony records a
   main-reachable closing commit (`close` refuses branch-local SHAs, PROC-HIGH-001).
+
+- `SENSOR-CRITICAL-002` (HTTP-REST sensor adapter fetches an operator-controlled
+  URL with no host/IP/protocol validation — SSRF enabling cloud-metadata
+  credential theft): the W1 network-security workstream on the sensor audit branch
+  routes every outbound adapter fetch/socket through `SsrfValidatorService`
+  (`validateUrl` / `validateHost` — DNS-pre-resolve + private/metadata/CGNAT IP
+  denylist + `redirect:'error'`), so metadata endpoints and private ranges are
+  rejected before a connection opens. The registry row stays OPEN only until the
+  post-merge close ceremony records a main-reachable closing commit.
+- `SENSOR-CRITICAL-003` (VFD tab renders sensor data and has no VFD list/detail
+  wiring — registered VFD devices are invisible): the W5 frontend workstream moved
+  `useVfdDevices`/`useVfdStats`/`useVfdDevice` onto the TanStack Query +
+  `createTenantQueryKey` pattern and wired the DevicesPage VFD tab and detail route
+  to VFD data, so registered drives are visible. The registry row stays OPEN only
+  until the post-merge close ceremony records a main-reachable closing commit.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.

@@ -378,6 +378,22 @@ export class ProtocolConfigurationDto {
   @IsBoolean()
   keepAlive?: boolean;
 
+  // SVD-HIGH-003: Modbus/TCP Security (TLS) transport options.
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  tls?: boolean;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  tlsRejectUnauthorized?: boolean;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  tlsCaCert?: string;
+
   // PROFINET fields
   @Field({ nullable: true })
   @IsOptional()

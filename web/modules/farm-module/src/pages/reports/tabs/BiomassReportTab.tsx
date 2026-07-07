@@ -18,7 +18,7 @@ import {
 import { BiomassSpeciesBreakdown } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
-import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
+import { ProvenanceBadge } from '../components/common';
 import { BiomassAltinnPanel } from '../components/BiomassAltinnPanel';
 import { CREATE_BIOMASS_REPORT_MUTATION } from '../../../graphql/regulatory.operations';
 

@@ -18,7 +18,7 @@ import { SubmissionHistorySection } from '../components/SubmissionHistorySection
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
-import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
+import { ProvenanceBadge } from '../components/common';
 import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';

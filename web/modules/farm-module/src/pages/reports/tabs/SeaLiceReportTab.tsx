@@ -20,7 +20,7 @@ import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
-import { ProvenanceBadge } from '../components/common/ProvenanceBadge';
+import { ProvenanceBadge } from '../components/common';
 
 // ============================================================================
 // Types

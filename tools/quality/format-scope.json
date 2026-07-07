@@ -3328,6 +3328,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-water-quality.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/create-task.tool.ts",
       "prettier_managed": true
     },
@@ -3347,6 +3353,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/get-farm-tanks.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/get-farm-water-quality.tool.ts",
       "prettier_managed": true
     },
     {
@@ -14296,6 +14308,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/query-handlers/water-quality-stats.result.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/__tests__/get-water-quality-overview.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/get-water-quality-overview.responder.ts",
       "prettier_managed": true
     },
     {
@@ -50484,10 +50508,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8268,
+  "file_count": 8272,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8093,
-  "managed_file_list_sha256": "435cc844d2a9a845de270dfc4303baba966e45d41fb428034f7fc863dcfa9088",
+  "managed_count": 8097,
+  "managed_file_list_sha256": "53e3c9182fc7bf28d25d00c44a485b30180eedb708640d529e22afb1c0792a73",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

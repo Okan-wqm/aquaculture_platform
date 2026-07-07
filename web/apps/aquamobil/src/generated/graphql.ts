@@ -141,10 +141,8 @@ export type CreateHarvestRecordInput = {
   pricePerKg?: number | null | undefined;
   /** Product form (whole, gutted, fillet, etc.) */
   productForm?: ProductForm | null | undefined;
-  /** Norwegian quality class (kvalitetsklasse) — the stored SSoT. Preferred input. */
-  qualityClass?: QualityClass | null | undefined;
-  /** DEPRECATED legacy display grade — mapped onto qualityClass when supplied. */
-  qualityGrade?: QualityGrade | null | undefined;
+  /** Norwegian quality class (kvalitetsklasse) — the stored SSoT. */
+  qualityClass: QualityClass;
   /** Number of fish harvested */
   quantityHarvested: number;
   /** Rejected quantity (kg) */

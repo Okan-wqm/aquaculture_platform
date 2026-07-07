@@ -45,6 +45,21 @@ that BOTH the token mint and the read path import, so the two can no longer dive
 duplicated private logic in `tenant-user-management.service.ts`). Tests: util 9/9, token fold e2e case,
 no regressions.
 
+### MT-HIGH-060 — tenant user/role mutations hard-gated to TENANT_ADMIN (no delegation) — RESOLVED (backend)
+Every operation on `tenant-role.resolver.ts` (11 mutations + 5 queries) was gated by
+`@Roles(SUPER_ADMIN, TENANT_ADMIN)` / `@TenantAdminOrHigher()`, so a tenant could NOT delegate
+user/role administration to a custom role — the whole point of tenant-configurable RBAC. Fix:
+register `TenantPermissionGuard` as an opt-in `APP_GUARD` in auth-service (mirroring the proven
+sensor-service registration) and route every operation through `@RequireTenantPermission(cap)` mapped
+to the catalogue (`roles:create/edit/delete/view`, `users:invite/edit_permissions/deactivate/view`).
+Behavior-preserving TODAY (both guards are opt-in; SUPER/TENANT_ADMIN still bypass, ungranted users
+still denied) — it only enables a tenant user whose custom role grants the capability. A structural
+regression test (`tenant-role.resolver.gating.spec.ts`) asserts EVERY operation is gated (no method
+can silently fall through both opt-in guards) + verifies the mapping. Convention: a delegated
+user-management role must also carry `roles:view` (you cannot assign a role you cannot see).
+**Remaining half (FE, tracked below):** a delegate still cannot REACH the pages — the shell still
+gates `/tenant/*` on global `TENANT_ADMIN`. That FE panel-access gating is the follow-up.
+
 ## Tracked, NOT in this PR (owner + follow-up)
 
 - **MT-HIGH-054 (HIGH, OPEN — existing registry finding)** — the two role systems are not bridged for PANEL ACCESS: a tenant can grant a

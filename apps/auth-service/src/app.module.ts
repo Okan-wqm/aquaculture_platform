@@ -8,7 +8,12 @@ import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
-import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import {
+  TenantGuard,
+  RolesGuard,
+  ServiceIdentityGuard,
+  TenantPermissionGuard,
+} from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
@@ -373,6 +378,20 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     {
       provide: APP_GUARD,
       useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
+      inject: [Reflector],
+    },
+    // MT-HIGH-054: fine-grained tenant-RBAC guard enabling role/user-management
+    // DELEGATION. Opt-in — a handler with no @RequireTenantPermission passes
+    // through untouched (RolesGuard is likewise opt-in), so global registration
+    // is behavior-preserving: SUPER_ADMIN/TENANT_ADMIN still bypass, an ungranted
+    // user is still denied. It only changes behavior for a tenant user whose
+    // custom role grants the matching capability (e.g. 'roles:create'), which is
+    // exactly the tenant-configurable delegation this closes. Registered AFTER
+    // JwtAuthGuard so request.user (with resourcePermissions) is populated.
+    {
+      provide: APP_GUARD,
+      useFactory: (reflector: Reflector): TenantPermissionGuard =>
+        new TenantPermissionGuard(reflector),
       inject: [Reflector],
     },
   ],

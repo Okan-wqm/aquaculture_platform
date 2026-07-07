@@ -5,6 +5,7 @@ import { AuditModule } from '../../audit/audit.module';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { TenantModule } from '../tenant/tenant.module';
 
+import { AuthCredentialNatsHandler } from './controllers/auth-credential-nats.handler';
 import { AuthPublicNatsHandler } from './controllers/auth-public-nats.handler';
 import { InternalAuthController } from './controllers/internal-auth.controller';
 import { ActionToken } from './entities/action-token.entity';
@@ -44,7 +45,7 @@ import { WebAuthnService } from './services/webauthn.service';
     // mobile-feature read path) so TokenService can fold it into the JWT mint.
     TenantModule,
   ],
-  controllers: [InternalAuthController, AuthPublicNatsHandler],
+  controllers: [InternalAuthController, AuthPublicNatsHandler, AuthCredentialNatsHandler],
   providers: [
     AccountService,
     TokenService,

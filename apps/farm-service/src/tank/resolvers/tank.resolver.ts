@@ -50,10 +50,10 @@ export class TankListResponse extends StandardPaginatedResponse(Tank) {}
 @ObjectType()
 export class DeleteTankResponse {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   message?: string;
@@ -62,25 +62,25 @@ export class DeleteTankResponse {
 @ObjectType()
 export class TankCapacityInfo {
   @Field(() => Float)
-  currentBiomass: number;
+  currentBiomass!: number;
 
   @Field(() => Float)
-  maxBiomass: number;
+  maxBiomass!: number;
 
   @Field(() => Float)
-  availableCapacity: number;
+  availableCapacity!: number;
 
   @Field(() => Float)
-  utilizationPercent: number;
+  utilizationPercent!: number;
 
   @Field(() => Float)
-  currentDensity: number;
+  currentDensity!: number;
 
   @Field(() => Float)
-  maxDensity: number;
+  maxDensity!: number;
 
   @Field()
-  hasCapacity: boolean;
+  hasCapacity!: boolean;
 }
 
 /**
@@ -89,10 +89,10 @@ export class TankCapacityInfo {
 @ObjectType()
 export class TankSiteInfo {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 }
 
 /**
@@ -101,10 +101,10 @@ export class TankSiteInfo {
 @ObjectType()
 export class TankDepartmentInfo {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   siteId?: string;

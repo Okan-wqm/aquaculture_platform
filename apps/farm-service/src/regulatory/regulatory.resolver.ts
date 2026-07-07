@@ -82,13 +82,13 @@ interface GraphQLContext {
 @ObjectType()
 class MaskinportenStatus {
   @Field()
-  configured: boolean;
+  configured!: boolean;
 
   @Field()
-  environment: string;
+  environment!: string;
 
   @Field(() => [String])
-  scopes: string[];
+  scopes!: string[];
 
   @Field({ nullable: true })
   tokenEndpoint?: string;
@@ -97,22 +97,22 @@ class MaskinportenStatus {
 @ObjectType()
 class MattilsynetStatus {
   @Field()
-  baseUrl: string;
+  baseUrl!: string;
 
   @Field()
-  environment: string;
+  environment!: string;
 
   @Field()
-  maskinportenConfigured: boolean;
+  maskinportenConfigured!: boolean;
 }
 
 @ObjectType()
 class RegulatoryHealthStatus {
   @Field()
-  maskinportenHealthy: boolean;
+  maskinportenHealthy!: boolean;
 
   @Field()
-  mattilsynetHealthy: boolean;
+  mattilsynetHealthy!: boolean;
 
   @Field({ nullable: true })
   message?: string;

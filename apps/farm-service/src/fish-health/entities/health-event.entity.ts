@@ -244,12 +244,12 @@ export interface WaterQualitySnapshot {
 export class HealthEvent {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -258,7 +258,7 @@ export class HealthEvent {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
@@ -287,7 +287,7 @@ export class HealthEvent {
 
   @Field()
   @Column({ length: 200 })
-  title: string;                     // Kısa başlık
+  title!: string;                     // Kısa başlık
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -299,12 +299,12 @@ export class HealthEvent {
     enum: HealthEventType,
   })
   @Index()
-  eventType: HealthEventType;
+  eventType!: HealthEventType;
 
   @Field()
   @Column({ type: 'date' })
   @Index()
-  eventDate: Date;
+  eventDate!: Date;
 
   @Field({ nullable: true })
   @Column({ length: 10, nullable: true })
@@ -332,7 +332,7 @@ export class HealthEvent {
     enum: HealthSeverity,
     default: HealthSeverity.MODERATE,
   })
-  severity: HealthSeverity;
+  severity!: HealthSeverity;
 
   // -------------------------------------------------------------------------
   // BELİRTİLER
@@ -360,7 +360,7 @@ export class HealthEvent {
 
   @Field()
   @Column({ default: false })
-  isUnderTreatment: boolean;
+  isUnderTreatment!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -380,7 +380,7 @@ export class HealthEvent {
 
   @Field()
   @Column({ default: false })
-  isQuarantined: boolean;
+  isQuarantined!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -404,7 +404,7 @@ export class HealthEvent {
 
   @Field()
   @Column({ default: false })
-  labConfirmed: boolean;             // Lab ile doğrulandı mı
+  labConfirmed!: boolean;             // Lab ile doğrulandı mı
 
   // -------------------------------------------------------------------------
   // VETERİNER
@@ -416,7 +416,7 @@ export class HealthEvent {
 
   @Field()
   @Column({ default: false })
-  vetNotified: boolean;
+  vetNotified!: boolean;
 
   // -------------------------------------------------------------------------
   // SU KALİTESİ
@@ -441,7 +441,7 @@ export class HealthEvent {
     default: HealthEventStatus.ACTIVE,
   })
   @Index()
-  status: HealthEventStatus;
+  status!: HealthEventStatus;
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -481,7 +481,7 @@ export class HealthEvent {
 
   @Field()
   @Column('uuid')
-  reportedBy: string;
+  reportedBy!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -497,7 +497,7 @@ export class HealthEvent {
 
   @Field()
   @Column({ default: false })
-  followUpRequired: boolean;
+  followUpRequired!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -509,11 +509,11 @@ export class HealthEvent {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

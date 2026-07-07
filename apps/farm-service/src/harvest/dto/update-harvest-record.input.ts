@@ -28,7 +28,7 @@ export class UpdateHarvestRecordInput {
   @Field(() => ID, { description: 'ID of the harvest record to update' })
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => HarvestRecordStatus, { nullable: true, description: 'Update status' })
   @IsOptional()

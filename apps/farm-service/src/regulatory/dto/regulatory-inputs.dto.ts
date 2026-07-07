@@ -139,17 +139,17 @@ export class KontaktpersonInput {
   @Field({ description: 'Contact person name' })
   @IsNotEmpty()
   @IsString()
-  navn: string;
+  navn!: string;
 
   @Field({ description: 'Contact person email' })
   @IsNotEmpty()
   @IsEmail()
-  epost: string;
+  epost!: string;
 
   @Field({ description: 'Contact person phone number (e.g., +4798989898)' })
   @IsNotEmpty()
   @IsString()
-  telefonnummer: string;
+  telefonnummer!: string;
 }
 
 /**
@@ -161,7 +161,7 @@ export class RegulatoryBaseInput {
   @Field({ description: 'Client reference - unique identifier for the submission (UUID)' })
   @IsNotEmpty()
   @IsString()
-  klientReferanse: string;
+  klientReferanse!: string;
 
   /**
    * Internal site identifier for the locality being reported on. Optional
@@ -178,17 +178,17 @@ export class RegulatoryBaseInput {
   @Field({ description: 'Norwegian organization number (9 digits)' })
   @IsNotEmpty()
   @IsString()
-  organisasjonsnummer: string;
+  organisasjonsnummer!: string;
 
   @Field(() => Int, { description: 'Site/Locality registration number (NUMBER, not string!)' })
   @IsNotEmpty()
   @IsNumber()
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 
   @Field(() => KontaktpersonInput, { description: 'Contact person (required object with navn, epost, telefonnummer)' })
   @ValidateNested()
   @Type(() => KontaktpersonInput)
-  kontaktperson: KontaktpersonInput;
+  kontaktperson!: KontaktpersonInput;
 }
 
 // ============================================================================
@@ -203,17 +203,17 @@ export class LusetellingInput {
   @Field(() => Float, { description: 'Adult female lice per fish' })
   @IsNumber()
   @Min(0)
-  voksneHunnlus: number;
+  voksneHunnlus!: number;
 
   @Field(() => Float, { description: 'Mobile lice per fish' })
   @IsNumber()
   @Min(0)
-  bevegeligeLus: number;
+  bevegeligeLus!: number;
 
   @Field(() => Float, { description: 'Attached lice stages per fish' })
   @IsNumber()
   @Min(0)
-  fastsittendeLus: number;
+  fastsittendeLus!: number;
 }
 
 /**
@@ -223,15 +223,15 @@ export class LusetellingInput {
 export class IkkeMedikamentellBehandlingInput {
   @Field(() => IkkeMedikamentellBehandlingType, { description: 'Treatment type' })
   @IsEnum(IkkeMedikamentellBehandlingType)
-  type: IkkeMedikamentellBehandlingType;
+  type!: IkkeMedikamentellBehandlingType;
 
   @Field({ description: 'Was treatment performed before lice counting?' })
   @IsBoolean()
-  gjennomfortForTelling: boolean;
+  gjennomfortForTelling!: boolean;
 
   @Field({ description: 'Was entire site treated?' })
   @IsBoolean()
-  heleLokaliteten: boolean;
+  heleLokaliteten!: boolean;
 
   @Field(() => Int, { nullable: true, description: 'Number of cages treated (if not entire site)' })
   @IsOptional()
@@ -253,11 +253,11 @@ export class VirkestoffStyrkeInput {
   @Field(() => Float, { description: 'Strength value' })
   @IsNumber()
   @Min(0)
-  verdi: number;
+  verdi!: number;
 
   @Field(() => StyrkeEnhet, { description: 'Strength unit' })
   @IsEnum(StyrkeEnhet)
-  enhet: StyrkeEnhet;
+  enhet!: StyrkeEnhet;
 }
 
 /**
@@ -268,11 +268,11 @@ export class VirkestoffMengdeInput {
   @Field(() => Float, { description: 'Amount value' })
   @IsNumber()
   @Min(0)
-  verdi: number;
+  verdi!: number;
 
   @Field(() => MengdeEnhet, { description: 'Amount unit' })
   @IsEnum(MengdeEnhet)
-  enhet: MengdeEnhet;
+  enhet!: MengdeEnhet;
 }
 
 /**
@@ -282,7 +282,7 @@ export class VirkestoffMengdeInput {
 export class VirkestoffInput {
   @Field(() => VirkestoffType, { description: 'Active ingredient type' })
   @IsEnum(VirkestoffType)
-  type: VirkestoffType;
+  type!: VirkestoffType;
 
   @Field(() => VirkestoffStyrkeInput, { nullable: true, description: 'Concentration/strength' })
   @IsOptional()
@@ -309,15 +309,15 @@ export class VirkestoffInput {
 export class MedikamentellBehandlingInput {
   @Field(() => MedikamentellBehandlingType, { description: 'Treatment type' })
   @IsEnum(MedikamentellBehandlingType)
-  type: MedikamentellBehandlingType;
+  type!: MedikamentellBehandlingType;
 
   @Field({ description: 'Was treatment performed before lice counting?' })
   @IsBoolean()
-  gjennomfortForTelling: boolean;
+  gjennomfortForTelling!: boolean;
 
   @Field({ description: 'Was entire site treated?' })
   @IsBoolean()
-  heleLokaliteten: boolean;
+  heleLokaliteten!: boolean;
 
   @Field(() => Int, { nullable: true, description: 'Number of cages treated (if not entire site)' })
   @IsOptional()
@@ -328,7 +328,7 @@ export class MedikamentellBehandlingInput {
   @Field(() => VirkestoffInput, { description: 'Active ingredient details' })
   @ValidateNested()
   @Type(() => VirkestoffInput)
-  virkestoff: VirkestoffInput;
+  virkestoff!: VirkestoffInput;
 
   @Field({ nullable: true, description: 'Description - only set when type is ANNEN_BEHANDLING' })
   @IsOptional()
@@ -365,11 +365,11 @@ export class KombinasjonsbehandlingInput {
 export class ResistensMistankeInput {
   @Field(() => ResistensType, { description: 'Resistance type suspected (AZAMETHIPHOS, CYPERMETHRIN, etc.)' })
   @IsEnum(ResistensType)
-  resistens: ResistensType;
+  resistens!: ResistensType;
 
   @Field(() => ResistensAarsakType, { description: 'Cause of resistance suspicion (BIOESSAY, NEDSATT_BEHANDLINGSEFFEKT, etc.)' })
   @IsEnum(ResistensAarsakType)
-  aarsak: ResistensAarsakType;
+  aarsak!: ResistensAarsakType;
 
   @Field({ nullable: true, description: 'Description if resistens is ANNEN_RESISTENS' })
   @IsOptional()
@@ -390,20 +390,20 @@ export class FolsomhetsundersokelseInput {
   @Field({ description: 'Test execution date (ISO format)' })
   @IsNotEmpty()
   @IsDateString()
-  utfortDato: string;
+  utfortDato!: string;
 
   @Field({ description: 'Laboratory name' })
   @IsNotEmpty()
   @IsString()
-  laboratorium: string;
+  laboratorium!: string;
 
   @Field(() => ResistensType, { description: 'Resistance type tested' })
   @IsEnum(ResistensType)
-  resistens: ResistensType;
+  resistens!: ResistensType;
 
   @Field(() => Testresultat, { description: 'Test result' })
   @IsEnum(Testresultat)
-  testresultat: Testresultat;
+  testresultat!: Testresultat;
 }
 
 /**
@@ -415,21 +415,21 @@ export class SubmitSeaLiceReportInput extends RegulatoryBaseInput {
   @Field(() => Int, { description: 'Reporting year' })
   @IsNumber()
   @Min(2020)
-  rapporteringsaar: number;
+  rapporteringsaar!: number;
 
   @Field(() => Int, { description: 'Reporting week number (1-53)' })
   @Min(1)
   @Max(53)
-  rapporteringsuke: number;
+  rapporteringsuke!: number;
 
   @Field(() => Float, { description: 'Sea water temperature (Celsius)' })
   @IsNumber()
-  sjotemperatur: number;
+  sjotemperatur!: number;
 
   @Field(() => LusetellingInput, { description: 'Lice counting data (single object, NOT array)' })
   @ValidateNested()
   @Type(() => LusetellingInput)
-  lusetelling: LusetellingInput;
+  lusetelling!: LusetellingInput;
 
   @Field(() => [IkkeMedikamentellBehandlingInput], { nullable: true, description: 'Non-medicated treatments' })
   @IsOptional()
@@ -480,37 +480,37 @@ export class ProduksjonsenhetSettefiskInput {
   @Field({ description: 'Tank/unit identifier (karId)' })
   @IsNotEmpty()
   @IsString()
-  karId: string;
+  karId!: string;
 
   @Field({ description: 'Species code (e.g., SAL for salmon)' })
   @IsNotEmpty()
   @IsString()
-  artskode: string;
+  artskode!: string;
 
   @Field(() => Float, { description: 'Average weight in grams' })
   @IsNumber()
   @Min(0)
-  snittvektGram: number;
+  snittvektGram!: number;
 
   @Field(() => Int, { description: 'Stock count at end of month' })
   @IsNumber()
   @Min(0)
-  beholdningVedMaanedsslutt: number;
+  beholdningVedMaanedsslutt!: number;
 
   @Field(() => Int, { description: 'Number euthanized' })
   @IsNumber()
   @Min(0)
-  antallAvlivet: number;
+  antallAvlivet!: number;
 
   @Field(() => Int, { description: 'Number died naturally' })
   @IsNumber()
   @Min(0)
-  antallSelvdod: number;
+  antallSelvdod!: number;
 
   @Field(() => Int, { description: 'Number transferred externally' })
   @IsNumber()
   @Min(0)
-  antallFlyttetEksternt: number;
+  antallFlyttetEksternt!: number;
 }
 
 /**
@@ -521,18 +521,18 @@ export class SubmitSmoltReportInput extends RegulatoryBaseInput {
   @Field(() => Int, { description: 'Reporting month (1-12)' })
   @Min(1)
   @Max(12)
-  rapporteringsmaaned: number;
+  rapporteringsmaaned!: number;
 
   @Field(() => Int, { description: 'Reporting year' })
   @IsNumber()
   @Min(2020)
-  rapporteringsaar: number;
+  rapporteringsaar!: number;
 
   @Field(() => [ProduksjonsenhetSettefiskInput], { description: 'Production units data' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ProduksjonsenhetSettefiskInput)
-  produksjonsenheter: ProduksjonsenhetSettefiskInput[];
+  produksjonsenheter!: ProduksjonsenhetSettefiskInput[];
 }
 
 // ============================================================================
@@ -547,12 +547,12 @@ export class RensefiskUtsettInput {
   @Field(() => Int, { description: 'Number transferred in from other cages' })
   @IsNumber()
   @Min(0)
-  antallFlyttetInn: number;
+  antallFlyttetInn!: number;
 
   @Field(() => Int, { description: 'Number of new fish stocked' })
   @IsNumber()
   @Min(0)
-  antallNy: number;
+  antallNy!: number;
 }
 
 /**
@@ -564,47 +564,47 @@ export class RensefiskUttakInput {
   @Field(() => Int, { description: 'Euthanized due to disease' })
   @IsNumber()
   @Min(0)
-  antallAvlivetSykdom: number;
+  antallAvlivetSykdom!: number;
 
   @Field(() => Int, { description: 'Euthanized due to injuries' })
   @IsNumber()
   @Min(0)
-  antallAvlivetSkader: number;
+  antallAvlivetSkader!: number;
 
   @Field(() => Int, { description: 'Euthanized due to emaciation' })
   @IsNumber()
   @Min(0)
-  antallAvlivetAvmagret: number;
+  antallAvlivetAvmagret!: number;
 
   @Field(() => Int, { description: 'Euthanized before salmon handling' })
   @IsNumber()
   @Min(0)
-  antallAvlivetForestaendeHaandteringAvLaksen: number;
+  antallAvlivetForestaendeHaandteringAvLaksen!: number;
 
   @Field(() => Int, { description: 'Euthanized due to unfavorable living environment' })
   @IsNumber()
   @Min(0)
-  antallAvlivetForestaendeUgunstigLevemiljo: number;
+  antallAvlivetForestaendeUgunstigLevemiljo!: number;
 
   @Field(() => Int, { description: 'Euthanized - should not be used' })
   @IsNumber()
   @Min(0)
-  antallAvlivetSkalIkkeBrukes: number;
+  antallAvlivetSkalIkkeBrukes!: number;
 
   @Field(() => Int, { description: 'Number died naturally' })
   @IsNumber()
   @Min(0)
-  antallSelvdod: number;
+  antallSelvdod!: number;
 
   @Field(() => Int, { description: 'Number transferred out' })
   @IsNumber()
   @Min(0)
-  antallFlyttetUt: number;
+  antallFlyttetUt!: number;
 
   @Field(() => Int, { description: 'Number unaccounted for' })
   @IsNumber()
   @Min(0)
-  antallKanIkkeGjoresRedeFor: number;
+  antallKanIkkeGjoresRedeFor!: number;
 }
 
 /**
@@ -614,26 +614,26 @@ export class RensefiskUttakInput {
 export class RensefiskArtInput {
   @Field(() => CleanerFishSpeciesCode, { description: 'Species code (USB, BER, GRO, BNB)' })
   @IsEnum(CleanerFishSpeciesCode)
-  artskode: CleanerFishSpeciesCode;
+  artskode!: CleanerFishSpeciesCode;
 
   @Field(() => CleanerFishOpprinnelse, { description: 'Origin (VILLFANGET/OPPDRETT)' })
   @IsEnum(CleanerFishOpprinnelse)
-  opprinnelse: CleanerFishOpprinnelse;
+  opprinnelse!: CleanerFishOpprinnelse;
 
   @Field(() => Int, { description: 'Stock at end of previous month' })
   @IsNumber()
   @Min(0)
-  beholdningVedForrigeMaanedsslutt: number;
+  beholdningVedForrigeMaanedsslutt!: number;
 
   @Field(() => RensefiskUtsettInput, { description: 'Stocking data' })
   @ValidateNested()
   @Type(() => RensefiskUtsettInput)
-  utsett: RensefiskUtsettInput;
+  utsett!: RensefiskUtsettInput;
 
   @Field(() => RensefiskUttakInput, { description: 'Removal/mortality data' })
   @ValidateNested()
   @Type(() => RensefiskUttakInput)
-  uttak: RensefiskUttakInput;
+  uttak!: RensefiskUttakInput;
 }
 
 /**
@@ -644,13 +644,13 @@ export class ProduksjonsenhetRensefiskInput {
   @Field({ description: 'Cage identifier' })
   @IsNotEmpty()
   @IsString()
-  merdId: string;
+  merdId!: string;
 
   @Field(() => [RensefiskArtInput], { description: 'Species data within cage' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RensefiskArtInput)
-  arter: RensefiskArtInput[];
+  arter!: RensefiskArtInput[];
 }
 
 /**
@@ -661,12 +661,12 @@ export class SubmitCleanerFishReportInput extends RegulatoryBaseInput {
   @Field(() => Int, { description: 'Reporting month (1-12)' })
   @Min(1)
   @Max(12)
-  rapporteringsmaaned: number;
+  rapporteringsmaaned!: number;
 
   @Field(() => Int, { description: 'Reporting year' })
   @IsNumber()
   @Min(2020)
-  rapporteringsaar: number;
+  rapporteringsaar!: number;
 
   @Field(() => [String], { nullable: true, description: 'Co-operation organization numbers' })
   @IsOptional()
@@ -693,7 +693,7 @@ export class SubmitCleanerFishReportInput extends RegulatoryBaseInput {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ProduksjonsenhetRensefiskInput)
-  produksjonsenheter: ProduksjonsenhetRensefiskInput[];
+  produksjonsenheter!: ProduksjonsenhetRensefiskInput[];
 }
 
 // ============================================================================
@@ -709,7 +709,7 @@ export class UkeplanPerArtInput {
   @Field({ description: 'Species code (FAO 3-letter code, e.g., SAL, RBT)' })
   @IsNotEmpty()
   @IsString()
-  artskode: string;
+  artskode!: string;
 
   @Field(() => Int, { nullable: true, description: 'Planned slaughter Monday (gutted weight kg)' })
   @IsOptional()
@@ -763,20 +763,20 @@ export class PlannedSlaughterLocalityInput {
   @Field({ description: 'Organization number (9 digits)' })
   @IsNotEmpty()
   @IsString()
-  organisasjonsnummer: string;
+  organisasjonsnummer!: string;
 
   @Field(() => Int, { description: 'Locality registration number (10000-99999)' })
   @IsNotEmpty()
   @IsNumber()
   @Min(10000)
   @Max(99999)
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 
   @Field(() => [UkeplanPerArtInput], { description: 'Weekly plan per species (at least 1 required)' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UkeplanPerArtInput)
-  ukeplanPerArt: UkeplanPerArtInput[];
+  ukeplanPerArt!: UkeplanPerArtInput[];
 }
 
 /**
@@ -787,23 +787,23 @@ export class SubmitPlannedSlaughterInput extends RegulatoryBaseInput {
   @Field(() => Int, { description: 'Week number (1-53)' })
   @Min(1)
   @Max(53)
-  uke: number;
+  uke!: number;
 
   @Field(() => Int, { description: 'Year' })
   @IsNumber()
   @Min(2020)
-  aar: number;
+  aar!: number;
 
   @Field({ description: 'Slaughter facility approval number (1-6 alphanumeric characters)' })
   @IsNotEmpty()
   @IsString()
-  godkjenningsnummer: string;
+  godkjenningsnummer!: string;
 
   @Field(() => [PlannedSlaughterLocalityInput], { description: 'Planned slaughters by locality' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PlannedSlaughterLocalityInput)
-  planlagteLokaliteter: PlannedSlaughterLocalityInput[];
+  planlagteLokaliteter!: PlannedSlaughterLocalityInput[];
 }
 
 /**
@@ -815,27 +815,27 @@ export class KvalitetsklasserPerArtInput {
   @Field({ description: 'Species code (FAO 3-letter code, e.g., SAL, RBT)' })
   @IsNotEmpty()
   @IsString()
-  art: string;
+  art!: string;
 
   @Field(() => Int, { description: 'Superior quality grade (gutted weight kg)' })
   @IsNumber()
   @Min(0)
-  superiorKg: number;
+  superiorKg!: number;
 
   @Field(() => Int, { description: 'Standard/ordinary quality grade (gutted weight kg)' })
   @IsNumber()
   @Min(0)
-  ordinaerKg: number;
+  ordinaerKg!: number;
 
   @Field(() => Int, { description: 'Production fish quality grade (gutted weight kg)' })
   @IsNumber()
   @Min(0)
-  produksjonsfiskKg: number;
+  produksjonsfiskKg!: number;
 
   @Field(() => Int, { description: 'Waste/reject (gutted weight kg)' })
   @IsNumber()
   @Min(0)
-  utkastKg: number;
+  utkastKg!: number;
 }
 
 /**
@@ -847,18 +847,18 @@ export class ExecutedSlaughterLocalityInput {
   @Field({ description: 'Organization number (9 digits)' })
   @IsNotEmpty()
   @IsString()
-  organisasjonsnummer: string;
+  organisasjonsnummer!: string;
 
   @Field(() => Int, { description: 'Locality registration number' })
   @IsNotEmpty()
   @IsNumber()
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 
   @Field(() => [KvalitetsklasserPerArtInput], { description: 'Quality grades per species' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => KvalitetsklasserPerArtInput)
-  arter: KvalitetsklasserPerArtInput[];
+  arter!: KvalitetsklasserPerArtInput[];
 }
 
 /**
@@ -869,23 +869,23 @@ export class SubmitExecutedSlaughterInput extends RegulatoryBaseInput {
   @Field(() => Int, { description: 'Slaughter week number (1-53)' })
   @Min(1)
   @Max(53)
-  slakteuke: number;
+  slakteuke!: number;
 
   @Field(() => Int, { description: 'Slaughter year' })
   @IsNumber()
   @Min(2020)
-  slakteaar: number;
+  slakteaar!: number;
 
   @Field({ description: 'Slaughter facility approval number (1-6 alphanumeric characters)' })
   @IsNotEmpty()
   @IsString()
-  godkjenningsnummer: string;
+  godkjenningsnummer!: string;
 
   @Field(() => [ExecutedSlaughterLocalityInput], { description: 'Executed slaughters by locality' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ExecutedSlaughterLocalityInput)
-  utforteLokaliteter: ExecutedSlaughterLocalityInput[];
+  utforteLokaliteter!: ExecutedSlaughterLocalityInput[];
 }
 
 // ============================================================================
@@ -895,16 +895,16 @@ export class SubmitExecutedSlaughterInput extends RegulatoryBaseInput {
 @ObjectType()
 export class ReportValidationError {
   @Field({ description: 'Field name' })
-  felt: string;
+  felt!: string;
 
   @Field({ description: 'Error message' })
-  melding: string;
+  melding!: string;
 }
 
 @ObjectType()
 export class ReportSubmissionResult {
   @Field({ description: 'Whether the submission was successful' })
-  success: boolean;
+  success!: boolean;
 
   /**
    * Id of the persisted regulatory_reports row recording this submission

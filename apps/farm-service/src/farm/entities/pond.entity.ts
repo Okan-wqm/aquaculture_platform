@@ -61,15 +61,15 @@ registerEnumType(PondStatus, {
 export class Pond {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field(() => Float)
   @Column('decimal', { precision: 10, scale: 2 })
-  capacity: number; // in cubic meters
+  capacity!: number; // in cubic meters
 
   @Field(() => Float, { nullable: true })
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
@@ -81,16 +81,16 @@ export class Pond {
 
   @Field(() => WaterType)
   @Column({ type: 'enum', enum: WaterType, default: WaterType.FRESHWATER })
-  waterType: WaterType;
+  waterType!: WaterType;
 
   @Field(() => PondStatus)
   @Column({ type: 'enum', enum: PondStatus, default: PondStatus.ACTIVE })
-  status: PondStatus;
+  status!: PondStatus;
 
   @Field()
   @Column()
   @Index()
-  farmId: string;
+  farmId!: string;
 
   @ManyToOne('Farm', 'ponds', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'farmId' })
@@ -104,19 +104,19 @@ export class Pond {
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

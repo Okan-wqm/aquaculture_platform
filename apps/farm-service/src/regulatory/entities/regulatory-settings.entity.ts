@@ -54,11 +54,11 @@ export interface CompanyAddress {
 export class RegulatorySettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'uuid', name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   // ==========================================================================
   // Company Information
@@ -105,7 +105,7 @@ export class RegulatorySettings {
   /** Maskinporten environment: 'TEST' or 'PRODUCTION' */
   @Field({ nullable: true })
   @Column({ name: 'maskinporten_environment', length: 20, default: 'TEST' })
-  maskinportenEnvironment: string;
+  maskinportenEnvironment!: string;
 
   // ==========================================================================
   // Default Contact for Reports
@@ -130,7 +130,7 @@ export class RegulatorySettings {
   /** Mapping of Site ID to Lokalitetsnummer (e.g., { "site-uuid": 12345 }) */
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'site_locality_mappings', type: 'jsonb', default: '{}' })
-  siteLocalityMappings: Record<string, number>;
+  siteLocalityMappings!: Record<string, number>;
 
   // ==========================================================================
   // Slaughter Facility
@@ -147,9 +147,9 @@ export class RegulatorySettings {
 
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

@@ -39,12 +39,12 @@ import type { Site } from '../../site/entities/site.entity';
 export class SupplierSite {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // SUPPLIER İLİŞKİSİ
@@ -53,11 +53,11 @@ export class SupplierSite {
   @Field()
   @Column('uuid')
   @Index()
-  supplierId: string;
+  supplierId!: string;
 
   @ManyToOne(() => Supplier, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'supplierId' })
-  supplier: Supplier;
+  supplier!: Supplier;
 
   // -------------------------------------------------------------------------
   // SITE İLİŞKİSİ
@@ -66,7 +66,7 @@ export class SupplierSite {
   @Field()
   @Column('uuid')
   @Index()
-  siteId: string;
+  siteId!: string;
 
   @ManyToOne('Site', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
@@ -78,7 +78,7 @@ export class SupplierSite {
 
   @Field()
   @Column({ default: false })
-  isPreferred: boolean;                // Tercih edilen tedarikçi mi?
+  isPreferred!: boolean;                // Tercih edilen tedarikçi mi?
 
   /**
    * Free-text note about the supplier-site relationship — e.g. "uses
@@ -97,7 +97,7 @@ export class SupplierSite {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

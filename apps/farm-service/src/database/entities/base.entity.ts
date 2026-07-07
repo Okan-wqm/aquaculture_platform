@@ -19,17 +19,17 @@ import {
 
 export abstract class BaseEntity {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid', { name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column('uuid', { nullable: true, name: 'created_by' })
   createdBy?: string;
@@ -38,12 +38,12 @@ export abstract class BaseEntity {
   updatedBy?: string;
 
   @VersionColumn({ name: 'version' })
-  version: number;
+  version!: number;
 
   // Soft delete fields
   @Column({ default: false, name: 'is_deleted' })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
   deletedAt?: Date;
@@ -76,17 +76,17 @@ export abstract class BaseEntity {
  */
 export abstract class BaseEntityWithCode extends BaseEntity {
   @Column({ length: 255, name: 'name' })
-  name: string;
+  name!: string;
 
   @Column({ length: 50, name: 'code' })
-  code: string;
+  code!: string;
 
   @Column({ type: 'text', nullable: true, name: 'description' })
   description?: string;
 
   @Column({ default: true, name: 'is_active' })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 }
 
 /**

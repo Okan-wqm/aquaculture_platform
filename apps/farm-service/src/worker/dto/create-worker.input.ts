@@ -7,18 +7,18 @@ export class CreateWorkerInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  firstName: string;
+  firstName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  lastName: string;
+  lastName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsEmail()
-  email: string;
+  email!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -30,5 +30,5 @@ export class CreateWorkerInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  position: string;
+  position!: string;
 }

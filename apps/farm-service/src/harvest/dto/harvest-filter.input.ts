@@ -181,11 +181,11 @@ export class DateRangeInput {
   @IsNotEmpty()
   @IsDate()
   @Type(() => Date)
-  startDate: Date;
+  startDate!: Date;
 
   @Field({ description: 'End date of the range' })
   @IsNotEmpty()
   @IsDate()
   @Type(() => Date)
-  endDate: Date;
+  endDate!: Date;
 }

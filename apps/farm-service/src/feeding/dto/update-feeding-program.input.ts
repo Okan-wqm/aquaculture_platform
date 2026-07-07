@@ -100,12 +100,12 @@ export class UpdateFeedingProgramStatusInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => FeedingProgramStatus)
   @IsNotEmpty()
   @IsEnum(FeedingProgramStatus)
-  status: FeedingProgramStatus;
+  status!: FeedingProgramStatus;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -126,7 +126,7 @@ export class ActivateFeedingProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -142,7 +142,7 @@ export class PauseFeedingProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -164,7 +164,7 @@ export class CompleteFeedingProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -186,11 +186,11 @@ export class CancelFeedingProgramInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(500)
-  cancellationReason: string;
+  cancellationReason!: string;
 }

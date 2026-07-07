@@ -21,13 +21,13 @@ import { InventoryCount } from './inventory-count.entity';
 @Index(['tenantId', 'inventoryCountId'])
 export class InventoryCountItem {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', name: 'inventory_count_id' })
-  inventoryCountId: string;
+  inventoryCountId!: string;
 
   /**
    * Type of item being counted — mirrors the storage_inventory.itemType.
@@ -35,18 +35,18 @@ export class InventoryCountItem {
    * joining back to storage_inventory (which may have changed since the count).
    */
   @Column({ type: 'varchar', length: 20, name: 'item_type' })
-  itemType: StorageItemType;
+  itemType!: StorageItemType;
 
   /** Reference to the master item (feed, chemical, consumable, or healthcare product) */
   @Column({ type: 'uuid', name: 'item_id' })
-  itemId: string;
+  itemId!: string;
 
   /** Denormalized item name at count creation time for self-contained reporting */
   @Column({ type: 'varchar', length: 255, name: 'item_name' })
-  itemName: string;
+  itemName!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  unit: string;
+  unit!: string;
 
   /** Lot number from storage_inventory — enables lot-level variance analysis */
   @Column({ type: 'varchar', length: 100, nullable: true, name: 'lot_number' })
@@ -58,7 +58,7 @@ export class InventoryCountItem {
    * between count creation and the actual physical counting.
    */
   @Column({ type: 'decimal', precision: 15, scale: 2, name: 'expected_quantity', transformer: new DecimalTransformer() })
-  expectedQuantity: number;
+  expectedQuantity!: number;
 
   /**
    * Physical quantity observed by the warehouse staff during counting.
@@ -80,12 +80,12 @@ export class InventoryCountItem {
   notes?: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @ManyToOne(() => InventoryCount, (ic) => ic.items)
   @JoinColumn({ name: 'inventory_count_id' })
-  inventoryCount: InventoryCount;
+  inventoryCount!: InventoryCount;
 }

@@ -29,27 +29,27 @@ export class BiomassSpeciesBreakdownInput {
   @Field()
   @IsString()
   @MaxLength(100)
-  speciesId: string;
+  speciesId!: string;
 
   @Field()
   @IsString()
   @MaxLength(200)
-  speciesName: string;
+  speciesName!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  fishCount: number;
+  fishCount!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  avgWeightG: number;
+  avgWeightG!: number;
 }
 
 @InputType()
@@ -57,26 +57,26 @@ export class BiomassCurrentStockInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  totalKg: number;
+  totalKg!: number;
 
   @Field(() => [BiomassSpeciesBreakdownInput])
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => BiomassSpeciesBreakdownInput)
-  bySpecies: BiomassSpeciesBreakdownInput[];
+  bySpecies!: BiomassSpeciesBreakdownInput[];
 }
 
 @InputType()
 export class BiomassStockingRecordInput {
   @Field()
   @IsString()
-  date: string;
+  date!: string;
 
   @Field()
   @IsString()
   @MaxLength(100)
-  speciesCode: string;
+  speciesCode!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -87,17 +87,17 @@ export class BiomassStockingRecordInput {
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  fishCount: number;
+  fishCount!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -111,34 +111,34 @@ export class BiomassMortalityCauseInput {
   @Field()
   @IsString()
   @MaxLength(100)
-  cause: string;
+  cause!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  count: number;
+  count!: number;
 }
 
 @InputType()
 export class BiomassMortalityDetailInput {
   @Field()
   @IsString()
-  date: string;
+  date!: string;
 
   @Field()
   @IsString()
   @MaxLength(100)
-  cause: string;
+  cause!: string;
 
   @Field()
   @IsString()
   @MaxLength(100)
-  speciesCode: string;
+  speciesCode!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  count: number;
+  count!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -158,41 +158,41 @@ export class BiomassMortalityInput {
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  totalCount: number;
+  totalCount!: number;
 
   @Field(() => [BiomassMortalityCauseInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BiomassMortalityCauseInput)
-  byCause: BiomassMortalityCauseInput[];
+  byCause!: BiomassMortalityCauseInput[];
 
   @Field(() => [BiomassMortalityDetailInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BiomassMortalityDetailInput)
-  details: BiomassMortalityDetailInput[];
+  details!: BiomassMortalityDetailInput[];
 }
 
 @InputType()
 export class BiomassSlaughterRecordInput {
   @Field()
   @IsString()
-  date: string;
+  date!: string;
 
   @Field()
   @IsString()
   @MaxLength(100)
-  speciesCode: string;
+  speciesCode!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -212,45 +212,45 @@ export class BiomassSlaughterInput {
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  totalQuantity: number;
+  totalQuantity!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  totalBiomassKg: number;
+  totalBiomassKg!: number;
 
   @Field(() => [BiomassSlaughterRecordInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BiomassSlaughterRecordInput)
-  records: BiomassSlaughterRecordInput[];
+  records!: BiomassSlaughterRecordInput[];
 }
 
 @InputType()
 export class BiomassTransferRecordInput {
   @Field()
   @IsString()
-  date: string;
+  date!: string;
 
   /** Union limited to IN/OUT at the enum layer to prevent free-string drift. */
   @Field()
   @IsEnum(['IN', 'OUT'] as const)
-  direction: 'IN' | 'OUT';
+  direction!: 'IN' | 'OUT';
 
   @Field()
   @IsString()
   @MaxLength(100)
-  speciesCode: string;
+  speciesCode!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
-  fishCount: number;
+  fishCount!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -270,7 +270,7 @@ export class BiomassFeedEntryInput {
   @Field()
   @IsString()
   @MaxLength(200)
-  feedName: string;
+  feedName!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -281,7 +281,7 @@ export class BiomassFeedEntryInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  quantityKg: number;
+  quantityKg!: number;
 }
 
 @InputType()
@@ -289,65 +289,65 @@ export class BiomassFeedConsumptionInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  totalKg: number;
+  totalKg!: number;
 
   @Field(() => [BiomassFeedEntryInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BiomassFeedEntryInput)
-  byFeedType: BiomassFeedEntryInput[];
+  byFeedType!: BiomassFeedEntryInput[];
 }
 
 @InputType()
 export class CreateBiomassReportInput {
   @Field(() => ID)
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   /** Calendar month (1 = January, 12 = December) — not zero-indexed. */
   @Field(() => Int)
   @IsInt()
   @Min(1)
   @Max(12)
-  reportMonth: number;
+  reportMonth!: number;
 
   @Field(() => Int)
   @IsInt()
   @Min(2000)
   @Max(2100)
-  reportYear: number;
+  reportYear!: number;
 
   @Field(() => BiomassCurrentStockInput)
   @ValidateNested()
   @Type(() => BiomassCurrentStockInput)
-  currentBiomass: BiomassCurrentStockInput;
+  currentBiomass!: BiomassCurrentStockInput;
 
   @Field(() => [BiomassStockingRecordInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BiomassStockingRecordInput)
-  stockings: BiomassStockingRecordInput[];
+  stockings!: BiomassStockingRecordInput[];
 
   @Field(() => BiomassMortalityInput)
   @ValidateNested()
   @Type(() => BiomassMortalityInput)
-  mortality: BiomassMortalityInput;
+  mortality!: BiomassMortalityInput;
 
   @Field(() => BiomassSlaughterInput)
   @ValidateNested()
   @Type(() => BiomassSlaughterInput)
-  slaughter: BiomassSlaughterInput;
+  slaughter!: BiomassSlaughterInput;
 
   @Field(() => [BiomassTransferRecordInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BiomassTransferRecordInput)
-  transfers: BiomassTransferRecordInput[];
+  transfers!: BiomassTransferRecordInput[];
 
   @Field(() => BiomassFeedConsumptionInput)
   @ValidateNested()
   @Type(() => BiomassFeedConsumptionInput)
-  feedConsumption: BiomassFeedConsumptionInput;
+  feedConsumption!: BiomassFeedConsumptionInput;
 
   /** When true the row lands as SUBMITTED and becomes immutable. */
   @Field({ nullable: true, defaultValue: false })

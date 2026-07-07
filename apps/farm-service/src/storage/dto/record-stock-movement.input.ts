@@ -10,21 +10,21 @@ import { StorageItemType } from '../entities/storage-inventory.entity';
 export class RecordStockMovementInput extends MobileCommandEnvelopeInput {
   @Field(() => MovementType)
   @IsEnum(MovementType)
-  movementType: MovementType;
+  movementType!: MovementType;
 
   @Field(() => StorageItemType)
   @IsEnum(StorageItemType)
-  itemType: StorageItemType;
+  itemType!: StorageItemType;
 
   @Field(() => ID)
   @IsUUID()
-  itemId: string;
+  itemId!: string;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0.01)
   @Max(9999999)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => ID, { nullable: true, description: 'Source location (required for OUT, WASTE)' })
   @IsOptional()

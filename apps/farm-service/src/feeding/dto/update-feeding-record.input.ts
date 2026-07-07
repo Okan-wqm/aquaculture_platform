@@ -31,7 +31,7 @@ import {
 export class UpdateFeedingRecordInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -171,7 +171,7 @@ export class UpdateFeedingRecordInput {
 export class VerifyFeedingRecordInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

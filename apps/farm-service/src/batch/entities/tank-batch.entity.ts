@@ -81,12 +81,12 @@ export interface CleanerFishDetail {
 export class TankBatch {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TANK İLİŞKİSİ
@@ -95,7 +95,7 @@ export class TankBatch {
   @Field()
   @Column('uuid')
   @Index()
-  tankId: string;
+  tankId!: string;
 
   @ManyToOne('Tank', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tankId' })
@@ -145,19 +145,19 @@ export class TankBatch {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  totalQuantity: number;                     // Toplam adet
+  totalQuantity!: number;                     // Toplam adet
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  avgWeightG: number;                        // Ortalama ağırlık (g)
+  avgWeightG!: number;                        // Ortalama ağırlık (g)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  totalBiomassKg: number;                    // Toplam biomass (kg)
+  totalBiomassKg!: number;                    // Toplam biomass (kg)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  densityKgM3: number;                       // Yoğunluk (kg/m³)
+  densityKgM3!: number;                       // Yoğunluk (kg/m³)
 
   // -------------------------------------------------------------------------
   // MİXED BATCH DETAYLARI
@@ -165,7 +165,7 @@ export class TankBatch {
 
   @Field()
   @Column({ default: false })
-  isMixedBatch: boolean;                     // Birden fazla batch var mı?
+  isMixedBatch!: boolean;                     // Birden fazla batch var mı?
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
@@ -181,14 +181,14 @@ export class TankBatch {
    */
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', default: 0 })
-  cleanerFishQuantity: number;
+  cleanerFishQuantity!: number;
 
   /**
    * Tanktaki cleaner fish toplam biomass (kg)
    */
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  cleanerFishBiomassKg: number;
+  cleanerFishBiomassKg!: number;
 
   /**
    * Cleaner fish detayları - her batch için ayrı kayıt
@@ -224,7 +224,7 @@ export class TankBatch {
 
   @Field()
   @Column({ default: false })
-  isOverCapacity: boolean;                   // Kapasite aşıldı mı?
+  isOverCapacity!: boolean;                   // Kapasite aşıldı mı?
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -232,11 +232,11 @@ export class TankBatch {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

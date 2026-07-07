@@ -123,12 +123,12 @@ export interface ExpectedPerformance {
 export class FeedTypeSpecies {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // İLİŞKİLER
@@ -136,15 +136,15 @@ export class FeedTypeSpecies {
 
   @Field()
   @Column('uuid')
-  feedId: string;
+  feedId!: string;
 
   @ManyToOne(() => Feed, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'feedId' })
-  feed: Feed;
+  feed!: Feed;
 
   @Field()
   @Column('uuid')
-  speciesId: string;
+  speciesId!: string;
 
   @ManyToOne('Species', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'speciesId' })
@@ -160,7 +160,7 @@ export class FeedTypeSpecies {
     enum: FeedGrowthStage,
     default: FeedGrowthStage.ALL,
   })
-  growthStage: FeedGrowthStage;
+  growthStage!: FeedGrowthStage;
 
   // -------------------------------------------------------------------------
   // AĞIRLIK ARALIĞI
@@ -200,7 +200,7 @@ export class FeedTypeSpecies {
     enum: FeedSpeciesRecommendation,
     default: FeedSpeciesRecommendation.RECOMMENDED,
   })
-  recommendation: FeedSpeciesRecommendation;
+  recommendation!: FeedSpeciesRecommendation;
 
   @Field({ nullable: true })
   @Column({ type: 'int', nullable: true })
@@ -221,7 +221,7 @@ export class FeedTypeSpecies {
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -237,11 +237,11 @@ export class FeedTypeSpecies {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -252,7 +252,7 @@ export class FeedTypeSpecies {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -261,7 +261,7 @@ export class FeedTypeSpecies {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

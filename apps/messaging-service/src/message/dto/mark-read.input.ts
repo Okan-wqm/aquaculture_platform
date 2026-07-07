@@ -19,9 +19,9 @@ import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-c
 export class MarkReadInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Channel UUID' })
   @IsUUID()
-  channelId: string;
+  channelId!: string;
 
   @Field(() => ID, { description: 'Last read message UUID' })
   @IsUUID()
-  messageId: string;
+  messageId!: string;
 }

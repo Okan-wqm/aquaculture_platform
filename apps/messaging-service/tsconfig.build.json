@@ -13,8 +13,7 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
-    "removeComments": true,
-    "strictPropertyInitialization": false
+    "removeComments": true
   },
   "include": [
     "src/**/*.ts",

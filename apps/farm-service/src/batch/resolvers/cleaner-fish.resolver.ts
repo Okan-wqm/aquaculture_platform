@@ -66,24 +66,24 @@ export class CreateCleanerBatchInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  speciesId: string;
+  speciesId!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsInt()
   @Min(1)
-  initialQuantity: number;
+  initialQuantity!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  initialAvgWeightG: number;
+  initialAvgWeightG!: number;
 
   @Field(() => String)
   @IsNotEmpty()
   @IsString()
-  sourceType: string; // 'farmed' | 'wild_caught'
+  sourceType!: string; // 'farmed' | 'wild_caught'
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -97,7 +97,7 @@ export class CreateCleanerBatchInput {
 
   @Field()
   @IsNotEmpty()
-  stockedAt: Date;
+  stockedAt!: Date;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -120,18 +120,18 @@ export class DeployCleanerFishInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  cleanerBatchId: string;
+  cleanerBatchId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  targetTankId: string;
+  targetTankId!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsInt()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -140,7 +140,7 @@ export class DeployCleanerFishInput {
 
   @Field()
   @IsNotEmpty()
-  deployedAt: Date;
+  deployedAt!: Date;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -153,23 +153,23 @@ export class RecordCleanerMortalityInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  cleanerBatchId: string;
+  cleanerBatchId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  tankId: string;
+  tankId!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsInt()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => String)
   @IsNotEmpty()
   @IsString()
-  reason: string; // MortalityReason value: 'disease' | 'water_quality' | 'stress' | 'handling' | 'temperature' | 'oxygen' | 'unknown' | 'other'
+  reason!: string; // MortalityReason value: 'disease' | 'water_quality' | 'stress' | 'handling' | 'temperature' | 'oxygen' | 'unknown' | 'other'
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -178,7 +178,7 @@ export class RecordCleanerMortalityInput {
 
   @Field()
   @IsNotEmpty()
-  observedAt: Date;
+  observedAt!: Date;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -191,27 +191,27 @@ export class TransferCleanerFishInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  cleanerBatchId: string;
+  cleanerBatchId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  sourceTankId: string;
+  sourceTankId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  destinationTankId: string;
+  destinationTankId!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsInt()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @Field()
   @IsNotEmpty()
-  transferredAt: Date;
+  transferredAt!: Date;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -229,27 +229,27 @@ export class RemoveCleanerFishInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  cleanerBatchId: string;
+  cleanerBatchId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  tankId: string;
+  tankId!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsInt()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => String, { description: 'Removal reason: end_of_cycle, harvest, relocation, other' })
   @IsNotEmpty()
   @IsString()
-  reason: string;
+  reason!: string;
 
   @Field()
   @IsNotEmpty()
-  removedAt: Date;
+  removedAt!: Date;
 
   @Field(() => Float, { nullable: true, description: 'Average weight at removal (for harvest tracking)' })
   @IsOptional()
@@ -269,19 +269,19 @@ export class RemoveCleanerFishInput {
 @ObjectType('CleanerFishSpeciesInfo')
 export class CleanerFishSpeciesInfo {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  scientificName: string;
+  scientificName!: string;
 
   @Field()
-  commonName: string;
+  commonName!: string;
 
   @Field(() => String, { nullable: true })
   localName?: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field(() => String, { nullable: true })
   cleanerFishType?: string;
@@ -290,25 +290,25 @@ export class CleanerFishSpeciesInfo {
 @ObjectType()
 export class CleanerFishBatchSummary {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field()
-  batchNumber: string;
+  batchNumber!: string;
 
   @Field()
-  speciesName: string;
+  speciesName!: string;
 
   @Field(() => Int)
-  totalQuantity: number;
+  totalQuantity!: number;
 
   @Field(() => Int)
-  deployedQuantity: number;
+  deployedQuantity!: number;
 
   @Field(() => Int)
-  availableQuantity: number;
+  availableQuantity!: number;
 
   @Field(() => String)
-  sourceType: string;
+  sourceType!: string;
 
   @Field(() => String, { nullable: true })
   sourceLocation?: string;
@@ -317,49 +317,49 @@ export class CleanerFishBatchSummary {
 @ObjectType()
 export class TankCleanerFishInfo {
   @Field(() => ID)
-  tankId: string;
+  tankId!: string;
 
   @Field()
-  tankName: string;
+  tankName!: string;
 
   @Field(() => Int)
-  cleanerFishQuantity: number;
+  cleanerFishQuantity!: number;
 
   @Field(() => Float)
-  cleanerFishBiomassKg: number;
+  cleanerFishBiomassKg!: number;
 
   @Field(() => Float)
-  cleanerFishRatio: number;
+  cleanerFishRatio!: number;
 
   @Field(() => [CleanerFishDetailResponse])
-  details: CleanerFishDetailResponse[];
+  details!: CleanerFishDetailResponse[];
 }
 
 @ObjectType()
 export class CleanerFishDetailResponse {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field()
-  batchNumber: string;
+  batchNumber!: string;
 
   @Field()
-  speciesName: string;
+  speciesName!: string;
 
   @Field(() => Int)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field(() => Float)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field(() => String)
-  sourceType: string;
+  sourceType!: string;
 
   @Field()
-  deployedAt: Date;
+  deployedAt!: Date;
 }
 
 // Cleaner-fish monthly stock-movement report types USED TO LIVE HERE

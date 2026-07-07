@@ -52,22 +52,22 @@ import { Cacheable } from '../common/cache/cacheable.decorator';
 @ObjectType()
 export class ParameterTemplateResponse {
   @Field()
-  templateId: string;
+  templateId!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  description: string;
+  description!: string;
 
   @Field(() => [String])
-  species: string[];
+  species!: string[];
 
   @Field(() => Int)
-  parameterCount: number;
+  parameterCount!: number;
 
   @Field(() => [String])
-  parameterCodes: string[];
+  parameterCodes!: string[];
 }
 
 /**
@@ -79,10 +79,10 @@ export class ParameterTemplateResponse {
 @ObjectType()
 export class SeedDefaultParameterConfigsResponse {
   @Field(() => [String])
-  seeded: string[];
+  seeded!: string[];
 
   @Field(() => [String])
-  skipped: string[];
+  skipped!: string[];
 }
 
 // ============================================================================

@@ -9,19 +9,19 @@ import { RegulatoryReportType } from '../entities/regulatory-report.entity';
 @ObjectType()
 export class RegulatoryReportTypeSummary {
   @Field(() => RegulatoryReportType)
-  reportType: RegulatoryReportType;
+  reportType!: RegulatoryReportType;
 
   @Field(() => Int)
-  pendingCount: number;
+  pendingCount!: number;
 
   @Field(() => Int)
-  submittedCount: number;
+  submittedCount!: number;
 
   @Field(() => Int)
-  queuedCount: number;
+  queuedCount!: number;
 
   @Field(() => Int)
-  failedCount: number;
+  failedCount!: number;
 
   @Field({ nullable: true })
   lastSubmittedAt?: Date;

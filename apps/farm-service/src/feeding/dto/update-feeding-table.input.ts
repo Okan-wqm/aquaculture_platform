@@ -34,7 +34,7 @@ import {
 export class UpdateFeedingTableInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -107,7 +107,7 @@ export class UpdateFeedingTableInput {
 export class ActivateFeedingTableInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -123,12 +123,12 @@ export class ActivateFeedingTableInput {
 export class SupersedeFeedingTableInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field()
   @IsString()
   @MaxLength(500)
-  recalculationReason: string;
+  recalculationReason!: string;
 }
 
 /**
@@ -138,12 +138,12 @@ export class SupersedeFeedingTableInput {
 export class RecalculateFeedingTableInput {
   @Field(() => ID)
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field()
   @IsString()
   @MaxLength(500)
-  recalculationReason: string;
+  recalculationReason!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -177,7 +177,7 @@ export class RecalculateFeedingTableInput {
 
   @Field(() => ID)
   @IsUUID()
-  calculatedBy: string;
+  calculatedBy!: string;
 }
 
 /**
@@ -187,12 +187,12 @@ export class RecalculateFeedingTableInput {
 export class UpdateScheduleEntryInput {
   @Field(() => ID)
   @IsUUID()
-  feedingTableId: string;
+  feedingTableId!: string;
 
   @Field(() => Int)
   @IsNumber()
   @Min(1)
-  day: number;
+  day!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()

@@ -5,7 +5,7 @@ import { IsUUID, IsOptional, IsString, IsEmail, MaxLength } from 'class-validato
 export class UpdateWorkerInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

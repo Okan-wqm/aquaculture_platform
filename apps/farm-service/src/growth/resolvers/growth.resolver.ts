@@ -59,10 +59,10 @@ import { GetLatestMeasurementQuery } from '../queries/get-latest-measurement.que
 @InputType()
 export class IndividualMeasurementInput {
   @Field(() => Int)
-  sampleNumber: number;
+  sampleNumber!: number;
 
   @Field(() => Float)
-  weight: number;
+  weight!: number;
 
   @Field(() => Float, { nullable: true })
   length?: number;
@@ -83,10 +83,10 @@ export class MeasurementConditionsInput {
   dissolvedOxygen?: number;
 
   @Field()
-  feedingStatus: string;
+  feedingStatus!: string;
 
   @Field()
-  timeOfDay: string;
+  timeOfDay!: string;
 
   @Field({ nullable: true })
   weatherConditions?: string;
@@ -95,40 +95,40 @@ export class MeasurementConditionsInput {
 @InputType()
 export class RecordGrowthSampleInput {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { nullable: true })
   tankId?: string;
 
   @Field()
-  measurementDate: Date;
+  measurementDate!: Date;
 
   @Field(() => MeasurementType, { defaultValue: MeasurementType.ROUTINE })
-  measurementType: MeasurementType;
+  measurementType!: MeasurementType;
 
   @Field(() => MeasurementMethod, { defaultValue: MeasurementMethod.MANUAL_SCALE })
-  measurementMethod: MeasurementMethod;
+  measurementMethod!: MeasurementMethod;
 
   @Field(() => Int)
-  sampleSize: number;
+  sampleSize!: number;
 
   @Field(() => Int)
-  populationSize: number;
+  populationSize!: number;
 
   @Field(() => [IndividualMeasurementInput])
-  individualMeasurements: IndividualMeasurementInput[];
+  individualMeasurements!: IndividualMeasurementInput[];
 
   @Field(() => MeasurementConditionsInput, { nullable: true })
   conditions?: MeasurementConditionsInput;
 
   @Field(() => ID)
-  measuredBy: string;
+  measuredBy!: string;
 
   @Field({ nullable: true })
   notes?: string;
 
   @Field({ defaultValue: true })
-  updateBatchWeight: boolean;
+  updateBatchWeight!: boolean;
 }
 
 @InputType()
@@ -170,106 +170,106 @@ export class GrowthPaginationInput extends StandardPaginationInput {}
 @ObjectType()
 export class GrowthMetrics {
   @Field(() => Float)
-  currentAvgWeightG: number;
+  currentAvgWeightG!: number;
 
   @Field(() => Float)
-  theoreticalWeightG: number;
+  theoreticalWeightG!: number;
 
   @Field(() => Float)
-  weightVariancePercent: number;
+  weightVariancePercent!: number;
 
   @Field(() => Float)
-  currentBiomassKg: number;
+  currentBiomassKg!: number;
 
   @Field(() => Int)
-  currentQuantity: number;
+  currentQuantity!: number;
 
   @Field(() => Float)
-  survivalRate: number;
+  survivalRate!: number;
 
   @Field(() => Float)
-  mortalityRate: number;
+  mortalityRate!: number;
 
   @Field(() => Float)
-  currentFCR: number;
+  currentFCR!: number;
 
   @Field(() => Float)
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field(() => Float)
-  fcrVariancePercent: number;
+  fcrVariancePercent!: number;
 
   @Field(() => Float)
-  dailyGrowthRateG: number;
+  dailyGrowthRateG!: number;
 
   @Field(() => Float)
-  specificGrowthRate: number;
+  specificGrowthRate!: number;
 
   @Field(() => Float)
-  weightCV: number;
+  weightCV!: number;
 
   @Field(() => GrowthPerformance)
-  performanceRating: GrowthPerformance;
+  performanceRating!: GrowthPerformance;
 }
 
 @ObjectType()
 export class GrowthTrend {
   @Field()
-  direction: string;
+  direction!: string;
 
   @Field(() => Float)
-  avgDailyGrowthLast7Days: number;
+  avgDailyGrowthLast7Days!: number;
 
   @Field(() => Float)
-  avgDailyGrowthLast30Days: number;
+  avgDailyGrowthLast30Days!: number;
 
   @Field(() => Float)
-  growthAcceleration: number;
+  growthAcceleration!: number;
 
   @Field()
-  fcrTrend: string;
+  fcrTrend!: string;
 
   @Field(() => Float)
-  fcrChangeLast7Days: number;
+  fcrChangeLast7Days!: number;
 }
 
 @ObjectType()
 export class GrowthProjection {
   @Field(() => Float)
-  projectedWeightIn30Days: number;
+  projectedWeightIn30Days!: number;
 
   @Field(() => Float)
-  projectedBiomassIn30Days: number;
+  projectedBiomassIn30Days!: number;
 
   @Field()
-  estimatedHarvestDate: Date;
+  estimatedHarvestDate!: Date;
 
   @Field(() => Float)
-  harvestTargetWeightG: number;
+  harvestTargetWeightG!: number;
 
   @Field(() => Int)
-  daysToHarvest: number;
+  daysToHarvest!: number;
 
   @Field(() => Float)
-  projectedTotalFeedKg: number;
+  projectedTotalFeedKg!: number;
 
   @Field(() => Float)
-  projectedFinalFCR: number;
+  projectedFinalFCR!: number;
 }
 
 @ObjectType()
 export class GrowthRecommendation {
   @Field()
-  priority: string;
+  priority!: string;
 
   @Field()
-  type: string;
+  type!: string;
 
   @Field()
-  description: string;
+  description!: string;
 
   @Field()
-  reason: string;
+  reason!: string;
 
   @Field({ nullable: true })
   actionRequired?: string;
@@ -278,22 +278,22 @@ export class GrowthRecommendation {
 @ObjectType()
 export class GrowthMeasurementSummary {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  measurementDate: Date;
+  measurementDate!: Date;
 
   @Field(() => Float)
-  averageWeight: number;
+  averageWeight!: number;
 
   @Field(() => Float)
-  weightCV: number;
+  weightCV!: number;
 
   @Field(() => Int)
-  sampleSize: number;
+  sampleSize!: number;
 
   @Field(() => Float)
-  estimatedBiomass: number;
+  estimatedBiomass!: number;
 
   @Field(() => Float, { nullable: true })
   dailyGrowthRate?: number;
@@ -308,19 +308,19 @@ export class GrowthMeasurementSummary {
 @ObjectType()
 export class SGRCalculationResponse {
   @Field(() => Float)
-  sgr: number;
+  sgr!: number;
 
   @Field(() => Float)
-  initialWeight: number;
+  initialWeight!: number;
 
   @Field(() => Float)
-  finalWeight: number;
+  finalWeight!: number;
 
   @Field(() => Int)
-  daysBetween: number;
+  daysBetween!: number;
 
   @Field()
-  rating: string;
+  rating!: string;
 
   @Field({ nullable: true })
   speciesTargetSGR?: number;
@@ -332,19 +332,19 @@ export class SGRCalculationResponse {
 @ObjectType()
 export class BiomassEstimateResponse {
   @Field(() => Float)
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field(() => Int)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
-  avgWeightG: number;
+  avgWeightG!: number;
 
   @Field()
-  method: string;
+  method!: string;
 
   @Field()
-  confidence: string;
+  confidence!: string;
 
   @Field({ nullable: true })
   lastMeasurementDate?: Date;
@@ -357,34 +357,34 @@ export class GrowthMeasurementConnection extends StandardPaginatedResponse(Growt
 @ObjectType()
 export class GrowthAnalysisResponse {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field()
-  batchCode: string;
+  batchCode!: string;
 
   @Field()
-  speciesName: string;
+  speciesName!: string;
 
   @Field()
-  analysisDate: Date;
+  analysisDate!: Date;
 
   @Field(() => Int)
-  daysInProduction: number;
+  daysInProduction!: number;
 
   @Field(() => GrowthMetrics)
-  currentMetrics: GrowthMetrics;
+  currentMetrics!: GrowthMetrics;
 
   @Field(() => GrowthTrend)
-  trend: GrowthTrend;
+  trend!: GrowthTrend;
 
   @Field(() => GrowthProjection)
-  projection: GrowthProjection;
+  projection!: GrowthProjection;
 
   @Field(() => [GrowthRecommendation])
-  recommendations: GrowthRecommendation[];
+  recommendations!: GrowthRecommendation[];
 
   @Field(() => [GrowthMeasurementSummary])
-  measurementHistory: GrowthMeasurementSummary[];
+  measurementHistory!: GrowthMeasurementSummary[];
 }
 
 // ============================================================================

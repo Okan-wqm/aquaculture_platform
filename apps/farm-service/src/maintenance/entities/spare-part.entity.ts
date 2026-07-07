@@ -58,24 +58,24 @@ export interface StorageLocation {
 export class SparePart {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Field()
   @Column({ length: 100 })
-  partNumber: string; // Üretici parça numarası
+  partNumber!: string; // Üretici parça numarası
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -114,23 +114,23 @@ export class SparePart {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  quantity: number; // Mevcut stok
+  quantity!: number; // Mevcut stok
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  minStock: number; // Minimum stok seviyesi
+  minStock!: number; // Minimum stok seviyesi
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  maxStock: number; // Maximum stok seviyesi
+  maxStock!: number; // Maximum stok seviyesi
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  reorderPoint: number; // Yeniden sipariş noktası
+  reorderPoint!: number; // Yeniden sipariş noktası
 
   @Field()
   @Column({ length: 20, default: 'piece' })
-  unit: string; // piece, set, box, kg, liter, meter
+  unit!: string; // piece, set, box, kg, liter, meter
 
   @Field(() => SparePartStatus)
   @Column({
@@ -138,7 +138,7 @@ export class SparePart {
     enum: SparePartStatus,
     default: SparePartStatus.IN_STOCK,
   })
-  status: SparePartStatus;
+  status!: SparePartStatus;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
@@ -150,7 +150,7 @@ export class SparePart {
 
   @Field()
   @Column({ length: 3, default: 'TRY' })
-  currency: string;
+  currency!: string;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
@@ -174,15 +174,15 @@ export class SparePart {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -194,5 +194,5 @@ export class SparePart {
 
   @Field(() => Int)
   @VersionColumn()
-  version: number;
+  version!: number;
 }

@@ -47,11 +47,11 @@ export class CompanyAddressInput {
 export class SiteLocalityMappingInput {
   @Field()
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field(() => Int)
   @IsInt()
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 }
 
 @InputType()
@@ -150,10 +150,10 @@ export class CompanyAddressOutput {
 @ObjectType()
 export class SiteLocalityMappingOutput {
   @Field()
-  siteId: string;
+  siteId!: string;
 
   @Field(() => Int)
-  lokalitetsnummer: number;
+  lokalitetsnummer!: number;
 
   @Field({ nullable: true, description: 'Site name for display' })
   siteName?: string;
@@ -176,7 +176,7 @@ export class RegulatorySettingsOutput {
 
   // Maskinporten Status (credentials are NEVER exposed)
   @Field({ description: 'Whether Maskinporten credentials are configured' })
-  maskinportenConfigured: boolean;
+  maskinportenConfigured!: boolean;
 
   @Field({ nullable: true, description: 'Maskinporten environment (TEST or PRODUCTION)' })
   maskinportenEnvironment?: string;
@@ -220,7 +220,7 @@ export class RegulatorySettingsOutput {
 @ObjectType({ description: 'Result of Maskinporten connection test' })
 export class MaskinportenConnectionTestResult {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field({ nullable: true, description: 'Success message' })
   message?: string;
@@ -251,20 +251,20 @@ export class DefaultContactOutput {
 @ObjectType({ description: 'Summary of regulatory configuration status' })
 export class RegulatoryConfigurationStatus {
   @Field()
-  hasCompanyInfo: boolean;
+  hasCompanyInfo!: boolean;
 
   @Field()
-  hasMaskinportenCredentials: boolean;
+  hasMaskinportenCredentials!: boolean;
 
   @Field()
-  hasDefaultContact: boolean;
+  hasDefaultContact!: boolean;
 
   @Field(() => Int)
-  siteMappingsCount: number;
+  siteMappingsCount!: number;
 
   @Field()
-  hasSlaughterApproval: boolean;
+  hasSlaughterApproval!: boolean;
 
   @Field()
-  isFullyConfigured: boolean;
+  isFullyConfigured!: boolean;
 }

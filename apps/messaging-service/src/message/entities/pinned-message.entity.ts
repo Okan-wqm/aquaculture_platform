@@ -26,7 +26,7 @@ import { Message } from './message.entity';
 export class PinnedMessage {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from parent channel in migration
@@ -34,29 +34,29 @@ export class PinnedMessage {
    * tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  channelId: string;
+  channelId!: string;
 
   @Column({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Field()
   @Column({ type: 'uuid' })
-  pinnedBy: string;
+  pinnedBy!: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  pinnedAt: Date;
+  pinnedAt!: Date;
 
   @ManyToOne(() => Channel, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'channelId' })
-  channel: Channel;
+  channel!: Channel;
 
   @ManyToOne(() => Message, { onDelete: 'CASCADE' })
   @JoinColumn([
@@ -64,5 +64,5 @@ export class PinnedMessage {
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
   @Field(() => Message)
-  message: Message;
+  message!: Message;
 }

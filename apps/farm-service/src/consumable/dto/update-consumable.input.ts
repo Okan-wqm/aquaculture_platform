@@ -10,7 +10,7 @@ import { ConsumableCategory, ConsumableStatus } from '../entities/consumable.ent
 export class UpdateConsumableInput extends PartialType(CreateConsumableInput) {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()

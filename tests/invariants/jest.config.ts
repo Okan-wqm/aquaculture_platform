@@ -259,6 +259,7 @@ export default {
         '<rootDir>/drift-repair-naming.spec.ts',
         '<rootDir>/init-scripts-no-schema-ddl.spec.ts',
         '<rootDir>/toolchain-config-ssot.spec.ts',
+        '<rootDir>/strict-property-initialization-ssot.spec.ts',
       ],
     },
   ],

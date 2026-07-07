@@ -88,7 +88,7 @@ import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel
 @Directive('@key(fields: "id")')
 export class User {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   // Federation (MSG-MEDIUM-052): the display fields (firstName, lastName, email,
   // profileImageUrl) are NOT declared here — they are owned by auth-service's
@@ -100,11 +100,11 @@ export class User {
 
   /** Whether the user is currently online (messaging-owned, via PresenceService). */
   @Field(() => Boolean)
-  isOnline: boolean;
+  isOnline!: boolean;
 
   /** Last seen timestamp when user is offline. */
   @Field(() => Date, { nullable: true })
-  lastSeenAt: Date | null;
+  lastSeenAt!: Date | null;
 }
 
 /**
@@ -113,13 +113,13 @@ export class User {
 @ObjectType()
 export class MessagePageType {
   @Field(() => [Message])
-  items: Message[];
+  items!: Message[];
 
   @Field(() => Boolean)
-  hasMore: boolean;
+  hasMore!: boolean;
 
   @Field(() => String, { nullable: true })
-  cursor: string | null;
+  cursor!: string | null;
 }
 
 /**
@@ -128,13 +128,13 @@ export class MessagePageType {
 @ObjectType()
 export class AllMessagesSinceResponse {
   @Field(() => [Message])
-  messages: Message[];
+  messages!: Message[];
 
   @Field(() => String, { nullable: true, description: 'Opaque sync token for next request' })
-  syncToken: string | null;
+  syncToken!: string | null;
 
   @Field(() => Boolean)
-  hasMore: boolean;
+  hasMore!: boolean;
 }
 
 /**
@@ -143,13 +143,13 @@ export class AllMessagesSinceResponse {
 @ObjectType()
 export class MediaUploadResponse {
   @Field(() => String, { description: 'Presigned PUT URL' })
-  uploadUrl: string;
+  uploadUrl!: string;
 
   @Field(() => String, { description: 'Storage key to reference in sendMessage' })
-  storageKey: string;
+  storageKey!: string;
 
   @Field(() => Date, { description: 'URL expiration timestamp' })
-  expiresAt: Date;
+  expiresAt!: Date;
 }
 
 /**
@@ -160,19 +160,19 @@ export class MediaUploadResponse {
 export class ReactionSummary {
   /** The emoji string (e.g. thumbs-up unicode). */
   @Field(() => String)
-  emoji: string;
+  emoji!: string;
 
   /** Total number of users who reacted with this emoji. */
   @Field(() => Int)
-  count: number;
+  count!: number;
 
   /** User IDs who reacted with this emoji. */
   @Field(() => [String])
-  userIds: string[];
+  userIds!: string[];
 
   /** Whether the current requesting user has reacted with this emoji. */
   @Field(() => Boolean)
-  hasReacted: boolean;
+  hasReacted!: boolean;
 }
 
 // ============================================================================

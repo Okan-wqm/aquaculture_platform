@@ -3,35 +3,35 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
 @ObjectType()
 export class WorkerResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  employeeNumber: string;
+  employeeNumber!: string;
 
   @Field()
-  firstName: string;
+  firstName!: string;
 
   @Field()
-  lastName: string;
+  lastName!: string;
 
   @Field()
-  email: string;
+  email!: string;
 
   @Field({ nullable: true })
   phone?: string;
 
   @Field()
-  department: string;
+  department!: string;
 
   @Field()
-  position: string;
+  position!: string;
 
   @Field()
-  status: string;
+  status!: string;
 
   @Field()
-  hireDate: Date;
+  hireDate!: Date;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 }

@@ -58,8 +58,6 @@ import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 import {
   HarvestRecord,
   HarvestRecordStatus,
-  QualityGrade,
-  qualityGradeToClass,
   HarvestOperation,
   LotInfo,
 } from '../entities/harvest-record.entity';
@@ -119,19 +117,9 @@ export class CreateHarvestRecordHandler
       subjectLabel: `batch ${input.batchId}`,
     });
 
-    // Resolve the stored quality taxonomy (RPT-007): qualityClass is the SSoT
-    // input; a legacy qualityGrade is mapped onto its class. At least one is
-    // required — fail closed (no silent default onto ORDINAER).
-    const qualityClass =
-      input.qualityClass ??
-      (input.qualityGrade !== undefined
-        ? qualityGradeToClass(this.parseQualityGrade(input.qualityGrade))
-        : undefined);
-    if (!qualityClass) {
-      throw new BadRequestException(
-        'qualityClass is required (or the deprecated qualityGrade).',
-      );
-    }
+    // The Norwegian quality class is the sole stored quality taxonomy (RPT-007)
+    // and a required input (the DTO enforces the enum).
+    const qualityClass = input.qualityClass;
 
     // All reads and writes inside a single transaction with pessimistic locks.
     // The fail-closed tenant boundary pins search_path + the RLS GUC and
@@ -582,35 +570,5 @@ export class CreateHarvestRecordHandler
     }
 
     return `${prefix}-${year}-${sequence.toString().padStart(5, '0')}`;
-  }
-
-  /**
-   * QualityGrade parse et
-   */
-  private parseQualityGrade(grade: string | QualityGrade): QualityGrade {
-    const gradeMap: Record<string, QualityGrade> = {
-      PREMIUM: QualityGrade.PREMIUM,
-      premium: QualityGrade.PREMIUM,
-      GRADE_A: QualityGrade.GRADE_A,
-      grade_a: QualityGrade.GRADE_A,
-      GRADE_B: QualityGrade.GRADE_B,
-      grade_b: QualityGrade.GRADE_B,
-      GRADE_C: QualityGrade.GRADE_C,
-      grade_c: QualityGrade.GRADE_C,
-      REJECT: QualityGrade.REJECT,
-      reject: QualityGrade.REJECT,
-    };
-
-    const parsed = gradeMap[grade];
-    if (!parsed) {
-      // GraphQL input is already @IsEnum(QualityGrade)-validated, so this
-      // branch is only reachable from non-DTO callers. Rejecting beats the
-      // previous silent upgrade to GRADE_A, which corrupted grading stats by
-      // relabelling unknown grades as premium-adjacent.
-      throw new BadRequestException(
-        `Geçersiz kalite notu: '${String(grade)}'. Geçerli değerler: ${Object.values(QualityGrade).join(', ')}`,
-      );
-    }
-    return parsed;
   }
 }

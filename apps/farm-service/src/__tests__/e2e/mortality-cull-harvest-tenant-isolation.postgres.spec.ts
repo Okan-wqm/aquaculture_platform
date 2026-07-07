@@ -58,7 +58,7 @@ import { HarvestPlan } from '../../harvest/entities/harvest-plan.entity';
 import {
   HarvestRecord,
   HarvestRecordStatus,
-  QualityGrade,
+  QualityClass,
 } from '../../harvest/entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../harvest/handlers/create-harvest-record.handler';
 import { DeleteHarvestRecordHandler } from '../../harvest/handlers/delete-harvest-record.handler';
@@ -407,7 +407,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             quantityHarvested: 20,
             averageWeight: 10,
             totalBiomass: 0.2,
-            qualityGrade: QualityGrade.GRADE_A,
+            qualityClass: QualityClass.SUPERIOR,
             harvestDate: new Date('2026-04-29T11:00:00.000Z'),
             buyerName: 'Tenant A Buyer',
             pricePerKg: 5,

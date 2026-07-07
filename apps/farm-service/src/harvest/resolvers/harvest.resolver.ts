@@ -393,7 +393,6 @@ export class HarvestResolver {
           totalBiomass: input.totalBiomass,
           averageWeight: input.averageWeight,
           qualityClass: input.qualityClass,
-          qualityGrade: input.qualityGrade,
           method: input.method,
           productForm: input.productForm,
           totalRevenue: input.totalRevenue,

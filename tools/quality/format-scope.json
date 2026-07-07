@@ -18620,6 +18620,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/ai/services/__tests__/knowledge-extraction.tank-registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/ai/services/__tests__/sentiment-analysis.service.spec.ts",
       "prettier_managed": true
     },
@@ -39552,6 +39558,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -50682,10 +50700,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8301,
+  "file_count": 8304,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8126,
-  "managed_file_list_sha256": "130aadc22be888c322ae566725d7de50e1b99f1f2dddcf8874f4d521fdfc80cd",
+  "managed_count": 8129,
+  "managed_file_list_sha256": "9fcc65dc9a740d1d7543985801390c09ce514c23bcf5842acdaa5453df12d322",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

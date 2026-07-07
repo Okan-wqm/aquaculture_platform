@@ -42,6 +42,7 @@ import { ExtendBiomassReportStatusAltinnManual1804000000000 } from './1804000000
 import { DropRegulatorySettingsSlaughterApprovalNumber1804100000000 } from './1804100000000-DropRegulatorySettingsSlaughterApprovalNumber';
 import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-DropSiteLocalityMappingsJsonb';
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
+import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
 
 /**
  * Canonical farm-service migration class list.
@@ -96,4 +97,5 @@ export const FARM_MIGRATIONS = [
   DropRegulatorySettingsSlaughterApprovalNumber1804100000000,
   DropSiteLocalityMappingsJsonb1804200000000,
   DropHarvestQualityGrade1804300000000,
+  DropOrphanQualityGradeEnum1804400000000,
 ] as const;

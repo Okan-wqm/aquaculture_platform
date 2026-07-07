@@ -8991,6 +8991,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804400000000-DropOrphanQualityGradeEnum.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -51594,10 +51600,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8453,
+  "file_count": 8454,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8278,
-  "managed_file_list_sha256": "fcc300e569fd4fe26410187a0349476a9aa3c681ddde7c18869ba2febb083943",
+  "managed_count": 8279,
+  "managed_file_list_sha256": "231dfdb720b0496ce6875f7ad9785550e2f79ba5a51dac8c38cd47586096338b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

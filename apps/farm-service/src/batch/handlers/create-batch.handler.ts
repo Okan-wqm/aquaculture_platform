@@ -28,6 +28,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { adaptTankToEquipment } from '../utils/tank-lookup.util';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @Injectable()
 @CommandHandler(CreateBatchCommand)
@@ -49,6 +50,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     private readonly codeGenerator: CodeGeneratorService,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: CreateBatchCommand): Promise<Batch> {
@@ -89,6 +91,11 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         expectedHarvestDate.setDate(expectedHarvestDate.getDate() + harvestDays);
       }
     }
+
+    // Currency SSoT (FARM-HIGH-146): batch.purchaseCost feeds the
+    // FINGERLINGS derived-cost line — resolve the tenant default from
+    // finance_settings, never a hardcoded literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     // Start transaction for all database write operations
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
@@ -131,7 +138,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         supplierId: payload.supplierId,
         supplierBatchNumber: payload.supplierBatchNumber,
         purchaseCost: payload.purchaseCost,
-        currency: payload.currency || 'TRY',
+        currency: payload.currency || defaultCurrency,
         arrivalMethod: payload.arrivalMethod,
         status: BatchStatus.QUARANTINE,
         isActive: true,

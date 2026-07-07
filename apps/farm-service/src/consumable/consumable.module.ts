@@ -10,6 +10,8 @@ import { Supplier } from '../supplier/entities/supplier.entity';
 import { ConsumableResolver } from './consumable.resolver';
 
 import { RestoreModule } from '../common/services/restore.module';
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-146).
+import { FinanceModule } from '../finance/finance.module';
 
 import { CreateConsumableHandler } from './handlers/create-consumable.handler';
 import { UpdateConsumableHandler } from './handlers/update-consumable.handler';
@@ -33,6 +35,7 @@ const QueryHandlers = [
   imports: [
     TypeOrmModule.forFeature([Consumable, Supplier]),
     RestoreModule,
+    FinanceModule,
   ],
   providers: [
     ConsumableResolver,

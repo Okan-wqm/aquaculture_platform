@@ -6,6 +6,7 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreatePurchaseOrderCommand } from '../commands/create-purchase-order.command';
 import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @CommandHandler(CreatePurchaseOrderCommand)
 export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchaseOrderCommand, PurchaseOrder> {
@@ -15,10 +16,16 @@ export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchas
     @InjectRepository(PurchaseOrder)
     private readonly poRepository: Repository<PurchaseOrder>,
     private readonly dataSource: DataSource,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: CreatePurchaseOrderCommand): Promise<PurchaseOrder> {
     const { input, tenantId, userId } = command;
+
+    // Currency SSoT (FARM-HIGH-146): the purchase order books under the
+    // tenant default currency from finance_settings, never a hardcoded
+    // literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     return this.dataSource.transaction(async (manager) => {
       const poRepo = tenantManagerRepo(manager, PurchaseOrder, tenantId);
@@ -68,7 +75,7 @@ export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchas
         expectedDeliveryDate: input.expectedDeliveryDate ? new Date(input.expectedDeliveryDate) : undefined,
         notes: input.notes,
         totalAmount: totalAmount > 0 ? totalAmount : undefined,
-        currency: 'NOK',
+        currency: defaultCurrency,
         createdBy: userId,
         isDeleted: false,
       });

@@ -70,3 +70,22 @@ surface that should not ride into the finance-capability PR blind. The
 `finance-currency-ssot.spec.ts` invariant's `GUARDED_FILES` set is the ratchet:
 migrate a handler, add it to the guarded set. Tracked as HIGH debt with owner +
 deadline per the CLAUDE.md partial-fix rule.
+
+**RESOLVED (2026-07-07):** all handlers migrated to the currency SSoT.
+Auditing the whole farm write surface (not just the `||`/`??` form) surfaced
+**two more** hardcoded-currency create-handlers the original finding missed
+because they used a bare `currency: 'TRY'` assignment rather than a fallback:
+`create-harvest-record` (revenue + customer-delivery lines — this one feeds the
+`HARVEST_REVENUE` derived cost, so its currency drift was the most consequential)
+and `create-worker`. All ten now inject `FinanceSettingsService` (exported by
+`FinanceModule`, wired into `BatchModule`/`ChemicalModule`/`ConsumableModule`/
+`EquipmentModule`/`FeedModule`/`InventoryModule`/`HarvestModule`/`WorkerModule`;
+`FeedingModule` already imported it) and resolve the tenant default via
+`getDefaultCurrency(tenantId)` — every `?? 'TRY'` / `|| 'TRY'` / `?? 'NOK'` and
+bare `currency: 'TRY'`/`'NOK'` literal is deleted. The five affected unit specs
+(`create-batch`, `create-cleaner-batch`, `add-feed-inventory`,
+`create-harvest-record`, `create-worker`) pass a mocked resolver. All ten files
+are added to `finance-currency-ssot.spec.ts` `NAMED_GUARDED_FILES`, and the
+invariant regex was hardened to also catch the bare `currency: '<ISO>'` form —
+so the ratchet now blocks both regression shapes. No hardcoded-currency
+create-handler remains anywhere in farm-service.

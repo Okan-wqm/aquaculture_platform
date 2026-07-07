@@ -15,6 +15,10 @@ import { Site } from '../site/entities/site.entity';
 import { ChemicalResolver } from './chemical.resolver';
 
 import { RestoreModule } from '../common/services/restore.module';
+// FinanceModule exports FinanceSettingsService — the currency SSoT the
+// create handler resolves the tenant default from (FARM-HIGH-146). No
+// cycle: FinanceModule imports no domain module.
+import { FinanceModule } from '../finance/finance.module';
 
 // Command Handlers
 import { CreateChemicalHandler } from './handlers/create-chemical.handler';
@@ -44,6 +48,7 @@ const QueryHandlers = [
   imports: [
     TypeOrmModule.forFeature([Chemical, ChemicalType, ChemicalSite, Supplier, Site]),
     RestoreModule,
+    FinanceModule,
   ],
   providers: [
     ChemicalResolver,

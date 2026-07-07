@@ -45,6 +45,7 @@ import {
 import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { Tank } from '../../tank/entities/tank.entity';
 import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
@@ -77,6 +78,10 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     // Single SSoT writer for tank composition — harvest decrements the tank's
     // batchDetails[] through this, never by hand (see the applyBatchDelta call).
     private readonly tankBatchService: TankBatchService,
+    // Currency SSoT (FARM-HIGH-146): harvest_records.totalRevenue feeds the
+    // HARVEST_REVENUE derived-cost line — the currency must be the tenant
+    // default from finance_settings, never a hardcoded literal.
+    private readonly financeSettings: FinanceSettingsService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     // Required param placed before the default-valued ones below.
     private readonly siteAuth: SiteAuthorizationService =
@@ -109,6 +114,10 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
 
     // Parse qualityGrade early (no DB needed)
     const qualityGrade = this.parseQualityGrade(input.qualityGrade);
+
+    // Currency SSoT (FARM-HIGH-146): resolve the tenant default before the
+    // transaction so revenue + customer-delivery lines book in it.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     // All reads and writes inside a single transaction with pessimistic locks.
     // The fail-closed tenant boundary pins search_path + the RLS GUC and
@@ -296,7 +305,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         supervisorId: recordedBy,
         notes: input.notes,
         totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined,
-        currency: input.pricePerKg ? 'TRY' : undefined,
+        currency: input.pricePerKg ? defaultCurrency : undefined,
       });
 
       // Customer delivery bilgisi ekle
@@ -308,7 +317,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
           quantityUnit: 'kg',
           unitPrice: input.pricePerKg || 0,
           totalValue: input.pricePerKg ? biomassKg * input.pricePerKg : 0,
-          currency: 'TRY',
+          currency: defaultCurrency,
           deliveryStatus: 'pending',
         }];
       }

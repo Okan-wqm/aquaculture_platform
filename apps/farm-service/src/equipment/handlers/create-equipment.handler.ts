@@ -18,6 +18,7 @@ import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { EquipmentType } from '../entities/equipment-type.entity';
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 import { equipmentAuditSnapshot } from './equipment-audit.util';
 
@@ -34,6 +35,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     private readonly auditLogService: AuditLogService,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankEquipmentAdapter: TankEquipmentAdapterService,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: CreateEquipmentCommand): Promise<Equipment> {
@@ -55,6 +57,11 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     if (this.tankEquipmentAdapter.isTankLike(equipmentType)) {
       return this.tankEquipmentAdapter.createFromEquipment(tenantId, userId, input, equipmentType);
     }
+
+    // Currency SSoT (FARM-HIGH-146): equipment.purchasePrice books under
+    // the tenant default currency from finance_settings, never a
+    // hardcoded literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
@@ -153,7 +160,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
         installationDate: input.installationDate,
         warrantyEndDate: input.warrantyEndDate,
         purchasePrice: input.purchasePrice,
-        currency: input.currency ?? 'TRY',
+        currency: input.currency ?? defaultCurrency,
         status: input.status ?? EquipmentStatus.OPERATIONAL,
         location: input.location,
         specifications: input.specifications,

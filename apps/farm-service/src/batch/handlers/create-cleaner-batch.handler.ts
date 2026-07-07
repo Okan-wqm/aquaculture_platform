@@ -27,6 +27,7 @@ import { CreateCleanerBatchCommand } from '../commands/create-cleaner-batch.comm
 import { Batch, BatchStatus, BatchInputType, BatchType } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @Injectable()
 @CommandHandler(CreateCleanerBatchCommand)
@@ -39,6 +40,7 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
     private readonly codeGenerator: CodeGeneratorService,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: CreateCleanerBatchCommand): Promise<Batch> {
@@ -73,6 +75,11 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
     // Cleaner fish için default FCR (genelde 1.0-1.2)
     const targetFCR = 1.0;
 
+    // Currency SSoT (FARM-HIGH-146): batch.purchaseCost feeds the
+    // FINGERLINGS derived-cost line — resolve the tenant default from
+    // finance_settings, never a hardcoded literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
+
     // Batch entity oluştur
     const batch = this.batchRepository.create({
       tenantId,
@@ -92,7 +99,7 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
       stockedAt: payload.stockedAt,
       supplierId: payload.supplierId,
       purchaseCost: payload.purchaseCost,
-      currency: payload.currency || 'TRY',
+      currency: payload.currency || defaultCurrency,
       status: BatchStatus.ACTIVE, // Cleaner fish doğrudan aktif
       isActive: true,
       notes: payload.notes,

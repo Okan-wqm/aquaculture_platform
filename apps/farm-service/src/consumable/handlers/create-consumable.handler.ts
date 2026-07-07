@@ -5,17 +5,25 @@ import { ConflictException, Logger, NotFoundException, BadRequestException } fro
 import { CreateConsumableCommand } from '../commands/create-consumable.command';
 import { Consumable, ConsumableStatus } from '../entities/consumable.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @CommandHandler(CreateConsumableCommand)
 export class CreateConsumableHandler implements ICommandHandler<CreateConsumableCommand, Consumable> {
   private readonly logger = new Logger(CreateConsumableHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly financeSettings: FinanceSettingsService,
+  ) {}
 
   async execute(command: CreateConsumableCommand): Promise<Consumable> {
     const { input, tenantId, userId } = command;
 
     this.logger.log(`Creating consumable "${input.name}" for tenant ${tenantId}`);
+
+    // Currency SSoT (FARM-HIGH-146): tenant default from finance_settings,
+    // never a hardcoded literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const consumableRepo = tenantManagerRepo(queryRunner.manager, Consumable, tenantId);
@@ -56,7 +64,7 @@ export class CreateConsumableHandler implements ICommandHandler<CreateConsumable
         quantity: input.quantity ?? 0,
         minStock: input.minStock ?? 0,
         unitPrice: input.unitPrice,
-        currency: input.currency ?? 'NOK',
+        currency: input.currency ?? defaultCurrency,
         storageTempMin: input.storageTempMin,
         storageTempMax: input.storageTempMax,
         storageHumidityMin: input.storageHumidityMin,

@@ -5,6 +5,7 @@ import { Repository, DataSource } from 'typeorm';
 import { ConflictException, Logger } from '@nestjs/common';
 import { CreateWorkerCommand } from '../commands/create-worker.command';
 import { Worker, workerEmailBlindIndex } from '../entities/worker.entity';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @CommandHandler(CreateWorkerCommand)
 export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand, Worker> {
@@ -14,12 +15,17 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
     @InjectRepository(Worker)
     private readonly workerRepository: Repository<Worker>,
     private readonly dataSource: DataSource,
+    private readonly financeSettings: FinanceSettingsService,
   ) {}
 
   async execute(command: CreateWorkerCommand): Promise<Worker> {
     const { input, tenantId, userId } = command;
 
     this.logger.log(`Creating worker for tenant ${tenantId}`);
+
+    // Currency SSoT (FARM-HIGH-146): the worker's salary currency is the
+    // tenant default from finance_settings, never a hardcoded literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     // Check for duplicate email within tenant. The email column is encrypted
     // (non-deterministic GCM), so equality must go through the deterministic
@@ -80,7 +86,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
         position: input.position,
         hireDate: now,
         baseSalary: 0,
-        currency: 'TRY',
+        currency: defaultCurrency,
         isFarmWorker: true,
         createdBy: userId,
       });

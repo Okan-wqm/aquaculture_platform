@@ -12,17 +12,26 @@ import { FeedTypeSpecies, FeedGrowthStage, FeedSpeciesRecommendation } from '../
 import { Supplier } from '../../supplier/entities/supplier.entity';
 import { Site } from '../../site/entities/site.entity';
 import { Species } from '../../species/entities/species.entity';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @CommandHandler(CreateFeedCommand)
 export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Feed> {
   private readonly logger = new Logger(CreateFeedHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly financeSettings: FinanceSettingsService,
+  ) {}
 
   async execute(command: CreateFeedCommand): Promise<Feed> {
     const { input, tenantId, userId } = command;
 
     this.logger.log(`Creating feed "${input.name}" for tenant ${tenantId}`);
+
+    // Currency SSoT (FARM-HIGH-146): feed.pricePerKg feeds the FEED
+    // derived-cost line — the currency must be the tenant default from
+    // finance_settings, never a hardcoded literal.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const feedRepo = tenantManagerRepo(queryRunner.manager, Feed, tenantId);
@@ -134,7 +143,7 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Fee
         shelfLifeMonths: input.shelfLifeMonths,
         expiryDate: input.expiryDate,
         pricePerKg: input.pricePerKg,
-        currency: input.currency ?? 'TRY',
+        currency: input.currency ?? defaultCurrency,
         documents: input.documents?.map(doc => ({
           id: crypto.randomUUID(),
           name: doc.name,

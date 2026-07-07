@@ -21,15 +21,20 @@
  * migrated to the settings SSoT and MUST stay migrated:
  *   - every command handler under a `finance/` domain (the finance
  *     ledgers themselves), and
- *   - the two cross-domain handlers whose drift the finding named:
- *     `create-feeding-record.handler.ts` (was `|| 'NOK'`) and
- *     `create-employee.handler.ts` (was `|| 'USD'`).
+ *   - the cross-domain create-handlers that seed an entity currency:
+ *     `create-feeding-record` (was `|| 'NOK'`), HR `create-employee`
+ *     (was `|| 'USD'`), and — closing FARM-HIGH-146 — the eight further
+ *     farm create-handlers that seeded a `'TRY'`/`'NOK'` literal:
+ *     `create-batch`, `create-cleaner-batch`, `create-chemical`,
+ *     `create-consumable`, `create-equipment`, `create-feed`,
+ *     `add-feed-inventory`, and `create-purchase-order`.
  *
  * It bans a `|| '<ISO>'` / `?? '<ISO>'` currency fallback (from the
- * recognised-currency allowlist) in those files. The remaining
- * farm create-handlers that still carry an entity-seed currency default
- * are tracked debt (FARM-HIGH-146) — NOT yet in scope here; widening
- * GUARDED_FILES to include them is the ratchet step as each is migrated.
+ * recognised-currency allowlist) in those files. FARM-HIGH-146 is now
+ * CLOSED: every farm/HR create-handler that seeds an entity currency
+ * resolves the tenant default through `FinanceSettingsService`
+ * (`getDefaultCurrency` / `getDefaultCurrencyInTx`) — there is no longer
+ * a hardcoded-currency create-handler outside this guarded set.
  *
  * # When this spec fails
  *
@@ -49,22 +54,40 @@ const FINANCE_HANDLER_ROOTS = [
   path.resolve(REPO_ROOT, 'apps/hr-service/src/finance'),
 ];
 
-/** Named cross-domain handlers the finding explicitly de-drifted. */
+/**
+ * Named cross-domain create-handlers that seed an entity currency and
+ * MUST resolve it through the settings SSoT. The first two are the
+ * handlers FARM-MEDIUM-145 named; the rest closed FARM-HIGH-146 (every
+ * farm create-handler that previously seeded a `'TRY'`/`'NOK'` literal).
+ */
 const NAMED_GUARDED_FILES = [
-  path.resolve(
-    REPO_ROOT,
-    'apps/farm-service/src/feeding/handlers/create-feeding-record.handler.ts',
-  ),
-  path.resolve(REPO_ROOT, 'apps/hr-service/src/hr/handlers/create-employee.handler.ts'),
-];
+  'apps/farm-service/src/feeding/handlers/create-feeding-record.handler.ts',
+  'apps/hr-service/src/hr/handlers/create-employee.handler.ts',
+  // FARM-HIGH-146 — every further farm create-handler that seeded a
+  // currency literal, now migrated to the settings SSoT.
+  'apps/farm-service/src/batch/handlers/create-batch.handler.ts',
+  'apps/farm-service/src/batch/handlers/create-cleaner-batch.handler.ts',
+  'apps/farm-service/src/chemical/handlers/create-chemical.handler.ts',
+  'apps/farm-service/src/consumable/handlers/create-consumable.handler.ts',
+  'apps/farm-service/src/equipment/handlers/create-equipment.handler.ts',
+  'apps/farm-service/src/feed/handlers/create-feed.handler.ts',
+  'apps/farm-service/src/feeding/handlers/add-feed-inventory.handler.ts',
+  'apps/farm-service/src/storage/handlers/create-purchase-order.handler.ts',
+  'apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts',
+  'apps/farm-service/src/worker/handlers/create-worker.handler.ts',
+].map((rel) => path.resolve(REPO_ROOT, rel));
 
 /**
- * `|| 'USD'` / `?? "nok"` — a recognised ISO 4217 currency code used as a
- * runtime fallback. The allowlist keeps the match precise (a bare
- * `[A-Za-z]{3}` would also flag `'ASC'` sort orders and `'UTC'` zones).
+ * A recognised ISO 4217 currency code hardcoded in a currency-writing
+ * path, in either shape:
+ *   - a fallback:      `|| 'USD'` / `?? "nok"`
+ *   - a direct assign: `currency: 'TRY'` (the bare form used by the
+ *     purchase-order / harvest / worker handlers before FARM-HIGH-146).
+ * The allowlist keeps the match precise (a bare `[A-Za-z]{3}` would also
+ * flag `'ASC'` sort orders and `'UTC'` zones).
  */
 const CURRENCY_FALLBACK =
-  /(\|\||\?\?)\s*['"](TRY|NOK|USD|EUR|GBP|SEK|DKK|CHF|JPY|CNY)['"]/gi;
+  /(?:(?:\|\||\?\?)\s*|currency:\s*)['"](TRY|NOK|USD|EUR|GBP|SEK|DKK|CHF|JPY|CNY)['"]/gi;
 
 function listHandlerFiles(dir: string): string[] {
   const out: string[] = [];

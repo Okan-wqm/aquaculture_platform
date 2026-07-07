@@ -156,6 +156,21 @@ describe('MT-HIGH-050: useFirebaseMessaging device-token lifecycle', () => {
     expect(deleteTokenSpy).toHaveBeenCalledWith({ __id: 'messaging-instance' });
   });
 
+  it('MT-MEDIUM-051: teardown tells the FCM SW the session ended (LOGOUT) so it clears the active user', async () => {
+    render(<HookHost />);
+    await waitFor(() => expect(capturedTeardown).toBeTypeOf('function'));
+    fcmWorkerPostMessage.mockClear();
+
+    const teardown = capturedTeardown;
+    if (!teardown) throw new Error('push teardown was not registered');
+    await teardown();
+
+    // The SW's persisted active user must be cleared on logout — otherwise a
+    // background push for the prior user could surface to the next user on this
+    // shared device before token deregistration propagates.
+    expect(fcmWorkerPostMessage).toHaveBeenCalledWith({ type: 'LOGOUT' });
+  });
+
   it('still deletes the local subscription even when the server unregister fails', async () => {
     render(<HookHost />);
     await waitFor(() => expect(capturedTeardown).toBeTypeOf('function'));

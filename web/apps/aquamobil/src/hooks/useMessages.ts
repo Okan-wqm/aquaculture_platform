@@ -27,7 +27,7 @@ import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage } from '@/types/messaging';
 import { logger } from '@/utils/logger';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { messagesQueryKey } from '@/utils/messaging-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 /** Messages per page (cursor-based). */
@@ -112,9 +112,12 @@ export function useMessages(
     // offline-sync invalidation, so their keys must live under the tenant prefix.
     // MT-CRITICAL-051: channel messages are membership-scoped, so user.id is part
     // of both the React Query key and the IndexedDB cache namespace below.
-    // WHY inlined: no-bare-tenant-query-key verifies the factory call at the
-    // queryKey property; a local variable cannot be statically proven.
-    queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', user?.id, channelId),
+    // MSG-CRITICAL-055: the read key and every live/optimistic write key are now
+    // the SAME `messagesQueryKey` SSoT (fixed arity forces the user.id segment on
+    // both sides), so live messages/edits/deletes/receipts land where this query
+    // reads. `messagesQueryKey` wraps createTenantQueryKey, keeping the tenant
+    // prefix — and thus the no-bare-tenant-query-key discipline — by construction.
+    queryKey: messagesQueryKey(tenantId, user?.id, channelId),
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const userId = user?.id;
       // WHY guard-throw: `enabled` gates execution on channelId but does not

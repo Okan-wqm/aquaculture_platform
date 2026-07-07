@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { RetentionPolicyService } from '../retention-policy.service';
 import { LegalHoldService } from '../legal-hold.service';
 import { ComplianceAuditService } from '../compliance-audit.service';
+import { AttachmentObjectPurgeService } from '../attachment-object-purge.service';
 import { RetentionPolicy } from '../../entities/retention-policy.entity';
 import { Message } from '../../../message/entities/message.entity';
 import {
@@ -28,6 +29,7 @@ describe('RetentionPolicyService', () => {
     Pick<LegalHoldService, 'isUnderLegalHold' | 'getHeldChannelIds'>
   >;
   let auditService: jest.Mocked<Pick<ComplianceAuditService, 'log'>>;
+  let attachmentPurge: { purgeObjects: jest.Mock };
 
   const userId = fakeUuid('usr');
   const channelId = fakeUuid('ch');
@@ -47,6 +49,9 @@ describe('RetentionPolicyService', () => {
       getHeldChannelIds: jest.fn().mockResolvedValue([]),
     };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
+    attachmentPurge = {
+      purgeObjects: jest.fn().mockResolvedValue({ requested: 0, deleted: 0, skipped: 0, failed: 0 }),
+    };
 
     policyRepo.create.mockImplementation(
       (data: unknown) => data as RetentionPolicy,
@@ -63,6 +68,7 @@ describe('RetentionPolicyService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: LegalHoldService, useValue: legalHoldService },
         { provide: ComplianceAuditService, useValue: auditService },
+        { provide: AttachmentObjectPurgeService, useValue: attachmentPurge },
       ],
     }).compile();
 
@@ -134,150 +140,132 @@ describe('RetentionPolicyService', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Nightly cleanup deletes expired messages
+  // Nightly cleanup — retention actually runs (MSG-HIGH-073 + MT-MEDIUM-054)
+  // and purges attachment objects (MSG-CRITICAL-058).
+  //
+  // NOTE: these assert the control flow over mocked queries. SQL-level
+  // correctness (row DELETE semantics, tenant-schema pinning, advisory lock)
+  // is exercised by the messaging-service e2e integration suite.
   // -----------------------------------------------------------------------
-  it('deletes expired messages during nightly cleanup', async () => {
-    // Tenant-wide policy (channelId === null) with no held channels
-    // takes the TimescaleDB drop_chunks() fast path. The fast path
-    // re-checks the legal-hold registry inside the advisory lock; an
-    // empty result lets the drop proceed. Channel-scoped policies take
-    // the row-DELETE slow path instead (covered elsewhere).
-    const policy = createMockRetentionPolicy({
-      tenantId: cleanupTenantId,
-      retentionDays: 90,
-      channelId: null,
+  interface PolicyRow { id: string; tenantId: string; channelId: string | null; retentionDays: number }
+  function mockSweep(opts: {
+    policies: PolicyRow[];
+    attachmentKeys?: Array<{ storageKey: string; thumbnailKey: string | null }>;
+    deletedCount?: number;
+    heldAfterLock?: boolean;
+  }): void {
+    // listTenantSchemas() → one tenant schema.
+    mockDataSource.query.mockResolvedValue([{ schema_name: 'tenant_aaaaaaaaaaaaaaaa' }]);
+    queryRunner.query.mockImplementation((sql: string) => {
+      if (sql.includes('FROM retention_policies')) return Promise.resolve(opts.policies);
+      if (sql.includes('FROM legal_holds')) return Promise.resolve(opts.heldAfterLock ? [{ id: 'h1' }] : []);
+      if (sql.includes('SELECT att."storageKey"')) return Promise.resolve(opts.attachmentKeys ?? []);
+      if (sql.includes('DELETE FROM messages')) return Promise.resolve([[], opts.deletedCount ?? 0]);
+      return Promise.resolve([]);
     });
-    policyRepo.find.mockResolvedValue([policy]);
+  }
+  const sqlCalls = (): string[] => queryRunner.query.mock.calls.map((c) => c[0] as string);
+
+  it('deletes expired messages via a row DELETE, never drop_chunks (MSG-HIGH-073)', async () => {
+    mockSweep({ policies: [{ id: 'p1', tenantId: cleanupTenantId, channelId: null, retentionDays: 90 }], deletedCount: 5 });
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
     legalHoldService.getHeldChannelIds.mockResolvedValue([]);
 
-    // Every in-transaction query (tenant search-path pin, advisory lock, the
-    // legal-hold re-check, and drop_chunks) resolves to an empty array.
-    // The empty legal-hold re-check is what allows the drop to proceed.
-    queryRunner.query.mockResolvedValue([]);
+    await service.executeRetentionCleanup();
+
+    const sqls = sqlCalls();
+    expect(sqls.some((s) => s.includes('DELETE FROM messages'))).toBe(true);
+    expect(sqls.some((s) => s.includes('drop_chunks'))).toBe(false);
+  });
+
+  it('reads policies from tenant schemas, not the connection-default template (MT-MEDIUM-054)', async () => {
+    mockSweep({ policies: [{ id: 'p1', tenantId: cleanupTenantId, channelId: null, retentionDays: 90 }], deletedCount: 1 });
 
     await service.executeRetentionCleanup();
 
-    // Tenant-wide cleanup uses the TimescaleDB fast path.
-    const queryCalls = queryRunner.query.mock.calls;
-    const dropCall = queryCalls.find((call) => {
-      const sql = call[0] as string;
-      return sql.includes("drop_chunks('messages'");
-    });
-    expect(dropCall).toBeDefined();
+    expect(mockDataSource.query).toHaveBeenCalledWith(expect.stringContaining('information_schema.schemata'));
+    expect(sqlCalls().some((s) => s.includes('FROM retention_policies'))).toBe(true);
   });
 
-  // -----------------------------------------------------------------------
-  // Skips messages under legal hold
-  // -----------------------------------------------------------------------
-  it('skips cleanup for tenant under legal hold', async () => {
-    const policy = createMockRetentionPolicy({
-      tenantId: cleanupTenantId,
-      retentionDays: 90,
-      channelId: null,
+  it('purges the expired attachment objects after deleting the rows (MSG-CRITICAL-058)', async () => {
+    mockSweep({
+      policies: [{ id: 'p1', tenantId: cleanupTenantId, channelId: null, retentionDays: 90 }],
+      attachmentKeys: [
+        { storageKey: 'messaging/t/a.png', thumbnailKey: 'messaging/t/a_thumb.png' },
+        { storageKey: 'messaging/t/b.pdf', thumbnailKey: null },
+      ],
+      deletedCount: 2,
     });
-    policyRepo.find.mockResolvedValue([policy]);
+    legalHoldService.isUnderLegalHold.mockResolvedValue(false);
+    legalHoldService.getHeldChannelIds.mockResolvedValue([]);
+
+    await service.executeRetentionCleanup();
+
+    expect(attachmentPurge.purgeObjects).toHaveBeenCalledWith(cleanupTenantId, [
+      'messaging/t/a.png',
+      'messaging/t/a_thumb.png',
+      'messaging/t/b.pdf',
+    ]);
+  });
+
+  it('captures the object keys BEFORE deleting attachment rows, then messages', async () => {
+    mockSweep({
+      policies: [{ id: 'p1', tenantId: cleanupTenantId, channelId: null, retentionDays: 90 }],
+      attachmentKeys: [{ storageKey: 'messaging/t/a.png', thumbnailKey: null }],
+      deletedCount: 1,
+    });
+    legalHoldService.isUnderLegalHold.mockResolvedValue(false);
+    legalHoldService.getHeldChannelIds.mockResolvedValue([]);
+
+    await service.executeRetentionCleanup();
+
+    const sqls = sqlCalls();
+    const sel = sqls.findIndex((s) => s.includes('SELECT att."storageKey"'));
+    const delAtt = sqls.findIndex((s) => s.includes('DELETE FROM message_attachments'));
+    const delMsg = sqls.findIndex((s) => s.includes('DELETE FROM messages'));
+    expect(sel).toBeGreaterThanOrEqual(0);
+    expect(delAtt).toBeGreaterThan(sel);
+    expect(delMsg).toBeGreaterThan(delAtt);
+  });
+
+  it('skips the delete + purge for a tenant under legal hold', async () => {
+    mockSweep({ policies: [{ id: 'p1', tenantId: heldTenantId, channelId: null, retentionDays: 90 }] });
     legalHoldService.isUnderLegalHold.mockResolvedValue(true);
 
     await service.executeRetentionCleanup();
 
-    // queryRunner should not have been used for DELETE
-    expect(queryRunner.query).not.toHaveBeenCalled();
+    expect(sqlCalls().some((s) => s.includes('DELETE FROM messages'))).toBe(false);
+    expect(attachmentPurge.purgeObjects).not.toHaveBeenCalled();
   });
 
-  // -----------------------------------------------------------------------
-  // Cascades deletion to attachments
-  // -----------------------------------------------------------------------
-  it('deletes attachments before deleting messages', async () => {
-    // Tenant-wide policy (channelId === null) with no held channels
-    // takes the drop_chunks() fast path, which drops the
-    // message_attachments chunks BEFORE the messages chunks (child
-    // table first, then parent). An empty legal-hold re-check lets the
-    // drop proceed.
-    const policy = createMockRetentionPolicy({
-      tenantId: cleanupTenantId,
-      retentionDays: 30,
-      channelId: null,
+  it('emits one audit row per policy processed (LEGAL-LOW-002)', async () => {
+    mockSweep({
+      policies: [
+        { id: 'p1', tenantId: cleanupTenantId, channelId: null, retentionDays: 90 },
+        { id: 'p2', tenantId: cleanupTenantIdB, channelId: null, retentionDays: 30 },
+      ],
+      deletedCount: 5,
     });
-    policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
     legalHoldService.getHeldChannelIds.mockResolvedValue([]);
-    queryRunner.query.mockResolvedValue([]);
 
     await service.executeRetentionCleanup();
 
-    const queryCalls = queryRunner.query.mock.calls;
-    const attachmentDropIndex = queryCalls.findIndex((call) => {
-      const sql = call[0] as string;
-      return sql.includes("drop_chunks('message_attachments'");
-    });
-    const messageDropIndex = queryCalls.findIndex((call) => {
-      const sql = call[0] as string;
-      return sql.includes("drop_chunks('messages'");
-    });
-    expect(attachmentDropIndex).toBeGreaterThanOrEqual(0);
-    expect(messageDropIndex).toBeGreaterThan(attachmentDropIndex);
-  });
-
-  // -----------------------------------------------------------------------
-  // LEGAL-LOW-002 cure: per-policy audit attribution (was: single
-  // anonymous zero-UUID system row for the whole sweep, untraceable
-  // per tenant). Now: one row per (tenantId, policyId) processed,
-  // with deleted count + skip reason.
-  // -----------------------------------------------------------------------
-  it('emits one audit row per policy processed (LEGAL-LOW-002)', async () => {
-    const tenant1Policy = createMockRetentionPolicy({
-      tenantId: cleanupTenantId,
-      retentionDays: 90,
-    });
-    const tenant2Policy = createMockRetentionPolicy({
-      tenantId: cleanupTenantIdB,
-      retentionDays: 30,
-    });
-    policyRepo.find.mockResolvedValue([tenant1Policy, tenant2Policy]);
-    legalHoldService.isUnderLegalHold.mockResolvedValue(false);
-    queryRunner.query.mockResolvedValue([[], 5]);
-
-    await service.executeRetentionCleanup();
-
-    // Audit called twice — once per policy.
     expect(auditService.log).toHaveBeenCalledTimes(2);
-
-    // Each audit row carries the real tenantId, the policy.id as
-    // resourceId, and the per-policy deletedCount inside details.
     const calls = auditService.log.mock.calls.map((c) => c[0]);
     expect(calls.find((c) => c.tenantId === cleanupTenantId)).toMatchObject({
       tenantId: cleanupTenantId,
       resourceType: 'retention_policy',
-      details: expect.objectContaining({
-        policyId: tenant1Policy.id,
-        type: 'nightly_cleanup',
-        deletedCount: expect.any(Number),
-      }),
+      details: expect.objectContaining({ policyId: 'p1', type: 'nightly_cleanup', deletedCount: expect.any(Number) }),
     });
-    expect(calls.find((c) => c.tenantId === cleanupTenantIdB)).toMatchObject({
-      tenantId: cleanupTenantIdB,
-      resourceType: 'retention_policy',
-      details: expect.objectContaining({
-        policyId: tenant2Policy.id,
-      }),
-    });
-
-    // No row carries the legacy zero-UUID hardcode.
-    for (const call of calls) {
-      expect(call.tenantId).not.toBe(
-        '00000000-0000-0000-0000-000000000000',
-      );
+    expect(calls.find((c) => c.tenantId === cleanupTenantIdB)).toMatchObject({ tenantId: cleanupTenantIdB });
+    for (const c of calls) {
+      expect(c.tenantId).not.toBe('00000000-0000-0000-0000-000000000000');
     }
   });
 
   it('audits the legal-hold skip path with the actual tenant + skipReason', async () => {
-    const policy = createMockRetentionPolicy({
-      tenantId: heldTenantId,
-      retentionDays: 90,
-      channelId: null,
-    });
-    policyRepo.find.mockResolvedValue([policy]);
+    mockSweep({ policies: [{ id: 'p1', tenantId: heldTenantId, channelId: null, retentionDays: 90 }] });
     legalHoldService.isUnderLegalHold.mockResolvedValue(true);
 
     await service.executeRetentionCleanup();
@@ -286,25 +274,18 @@ describe('RetentionPolicyService', () => {
       expect.objectContaining({
         tenantId: heldTenantId,
         resourceType: 'retention_policy',
-        resourceId: policy.id,
-        details: expect.objectContaining({
-          deletedCount: 0,
-          skipReason: expect.stringContaining('legal hold'),
-        }),
+        resourceId: 'p1',
+        details: expect.objectContaining({ deletedCount: 0, skipReason: expect.stringContaining('legal hold') }),
       }),
     );
   });
 
-  // -----------------------------------------------------------------------
-  // Skips indefinite retention policies
-  // -----------------------------------------------------------------------
-  it('skips policies with retentionDays = -1 (indefinite)', async () => {
-    const indefinitePolicy = createMockRetentionPolicy({ retentionDays: -1 });
-    policyRepo.find.mockResolvedValue([indefinitePolicy]);
+  it('skips policies with retentionDays = -1 (indefinite) — no delete, no audit', async () => {
+    mockSweep({ policies: [{ id: 'p1', tenantId: cleanupTenantId, channelId: null, retentionDays: -1 }] });
 
     await service.executeRetentionCleanup();
 
-    // No queryRunner interaction for indefinite policies
-    expect(queryRunner.query).not.toHaveBeenCalled();
+    expect(sqlCalls().some((s) => s.includes('DELETE FROM messages'))).toBe(false);
+    expect(auditService.log).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TOOL_PROVIDERS } from '../core/tool.interface';
 import { CalculateAmmoniaToxicityTool } from './calculate-ammonia-toxicity.tool';
 import { CalculateH2SToxicityTool } from './calculate-h2s-toxicity.tool';
 import { CalculateCO2LevelTool } from './calculate-co2-level.tool';
@@ -18,15 +17,11 @@ const TOOLS = [
   SimulateDosingEffectTool,
 ];
 
+// Tool registration is automatic: ToolRegistryService discovers every
+// @Tool()-decorated provider via DiscoveryService (FAZ0-BOOT-01). Declaring
+// the classes as providers is the complete registration.
 @Module({
-  providers: [
-    ...TOOLS,
-    // Multi-provider registration for tool registry discovery
-    ...TOOLS.map((tool) => ({
-      provide: TOOL_PROVIDERS,
-      useExisting: tool,
-    })),
-  ],
-  exports: [TOOL_PROVIDERS],
+  providers: [...TOOLS],
+  exports: [...TOOLS],
 })
 export class WaterChemistryToolsModule {}

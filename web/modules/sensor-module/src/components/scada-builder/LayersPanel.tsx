@@ -53,7 +53,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import type { ScreenWidget } from '../../types/scada-package.types';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 
 /* ------------------------------------------------------------------ */
 /*  Widget type icon mapping                                           */
@@ -131,22 +131,22 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
 
   const handleVisibilityToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    useScadaStore.getState().toggleWidgetVisibility(screenId, widget.id);
+    useScadaPackageStore.getState().toggleWidgetVisibility(screenId, widget.id);
   }, [screenId, widget.id]);
 
   const handleLockToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    useScadaStore.getState().toggleWidgetLock(screenId, widget.id);
+    useScadaPackageStore.getState().toggleWidgetLock(screenId, widget.id);
   }, [screenId, widget.id]);
 
   const handleMoveUp = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    useScadaStore.getState().bringForward(screenId, widget.id);
+    useScadaPackageStore.getState().bringForward(screenId, widget.id);
   }, [screenId, widget.id]);
 
   const handleMoveDown = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    useScadaStore.getState().sendBackward(screenId, widget.id);
+    useScadaPackageStore.getState().sendBackward(screenId, widget.id);
   }, [screenId, widget.id]);
 
   return (
@@ -230,15 +230,15 @@ LayerRow.displayName = 'LayerRow';
 /* ------------------------------------------------------------------ */
 
 export const LayersPanel: React.FC = () => {
-  const activeScreenId = useScadaStore((s) => s.activeScreenId);
-  const widgets = useScadaStore((s) => {
+  const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
+  const widgets = useScadaPackageStore((s) => {
     const screen = s.screens.find((scr) => scr.id === s.activeScreenId);
     return screen?.widgets ?? [];
   });
-  const selectedWidgetId = useScadaStore((s) => s.selectedWidgetId);
-  const selectedWidgetIds = useScadaStore((s) => s.selectedWidgetIds);
-  const setSelectedWidget = useScadaStore((s) => s.setSelectedWidget);
-  const setHighlightedWidget = useScadaStore((s) => s.setHighlightedWidget);
+  const selectedWidgetId = useScadaPackageStore((s) => s.selectedWidgetId);
+  const selectedWidgetIds = useScadaPackageStore((s) => s.selectedWidgetIds);
+  const setSelectedWidget = useScadaPackageStore((s) => s.setSelectedWidget);
+  const setHighlightedWidget = useScadaPackageStore((s) => s.setHighlightedWidget);
 
   /**
    * Group-aware layer list: widgets sharing a groupId are visually
@@ -327,7 +327,7 @@ export const LayersPanel: React.FC = () => {
 
   // Header action: move selected widget to front
   const handleToFront = useCallback(() => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.bringToFront(store.activeScreenId, store.selectedWidgetId);
     }
@@ -335,7 +335,7 @@ export const LayersPanel: React.FC = () => {
 
   // Header action: move selected widget to back
   const handleToBack = useCallback(() => {
-    const store = useScadaStore.getState();
+    const store = useScadaPackageStore.getState();
     if (store.activeScreenId && store.selectedWidgetId) {
       store.sendToBack(store.activeScreenId, store.selectedWidgetId);
     }

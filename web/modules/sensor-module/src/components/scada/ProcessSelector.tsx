@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Search, Play, Pause, FileText, Check } from 'lucide-react';
-import { useScadaStore, ScadaProcess } from '../../store/scadaStore';
+import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
 
 interface ProcessSelectorProps {
   className?: string;
@@ -30,7 +30,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
     selectedProcessId,
     selectedProcess,
     setSelectedProcessId,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // Filter processes based on search
   const filteredProcesses = processes.filter(

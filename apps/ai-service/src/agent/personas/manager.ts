@@ -3,7 +3,10 @@ import { AgentPersona } from '../agent-profile.service';
 export const MANAGER_PERSONA: AgentPersona = {
   id: 'manager-v1',
   name: 'Manager',
-  model: 'claude-sonnet-4-5-20250514',
+  // FAZ0-BOOT-03: 'claude-sonnet-4-5-20250514' was a nonexistent dated ID
+  // (Anthropic 404). Catalog alias; sonnet-4-5's migration target is
+  // claude-sonnet-5. Override: AI_CHAT_MODEL_OVERRIDE / Faz 1 BYOK chatModel.
+  model: 'claude-sonnet-5',
   systemPrompt: `You are an aquaculture management assistant. You help farm managers with:
 - All operator capabilities (water quality, sensors, alerts)
 - Growth analytics (biomass, SGR, FCR calculations)

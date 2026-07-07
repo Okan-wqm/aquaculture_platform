@@ -60,6 +60,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `libs/shared-contracts` | libs/event-contracts/ (schema SSoT sibling) | event-contracts consumers |
 | `libs/sdk` | libs/<domain>/ (TypeScript SDK generator outputs) | scripts/sdk codegen, agent harness |
 | `libs/sensor-automation-types` | libs/<domain>/ (IEC 61131 ST AST types) | apps/sensor-service parser/analyzer/formatter, web/modules/sensor-module simulator |
+| `libs/sensor-contracts` | libs/event-contracts/ (sensor-domain contract SSoT sibling — branded TagRef, tag-ref JSON Schema; deploy-payload schemas + ScadaPackageDoc upcasters join in later plan phases) | apps/sensor-service (TagResolutionService, deploy pipeline), web/modules/sensor-module (widget tag bindings), sens-api-gateway via JSON Schemas |
 | `libs/shared` | libs/backend-common/ (cross-service decorators + errors) | every backend service via `@platform/shared` |
 | `libs/storage` | libs/backend-common/ (MinIO object storage client) | messaging, ai, billing services |
 | `libs/testing` | libs/backend-common/ (test factories + fixtures) | every backend service's spec files |

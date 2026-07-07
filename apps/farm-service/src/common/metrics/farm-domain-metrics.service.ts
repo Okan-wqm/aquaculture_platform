@@ -71,6 +71,7 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private backdateRejections!: client.Counter;
   private setupLegacyWrites!: client.Counter;
   private setupLegacyReads!: client.Counter;
+  private waterTemperatureReadFailures!: client.Counter;
 
   constructor() {
     this.registry = new client.Registry();
@@ -238,6 +239,23 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       labelNames: ['surface', 'operation', 'contract'],
       registers: [this.registry],
     });
+
+    // 2026-07-06 incident: a temperature-source infrastructure failure (the
+    // live case: missing grant on sensor_temperature_latest) used to abort
+    // batchMetrics and daily feeding wholesale. The WaterTemperatureService
+    // bulkhead degrades the failed source to null — this counter is the LOUD
+    // half of that degradation (alert on rate > 0).
+    this.waterTemperatureReadFailures = new client.Counter({
+      name: 'farm_water_temperature_read_failures_total',
+      help: 'WaterTemperatureService per-source read failures degraded to null by the bulkhead',
+      labelNames: ['source'],
+      registers: [this.registry],
+    });
+  }
+
+  /** One temperature source failed and was degraded to null by the bulkhead. */
+  recordWaterTemperatureReadFailure(params: { source: 'sensor' | 'manual' }): void {
+    this.waterTemperatureReadFailures.inc({ source: params.source });
   }
 
 }

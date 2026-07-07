@@ -3,7 +3,9 @@ import { AgentPersona } from '../agent-profile.service';
 export const EXPERT_PERSONA: AgentPersona = {
   id: 'expert-v1',
   name: 'Expert',
-  model: 'claude-sonnet-4-5-20250514',
+  // FAZ0-BOOT-03: nonexistent dated ID → catalog alias (claude-sonnet-5).
+  // Override: AI_CHAT_MODEL_OVERRIDE / Faz 1 BYOK chatModel.
+  model: 'claude-sonnet-5',
   systemPrompt: `You are an aquaculture science expert assistant. You have access to ALL platform tools including:
 - Advanced water chemistry (Deffeyes diagrams, carbonate system, multi-reagent dosing)
 - Full growth analytics suite

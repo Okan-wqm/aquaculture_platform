@@ -47,6 +47,20 @@ use crate::mqtt::CommandMessage;
 
 use super::{CommandHandler, DEFAULT_REBOOT_DELAY_SECS, DEFAULT_RESTART_DELAY_SECS};
 
+/// Faz 4 deploy-signature gate outcome. `Unsigned` is accepted
+/// with an operator-visible warning until the Faz 5 bundle gate
+/// ships enforcement (tracked plan phase — gentle-waddling-rabbit
+/// Faz 5); an INVALID or malformed signature ALWAYS rejects.
+#[cfg(feature = "scada-display")]
+enum DeploySigGate {
+    /// ed25519 signature verified against firmware_signing_pubkey
+    /// over `tenant_id + artifact_sha256` canonical bytes.
+    Verified,
+    /// No signature material in the payload (legacy cloud or
+    /// pre-Faz-4 sender).
+    Unsigned,
+}
+
 impl CommandHandler {
     /// Reboot the device.
     ///
@@ -169,6 +183,64 @@ impl CommandHandler {
         }
     }
 
+    /// Faz 4 deploy-signature gate shared by `cmd_deploy_process`
+    /// and `cmd_deploy_scada_package`.
+    ///
+    /// Gate semantics:
+    /// - No signature material → `Unsigned` (caller warns and
+    ///   proceeds; enforcement ships with the Faz 5 bundle gate,
+    ///   a tracked plan phase).
+    /// - Signature present but sha/pubkey missing, malformed hex,
+    ///   or ed25519 mismatch → `Err` (deploy REJECTED — an invalid
+    ///   signature is never downgraded to a warning).
+    ///
+    /// The canonical bytes bind the EDGE's OWN tenant_id, not a
+    /// tenant claimed in the payload — a signature minted for
+    /// tenant A structurally cannot verify on an edge bound to
+    /// tenant B (same trust shape as SignedStSource tenant
+    /// binding).
+    #[cfg(feature = "scada-display")]
+    fn gate_deploy_signature(
+        kind: crate::scripting::deploy_sig::DeployArtifactKind,
+        signature_hex: Option<&str>,
+        artifact_sha256_hex: Option<&str>,
+        tenant_id: Option<String>,
+        pubkey: Option<&ed25519_dalek::VerifyingKey>,
+    ) -> Result<DeploySigGate, String> {
+        use crate::scripting::deploy_sig::{
+            DeploySigBody, parse_signature_hex, verify_deploy_signature,
+        };
+
+        let Some(sig_hex) = signature_hex else {
+            return Ok(DeploySigGate::Unsigned);
+        };
+        let sha = artifact_sha256_hex.ok_or_else(|| {
+            "deploy signature present but artifactSha256 missing — cannot verify".to_string()
+        })?;
+        let pubkey = pubkey.ok_or_else(|| {
+            "deploy signature present but firmware_signing_pubkey not wired. \
+             Set firmware_update.mode != Disabled + signing_pubkey_hex."
+                .to_string()
+        })?;
+        let sig = parse_signature_hex(sig_hex).ok_or_else(|| {
+            "deploy signature malformed: expected 128 lowercase hex chars".to_string()
+        })?;
+
+        let body = DeploySigBody {
+            kind,
+            tenant_id,
+            artifact_sha256_hex: sha.to_string(),
+        };
+        verify_deploy_signature(&body, &sig, |msg, sig_bytes| {
+            use ed25519_dalek::Verifier;
+            pubkey
+                .verify(msg, &ed25519_dalek::Signature::from_bytes(sig_bytes))
+                .is_ok()
+        })
+        .map_err(|e| format!("deploy signature verification failed: {}", e))?;
+        Ok(DeploySigGate::Verified)
+    }
+
     /// Deploy a SCADA process (screens with node/edge graph +
     /// tag mappings to on-device sensors).
     ///
@@ -220,7 +292,32 @@ impl CommandHandler {
                 );
             }
         };
+        let tenant_id = state_guard.tenant_id.clone();
+        let pubkey = state_guard.firmware_signing_pubkey.clone();
         drop(state_guard);
+
+        // Faz 4 signature gate — cloud signs tenant_id +
+        // artifact_sha256 under domain tag `process-v1`.
+        let signature_hex = params.get("signature").and_then(|v| v.as_str());
+        let artifact_sha = params.get("artifactSha256").and_then(|v| v.as_str());
+        match Self::gate_deploy_signature(
+            crate::scripting::deploy_sig::DeployArtifactKind::Process,
+            signature_hex,
+            artifact_sha,
+            tenant_id,
+            pubkey.as_deref(),
+        ) {
+            Ok(DeploySigGate::Verified) => {
+                info!("deploy_process signature verified (artifact sha256 bound)");
+            }
+            Ok(DeploySigGate::Unsigned) => {
+                warn!(
+                    "deploy_process accepted UNSIGNED — signature enforcement \
+                     arrives with the Faz 5 bundle gate"
+                );
+            }
+            Err(e) => return (false, json!(null), Some(e)),
+        }
 
         match scada_state.deploy_process(process).await {
             Ok(()) => {
@@ -309,7 +406,42 @@ impl CommandHandler {
                 );
             }
         };
+        let tenant_id = state_guard.tenant_id.clone();
+        let pubkey = state_guard.firmware_signing_pubkey.clone();
         drop(state_guard);
+
+        // Faz 4 signature gate — cloud signs tenant_id +
+        // artifact_sha256 under domain tag `scada-pkg-v1`. The
+        // signature material rides in `meta` (top-level for the
+        // canonical payload, under `packageData.meta` for the
+        // cloud-wrapper fallback).
+        let sig_meta = params
+            .get("meta")
+            .or_else(|| params.get("packageData").and_then(|pd| pd.get("meta")));
+        let signature_hex = sig_meta
+            .and_then(|m| m.get("signature"))
+            .and_then(|v| v.as_str());
+        let artifact_sha = sig_meta
+            .and_then(|m| m.get("artifactSha256"))
+            .and_then(|v| v.as_str());
+        match Self::gate_deploy_signature(
+            crate::scripting::deploy_sig::DeployArtifactKind::ScadaPackage,
+            signature_hex,
+            artifact_sha,
+            tenant_id,
+            pubkey.as_deref(),
+        ) {
+            Ok(DeploySigGate::Verified) => {
+                info!("deploy_scada_package signature verified (artifact sha256 bound)");
+            }
+            Ok(DeploySigGate::Unsigned) => {
+                warn!(
+                    "deploy_scada_package accepted UNSIGNED — signature enforcement \
+                     arrives with the Faz 5 bundle gate"
+                );
+            }
+            Err(e) => return (false, json!(null), Some(e)),
+        }
 
         match scada_state.deploy_package(package).await {
             Ok(()) => {

@@ -14,7 +14,18 @@ import {
   ProcessFilterInput,
   ProcessPaginationInput,
 } from '../dto/process.dto';
+import {
+  formatValidationErrors,
+  validateCommandEnvelope,
+  validateDeployProcessParams,
+} from '@platform/sensor-contracts/validators';
+
+import { ArtifactService } from '../../deploy-artifact/artifact.service';
+import { DeploySigningService } from '../../deploy-artifact/deploy-signing.service';
+import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { Process, ProcessStatus } from '../entities/process.entity';
+import { ScadaDeployLogService } from './scada-deploy-log.service';
+import { TagResolutionService } from './tag-resolution.service';
 
 @Injectable()
 export class ProcessService {
@@ -29,6 +40,18 @@ export class ProcessService {
     @Optional()
     @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
+    @Optional()
+    @Inject(TagResolutionService)
+    private readonly tagResolutionService: TagResolutionService | null,
+    @Optional()
+    @Inject(ArtifactService)
+    private readonly artifactService: ArtifactService | null,
+    @Optional()
+    @Inject(ScadaDeployLogService)
+    private readonly scadaDeployLogService: ScadaDeployLogService | null,
+    @Optional()
+    @Inject(DeploySigningService)
+    private readonly deploySigningService: DeploySigningService | null,
   ) {}
 
   /**
@@ -95,6 +118,9 @@ export class ProcessService {
     if (input.templateName !== undefined) process.templateName = input.templateName;
 
     process.updatedBy = userId;
+    // Monotonic version counter — carried into deploy payloads and artifact
+    // snapshots (Faz 3; replaces the hardcoded `version: 1`).
+    process.version = (process.version ?? 1) + 1;
 
     const saved = await this.processRepository.save(process);
     this.logger.log(`Process ${saved.id} updated successfully`);
@@ -342,26 +368,114 @@ export class ProcessService {
       }
     }
 
-    // 5. MQTT deploy_process komutu publish
+    // 5. Tag SSoT raporu (Faz 1, warn-only): her tag mapping'i
+    // `${deviceCode}/${tagName}` olarak unified_tags registry'sine karşı çöz.
+    // Çözülemeyenler logla — bloklamaz; Faz 4 bunu deploy gate'ine çevirir.
+    if (this.tagResolutionService && tagMappings.length > 0) {
+      const refs = tagMappings.map((tm) => `${device.deviceCode}/${tm.tagName}`);
+      const resolution = await this.tagResolutionService.resolve(tenantId, refs);
+      if (resolution.unresolved.length > 0) {
+        this.logger.warn(
+          `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
+        );
+      }
+    }
+
+    // 6. Content-addressed snapshot (Faz 3) — the exact process graph +
+    // resolved tag mappings that ship to the edge. Real version replaces
+    // the historical hardcoded `1`.
+    const version = process.version ?? 1;
+    const deployContent: Record<string, unknown> = {
+      processId,
+      name: process.name,
+      nodes: process.nodes,
+      edges: process.edges,
+      tagMappings,
+      version,
+    };
+
+    let artifact = null;
+    if (this.artifactService) {
+      try {
+        artifact = await this.artifactService.snapshot(tenantId, {
+          artifactType: DeployArtifactType.PROCESS,
+          content: deployContent,
+          sourceEntityId: processId,
+          sourceEntityVersion: version,
+          createdBy: userId,
+        });
+      } catch (snapshotError) {
+        this.logger.error(
+          `Failed to snapshot process artifact: ${(snapshotError as Error).message}`,
+        );
+      }
+    }
+
+    // 7. MQTT deploy_process komutu publish (+ deploy log — process deploys
+    // previously wrote NO log at all)
+    //
+    // Faz 4: signature material rides OUTSIDE the snapshotted content (the
+    // sha256 addresses the content; signing the sha into the content would
+    // be circular). Domain tag `process-v1`, verified by the edge against
+    // firmware_signing_pubkey.
+    const signature =
+      artifact && this.deploySigningService
+        ? this.deploySigningService.signDeployArtifact(
+            'process',
+            tenantId,
+            artifact.contentSha256,
+          )
+        : null;
+    const deployParams: Record<string, unknown> = {
+      ...deployContent,
+      ...(artifact ? { artifactSha256: artifact.contentSha256 } : {}),
+      ...(signature ? { signature } : {}),
+    };
+
+    const commandId = randomUUID();
     const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
     const payload = {
-      commandId: randomUUID(),
+      commandId,
       command: 'deploy_process',
-      params: {
-        processId,
-        name: process.name,
-        nodes: process.nodes,
-        edges: process.edges,
-        tagMappings,
-        version: 1,
-      },
+      params: deployParams,
       timestamp: new Date().toISOString(),
     };
+
+    // Publish-boundary contract validation (Faz 4)
+    if (!validateDeployProcessParams(deployParams)) {
+      throw new BadRequestException(
+        `deploy_process payload violates the canonical contract: ${formatValidationErrors(validateDeployProcessParams)}`,
+      );
+    }
+    if (!validateCommandEnvelope(payload)) {
+      throw new BadRequestException(
+        `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
+      );
+    }
+
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          processId,
+          deviceId: device.id,
+          commandId,
+          version,
+          deployedBy: userId,
+          artifactId: artifact?.id,
+          checksumSha256: artifact?.contentSha256,
+        });
+      } catch (logError) {
+        this.logger.error(
+          `Failed to create process deploy log: ${(logError as Error).message}`,
+        );
+      }
+    }
 
     try {
       await this.mqttClient.publish(topic, payload);
       this.logger.log(
-        `Process "${process.name}" deployed to device ${device.deviceCode} (process: ${processId}, user: ${userId || 'system'})`,
+        `Process "${process.name}" v${version} deployed to device ${device.deviceCode} (process: ${processId}, command: ${commandId}, user: ${userId || 'system'})`,
       );
       return { success: true, message: 'Process deployed to edge device successfully' };
     } catch (error) {

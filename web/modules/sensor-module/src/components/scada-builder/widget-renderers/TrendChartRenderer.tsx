@@ -10,7 +10,7 @@
 
 import React, { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { useScadaPackageStore } from '../../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../../store/scada';
 import {
   TRACE_COLORS, TIME_RANGES, formatTimeLabel, generateDemoTraces,
   computeYDomain, niceStep, exportCsv,

@@ -10,7 +10,7 @@ import {
   GripVertical,
   Focus,
 } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import type { WidgetPosition } from '../../store/scada/types';
 import {
   alignLeft,
@@ -28,10 +28,10 @@ type WidgetRect = { id: string; position: WidgetPosition };
 type AlignFn = (widgets: WidgetRect[]) => Map<string, WidgetPosition>;
 
 export const AlignmentToolbar: React.FC = () => {
-  const selectedWidgetIds = useScadaStore((s) => s.selectedWidgetIds);
+  const selectedWidgetIds = useScadaPackageStore((s) => s.selectedWidgetIds);
 
   const getSelectedRects = useCallback((): WidgetRect[] => {
-    const state = useScadaStore.getState();
+    const state = useScadaPackageStore.getState();
     const screen = state.screens.find((s) => s.id === state.activeScreenId);
     if (!screen) return [];
 
@@ -42,7 +42,7 @@ export const AlignmentToolbar: React.FC = () => {
   }, []);
 
   const handleAlign = useCallback((alignFn: AlignFn) => {
-    const state = useScadaStore.getState();
+    const state = useScadaPackageStore.getState();
     const rects = getSelectedRects();
     if (rects.length === 0) return;
 

@@ -37,7 +37,7 @@ import {
   type DataProviderType,
 } from '../../types/scada-runtime.types';
 import { getScadaSocketService } from '../../services/ScadaSocketService';
-import { useScadaStore } from '../../store/scada/createScadaStore';
+import { useScadaPackageStore } from '../../store/scada/createScadaStore';
 import { useOperatorStore } from '../../store/scada/operatorStore';
 
 /* ------------------------------------------------------------------ */
@@ -178,9 +178,9 @@ function OperatorBootstrapInner({
   children,
 }: OperatorBootstrapProps): React.ReactElement {
   // ── Slice actions ──────────────────────────────────────────────────
-  const updateAlarmStatus = useScadaStore((s) => s.updateAlarmStatus);
-  const addConsoleOutput   = useScadaStore((s) => s.addConsoleOutput);
-  const setActiveScreen    = useScadaStore((s) => s.setActiveScreen);
+  const updateAlarmStatus = useScadaPackageStore((s) => s.updateAlarmStatus);
+  const addConsoleOutput   = useScadaPackageStore((s) => s.addConsoleOutput);
+  const setActiveScreen    = useScadaPackageStore((s) => s.setActiveScreen);
   const openOverlay        = useOperatorStore((s) => s.openOverlay);
 
   // ── Socket service (singleton) ─────────────────────────────────────
@@ -273,7 +273,7 @@ function OperatorBootstrapInner({
   }, [dataProviderType, initSocket]);
 
   // Mark operator mode active for the duration this component is mounted
-  const setOperatorMode = useScadaStore((s) => s.setOperatorMode);
+  const setOperatorMode = useScadaPackageStore((s) => s.setOperatorMode);
   useEffect(() => {
     setOperatorMode(true);
     return () => {
@@ -302,10 +302,10 @@ export const OperatorBootstrap: React.FC<OperatorBootstrapProps> = ({
   const [ready, setReady] = useState(false);
 
   // Store actions for package loading
-  const storePackageId  = useScadaStore((s) => s.packageId);
-  const setStorePackageId = useScadaStore((s) => s.setPackageId);
-  const setOperatorLayout = useScadaStore((s) => s.setOperatorLayout);
-  const operatorLayout    = useScadaStore((s) => s.operatorLayout);
+  const storePackageId  = useScadaPackageStore((s) => s.packageId);
+  const setStorePackageId = useScadaPackageStore((s) => s.setPackageId);
+  const setOperatorLayout = useScadaPackageStore((s) => s.setOperatorLayout);
+  const operatorLayout    = useScadaPackageStore((s) => s.operatorLayout);
 
   // Use a ref to capture the layout at the time of initialization,
   // preventing the re-render loop caused by operatorLayout being both

@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { join } from 'path';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -86,6 +87,7 @@ import { AiOutboxModule } from './outbox/ai-outbox.module';
 import { AgentConversation } from './conversation/conversation.entity';
 import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
+import { AiOutbox } from './outbox/ai-outbox.entity';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
@@ -127,7 +129,12 @@ type QueryComplexityOperationContext = {
         createServiceTypeOrmConfig(configService, {
           serviceName: 'ai',
           schema: 'ai',
-          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit],
+          // FAZ0-BOOT-02: AiOutbox MUST be in this list — OutboxModule.forFeature
+          // only wires repositories/publishers; the DataSource learns entity
+          // metadata solely from here. Omitting it broke outbox repository DI
+          // and left the outbox table out of SourceSchemaBootstrap/TenantSchemaSync
+          // (messaging-service registers MessagingOutbox the same way).
+          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit, AiOutbox],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -152,6 +159,10 @@ type QueryComplexityOperationContext = {
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
           autoSchemaFile: {
+            // Emit the federated SDL to the registry-canonical artifact path so
+            // the supergraph build + validate-registry pick up the ai subgraph
+            // (must match gatewaySubgraph('ai').schemaArtifactPath in the catalog).
+            path: join(process.cwd(), 'dist/graphql/subgraphs/ai.graphql'),
             federation: 2,
           },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
@@ -240,9 +251,19 @@ type QueryComplexityOperationContext = {
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
-      }),
+      // Build the connection from the platform-standard discrete vars
+      // (REDIS_HOST/PORT/PASSWORD/DB) that compose provides and the cost
+      // services already read — NOT a REDIS_URL that nothing sets, which
+      // silently fell back to redis://localhost:6379 and ECONNREFUSED'd in
+      // every container (the redis service is reachable as host `redis`).
+      useFactory: (configService: ConfigService) => {
+        const host = configService.get<string>('REDIS_HOST', 'localhost');
+        const port = configService.get<number>('REDIS_PORT', 6379);
+        const password = configService.get<string>('REDIS_PASSWORD');
+        const db = configService.get<number>('REDIS_DB', 0);
+        const auth = password ? `:${encodeURIComponent(password)}@` : '';
+        return { url: `redis://${auth}${host}:${port}/${db}` };
+      },
     }),
     // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.
     ThrottlerModule,

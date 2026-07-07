@@ -295,6 +295,18 @@ export type AiPersonaType = {
   name: Scalars['String']['output'];
 };
 
+export type AiSettings = {
+  anthropicKeyHint?: Maybe<Scalars['String']['output']>;
+  availableProviders: Array<Scalars['String']['output']>;
+  chatModel?: Maybe<Scalars['String']['output']>;
+  enablementReason: Scalars['String']['output'];
+  hourlyRequestLimit: Scalars['Int']['output'];
+  isEnabled: Scalars['Boolean']['output'];
+  monthlyTokenBudget: Scalars['Int']['output'];
+  openaiKeyHint?: Maybe<Scalars['String']['output']>;
+  provider: Scalars['String']['output'];
+};
+
 export type AiSettingsType = {
   /** Tenant-level AI analysis master switch */
   tenantAiEnabled: Scalars['Boolean']['output'];
@@ -979,6 +991,7 @@ export type Batch = {
   mortalitySummary: Scalars['JSON']['output'];
   name?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
+  protocolId?: Maybe<Scalars['ID']['output']>;
   purchaseCost?: Maybe<Scalars['Float']['output']>;
   retentionRate?: Maybe<Scalars['Float']['output']>;
   sgr?: Maybe<Scalars['Float']['output']>;
@@ -1008,6 +1021,16 @@ export type BatchCloseReason =
   | 'HARVEST_COMPLETED'
   | 'OTHER'
   | 'TRANSFERRED';
+
+export type BatchDetailMetric = {
+  avgWeightG: Scalars['Float']['output'];
+  batchId: Scalars['ID']['output'];
+  batchNumber: Scalars['String']['output'];
+  biomassKg: Scalars['Float']['output'];
+  /** Share of the tank stock, percent */
+  percentageOfTank: Scalars['Float']['output'];
+  quantity: Scalars['Int']['output'];
+};
 
 export type BatchDocumentInput = {
   documentName: Scalars['String']['input'];
@@ -1084,6 +1107,14 @@ export type BatchFeedAssignmentResponse = {
   updatedAt: Scalars['DateTime']['output'];
   /** Updated by user ID */
   updatedBy?: Maybe<Scalars['ID']['output']>;
+};
+
+export type BatchFeedTotalResponse = {
+  feedCode?: Maybe<Scalars['String']['output']>;
+  feedId: Scalars['ID']['output'];
+  feedName?: Maybe<Scalars['String']['output']>;
+  totalCost?: Maybe<Scalars['Float']['output']>;
+  totalKg: Scalars['Float']['output'];
 };
 
 export type BatchFilterInput = {
@@ -1234,6 +1265,29 @@ export type BatchPerformanceResponse = {
   weightGainPercent: Scalars['Float']['output'];
 };
 
+export type BatchResidencyResponse = {
+  avgWeightAtEntryG?: Maybe<Scalars['Float']['output']>;
+  durationDays: Scalars['Float']['output'];
+  exitedAt?: Maybe<Scalars['DateTime']['output']>;
+  feed: Array<BatchFeedTotalResponse>;
+  feedTotalKg: Scalars['Float']['output'];
+  isCurrent: Scalars['Boolean']['output'];
+  movedAt: Scalars['DateTime']['output'];
+  quantityAtEntry: Scalars['Int']['output'];
+  tankCode?: Maybe<Scalars['String']['output']>;
+  tankId: Scalars['ID']['output'];
+  tankName?: Maybe<Scalars['String']['output']>;
+  transferReason?: Maybe<Scalars['String']['output']>;
+  water: BatchResidencyWaterResponse;
+};
+
+export type BatchResidencyWaterResponse = {
+  measurementCount: Scalars['Int']['output'];
+  temperatureAvgC?: Maybe<Scalars['Float']['output']>;
+  temperatureMaxC?: Maybe<Scalars['Float']['output']>;
+  temperatureMinC?: Maybe<Scalars['Float']['output']>;
+};
+
 /** Batch durumu */
 export type BatchStatus =
   | 'ACTIVE'
@@ -1245,6 +1299,33 @@ export type BatchStatus =
   | 'PRE_HARVEST'
   | 'QUARANTINE'
   | 'TRANSFERRED';
+
+export type BatchTraceabilityResponse = {
+  events: Array<BatchHistoryEntryResponse>;
+  feedTotals: Array<BatchFeedTotalResponse>;
+  residencies: Array<BatchResidencyResponse>;
+  summary: BatchTraceabilitySummaryResponse;
+};
+
+export type BatchTraceabilitySummaryResponse = {
+  batchId: Scalars['ID']['output'];
+  batchNumber: Scalars['String']['output'];
+  currentAvgWeightG?: Maybe<Scalars['Float']['output']>;
+  currentQuantity: Scalars['Int']['output'];
+  daysInProduction: Scalars['Int']['output'];
+  fcrActual?: Maybe<Scalars['Float']['output']>;
+  harvestedAt?: Maybe<Scalars['DateTime']['output']>;
+  initialAvgWeightG?: Maybe<Scalars['Float']['output']>;
+  initialQuantity: Scalars['Int']['output'];
+  protocolId?: Maybe<Scalars['ID']['output']>;
+  protocolName?: Maybe<Scalars['String']['output']>;
+  speciesName?: Maybe<Scalars['String']['output']>;
+  status: Scalars['String']['output'];
+  stockedAt: Scalars['DateTime']['output'];
+  survivalRatePercent?: Maybe<Scalars['Float']['output']>;
+  totalFeedCost?: Maybe<Scalars['Float']['output']>;
+  totalFeedKg: Scalars['Float']['output'];
+};
 
 /** Batch tipi - üretim veya cleaner fish */
 export type BatchType =
@@ -1690,6 +1771,7 @@ export type ChangeoverMovement = {
 
 export type Channel = {
   aiPersona?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Removed for security (MSG-HIGH-060). Always null — AI routes through ai-service via the tenant BYOK key. */
   aiServiceUrl?: Maybe<Scalars['String']['output']>;
   avatarUrl?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
@@ -2389,6 +2471,7 @@ export type CreateBatchInput = {
   inputType?: BatchInputType;
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  protocolId?: InputMaybe<Scalars['ID']['input']>;
   purchaseCost?: InputMaybe<Scalars['Float']['input']>;
   speciesId: Scalars['String']['input'];
   stockedAt: Scalars['String']['input'];
@@ -2441,8 +2524,6 @@ export type CreateCertificationTypeInput = {
 export type CreateChannelInput = {
   /** AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels. */
   aiPersona?: InputMaybe<Scalars['String']['input']>;
-  /** Custom MCP server URL override. Only for AI channels. */
-  aiServiceUrl?: InputMaybe<Scalars['String']['input']>;
   /** Channel description */
   description?: InputMaybe<Scalars['String']['input']>;
   /** Member user IDs to add to the channel */
@@ -2616,6 +2697,8 @@ export type CreateEquipmentInput = {
   supplierId?: InputMaybe<Scalars['ID']['input']>;
   /** Systems this equipment serves (many-to-many) */
   systemIds: Array<Scalars['ID']['input']>;
+  /** Linked temperature sensor (sensor-service sensors.id) driving the feed rate */
+  temperatureSensorId?: InputMaybe<Scalars['ID']['input']>;
   warrantyEndDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
@@ -3583,6 +3666,7 @@ export type CreateTankInput = {
   status?: InputMaybe<TankStatus>;
   systemId?: InputMaybe<Scalars['String']['input']>;
   tankType?: InputMaybe<TankType>;
+  temperatureSensorId?: InputMaybe<Scalars['String']['input']>;
   /** Manual volume for non-geometric pond/cage containers */
   volume?: InputMaybe<Scalars['Float']['input']>;
   waterDepth?: InputMaybe<Scalars['Float']['input']>;
@@ -3979,6 +4063,7 @@ export type DailyFeedingExecution = {
   feedingProgramId: Scalars['String']['output'];
   feedingProgramTank?: Maybe<FeedingProgramTank>;
   feedingProgramTankId: Scalars['String']['output'];
+  growthAppliedAt?: Maybe<Scalars['DateTime']['output']>;
   /** Whether there is a feed transition warning */
   hasTransitionWarning: Scalars['Boolean']['output'];
   id: Scalars['ID']['output'];
@@ -4310,6 +4395,8 @@ export type DeployTarget =
   | 'RUST_ENGINE';
 
 export type DeploymentLog = {
+  artifactId?: Maybe<Scalars['ID']['output']>;
+  checksumSha256?: Maybe<Scalars['String']['output']>;
   commandId: Scalars['String']['output'];
   completedAt?: Maybe<Scalars['DateTime']['output']>;
   deployedAt: Scalars['DateTime']['output'];
@@ -4986,6 +5073,8 @@ export type EquipmentAffectedItems = {
 
 export type EquipmentBatchMetrics = {
   avgWeight?: Maybe<Scalars['Float']['output']>;
+  /** Per-batch breakdown when the tank holds several batches (combined "B-1 + B-2") */
+  batchDetails?: Maybe<Array<BatchDetailMetric>>;
   batchId?: Maybe<Scalars['String']['output']>;
   batchNumber?: Maybe<Scalars['String']['output']>;
   biomass?: Maybe<Scalars['Float']['output']>;
@@ -5144,6 +5233,7 @@ export type EquipmentResponse = {
   systemIds?: Maybe<Array<Scalars['ID']['output']>>;
   /** Systems this equipment serves (many-to-many) */
   systems?: Maybe<Array<EquipmentSystemResponse>>;
+  temperatureSensorId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['ID']['output'];
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['ID']['output']>;
@@ -6428,6 +6518,11 @@ export type GrowthAnalysisResponse = {
   speciesName: Scalars['String']['output'];
   trend: GrowthTrend;
 };
+
+/** When FCR-based feeding growth is applied to the tank/batch */
+export type GrowthApplicationMode =
+  | 'DAILY'
+  | 'PER_FEEDING';
 
 export type GrowthMeasurement = {
   actionCount: Scalars['Int']['output'];
@@ -8441,6 +8536,7 @@ export type Mutation = {
   assignUserToModule: AssignmentResult;
   assignUserToSite: SiteAssignmentResult;
   autoBindTags: TagDiscoveryResultType;
+  backfillScadaPackageDocs: ScadaBackfillResultType;
   batchActivateSensors: Scalars['Boolean']['output'];
   batchDeactivateSensors: Scalars['Boolean']['output'];
   batchIngestReadings: Scalars['Int']['output'];
@@ -8742,6 +8838,7 @@ export type Mutation = {
   recordPayment: Payment;
   recordSparePartStockMovement: SparePart;
   recordStockMovement: StockMovementResponse;
+  recordWaterTemperature: Scalars['Boolean']['output'];
   refreshToken: AuthPayload;
   refundPayment: Payment;
   regenerateDeviceToken: RegenerateTokenResponse;
@@ -8809,6 +8906,7 @@ export type Mutation = {
   revokeTenantProvisioningKey: Scalars['Boolean']['output'];
   revokeUserRole: Scalars['Boolean']['output'];
   rollbackDeployedProgram: DeploymentResult;
+  rollbackScadaPackageDeploy: DeployScadaPackageResultType;
   rollbackVfdChangeSet: VfdChangeSet;
   saveDashboardLayout: DashboardLayout;
   saveDiscoveredChannels: Array<DataChannelType>;
@@ -8904,6 +9002,8 @@ export type Mutation = {
   unlockTenantUser: User;
   unpinMessage: Scalars['Boolean']['output'];
   unregisterDeviceToken: Scalars['Boolean']['output'];
+  /** Update the tenant's AI provider (BYOK) settings */
+  updateAiProviderSettings: AiSettings;
   updateAlertRule: AlertRule;
   updateAutoRule: AutoRule;
   updateAutomationProgram: AutomationProgram;
@@ -8997,8 +9097,6 @@ export type Mutation = {
   updateTankStatus: Tank;
   updateTask: Task;
   updateTenant: Tenant;
-  /** Enable/disable AI analysis for the tenant (TENANT_ADMIN only) */
-  updateTenantAiSetting: Scalars['Boolean']['output'];
   updateTenantRole: TenantRole;
   updateTenantUser: User;
   updateTicketStatus: SupportTicket;
@@ -9405,6 +9503,11 @@ export type MutationAssignUserToSiteArgs = {
 export type MutationAutoBindTagsArgs = {
   deviceId: Scalars['ID']['input'];
   processId: Scalars['ID']['input'];
+};
+
+
+export type MutationBackfillScadaPackageDocsArgs = {
+  dryRun?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 
@@ -10752,6 +10855,12 @@ export type MutationRecordStockMovementArgs = {
 };
 
 
+export type MutationRecordWaterTemperatureArgs = {
+  celsius: Scalars['Float']['input'];
+  tankId: Scalars['ID']['input'];
+};
+
+
 export type MutationRefreshTokenArgs = {
   input: RefreshTokenInput;
 };
@@ -11064,6 +11173,12 @@ export type MutationRevokeUserRoleArgs = {
 
 
 export type MutationRollbackDeployedProgramArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type MutationRollbackScadaPackageDeployArgs = {
+  artifactId: Scalars['ID']['input'];
   deviceId: Scalars['ID']['input'];
 };
 
@@ -11454,6 +11569,11 @@ export type MutationUnpinMessageArgs = {
 
 export type MutationUnregisterDeviceTokenArgs = {
   token: Scalars['String']['input'];
+};
+
+
+export type MutationUpdateAiProviderSettingsArgs = {
+  input: UpdateAiSettingsInput;
 };
 
 
@@ -11879,11 +11999,6 @@ export type MutationUpdateTaskArgs = {
 export type MutationUpdateTenantArgs = {
   id: Scalars['ID']['input'];
   input: UpdateTenantInput;
-};
-
-
-export type MutationUpdateTenantAiSettingArgs = {
-  enabled: Scalars['Boolean']['input'];
 };
 
 
@@ -13455,6 +13570,7 @@ export type ProgramSettingsInput = {
   autoTransition?: Scalars['Boolean']['input'];
   defaultMealsPerDay?: InputMaybe<Scalars['Int']['input']>;
   fcrSource?: FcrSource;
+  growthApplicationMode?: GrowthApplicationMode;
   maxFeedingRatePercent?: InputMaybe<Scalars['Float']['input']>;
   minFeedingRatePercent?: InputMaybe<Scalars['Float']['input']>;
   notifyOnTransition?: Scalars['Boolean']['input'];
@@ -13564,6 +13680,7 @@ export type ProgramVariable = {
   scope: VariableScope;
   /** Reference to sensor data channel */
   sensorChannelId?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
   varName: Scalars['String']['output'];
   varOrder: Scalars['Float']['output'];
@@ -13800,6 +13917,10 @@ export type Query = {
   activeTanks: Array<ActiveTankResponse>;
   actuatorUsageStats: ActuatorUsageStats;
   aggregatedReadings: AggregatedReadingsResponse;
+  /** The tenant's AI provider (BYOK) settings, keys masked */
+  aiProviderSettings: AiSettings;
+  /** Health check for AI service */
+  aiServiceHealth: Scalars['String']['output'];
   /** Current AI analysis settings for tenant and user */
   aiSettings: AiSettingsType;
   alarmCountBySeverity: AlarmCountBySeverity;
@@ -13839,6 +13960,7 @@ export type Query = {
   batchHarvestEligibility: HarvestEligibilityOutput;
   batchHistory: Array<BatchHistoryEntryResponse>;
   batchPerformance: BatchPerformanceResponse;
+  batchTraceability: BatchTraceabilityResponse;
   batches: BatchListResponse;
   /** Lookup a biomass report by (siteId, reportMonth, reportYear). */
   biomassReport?: Maybe<BiomassReport>;
@@ -14173,6 +14295,7 @@ export type Query = {
   regulatoryReports: Array<RegulatoryReport>;
   /** Get regulatory settings for the current tenant */
   regulatorySettings: RegulatorySettingsOutput;
+  resolveTagRefs: TagResolutionResultType;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
   reviewCycleStatus: ReviewCycleStatus;
@@ -14563,6 +14686,11 @@ export type QueryBatchHistoryArgs = {
 
 
 export type QueryBatchPerformanceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryBatchTraceabilityArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -15740,6 +15868,11 @@ export type QueryRegulatoryReportsArgs = {
   offset?: Scalars['Int']['input'];
   reportType: RegulatoryReportType;
   siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryResolveTagRefsArgs = {
+  refs: Array<Scalars['String']['input']>;
 };
 
 
@@ -17199,6 +17332,17 @@ export type ResistensType =
   | 'IMIDAKLOPRID'
   | 'TEFLUBENZURON';
 
+export type ResolvedTagBindingType = {
+  dataType: TagDataType;
+  direction: TagDirection;
+  engUnit?: Maybe<Scalars['String']['output']>;
+  ioType: TagIoType;
+  ref: Scalars['String']['output'];
+  revision: Scalars['Int']['output'];
+  source: Scalars['JSON']['output'];
+  unifiedTagId: Scalars['ID']['output'];
+};
+
 export type RetentionPolicy = {
   channelId?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
@@ -17411,12 +17555,22 @@ export type SaveFeederCalibrationsInput = {
   equipmentId: Scalars['String']['input'];
 };
 
+export type ScadaBackfillResultType = {
+  dryRun: Scalars['Boolean']['output'];
+  failed: Scalars['Int']['output'];
+  migrated: Scalars['Int']['output'];
+  scanned: Scalars['Int']['output'];
+  skipped: Scalars['Int']['output'];
+};
+
 export type ScadaDeployLogListType = {
   items: Array<ScadaDeployLogType>;
   total: Scalars['Int']['output'];
 };
 
 export type ScadaDeployLogType = {
+  artifactId?: Maybe<Scalars['ID']['output']>;
+  checksumSha256?: Maybe<Scalars['String']['output']>;
   commandId: Scalars['String']['output'];
   createdAt: Scalars['DateTime']['output'];
   deployedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -17425,7 +17579,8 @@ export type ScadaDeployLogType = {
   errorMessage?: Maybe<Scalars['String']['output']>;
   healthCheckResults?: Maybe<Scalars['JSON']['output']>;
   id: Scalars['ID']['output'];
-  packageId: Scalars['String']['output'];
+  packageId?: Maybe<Scalars['ID']['output']>;
+  processId?: Maybe<Scalars['ID']['output']>;
   receivedAt?: Maybe<Scalars['DateTime']['output']>;
   rolledBackTo?: Maybe<Scalars['Int']['output']>;
   sentAt: Scalars['DateTime']['output'];
@@ -19420,6 +19575,17 @@ export type TagIoType =
   | 'DI'
   | 'DO';
 
+export type TagResolutionResultType = {
+  resolved: Array<ResolvedTagBindingType>;
+  unresolved: Array<UnresolvedTagRefType>;
+};
+
+/** Lifecycle state of a registry tag */
+export type TagStatus =
+  | 'ACTIVE'
+  | 'DRAFT'
+  | 'RETIRED';
+
 export type Tank = {
   aeration?: Maybe<Scalars['JSON']['output']>;
   batchMetrics?: Maybe<TankBatchMetrics>;
@@ -19456,6 +19622,7 @@ export type Tank = {
   statusReason?: Maybe<Scalars['String']['output']>;
   systemId?: Maybe<Scalars['String']['output']>;
   tankType: TankType;
+  temperatureSensorId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
@@ -20535,9 +20702,16 @@ export type UnifiedTagType = {
   id: Scalars['ID']['output'];
   ioType: TagIoType;
   localName: Scalars['String']['output'];
+  revision: Scalars['Int']['output'];
   source: Scalars['JSON']['output'];
+  status: TagStatus;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
+};
+
+export type UnresolvedTagRefType = {
+  reason: Scalars['String']['output'];
+  ref: Scalars['String']['output'];
 };
 
 export type UpdateActionInput = {
@@ -20552,6 +20726,16 @@ export type UpdateActionInput = {
   params?: InputMaybe<Scalars['JSON']['input']>;
   qualifier?: InputMaybe<ActionQualifier>;
   targetRef?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateAiSettingsInput = {
+  anthropicApiKey?: InputMaybe<Scalars['String']['input']>;
+  chatModel?: InputMaybe<Scalars['String']['input']>;
+  hourlyRequestLimit?: InputMaybe<Scalars['Int']['input']>;
+  isEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  monthlyTokenBudget?: InputMaybe<Scalars['Int']['input']>;
+  openaiApiKey?: InputMaybe<Scalars['String']['input']>;
+  provider?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateAlertRuleInput = {
@@ -20804,6 +20988,8 @@ export type UpdateEquipmentInput = {
   supplierId?: InputMaybe<Scalars['ID']['input']>;
   /** Systems this equipment serves (many-to-many) */
   systemIds?: InputMaybe<Array<Scalars['ID']['input']>>;
+  /** Linked temperature sensor (sensor-service sensors.id) driving the feed rate */
+  temperatureSensorId?: InputMaybe<Scalars['ID']['input']>;
   warrantyEndDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
@@ -21776,6 +21962,7 @@ export type UpdateTankInput = {
   status?: InputMaybe<TankStatus>;
   systemId?: InputMaybe<Scalars['String']['input']>;
   tankType?: InputMaybe<TankType>;
+  temperatureSensorId?: InputMaybe<Scalars['String']['input']>;
   /** Manual volume for non-geometric pond/cage containers */
   volume?: InputMaybe<Scalars['Float']['input']>;
   waterDepth?: InputMaybe<Scalars['Float']['input']>;
@@ -23603,6 +23790,7 @@ export type WriteOpcUaNodeInput = {
 };
 
 export type Join__Graph =
+  | 'AI'
   | 'ALERT'
   | 'AUTH'
   | 'BILLING'

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useEditorModeStore, EditorMode } from '../../store/editorModeStore';
 import { useProcessStore } from '../../store/processStore';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import { PropertiesPanel as PidPropertiesPanel } from '../process-editor/panels/PropertiesPanel';
 import { widgetConfigMap } from '../scada-builder/widget-configs';
 import { TagBrowser } from '../scada-builder/TagBrowser';

@@ -18,6 +18,7 @@ import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 
 import { SearchSimilarMessagesQuery } from './search-similar-messages.query';
 import { Message } from '../../message/entities/message.entity';
+import { AiEgressGateService } from '../services/ai-egress-gate.service';
 
 /** NATS request timeout for embedding generation (30 seconds). */
 const NATS_TIMEOUT_MS = 30_000;
@@ -49,10 +50,12 @@ export class SearchSimilarMessagesHandler
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
+    private readonly egressGate: AiEgressGateService,
   ) {}
 
   /**
    * Execute the similarity search query.
+   * 0. Egress gate — the query text is tenant content leaving toward the AI
    * 1. Generate query embedding via ai-service
    * 2. Find user's channel memberships
    * 3. Run pgvector cosine similarity search with channel scope
@@ -60,7 +63,24 @@ export class SearchSimilarMessagesHandler
   async execute(
     query: SearchSimilarMessagesQuery,
   ): Promise<SimilarMessage[]> {
-    const { userId, queryText, channelId, limit } = query;
+    const { tenantId, userId, queryText, channelId, limit } = query;
+
+    // MSG-HIGH-061: the search text is tenant content leaving messaging toward
+    // the AI system (ai-service embeds it). Route it through the same fail-closed
+    // egress-gate SSoT the chat path uses (tenant AI master switch + user
+    // consent). A disabled tenant / non-consented user gets no AI search and no
+    // content leaves.
+    const egressAllowed = await this.egressGate.isAllowed(
+      tenantId,
+      userId,
+      'semantic-search',
+    );
+    if (!egressAllowed) {
+      this.logger.debug(
+        `Semantic search denied by egress gate (tenant AI off or no consent) — returning empty`,
+      );
+      return [];
+    }
 
     // 1. Generate embedding for the query text
     const queryEmbedding = await this.generateQueryEmbedding(queryText);

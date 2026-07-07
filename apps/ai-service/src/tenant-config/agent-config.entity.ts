@@ -6,9 +6,21 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 
 export type AgentRole = 'operator' | 'manager' | 'expert' | 'supervisor';
 export type ActuationPolicy = 'blocked' | 'confirm_required' | 'allowed';
+
+/** Selectable LLM providers for BYOK. Kept in sync with LlmProviderId. */
+export type LlmProviderId = 'anthropic' | 'openai';
+
+/**
+ * Env var holding the AES-256 key that encrypts tenant AI API keys at rest.
+ * Dedicated to this domain (not shared with PII keys) so it can be rotated
+ * independently. Required in production; the transformer hard-fails boot if
+ * absent under NODE_ENV=production.
+ */
+const AI_SECRET_KEY_ENV = 'AI_TENANT_SECRET_ENCRYPTION_KEY';
 
 @Entity('tenant_agent_configs')
 @Index(['tenantId'], { unique: true })
@@ -18,6 +30,35 @@ export class TenantAgentConfig {
 
   @Column({ type: 'uuid' })
   tenantId!: string;
+
+  // ── BYOK: per-tenant AI credentials (Faz 1) ──────────────────────────────
+  // Provider the tenant has selected. Their key for THIS provider must be
+  // present for AI to be enabled (see AgentConfigService.resolveCredential).
+  @Column({ type: 'varchar', length: 20, default: 'anthropic' })
+  provider!: LlmProviderId;
+
+  // Keys are AES-256-GCM encrypted at rest via the platform transformer
+  // (enc: prefix, authenticated). Stored as text; NEVER selected into a
+  // response unmasked — the CRUD read path returns only a last-4 hint.
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer(AI_SECRET_KEY_ENV),
+  })
+  anthropicApiKey?: string | null;
+
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer(AI_SECRET_KEY_ENV),
+  })
+  openaiApiKey?: string | null;
+
+  // Optional per-tenant chat model override. Null → the persona default
+  // (resolved in AgentProfileService). Not the embedding model — that is a
+  // platform-standard self-hosted model (Faz 3), never tenant-configurable.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  chatModel?: string | null;
 
   @Column({ type: 'varchar', length: 50, default: 'operator-v1' })
   baseProfileId!: string;

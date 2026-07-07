@@ -108,6 +108,9 @@ function makeHarness(opts: HarnessOpts = {}) {
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   (mockManager.findOne as jest.Mock).mockImplementation(async (Entity: unknown) => {
     const name = (Entity as { name?: string }).name;
+    // The record is read INSIDE the transaction under pessimistic_write (the
+    // cancellation state-transition guard) — served from the txn manager.
+    if (name === 'HarvestRecord') return record;
     if (name === 'Batch') return batch;
     if (name === 'TankBatch') return tankBatch;
     if (name === 'Tank') return tank;
@@ -199,8 +202,8 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     expect(delta.biomassDelta).toBe(350);
   });
 
-  it('rejects DISPATCHED harvests BEFORE any tx opens', async () => {
-    const { handler, enqueue } = makeHarness({
+  it('rejects DISPATCHED harvests with no reversal side effects', async () => {
+    const { handler, enqueue, applyBatchDelta } = makeHarness({
       record: { status: HarvestRecordStatus.DISPATCHED } as HarvestRecord,
     });
 
@@ -208,10 +211,11 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
       BadRequestException,
     );
     expect(enqueue).not.toHaveBeenCalled();
+    expect(applyBatchDelta).not.toHaveBeenCalled();
   });
 
-  it('rejects DELIVERED harvests BEFORE any tx opens', async () => {
-    const { handler, enqueue } = makeHarness({
+  it('rejects DELIVERED harvests with no reversal side effects', async () => {
+    const { handler, enqueue, applyBatchDelta } = makeHarness({
       record: { status: HarvestRecordStatus.DELIVERED } as HarvestRecord,
     });
 
@@ -219,6 +223,21 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
       BadRequestException,
     );
     expect(enqueue).not.toHaveBeenCalled();
+    expect(applyBatchDelta).not.toHaveBeenCalled();
+  });
+
+  it('rejects an already-CANCELLED record — cancellation is a state transition, not a repeatable side effect', async () => {
+    const { handler, enqueue, applyBatchDelta } = makeHarness({
+      record: { status: HarvestRecordStatus.CANCELLED } as HarvestRecord,
+    });
+
+    // The pre-fix guard let CANCELLED pass: every re-delete re-added
+    // quantityHarvested to the batch AND the tank (double-restocking).
+    await expect(handler.execute(makeCommand())).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(applyBatchDelta).not.toHaveBeenCalled();
   });
 
   it('outbox enqueue failure rolls back the entire cascade', async () => {

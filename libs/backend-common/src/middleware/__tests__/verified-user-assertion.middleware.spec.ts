@@ -239,6 +239,50 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.verifiedUserAssertion?.mobileFeatures).toEqual(['mortality', 'harvest']);
   });
 
+  // MT-HIGH-054: without this round-trip every non-admin fails closed on any
+  // subgraph @RequireTenantPermission / hasResourcePermission check.
+  it('round-trips resourcePermissions onto req.user', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({
+          resourcePermissions: ['channels:create_group', 'ai_assistant:use'],
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.user).toEqual(
+      expect.objectContaining({
+        resourcePermissions: ['channels:create_group', 'ai_assistant:use'],
+      }),
+    );
+    expect(req.verifiedUserAssertion?.resourcePermissions).toEqual([
+      'channels:create_group',
+      'ai_assistant:use',
+    ]);
+  });
+
+  it('rejects a malformed resourcePermissions claim (non-string members) fail-closed', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({
+          resourcePermissions: ['ok:action', 42],
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    const error = next.mock.calls[0]?.[0];
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error).toHaveProperty(
+      'message',
+      expect.stringContaining('resourcePermissions'),
+    );
+  });
+
   it('ORPHAN-MEDIUM-319: round-trips clientIp + clientUserAgent onto the parsed assertion', () => {
     const req = createRequest({
       headers: {

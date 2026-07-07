@@ -27,7 +27,7 @@ Bulgu ID formatı `{şiddet}-{sıra}` (CLAUDE.md Review Finding Traceability). H
 | SENSOR-HIGH-026 | HIGH | Veri | VFD sihirbazı `modelSeries/pumpId/notes/tags` alanlarını düşürüyor (entity kolonu yok) |
 | SENSOR-HIGH-027 | HIGH | Tenant | `tenant_provisioning_keys` per-tenant şemada ama public path'ten aranıyor → self-register akışı kopuk/güvensiz |
 | SENSOR-HIGH-028 | HIGH | Kontrat | Enum drift: FE `SensorType` (PRESSURE/CAMERA/OTHER) ve `VfdChangeSetStatus` (PARTIALLY_APPLIED vs VERIFIED) backend ile uyumsuz |
-| SENSOR-MEDIUM-001..010 | MEDIUM | Karışık | Bkz. aşağıda |
+| SENSOR-MEDIUM-011..010 | MEDIUM | Karışık | Bkz. aşağıda |
 | SENSOR-LOW-001..008 | LOW | Karışık | Bkz. aşağıda |
 
 ---
@@ -140,11 +140,11 @@ Per-tenant tablo olduğundan `createTenantKey` yolu satırı `tenant_<uuid>.tena
 
 ## MEDIUM
 
-- **SENSOR-MEDIUM-001** — Provisioning token'ları ve tenant key'leri düz metin depolanıyor (`edge-device/tenant-key.service.ts:45,112`, `provisioning.service.ts:118,134`). DB okuma sızıntısı → sahte cihaz enrollment. SHA-256 hash depola, `keyId` prefix ile ara, `timingSafeEqual`. (SENSOR-HIGH-027 ile birlikte düzeltilebilir.)
-- **SENSOR-MEDIUM-002** — Provisioning token URL query parametresi olarak taşınıyor (`provisioning.controller.ts:65-69`, `installer-script.service.ts:198-201`) → nginx/proxy/history/Referer log'larına sızar. Header/POST body'ye taşı.
-- **SENSOR-MEDIUM-003** — MQTT auth HTTP backend varsayılan olarak kimlik-doğrulamasız (`mqtt-auth.controller.ts:45-100`, `@Public`, secret yalnızca header gönderilirse kontrol ediliyor). Prod'da secret'ı zorunlu kıl (bootstrap'te fail-closed), header-yokluğunda reddet, route'ları iç arayüze bağla.
-- **SENSOR-MEDIUM-004** — DoS: her önbelleksiz public/agent isteğinde tüm `tenant_*` şemalarına `UNION ALL` tarama (`provisioning.service.ts:768-796`, `mqtt-auth.service.ts:354-378`); MQTT auth path'inde rate-limit yok. Global `mqtt_client_id → tenant_id` indeksi + negatif-sonuç cache + rate-limit.
-- **SENSOR-MEDIUM-005** — MQTT ACL `acc===4` (SUBSCRIBE) için koşulsuz `true` dönüyor (`mqtt-auth.service.ts:166-169`) → cross-tenant wildcard subscribe mümkün, izolasyon yalnızca per-mesaj READ'e dayanıyor. Subscribe anında tenant kapsamını da doğrula.
+- **SENSOR-MEDIUM-011** — Provisioning token'ları ve tenant key'leri düz metin depolanıyor (`edge-device/tenant-key.service.ts:45,112`, `provisioning.service.ts:118,134`). DB okuma sızıntısı → sahte cihaz enrollment. SHA-256 hash depola, `keyId` prefix ile ara, `timingSafeEqual`. (SENSOR-HIGH-027 ile birlikte düzeltilebilir.)
+- **SENSOR-MEDIUM-012** — Provisioning token URL query parametresi olarak taşınıyor (`provisioning.controller.ts:65-69`, `installer-script.service.ts:198-201`) → nginx/proxy/history/Referer log'larına sızar. Header/POST body'ye taşı.
+- **SENSOR-MEDIUM-013** — MQTT auth HTTP backend varsayılan olarak kimlik-doğrulamasız (`mqtt-auth.controller.ts:45-100`, `@Public`, secret yalnızca header gönderilirse kontrol ediliyor). Prod'da secret'ı zorunlu kıl (bootstrap'te fail-closed), header-yokluğunda reddet, route'ları iç arayüze bağla.
+- **SENSOR-MEDIUM-014** — DoS: her önbelleksiz public/agent isteğinde tüm `tenant_*` şemalarına `UNION ALL` tarama (`provisioning.service.ts:768-796`, `mqtt-auth.service.ts:354-378`); MQTT auth path'inde rate-limit yok. Global `mqtt_client_id → tenant_id` indeksi + negatif-sonuç cache + rate-limit.
+- **SENSOR-MEDIUM-015** — MQTT ACL `acc===4` (SUBSCRIBE) için koşulsuz `true` dönüyor (`mqtt-auth.service.ts:166-169`) → cross-tenant wildcard subscribe mümkün, izolasyon yalnızca per-mesaj READ'e dayanıyor. Subscribe anında tenant kapsamını da doğrula.
 - **SENSOR-MEDIUM-006** — Legacy `edge/{username}/` MQTT topic'leri tenant namespace'siz ve ACL-izinli (`mqtt-auth.service.ts:222-279`). `tenants/{tenantId}/...`'e migrasyonu tamamla, `edge/` branch'i deny yap.
 - **SENSOR-MEDIUM-007** — Device-group üyelik add/move seçili her `deviceId`'nin tenant sahipliğini doğrulamıyor (`device-group.service.ts:184-214,333-360`). Her üyeyi tenant'a karşı doğrula. (`batchUpdateSensors` doğru scope'lu.)
 - **SENSOR-MEDIUM-008** — `REVOKED` cihaz durumu re-provisioning/lifecycle geçişlerinde terminal sayılmıyor (`provisioning.service.ts:495,317`, `edge-device.service.ts:586` yalnızca `DECOMMISSIONED` bloke ediyor) → revoked cihaz sessizce yeniden aktifleşir. `isTerminal(state)` ortak predikatı.
@@ -162,7 +162,7 @@ Per-tenant tablo olduğundan `createTenantKey` yolu satırı `tenant_<uuid>.tena
 - **SENSOR-LOW-005** — Edge stat-kart/filtre tıklamaları `edgePage`'i resetlemiyor (`DevicesPage.tsx:749,756,765`) → N. sayfada sonuçlar gizlenir. Tek `applyEdgeFilter` helper'ı.
 - **SENSOR-LOW-006** — Sensör listesi online durumu mount-anı snapshot (polling yok, `useSensorList.ts:138-148`), edge sekmesi 30s poll ediyor → bayat bağlantı rozeti. TanStack Query + `refetchInterval`.
 - **SENSOR-LOW-007** — Kayıt lifecycle event'leri lokal `EventEmitter2`, `createBaseEvent()` NATS domain event'i değil (`sensor-registration.service.ts:134,172,...`) → farm/alert kayıt lifecycle'ını gözleyemiyor (ADR-006/014). Cross-service gözlem kastediliyorsa kontrat event'ine çevir.
-- **SENSOR-LOW-008** — Rate limiting in-memory per-instance (`guards/rate-limit.guard.ts:55`), N replica = N× limit; `validateAndGetKey` timing-safe compare etkisiz (SENSOR-MEDIUM-001 ile birlikte); legacy file-mode PBKDF2 101 iterasyon (`mqtt-auth.service.ts:56`). Redis-destekli limiter + hash-lookup + legacy path'i kaldır.
+- **SENSOR-LOW-008** — Rate limiting in-memory per-instance (`guards/rate-limit.guard.ts:55`), N replica = N× limit; `validateAndGetKey` timing-safe compare etkisiz (SENSOR-MEDIUM-011 ile birlikte); legacy file-mode PBKDF2 101 iterasyon (`mqtt-auth.service.ts:56`). Redis-destekli limiter + hash-lookup + legacy path'i kaldır.
 
 ---
 

@@ -50,6 +50,8 @@ import {
   TagWriteDto,
 } from './dto/scada-socket.dto';
 import { TagManagerService } from './services/tag-manager.service';
+import { TagResolutionService } from '../process/services/tag-resolution.service';
+import { isTagRef } from '@platform/sensor-contracts';
 
 /* ------------------------------------------------------------------ */
 /*  CORS helper (mirrors the project-wide pattern)                     */
@@ -149,6 +151,7 @@ export class ScadaRuntimeGateway
     private readonly jwtService: JwtService,
     private readonly tagManager: TagManagerService,
     private readonly configService: ConfigService,
+    private readonly tagResolution: TagResolutionService,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
@@ -241,10 +244,10 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   @SubscribeMessage(ScadaSocketEvent.TAG_SUBSCRIBE)
-  handleTagSubscribe(
+  async handleTagSubscribe(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: TagSubscriptionDto,
-  ): void {
+  ): Promise<void> {
     try {
       const clientData = this.clients.get(client.id);
       if (!clientData) {
@@ -264,11 +267,41 @@ export class ScadaRuntimeGateway
         return;
       }
 
-      // Register subscriptions and receive cached initial values
-      const initialValues = this.tagManager.subscribeSocket(client.id, sanitised);
+      // Registry gate (Faz 6): canonical `deviceCode/localName` TagRefs MUST
+      // resolve against THIS tenant's unified_tags registry — a socket can no
+      // longer subscribe to an arbitrary or another tenant's tag by guessing
+      // its fqn. Legacy non-TagRef keys (dotted device-local ids) are
+      // grandfathered through until the client fully migrates to TagRefs
+      // (tracked debt), but every subscription is still tenant-fenced inside
+      // TagManager.
+      const { accepted, rejected } = await this.partitionSubscribableTags(
+        clientData.tenantId,
+        sanitised,
+      );
+
+      if (rejected.length > 0) {
+        this.logger.warn(
+          `[subscribe] ${client.id} (tenant ${clientData.tenantId}) — rejected ${rejected.length} unregistered tag ref(s): ${JSON.stringify(rejected)}`,
+        );
+        this.emitError(
+          client,
+          ScadaSocketEvent.TAG_SUBSCRIBE,
+          SCADA_ERROR_CODES.VALIDATION_ERROR,
+          `Rejected ${rejected.length} tag ref(s) not registered for this tenant: ${rejected.join(', ')}`,
+        );
+      }
+
+      if (accepted.length === 0) return;
+
+      // Register subscriptions (tenant-fenced) and receive cached values
+      const initialValues = this.tagManager.subscribeSocket(
+        client.id,
+        clientData.tenantId,
+        accepted,
+      );
 
       this.logger.debug(
-        `[subscribe] ${client.id} — ${sanitised.length} tag(s) subscribed; ` +
+        `[subscribe] ${client.id} — ${accepted.length} tag(s) subscribed; ` +
           `${initialValues.length} cached value(s) returned`,
       );
 
@@ -280,6 +313,35 @@ export class ScadaRuntimeGateway
       this.logger.error(`[subscribe] ${client.id} error: ${(error as Error).message}`);
       this.emitError(client, ScadaSocketEvent.TAG_SUBSCRIBE, SCADA_ERROR_CODES.INTERNAL_ERROR, 'Subscription failed');
     }
+  }
+
+  /**
+   * Split a subscribe request into tags the tenant may subscribe to and
+   * canonical TagRefs that don't resolve (rejected). A key that is NOT a
+   * TagRef by grammar is treated as a legacy device-local id and passed
+   * through (grandfathered); a grammar-valid TagRef must exist and be
+   * non-retired in this tenant's registry.
+   */
+  private async partitionSubscribableTags(
+    tenantId: string,
+    keys: string[],
+  ): Promise<{ accepted: string[]; rejected: string[] }> {
+    const tagRefCandidates = keys.filter((k) => isTagRef(k));
+    const legacyKeys = keys.filter((k) => !isTagRef(k));
+
+    if (tagRefCandidates.length === 0) {
+      return { accepted: legacyKeys, rejected: [] };
+    }
+
+    const { resolved } = await this.tagResolution.resolve(tenantId, tagRefCandidates);
+    const resolvedRefs = new Set(resolved.map((r) => r.ref as string));
+    const accepted = [...legacyKeys];
+    const rejected: string[] = [];
+    for (const ref of tagRefCandidates) {
+      if (resolvedRefs.has(ref)) accepted.push(ref);
+      else rejected.push(ref);
+    }
+    return { accepted, rejected };
   }
 
   /* ---------------------------------------------------------------- */
@@ -498,15 +560,16 @@ export class ScadaRuntimeGateway
   /* ---------------------------------------------------------------- */
 
   /**
-   * Route a batch of tag value changes only to sockets that have
-   * subscribed to those tags.  Uses TagManagerService for the routing
-   * map to avoid broadcasting to uninterested sockets.
+   * Route a batch of tag value changes for `tenantId` only to that
+   * tenant's sockets that have subscribed to those tags. Uses
+   * TagManagerService for the tenant-fenced routing map so a value can
+   * never be delivered to another tenant's socket.
    */
-  pushTagValues(values: TagValueChange[]): void {
+  pushTagValues(tenantId: string, values: TagValueChange[]): void {
     if (!values || values.length === 0) return;
 
     try {
-      const routingMap = this.tagManager.updateTagValues(values);
+      const routingMap = this.tagManager.updateTagValues(tenantId, values);
 
       for (const [socketId, socketValues] of routingMap) {
         const clientData = this.clients.get(socketId);

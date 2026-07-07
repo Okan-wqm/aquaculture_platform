@@ -11,7 +11,7 @@
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { setTokens, clearSession, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
-import { tokenLifecycle } from '../utils/token-lifecycle';
+import { tokenLifecycle, decodeResourcePermissions } from '../utils/token-lifecycle';
 import { logoutCleanup } from '../utils/logout-cleanup';
 
 // ============================================================================
@@ -50,6 +50,13 @@ export interface AuthUser {
   tenantId?: string | null;
   accessType?: AccessType | null;
   isActive: boolean;
+  /**
+   * Tenant-RBAC capabilities granted to this user (`resource:action` strings),
+   * decoded from the access token's `resourcePermissions` claim. Drives FE
+   * action/UI visibility via useAuth().hasPermission — the backend enforces
+   * independently. Empty for admins (who bypass) and for ungranted users.
+   */
+  resourcePermissions?: string[];
 }
 
 /**
@@ -335,7 +342,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         };
       }>(ME_QUERY);
 
-      return response?.me ?? null;
+      const me = response?.me ?? null;
+      if (!me) return null;
+
+      // Attach the tenant-RBAC capabilities from the access-token claim so
+      // useAuth().hasPermission can gate action/UI visibility. The `me` query
+      // intentionally does not carry them (they are a token concern); the token
+      // is the same trust anchor the FE already uses for role/tenantId.
+      const token = getAccessToken();
+      const resourcePermissions = token ? decodeResourcePermissions(token) : [];
+      return { ...me, user: { ...me.user, resourcePermissions } };
     } catch (error) {
       if (import.meta.env.DEV) {
         console.error('Failed to fetch user:', error);

@@ -772,6 +772,9 @@ export class ServiceProxyService {
         // REST-proxy path must also fold into the verified assertion.
         assignedSiteIds?: string[];
         mobileFeatures?: string[];
+        // MT-HIGH-054: tenant-RBAC capabilities, folded into the assertion so
+        // subgraph @RequireTenantPermission works on the REST-proxy path too.
+        resourcePermissions?: string[];
       };
     }).user;
     // SSoT: the gateway-resolved effective tenant (validated act-as for
@@ -798,6 +801,7 @@ export class ServiceProxyService {
         // denied on any farm/hr mutation routed through the REST proxy.
         assignedSiteIds: user.assignedSiteIds,
         mobileFeatures: user.mobileFeatures,
+        resourcePermissions: user.resourcePermissions,
         // ORPHAN-MEDIUM-319: bind the client network identity into the
         // HMAC-protected assertion on the REST-proxy path, identical to the
         // federation/authenticated-data-source build site.

@@ -19,6 +19,7 @@ import {
   ScadaPackageType,
   ScadaPackageListType,
   DeployScadaPackageResultType,
+  ScadaBackfillResultType,
   DeployScadaWithAutomationInput,
   UnifiedDeployResultType,
 } from '../dto/scada-package.dto';
@@ -344,6 +345,20 @@ export class ProcessResolver {
     return this.mapScadaPackageToType(pkg, tenantId);
   }
 
+  /**
+   * Backfill this tenant's legacy SCADA package docs to ScadaPackageDocV2
+   * (Faz 6 / 6d). Idempotent; `dryRun` previews without writing. Run per tenant
+   * for a platform-wide migration. SECURITY: TENANT_ADMIN only.
+   */
+  @Mutation(() => ScadaBackfillResultType, { name: 'backfillScadaPackageDocs' })
+  @Roles(Role.TENANT_ADMIN)
+  async backfillScadaPackageDocs(
+    @Tenant() tenantId: string,
+    @Args('dryRun', { type: () => Boolean, nullable: true, defaultValue: false }) dryRun: boolean,
+  ): Promise<ScadaBackfillResultType> {
+    return this.scadaPackageService.backfillPackageDocsToV2(tenantId, { dryRun });
+  }
+
   @Mutation(() => DeleteProcessResultType, { name: 'deleteScadaPackage' })
   @Roles(Role.TENANT_ADMIN)
   async deleteScadaPackage(
@@ -369,6 +384,36 @@ export class ProcessResolver {
     try {
       const result = await this.scadaPackageService.deployScadaPackageToEdge(packageId, deviceId, tenantId, user.sub);
       return { success: result.success, message: result.message, packageId: result.success ? packageId : undefined, deviceId: result.success ? deviceId : undefined };
+    } catch (error) {
+      return { success: false, message: (error as Error).message };
+    }
+  }
+
+  /**
+   * Roll a device back to a previously-shipped SCADA artifact snapshot
+   * (real rollback, Faz 3 — republishes the archived content verbatim).
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER.
+   */
+  @Mutation(() => DeployScadaPackageResultType, { name: 'rollbackScadaPackageDeploy' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async rollbackScadaPackageDeploy(
+    @Args('artifactId', { type: () => ID }) artifactId: string,
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<DeployScadaPackageResultType> {
+    try {
+      const result = await this.scadaPackageService.rollbackScadaPackageDeploy(
+        artifactId,
+        deviceId,
+        tenantId,
+        user.sub,
+      );
+      return {
+        success: result.success,
+        message: result.message,
+        deviceId: result.success ? deviceId : undefined,
+      };
     } catch (error) {
       return { success: false, message: (error as Error).message };
     }

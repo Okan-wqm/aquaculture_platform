@@ -93,7 +93,6 @@ import { MessageAnalysis } from './ai/entities/message-analysis.entity';
 import { MessageEntityReference } from './ai/entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
-import { TenantAiSetting } from './ai/entities/tenant-ai-setting.entity';
 import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 
 // Migrations — imported as class references so webpack bundles them into main.js.
@@ -109,6 +108,8 @@ import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/18
 import { AddMessagesEmbeddingColumn1800700000000 } from './migrations/1800700000000-AddMessagesEmbeddingColumn';
 import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000000-CreateMessageReceiptLedger';
 import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migrations/1801000000000-EnsureMessagingTenantErasureProofLedger';
+import { DropChannelAiServiceUrl1802000000000 } from './migrations/1802000000000-DropChannelAiServiceUrl';
+import { DropTenantAiSettings1802100000000 } from './migrations/1802100000000-DropTenantAiSettings';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -184,7 +185,6 @@ type QueryComplexityOperationContext = {
             MessageEntityReference,
             KnowledgeEntry,
             EmbeddingsMetadata,
-            TenantAiSetting,
             UserAiConsent,
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
@@ -199,6 +199,8 @@ type QueryComplexityOperationContext = {
             AddMessagesEmbeddingColumn1800700000000,
             CreateMessageReceiptLedger1800800000000,
             EnsureMessagingTenantErasureProofLedger1801000000000,
+            DropChannelAiServiceUrl1802000000000,
+            DropTenantAiSettings1802100000000,
           ],
         }),
     }),

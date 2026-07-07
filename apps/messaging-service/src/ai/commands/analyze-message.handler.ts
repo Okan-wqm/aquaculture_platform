@@ -53,7 +53,10 @@ export class AnalyzeMessageHandler
       this.logger.debug(
         `Skipping AI analysis for message ${messageId}: privacy gate denied`,
       );
-      // Still forward to AI chat bridge (AI channels don't require analysis consent)
+      // MSG-HIGH-061: still hand off to the AI chat bridge — but the bridge now
+      // enforces the AiEgressGateService SSoT (tenant master switch + consent)
+      // at its single egress point, so a disabled tenant / non-consented user
+      // is blocked THERE. The handler no longer decides chat eligibility.
       await this.safeHandleAiChannel(tenantId, channelId, messageId, content, senderId);
       return;
     }

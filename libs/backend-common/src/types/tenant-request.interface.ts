@@ -35,6 +35,14 @@ export interface VerifiedUserAssertion {
    */
   planLevel?: number;
   /**
+   * MT-HIGH-054: tenant-RBAC capability strings (`resource:action`) the user is
+   * granted. Threaded from the JWT `resourcePermissions` claim so subgraph
+   * @RequireTenantPermission / hasResourcePermission checks work on the
+   * production gateway path (req.user is rebuilt from the assertion, not the raw
+   * JWT). Absent for admins (they bypass) and ungranted users.
+   */
+  resourcePermissions?: string[];
+  /**
    * ORPHAN-MEDIUM-319: the gateway-resolved end-client IP (nginx → gateway
    * `req.ip` under TRUST_PROXY). Threaded through the HMAC-bound assertion so
    * subgraph audit rows / lastLoginIp record the ACTUAL actor instead of the
@@ -90,6 +98,12 @@ export interface JwtUser {
    * enforcement. Populated from the verified assertion / direct JWT.
    */
   planLevel?: number;
+  /**
+   * MT-HIGH-054: tenant-RBAC capability strings (`resource:action`) the user is
+   * granted. Populated from the verified assertion / direct JWT (SEC-HIGH-054).
+   * Read by TenantPermissionGuard and programmatic hasResourcePermission checks.
+   */
+  resourcePermissions?: string[];
 }
 
 /**

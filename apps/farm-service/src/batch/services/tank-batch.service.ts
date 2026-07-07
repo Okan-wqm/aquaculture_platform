@@ -114,7 +114,20 @@ export class TankBatchService {
 
     if (idx >= 0) {
       const d = details[idx]!;
-      d.quantity = Math.max(0, d.quantity + delta.quantityDelta);
+      // Per-tank availability is enforced HERE, in the single writer, so no
+      // caller (mortality, cull, harvest, transfer, reconcile) can overdraw a
+      // batch's share in THIS tank. Handlers validate only the batch-GLOBAL
+      // count; the old Math.max clamp silently absorbed the difference (e.g.
+      // 200 mortality against an 83-fish tank clamped to 0 and permanently
+      // diverged batch vs tank aggregates). Overdraft is a domain error.
+      if (delta.quantityDelta < 0 && -delta.quantityDelta > d.quantity) {
+        throw new Error(
+          `Batch ${delta.batchNumber || delta.batchId} has only ${d.quantity} fish in tank ` +
+            `${tankMeta?.code ?? tankId}; cannot remove ${-delta.quantityDelta}`,
+        );
+      }
+      d.quantity = d.quantity + delta.quantityDelta;
+      // Math.max stays ONLY as a float-noise floor for biomass (kg arithmetic).
       d.biomassKg = Math.max(0, d.biomassKg + delta.biomassDelta);
       if (delta.avgWeightG != null) {
         d.avgWeightG = delta.avgWeightG;
@@ -136,8 +149,14 @@ export class TankBatchService {
           (delta.quantityDelta > 0 ? (Math.max(0, delta.biomassDelta) * 1000) / delta.quantityDelta : 0),
         percentageOfTank: 0,
       });
+    } else if (delta.quantityDelta < 0) {
+      // Removing from a batch that is not in this tank is an overdraft by
+      // definition — the old silent no-op hid mis-attributed removals.
+      throw new Error(
+        `Batch ${delta.batchNumber || delta.batchId} has no fish in tank ` +
+          `${tankMeta?.code ?? tankId}; cannot remove ${-delta.quantityDelta}`,
+      );
     }
-    // A negative delta for a batch not present is a no-op (nothing to remove).
 
     // ── Derive every aggregate from the SSoT (batchDetails[]) ──
     tankBatch.totalQuantity = details.reduce((sum, d) => sum + d.quantity, 0);

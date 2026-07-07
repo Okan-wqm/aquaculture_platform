@@ -48,7 +48,7 @@ vi.mock('../components/scada-builder/TagBrowser', () => ({
 
 // Mock the Zustand store used by EventsPanel
 vi.mock('../store/scada', () => ({
-  useScadaStore: (selector: (state: Record<string, unknown>) => unknown) =>
+  useScadaPackageStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ screens: [] }),
 }));
 

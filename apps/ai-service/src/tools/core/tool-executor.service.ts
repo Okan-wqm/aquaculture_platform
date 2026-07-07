@@ -1,14 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ToolExecutionContext, ToolResult } from './tool.interface';
 import { ToolRegistryService } from '../tool-registry.service';
+import { AuditService } from '../../audit/audit.service';
 
 /**
  * Central tool execution pipeline:
  * 1. Resolve tool from registry
  * 2. Check permissions (role + module entitlement)
- * 3. Check actuation confirmation requirement
+ * 3. Enforce actuation policy — an actuation tool runs autonomously ONLY under
+ *    'allowed'; otherwise it is NOT executed (fail-closed)
  * 4. Execute tool
- * 5. Log to audit trail
+ * 5. Persist to the tool_execution_audit trail (every outcome, incl. denials)
  */
 @Injectable()
 export class ToolExecutorService {
@@ -16,6 +18,7 @@ export class ToolExecutorService {
 
   constructor(
     private readonly registry: ToolRegistryService,
+    private readonly auditService: AuditService,
   ) {}
 
   async executeTool(
@@ -23,14 +26,23 @@ export class ToolExecutorService {
     input: unknown,
     ctx: ToolExecutionContext,
   ): Promise<ToolResult> {
+    const inputRecord =
+      input !== null && typeof input === 'object'
+        ? (input as Record<string, unknown>)
+        : { value: input };
+
     const tool = this.registry.getTool(toolName);
     if (!tool) {
-      return {
+      const unknown: ToolResult = {
         success: false,
         error: `Unknown tool: ${toolName}`,
         durationMs: 0,
         cacheable: false,
       };
+      // Audit unknown-tool attempts too — an LLM probing tool names should
+      // leave a trail rather than vanish.
+      await this.audit(toolName, inputRecord, unknown, ctx);
+      return unknown;
     }
 
     const metadata = tool.getMetadata();
@@ -43,43 +55,61 @@ export class ToolExecutorService {
       this.logger.warn(
         `Permission denied: ${ctx.userId} (roles: ${ctx.userRoles.join(',')}) attempted ${toolName}`,
       );
-      return {
+      const denied: ToolResult = {
         success: false,
         error: `Permission denied: requires one of [${metadata.requiredPermissions.join(', ')}]`,
         durationMs: 0,
         cacheable: false,
       };
+      await this.audit(toolName, inputRecord, denied, ctx);
+      return denied;
     }
 
-    // Confirmation check for actuation tools
-    if (metadata.requiresConfirmation) {
-      this.logger.log(
-        `Tool ${toolName} requires confirmation - marking for approval workflow`,
+    // AISAFETY-MEDIUM-017: actuation policy enforcement (fail-closed).
+    // Previously this branch only LOGGED and executed anyway ("assumes
+    // confirmation has already been obtained") — nothing obtained it, so an
+    // actuation tool ran without confirmation. Now: a tool that requires
+    // confirmation executes autonomously ONLY under an 'allowed' policy.
+    // 'blocked' denies outright; 'confirm_required' returns a pending result
+    // (the tool does NOT run) that the human-in-the-loop flow (Faz 6) resolves.
+    if (metadata.requiresConfirmation && ctx.actuationPolicy !== 'allowed') {
+      const blocked = ctx.actuationPolicy === 'blocked';
+      this.logger.warn(
+        `Actuation ${blocked ? 'blocked' : 'held for confirmation'}: ${toolName} ` +
+          `(policy=${ctx.actuationPolicy}) by ${ctx.userId} — NOT executed`,
       );
-      // The approval workflow will be handled by the agent runner
-      // This executor assumes confirmation has already been obtained
+      const pending: ToolResult = {
+        success: false,
+        requiresConfirmation: !blocked,
+        error: blocked
+          ? `Tool ${toolName} is blocked by the tenant actuation policy`
+          : `Tool ${toolName} requires human confirmation before execution`,
+        durationMs: 0,
+        cacheable: false,
+      };
+      await this.audit(toolName, inputRecord, pending, ctx);
+      return pending;
     }
 
     // Execute the tool
     const result = await tool.execute(input, ctx);
 
-    // Audit logging (async, non-blocking)
-    this.logExecution(toolName, input, result, ctx).catch((err) =>
-      this.logger.error(`Audit log failed: ${err}`),
-    );
+    // Persist every execution to the audit trail. Awaited (not fire-and-forget)
+    // so audit ordering is deterministic. NOTE: AuditService logs loudly and
+    // then SWALLOWS a storage failure so a broken audit write can't break the
+    // chat flow — so this orders but does not by itself GUARANTEE durability; a
+    // hard durability guarantee (outbox/transaction) is tracked separately.
+    await this.audit(toolName, inputRecord, result, ctx);
 
     return result;
   }
 
-  private async logExecution(
+  private async audit(
     toolName: string,
-    input: unknown,
+    input: Record<string, unknown>,
     result: ToolResult,
     ctx: ToolExecutionContext,
   ): Promise<void> {
-    this.logger.debug(
-      `Tool execution: ${toolName} | tenant: ${ctx.tenantId} | success: ${result.success} | ${result.durationMs}ms`,
-    );
-    // TODO: Write to tool_execution_audit table when AuditService is implemented
+    await this.auditService.logToolExecution(toolName, input, result, ctx);
   }
 }

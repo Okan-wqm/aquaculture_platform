@@ -172,6 +172,8 @@ export interface AlarmRuleJSON {
 
 export interface ScadaPackageJSON {
   meta?: {
+    /** Document contract version (ScadaPackageDocV2 = 2); absent on legacy V1 docs. */
+    schemaVersion?: number;
     version?: number;
     packageName?: string;
     processId?: string | null;

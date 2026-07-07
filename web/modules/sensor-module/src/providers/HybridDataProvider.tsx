@@ -29,7 +29,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
-import { useScadaStore } from '../store/scada';
+import { useScadaPackageStore } from '../store/scada';
 import { ScadaSocketService } from '../services/ScadaSocketService';
 import {
   createTagSubscriptionManager,
@@ -115,8 +115,8 @@ export function HybridDataProviderInner({
 }: HybridDataProviderInnerProps): React.ReactElement {
   // ── Simulation side ───────────────────────────────────────────────────────
 
-  const simTagValues = useScadaStore((s) => s.simTagValues);
-  const setSimTagValue = useScadaStore((s) => s.setSimTagValue);
+  const simTagValues = useScadaPackageStore((s) => s.simTagValues);
+  const setSimTagValue = useScadaPackageStore((s) => s.setSimTagValue);
   const simTagValuesRef = useRef(simTagValues);
   simTagValuesRef.current = simTagValues;
 

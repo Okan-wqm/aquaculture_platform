@@ -1,0 +1,70 @@
+{
+  "commandId": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+  "command": "deploy_program",
+  "params": {
+    "id": "8a7b6c5d-4e3f-4a2b-9c8d-7e6f5a4b3c2d",
+    "name": "Aeration Control",
+    "description": "Dissolved-oxygen driven aerator control",
+    "version": 2,
+    "executionMode": "scan_cycle",
+    "scanCycleMs": 100,
+    "functionBlocks": [
+      {
+        "id": "delay1",
+        "fb_type": "TON",
+        "params": { "pt_ms": 5000 },
+        "inputs": { "IN": "sensor:dissolved_oxygen" },
+        "outputs": { "Q": "var:aerator_ready" }
+      },
+      {
+        "id": "doseCount",
+        "fb_type": "CTU",
+        "params": { "pv": 10 },
+        "inputs": {},
+        "outputs": {}
+      }
+    ],
+    "script": {
+      "id": "script-aeration-control",
+      "name": "Aeration Control",
+      "description": "Dissolved-oxygen driven aerator control",
+      "version": "2",
+      "enabled": true,
+      "priority": "normal",
+      "triggers": [
+        {
+          "type": "threshold",
+          "source": "sensor:dissolved_oxygen",
+          "operator": "lt",
+          "value": 5.5
+        },
+        { "type": "interval", "interval_secs": 60 },
+        { "type": "startup" }
+      ],
+      "conditions": [],
+      "actions": [
+        { "type": "log", "message": "SFC step [S1]: Aerate" },
+        { "type": "set_gpio", "target": "17", "value": true },
+        { "type": "delay", "delay_ms": 1500 },
+        { "type": "set_variable", "target": "delay1_IN", "value": true },
+        {
+          "type": "write_modbus",
+          "device": "vfd_aerator",
+          "address": 40001,
+          "value": 75
+        }
+      ],
+      "on_error": [
+        {
+          "type": "alert",
+          "level": "error",
+          "message": "Error in program AER-01: ${error}"
+        }
+      ]
+    },
+    "replaceExisting": true,
+    "artifactSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "signature": "cf5e386d472b0d2af37a04093d670f75e96e46c548df9574c4dabb27ae605573b0e0de262f62fbbe5f947136b4ce300478a8247b9c1cfa9737fac2a16d79be06"
+  },
+  "timestamp": "2026-07-02T10:00:00.000Z"
+}

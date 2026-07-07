@@ -225,22 +225,10 @@ export class AiResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
-  /**
-   * Update the tenant-level AI analysis setting.
-   * Only TENANT_ADMIN can toggle the master AI switch.
-   */
-  @Mutation(() => Boolean, {
-    name: 'updateTenantAiSetting',
-    description: 'Enable/disable AI analysis for the tenant (TENANT_ADMIN only)',
-  })
-  @Roles(Role.TENANT_ADMIN)
-  async updateTenantAiSetting(
-    @Args('enabled', { type: () => Boolean }) enabled: boolean,
-    @Tenant() tenantId: string,
-  ): Promise<boolean> {
-    await this.privacyService.setTenantAiEnabled(tenantId, enabled);
-    return true;
-  }
+  // updateTenantAiSetting removed — the tenant-level "AI on/off" master switch
+  // is owned by ai-service (updateAiProviderSettings.isEnabled, where the tenant
+  // also sets the provider key). Messaging no longer stores a duplicate flag;
+  // the aiSettings query's tenantAiEnabled now reflects ai-service's SSoT.
 
   /**
    * Update user-level AI analysis consent.

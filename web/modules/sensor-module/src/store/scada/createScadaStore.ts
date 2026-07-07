@@ -48,7 +48,4 @@ export function createScadaStore() {
 }
 
 // Singleton instance for the application
-export const useScadaStore = createScadaStore();
-
-// Backward compatibility alias
-export const useScadaPackageStore = useScadaStore;
+export const useScadaPackageStore = createScadaStore();

@@ -48,7 +48,7 @@ import {
 } from './st-language-enhanced';
 import { createStCompletionProvider, setTags } from './StCompletionProvider';
 import { useEditorModeStore } from '../../store/editorModeStore';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import StOutlineTree from './StOutlineTree';
 import StProblemsPanel, { type Diagnostic } from './StProblemsPanel';
 import ExportDialog from './json-bundle/ExportDialog';

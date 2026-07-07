@@ -32683,6 +32683,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger-rls.helper.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger-rls.helper.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/rls/infrastructure-ledger.ssot.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/rls/rls-connection-bootstrap.service.ts",
       "prettier_managed": true
     },
@@ -38047,6 +38065,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/farm-graphql-surface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/infrastructure-ledger-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -50532,10 +50556,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8276,
+  "file_count": 8280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8101,
-  "managed_file_list_sha256": "80c6badf8a351ecbf5b01ea27d3e9ebf4432b60bafe2cd0a01be3f31ce9ff4f0",
+  "managed_count": 8105,
+  "managed_file_list_sha256": "741068bf7ce299948e3d56e671614d92d5ae67bdd5995888d68fa81f680abc15",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

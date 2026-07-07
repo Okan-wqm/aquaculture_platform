@@ -112,6 +112,11 @@ export const PROTECTED_TABLES = [
   'hr.leave_ledger_entries',
   'messaging.compliance_audit_log',
   'messaging.legal_holds',
+  // ORPHAN-MEDIUM-324: sensor.sensor_audit_logs ships an append-only
+  // immutability trigger + REVOKE UPDATE,DELETE (sensor Baseline) that names
+  // "protected-tables-guard" in its exception, but the table was never added
+  // to this SSoT — the gap the infrastructure-ledger-ssot invariant surfaced.
+  'sensor.sensor_audit_logs',
 
   // ── Auth audit (SOC 2 CC7.2 detective control) ──
   'auth.audit_logs',

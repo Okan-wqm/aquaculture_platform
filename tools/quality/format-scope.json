@@ -4517,6 +4517,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-credential-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/auth-credential-nats.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/auth-public-nats.handler.ts",
       "prettier_managed": true
     },
@@ -34381,6 +34393,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/auth-credential-queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/auth-events.ts",
       "prettier_managed": true
     },
@@ -34550,6 +34568,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/tenant-events.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/auth-credential-queries.schema.ts",
       "prettier_managed": true
     },
     {
@@ -39499,6 +39523,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/closure-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
     {
@@ -50670,10 +50706,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8299,
+  "file_count": 8305,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8124,
-  "managed_file_list_sha256": "dd6e17458eaf2934c61d98ad6c42f7894f71cdfe39c89f7eb079212c262d0691",
+  "managed_count": 8130,
+  "managed_file_list_sha256": "b5585e1a2eaf6cc24d702bdb32c42cb3c3671ac47c378a1844508ca822d4f202",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

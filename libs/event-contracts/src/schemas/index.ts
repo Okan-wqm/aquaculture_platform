@@ -39,3 +39,4 @@ export {
   MAX_SHORT_CODE_LENGTH,
 } from './common.schema';
 export * from './auth-user-queries.schema';
+export * from './auth-credential-queries.schema';

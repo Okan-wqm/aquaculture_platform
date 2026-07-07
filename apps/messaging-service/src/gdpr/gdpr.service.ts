@@ -5,7 +5,7 @@ import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import Redis from 'ioredis';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, AUTH_CREDENTIAL_SUBJECTS, type VerifyPasswordQuery } from '@platform/event-contracts';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../message/entities/message.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
@@ -66,10 +66,6 @@ interface GdprExportResult {
   reactions: ExportedReaction[];
 }
 
-interface VerifyPasswordPayload {
-  userId: string;
-  password: string;
-}
 
 /**
  * GDPR compliance service for the messaging domain.
@@ -500,13 +496,16 @@ export class GdprService {
     try {
       const result = await firstValueFrom(
         this.natsClient
-          .send<boolean, VerifyPasswordPayload>('request.auth.verifyPassword', {
+          .send<boolean, VerifyPasswordQuery>(AUTH_CREDENTIAL_SUBJECTS.VERIFY_PASSWORD, {
             userId,
             password,
           })
           .pipe(timeout(NATS_TIMEOUT_MS)),
       );
-      return !!result;
+      // Bare boolean by contract: an RpcException (validation / rate-limit /
+      // internal / no-responder-timeout) lands in the catch below and fails
+      // closed — the irreversible erasure is blocked, never bypassed.
+      return result === true;
     } catch (err) {
       this.logger.error(
         `Password verification request failed: ${(err as Error).message}`,

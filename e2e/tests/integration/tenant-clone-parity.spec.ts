@@ -183,6 +183,19 @@ async function provisionTestTenantSchema(
     }
     provisioned.set(sourceSchema, tableNames);
   }
+
+  // DATA-HIGH-006: mirror the messaging grant step SchemaManagerService.
+  // createTenantSchema runs. Production re-owns the partitioned messaging
+  // relations to messaging_schema_owner (the SECURITY DEFINER partition function
+  // needs parent OWNERSHIP on pg16) and re-grants the messaging_service runtime
+  // role SELECT/INSERT/UPDATE/DELETE via platform.grant_messaging_partition_-
+  // authority. CREATE TABLE LIKE above copies neither ownership nor grants, so
+  // without this the DATA-HIGH-006 regression guard fails on a test-provisioned
+  // tenant a real one would pass. Calling the SAME SSoT function the production
+  // path uses keeps the guard honest: break the grant function and this test
+  // breaks with it.
+  await db.query(`SELECT platform.grant_messaging_partition_authority($1)`, [schemaName]);
+
   return { schemaName, provisionedTables: provisioned };
 }
 

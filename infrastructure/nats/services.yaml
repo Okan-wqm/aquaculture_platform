@@ -152,6 +152,7 @@ services:
       # ai-service create_task actuation tool (request-reply responder)
       - "request.farm.createTask"
       - "request.farm.getTankRegistry"
+      - "request.farm.getBatchOverview"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -313,6 +314,7 @@ services:
       # create_task actuation tool → farm-service responder (request-reply)
       - "request.farm.createTask"
       - "request.farm.getTankRegistry"
+      - "request.farm.getBatchOverview"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

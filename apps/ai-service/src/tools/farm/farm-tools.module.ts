@@ -3,8 +3,9 @@ import { ClientsModule } from '@nestjs/microservices';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { CreateTaskTool } from './create-task.tool';
 import { GetFarmTanksTool } from './get-farm-tanks.tool';
+import { GetFarmBatchesTool } from './get-farm-batches.tool';
 
-const TOOLS = [CreateTaskTool, GetFarmTanksTool];
+const TOOLS = [CreateTaskTool, GetFarmTanksTool, GetFarmBatchesTool];
 
 /**
  * Farm actuation tools. The tools reach farm-service over NATS request-reply,

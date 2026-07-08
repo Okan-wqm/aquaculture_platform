@@ -86,7 +86,7 @@ import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
-export class User {
+export class PublicUserProfile {
   @Field(() => ID)
   id!: string;
 
@@ -386,13 +386,13 @@ export class MessageResolver {
   /**
    * Get presence info for a list of users.
    */
-  @Query(() => [User], { name: 'userPresence' })
+  @Query(() => [PublicUserProfile], { name: 'userPresence' })
   async getUserPresence(
     @Args('userIds', { type: () => [ID] }) userIds: string[],
     @Tenant() tenantId: string,
-  ): Promise<User[]> {
+  ): Promise<PublicUserProfile[]> {
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
-    const results: User[] = [];
+    const results: PublicUserProfile[] = [];
     for (const id of userIds) {
       const isOnline = onlineMap.get(id) ?? false;
       const lastSeenAt = isOnline ? null : await this.presenceService.getLastSeen(tenantId, id);
@@ -410,11 +410,11 @@ export class MessageResolver {
    * (id + presence inline; display name/avatar stitched from auth, display-only),
    * so the picker shows real people without a profile-harvesting oracle.
    */
-  @Query(() => [User], { name: 'channelEligibleUsers' })
+  @Query(() => [PublicUserProfile], { name: 'channelEligibleUsers' })
   async channelEligibleUsers(
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
-  ): Promise<User[]> {
+  ): Promise<PublicUserProfile[]> {
     let result: ListTenantUserIdsResult | undefined;
     try {
       result = await firstValueFrom(
@@ -841,14 +841,14 @@ export class MessageResolver {
    * Resolve the sender field for a Message via request-scoped batched DataLoader.
    * Creates the DataLoader lazily on first access per request context.
    */
-  @ResolveField(() => User, { name: 'sender', nullable: true })
+  @ResolveField(() => PublicUserProfile, { name: 'sender', nullable: true })
   async resolveSender(
     @Parent() message: Message,
     @Tenant() tenantId: string,
-    @Context() ctx: { userLoader?: DataLoader<string, User> },
-  ): Promise<User> {
+    @Context() ctx: { userLoader?: DataLoader<string, PublicUserProfile> },
+  ): Promise<PublicUserProfile> {
     if (!ctx.userLoader) {
-      ctx.userLoader = new DataLoader<string, User>(
+      ctx.userLoader = new DataLoader<string, PublicUserProfile>(
         async (userIds: readonly string[]) => {
           return this.batchLoadUsers([...userIds], tenantId);
         },
@@ -981,7 +981,7 @@ export class MessageResolver {
    * messaging contributes ONLY id + presence; the gateway stitches the display
    * fields (firstName/lastName/profileImageUrl) from auth-service's federated User.
    */
-  private async batchLoadUsers(userIds: string[], tenantId: string): Promise<User[]> {
+  private async batchLoadUsers(userIds: string[], tenantId: string): Promise<PublicUserProfile[]> {
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
     return Promise.all(
       userIds.map(async (id) => {

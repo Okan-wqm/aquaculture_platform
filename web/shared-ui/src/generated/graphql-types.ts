@@ -2,17 +2,17 @@ export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
-  ID: { input: string; output: string; }
-  String: { input: string; output: string; }
-  Boolean: { input: boolean; output: boolean; }
-  Int: { input: number; output: number; }
-  Float: { input: number; output: number; }
+  ID: { input: string; output: string };
+  String: { input: string; output: string };
+  Boolean: { input: boolean; output: boolean };
+  Int: { input: number; output: number };
+  Float: { input: number; output: number };
   /** A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format. */
-  DateTime: { input: string; output: string; }
+  DateTime: { input: string; output: string };
   /** The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf). */
-  JSON: { input: Record<string, unknown>; output: Record<string, unknown>; }
-  join__FieldSet: { input: unknown; output: unknown; }
-  link__Import: { input: unknown; output: unknown; }
+  JSON: { input: Record<string, unknown>; output: Record<string, unknown> };
+  join__FieldSet: { input: unknown; output: unknown };
+  link__Import: { input: unknown; output: unknown };
 };
 
 export type AcceptInvitationInput = {
@@ -23,10 +23,7 @@ export type AcceptInvitationInput = {
 };
 
 /** Controls which platforms the user can access */
-export type AccessType =
-  | 'BOTH'
-  | 'MOBILE_ONLY'
-  | 'PANEL_ONLY';
+export type AccessType = 'BOTH' | 'MOBILE_ONLY' | 'PANEL_ONLY';
 
 export type AcknowledgeAlarmInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
@@ -38,18 +35,7 @@ export type AcknowledgeAlertInput = {
 };
 
 /** IEC 61131-3 action qualifier determining when/how action executes */
-export type ActionQualifier =
-  | 'D'
-  | 'DS'
-  | 'L'
-  | 'N'
-  | 'P'
-  | 'P0'
-  | 'P1'
-  | 'R'
-  | 'S'
-  | 'SD'
-  | 'SL';
+export type ActionQualifier = 'D' | 'DS' | 'L' | 'N' | 'P' | 'P0' | 'P1' | 'R' | 'S' | 'SD' | 'SL';
 
 /** Type of action to perform */
 export type ActionType =
@@ -210,10 +196,7 @@ export type AdjustFeedInventoryInput = {
 };
 
 /** Stok düzeltme tipi */
-export type AdjustmentType =
-  | 'DECREASE'
-  | 'INCREASE'
-  | 'SET_QUANTITY';
+export type AdjustmentType = 'DECREASE' | 'INCREASE' | 'SET_QUANTITY';
 
 export type AerationInput = {
   aerationType?: InputMaybe<Scalars['String']['input']>;
@@ -326,11 +309,7 @@ export type AlarmCountBySource = {
   source: Scalars['String']['output'];
 };
 
-export type AlarmSeverity =
-  | 'CRITICAL'
-  | 'EMERGENCY'
-  | 'INFO'
-  | 'WARNING';
+export type AlarmSeverity = 'CRITICAL' | 'EMERGENCY' | 'INFO' | 'WARNING';
 
 export type AlarmSource =
   | 'BLOWER_VFD'
@@ -372,12 +351,7 @@ export type AlertHistory = {
 };
 
 /** Comparison operator for alert conditions */
-export type AlertOperator =
-  | 'EQ'
-  | 'GT'
-  | 'GTE'
-  | 'LT'
-  | 'LTE';
+export type AlertOperator = 'EQ' | 'GT' | 'GTE' | 'LT' | 'LTE';
 
 export type AlertRule = {
   conditions: Scalars['JSON']['output'];
@@ -407,13 +381,7 @@ export type AlertSettingsInput = {
 };
 
 /** Severity level for alerts */
-export type AlertSeverity =
-  | 'CRITICAL'
-  | 'HIGH'
-  | 'INFO'
-  | 'LOW'
-  | 'MEDIUM'
-  | 'WARNING';
+export type AlertSeverity = 'CRITICAL' | 'HIGH' | 'INFO' | 'LOW' | 'MEDIUM' | 'WARNING';
 
 export type AlertThreshold = {
   high?: Maybe<Scalars['Float']['output']>;
@@ -547,9 +515,7 @@ export type AnnouncementListItem = {
 };
 
 /** Who can create/see the announcement */
-export type AnnouncementScope =
-  | 'PLATFORM'
-  | 'TENANT';
+export type AnnouncementScope = 'PLATFORM' | 'TENANT';
 
 export type AnnouncementStats = {
   draft: Scalars['Float']['output'];
@@ -562,12 +528,7 @@ export type AnnouncementStats = {
 };
 
 /** Announcement publication status */
-export type AnnouncementStatus =
-  | 'CANCELLED'
-  | 'DRAFT'
-  | 'EXPIRED'
-  | 'PUBLISHED'
-  | 'SCHEDULED';
+export type AnnouncementStatus = 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'PUBLISHED' | 'SCHEDULED';
 
 export type AnnouncementTarget = {
   excludeTenantIds?: Maybe<Array<Scalars['String']['output']>>;
@@ -586,11 +547,7 @@ export type AnnouncementTargetInput = {
 };
 
 /** Announcement type/severity */
-export type AnnouncementType =
-  | 'CRITICAL'
-  | 'INFO'
-  | 'MAINTENANCE'
-  | 'WARNING';
+export type AnnouncementType = 'CRITICAL' | 'INFO' | 'MAINTENANCE' | 'WARNING';
 
 export type ApplyParameterTemplateInput = {
   /** Overwrite existing parameter configs with same code */
@@ -619,13 +576,7 @@ export type ApproveWorkOrderInput = {
 };
 
 /** Batch arrival/transport method */
-export type ArrivalMethod =
-  | 'AIR_CARGO'
-  | 'BOAT'
-  | 'LOCAL_PICKUP'
-  | 'OTHER'
-  | 'RAIL'
-  | 'TRUCK';
+export type ArrivalMethod = 'AIR_CARGO' | 'BOAT' | 'LOCAL_PICKUP' | 'OTHER' | 'RAIL' | 'TRUCK';
 
 export type AssessmentAttempt = {
   attemptNumber: Scalars['Int']['output'];
@@ -1334,9 +1285,7 @@ export type BatchTraceabilitySummaryResponse = {
 };
 
 /** Batch tipi - üretim veya cleaner fish */
-export type BatchType =
-  | 'CLEANER_FISH'
-  | 'PRODUCTION';
+export type BatchType = 'CLEANER_FISH' | 'PRODUCTION';
 
 export type BatchUpdateSensorsInputType = {
   departmentId?: InputMaybe<Scalars['String']['input']>;
@@ -1369,11 +1318,7 @@ export type BillingAddressInput = {
   taxId?: InputMaybe<Scalars['String']['input']>;
 };
 
-export type BillingCycle =
-  | 'ANNUAL'
-  | 'MONTHLY'
-  | 'QUARTERLY'
-  | 'SEMI_ANNUAL';
+export type BillingCycle = 'ANNUAL' | 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL';
 
 export type BiomassAltinnExportOutput = {
   /** Form-ordered CSV (Section,Field,Value) */
@@ -1444,11 +1389,7 @@ export type BiomassReport = {
 };
 
 /** Lifecycle of a biomass report snapshot */
-export type BiomassReportStatus =
-  | 'CONFIRMED_SUBMITTED'
-  | 'DRAFT'
-  | 'READY'
-  | 'SUBMITTED';
+export type BiomassReportStatus = 'CONFIRMED_SUBMITTED' | 'DRAFT' | 'READY' | 'SUBMITTED';
 
 export type BiomassSlaughterInput = {
   records: Array<BiomassSlaughterRecordInput>;
@@ -1645,9 +1586,7 @@ export type BulkUpdateMobileSettingsInput = {
 };
 
 /** Byte order for data parsing */
-export type ByteOrder =
-  | 'BIG'
-  | 'LITTLE';
+export type ByteOrder = 'BIG' | 'LITTLE';
 
 export type Co2RangeInput = {
   max: Scalars['Float']['input'];
@@ -1719,10 +1658,7 @@ export type CertificationDocument = {
   uploadedAt: Scalars['DateTime']['output'];
 };
 
-export type CertificationRequirement =
-  | 'MANDATORY'
-  | 'OPTIONAL'
-  | 'RECOMMENDED';
+export type CertificationRequirement = 'MANDATORY' | 'OPTIONAL' | 'RECOMMENDED';
 
 export type CertificationStatus =
   | 'ACTIVE'
@@ -1818,11 +1754,7 @@ export type Channel = {
 };
 
 /** Data type of the channel value */
-export type ChannelDataType =
-  | 'BOOLEAN'
-  | 'ENUM'
-  | 'NUMBER'
-  | 'STRING';
+export type ChannelDataType = 'BOOLEAN' | 'ENUM' | 'NUMBER' | 'STRING';
 
 export type ChannelDetectionLog = {
   aiAnalysis: Scalars['JSON']['output'];
@@ -1896,10 +1828,7 @@ export type ChannelSensorInfo = {
   type?: Maybe<Scalars['String']['output']>;
 };
 
-export type ChannelType =
-  | 'AI'
-  | 'DIRECT'
-  | 'GROUP';
+export type ChannelType = 'AI' | 'DIRECT' | 'GROUP';
 
 export type CheckInHistoryEntry = {
   location?: Maybe<CheckInLocation>;
@@ -1936,12 +1865,7 @@ export type ChemicalDocumentResponse = {
 };
 
 /** Type of chemical document */
-export type ChemicalDocumentType =
-  | 'CERTIFICATE'
-  | 'LABEL'
-  | 'MSDS'
-  | 'OTHER'
-  | 'PROTOCOL';
+export type ChemicalDocumentType = 'CERTIFICATE' | 'LABEL' | 'MSDS' | 'OTHER' | 'PROTOCOL';
 
 export type ChemicalFilterInput = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -2086,11 +2010,7 @@ export type CleanerFishOpprinnelse =
   | 'VILLFANGET'
   | 'VILLFANGET_OG_OPPDRETTET';
 
-export type CleanerFishSpeciesCode =
-  | 'BER'
-  | 'BNB'
-  | 'GRO'
-  | 'USB';
+export type CleanerFishSpeciesCode = 'BER' | 'BNB' | 'GRO' | 'USB';
 
 export type CleanerFishSpeciesInfo = {
   cleanerFishType?: Maybe<Scalars['String']['output']>;
@@ -2121,13 +2041,7 @@ export type ClockInInput = {
   workAreaId?: InputMaybe<Scalars['String']['input']>;
 };
 
-export type ClockMethod =
-  | 'BIOMETRIC'
-  | 'CARD'
-  | 'GPS'
-  | 'MANUAL'
-  | 'MOBILE'
-  | 'WEB';
+export type ClockMethod = 'BIOMETRIC' | 'CARD' | 'GPS' | 'MANUAL' | 'MOBILE' | 'WEB';
 
 export type ClockOutInput = {
   breakEndTime?: InputMaybe<Scalars['DateTime']['input']>;
@@ -2173,10 +2087,7 @@ export type ColumnInfo = {
 };
 
 /** Who wrote the comment */
-export type CommentAuthorType =
-  | 'SUPER_ADMIN'
-  | 'SYSTEM'
-  | 'TENANT_ADMIN';
+export type CommentAuthorType = 'SUPER_ADMIN' | 'SYSTEM' | 'TENANT_ADMIN';
 
 export type CommentItem = {
   attachments?: Maybe<Array<TicketAttachment>>;
@@ -2274,11 +2185,7 @@ export type ComplianceStats = {
 };
 
 /** Type of transition condition */
-export type ConditionType =
-  | 'ALWAYS'
-  | 'EVENT'
-  | 'EXPRESSION'
-  | 'TIMEOUT';
+export type ConditionType = 'ALWAYS' | 'EVENT' | 'EXPRESSION' | 'TIMEOUT';
 
 export type ConditionWarning = {
   field: Scalars['String']['output'];
@@ -2290,19 +2197,10 @@ export type ConditionWarning = {
 };
 
 /** Environment for configuration */
-export type ConfigEnvironment =
-  | 'ALL'
-  | 'DEVELOPMENT'
-  | 'PRODUCTION'
-  | 'STAGING';
+export type ConfigEnvironment = 'ALL' | 'DEVELOPMENT' | 'PRODUCTION' | 'STAGING';
 
 /** Type of configuration value */
-export type ConfigValueType =
-  | 'BOOLEAN'
-  | 'JSON'
-  | 'NUMBER'
-  | 'SECRET'
-  | 'STRING';
+export type ConfigValueType = 'BOOLEAN' | 'JSON' | 'NUMBER' | 'SECRET' | 'STRING';
 
 export type ConnectionDiagnosticsType = {
   authenticationMs?: Maybe<Scalars['Int']['output']>;
@@ -2411,11 +2309,7 @@ export type ConsumableResponse = {
 };
 
 /** Status of the consumable */
-export type ConsumableStatus =
-  | 'AVAILABLE'
-  | 'DISCONTINUED'
-  | 'LOW_STOCK'
-  | 'OUT_OF_STOCK';
+export type ConsumableStatus = 'AVAILABLE' | 'DISCONTINUED' | 'LOW_STOCK' | 'OUT_OF_STOCK';
 
 export type ConsumeFeedInventoryInput = {
   feedingRecordId?: InputMaybe<Scalars['ID']['input']>;
@@ -2426,12 +2320,7 @@ export type ConsumeFeedInventoryInput = {
 };
 
 /** Yem tüketim nedeni */
-export type ConsumptionReason =
-  | 'ADJUSTMENT'
-  | 'EXPIRED'
-  | 'FEEDING'
-  | 'TRANSFER'
-  | 'WASTE';
+export type ConsumptionReason = 'ADJUSTMENT' | 'EXPIRED' | 'FEEDING' | 'TRANSFER' | 'WASTE';
 
 export type ContactInfo = {
   email: Scalars['String']['output'];
@@ -4349,9 +4238,7 @@ export type DepartmentSettingsInput = {
 };
 
 /** Departman durumu */
-export type DepartmentStatus =
-  | 'ACTIVE'
-  | 'INACTIVE';
+export type DepartmentStatus = 'ACTIVE' | 'INACTIVE';
 
 export type DepartmentSummary = {
   code: Scalars['String']['output'];
@@ -4432,10 +4319,7 @@ export type DeployScadaWithAutomationInput = {
 };
 
 /** Where the automation program is deployed to */
-export type DeployTarget =
-  | 'CODESYS_PLC'
-  | 'PLC_SETPOINT'
-  | 'RUST_ENGINE';
+export type DeployTarget = 'CODESYS_PLC' | 'PLC_SETPOINT' | 'RUST_ENGINE';
 
 export type DeploymentLog = {
   artifactId?: Maybe<Scalars['ID']['output']>;
@@ -4490,12 +4374,7 @@ export type DeploymentResult = {
 };
 
 /** Status of a program deployment to edge device */
-export type DeploymentStatus =
-  | 'DEPLOYING'
-  | 'FAILED'
-  | 'PENDING'
-  | 'ROLLED_BACK'
-  | 'SUCCESS';
+export type DeploymentStatus = 'DEPLOYING' | 'FAILED' | 'PENDING' | 'ROLLED_BACK' | 'SUCCESS';
 
 export type DeviceEventConnection = {
   items: Array<DeviceEventItem>;
@@ -4540,12 +4419,7 @@ export type DeviceGroupMember = {
 };
 
 /** Type of device group */
-export type DeviceGroupType =
-  | 'CUSTOM'
-  | 'DEPARTMENT'
-  | 'EQUIPMENT_TYPE'
-  | 'SITE'
-  | 'SYSTEM';
+export type DeviceGroupType = 'CUSTOM' | 'DEPARTMENT' | 'EQUIPMENT_TYPE' | 'SITE' | 'SYSTEM';
 
 export type DeviceInstallCommands = {
   /** curl command to install the agent */
@@ -4613,11 +4487,7 @@ export type DeviceLifecycleState =
   | 'REVOKED';
 
 /** Type of device that can be a group member */
-export type DeviceMemberType =
-  | 'EDGE_DEVICE'
-  | 'PLC_CONNECTION'
-  | 'SENSOR'
-  | 'VFD_DEVICE';
+export type DeviceMemberType = 'EDGE_DEVICE' | 'PLC_CONNECTION' | 'SENSOR' | 'VFD_DEVICE';
 
 /** Hardware model of the edge device */
 export type DeviceModel =
@@ -4717,10 +4587,7 @@ export type DiscoveryResultType = {
 };
 
 /** How the channel was discovered/created */
-export type DiscoverySource =
-  | 'AUTO'
-  | 'MANUAL'
-  | 'TEMPLATE';
+export type DiscoverySource = 'AUTO' | 'MANUAL' | 'TEMPLATE';
 
 /** Hastalık kategorisi */
 export type DiseaseCategory =
@@ -4733,14 +4600,9 @@ export type DiseaseCategory =
   | 'UNKNOWN'
   | 'VIRAL';
 
-export type DiseaseCategoryInput =
-  | 'A'
-  | 'C'
-  | 'F';
+export type DiseaseCategoryInput = 'A' | 'C' | 'F';
 
-export type DiseaseConfirmationInput =
-  | 'CONFIRMED'
-  | 'SUSPECTED';
+export type DiseaseConfirmationInput = 'CONFIRMED' | 'SUSPECTED';
 
 export type DisplaySettings = {
   chartConfig?: Maybe<Scalars['JSON']['output']>;
@@ -5073,11 +4935,7 @@ export type EmployeePerformanceEntry = {
   rating: Scalars['Float']['output'];
 };
 
-export type EmployeeStatus =
-  | 'ACTIVE'
-  | 'ON_LEAVE'
-  | 'SUSPENDED'
-  | 'TERMINATED';
+export type EmployeeStatus = 'ACTIVE' | 'ON_LEAVE' | 'SUSPENDED' | 'TERMINATED';
 
 export type EmployeeWeekSummary = {
   days: Array<DayEntry>;
@@ -5091,11 +4949,7 @@ export type EmployeeWeekSummary = {
   weeklyPlanId?: Maybe<Scalars['ID']['output']>;
 };
 
-export type EmploymentType =
-  | 'CONTRACT'
-  | 'FULL_TIME'
-  | 'PART_TIME'
-  | 'SEASONAL';
+export type EmploymentType = 'CONTRACT' | 'FULL_TIME' | 'PART_TIME' | 'SEASONAL';
 
 export type EnrollmentStatus =
   | 'COMPLETED'
@@ -5455,9 +5309,7 @@ export type EscapeIncidentCause =
   | 'UNKNOWN';
 
 /** Lifecycle of an escape incident (recapture may continue while open) */
-export type EscapeIncidentStatus =
-  | 'CLOSED'
-  | 'OPEN';
+export type EscapeIncidentStatus = 'CLOSED' | 'OPEN';
 
 export type ExecutedSlaughterLocalityInput = {
   /** Quality grades per species */
@@ -5469,19 +5321,10 @@ export type ExecutedSlaughterLocalityInput = {
 };
 
 /** How the program is triggered to run */
-export type ExecutionMode =
-  | 'CONTINUOUS'
-  | 'MANUAL'
-  | 'SCHEDULED'
-  | 'TRIGGERED';
+export type ExecutionMode = 'CONTINUOUS' | 'MANUAL' | 'SCHEDULED' | 'TRIGGERED';
 
 /** Günlük yemleme çalıştırma durumu */
-export type ExecutionStatus =
-  | 'COMPLETED'
-  | 'IN_PROGRESS'
-  | 'PARTIAL'
-  | 'PLANNED'
-  | 'SKIPPED';
+export type ExecutionStatus = 'COMPLETED' | 'IN_PROGRESS' | 'PARTIAL' | 'PLANNED' | 'SKIPPED';
 
 export type ExpiringCertificationSummary = {
   certificationTypeId: Scalars['ID']['output'];
@@ -5490,9 +5333,7 @@ export type ExpiringCertificationSummary = {
   expiryDate: Scalars['String']['output'];
 };
 
-export type ExportFormat =
-  | 'CSV'
-  | 'JSON';
+export type ExportFormat = 'CSV' | 'JSON';
 
 export type ExportJobType = {
   data: Scalars['String']['output'];
@@ -5513,15 +5354,9 @@ export type FcrInfo = {
 };
 
 /** FCR veri kaynagi */
-export type FcrSource =
-  | 'FEED'
-  | 'PROGRAM';
+export type FcrSource = 'FEED' | 'PROGRAM';
 
-export type FcrStatusType =
-  | 'AVERAGE'
-  | 'EXCELLENT'
-  | 'GOOD'
-  | 'POOR';
+export type FcrStatusType = 'AVERAGE' | 'EXCELLENT' | 'GOOD' | 'POOR';
 
 export type FcrTableInput = {
   fcrValues: Array<Array<Scalars['Float']['input']>>;
@@ -5630,9 +5465,7 @@ export type FarmStockContainerSnapshot = {
   volume?: Maybe<Scalars['Float']['output']>;
 };
 
-export type FarmStockContainerSource =
-  | 'EQUIPMENT'
-  | 'TANK';
+export type FarmStockContainerSource = 'EQUIPMENT' | 'TANK';
 
 export type FarmStockInventoryConnection = {
   items: Array<FarmStockInventoryItem>;
@@ -5933,12 +5766,7 @@ export type FeedSpeciesRecommendation =
   | 'SUITABLE';
 
 /** Status of the feed */
-export type FeedStatus =
-  | 'AVAILABLE'
-  | 'DISCONTINUED'
-  | 'EXPIRED'
-  | 'LOW_STOCK'
-  | 'OUT_OF_STOCK';
+export type FeedStatus = 'AVAILABLE' | 'DISCONTINUED' | 'EXPIRED' | 'LOW_STOCK' | 'OUT_OF_STOCK';
 
 /** Type of feed */
 export type FeedType =
@@ -6066,12 +5894,7 @@ export type FeedingMatrix2DResponse = {
 };
 
 /** Yemleme metodu */
-export type FeedingMethod =
-  | 'AUTOMATIC'
-  | 'BROADCAST'
-  | 'DEMAND'
-  | 'MANUAL'
-  | 'SPOT';
+export type FeedingMethod = 'AUTOMATIC' | 'BROADCAST' | 'DEMAND' | 'MANUAL' | 'SPOT';
 
 export type FeedingPaginationInput = {
   /** Items per page (max 100) */
@@ -6166,12 +5989,7 @@ export type FeedingProgramFilterInput = {
 };
 
 /** Yemleme programi durumu */
-export type FeedingProgramStatus =
-  | 'ACTIVE'
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'DRAFT'
-  | 'PAUSED';
+export type FeedingProgramStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED' | 'DRAFT' | 'PAUSED';
 
 export type FeedingProgramTank = {
   addedAt: Scalars['DateTime']['output'];
@@ -6436,12 +6254,7 @@ export type FirstAidInfoResponse = {
 };
 
 /** Balık iştahı */
-export type FishAppetite =
-  | 'EXCELLENT'
-  | 'GOOD'
-  | 'MODERATE'
-  | 'NONE'
-  | 'POOR';
+export type FishAppetite = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'NONE' | 'POOR';
 
 export type FishBehaviorInput = {
   abnormalBehavior?: InputMaybe<Scalars['String']['input']>;
@@ -6452,10 +6265,7 @@ export type FishBehaviorInput = {
 };
 
 /** Floating type of feed pellets */
-export type FloatingType =
-  | 'FLOATING'
-  | 'SINKING'
-  | 'SLOW_SINKING';
+export type FloatingType = 'FLOATING' | 'SINKING' | 'SLOW_SINKING';
 
 export type FolsomhetsundersokelseInput = {
   /** Laboratory name */
@@ -6569,11 +6379,7 @@ export type GoalMilestone = {
   title: Scalars['String']['output'];
 };
 
-export type GoalPriority =
-  | 'CRITICAL'
-  | 'HIGH'
-  | 'LOW'
-  | 'MEDIUM';
+export type GoalPriority = 'CRITICAL' | 'HIGH' | 'LOW' | 'MEDIUM';
 
 export type GoalProgressTrendPoint = {
   averageProgress: Scalars['Float']['output'];
@@ -6582,12 +6388,7 @@ export type GoalProgressTrendPoint = {
   totalGoals: Scalars['Int']['output'];
 };
 
-export type GoalStatus =
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'DEFERRED'
-  | 'IN_PROGRESS'
-  | 'NOT_STARTED';
+export type GoalStatus = 'CANCELLED' | 'COMPLETED' | 'DEFERRED' | 'IN_PROGRESS' | 'NOT_STARTED';
 
 export type GradingOutputInput = {
   avgWeightG: Scalars['Float']['input'];
@@ -6612,9 +6413,7 @@ export type GrowthAnalysisResponse = {
 };
 
 /** When FCR-based feeding growth is applied to the tank/batch */
-export type GrowthApplicationMode =
-  | 'DAILY'
-  | 'PER_FEEDING';
+export type GrowthApplicationMode = 'DAILY' | 'PER_FEEDING';
 
 export type GrowthMeasurement = {
   actionCount: Scalars['Int']['output'];
@@ -6760,12 +6559,7 @@ export type GrowthParametersInput = {
 };
 
 /** Büyüme performansı değerlendirmesi */
-export type GrowthPerformance =
-  | 'AVERAGE'
-  | 'BELOW_AVERAGE'
-  | 'EXCELLENT'
-  | 'GOOD'
-  | 'POOR';
+export type GrowthPerformance = 'AVERAGE' | 'BELOW_AVERAGE' | 'EXCELLENT' | 'GOOD' | 'POOR';
 
 export type GrowthProjection = {
   daysToHarvest: Scalars['Int']['output'];
@@ -6894,9 +6688,7 @@ export type HrDepartment =
   | 'QUALITY_CONTROL'
   | 'SECURITY';
 
-export type HalfDayPeriod =
-  | 'AM'
-  | 'PM';
+export type HalfDayPeriod = 'AM' | 'PM';
 
 export type HardwareScanResultType = {
   /** Discovered I/O channels */
@@ -7012,12 +6804,7 @@ export type HarvestFilterInput = {
 };
 
 /** Hasat yöntemi */
-export type HarvestMethod =
-  | 'CROWDER'
-  | 'DRAIN'
-  | 'MANUAL'
-  | 'NET'
-  | 'PUMP';
+export type HarvestMethod = 'CROWDER' | 'DRAIN' | 'MANUAL' | 'NET' | 'PUMP';
 
 export type HarvestMonthlyStats = {
   count: Scalars['Int']['output'];
@@ -7283,12 +7070,7 @@ export type HarvestTrends = {
 };
 
 /** Hasat tipi */
-export type HarvestType =
-  | 'EMERGENCY'
-  | 'FULL'
-  | 'PARTIAL'
-  | 'SELECTIVE'
-  | 'THINNING';
+export type HarvestType = 'EMERGENCY' | 'FULL' | 'PARTIAL' | 'SELECTIVE' | 'THINNING';
 
 export type HarvestVarianceResponse = {
   biomassVariance: Scalars['Float']['output'];
@@ -7434,12 +7216,7 @@ export type HealthEventStatsResponse = {
 };
 
 /** Olay durumu */
-export type HealthEventStatus =
-  | 'ACTIVE'
-  | 'CANCELLED'
-  | 'CHRONIC'
-  | 'MONITORING'
-  | 'RESOLVED';
+export type HealthEventStatus = 'ACTIVE' | 'CANCELLED' | 'CHRONIC' | 'MONITORING' | 'RESOLVED';
 
 /** Sağlık olayı tipi */
 export type HealthEventType =
@@ -7457,11 +7234,7 @@ export type HealthEventType =
   | 'VET_CONSULTATION';
 
 /** Şiddet seviyesi */
-export type HealthSeverity =
-  | 'CRITICAL'
-  | 'MINOR'
-  | 'MODERATE'
-  | 'SEVERE';
+export type HealthSeverity = 'CRITICAL' | 'MINOR' | 'MODERATE' | 'SEVERE';
 
 export type HydroponicsConfig = {
   configName: Scalars['String']['output'];
@@ -7638,19 +7411,10 @@ export type InventoryCountResponse = {
 };
 
 /** Workflow status of an inventory count session */
-export type InventoryCountStatus =
-  | 'APPROVED'
-  | 'COMPLETED'
-  | 'IN_PROGRESS'
-  | 'PLANNED';
+export type InventoryCountStatus = 'APPROVED' | 'COMPLETED' | 'IN_PROGRESS' | 'PLANNED';
 
 /** Stok durumu */
-export type InventoryStatus =
-  | 'AVAILABLE'
-  | 'EXPIRED'
-  | 'LOW_STOCK'
-  | 'OUT_OF_STOCK'
-  | 'QUARANTINE';
+export type InventoryStatus = 'AVAILABLE' | 'EXPIRED' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'QUARANTINE';
 
 export type InvitationValidationResponse = {
   email?: Maybe<Scalars['String']['output']>;
@@ -7719,21 +7483,10 @@ export type InvoiceStatus =
   | 'VOID';
 
 /** Data type for I/O values */
-export type IoDataType =
-  | 'BOOL'
-  | 'FLOAT32'
-  | 'FLOAT64'
-  | 'INT16'
-  | 'INT32'
-  | 'UINT16'
-  | 'UINT32';
+export type IoDataType = 'BOOL' | 'FLOAT32' | 'FLOAT64' | 'INT16' | 'INT32' | 'UINT16' | 'UINT32';
 
 /** Type of I/O point (DI, DO, AI, AO) */
-export type IoType =
-  | 'AI'
-  | 'AO'
-  | 'DI'
-  | 'DO';
+export type IoType = 'AI' | 'AO' | 'DI' | 'DO';
 
 export type KeyResult = {
   currentValue: Scalars['Float']['output'];
@@ -8059,15 +7812,10 @@ export type LightRegimeInput = {
 };
 
 /** LoRaWAN activation mode: OTAA (Over-The-Air) or ABP (Activation By Personalization) */
-export type LoRaActivationMode =
-  | 'ABP'
-  | 'OTAA';
+export type LoRaActivationMode = 'ABP' | 'OTAA';
 
 /** LoRaWAN device class: A (lowest power), B (beacon-synced), C (continuous RX) */
-export type LoRaDeviceClass =
-  | 'A'
-  | 'B'
-  | 'C';
+export type LoRaDeviceClass = 'A' | 'B' | 'C';
 
 export type LoRaDeviceType = {
   activationMode: LoRaActivationMode;
@@ -8120,9 +7868,7 @@ export type LocationInput = {
 };
 
 /** Konteyner tipi */
-export type LocationType =
-  | 'POND'
-  | 'TANK';
+export type LocationType = 'POND' | 'TANK';
 
 export type LoginInput = {
   email: Scalars['String']['input'];
@@ -8273,11 +8019,7 @@ export type MaintenanceScheduleListResponse = {
 };
 
 /** Bakım plan durumu */
-export type MaintenanceScheduleStatus =
-  | 'ACTIVE'
-  | 'COMPLETED'
-  | 'EXPIRED'
-  | 'PAUSED';
+export type MaintenanceScheduleStatus = 'ACTIVE' | 'COMPLETED' | 'EXPIRED' | 'PAUSED';
 
 export type MandatoryTrainingStatus = {
   completedAt?: Maybe<Scalars['String']['output']>;
@@ -8435,16 +8177,9 @@ export type MedikamentellBehandlingInput = {
   virkestoff: VirkestoffInput;
 };
 
-export type MedikamentellBehandlingType =
-  | 'ANNEN_BEHANDLING'
-  | 'BADEBEHANDLING'
-  | 'FORBEHANDLING';
+export type MedikamentellBehandlingType = 'ANNEN_BEHANDLING' | 'BADEBEHANDLING' | 'FORBEHANDLING';
 
-export type MengdeEnhet =
-  | 'GRAM'
-  | 'KILO'
-  | 'LITER'
-  | 'TONN';
+export type MengdeEnhet = 'GRAM' | 'KILO' | 'LITER' | 'TONN';
 
 export type Message = {
   attachments: Array<MessageAttachment>;
@@ -8482,12 +8217,7 @@ export type MessageAttachment = {
   width?: Maybe<Scalars['Float']['output']>;
 };
 
-export type MessageContentType =
-  | 'FILE'
-  | 'IMAGE'
-  | 'SYSTEM'
-  | 'TEXT'
-  | 'VOICE';
+export type MessageContentType = 'FILE' | 'IMAGE' | 'SYSTEM' | 'TEXT' | 'VOICE';
 
 export type MessageFilterInput = {
   /** Return messages created after this timestamp */
@@ -8564,12 +8294,7 @@ export type ModuleUsageStatResponse = {
 };
 
 /** Frequency at which a water quality parameter is monitored on equipment */
-export type MonitoringFrequency =
-  | 'CONTINUOUS'
-  | 'DAILY'
-  | 'HOURLY'
-  | 'ON_DEMAND'
-  | 'WEEKLY';
+export type MonitoringFrequency = 'CONTINUOUS' | 'DAILY' | 'HOURLY' | 'ON_DEMAND' | 'WEEKLY';
 
 export type MortalityReason =
   | 'CANNIBALISM'
@@ -8584,13 +8309,7 @@ export type MortalityReason =
   | 'WATER_QUALITY';
 
 /** Type of stock movement */
-export type MovementType =
-  | 'ADJUSTMENT'
-  | 'IN'
-  | 'OUT'
-  | 'RETURN'
-  | 'TRANSFER'
-  | 'WASTE';
+export type MovementType = 'ADJUSTMENT' | 'IN' | 'OUT' | 'RETURN' | 'TRANSFER' | 'WASTE';
 
 export type Mutation = {
   acceptInvitation: AuthPayload;
@@ -9301,80 +9020,65 @@ export type Mutation = {
   writeOpcUaNode: Scalars['Boolean']['output'];
 };
 
-
 export type MutationAcceptInvitationArgs = {
   input: AcceptInvitationInput;
 };
 
-
 export type MutationAcknowledgeAlertArgs = {
   input: AcknowledgeAlertInput;
 };
-
 
 export type MutationAcknowledgeAllAlarmsForConnectionArgs = {
   notes?: InputMaybe<Scalars['String']['input']>;
   plcConnectionId: Scalars['ID']['input'];
 };
 
-
 export type MutationAcknowledgeAnnouncementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationAcknowledgePlcAlarmArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<AcknowledgeAlarmInput>;
 };
 
-
 export type MutationAcknowledgeReviewArgs = {
   comments?: InputMaybe<Scalars['String']['input']>;
   reviewId: Scalars['ID']['input'];
 };
 
-
 export type MutationActivateFeedingParameterArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationActivateFeedingProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationActivatePlcConnectionArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationActivateSensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationActivateTenantArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationActivateTenantUserArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationActivateVfdDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationAddAlarmNotesArgs = {
   id: Scalars['ID']['input'];
   notes: Scalars['String']['input'];
 };
-
 
 export type MutationAddChannelMemberArgs = {
   channelId: Scalars['ID']['input'];
@@ -9382,23 +9086,19 @@ export type MutationAddChannelMemberArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationAddChemicalDocumentArgs = {
   input: AddChemicalDocumentInput;
 };
-
 
 export type MutationAddDeviceIoConfigArgs = {
   deviceId: Scalars['ID']['input'];
   input: AddIoConfigInput;
 };
 
-
 export type MutationAddDevicesToGroupArgs = {
   groupId: Scalars['ID']['input'];
   members: Array<AddMemberInputType>;
 };
-
 
 export type MutationAddEmployeeCertificationArgs = {
   certificationTypeId: Scalars['ID']['input'];
@@ -9410,99 +9110,81 @@ export type MutationAddEmployeeCertificationArgs = {
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationAddFeedAssignmentArgs = {
   assignment: FeedAssignmentInput;
   feedingProgramId: Scalars['ID']['input'];
 };
 
-
 export type MutationAddFeedInventoryArgs = {
   input: AddFeedInventoryInput;
 };
-
 
 export type MutationAddKeyResultArgs = {
   goalId: Scalars['ID']['input'];
   keyResult: KeyResultInput;
 };
 
-
 export type MutationAddLoRaDeviceArgs = {
   edgeDeviceId: Scalars['ID']['input'];
   input: AddLoRaDeviceInput;
 };
-
 
 export type MutationAddMilestoneArgs = {
   goalId: Scalars['ID']['input'];
   milestone: MilestoneInput;
 };
 
-
 export type MutationAddProgramStepArgs = {
   input: CreateStepInput;
 };
-
 
 export type MutationAddProgramTransitionArgs = {
   input: CreateTransitionInput;
 };
 
-
 export type MutationAddProgramVariableArgs = {
   input: CreateVariableInput;
 };
-
 
 export type MutationAddReactionArgs = {
   emoji: Scalars['String']['input'];
   messageId: Scalars['ID']['input'];
 };
 
-
 export type MutationAddStepActionArgs = {
   input: CreateActionInput;
 };
-
 
 export type MutationAddSuppressionWindowArgs = {
   input: AddSuppressionWindowInput;
 };
 
-
 export type MutationAddTankToProgramArgs = {
   input: AddTankToProgramInput;
 };
-
 
 export type MutationAddTanksToProgramArgs = {
   feedingProgramId: Scalars['ID']['input'];
   tanks: Array<AddTankInput>;
 };
 
-
 export type MutationAddTaskNoteArgs = {
   taskId: Scalars['ID']['input'];
   text: Scalars['String']['input'];
 };
 
-
 export type MutationAddTicketCommentArgs = {
   input: AddTicketCommentInput;
 };
-
 
 export type MutationAddVfdChangeSetItemsArgs = {
   changeSetId: Scalars['ID']['input'];
   items: Array<VfdChangeSetItemInput>;
 };
 
-
 export type MutationAdjustFeedInventoryArgs = {
   input: AdjustFeedInventoryInput;
 };
-
 
 export type MutationAdjustLeaveBalanceArgs = {
   adjustment: Scalars['Float']['input'];
@@ -9512,75 +9194,61 @@ export type MutationAdjustLeaveBalanceArgs = {
   year: Scalars['Int']['input'];
 };
 
-
 export type MutationAllocateBatchToTankArgs = {
   input: AllocateToTankInput;
 };
-
 
 export type MutationAnonymizeMyDataArgs = {
   confirmPassword: Scalars['String']['input'];
 };
 
-
 export type MutationApplyIndustryTemplateArgs = {
   templateKey: Scalars['String']['input'];
 };
 
-
 export type MutationApplyParameterTemplateArgs = {
   input: ApplyParameterTemplateInput;
 };
-
 
 export type MutationApplyProtocolDefaultsArgs = {
   config: Scalars['JSON']['input'];
   protocolCode: Scalars['String']['input'];
 };
 
-
 export type MutationApproveAndSubmitReportDraftArgs = {
   draftId: Scalars['ID']['input'];
 };
-
 
 export type MutationApproveAttendanceArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationApproveChannelProposalArgs = {
   modifications?: InputMaybe<Scalars['JSON']['input']>;
   proposalId: Scalars['ID']['input'];
 };
 
-
 export type MutationApproveEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationApproveHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationApproveInventoryCountArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationApproveLeaveRequestArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationApprovePayrollArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationApprovePlcAlarmArgs = {
   id: Scalars['ID']['input'];
@@ -9588,57 +9256,46 @@ export type MutationApprovePlcAlarmArgs = {
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationApproveProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationApprovePurchaseOrderArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationApproveRotationArgs = {
   notes?: InputMaybe<Scalars['String']['input']>;
   rotationId: Scalars['ID']['input'];
 };
 
-
 export type MutationApproveVfdChangeSetArgs = {
   changeSetId: Scalars['ID']['input'];
 };
-
 
 export type MutationApproveWorkOrderArgs = {
   input: ApproveWorkOrderInput;
 };
 
-
 export type MutationArchiveChannelArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationArchiveProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationArchiveSupportThreadArgs = {
   threadId: Scalars['ID']['input'];
 };
-
 
 export type MutationAssignFeedsToBatchArgs = {
   input: AssignFeedsToBatchInput;
 };
 
-
 export type MutationAssignModuleManagerArgs = {
   input: AssignModuleManagerInput;
 };
-
 
 export type MutationAssignTemperatureSensorArgs = {
   feedingProgramTankId: Scalars['ID']['input'];
@@ -9646,233 +9303,190 @@ export type MutationAssignTemperatureSensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationAssignTicketArgs = {
   input: AssignTicketInput;
 };
-
 
 export type MutationAssignUserRoleArgs = {
   input: AssignUserRoleInput;
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationAssignUserToModuleArgs = {
   input: AssignUserToModuleInput;
 };
 
-
 export type MutationAssignUserToSiteArgs = {
   input: AssignUserToSiteInput;
 };
-
 
 export type MutationAutoBindTagsArgs = {
   deviceId: Scalars['ID']['input'];
   processId: Scalars['ID']['input'];
 };
 
-
 export type MutationBackfillScadaPackageDocsArgs = {
   dryRun?: InputMaybe<Scalars['Boolean']['input']>;
 };
-
 
 export type MutationBatchActivateSensorsArgs = {
   sensorIds: Array<Scalars['ID']['input']>;
 };
 
-
 export type MutationBatchDeactivateSensorsArgs = {
   sensorIds: Array<Scalars['ID']['input']>;
 };
 
-
 export type MutationBatchIngestReadingsArgs = {
   input: BatchIngestInput;
 };
-
 
 export type MutationBatchUpdateSensorsArgs = {
   input: BatchUpdateSensorsInputType;
   sensorIds: Array<Scalars['ID']['input']>;
 };
 
-
 export type MutationBulkAcknowledgePlcAlarmsArgs = {
   input: BulkAcknowledgeAlarmsInput;
 };
-
 
 export type MutationBulkAddDeviceIoConfigsArgs = {
   deviceId: Scalars['ID']['input'];
   inputs: Array<AddIoConfigInput>;
 };
 
-
 export type MutationBulkAssignShiftsArgs = {
   input: BulkAssignShiftsInput;
 };
-
 
 export type MutationBulkAssignUserRoleArgs = {
   input: BulkAssignRoleInput;
 };
 
-
 export type MutationBulkCreateReviewsArgs = {
   input: BulkCreateReviewsInput;
 };
-
 
 export type MutationBulkEnrollInTrainingArgs = {
   courseId: Scalars['ID']['input'];
   employeeIds: Array<Scalars['ID']['input']>;
 };
 
-
 export type MutationBulkMapParamsToEquipmentArgs = {
   input: BulkMapParamsEquipmentInput;
 };
-
 
 export type MutationBulkStockInArgs = {
   items: Array<BulkStockInItemInput>;
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationBulkUpdateDataChannelsArgs = {
   input: BulkUpdateDataChannelsInput;
 };
-
 
 export type MutationBulkUpdateEdgeDeviceFirmwareArgs = {
   deviceIds: Array<Scalars['ID']['input']>;
   targetVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationBulkUpdateMobileSettingsArgs = {
   input: BulkUpdateMobileSettingsInput;
 };
-
 
 export type MutationCallOpcUaMethodArgs = {
   input: OpcUaCallMethodInput;
   plcConnectionId: Scalars['ID']['input'];
 };
 
-
 export type MutationCancelAnnouncementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationCancelFeedingProgramArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationCancelGoalArgs = {
   goalId: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationCancelHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationCancelLeaveRequestArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationCancelPurchaseOrderArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationCancelRotationArgs = {
   reason: Scalars['String']['input'];
   rotationId: Scalars['ID']['input'];
 };
 
-
 export type MutationCancelSubscriptionArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationCancelTenantArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationCancelVfdChangeSetArgs = {
   changeSetId: Scalars['ID']['input'];
 };
-
 
 export type MutationCancelWorkOrderArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationCarryOverLeaveBalancesArgs = {
   fromYear: Scalars['Int']['input'];
   toYear: Scalars['Int']['input'];
 };
 
-
 export type MutationChangeMyPasswordArgs = {
   input: ChangeMyPasswordInput;
 };
-
 
 export type MutationChangePasswordArgs = {
   input: ChangePasswordInput;
 };
 
-
 export type MutationChangeSubscriptionPlanArgs = {
   input: ChangeSubscriptionPlanInput;
 };
-
 
 export type MutationClockInArgs = {
   input: ClockInInput;
 };
 
-
 export type MutationClockOutArgs = {
   input: ClockOutInput;
 };
-
 
 export type MutationCloneAutomationProgramArgs = {
   id: Scalars['ID']['input'];
   newCode: Scalars['String']['input'];
 };
 
-
 export type MutationCloneEscalationPolicyArgs = {
   input: ClonePolicyInput;
 };
-
 
 export type MutationCloneFeedingParameterArgs = {
   id: Scalars['ID']['input'];
   newName?: InputMaybe<Scalars['String']['input']>;
 };
-
 
 export type MutationCloneFeedingProgramArgs = {
   newCode: Scalars['String']['input'];
@@ -9881,7 +9495,6 @@ export type MutationCloneFeedingProgramArgs = {
   startDate: Scalars['String']['input'];
 };
 
-
 export type MutationCloseBatchArgs = {
   acknowledgeActiveTreatments?: InputMaybe<Scalars['Boolean']['input']>;
   id: Scalars['ID']['input'];
@@ -9889,28 +9502,23 @@ export type MutationCloseBatchArgs = {
   reason: BatchCloseReason;
 };
 
-
 export type MutationCloseEscapeIncidentArgs = {
   input: CloseEscapeIncidentInput;
 };
 
-
 export type MutationCloseSupportThreadArgs = {
   threadId: Scalars['ID']['input'];
 };
-
 
 export type MutationCompleteFeedingProgramArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationCompleteGoalArgs = {
   completionNotes?: InputMaybe<Scalars['String']['input']>;
   goalId: Scalars['ID']['input'];
 };
-
 
 export type MutationCompleteHarvestPlanArgs = {
   actualAvgWeight: Scalars['Float']['input'];
@@ -9919,22 +9527,18 @@ export type MutationCompleteHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationCompleteMaintenanceArgs = {
   input: CompleteMaintenanceInput;
 };
-
 
 export type MutationCompleteMilestoneArgs = {
   goalId: Scalars['ID']['input'];
   milestoneId: Scalars['ID']['input'];
 };
 
-
 export type MutationCompleteTaskArgs = {
   input: TaskLifecycleInput;
 };
-
 
 export type MutationCompleteTrainingArgs = {
   enrollmentId: Scalars['ID']['input'];
@@ -9943,476 +9547,382 @@ export type MutationCompleteTrainingArgs = {
   score?: InputMaybe<Scalars['Float']['input']>;
 };
 
-
 export type MutationCompleteWorkOrderArgs = {
   input: CompleteWorkOrderInput;
 };
 
-
 export type MutationConfirmAiActionArgs = {
   actionId: Scalars['ID']['input'];
 };
-
 
 export type MutationConfirmBiomassReportSubmittedArgs = {
   altinnReference: Scalars['String']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationConfirmSafetyTrainingAttendanceArgs = {
   recordId: Scalars['ID']['input'];
 };
-
 
 export type MutationConfirmTenantErasureArgs = {
   token: Scalars['String']['input'];
 };
 
-
 export type MutationConsumeFeedInventoryArgs = {
   input: ConsumeFeedInventoryInput;
 };
-
 
 export type MutationCopyWeeklyPlanArgs = {
   sourceId: Scalars['ID']['input'];
   targetWeekStartDate: Scalars['String']['input'];
 };
 
-
 export type MutationCreateAlertRuleArgs = {
   input: CreateAlertRuleInput;
 };
-
 
 export type MutationCreateAutoRuleArgs = {
   input: CreateAutoRuleInput;
 };
 
-
 export type MutationCreateAutomationProgramArgs = {
   input: CreateProgramInput;
 };
-
 
 export type MutationCreateBatchArgs = {
   input: CreateBatchInput;
 };
 
-
 export type MutationCreateBatchWaterQualityMeasurementsArgs = {
   input: CreateBatchWaterQualityInput;
 };
-
 
 export type MutationCreateBiomassReportArgs = {
   input: CreateBiomassReportInput;
 };
 
-
 export type MutationCreateCertificationTypeArgs = {
   input: CreateCertificationTypeInput;
 };
-
 
 export type MutationCreateChannelArgs = {
   input: CreateChannelInput;
 };
 
-
 export type MutationCreateChemicalArgs = {
   input: CreateChemicalInput;
 };
-
 
 export type MutationCreateCleanerFishBatchArgs = {
   input: CreateCleanerBatchInput;
 };
 
-
 export type MutationCreateConsumableArgs = {
   input: CreateConsumableInput;
 };
-
 
 export type MutationCreateDataChannelArgs = {
   input: CreateDataChannelInput;
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationCreateDepartmentArgs = {
   input: CreateDepartmentInput;
 };
-
 
 export type MutationCreateDeviceGroupArgs = {
   input: CreateDeviceGroupInput;
 };
 
-
 export type MutationCreateEmployeeArgs = {
   input: CreateEmployeeInput;
 };
-
 
 export type MutationCreateEquipmentArgs = {
   input: CreateEquipmentInput;
 };
 
-
 export type MutationCreateEscalationPolicyArgs = {
   input: CreateEscalationPolicyInput;
 };
-
 
 export type MutationCreateFarmArgs = {
   input: CreateFarmInput;
 };
 
-
 export type MutationCreateFeedArgs = {
   input: CreateFeedInput;
 };
-
 
 export type MutationCreateFeedingParameterArgs = {
   input: CreateFeedingParameterInput;
 };
 
-
 export type MutationCreateFeedingProgramArgs = {
   input: CreateFeedingProgramInput;
 };
-
 
 export type MutationCreateFeedingProtocolArgs = {
   input: CreateFeedingProtocolInput;
 };
 
-
 export type MutationCreateFeedingRecordArgs = {
   input: CreateFeedingRecordInput;
 };
-
 
 export type MutationCreateGoalArgs = {
   input: CreateGoalInput;
 };
 
-
 export type MutationCreateHrDepartmentArgs = {
   input: CreateHrDepartmentInput;
 };
-
 
 export type MutationCreateHarvestPlanArgs = {
   input: CreateHarvestPlanInput;
 };
 
-
 export type MutationCreateHarvestRecordArgs = {
   input: CreateHarvestRecordInput;
 };
-
 
 export type MutationCreateHealthEventArgs = {
   input: CreateHealthEventInput;
 };
 
-
 export type MutationCreateHydroponicsConfigurationArgs = {
   input: CreateHydroponicsConfigInput;
 };
-
 
 export type MutationCreateInventoryCountArgs = {
   input: CreateInventoryCountInput;
 };
 
-
 export type MutationCreateInvoiceArgs = {
   input: CreateInvoiceInput;
 };
-
 
 export type MutationCreateLeaveRequestArgs = {
   input: CreateLeaveRequestInput;
 };
 
-
 export type MutationCreateLeaveTypeArgs = {
   input: CreateLeaveTypeInput;
 };
-
 
 export type MutationCreateMaintenanceScheduleArgs = {
   input: CreateMaintenanceScheduleInput;
 };
 
-
 export type MutationCreateManualAttendanceArgs = {
   input: ManualAttendanceInput;
 };
-
 
 export type MutationCreateParamEquipmentMappingArgs = {
   input: CreateParamEquipmentInput;
 };
 
-
 export type MutationCreateParameterConfigArgs = {
   input: CreateParameterConfigInput;
 };
-
 
 export type MutationCreatePayrollArgs = {
   input: CreatePayrollInput;
 };
 
-
 export type MutationCreatePerformanceReviewArgs = {
   input: CreatePerformanceReviewInput;
 };
-
 
 export type MutationCreatePlanArgs = {
   input: CreatePlanInput;
 };
 
-
 export type MutationCreatePlatformAnnouncementArgs = {
   input: CreatePlatformAnnouncementInput;
 };
-
 
 export type MutationCreatePlcConnectionArgs = {
   input: CreatePlcConnectionInput;
 };
 
-
 export type MutationCreatePondArgs = {
   input: CreatePondInput;
 };
 
-
 export type MutationCreateProcessArgs = {
   input: CreateProcessInput;
 };
-
 
 export type MutationCreateProcessFromTemplateArgs = {
   name: Scalars['String']['input'];
   templateId: Scalars['ID']['input'];
 };
 
-
 export type MutationCreateProvisionedDeviceArgs = {
   input: CreateProvisionedDeviceInput;
 };
-
 
 export type MutationCreatePurchaseOrderArgs = {
   input: CreatePurchaseOrderInput;
 };
 
-
 export type MutationCreateRecurringTemplateArgs = {
   input: CreateRecurringTemplateInput;
 };
-
 
 export type MutationCreateSafetyTrainingRecordArgs = {
   input: CreateSafetyTrainingRecordInput;
 };
 
-
 export type MutationCreateScadaPackageArgs = {
   input: CreateScadaPackageInput;
 };
-
 
 export type MutationCreateSensorArgs = {
   input: CreateSensorInput;
 };
 
-
 export type MutationCreateSensorTypeArgs = {
   input: CreateSensorTypeInput;
 };
-
 
 export type MutationCreateShiftArgs = {
   input: CreateShiftInput;
 };
 
-
 export type MutationCreateSiteArgs = {
   input: CreateSiteInput;
 };
-
 
 export type MutationCreateSlaughterFacilityArgs = {
   input: CreateSlaughterFacilityInput;
 };
 
-
 export type MutationCreateSparePartArgs = {
   input: CreateSparePartInput;
 };
-
 
 export type MutationCreateSpeciesArgs = {
   input: CreateSpeciesInput;
 };
 
-
 export type MutationCreateStorageLocationArgs = {
   input: CreateStorageLocationInput;
 };
-
 
 export type MutationCreateSubEquipmentArgs = {
   input: CreateSubEquipmentInput;
 };
 
-
 export type MutationCreateSubscriptionArgs = {
   input: CreateSubscriptionInput;
 };
-
 
 export type MutationCreateSupplierArgs = {
   input: CreateSupplierInput;
 };
 
-
 export type MutationCreateSupportThreadArgs = {
   input: SupportCreateThreadInput;
 };
-
 
 export type MutationCreateSystemArgs = {
   input: CreateSystemInput;
 };
 
-
 export type MutationCreateTankArgs = {
   input: CreateTankInput;
 };
-
 
 export type MutationCreateTaskArgs = {
   input: CreateTaskInput;
 };
 
-
 export type MutationCreateTenantAnnouncementArgs = {
   input: CreateTenantAnnouncementInput;
 };
-
 
 export type MutationCreateTenantProvisioningKeyArgs = {
   input: CreateTenantKeyInput;
 };
 
-
 export type MutationCreateTenantRoleArgs = {
   input: CreateTenantRoleInput;
 };
-
 
 export type MutationCreateTenantUserArgs = {
   input: CreateTenantUserInput;
 };
 
-
 export type MutationCreateTicketArgs = {
   input: CreateTicketInput;
 };
-
 
 export type MutationCreateTrainingCourseArgs = {
   input: CreateTrainingCourseInput;
 };
 
-
 export type MutationCreateUnifiedTagArgs = {
   input: CreateTagInput;
 };
-
 
 export type MutationCreateVfdAutomationRuleArgs = {
   input: CreateVfdAutomationRuleInput;
 };
 
-
 export type MutationCreateVfdChangeSetArgs = {
   input: CreateVfdChangeSetInput;
 };
-
 
 export type MutationCreateWaterQualityMeasurementArgs = {
   input: CreateWaterQualityInput;
 };
 
-
 export type MutationCreateWeeklyPlanArgs = {
   input: CreateWeeklyPlanInput;
 };
-
 
 export type MutationCreateWorkAreaArgs = {
   input: CreateWorkAreaInput;
 };
 
-
 export type MutationCreateWorkOrderArgs = {
   input: CreateWorkOrderInput;
 };
-
 
 export type MutationCreateWorkRotationArgs = {
   input: CreateWorkRotationInput;
 };
 
-
 export type MutationCreateWorkerArgs = {
   input: CreateWorkerInput;
 };
-
 
 export type MutationDeactivatePlanArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeactivatePlcConnectionArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeactivateTenantUserArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationDeactivateVfdDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeactivateWorkAreaArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDecommissionEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
-
 
 export type MutationDeferGoalArgs = {
   goalId: Scalars['ID']['input'];
@@ -10420,368 +9930,297 @@ export type MutationDeferGoalArgs = {
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationDeleteAlertRuleArgs = {
   ruleId: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteAllChannelsForSensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteAnnouncementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteAutoRuleArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteAutomationProgramArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteBatchFeedAssignmentArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteChemicalArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteConsumableArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteDashboardLayoutArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteDataChannelArgs = {
   channelId: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteDepartmentArgs = {
   cascade?: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteDeviceGroupArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteEquipmentArgs = {
   cascade?: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteEscalationPolicyArgs = {
   policyId: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteFeedArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteFeedingParameterArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteFeedingProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteFeedingProtocolArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteHarvestRecordArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteHealthEventArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteHydroponicsConfigurationArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteMaintenanceScheduleArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteMessageArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteOldPlcAlarmsArgs = {
   olderThan: Scalars['DateTime']['input'];
 };
 
-
 export type MutationDeleteOldPlcTelemetryArgs = {
   olderThan: Scalars['DateTime']['input'];
 };
-
 
 export type MutationDeleteOldVfdReadingsArgs = {
   olderThan: Scalars['DateTime']['input'];
 };
 
-
 export type MutationDeleteParamEquipmentMappingArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteParameterConfigArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteParentWithChildrenArgs = {
   parentId: Scalars['ID']['input'];
 };
-
 
 export type MutationDeletePlcConnectionArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteProcessArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteRecurringTemplateArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteScadaPackageArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteSensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteSensorTypeArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteSiteArgs = {
   cascade?: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteSparePartArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteSpeciesArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteStorageLocationArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteSubEquipmentArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteSupplierArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteSystemArgs = {
   cascade?: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteTankArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteTaskArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteTenantRoleArgs = {
   roleId: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteTenantUserArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteUnifiedTagArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteVfdAutomationRuleArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteVfdDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteWaterQualityMeasurementArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteWeeklyPlanArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationDeleteWorkOrderArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeleteWorkerArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationDeployCleanerFishArgs = {
   input: DeployCleanerFishInput;
 };
-
 
 export type MutationDeployProcessToEdgeArgs = {
   deviceId: Scalars['ID']['input'];
   processId: Scalars['ID']['input'];
 };
 
-
 export type MutationDeployProgramArgs = {
   input: DeployProgramInput;
 };
-
 
 export type MutationDeployScadaPackageToEdgeArgs = {
   deviceId: Scalars['ID']['input'];
   packageId: Scalars['ID']['input'];
 };
 
-
 export type MutationDeployScadaWithAutomationArgs = {
   input: DeployScadaWithAutomationInput;
 };
-
 
 export type MutationDetectSensorChannelsArgs = {
   samples: Scalars['JSON']['input'];
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationDisableMfaArgs = {
   input: DisableMfaInput;
 };
-
 
 export type MutationDiscoverDataChannelsArgs = {
   input: DiscoverChannelsInput;
 };
 
-
 export type MutationDiscoverTagsArgs = {
   deviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationDismissReportDraftArgs = {
   draftId: Scalars['ID']['input'];
 };
-
 
 export type MutationDuplicateProcessArgs = {
   id: Scalars['ID']['input'];
   newName: Scalars['String']['input'];
 };
 
-
 export type MutationEditMessageArgs = {
   id: Scalars['ID']['input'];
   input: EditMessageInput;
 };
 
-
 export type MutationEmergencyStopVfdArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationEndHealthEventQuarantineArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationEndHealthEventTreatmentArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationEndRotationArgs = {
   actualEndDate?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   rotationId: Scalars['ID']['input'];
 };
-
 
 export type MutationEnrollInTrainingArgs = {
   dueDate?: InputMaybe<Scalars['String']['input']>;
@@ -10792,37 +10231,30 @@ export type MutationEnrollInTrainingArgs = {
   trainingCourseId: Scalars['ID']['input'];
 };
 
-
 export type MutationEscalatePlcAlarmArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationExportChannelDataArgs = {
   channelId: Scalars['ID']['input'];
   format?: ExportFormat;
 };
 
-
 export type MutationExportTenantMessagesArgs = {
   format?: ExportFormat;
 };
-
 
 export type MutationFinalizeInvoiceArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationFinalizeReviewArgs = {
   input: FinalizeReviewInput;
 };
 
-
 export type MutationForgotPasswordArgs = {
   input: ForgotPasswordInput;
 };
-
 
 export type MutationForwardMessageArgs = {
   sourceMessageCreatedAt: Scalars['DateTime']['input'];
@@ -10830,81 +10262,66 @@ export type MutationForwardMessageArgs = {
   targetChannelId: Scalars['ID']['input'];
 };
 
-
 export type MutationGenerateDailyPlanArgs = {
   date?: InputMaybe<Scalars['DateTime']['input']>;
   input?: InputMaybe<GenerateDailyPlanInput>;
   programId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type MutationGenerateWorkOrderFromScheduleArgs = {
   scheduleId: Scalars['ID']['input'];
 };
 
-
 export type MutationIngestReadingArgs = {
   input: IngestReadingInput;
 };
-
 
 export type MutationInitializeLeaveBalancesArgs = {
   employeeId: Scalars['ID']['input'];
   year: Scalars['Int']['input'];
 };
 
-
 export type MutationLockProgramArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationLoginArgs = {
   input: LoginInput;
 };
 
-
 export type MutationMarkBiomassReportReadyArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationMarkMessagesReadArgs = {
   input: MarkReadInput;
 };
 
-
 export type MutationMarkNotificationAsReadArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationMfaStepUpArgs = {
   input: MfaStepUpInput;
 };
-
 
 export type MutationPauseFeedingProgramArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationPauseMaintenanceScheduleArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationPinMessageArgs = {
   channelId: Scalars['ID']['input'];
   messageId: Scalars['ID']['input'];
 };
 
-
 export type MutationPingEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationPingProtocolArgs = {
   config: Scalars['JSON']['input'];
@@ -10912,324 +10329,263 @@ export type MutationPingProtocolArgs = {
   protocolCode: Scalars['String']['input'];
 };
 
-
 export type MutationPostponeHarvestPlanArgs = {
   id: Scalars['ID']['input'];
   newDate: Scalars['DateTime']['input'];
 };
 
-
 export type MutationPublishAnnouncementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationPublishWeeklyPlanArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationPushIoConfigToDeviceArgs = {
   deviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationPutWorkOrderOnHoldArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationRateTicketArgs = {
   input: RateTicketInput;
 };
-
 
 export type MutationReactivateSensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationReactivateTankInProgramArgs = {
   feedingProgramTankId: Scalars['ID']['input'];
 };
 
-
 export type MutationReadVfdCriticalParametersArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationReadVfdParametersArgs = {
   parameters?: InputMaybe<Array<Scalars['String']['input']>>;
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationRebootEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
 };
-
 
 export type MutationRecalculateDailyPlanArgs = {
   executionId: Scalars['ID']['input'];
   newParameters?: InputMaybe<RecalculateParametersInput>;
 };
 
-
 export type MutationReceiveDeliveryArgs = {
   input: ReceiveDeliveryInput;
 };
-
 
 export type MutationReconcileTankCountsArgs = {
   dryRun?: InputMaybe<Scalars['Boolean']['input']>;
   tankIds?: InputMaybe<Array<Scalars['ID']['input']>>;
 };
 
-
 export type MutationRecordBulkConsentArgs = {
   input: RecordBulkConsentInput;
 };
-
 
 export type MutationRecordBulkFeedingArgs = {
   inputs: Array<RecordDailyFeedingInput>;
 };
 
-
 export type MutationRecordCleanerMortalityArgs = {
   input: RecordCleanerMortalityInput;
 };
-
 
 export type MutationRecordConsentArgs = {
   input: RecordConsentInput;
 };
 
-
 export type MutationRecordCullArgs = {
   input: RecordCullInput;
 };
-
 
 export type MutationRecordDailyFeedingArgs = {
   input: RecordDailyFeedingInput;
 };
 
-
 export type MutationRecordEscapeIncidentArgs = {
   input: RecordEscapeIncidentInput;
 };
-
 
 export type MutationRecordGradingArgs = {
   input: RecordGradingInput;
 };
 
-
 export type MutationRecordGrowthSampleArgs = {
   input: RecordGrowthSampleInput;
 };
-
 
 export type MutationRecordLiceCountArgs = {
   input: RecordLiceCountInput;
 };
 
-
 export type MutationRecordMortalityArgs = {
   input: RecordMortalityInput;
 };
-
 
 export type MutationRecordPaymentArgs = {
   input: RecordPaymentInput;
 };
 
-
 export type MutationRecordSparePartStockMovementArgs = {
   input: StockMovementInput;
 };
-
 
 export type MutationRecordStockMovementArgs = {
   input: RecordStockMovementInput;
 };
 
-
 export type MutationRecordTreatmentApplicationArgs = {
   input: RecordTreatmentApplicationInput;
 };
-
 
 export type MutationRecordWaterTemperatureArgs = {
   celsius: Scalars['Float']['input'];
   tankId: Scalars['ID']['input'];
 };
 
-
 export type MutationRecordWelfareAssessmentArgs = {
   input: RecordWelfareAssessmentInput;
 };
-
 
 export type MutationRefreshReportDraftArgs = {
   draftId: Scalars['ID']['input'];
 };
 
-
 export type MutationRefreshTokenArgs = {
   input: RefreshTokenInput;
 };
-
 
 export type MutationRefundPaymentArgs = {
   input: RefundPaymentInput;
 };
 
-
 export type MutationRegenerateDeviceTokenArgs = {
   deviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationRegenerateMfaRecoveryCodesArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type MutationRegisterDeviceTokenArgs = {
   platform: Scalars['String']['input'];
   token: Scalars['String']['input'];
 };
 
-
 export type MutationRegisterEdgeDeviceArgs = {
   input: RegisterEdgeDeviceInput;
 };
-
 
 export type MutationRegisterParentWithChildrenArgs = {
   input: RegisterParentWithChildrenInput;
 };
 
-
 export type MutationRegisterSensorArgs = {
   input: RegisterSensorInput;
 };
-
 
 export type MutationRegisterVfdDeviceArgs = {
   input: RegisterVfdInput;
 };
 
-
 export type MutationRegisterWebAuthnCredentialArgs = {
   input: WebAuthnRegisterCredentialInput;
 };
 
-
 export type MutationRejectChannelProposalArgs = {
   proposalId: Scalars['ID']['input'];
 };
-
 
 export type MutationRejectLeaveRequestArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationRejectProgramArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationRejectVfdChangeSetArgs = {
   input: RejectVfdChangeSetInput;
 };
-
 
 export type MutationRemoveChannelMemberArgs = {
   channelId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveChemicalDocumentArgs = {
   chemicalId: Scalars['ID']['input'];
   documentId: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveCleanerFishArgs = {
   input: RemoveCleanerFishInput;
 };
-
 
 export type MutationRemoveDeviceIoConfigArgs = {
   deviceId: Scalars['ID']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveDevicesFromGroupArgs = {
   groupId: Scalars['ID']['input'];
   memberIds: Array<Scalars['ID']['input']>;
 };
-
 
 export type MutationRemoveFeedAssignmentArgs = {
   feedId: Scalars['ID']['input'];
   feedingProgramId: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveLoRaDeviceArgs = {
   edgeDeviceId: Scalars['ID']['input'];
   loraDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveModuleManagerArgs = {
   moduleId: Scalars['ID']['input'];
 };
-
 
 export type MutationRemoveProgramStepArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveProgramTransitionArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveProgramVariableArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRemoveReactionArgs = {
   emoji: Scalars['String']['input'];
   messageId: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveStepActionArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRemoveSuppressionWindowArgs = {
   policyId: Scalars['ID']['input'];
   windowId: Scalars['ID']['input'];
 };
-
 
 export type MutationRemoveTankFromProgramArgs = {
   feedingProgramTankId?: InputMaybe<Scalars['ID']['input']>;
@@ -11237,23 +10593,19 @@ export type MutationRemoveTankFromProgramArgs = {
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationRemoveUserFromModuleArgs = {
   moduleId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
 };
-
 
 export type MutationRemoveVfdChangeSetItemArgs = {
   changeSetId: Scalars['ID']['input'];
   itemId: Scalars['ID']['input'];
 };
 
-
 export type MutationRemoveWebAuthnCredentialArgs = {
   credentialId: Scalars['String']['input'];
 };
-
 
 export type MutationRenewCertificationArgs = {
   attachmentUrl?: InputMaybe<Scalars['String']['input']>;
@@ -11262,180 +10614,145 @@ export type MutationRenewCertificationArgs = {
   newExpiryDate: Scalars['String']['input'];
 };
 
-
 export type MutationReopenReviewArgs = {
   reason: Scalars['String']['input'];
   reviewId: Scalars['ID']['input'];
 };
 
-
 export type MutationReopenSupportThreadArgs = {
   threadId: Scalars['ID']['input'];
 };
-
 
 export type MutationReorderDataChannelsArgs = {
   input: ReorderChannelsInput;
 };
 
-
 export type MutationReorderParameterConfigsArgs = {
   input: ReorderParameterConfigsInput;
 };
-
 
 export type MutationRequestMediaUploadArgs = {
   input: RequestMediaUploadInput;
 };
 
-
 export type MutationResetDeviceForReprovisioningArgs = {
   deviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationResetPasswordArgs = {
   input: ResetPasswordInput;
 };
 
-
 export type MutationResetVfdFaultArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationResolveAlertArgs = {
   alertId: Scalars['ID']['input'];
 };
-
 
 export type MutationResolveHealthEventArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationRestoreBatchFeedAssignmentArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRestoreChemicalArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRestoreConsumableArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRestoreDepartmentArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRestoreFeedArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRestoreFeedingProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRestoreSiteArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRestoreSpeciesArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRestoreSupplierArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRestoreSystemArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationResubmitRegulatoryReportArgs = {
   reportId: Scalars['String']['input'];
 };
-
 
 export type MutationResumeMaintenanceScheduleArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationResumeWorkOrderArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationRevertBiomassReportToDraftArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationRevokeCertificationArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationRevokeTenantProvisioningKeyArgs = {
   keyId: Scalars['ID']['input'];
 };
-
 
 export type MutationRevokeUserRoleArgs = {
   input: RevokeUserRoleInput;
 };
 
-
 export type MutationRollbackDeployedProgramArgs = {
   deviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationRollbackScadaPackageDeployArgs = {
   artifactId: Scalars['ID']['input'];
   deviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationRollbackVfdChangeSetArgs = {
   input: RollbackVfdChangeSetInput;
 };
-
 
 export type MutationSaveDashboardLayoutArgs = {
   input: SaveDashboardLayoutInput;
 };
 
-
 export type MutationSaveDiscoveredChannelsArgs = {
   input: SaveDiscoveredChannelsInput;
 };
-
 
 export type MutationSaveFeederCalibrationsArgs = {
   input: SaveFeederCalibrationsInput;
 };
 
-
 export type MutationSaveReportDraftOverridesArgs = {
   input: SaveReportDraftOverridesInput;
 };
-
 
 export type MutationSaveSentinelHubSettingsArgs = {
   clientId: Scalars['String']['input'];
@@ -11443,27 +10760,22 @@ export type MutationSaveSentinelHubSettingsArgs = {
   instanceId?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationSaveSystemDefaultLayoutArgs = {
   input: CreateSystemDefaultLayoutInput;
 };
 
-
 export type MutationScanEdgeDeviceHardwareArgs = {
   deviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationScheduleHarvestPlanArgs = {
   confirmedDate: Scalars['DateTime']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationSendFeedingParameterToPlcArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationSendLoRaDownlinkArgs = {
   edgeDeviceId: Scalars['ID']['input'];
@@ -11471,27 +10783,22 @@ export type MutationSendLoRaDownlinkArgs = {
   loraDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationSendMessageArgs = {
   input: SendMessageInput;
 };
 
-
 export type MutationSendSupportMessageArgs = {
   input: SupportSendMessageInput;
 };
-
 
 export type MutationSendVfdCommandArgs = {
   command: VfdCommandInput;
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationSetChecklistItemArgs = {
   input: SetChecklistItemInput;
 };
-
 
 export type MutationSetConfigurationArgs = {
   environment?: InputMaybe<ConfigEnvironment>;
@@ -11502,32 +10809,26 @@ export type MutationSetConfigurationArgs = {
   value: Scalars['String']['input'];
 };
 
-
 export type MutationSetDefaultFeedingProtocolArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationSetDeviceMaintenanceModeArgs = {
   enabled: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationSetDigitalOutputArgs = {
   input: SetDigitalOutputInput;
 };
-
 
 export type MutationSetLayoutAsDefaultArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationSetRetentionPolicyArgs = {
   input: SetRetentionPolicyInput;
 };
-
 
 export type MutationSetSupplierApprovedSitesArgs = {
   preferredSiteId?: InputMaybe<Scalars['ID']['input']>;
@@ -11535,240 +10836,194 @@ export type MutationSetSupplierApprovedSitesArgs = {
   supplierId: Scalars['ID']['input'];
 };
 
-
 export type MutationSetVfdFrequencyArgs = {
   frequencyHz: Scalars['Float']['input'];
   vfdDeviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationSetVfdSpeedArgs = {
   speedPercent: Scalars['Float']['input'];
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type MutationSkipDailyFeedingArgs = {
   input: SkipDailyFeedingInput;
 };
 
-
 export type MutationStartHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationStartHealthEventQuarantineArgs = {
   id: Scalars['ID']['input'];
   quarantineTankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type MutationStartHealthEventTreatmentArgs = {
   id: Scalars['ID']['input'];
   treatment: TreatmentDetailsInput;
 };
-
 
 export type MutationStartRotationArgs = {
   actualStartDate?: InputMaybe<Scalars['String']['input']>;
   rotationId: Scalars['ID']['input'];
 };
 
-
 export type MutationStartTaskArgs = {
   input: TaskLifecycleInput;
 };
-
 
 export type MutationStartTrainingArgs = {
   enrollmentId: Scalars['ID']['input'];
 };
 
-
 export type MutationStartVfdArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationStartWorkOrderArgs = {
   input: StartWorkOrderInput;
 };
 
-
 export type MutationStopVfdArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
-
 
 export type MutationSubmitCleanerFishReportArgs = {
   input: SubmitCleanerFishReportInput;
 };
 
-
 export type MutationSubmitDiseaseOutbreakArgs = {
   input: SubmitDiseaseOutbreakInput;
 };
-
 
 export type MutationSubmitEscapeReportArgs = {
   input: SubmitEscapeReportInput;
 };
 
-
 export type MutationSubmitExecutedSlaughterReportArgs = {
   input: SubmitExecutedSlaughterInput;
 };
-
 
 export type MutationSubmitInventoryCountArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationSubmitLeaveRequestArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationSubmitManagerAssessmentArgs = {
   input: SubmitManagerAssessmentInput;
 };
 
-
 export type MutationSubmitPlannedSlaughterReportArgs = {
   input: SubmitPlannedSlaughterInput;
 };
-
 
 export type MutationSubmitProgramForReviewArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationSubmitSeaLiceReportArgs = {
   input: SubmitSeaLiceReportInput;
 };
-
 
 export type MutationSubmitSelfAssessmentArgs = {
   input: SubmitSelfAssessmentInput;
 };
 
-
 export type MutationSubmitSmoltReportArgs = {
   input: SubmitSmoltReportInput;
 };
-
 
 export type MutationSubmitVfdChangeSetForApprovalArgs = {
   changeSetId: Scalars['ID']['input'];
 };
 
-
 export type MutationSubmitWelfareEventArgs = {
   input: SubmitWelfareEventInput;
 };
 
-
 export type MutationSubmitWorkOrderForApprovalArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationSuspendSensorArgs = {
   reason?: InputMaybe<Scalars['String']['input']>;
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationSuspendTenantArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationSyncProgramVariablesArgs = {
   input: SyncProgramVariablesInput;
 };
 
-
 export type MutationSyncWeatherDataArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type MutationTerminateEmployeeArgs = {
   id: Scalars['ID']['input'];
   terminationDate: Scalars['String']['input'];
 };
 
-
 export type MutationTestParentConnectionArgs = {
   parentId: Scalars['ID']['input'];
 };
-
 
 export type MutationTestPlcConnectionArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationTestProtocolConnectionArgs = {
   input: TestConnectionInput;
 };
-
 
 export type MutationTestSensorConnectionArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type MutationTestVfdConnectionArgs = {
   input: TestVfdConnectionInput;
 };
 
-
 export type MutationToggleAutoRuleActiveArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationToggleFarmWorkerArgs = {
   id: Scalars['ID']['input'];
   isFarmWorker: Scalars['Boolean']['input'];
 };
 
-
 export type MutationToggleLegalHoldArgs = {
   input: ToggleLegalHoldInput;
 };
 
-
 export type MutationToggleRecurringTemplateActiveArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationToggleVfdAutomationRuleArgs = {
   id: Scalars['ID']['input'];
   isActive: Scalars['Boolean']['input'];
 };
 
-
 export type MutationTransferBatchArgs = {
   input: TransferBatchInput;
 };
-
 
 export type MutationTransferCleanerFishArgs = {
   input: TransferCleanerFishInput;
 };
 
-
 export type MutationTransferStockArgs = {
   input: TransferStockInput;
 };
-
 
 export type MutationTransitionTankFeedArgs = {
   feedingProgramTankId: Scalars['ID']['input'];
@@ -11778,69 +11033,56 @@ export type MutationTransitionTankFeedArgs = {
   rangeIndex: Scalars['Int']['input'];
 };
 
-
 export type MutationUnassignUserFromSiteArgs = {
   siteId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationUnlockProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type MutationUnlockTenantUserArgs = {
   userId: Scalars['ID']['input'];
 };
-
 
 export type MutationUnpinMessageArgs = {
   channelId: Scalars['ID']['input'];
   messageId: Scalars['ID']['input'];
 };
 
-
 export type MutationUnregisterDeviceTokenArgs = {
   token: Scalars['String']['input'];
 };
-
 
 export type MutationUpdateAiProviderSettingsArgs = {
   input: UpdateAiSettingsInput;
 };
 
-
 export type MutationUpdateAlertRuleArgs = {
   input: UpdateAlertRuleInput;
 };
-
 
 export type MutationUpdateAutoRuleArgs = {
   input: UpdateAutoRuleInput;
 };
 
-
 export type MutationUpdateAutoSubmitPolicyArgs = {
   input: UpdateAutoSubmitPolicyInput;
 };
-
 
 export type MutationUpdateAutomationProgramArgs = {
   id: Scalars['ID']['input'];
   input: UpdateProgramInput;
 };
 
-
 export type MutationUpdateBatchArgs = {
   input: UpdateBatchInput;
 };
 
-
 export type MutationUpdateBatchFeedAssignmentArgs = {
   input: UpdateBatchFeedAssignmentInput;
 };
-
 
 export type MutationUpdateBatchStatusArgs = {
   id: Scalars['ID']['input'];
@@ -11848,49 +11090,40 @@ export type MutationUpdateBatchStatusArgs = {
   status: BatchStatus;
 };
 
-
 export type MutationUpdateBatchWeightFromSampleArgs = {
   batchId: Scalars['ID']['input'];
   measurementId: Scalars['ID']['input'];
 };
 
-
 export type MutationUpdateCertificationTypeArgs = {
   input: UpdateCertificationTypeInput;
 };
-
 
 export type MutationUpdateChannelArgs = {
   id: Scalars['ID']['input'];
   input: UpdateChannelInput;
 };
 
-
 export type MutationUpdateChemicalArgs = {
   input: UpdateChemicalInput;
 };
-
 
 export type MutationUpdateConsumableArgs = {
   input: UpdateConsumableInput;
 };
 
-
 export type MutationUpdateDataChannelArgs = {
   input: UpdateDataChannelInput;
 };
-
 
 export type MutationUpdateDepartmentArgs = {
   input: UpdateDepartmentInput;
 };
 
-
 export type MutationUpdateDeviceGroupArgs = {
   id: Scalars['ID']['input'];
   input: UpdateDeviceGroupInput;
 };
-
 
 export type MutationUpdateDeviceIoConfigArgs = {
   deviceId: Scalars['ID']['input'];
@@ -11898,44 +11131,36 @@ export type MutationUpdateDeviceIoConfigArgs = {
   input: UpdateIoConfigInput;
 };
 
-
 export type MutationUpdateEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
   input: UpdateEdgeDeviceInput;
 };
-
 
 export type MutationUpdateEdgeDeviceFirmwareArgs = {
   id: Scalars['ID']['input'];
   targetVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationUpdateEmployeeArgs = {
   input: UpdateEmployeeInput;
 };
-
 
 export type MutationUpdateEquipmentArgs = {
   input: UpdateEquipmentInput;
 };
 
-
 export type MutationUpdateEscalationPolicyArgs = {
   input: UpdateEscalationPolicyInput;
 };
-
 
 export type MutationUpdateFcrTableArgs = {
   fcrTable: FcrTableInput;
   feedingProgramId: Scalars['ID']['input'];
 };
 
-
 export type MutationUpdateFeedArgs = {
   input: UpdateFeedInput;
 };
-
 
 export type MutationUpdateFeedAssignmentArgs = {
   assignment: FeedAssignmentInput;
@@ -11943,70 +11168,57 @@ export type MutationUpdateFeedAssignmentArgs = {
   feedingProgramId: Scalars['ID']['input'];
 };
 
-
 export type MutationUpdateFeedingParameterArgs = {
   id: Scalars['ID']['input'];
   input: UpdateFeedingParameterInput;
 };
-
 
 export type MutationUpdateFeedingProgramArgs = {
   id?: InputMaybe<Scalars['ID']['input']>;
   input: UpdateFeedingProgramInput;
 };
 
-
 export type MutationUpdateFeedingProtocolArgs = {
   input: UpdateFeedingProtocolInput;
 };
-
 
 export type MutationUpdateFeedingRecordArgs = {
   id: Scalars['ID']['input'];
   input: UpdateFeedingRecordInput;
 };
 
-
 export type MutationUpdateGoalArgs = {
   input: UpdateGoalInput;
 };
-
 
 export type MutationUpdateGoalProgressArgs = {
   input: UpdateGoalProgressInput;
 };
 
-
 export type MutationUpdateHrDepartmentArgs = {
   input: UpdateHrDepartmentInput;
 };
-
 
 export type MutationUpdateHarvestPlanArgs = {
   input: UpdateHarvestPlanInput;
 };
 
-
 export type MutationUpdateHarvestRecordArgs = {
   input: UpdateHarvestRecordInput;
 };
-
 
 export type MutationUpdateHealthEventArgs = {
   id: Scalars['ID']['input'];
   input: UpdateHealthEventInput;
 };
 
-
 export type MutationUpdateHydroponicsConfigurationArgs = {
   input: UpdateHydroponicsConfigInput;
 };
 
-
 export type MutationUpdateInventoryCountItemsArgs = {
   input: UpdateInventoryCountItemsInput;
 };
-
 
 export type MutationUpdateKeyResultArgs = {
   currentValue: Scalars['Float']['input'];
@@ -12014,402 +11226,326 @@ export type MutationUpdateKeyResultArgs = {
   keyResultId: Scalars['ID']['input'];
 };
 
-
 export type MutationUpdateLeaveRequestArgs = {
   input: UpdateLeaveRequestInput;
 };
-
 
 export type MutationUpdateLeaveTypeArgs = {
   input: UpdateLeaveTypeInput;
 };
 
-
 export type MutationUpdateMaintenanceScheduleArgs = {
   input: UpdateMaintenanceScheduleInput;
 };
-
 
 export type MutationUpdateMeterReadingArgs = {
   input: UpdateMeterReadingInput;
 };
 
-
 export type MutationUpdateMobileUserSettingsArgs = {
   input: UpdateMobileUserSettingsInput;
 };
-
 
 export type MutationUpdateMyNotificationPreferencesArgs = {
   input: UpdateNotificationPreferencesInput;
 };
 
-
 export type MutationUpdateMyProfileArgs = {
   input: UpdateMyProfileInput;
 };
-
 
 export type MutationUpdateNotificationPreferenceArgs = {
   channelId: Scalars['ID']['input'];
   preference: NotificationPreference;
 };
 
-
 export type MutationUpdateOnCallScheduleArgs = {
   input: UpdateOnCallScheduleInput;
 };
-
 
 export type MutationUpdateParamEquipmentMappingArgs = {
   input: UpdateParamEquipmentInput;
 };
 
-
 export type MutationUpdateParameterConfigArgs = {
   input: UpdateParameterConfigInput;
 };
-
 
 export type MutationUpdatePlanArgs = {
   id: Scalars['ID']['input'];
   input: UpdatePlanInput;
 };
 
-
 export type MutationUpdatePlanEntryArgs = {
   input: UpdatePlanEntryInput;
 };
-
 
 export type MutationUpdatePlcConnectionArgs = {
   id: Scalars['ID']['input'];
   input: UpdatePlcConnectionInput;
 };
 
-
 export type MutationUpdateProcessArgs = {
   input: UpdateProcessInput;
 };
 
-
 export type MutationUpdateProfileArgs = {
   input: UpdateProfileInput;
 };
-
 
 export type MutationUpdateProgramSettingsArgs = {
   feedingProgramId: Scalars['ID']['input'];
   settings: ProgramSettingsInput;
 };
 
-
 export type MutationUpdateProgramStepArgs = {
   id: Scalars['ID']['input'];
   input: UpdateStepInput;
 };
-
 
 export type MutationUpdateProgramTransitionArgs = {
   id: Scalars['ID']['input'];
   input: UpdateTransitionInput;
 };
 
-
 export type MutationUpdateProgramVariableArgs = {
   id: Scalars['ID']['input'];
   input: UpdateVariableInput;
 };
 
-
 export type MutationUpdatePurchaseOrderStatusArgs = {
   input: UpdatePurchaseOrderStatusInput;
 };
-
 
 export type MutationUpdateRecurringTemplateArgs = {
   input: UpdateRecurringTemplateInput;
 };
 
-
 export type MutationUpdateRegulatorySettingsArgs = {
   input: UpdateRegulatorySettingsInput;
 };
-
 
 export type MutationUpdateScadaPackageArgs = {
   id: Scalars['ID']['input'];
   input: UpdateScadaPackageInput;
 };
 
-
 export type MutationUpdateSchedulingSettingsArgs = {
   input: UpdateSchedulingSettingsInput;
 };
-
 
 export type MutationUpdateSensorArgs = {
   input: UpdateSensorInput;
 };
 
-
 export type MutationUpdateSensorInfoArgs = {
   input: UpdateSensorInfoInput;
 };
 
-
 export type MutationUpdateSensorProtocolArgs = {
   input: UpdateSensorProtocolInput;
 };
-
 
 export type MutationUpdateSensorTypeArgs = {
   id: Scalars['ID']['input'];
   input: UpdateSensorTypeInput;
 };
 
-
 export type MutationUpdateSentinelHubInstanceIdArgs = {
   instanceId: Scalars['String']['input'];
 };
-
 
 export type MutationUpdateShiftArgs = {
   input: UpdateShiftInput;
 };
 
-
 export type MutationUpdateSiteArgs = {
   input: UpdateSiteInput;
 };
-
 
 export type MutationUpdateSlaughterFacilityArgs = {
   input: UpdateSlaughterFacilityInput;
 };
 
-
 export type MutationUpdateSparePartArgs = {
   input: UpdateSparePartInput;
 };
 
-
 export type MutationUpdateSpeciesArgs = {
   input: UpdateSpeciesInput;
 };
-
 
 export type MutationUpdateStepActionArgs = {
   id: Scalars['ID']['input'];
   input: UpdateActionInput;
 };
 
-
 export type MutationUpdateStorageLocationArgs = {
   input: UpdateStorageLocationInput;
 };
-
 
 export type MutationUpdateSubEquipmentArgs = {
   input: UpdateSubEquipmentInput;
 };
 
-
 export type MutationUpdateSupplierArgs = {
   input: UpdateSupplierInput;
 };
-
 
 export type MutationUpdateSystemArgs = {
   input: UpdateSystemInput;
 };
 
-
 export type MutationUpdateTankArgs = {
   input: UpdateTankInput;
 };
-
 
 export type MutationUpdateTankStatusArgs = {
   input: UpdateTankStatusInput;
 };
 
-
 export type MutationUpdateTaskArgs = {
   input: UpdateTaskInput;
 };
-
 
 export type MutationUpdateTenantArgs = {
   id: Scalars['ID']['input'];
   input: UpdateTenantInput;
 };
 
-
 export type MutationUpdateTenantRoleArgs = {
   input: UpdateTenantRoleInput;
   roleId: Scalars['ID']['input'];
 };
-
 
 export type MutationUpdateTenantUserArgs = {
   input: UpdateTenantUserInput;
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationUpdateTicketStatusArgs = {
   input: UpdateTicketStatusInput;
 };
-
 
 export type MutationUpdateTrainingCourseArgs = {
   input: UpdateTrainingCourseInput;
 };
 
-
 export type MutationUpdateUnifiedTagArgs = {
   input: UpdateTagInput;
 };
 
-
 export type MutationUpdateUserAiConsentArgs = {
   consent: Scalars['Boolean']['input'];
 };
-
 
 export type MutationUpdateUserRoleArgs = {
   input: UpdateUserRoleInput;
   userId: Scalars['ID']['input'];
 };
 
-
 export type MutationUpdateVfdAutomationRuleArgs = {
   id: Scalars['ID']['input'];
   input: UpdateVfdAutomationRuleInput;
 };
-
 
 export type MutationUpdateVfdDeviceArgs = {
   id: Scalars['ID']['input'];
   input: UpdateVfdInput;
 };
 
-
 export type MutationUpdateWaterQualityMeasurementArgs = {
   input: UpdateWaterQualityInput;
 };
-
 
 export type MutationUpdateWeatherSettingsArgs = {
   input: UpdateWeatherSettingsInput;
 };
 
-
 export type MutationUpdateWorkAreaArgs = {
   input: UpdateWorkAreaInput;
 };
-
 
 export type MutationUpdateWorkOrderArgs = {
   input: UpdateWorkOrderInput;
 };
 
-
 export type MutationUpdateWorkRotationArgs = {
   input: UpdateWorkRotationInput;
 };
 
-
 export type MutationUpdateWorkerArgs = {
   input: UpdateWorkerInput;
 };
-
 
 export type MutationUpsertSiteContactsArgs = {
   contacts: Array<SiteContactInput>;
   siteId: Scalars['ID']['input'];
 };
 
-
 export type MutationValidateProtocolConfigArgs = {
   input: ValidateConfigInput;
 };
 
-
 export type MutationValidateStructuredTextArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type MutationVerifyCertificationArgs = {
   id: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationVerifyMeasurementArgs = {
   measurementId: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationVerifyMfaLoginArgs = {
   input: VerifyMfaLoginInput;
 };
-
 
 export type MutationVerifyMfaSetupArgs = {
   input: VerifyMfaSetupInput;
 };
 
-
 export type MutationVerifyWebAuthnLoginArgs = {
   input: WebAuthnVerifyLoginInput;
 };
-
 
 export type MutationVerifyWorkOrderArgs = {
   input: VerifyWorkOrderInput;
 };
 
-
 export type MutationViewAnnouncementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationVoidInvoiceArgs = {
   id: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
-
 export type MutationWebAuthnLoginChallengeArgs = {
   input: WebAuthnLoginChallengeInput;
 };
-
 
 export type MutationWebAuthnRegistrationChallengeArgs = {
   input?: InputMaybe<WebAuthnRegistrationChallengeInput>;
 };
 
-
 export type MutationWithdrawConsentArgs = {
   input: WithdrawConsentInput;
 };
-
 
 export type MutationWithdrawFromTrainingArgs = {
   enrollmentId: Scalars['ID']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type MutationWithdrawLeaveRequestArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type MutationWriteOpcUaNodeArgs = {
   input: WriteOpcUaNodeInput;
@@ -13023,10 +12159,7 @@ export type ParameterConfigFilterInput = {
 };
 
 /** Data type of a water quality parameter value */
-export type ParameterDataType =
-  | 'BOOLEAN'
-  | 'ENUM'
-  | 'NUMBER';
+export type ParameterDataType = 'BOOLEAN' | 'ENUM' | 'NUMBER';
 
 /** Logical grouping for water quality parameters */
 export type ParameterGroup =
@@ -13087,11 +12220,7 @@ export type ParentWithChildrenResultType = {
   success: Scalars['Boolean']['output'];
 };
 
-export type PayPeriodType =
-  | 'BI_WEEKLY'
-  | 'MONTHLY'
-  | 'SEMI_MONTHLY'
-  | 'WEEKLY';
+export type PayPeriodType = 'BI_WEEKLY' | 'MONTHLY' | 'SEMI_MONTHLY' | 'WEEKLY';
 
 export type Payment = {
   amount: Scalars['Float']['output'];
@@ -13323,12 +12452,7 @@ export type PerformanceReviewConnection = {
   totalPages: Scalars['Int']['output'];
 };
 
-export type PerformanceStatusType =
-  | 'AVERAGE'
-  | 'BELOW_AVERAGE'
-  | 'EXCELLENT'
-  | 'GOOD'
-  | 'POOR';
+export type PerformanceStatusType = 'AVERAGE' | 'BELOW_AVERAGE' | 'EXCELLENT' | 'GOOD' | 'POOR';
 
 export type PerformanceSummary = {
   activeGoals: Scalars['Int']['output'];
@@ -13363,10 +12487,7 @@ export type PermissionResource = {
   name: Scalars['String']['output'];
 };
 
-export type PersonnelCategory =
-  | 'HYBRID'
-  | 'OFFSHORE'
-  | 'ONSHORE';
+export type PersonnelCategory = 'HYBRID' | 'OFFSHORE' | 'ONSHORE';
 
 export type PingResult = {
   /** Device code that was pinged */
@@ -13457,11 +12578,7 @@ export type PlanPricingInput = {
   perUserPrice?: InputMaybe<Scalars['Float']['input']>;
 };
 
-export type PlanTier =
-  | 'CUSTOM'
-  | 'ENTERPRISE'
-  | 'PROFESSIONAL'
-  | 'STARTER';
+export type PlanTier = 'CUSTOM' | 'ENTERPRISE' | 'PROFESSIONAL' | 'STARTER';
 
 export type PlannedFeeding = {
   actualAmountKg: Scalars['Float']['output'];
@@ -13536,10 +12653,7 @@ export type PlcAlarmStats = {
   warningCount: Scalars['Int']['output'];
 };
 
-export type PlcAuthMode =
-  | 'ANONYMOUS'
-  | 'CERTIFICATE'
-  | 'USERNAME';
+export type PlcAuthMode = 'ANONYMOUS' | 'CERTIFICATE' | 'USERNAME';
 
 export type PlcConnection = {
   activeAlarmCount: Scalars['Int']['output'];
@@ -13594,11 +12708,7 @@ export type PlcConnectionFilterInput = {
   tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-export type PlcConnectionStatus =
-  | 'CONNECTING'
-  | 'ERROR'
-  | 'OFFLINE'
-  | 'ONLINE';
+export type PlcConnectionStatus = 'CONNECTING' | 'ERROR' | 'OFFLINE' | 'ONLINE';
 
 export type PlcConnectionTestResult = {
   error?: Maybe<Scalars['String']['output']>;
@@ -13629,10 +12739,7 @@ export type PlcPaginationInput = {
   sortOrder?: InputMaybe<SortOrder>;
 };
 
-export type PlcSecurityMode =
-  | 'NONE'
-  | 'SIGN'
-  | 'SIGN_AND_ENCRYPT';
+export type PlcSecurityMode = 'NONE' | 'SIGN' | 'SIGN_AND_ENCRYPT';
 
 export type PlcTelemetry = {
   activeParameterId?: Maybe<Scalars['String']['output']>;
@@ -13685,11 +12792,7 @@ export type Pond = {
 };
 
 /** Current status of the pond */
-export type PondStatus =
-  | 'ACTIVE'
-  | 'INACTIVE'
-  | 'MAINTENANCE'
-  | 'PREPARING';
+export type PondStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'PREPARING';
 
 export type ProcessFilterInput = {
   departmentId?: InputMaybe<Scalars['String']['input']>;
@@ -13734,11 +12837,7 @@ export type ProcessResultType = {
 };
 
 /** Status of the process diagram */
-export type ProcessStatus =
-  | 'ACTIVE'
-  | 'ARCHIVED'
-  | 'DRAFT'
-  | 'INACTIVE';
+export type ProcessStatus = 'ACTIVE' | 'ARCHIVED' | 'DRAFT' | 'INACTIVE';
 
 export type ProcessType = {
   createdAt: Scalars['DateTime']['output'];
@@ -13794,10 +12893,7 @@ export type ProduksjonsenhetSettefiskInput = {
 };
 
 /** Yemleme programına eklenebilecek equipment tipleri */
-export type ProgramEquipmentType =
-  | 'CAGE'
-  | 'POND'
-  | 'TANK';
+export type ProgramEquipmentType = 'CAGE' | 'POND' | 'TANK';
 
 export type ProgramFilterInput = {
   category?: InputMaybe<Scalars['String']['input']>;
@@ -13890,11 +12986,7 @@ export type ProgramTransition = {
 };
 
 /** IEC 61131-3 programming language type */
-export type ProgramType =
-  | 'FBD'
-  | 'LD'
-  | 'SFC'
-  | 'ST';
+export type ProgramType = 'FBD' | 'LD' | 'SFC' | 'ST';
 
 export type ProgramVariable = {
   alarmH?: Maybe<Scalars['Float']['output']>;
@@ -13941,11 +13033,7 @@ export type ProtocolCapabilitiesType = {
 };
 
 /** Protocol category */
-export type ProtocolCategory =
-  | 'INDUSTRIAL'
-  | 'IOT'
-  | 'SERIAL'
-  | 'WIRELESS';
+export type ProtocolCategory = 'INDUSTRIAL' | 'IOT' | 'SERIAL' | 'WIRELESS';
 
 export type ProtocolConfigurationInput = {
   baudRate?: InputMaybe<Scalars['Int']['input']>;
@@ -14066,11 +13154,7 @@ export type PublicUserProfile = {
 };
 
 /** Category of purchase order */
-export type PurchaseOrderCategory =
-  | 'CHEMICAL'
-  | 'CONSUMABLE'
-  | 'FEED'
-  | 'HEALTHCARE';
+export type PurchaseOrderCategory = 'CHEMICAL' | 'CONSUMABLE' | 'FEED' | 'HEALTHCARE';
 
 export type PurchaseOrderFilterInput = {
   category?: InputMaybe<PurchaseOrderCategory>;
@@ -14139,19 +13223,10 @@ export type PushIoConfigResult = {
 };
 
 /** Norwegian official slaughter quality class (kvalitetsklasse) */
-export type QualityClass =
-  | 'ORDINAER'
-  | 'PRODUKSJONSFISK'
-  | 'SUPERIOR'
-  | 'UTKAST';
+export type QualityClass = 'ORDINAER' | 'PRODUKSJONSFISK' | 'SUPERIOR' | 'UTKAST';
 
 /** Kalite sınıfı */
-export type QualityGrade =
-  | 'GRADE_A'
-  | 'GRADE_B'
-  | 'GRADE_C'
-  | 'PREMIUM'
-  | 'REJECT';
+export type QualityGrade = 'GRADE_A' | 'GRADE_B' | 'GRADE_C' | 'PREMIUM' | 'REJECT';
 
 export type QualityRequirementsInput = {
   /** Required certifications (MSC, ASC, Organic, etc.) */
@@ -14761,32 +13836,26 @@ export type Query = {
   workers: Array<WorkerResponse>;
 };
 
-
 export type QueryActiveEmployeesArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryActiveFeedingParameterArgs = {
   plcConnectionId: Scalars['ID']['input'];
 };
-
 
 export type QueryActiveFeedingProgramsArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryActivePlcAlarmsArgs = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryActiveProcessesArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryActiveRotationsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -14794,12 +13863,10 @@ export type QueryActiveRotationsArgs = {
   workAreaId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryActuatorUsageStatsArgs = {
   plcConnectionId: Scalars['ID']['input'];
   timeRange: TelemetryTimeRangeInput;
 };
-
 
 export type QueryAggregatedReadingsArgs = {
   endTime: Scalars['DateTime']['input'];
@@ -14808,16 +13875,13 @@ export type QueryAggregatedReadingsArgs = {
   startTime: Scalars['DateTime']['input'];
 };
 
-
 export type QueryAlarmCountBySeverityArgs = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryAlarmCountBySourceArgs = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryAlertHistoryArgs = {
   acknowledged?: InputMaybe<Scalars['Boolean']['input']>;
@@ -14829,18 +13893,15 @@ export type QueryAlertHistoryArgs = {
   startDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
-
 export type QueryAlertRuleArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryAlertRulesArgs = {
   farmId?: InputMaybe<Scalars['ID']['input']>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   pondId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryAllCertificationsArgs = {
   category?: InputMaybe<CertificationCategory>;
@@ -14851,23 +13912,19 @@ export type QueryAllCertificationsArgs = {
   status?: InputMaybe<CertificationStatus>;
 };
 
-
 export type QueryAllMessagesSinceArgs = {
   limit?: Scalars['Int']['input'];
   since: Scalars['DateTime']['input'];
   syncToken?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryAllWorkAreaOccupanciesArgs = {
   date: Scalars['String']['input'];
 };
 
-
 export type QueryAnnouncementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryAttendanceRecordsArgs = {
   approvalStatus?: InputMaybe<ApprovalStatus>;
@@ -14880,13 +13937,11 @@ export type QueryAttendanceRecordsArgs = {
   status?: InputMaybe<AttendanceStatus>;
 };
 
-
 export type QueryAttendanceSummaryArgs = {
   employeeId: Scalars['ID']['input'];
   month: Scalars['Int']['input'];
   year: Scalars['Int']['input'];
 };
-
 
 export type QueryAuditLogArgs = {
   cursor?: InputMaybe<Scalars['String']['input']>;
@@ -14894,21 +13949,17 @@ export type QueryAuditLogArgs = {
   limit?: Scalars['Int']['input'];
 };
 
-
 export type QueryAutoRuleArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryAutomationProgramArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryAutomationProgramByCodeArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type QueryAutomationProgramsArgs = {
   filter?: InputMaybe<ProgramFilterInput>;
@@ -14916,13 +13967,11 @@ export type QueryAutomationProgramsArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryAutomationProgramsConnectionArgs = {
   filter?: InputMaybe<ProgramFilterInput>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
-
 
 export type QueryAvailableTanksArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -14930,33 +13979,27 @@ export type QueryAvailableTanksArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryBatchArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryBatchFeedAssignmentArgs = {
   batchId: Scalars['ID']['input'];
 };
-
 
 export type QueryBatchGrowthHistoryArgs = {
   batchId: Scalars['ID']['input'];
   limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryBatchGrowthPredictionArgs = {
   batchId: Scalars['ID']['input'];
 };
-
 
 export type QueryBatchHarvestEligibilityArgs = {
   batchId: Scalars['ID']['input'];
   harvestDate: Scalars['DateTime']['input'];
 };
-
 
 export type QueryBatchHistoryArgs = {
   eventTypes?: InputMaybe<Array<BatchHistoryEventType>>;
@@ -14966,16 +14009,13 @@ export type QueryBatchHistoryArgs = {
   toDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
-
 export type QueryBatchPerformanceArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryBatchTraceabilityArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryBatchesArgs = {
   filter?: InputMaybe<BatchFilterInput>;
@@ -14985,30 +14025,25 @@ export type QueryBatchesArgs = {
   sortOrder?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryBiomassReportArgs = {
   reportMonth: Scalars['Int']['input'];
   reportYear: Scalars['Int']['input'];
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryBiomassReportAltinnExportArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryBiomassReportsArgs = {
   limit?: Scalars['Int']['input'];
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryBrowseOpcUaNodesArgs = {
   parentNodeId?: InputMaybe<Scalars['String']['input']>;
   plcConnectionId: Scalars['ID']['input'];
 };
-
 
 export type QueryCalculateLeaveDaysArgs = {
   endDate: Scalars['String']['input'];
@@ -15018,32 +14053,26 @@ export type QueryCalculateLeaveDaysArgs = {
   startDate: Scalars['String']['input'];
 };
 
-
 export type QueryCertificationComplianceReportArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryCertificationTypeArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryCertificationTypesArgs = {
   category?: InputMaybe<CertificationCategory>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QueryCertificationsForWorkAreaArgs = {
   workAreaId: Scalars['ID']['input'];
 };
 
-
 export type QueryChannelArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryCheckLeaveOverlapArgs = {
   employeeId: Scalars['ID']['input'];
@@ -15052,122 +14081,99 @@ export type QueryCheckLeaveOverlapArgs = {
   startDate: Scalars['String']['input'];
 };
 
-
 export type QueryChemicalArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryChemicalsArgs = {
   filter?: InputMaybe<ChemicalFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QueryChemicalsByTypeArgs = {
   type: ChemicalType;
 };
-
 
 export type QueryChildSensorsArgs = {
   parentId: Scalars['ID']['input'];
 };
 
-
 export type QueryChildSystemsArgs = {
   parentSystemId: Scalars['ID']['input'];
 };
-
 
 export type QueryCleanerFishBatchesArgs = {
   status?: InputMaybe<BatchStatus>;
 };
 
-
 export type QueryConsumableArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryConsumablesArgs = {
   filter?: InputMaybe<ConsumableFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QueryCurrentOnCallUserArgs = {
   policyId: Scalars['ID']['input'];
 };
-
 
 export type QueryCurrentRotationArgs = {
   employeeId: Scalars['ID']['input'];
 };
 
-
 export type QueryCurrentWeatherArgs = {
   siteId: Scalars['ID']['input'];
 };
-
 
 export type QueryCurrentlyOffshoreArgs = {
   workAreaId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryDailyAttendanceOverviewArgs = {
   date?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryDailyFeedingExecutionArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryDailyFeedingExecutionsArgs = {
   date: Scalars['DateTime']['input'];
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryDailyFeedingPlanArgs = {
   date?: InputMaybe<Scalars['DateTime']['input']>;
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryDashboardLayoutArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryDataChannelArgs = {
   channelId: Scalars['ID']['input'];
 };
 
-
 export type QueryDataChannelsBySensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
-
 
 export type QueryDefaultFeedingProtocolArgs = {
   species: Scalars['String']['input'];
   stage?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryDepartmentArgs = {
   id: Scalars['ID']['input'];
   includeRelations?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QueryDepartmentDeletePreviewArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryDepartmentKpIsArgs = {
   departmentId: Scalars['ID']['input'];
@@ -15175,17 +14181,14 @@ export type QueryDepartmentKpIsArgs = {
   periodStart: Scalars['String']['input'];
 };
 
-
 export type QueryDepartmentsArgs = {
   filter?: InputMaybe<DepartmentFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QueryDepartmentsBySiteArgs = {
   siteId: Scalars['ID']['input'];
 };
-
 
 export type QueryDeploymentHistoryArgs = {
   deviceId?: InputMaybe<Scalars['ID']['input']>;
@@ -15193,11 +14196,9 @@ export type QueryDeploymentHistoryArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryDeploymentLogArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryDeviceEventsArgs = {
   deviceId?: InputMaybe<Scalars['ID']['input']>;
@@ -15206,31 +14207,25 @@ export type QueryDeviceEventsArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryDeviceGroupArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryDeviceInstallCommandsArgs = {
   deviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryDirectChannelArgs = {
   userId: Scalars['ID']['input'];
 };
-
 
 export type QueryDiscoverOpcUaEndpointsArgs = {
   endpointUrl: Scalars['String']['input'];
 };
 
-
 export type QueryEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryEdgeDevicesArgs = {
   isOnline?: InputMaybe<Scalars['Boolean']['input']>;
@@ -15241,35 +14236,29 @@ export type QueryEdgeDevicesArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryEffectiveConfigurationArgs = {
   environment?: InputMaybe<ConfigEnvironment>;
   key: Scalars['String']['input'];
   serviceId: Scalars['String']['input'];
 };
 
-
 export type QueryEffectiveConfigurationsByServiceArgs = {
   environment?: InputMaybe<ConfigEnvironment>;
   service: Scalars['String']['input'];
 };
 
-
 export type QueryEmployeeArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryEmployeeCertificationStatusArgs = {
   employeeId: Scalars['ID']['input'];
 };
 
-
 export type QueryEmployeeCertificationsArgs = {
   employeeId: Scalars['ID']['input'];
   status?: InputMaybe<CertificationStatus>;
 };
-
 
 export type QueryEmployeeKpIsArgs = {
   employeeId: Scalars['ID']['input'];
@@ -15277,12 +14266,10 @@ export type QueryEmployeeKpIsArgs = {
   periodStart?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryEmployeesArgs = {
   filter?: InputMaybe<EmployeeFilterInput>;
   pagination?: InputMaybe<EmployeePaginationInput>;
 };
-
 
 export type QueryEmployeesByDepartmentArgs = {
   department: HrDepartment;
@@ -15290,91 +14277,74 @@ export type QueryEmployeesByDepartmentArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryEnabledChannelsBySensorArgs = {
   sensorId: Scalars['ID']['input'];
 };
-
 
 export type QueryEquipmentArgs = {
   id: Scalars['ID']['input'];
   includeRelations?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QueryEquipmentByDepartmentArgs = {
   departmentId: Scalars['ID']['input'];
 };
 
-
 export type QueryEquipmentDeletePreviewArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryEquipmentListArgs = {
   filter?: InputMaybe<EquipmentFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QueryEquipmentParametersArgs = {
   equipmentId: Scalars['ID']['input'];
 };
-
 
 export type QueryEquipmentTypeArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryEquipmentTypesArgs = {
   filter?: InputMaybe<EquipmentTypeFilterInput>;
 };
-
 
 export type QueryEscalationPoliciesArgs = {
   activeOnly?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QueryEscalationPolicyArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryEscapeIncidentsArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
   status?: InputMaybe<EscapeIncidentStatus>;
 };
 
-
 export type QueryEstimateSgrArgs = {
   species: Scalars['String']['input'];
   temperature: Scalars['Float']['input'];
 };
 
-
 export type QueryExpiredCertificationsArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryExpiringCertificationsArgs = {
   daysUntilExpiry?: Scalars['Int']['input'];
   departmentId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryFarmArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryFarmStockInventoryArgs = {
   filter?: InputMaybe<FarmStockInventoryFilterInput>;
 };
-
 
 export type QueryFarmsArgs = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -15383,92 +14353,75 @@ export type QueryFarmsArgs = {
   search?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryFeedArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryFeedConsumptionForecastArgs = {
   input?: InputMaybe<FeedForecastInput>;
 };
-
 
 export type QueryFeedInventoryArgs = {
   filter?: InputMaybe<FeedInventoryFilterInput>;
   pagination?: InputMaybe<FeedingPaginationInput>;
 };
 
-
 export type QueryFeederCalibrationsArgs = {
   equipmentId: Scalars['ID']['input'];
 };
-
 
 export type QueryFeedingAdviceArgs = {
   tankId: Scalars['ID']['input'];
 };
 
-
 export type QueryFeedingParameterArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryFeedingParameterHistoryArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   plcConnectionId: Scalars['ID']['input'];
 };
 
-
 export type QueryFeedingParametersArgs = {
   filter?: InputMaybe<FeedingParameterFilterInput>;
   pagination?: InputMaybe<PlcPaginationInput>;
 };
 
-
 export type QueryFeedingProgramArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryFeedingProgramsArgs = {
   filter?: InputMaybe<FeedingProgramFilterInput>;
 };
 
-
 export type QueryFeedingProtocolArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryFeedingProtocolsArgs = {
   filter?: InputMaybe<FeedingProtocolFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QueryFeedingProtocolsBySpeciesArgs = {
   species: Scalars['String']['input'];
 };
 
-
 export type QueryFeedingRecordArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryFeedingRecordsArgs = {
   filter?: InputMaybe<FeedingRecordFilterInput>;
   pagination?: InputMaybe<FeedingPaginationInput>;
 };
 
-
 export type QueryFeedingStatsArgs = {
   plcConnectionId: Scalars['ID']['input'];
   timeRange: TelemetryTimeRangeInput;
 };
-
 
 export type QueryFeedingSummaryArgs = {
   endDate?: InputMaybe<Scalars['DateTime']['input']>;
@@ -15477,49 +14430,40 @@ export type QueryFeedingSummaryArgs = {
   startDate?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
-
 export type QueryFeedsArgs = {
   filter?: InputMaybe<FeedFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QueryFeedsByPelletSizeArgs = {
   pelletSize: Scalars['Float']['input'];
 };
-
 
 export type QueryFeedsByTypeArgs = {
   type: FeedType;
 };
 
-
 export type QueryFeedsForSpeciesArgs = {
   species: Scalars['String']['input'];
 };
-
 
 export type QueryGetMobileUserSettingsArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type QueryGetUserEffectivePermissionsArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type QueryGoalArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryGoalProgressTrendArgs = {
   employeeId: Scalars['ID']['input'];
   endDate: Scalars['String']['input'];
   startDate: Scalars['String']['input'];
 };
-
 
 export type QueryGoalsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
@@ -15528,162 +14472,131 @@ export type QueryGoalsArgs = {
   status?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryGrowthAnalysisArgs = {
   batchId: Scalars['ID']['input'];
 };
 
-
 export type QueryGrowthMeasurementArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryGrowthMeasurementsArgs = {
   filter?: InputMaybe<GrowthMeasurementFilterInput>;
   pagination?: InputMaybe<GrowthPaginationInput>;
 };
 
-
 export type QueryGrowthSimulationArgs = {
   input: GrowthSimulationInput;
 };
-
 
 export type QueryHarvestArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryHarvestPlanByCodeArgs = {
   planCode: Scalars['String']['input'];
 };
 
-
 export type QueryHarvestPlansArgs = {
   filter?: InputMaybe<HarvestPlanFilterInput>;
 };
-
 
 export type QueryHarvestPlansByBatchArgs = {
   activeOnly?: InputMaybe<Scalars['Boolean']['input']>;
   batchId: Scalars['ID']['input'];
 };
 
-
 export type QueryHarvestStatisticsArgs = {
   dateRange: DateRangeInput;
 };
-
 
 export type QueryHarvestsArgs = {
   filter?: InputMaybe<HarvestFilterInput>;
   pagination?: InputMaybe<HarvestPaginationInput>;
 };
 
-
 export type QueryHarvestsByBatchArgs = {
   batchId: Scalars['ID']['input'];
   pagination?: InputMaybe<HarvestPaginationInput>;
 };
 
-
 export type QueryHasConsentArgs = {
   consentType: ConsentType;
 };
-
 
 export type QueryHealthEventArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryHealthEventsArgs = {
   filter?: InputMaybe<HealthEventFilterInput>;
 };
-
 
 export type QueryHealthEventsByBatchArgs = {
   activeOnly?: InputMaybe<Scalars['Boolean']['input']>;
   batchId: Scalars['ID']['input'];
 };
 
-
 export type QueryHrDepartmentArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryHrDepartmentsArgs = {
   isDeleted?: InputMaybe<Scalars['Boolean']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryHydroponicsConfigurationArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryHydroponicsConfigurationsArgs = {
   type?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryInventoryCountArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryInventoryCountsArgs = {
   filter?: InputMaybe<InventoryCountFilterInput>;
 };
 
-
 export type QueryInvoicesArgs = {
   status?: InputMaybe<InvoiceStatus>;
 };
-
 
 export type QueryLatestGrowthMeasurementArgs = {
   batchId: Scalars['ID']['input'];
 };
 
-
 export type QueryLatestPlcTelemetryArgs = {
   plcConnectionId: Scalars['ID']['input'];
 };
-
 
 export type QueryLatestReadingArgs = {
   sensorId: Scalars['ID']['input'];
 };
 
-
 export type QueryLatestReadingsBatchArgs = {
   sensorIds: Array<Scalars['ID']['input']>;
 };
-
 
 export type QueryLatestScadaDeployLogArgs = {
   deviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryLatestTelemetrySummaryArgs = {
   plcConnectionId: Scalars['ID']['input'];
 };
 
-
 export type QueryLatestWaterQualityArgs = {
   tankId: Scalars['ID']['input'];
 };
-
 
 export type QueryLeaveBalancesArgs = {
   employeeId: Scalars['ID']['input'];
@@ -15691,11 +14604,9 @@ export type QueryLeaveBalancesArgs = {
   year?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryLeaveRequestArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryLeaveRequestsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
@@ -15707,12 +14618,10 @@ export type QueryLeaveRequestsArgs = {
   status?: InputMaybe<LeaveRequestStatus>;
 };
 
-
 export type QueryLeaveTypesArgs = {
   category?: InputMaybe<LeaveCategory>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
 };
-
 
 export type QueryLiceCountsArgs = {
   reportingWeek?: InputMaybe<Scalars['Int']['input']>;
@@ -15721,21 +14630,17 @@ export type QueryLiceCountsArgs = {
   tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryLoraDevicesArgs = {
   edgeDeviceId: Scalars['ID']['input'];
 };
-
 
 export type QueryMaintenanceScheduleArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryMaintenanceScheduleByCodeArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type QueryMaintenanceSchedulesArgs = {
   filter?: InputMaybe<MaintenanceScheduleFilterInput>;
@@ -15745,40 +14650,33 @@ export type QueryMaintenanceSchedulesArgs = {
   sortOrder?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryMandatoryTrainingStatusArgs = {
   employeeId: Scalars['ID']['input'];
 };
-
 
 export type QueryMarineObservationsArgs = {
   filter?: InputMaybe<WeatherFilterInput>;
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryMessagesArgs = {
   channelId: Scalars['ID']['input'];
   filter?: InputMaybe<MessageFilterInput>;
 };
-
 
 export type QueryMessagesSinceArgs = {
   channelId: Scalars['ID']['input'];
   since: Scalars['DateTime']['input'];
 };
 
-
 export type QueryModuleUsersArgs = {
   moduleId: Scalars['ID']['input'];
 };
-
 
 export type QueryMyAnnouncementsArgs = {
   status?: InputMaybe<AnnouncementStatus>;
   type?: InputMaybe<AnnouncementType>;
 };
-
 
 export type QueryMyAttendanceRecordsArgs = {
   endDate?: InputMaybe<Scalars['String']['input']>;
@@ -15786,38 +14684,31 @@ export type QueryMyAttendanceRecordsArgs = {
   startDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryMyAttendanceSummaryArgs = {
   month: Scalars['Int']['input'];
   year: Scalars['Int']['input'];
 };
 
-
 export type QueryMyCertificationsArgs = {
   status?: InputMaybe<CertificationStatus>;
 };
 
-
 export type QueryMyChannelsArgs = {
   filter?: InputMaybe<ChannelFilterInput>;
 };
-
 
 export type QueryMyConsentHistoryArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryMyGoalsArgs = {
   status?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryMyLeaveBalancesArgs = {
   year?: InputMaybe<Scalars['Int']['input']>;
 };
-
 
 export type QueryMyLeaveRequestsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -15825,17 +14716,14 @@ export type QueryMyLeaveRequestsArgs = {
   status?: InputMaybe<LeaveRequestStatus>;
 };
 
-
 export type QueryMyNotificationsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   unreadOnly?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QueryMyPerformanceReviewsArgs = {
   status?: InputMaybe<Scalars['String']['input']>;
 };
-
 
 export type QueryMyScheduleArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -15843,17 +14731,14 @@ export type QueryMyScheduleArgs = {
   weekStartDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryMySupportThreadsArgs = {
   search?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<SupportThreadStatus>;
 };
 
-
 export type QueryMyTasksArgs = {
   status?: InputMaybe<Array<TaskStatus>>;
 };
-
 
 export type QueryMyTicketsArgs = {
   priority?: InputMaybe<TicketPriority>;
@@ -15861,18 +14746,15 @@ export type QueryMyTicketsArgs = {
   status?: InputMaybe<TicketStatus>;
 };
 
-
 export type QueryMyTrainingEnrollmentsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
   status?: InputMaybe<EnrollmentStatus>;
 };
 
-
 export type QueryMyWorkOrdersArgs = {
   activeOnly?: InputMaybe<Scalars['Boolean']['input']>;
 };
-
 
 export type QueryMyWorkRotationsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -15880,17 +14762,14 @@ export type QueryMyWorkRotationsArgs = {
   status?: InputMaybe<RotationStatus>;
 };
 
-
 export type QueryOffshoreWorkAreasArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryOverdueGoalsArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryOvertimeSummaryArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -15899,21 +14778,17 @@ export type QueryOvertimeSummaryArgs = {
   year: Scalars['Int']['input'];
 };
 
-
 export type QueryParameterConfigArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryParameterConfigByCodeArgs = {
   code: Scalars['String']['input'];
 };
 
-
 export type QueryParameterConfigsArgs = {
   filter?: InputMaybe<ParameterConfigFilterInput>;
 };
-
 
 export type QueryParameterEquipmentMappingsArgs = {
   equipmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -15921,23 +14796,19 @@ export type QueryParameterEquipmentMappingsArgs = {
   parameterConfigId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryParentDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryParentDevicesArgs = {
   filter?: InputMaybe<SensorFilterInput>;
   pagination?: InputMaybe<SensorPaginationInput>;
 };
 
-
 export type QueryPaymentsArgs = {
   invoiceId?: InputMaybe<Scalars['ID']['input']>;
   status?: InputMaybe<PaymentStatus>;
 };
-
 
 export type QueryPayrollsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
@@ -15946,18 +14817,15 @@ export type QueryPayrollsArgs = {
   status?: InputMaybe<PayrollStatus>;
 };
 
-
 export type QueryPendingAttendanceApprovalsArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryPendingChannelProposalsArgs = {
   sensorId: Scalars['ID']['input'];
 };
-
 
 export type QueryPendingLeaveApprovalsArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -15965,22 +14833,18 @@ export type QueryPendingLeaveApprovalsArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryPendingPayrollsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryPendingReviewsArgs = {
   reviewerId: Scalars['ID']['input'];
 };
 
-
 export type QueryPerformanceReviewArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryPerformanceReviewsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
@@ -15989,58 +14853,47 @@ export type QueryPerformanceReviewsArgs = {
   status?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryPerformanceSummaryArgs = {
   employeeId: Scalars['ID']['input'];
 };
-
 
 export type QueryPinnedMessagesArgs = {
   channelId: Scalars['ID']['input'];
 };
 
-
 export type QueryPlanArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryPlcAlarmArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryPlcAlarmStatsArgs = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryPlcAlarmsArgs = {
   filter?: InputMaybe<PlcAlarmFilterInput>;
   pagination?: InputMaybe<PlcPaginationInput>;
 };
 
-
 export type QueryPlcConnectionArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryPlcConnectionsArgs = {
   filter?: InputMaybe<PlcConnectionFilterInput>;
   pagination?: InputMaybe<PlcPaginationInput>;
 };
 
-
 export type QueryPlcConnectionsBySiteArgs = {
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryPlcTelemetryArgs = {
   filter?: InputMaybe<PlcTelemetryFilterInput>;
 };
-
 
 export type QueryPlcTelemetryByTimeRangeArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -16048,43 +14901,35 @@ export type QueryPlcTelemetryByTimeRangeArgs = {
   timeRange: TelemetryTimeRangeInput;
 };
 
-
 export type QueryPlcTelemetryStatsArgs = {
   plcConnectionId: Scalars['ID']['input'];
   timeRange: TelemetryTimeRangeInput;
 };
 
-
 export type QueryPondArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryProcessArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryProcessesArgs = {
   filter?: InputMaybe<ProcessFilterInput>;
   pagination?: InputMaybe<ProcessPaginationInput>;
 };
 
-
 export type QueryProgramStepsArgs = {
   programId: Scalars['ID']['input'];
 };
-
 
 export type QueryProgramTransitionsArgs = {
   programId: Scalars['ID']['input'];
 };
 
-
 export type QueryProgramVariablesArgs = {
   programId: Scalars['ID']['input'];
 };
-
 
 export type QueryProjectHarvestDateArgs = {
   currentWeightG: Scalars['Float']['input'];
@@ -16093,52 +14938,42 @@ export type QueryProjectHarvestDateArgs = {
   targetWeightG: Scalars['Float']['input'];
 };
 
-
 export type QueryProtocolCapabilitiesArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type QueryProtocolDefaultsArgs = {
   code: Scalars['String']['input'];
 };
 
-
 export type QueryProtocolDetailsArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type QueryProtocolSchemaArgs = {
   code: Scalars['String']['input'];
 };
 
-
 export type QueryProtocolsArgs = {
   category?: InputMaybe<ProtocolCategory>;
 };
-
 
 export type QueryPublicUserProfileArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryPurchaseOrderArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryPurchaseOrdersArgs = {
   filter?: InputMaybe<PurchaseOrderFilterInput>;
 };
 
-
 export type QueryReadOpcUaHistoricalDataArgs = {
   input: ReadHistoricalDataInput;
   plcConnectionId: Scalars['ID']['input'];
 };
-
 
 export type QueryReadingsArgs = {
   endTime: Scalars['DateTime']['input'];
@@ -16147,27 +14982,22 @@ export type QueryReadingsArgs = {
   startTime: Scalars['DateTime']['input'];
 };
 
-
 export type QueryRecentPlcAlarmsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryRecurringTemplateArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryRegulatoryReportArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryRegulatoryReportSummaryArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryRegulatoryReportsArgs = {
   limit?: Scalars['Int']['input'];
@@ -16176,32 +15006,26 @@ export type QueryRegulatoryReportsArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryReportDraftsArgs = {
   filter?: InputMaybe<ReportDraftFilterInput>;
 };
-
 
 export type QueryReportPrefillArgs = {
   input: ReportPrefillInput;
 };
 
-
 export type QueryResolveTagRefsArgs = {
   refs: Array<Scalars['String']['input']>;
 };
-
 
 export type QueryReviewCycleStatusArgs = {
   periodType: ReviewPeriodType;
   year: Scalars['Int']['input'];
 };
 
-
 export type QueryRootSystemsArgs = {
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryRotationCalendarArgs = {
   endDate: Scalars['String']['input'];
@@ -16209,44 +15033,36 @@ export type QueryRotationCalendarArgs = {
   workAreaId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryRotationChangeoversArgs = {
   endDate: Scalars['String']['input'];
   startDate: Scalars['String']['input'];
 };
 
-
 export type QueryScadaDeployLogsArgs = {
   filter: DeployLogFilterInput;
 };
 
-
 export type QueryScadaPackageArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryScadaPackagesArgs = {
   filter?: InputMaybe<ScadaPackageFilterInput>;
   pagination?: InputMaybe<ProcessPaginationInput>;
 };
 
-
 export type QuerySearchMessagesArgs = {
   input: SearchMessagesInput;
 };
-
 
 export type QuerySearchTagsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   query: Scalars['String']['input'];
 };
 
-
 export type QuerySensorArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QuerySensorRawListArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -16255,27 +15071,22 @@ export type QuerySensorRawListArgs = {
   status?: InputMaybe<SensorStatus>;
 };
 
-
 export type QuerySensorsArgs = {
   filter?: InputMaybe<SensorFilterInput>;
   pagination?: InputMaybe<SensorPaginationInput>;
 };
 
-
 export type QuerySensorsByProtocolArgs = {
   protocolCode: Scalars['String']['input'];
 };
-
 
 export type QuerySentimentTrendsArgs = {
   input: SentimentTrendsInput;
 };
 
-
 export type QueryShiftArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryShiftsArgs = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -16284,53 +15095,43 @@ export type QueryShiftsArgs = {
   shiftType?: InputMaybe<ShiftType>;
 };
 
-
 export type QuerySimilarMessagesArgs = {
   input: SimilarMessagesInput;
 };
-
 
 export type QuerySiteArgs = {
   id: Scalars['ID']['input'];
   includeRelations?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QuerySiteContactsArgs = {
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QuerySiteDeletePreviewArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QuerySitesArgs = {
   filter?: InputMaybe<SiteFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QuerySlaughterFacilitiesArgs = {
   includeInactive?: InputMaybe<Scalars['Boolean']['input']>;
 };
-
 
 export type QuerySparePartArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QuerySparePartByCodeArgs = {
   code: Scalars['String']['input'];
 };
 
-
 export type QuerySparePartByPartNumberArgs = {
   partNumber: Scalars['String']['input'];
 };
-
 
 export type QuerySparePartsArgs = {
   filter?: InputMaybe<SparePartFilterInput>;
@@ -16340,42 +15141,34 @@ export type QuerySparePartsArgs = {
   sortOrder?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QuerySparePartsByEquipmentTypeArgs = {
   equipmentTypeId: Scalars['ID']['input'];
 };
-
 
 export type QuerySpeciesArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QuerySpeciesByCodeArgs = {
   code: Scalars['String']['input'];
 };
-
 
 export type QuerySpeciesListArgs = {
   filter?: InputMaybe<SpeciesFilterInput>;
 };
 
-
 export type QueryStepActionsArgs = {
   stepId: Scalars['ID']['input'];
 };
-
 
 export type QueryStockEventsSummaryArgs = {
   daysBack?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryStockMovementsArgs = {
   filter?: InputMaybe<StockMovementFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
-
 
 export type QueryStorageInventoryArgs = {
   itemType?: InputMaybe<StorageItemType>;
@@ -16384,167 +15177,136 @@ export type QueryStorageInventoryArgs = {
   offset?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryStorageInventoryByCursorArgs = {
   input?: InputMaybe<CursorPaginationInput>;
   itemType?: InputMaybe<StorageItemType>;
   locationId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryStorageLocationArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryStorageLocationsArgs = {
   filter?: InputMaybe<StorageLocationFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QuerySubEquipmentArgs = {
   id: Scalars['ID']['input'];
   includeRelations?: InputMaybe<Scalars['Boolean']['input']>;
 };
-
 
 export type QuerySubEquipmentByParentArgs = {
   includeInactive?: InputMaybe<Scalars['Boolean']['input']>;
   parentEquipmentId: Scalars['ID']['input'];
 };
 
-
 export type QuerySubEquipmentListArgs = {
   filter?: InputMaybe<SubEquipmentFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QuerySubEquipmentTypeArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QuerySubEquipmentTypesArgs = {
   filter?: InputMaybe<SubEquipmentTypeFilterInput>;
 };
 
-
 export type QuerySubEquipmentTypesForEquipmentArgs = {
   equipmentTypeCode: Scalars['String']['input'];
 };
-
 
 export type QuerySupplierArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QuerySupplierSitesArgs = {
   supplierId: Scalars['ID']['input'];
 };
-
 
 export type QuerySuppliersArgs = {
   filter?: InputMaybe<SupplierFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QuerySuppliersByTypeArgs = {
   type: SupplierType;
 };
-
 
 export type QuerySupportThreadArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QuerySupportThreadMessagesArgs = {
   threadId: Scalars['ID']['input'];
 };
-
 
 export type QuerySystemArgs = {
   id: Scalars['ID']['input'];
   includeRelations?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
-
 export type QuerySystemDeletePreviewArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QuerySystemsArgs = {
   filter?: InputMaybe<SystemFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
 };
 
-
 export type QuerySystemsByDepartmentArgs = {
   departmentId: Scalars['ID']['input'];
 };
-
 
 export type QuerySystemsBySiteArgs = {
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryTableDataArgs = {
   input: GetTableDataInput;
 };
-
 
 export type QueryTableSchemaArgs = {
   schemaName: Scalars['String']['input'];
   tableName: Scalars['String']['input'];
 };
 
-
 export type QueryTankArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryTankCleanerFishArgs = {
   tankId: Scalars['ID']['input'];
 };
 
-
 export type QueryTankRiskAssessmentArgs = {
   tankId: Scalars['ID']['input'];
 };
-
 
 export type QueryTanksArgs = {
   filter?: InputMaybe<TankFilterInput>;
 };
 
-
 export type QueryTanksByDepartmentArgs = {
   departmentId: Scalars['ID']['input'];
 };
-
 
 export type QueryTaskArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryTasksArgs = {
   filter?: InputMaybe<TaskFilterInput>;
 };
-
 
 export type QueryTeamGoalsArgs = {
   managerId: Scalars['ID']['input'];
   status?: InputMaybe<Scalars['String']['input']>;
 };
-
 
 export type QueryTeamLeaveCalendarArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -16552,11 +15314,9 @@ export type QueryTeamLeaveCalendarArgs = {
   startDate: Scalars['String']['input'];
 };
 
-
 export type QueryTeamPerformanceOverviewArgs = {
   departmentId: Scalars['ID']['input'];
 };
-
 
 export type QueryTeamWeeklyOverviewArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -16564,16 +15324,13 @@ export type QueryTeamWeeklyOverviewArgs = {
   weekStartDate: Scalars['String']['input'];
 };
 
-
 export type QueryTenantArgs = {
   id: Scalars['ID']['input'];
 };
 
-
 export type QueryTenantActivityArgs = {
   period?: InputMaybe<Scalars['String']['input']>;
 };
-
 
 export type QueryTenantAuditLogsArgs = {
   action?: InputMaybe<Scalars['String']['input']>;
@@ -16585,16 +15342,13 @@ export type QueryTenantAuditLogsArgs = {
   startDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryTenantBySlugArgs = {
   slug: Scalars['String']['input'];
 };
 
-
 export type QueryTenantRoleArgs = {
   roleId: Scalars['ID']['input'];
 };
-
 
 export type QueryTenantUsersArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -16603,36 +15357,29 @@ export type QueryTenantUsersArgs = {
   status?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryTicketArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryTicketCommentsArgs = {
   ticketId: Scalars['ID']['input'];
 };
 
-
 export type QueryTodaysAttendanceArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
 };
-
 
 export type QueryTodaysDailyOpsCountsArgs = {
   clientDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryTodaysFeedingPlanArgs = {
   programId: Scalars['ID']['input'];
 };
 
-
 export type QueryTraceLotArgs = {
   lotNumber: Scalars['String']['input'];
 };
-
 
 export type QueryTrainingCalendarArgs = {
   courseId?: InputMaybe<Scalars['ID']['input']>;
@@ -16641,11 +15388,9 @@ export type QueryTrainingCalendarArgs = {
   workAreaId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryTrainingCourseArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryTrainingCoursesArgs = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -16655,7 +15400,6 @@ export type QueryTrainingCoursesArgs = {
   trainingType?: InputMaybe<TrainingType>;
 };
 
-
 export type QueryTrainingEnrollmentsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -16664,45 +15408,37 @@ export type QueryTrainingEnrollmentsArgs = {
   trainingCourseId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryTreatmentApplicationsArgs = {
   fromDate?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   toDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryUnacknowledgedPlcAlarmsArgs = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
 
-
 export type QueryUnifiedTagArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryUnifiedTagsArgs = {
   filter?: InputMaybe<TagFilterInput>;
   pagination?: InputMaybe<ProcessPaginationInput>;
 };
 
-
 export type QueryUpcomingHarvestPlansArgs = {
   days?: InputMaybe<Scalars['Int']['input']>;
 };
-
 
 export type QueryUpcomingMaintenanceSchedulesArgs = {
   days?: InputMaybe<Scalars['Int']['input']>;
 };
 
-
 export type QueryUpcomingRotationsArgs = {
   employeeId: Scalars['ID']['input'];
   limit?: InputMaybe<Scalars['Int']['input']>;
 };
-
 
 export type QueryUserConsentHistoryArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -16710,58 +15446,47 @@ export type QueryUserConsentHistoryArgs = {
   userId: Scalars['ID']['input'];
 };
 
-
 export type QueryUserConsentStatusArgs = {
   userId: Scalars['ID']['input'];
 };
-
 
 export type QueryUserPresenceArgs = {
   userIds: Array<Scalars['ID']['input']>;
 };
 
-
 export type QueryValidateInvitationArgs = {
   token: Scalars['String']['input'];
 };
 
-
 export type QueryValidateTokenArgs = {
   token: Scalars['String']['input'];
 };
-
 
 export type QueryValidateVfdConfigArgs = {
   configuration: Scalars['JSON']['input'];
   protocol: VfdProtocol;
 };
 
-
 export type QueryVfdAutomationRuleArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryVfdAutomationRuleHistoryArgs = {
   limit?: Scalars['Int']['input'];
   ruleId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdAutomationRulesByDeviceArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
-
 
 export type QueryVfdBrandCommandsArgs = {
   brand: VfdBrand;
 };
 
-
 export type QueryVfdChangeSetArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryVfdChangeSetsArgs = {
   limit?: Scalars['Int']['input'];
@@ -16770,38 +15495,31 @@ export type QueryVfdChangeSetsArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdCurrentParameterValuesArgs = {
   parameterNames: Array<Scalars['String']['input']>;
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdDeviceArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryVfdDevicesArgs = {
   filter?: InputMaybe<VfdDeviceFilterInput>;
   pagination?: InputMaybe<VfdPaginationInput>;
 };
 
-
 export type QueryVfdDevicesByFarmArgs = {
   farmId: Scalars['ID']['input'];
 };
-
 
 export type QueryVfdDevicesByTankArgs = {
   tankId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdLatestReadingArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
-
 
 export type QueryVfdParameterAuditLogArgs = {
   limit?: Scalars['Int']['input'];
@@ -16809,22 +15527,18 @@ export type QueryVfdParameterAuditLogArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdParameterDefinitionsArgs = {
   group?: InputMaybe<Scalars['String']['input']>;
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdProtocolDefaultConfigArgs = {
   protocol: VfdProtocol;
 };
 
-
 export type QueryVfdProtocolSchemaArgs = {
   protocol: VfdProtocol;
 };
-
 
 export type QueryVfdReadingStatsArgs = {
   from?: InputMaybe<Scalars['DateTime']['input']>;
@@ -16833,7 +15547,6 @@ export type QueryVfdReadingStatsArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdReadingsArgs = {
   from?: InputMaybe<Scalars['DateTime']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -16841,23 +15554,19 @@ export type QueryVfdReadingsArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
 
-
 export type QueryVfdRegisterMappingsArgs = {
   brand: VfdBrand;
   modelSeries: Scalars['String']['input'];
 };
-
 
 export type QueryVfdRegisterMappingsByCategoryArgs = {
   brand: VfdBrand;
   category: VfdParameterCategory;
 };
 
-
 export type QueryWaterQualityArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryWaterQualityChartArgs = {
   fromDate: Scalars['DateTime']['input'];
@@ -16865,47 +15574,39 @@ export type QueryWaterQualityChartArgs = {
   toDate: Scalars['DateTime']['input'];
 };
 
-
 export type QueryWaterQualityChartBySystemArgs = {
   fromDate: Scalars['DateTime']['input'];
   systemId: Scalars['ID']['input'];
   toDate: Scalars['DateTime']['input'];
 };
 
-
 export type QueryWaterQualityMeasurementsArgs = {
   filter?: InputMaybe<WaterQualityFilterInput>;
 };
-
 
 export type QueryWaterQualityStatisticsArgs = {
   days?: Scalars['Int']['input'];
   tankId: Scalars['ID']['input'];
 };
 
-
 export type QueryWaterQualityStatisticsBySystemArgs = {
   days?: Scalars['Int']['input'];
   systemId: Scalars['ID']['input'];
 };
-
 
 export type QueryWeatherForecastArgs = {
   days?: InputMaybe<Scalars['Float']['input']>;
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryWeatherObservationsArgs = {
   filter?: InputMaybe<WeatherFilterInput>;
   siteId: Scalars['ID']['input'];
 };
 
-
 export type QueryWeeklyPlanArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryWeeklyPlansArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
@@ -16917,7 +15618,6 @@ export type QueryWeeklyPlansArgs = {
   weekStartDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryWelfareAssessmentsArgs = {
   fromDate?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
@@ -16925,17 +15625,14 @@ export type QueryWelfareAssessmentsArgs = {
   toDate?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryWorkAreaArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryWorkAreaOccupancyArgs = {
   date: Scalars['String']['input'];
   workAreaId: Scalars['ID']['input'];
 };
-
 
 export type QueryWorkAreasArgs = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -16945,22 +15642,18 @@ export type QueryWorkAreasArgs = {
   workAreaType?: InputMaybe<WorkAreaType>;
 };
 
-
 export type QueryWorkOrderArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryWorkOrderByCodeArgs = {
   code: Scalars['String']['input'];
 };
 
-
 export type QueryWorkOrderStatisticsArgs = {
   dateFrom?: InputMaybe<Scalars['DateTime']['input']>;
   dateTo?: InputMaybe<Scalars['DateTime']['input']>;
 };
-
 
 export type QueryWorkOrdersArgs = {
   filter?: InputMaybe<WorkOrderFilterInput>;
@@ -16970,11 +15663,9 @@ export type QueryWorkOrdersArgs = {
   sortOrder?: InputMaybe<Scalars['String']['input']>;
 };
 
-
 export type QueryWorkRotationArgs = {
   id: Scalars['ID']['input'];
 };
-
 
 export type QueryWorkRotationsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
@@ -17013,9 +15704,7 @@ export type RecalculateParametersInput = {
   waterTempC?: InputMaybe<Scalars['Float']['input']>;
 };
 
-export type ReceiptStatus =
-  | 'DELIVERED'
-  | 'READ';
+export type ReceiptStatus = 'DELIVERED' | 'READ';
 
 export type ReceiveDeliveryInput = {
   items: Array<ReceiveDeliveryItemInput>;
@@ -17287,13 +15976,7 @@ export type RecordWelfareAssessmentInput = {
 };
 
 /** Tekrarlama sıklığı */
-export type RecurrenceFrequency =
-  | 'BIWEEKLY'
-  | 'CUSTOM'
-  | 'DAILY'
-  | 'HOURLY'
-  | 'MONTHLY'
-  | 'WEEKLY';
+export type RecurrenceFrequency = 'BIWEEKLY' | 'CUSTOM' | 'DAILY' | 'HOURLY' | 'MONTHLY' | 'WEEKLY';
 
 export type RecurrenceRuleInput = {
   /** 1-31 */
@@ -17512,9 +16195,7 @@ export type RegulatoryConfigurationStatus = {
 };
 
 /** Whether a failed regulatory submission is retryable */
-export type RegulatoryFailureClass =
-  | 'PERMANENT'
-  | 'TRANSIENT';
+export type RegulatoryFailureClass = 'PERMANENT' | 'TRANSIENT';
 
 export type RegulatoryHealthStatus = {
   maskinportenHealthy: Scalars['Boolean']['output'];
@@ -17569,11 +16250,7 @@ export type RegulatoryReportDraft = {
 };
 
 /** Lifecycle of a persisted regulatory report submission */
-export type RegulatoryReportSubmissionStatus =
-  | 'FAILED'
-  | 'PENDING'
-  | 'QUEUED'
-  | 'SUBMITTED';
+export type RegulatoryReportSubmissionStatus = 'FAILED' | 'PENDING' | 'QUEUED' | 'SUBMITTED';
 
 /** Which Mattilsynet report a persisted submission row records */
 export type RegulatoryReportType =
@@ -17720,12 +16397,7 @@ export type ReportDraftFilterInput = {
 };
 
 /** Lifecycle of a scheduled regulatory report draft */
-export type ReportDraftStatus =
-  | 'APPROVED'
-  | 'DISMISSED'
-  | 'DRAFT'
-  | 'READY'
-  | 'SUBMITTED';
+export type ReportDraftStatus = 'APPROVED' | 'DISMISSED' | 'DRAFT' | 'READY' | 'SUBMITTED';
 
 export type ReportFieldMetaOutput = {
   /** True when schema-required and still MANUAL_REQUIRED */
@@ -17746,10 +16418,7 @@ export type ReportFieldMetaOutput = {
 };
 
 /** Where a prefilled report field came from: aggregated operational records, a sensor projection, or operator input still required */
-export type ReportFieldProvenance =
-  | 'MANUAL_REQUIRED'
-  | 'RECORDS'
-  | 'SENSOR';
+export type ReportFieldProvenance = 'MANUAL_REQUIRED' | 'RECORDS' | 'SENSOR';
 
 export type ReportPrefillInput = {
   /** Month 1-12 (monthly report types) */
@@ -17894,12 +16563,7 @@ export type ReviewCycleStatus = {
   totalEmployees: Scalars['Int']['output'];
 };
 
-export type ReviewPeriodType =
-  | 'ANNUAL'
-  | 'PROBATION'
-  | 'PROJECT'
-  | 'QUARTERLY'
-  | 'SEMI_ANNUAL';
+export type ReviewPeriodType = 'ANNUAL' | 'PROBATION' | 'PROJECT' | 'QUARTERLY' | 'SEMI_ANNUAL';
 
 export type ReviewStatus =
   | 'ACKNOWLEDGED'
@@ -17925,18 +16589,10 @@ export type RevokeUserRoleInput = {
 };
 
 /** Risk level for VFD parameter changes */
-export type RiskLevel =
-  | 'CRITICAL'
-  | 'HIGH'
-  | 'LOW'
-  | 'MEDIUM';
+export type RiskLevel = 'CRITICAL' | 'HIGH' | 'LOW' | 'MEDIUM';
 
 /** User roles in the system */
-export type Role =
-  | 'MODULE_MANAGER'
-  | 'MODULE_USER'
-  | 'SUPER_ADMIN'
-  | 'TENANT_ADMIN';
+export type Role = 'MODULE_MANAGER' | 'MODULE_USER' | 'SUPER_ADMIN' | 'TENANT_ADMIN';
 
 export type RollbackVfdChangeSetInput = {
   changeSetId: Scalars['ID']['input'];
@@ -17999,19 +16655,9 @@ export type RotationDetail = {
   workAreaId: Scalars['String']['output'];
 };
 
-export type RotationStatus =
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'EXTENDED'
-  | 'IN_PROGRESS'
-  | 'SCHEDULED';
+export type RotationStatus = 'CANCELLED' | 'COMPLETED' | 'EXTENDED' | 'IN_PROGRESS' | 'SCHEDULED';
 
-export type RotationType =
-  | 'FIELD'
-  | 'MIXED'
-  | 'OFFSHORE'
-  | 'ONSHORE'
-  | 'VESSEL';
+export type RotationType = 'FIELD' | 'MIXED' | 'OFFSHORE' | 'ONSHORE' | 'VESSEL';
 
 export type SafetyTrainingRecord = {
   certificateNumber?: Maybe<Scalars['String']['output']>;
@@ -18167,10 +16813,7 @@ export type ScadaPackageListType = {
 };
 
 /** Status of the SCADA package */
-export type ScadaPackageStatus =
-  | 'ARCHIVED'
-  | 'DRAFT'
-  | 'PUBLISHED';
+export type ScadaPackageStatus = 'ARCHIVED' | 'DRAFT' | 'PUBLISHED';
 
 export type ScadaPackageType = {
   createdAt: Scalars['DateTime']['output'];
@@ -18506,9 +17149,7 @@ export type SensorRegistrationStatus =
   | 'TEST_FAILED';
 
 /** Sensor role - parent device or child sensor */
-export type SensorRole =
-  | 'CHILD'
-  | 'PARENT';
+export type SensorRole = 'CHILD' | 'PARENT';
 
 export type SensorStats = {
   avg?: Maybe<Scalars['Float']['output']>;
@@ -18529,12 +17170,7 @@ export type SensorStatsType = {
 };
 
 /** Current status of the sensor */
-export type SensorStatus =
-  | 'ACTIVE'
-  | 'ERROR'
-  | 'INACTIVE'
-  | 'MAINTENANCE'
-  | 'OFFLINE';
+export type SensorStatus = 'ACTIVE' | 'ERROR' | 'INACTIVE' | 'MAINTENANCE' | 'OFFLINE';
 
 /** Type of sensor */
 export type SensorType =
@@ -18711,12 +17347,7 @@ export type ShiftConnection = {
   totalPages: Scalars['Int']['output'];
 };
 
-export type ShiftType =
-  | 'FLEXIBLE'
-  | 'NIGHT'
-  | 'OFFSHORE'
-  | 'REGULAR'
-  | 'ROTATION';
+export type ShiftType = 'FLEXIBLE' | 'NIGHT' | 'OFFSHORE' | 'REGULAR' | 'ROTATION';
 
 export type SimilarMessageType = {
   message: Message;
@@ -18852,11 +17483,7 @@ export type SiteResponse = {
 };
 
 /** Status of the site */
-export type SiteStatus =
-  | 'ACTIVE'
-  | 'CLOSED'
-  | 'INACTIVE'
-  | 'MAINTENANCE';
+export type SiteStatus = 'ACTIVE' | 'CLOSED' | 'INACTIVE' | 'MAINTENANCE';
 
 /** Type of the site */
 export type SiteType =
@@ -18885,9 +17512,7 @@ export type SlaughterFacility = {
 };
 
 /** Sort direction for paginated queries */
-export type SortOrder =
-  | 'ASC'
-  | 'DESC';
+export type SortOrder = 'ASC' | 'DESC';
 
 export type SparePart = {
   code: Scalars['String']['output'];
@@ -19054,17 +17679,10 @@ export type SpeciesListResponse = {
 };
 
 /** Tür durumu */
-export type SpeciesStatus =
-  | 'ACTIVE'
-  | 'DISCONTINUED'
-  | 'EXPERIMENTAL'
-  | 'INACTIVE';
+export type SpeciesStatus = 'ACTIVE' | 'DISCONTINUED' | 'EXPERIMENTAL' | 'INACTIVE';
 
 /** Türün yaşadığı su ortamı */
-export type SpeciesWaterType =
-  | 'BRACKISH'
-  | 'FRESHWATER'
-  | 'SALTWATER';
+export type SpeciesWaterType = 'BRACKISH' | 'FRESHWATER' | 'SALTWATER';
 
 export type SpecificationFieldResponse = {
   defaultValue?: Maybe<Scalars['String']['output']>;
@@ -19127,10 +17745,7 @@ export type StepAction = {
 };
 
 /** Type of SFC step */
-export type StepType =
-  | 'FINAL'
-  | 'INITIAL'
-  | 'NORMAL';
+export type StepType = 'FINAL' | 'INITIAL' | 'NORMAL';
 
 export type StockEventsSummary = {
   recentEvents: Array<MobileStockEvent>;
@@ -19224,11 +17839,7 @@ export type StorageInventoryResponse = {
 };
 
 /** Type of item in storage */
-export type StorageItemType =
-  | 'CHEMICAL'
-  | 'CONSUMABLE'
-  | 'FEED'
-  | 'HEALTHCARE';
+export type StorageItemType = 'CHEMICAL' | 'CONSUMABLE' | 'FEED' | 'HEALTHCARE';
 
 export type StorageLocationFilterInput = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
@@ -19729,20 +18340,10 @@ export type SupplierSiteResponse = {
 };
 
 /** Status of the supplier */
-export type SupplierStatus =
-  | 'ACTIVE'
-  | 'BLACKLISTED'
-  | 'INACTIVE'
-  | 'SUSPENDED';
+export type SupplierStatus = 'ACTIVE' | 'BLACKLISTED' | 'INACTIVE' | 'SUSPENDED';
 
 /** Type of supplier */
-export type SupplierType =
-  | 'CHEMICAL'
-  | 'EQUIPMENT'
-  | 'FEED'
-  | 'FRY'
-  | 'OTHER'
-  | 'SERVICE';
+export type SupplierType = 'CHEMICAL' | 'EQUIPMENT' | 'FEED' | 'FRY' | 'OTHER' | 'SERVICE';
 
 export type SupplierTypeResponse = {
   code: Scalars['String']['output'];
@@ -19801,10 +18402,7 @@ export type SupportMessageItem = {
 };
 
 /** Support message delivery status */
-export type SupportMessageStatus =
-  | 'DELIVERED'
-  | 'READ'
-  | 'SENT';
+export type SupportMessageStatus = 'DELIVERED' | 'READ' | 'SENT';
 
 export type SupportMessageThread = {
   createdAt: Scalars['DateTime']['output'];
@@ -19840,10 +18438,7 @@ export type SupportSendMessageInput = {
 };
 
 /** Who sent the support message (admin-to-tenant) */
-export type SupportSenderType =
-  | 'SUPER_ADMIN'
-  | 'SYSTEM'
-  | 'TENANT_ADMIN';
+export type SupportSenderType = 'SUPER_ADMIN' | 'SYSTEM' | 'TENANT_ADMIN';
 
 export type SupportStats = {
   avgResolutionMinutes: Scalars['Float']['output'];
@@ -19872,10 +18467,7 @@ export type SupportThreadListItem = {
 };
 
 /** Support message thread status */
-export type SupportThreadStatus =
-  | 'ARCHIVED'
-  | 'CLOSED'
-  | 'OPEN';
+export type SupportThreadStatus = 'ARCHIVED' | 'CLOSED' | 'OPEN';
 
 export type SupportTicket = {
   assignedTo?: Maybe<Scalars['String']['output']>;
@@ -20035,11 +18627,7 @@ export type SystemResponse = {
 };
 
 /** Sistem durumu */
-export type SystemStatus =
-  | 'CONSTRUCTION'
-  | 'MAINTENANCE'
-  | 'OFFLINE'
-  | 'OPERATIONAL';
+export type SystemStatus = 'CONSTRUCTION' | 'MAINTENANCE' | 'OFFLINE' | 'OPERATIONAL';
 
 export type SystemSummary = {
   code: Scalars['String']['output'];
@@ -20086,20 +18674,10 @@ export type TableSchemaInfo = {
 };
 
 /** Data type for tag values */
-export type TagDataType =
-  | 'BOOL'
-  | 'FLOAT32'
-  | 'FLOAT64'
-  | 'INT16'
-  | 'INT32'
-  | 'UINT16'
-  | 'UINT32';
+export type TagDataType = 'BOOL' | 'FLOAT32' | 'FLOAT64' | 'INT16' | 'INT32' | 'UINT16' | 'UINT32';
 
 /** Direction of the tag I/O */
-export type TagDirection =
-  | 'BIDIRECTIONAL'
-  | 'INPUT'
-  | 'OUTPUT';
+export type TagDirection = 'BIDIRECTIONAL' | 'INPUT' | 'OUTPUT';
 
 export type TagDiscoveryResultType = {
   createdCount: Scalars['Int']['output'];
@@ -20119,11 +18697,7 @@ export type TagFilterInput = {
 };
 
 /** Type of I/O point (DI, DO, AI, AO) */
-export type TagIoType =
-  | 'AI'
-  | 'AO'
-  | 'DI'
-  | 'DO';
+export type TagIoType = 'AI' | 'AO' | 'DI' | 'DO';
 
 export type TagResolutionResultType = {
   resolved: Array<ResolvedTagBindingType>;
@@ -20131,10 +18705,7 @@ export type TagResolutionResultType = {
 };
 
 /** Lifecycle state of a registry tag */
-export type TagStatus =
-  | 'ACTIVE'
-  | 'DRAFT'
-  | 'RETIRED';
+export type TagStatus = 'ACTIVE' | 'DRAFT' | 'RETIRED';
 
 export type Tank = {
   aeration?: Maybe<Scalars['JSON']['output']>;
@@ -20228,10 +18799,7 @@ export type TankCleanerFishInfo = {
 };
 
 /** Canonical setup container kind for tank-like equipment compatibility */
-export type TankContainerKind =
-  | 'CAGE'
-  | 'POND'
-  | 'TANK';
+export type TankContainerKind = 'CAGE' | 'POND' | 'TANK';
 
 export type TankCountReconcileRow = {
   applied: Scalars['Boolean']['output'];
@@ -20449,11 +19017,7 @@ export type TaskListResponse = {
 };
 
 /** Görev önceliği */
-export type TaskPriority =
-  | 'HIGH'
-  | 'LOW'
-  | 'MEDIUM'
-  | 'URGENT';
+export type TaskPriority = 'HIGH' | 'LOW' | 'MEDIUM' | 'URGENT';
 
 export type TaskStatsResponse = {
   avgCompletionMinutes: Scalars['Float']['output'];
@@ -20465,12 +19029,7 @@ export type TaskStatsResponse = {
 };
 
 /** Görev durumu */
-export type TaskStatus =
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'IN_PROGRESS'
-  | 'OVERDUE'
-  | 'PENDING';
+export type TaskStatus = 'CANCELLED' | 'COMPLETED' | 'IN_PROGRESS' | 'OVERDUE' | 'PENDING';
 
 export type TaxInfo = {
   taxAmount: Scalars['Float']['output'];
@@ -20558,9 +19117,7 @@ export type TenantActivityResponse = {
   userActivitySummaries: Array<UserActivitySummaryResponse>;
 };
 
-export type TenantBillingPeriod =
-  | 'MONTHLY'
-  | 'YEARLY';
+export type TenantBillingPeriod = 'MONTHLY' | 'YEARLY';
 
 export type TenantBillingResponse = {
   invoices: Array<TenantInvoiceDto>;
@@ -20610,12 +19167,7 @@ export type TenantInvoiceDto = {
   status: TenantInvoiceStatus;
 };
 
-export type TenantInvoiceStatus =
-  | 'DRAFT'
-  | 'OVERDUE'
-  | 'PAID'
-  | 'PENDING'
-  | 'VOID';
+export type TenantInvoiceStatus = 'DRAFT' | 'OVERDUE' | 'PAID' | 'PENDING' | 'VOID';
 
 export type TenantKeyResponse = {
   autoApprove: Scalars['Boolean']['output'];
@@ -20644,12 +19196,7 @@ export type TenantModule = {
 };
 
 /** Tenant subscription plans */
-export type TenantPlan =
-  | 'ENTERPRISE'
-  | 'FREE'
-  | 'PROFESSIONAL'
-  | 'STARTER'
-  | 'TRIAL';
+export type TenantPlan = 'ENTERPRISE' | 'FREE' | 'PROFESSIONAL' | 'STARTER' | 'TRIAL';
 
 export type TenantPlanLimitsDto = {
   currentFarms: Scalars['Int']['output'];
@@ -20741,12 +19288,7 @@ export type TenantSubscriptionDto = {
   trialEndDate?: Maybe<Scalars['String']['output']>;
 };
 
-export type TenantSubscriptionStatus =
-  | 'ACTIVE'
-  | 'CANCELLED'
-  | 'PAST_DUE'
-  | 'SUSPENDED'
-  | 'TRIAL';
+export type TenantSubscriptionStatus = 'ACTIVE' | 'CANCELLED' | 'PAST_DUE' | 'SUSPENDED' | 'TRIAL';
 
 export type TenantTableInfo = {
   module?: Maybe<Scalars['String']['output']>;
@@ -20778,10 +19320,7 @@ export type TestVfdConnectionInput = {
   timeout?: InputMaybe<Scalars['Int']['input']>;
 };
 
-export type Testresultat =
-  | 'FOLSOM'
-  | 'NEDSATT_FOLSOMHET'
-  | 'RESISTENS';
+export type Testresultat = 'FOLSOM' | 'NEDSATT_FOLSOMHET' | 'RESISTENS';
 
 export type ThresholdConfigInput = {
   oxygenCritical: Scalars['Float']['input'];
@@ -20800,12 +19339,7 @@ export type TicketAttachment = {
 };
 
 /** Support ticket category */
-export type TicketCategory =
-  | 'BILLING'
-  | 'BUG'
-  | 'FEATURE_REQUEST'
-  | 'GENERAL'
-  | 'TECHNICAL';
+export type TicketCategory = 'BILLING' | 'BUG' | 'FEATURE_REQUEST' | 'GENERAL' | 'TECHNICAL';
 
 export type TicketComment = {
   attachments?: Maybe<Array<TicketAttachment>>;
@@ -20838,19 +19372,10 @@ export type TicketListItem = {
 };
 
 /** Support ticket priority level */
-export type TicketPriority =
-  | 'CRITICAL'
-  | 'HIGH'
-  | 'LOW'
-  | 'MEDIUM';
+export type TicketPriority = 'CRITICAL' | 'HIGH' | 'LOW' | 'MEDIUM';
 
 /** Support ticket status */
-export type TicketStatus =
-  | 'CLOSED'
-  | 'IN_PROGRESS'
-  | 'OPEN'
-  | 'RESOLVED'
-  | 'WAITING_CUSTOMER';
+export type TicketStatus = 'CLOSED' | 'IN_PROGRESS' | 'OPEN' | 'RESOLVED' | 'WAITING_CUSTOMER';
 
 /** Type of timeline event */
 export type TimelineEventType =
@@ -20865,11 +19390,7 @@ export type TimelineEventType =
   | 'STATUS_CHANGE';
 
 /** Behavior when step times out */
-export type TimeoutBehavior =
-  | 'ABORT'
-  | 'ALARM'
-  | 'GOTO'
-  | 'SKIP';
+export type TimeoutBehavior = 'ABORT' | 'ALARM' | 'GOTO' | 'SKIP';
 
 export type TodaysDailyOpsCounts = {
   cullCount: Scalars['Int']['output'];
@@ -21009,11 +19530,7 @@ export type TrainingEnrollmentConnection = {
   totalPages: Scalars['Int']['output'];
 };
 
-export type TrainingLevel =
-  | 'ADVANCED'
-  | 'BEGINNER'
-  | 'EXPERT'
-  | 'INTERMEDIATE';
+export type TrainingLevel = 'ADVANCED' | 'BEGINNER' | 'EXPERT' | 'INTERMEDIATE';
 
 export type TrainingSession = {
   availableSlots?: Maybe<Scalars['Int']['output']>;
@@ -21041,18 +19558,9 @@ export type TrainingSession = {
   version: Scalars['Int']['output'];
 };
 
-export type TrainingSessionStatus =
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'IN_PROGRESS'
-  | 'SCHEDULED';
+export type TrainingSessionStatus = 'CANCELLED' | 'COMPLETED' | 'IN_PROGRESS' | 'SCHEDULED';
 
-export type TrainingType =
-  | 'BLENDED'
-  | 'IN_PERSON'
-  | 'ONLINE'
-  | 'ON_THE_JOB'
-  | 'SELF_PACED';
+export type TrainingType = 'BLENDED' | 'IN_PERSON' | 'ONLINE' | 'ON_THE_JOB' | 'SELF_PACED';
 
 export type TransferBatchInput = {
   avgWeightG?: InputMaybe<Scalars['Float']['input']>;
@@ -21135,11 +19643,7 @@ export type TransportInfo = {
   vehicleId?: Maybe<Scalars['String']['output']>;
 };
 
-export type TransportMethod =
-  | 'BOAT'
-  | 'HELICOPTER'
-  | 'OTHER'
-  | 'VEHICLE';
+export type TransportMethod = 'BOAT' | 'HELICOPTER' | 'OTHER' | 'VEHICLE';
 
 export type TreatmentApplication = {
   appliedAt: Scalars['DateTime']['output'];
@@ -21169,9 +19673,7 @@ export type TreatmentApplication = {
 };
 
 /** Medicinal (virkestoff-based) vs non-medicinal (thermal/mechanical/freshwater) */
-export type TreatmentCategory =
-  | 'MEDICINAL'
-  | 'NON_MEDICINAL';
+export type TreatmentCategory = 'MEDICINAL' | 'NON_MEDICINAL';
 
 export type TreatmentDetailsInput = {
   /** Treatment cost */
@@ -22967,13 +21469,7 @@ export type VariableDataType =
   | 'UINT';
 
 /** Scope/usage of the variable */
-export type VariableScope =
-  | 'CONSTANT'
-  | 'INOUT'
-  | 'INPUT'
-  | 'LOCAL'
-  | 'OUTPUT'
-  | 'RETAIN';
+export type VariableScope = 'CONSTANT' | 'INOUT' | 'INPUT' | 'LOCAL' | 'OUTPUT' | 'RETAIN';
 
 export type VarslingKontaktpersonInput = {
   /** Contact person email */
@@ -23035,11 +21531,7 @@ export type VetConsultationInput = {
 };
 
 /** VFD audit trail action types */
-export type VfdAuditAction =
-  | 'APPLY'
-  | 'AUTO_APPLY'
-  | 'EMERGENCY_OVERRIDE'
-  | 'ROLLBACK';
+export type VfdAuditAction = 'APPLY' | 'AUTO_APPLY' | 'EMERGENCY_OVERRIDE' | 'ROLLBACK';
 
 /** VFD automation rule for event-driven parameter changes */
 export type VfdAutomationRule = {
@@ -23114,12 +21606,7 @@ export type VfdChangeSetItemInput = {
 };
 
 /** VFD change set item status */
-export type VfdChangeSetItemStatus =
-  | 'APPLIED'
-  | 'FAILED'
-  | 'PENDING'
-  | 'ROLLED_BACK'
-  | 'VERIFIED';
+export type VfdChangeSetItemStatus = 'APPLIED' | 'FAILED' | 'PENDING' | 'ROLLED_BACK' | 'VERIFIED';
 
 /** VFD change set workflow status */
 export type VfdChangeSetStatus =
@@ -23802,23 +22289,13 @@ export type WaterQualityStatistics = {
 };
 
 /** Su kalitesi durumu */
-export type WaterQualityStatus =
-  | 'ACCEPTABLE'
-  | 'CRITICAL'
-  | 'OPTIMAL'
-  | 'UNKNOWN'
-  | 'WARNING';
+export type WaterQualityStatus = 'ACCEPTABLE' | 'CRITICAL' | 'OPTIMAL' | 'UNKNOWN' | 'WARNING';
 
 /** Type of water in the pond */
-export type WaterType =
-  | 'BRACKISH'
-  | 'FRESHWATER'
-  | 'SALTWATER';
+export type WaterType = 'BRACKISH' | 'FRESHWATER' | 'SALTWATER';
 
 /** Tahmin mi geçmiş veri mi */
-export type WeatherDataType =
-  | 'FORECAST'
-  | 'HISTORICAL';
+export type WeatherDataType = 'FORECAST' | 'HISTORICAL';
 
 export type WeatherFilterInput = {
   dataType?: InputMaybe<WeatherDataType>;
@@ -24022,17 +22499,9 @@ export type WeeklyPlanEntry = {
   weeklyPlanId: Scalars['String']['output'];
 };
 
-export type WeeklyPlanEntryType =
-  | 'HOLIDAY'
-  | 'LEAVE'
-  | 'OFF'
-  | 'TRAINING'
-  | 'WORK';
+export type WeeklyPlanEntryType = 'HOLIDAY' | 'LEAVE' | 'OFF' | 'TRAINING' | 'WORK';
 
-export type WeeklyPlanStatus =
-  | 'CLOSED'
-  | 'DRAFT'
-  | 'PUBLISHED';
+export type WeeklyPlanStatus = 'CLOSED' | 'DRAFT' | 'PUBLISHED';
 
 export type WelfareAssessment = {
   assessedAt: Scalars['String']['output'];
@@ -24052,14 +22521,9 @@ export type WelfareAssessment = {
   woundScore: Scalars['Int']['output'];
 };
 
-export type WelfareEventTypeInput =
-  | 'EQUIPMENT_FAILURE'
-  | 'MORTALITY_THRESHOLD'
-  | 'WELFARE_IMPACT';
+export type WelfareEventTypeInput = 'EQUIPMENT_FAILURE' | 'MORTALITY_THRESHOLD' | 'WELFARE_IMPACT';
 
-export type WelfareSeverityInput =
-  | 'CRITICAL'
-  | 'HIGH';
+export type WelfareSeverityInput = 'CRITICAL' | 'HIGH';
 
 export type WithdrawConsentInput = {
   consentType: ConsentType;
@@ -24174,11 +22638,7 @@ export type WorkAreaOccupancyReport = {
   workArea: WorkArea;
 };
 
-export type WorkAreaRiskLevel =
-  | 'CRITICAL'
-  | 'HIGH'
-  | 'LOW'
-  | 'MEDIUM';
+export type WorkAreaRiskLevel = 'CRITICAL' | 'HIGH' | 'LOW' | 'MEDIUM';
 
 export type WorkAreaType =
   | 'FEED_BARGE'
@@ -24291,11 +22751,7 @@ export type WorkOrderListResponse = {
 };
 
 /** Öncelik seviyesi */
-export type WorkOrderPriority =
-  | 'CRITICAL'
-  | 'HIGH'
-  | 'LOW'
-  | 'MEDIUM';
+export type WorkOrderPriority = 'CRITICAL' | 'HIGH' | 'LOW' | 'MEDIUM';
 
 export type WorkOrderStatisticsResponse = {
   approved: Scalars['Int']['output'];

@@ -40984,7 +40984,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5360a7fdbc5aae3fa5d42b3616cd018e4c66d8639c52025cc935f0219039ce0b",
+      "content_sha256": "48ba2bab2c3a387b17ec5adda906d5fc38c140416119702225a923a0378640d0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -50954,7 +50954,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f89b35e44f54e93534dcb5f7f32e223e8e9b466149281cf4f1de8a5f782394f7",
+      "content_sha256": "e399f909cf56de6c029a0782307e1a1a7c9722fc46f324245fa2fcb009505d25",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

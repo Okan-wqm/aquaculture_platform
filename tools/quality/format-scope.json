@@ -4619,6 +4619,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/entities/public-user-profile.type.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/entities/refresh-token.entity.ts",
       "prettier_managed": true
     },
@@ -51606,10 +51612,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8455,
+  "file_count": 8456,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8280,
-  "managed_file_list_sha256": "912a3d6620579605b6e73b29210d5e8aea8e1c6d50b086e5572cfb1702b5d3a5",
+  "managed_count": 8281,
+  "managed_file_list_sha256": "74f3c303b90669046b4f3197fc59cddff6714e6e5a04a5ee523b2a2a8f777f7f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

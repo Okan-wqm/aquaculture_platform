@@ -104,7 +104,6 @@ export const MESSAGE_FIELDS = gql`
       id
       firstName
       lastName
-      email
       profileImageUrl
       isOnline
     }
@@ -165,7 +164,6 @@ export const CHANNEL_FIELDS = gql`
         id
         firstName
         lastName
-        email
         profileImageUrl
         isOnline
       }
@@ -279,7 +277,6 @@ export const USER_PRESENCE: TypedDocumentNode<UserPresenceQuery, UserPresenceQue
       id
       firstName
       lastName
-      email
       profileImageUrl
       isOnline
     }
@@ -355,7 +352,6 @@ export const ADD_CHANNEL_MEMBER: TypedDocumentNode<AddChannelMemberMutation, Add
         id
         firstName
         lastName
-        email
         profileImageUrl
         isOnline
       }

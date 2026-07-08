@@ -238,7 +238,6 @@ export function MessageInput({
       // Build the mention text
       const displayName = member.user
         ? [member.user.firstName, member.user.lastName].filter(Boolean).join(' ')
-          || member.user.email?.split('@')[0]
           || member.userId
         : member.userId;
 

@@ -4619,6 +4619,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/entities/public-user-profile.type.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/entities/refresh-token.entity.ts",
       "prettier_managed": true
     },
@@ -40978,7 +40984,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5360a7fdbc5aae3fa5d42b3616cd018e4c66d8639c52025cc935f0219039ce0b",
+      "content_sha256": "bd9b4851cc04864126033e10c2e37b9e670e3d52d3dd9955e7e28f54896e9450",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -50948,7 +50954,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f89b35e44f54e93534dcb5f7f32e223e8e9b466149281cf4f1de8a5f782394f7",
+      "content_sha256": "cfeda1d56cac599edffcdc795db7fc2ddecb24058c0bfeedcabc5a46767dc907",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -51606,10 +51612,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8455,
+  "file_count": 8456,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8280,
-  "managed_file_list_sha256": "912a3d6620579605b6e73b29210d5e8aea8e1c6d50b086e5572cfb1702b5d3a5",
+  "managed_count": 8281,
+  "managed_file_list_sha256": "74f3c303b90669046b4f3197fc59cddff6714e6e5a04a5ee523b2a2a8f777f7f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -2789,37 +2789,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/tenant-role-permissions.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/tenant-role.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/entities/user-permissions.entity.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/user-role-assignment.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/services/role-template.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/tenant-role.service.ts",
       "prettier_managed": true
     },
     {
@@ -2832,12 +2808,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/users/services/user-provisioning.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/user-role-assignment.service.ts",
       "prettier_managed": true
     },
     {
@@ -51642,10 +51612,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8461,
+  "file_count": 8456,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8286,
-  "managed_file_list_sha256": "336b7cea9bfc7c71f1b333ab924b86e61cb2e0373248ce1a9742e8d3748115f3",
+  "managed_count": 8281,
+  "managed_file_list_sha256": "c15aeaf6da2b7440871066dadfcef7ecea75f577a58fe53627e88eacbae935b8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

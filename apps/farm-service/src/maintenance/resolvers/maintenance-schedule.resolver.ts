@@ -85,46 +85,46 @@ export class MaintenanceScheduleListResponse extends StandardPaginatedResponse(M
 @ObjectType()
 export class ScheduleAlertResponse {
   @Field(() => MaintenanceSchedule)
-  schedule: MaintenanceSchedule;
+  schedule!: MaintenanceSchedule;
 
   @Field(() => Int)
-  daysUntilDue: number;
+  daysUntilDue!: number;
 
   @Field()
-  alertType: string;
+  alertType!: string;
 }
 
 @ObjectType()
 export class CategoryComplianceStats {
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Float)
-  complianceRate: number;
+  complianceRate!: number;
 }
 
 @ObjectType()
 export class ComplianceReportResponse {
   @Field(() => Int)
-  totalSchedules: number;
+  totalSchedules!: number;
 
   @Field(() => Int)
-  activeSchedules: number;
+  activeSchedules!: number;
 
   @Field(() => Int)
-  overdueSchedules: number;
+  overdueSchedules!: number;
 
   @Field(() => Float)
-  avgComplianceRate: number;
+  avgComplianceRate!: number;
 }
 
 @ObjectType()
 export class DeleteMaintenanceScheduleResponse {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   message?: string;

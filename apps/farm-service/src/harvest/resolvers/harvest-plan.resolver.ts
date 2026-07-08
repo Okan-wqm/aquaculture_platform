@@ -73,43 +73,43 @@ export class PaginatedHarvestPlansResponse extends StandardPaginatedResponse(Har
 @ObjectType()
 export class HarvestPlanStatsResponse {
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  draft: number;
+  draft!: number;
 
   @Field(() => Int)
-  planned: number;
+  planned!: number;
 
   @Field(() => Int)
-  approved: number;
+  approved!: number;
 
   @Field(() => Int)
-  scheduled: number;
+  scheduled!: number;
 
   @Field(() => Int)
-  inProgress: number;
+  inProgress!: number;
 
   @Field(() => Int)
-  completed: number;
+  completed!: number;
 
   @Field(() => Int)
-  cancelled: number;
+  cancelled!: number;
 
   @Field(() => Int)
-  postponed: number;
+  postponed!: number;
 
   @Field(() => Float)
-  totalEstimatedBiomass: number;
+  totalEstimatedBiomass!: number;
 
   @Field(() => Float)
-  totalActualBiomass: number;
+  totalActualBiomass!: number;
 
   @Field(() => Int)
-  upcomingCount: number;
+  upcomingCount!: number;
 
   @Field(() => Int)
-  overdueCount: number;
+  overdueCount!: number;
 }
 
 /**
@@ -118,13 +118,13 @@ export class HarvestPlanStatsResponse {
 @ObjectType()
 export class HarvestVarianceResponse {
   @Field(() => Float)
-  quantityVariance: number;
+  quantityVariance!: number;
 
   @Field(() => Float)
-  biomassVariance: number;
+  biomassVariance!: number;
 
   @Field(() => Float)
-  weightVariance: number;
+  weightVariance!: number;
 }
 
 // ============================================================================

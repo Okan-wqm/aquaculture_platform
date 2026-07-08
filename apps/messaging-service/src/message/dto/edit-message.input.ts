@@ -21,5 +21,5 @@ export class EditMessageInput extends MobileCommandEnvelopeInput {
   @IsString()
   @MinLength(1)
   @MaxLength(4000)
-  content: string;
+  content!: string;
 }

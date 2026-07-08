@@ -6,25 +6,25 @@ import { StorageLocationType } from '../entities/storage-location.entity';
 export class CreateStorageLocationInput {
   @Field(() => ID)
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field(() => StorageLocationType)
   @IsEnum(StorageLocationType)
-  type: StorageLocationType;
+  type!: StorageLocationType;
 
   @Field({ nullable: true })
   @IsOptional()

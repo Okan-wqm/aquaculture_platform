@@ -20,6 +20,45 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
+import type { ValidatedPayload } from './schemas';
+import { MattilsynetRestReportType } from './schemas';
+import { RegulatoryReportType } from './entities/regulatory-report.entity';
+
+/**
+ * Endpoint + scope + label per REST report type — the SSoT the typed submit
+ * methods and the by-type replay path both key off, so an endpoint path lives
+ * in exactly one place. `path` is appended to the configured base URL.
+ */
+export const MATTILSYNET_REST_ROUTES: Record<
+  MattilsynetRestReportType,
+  { path: string; scope: string; label: string }
+> = {
+  [RegulatoryReportType.SEA_LICE]: {
+    path: '/api/lakselus/v1/lakselus',
+    scope: MATTILSYNET_SCOPES.SEA_LICE,
+    label: 'Sea Lice',
+  },
+  [RegulatoryReportType.CLEANER_FISH]: {
+    path: '/api/rensefisk/v1/rensefisk',
+    scope: MATTILSYNET_SCOPES.CLEANER_FISH,
+    label: 'Cleaner Fish',
+  },
+  [RegulatoryReportType.SMOLT]: {
+    path: '/api/settefisk/v1/settefisk',
+    scope: MATTILSYNET_SCOPES.SMOLT,
+    label: 'Smolt',
+  },
+  [RegulatoryReportType.SLAUGHTER_PLANNED]: {
+    path: '/api/slakt/v1/planlagt',
+    scope: MATTILSYNET_SCOPES.SLAUGHTER,
+    label: 'Planned Slaughter',
+  },
+  [RegulatoryReportType.SLAUGHTER_EXECUTED]: {
+    path: '/api/slakt/v1/utfort',
+    scope: MATTILSYNET_SCOPES.SLAUGHTER,
+    label: 'Executed Slaughter',
+  },
+};
 
 // ============================================================================
 // Types - Common
@@ -59,37 +98,72 @@ export interface LusetellingPayload {
   fastsittendeLus: number;
 }
 
+export const STYRKE_ENHETER = [
+  'MILLIGRAM_PER_GRAM',
+  'MILLIGRAM_PER_MILLILITER',
+  'GRAM_PER_KILO',
+  'MILLIGRAM_PER_KILO',
+  'PROSENT',
+] as const;
+export type StyrkeEnhetPayload = (typeof STYRKE_ENHETER)[number];
+
 export interface VirkestoffStyrkePayload {
   verdi: number;
-  enhet: 'MILLIGRAM_PER_GRAM' | 'MILLIGRAM_PER_MILLILITER' | 'GRAM_PER_KILO' | 'MILLIGRAM_PER_KILO' | 'PROSENT';
+  enhet: StyrkeEnhetPayload;
 }
+
+export const MENGDE_ENHETER = ['GRAM', 'KILO', 'TONN', 'LITER'] as const;
+export type MengdeEnhetPayload = (typeof MENGDE_ENHETER)[number];
 
 export interface VirkestoffMengdePayload {
   verdi: number;
-  enhet: 'GRAM' | 'KILO' | 'TONN' | 'LITER';
+  enhet: MengdeEnhetPayload;
 }
 
-// Enum types aligned with official API
-export type VirkestoffTypePayload =
-  | 'AZAMETHIPHOS' | 'CYPERMETHRIN' | 'DELTAMETHRIN' | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID' | 'DIFLUBENZURON' | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON' | 'ANNET_VIRKESTOFF';
+// Enum types aligned with official API. The runtime const arrays are the
+// SSoT — write-time validation (TreatmentApplicationService) and the wire
+// types derive from the SAME list, so they structurally cannot drift.
+export const VIRKESTOFF_TYPES = [
+  'AZAMETHIPHOS',
+  'CYPERMETHRIN',
+  'DELTAMETHRIN',
+  'IMIDAKLOPRID',
+  'HYDROGENPEROKSID',
+  'DIFLUBENZURON',
+  'EMAMECTIN_BENZOAT',
+  'TEFLUBENZURON',
+  'ANNET_VIRKESTOFF',
+] as const;
+export type VirkestoffTypePayload = (typeof VIRKESTOFF_TYPES)[number];
 
-export type IkkeMedikamentellTypePayload =
-  | 'TERMISK_BEHANDLING' | 'MEKANISK_BEHANDLING'
-  | 'FERSKVANNSBEHANDLING' | 'ANNEN_BEHANDLING';
+export const IKKE_MEDIKAMENTELL_TYPES = [
+  'TERMISK_BEHANDLING',
+  'MEKANISK_BEHANDLING',
+  'FERSKVANNSBEHANDLING',
+  'ANNEN_BEHANDLING',
+] as const;
+export type IkkeMedikamentellTypePayload = (typeof IKKE_MEDIKAMENTELL_TYPES)[number];
 
-export type MedikamentellTypePayload =
-  | 'FORBEHANDLING' | 'BADEBEHANDLING' | 'ANNEN_BEHANDLING';
+export const MEDIKAMENTELL_TYPES = ['FORBEHANDLING', 'BADEBEHANDLING', 'ANNEN_BEHANDLING'] as const;
+export type MedikamentellTypePayload = (typeof MEDIKAMENTELL_TYPES)[number];
 
 export type ResistensTypePayload =
-  | 'AZAMETHIPHOS' | 'CYPERMETHRIN' | 'DELTAMETHRIN' | 'IMIDAKLOPRID'
-  | 'HYDROGENPEROKSID' | 'DIFLUBENZURON' | 'EMAMECTIN_BENZOAT'
-  | 'TEFLUBENZURON' | 'FERSKVANNSBEHANDLING' | 'ANNEN_RESISTENS';
+  | 'AZAMETHIPHOS'
+  | 'CYPERMETHRIN'
+  | 'DELTAMETHRIN'
+  | 'IMIDAKLOPRID'
+  | 'HYDROGENPEROKSID'
+  | 'DIFLUBENZURON'
+  | 'EMAMECTIN_BENZOAT'
+  | 'TEFLUBENZURON'
+  | 'FERSKVANNSBEHANDLING'
+  | 'ANNEN_RESISTENS';
 
 export type ResistensAarsakTypePayload =
-  | 'BIOESSAY' | 'NEDSATT_BEHANDLINGSEFFEKT'
-  | 'SITUASJONEN_I_OMRÅDET' | 'ANNEN_ÅRSAK';
+  | 'BIOESSAY'
+  | 'NEDSATT_BEHANDLINGSEFFEKT'
+  | 'SITUASJONEN_I_OMRÅDET'
+  | 'ANNEN_ÅRSAK';
 
 export type TestresultatPayload = 'FØLSOM' | 'NEDSATT_FØLSOMHET' | 'RESISTENS';
 
@@ -224,7 +298,10 @@ export interface RensefiskUttakPayload {
 
 // Cleaner fish origin - ALIGNED WITH OFFICIAL RensefiskOpprinnelse
 export type RensefiskOpprinnelsePayload =
-  | 'UKJENT' | 'VILLFANGET' | 'OPPDRETTET' | 'VILLFANGET_OG_OPPDRETTET';
+  | 'UKJENT'
+  | 'VILLFANGET'
+  | 'OPPDRETTET'
+  | 'VILLFANGET_OG_OPPDRETTET';
 
 export interface RensefiskArtPayload {
   artskode: 'USB' | 'BER' | 'GRO' | 'BNB';
@@ -353,6 +430,15 @@ export interface MattilsynetApiResponse {
     felt: string;
     melding: string;
   }[];
+  /**
+   * HTTP status of the Mattilsynet response (absent on a network/transport
+   * failure). The submission service classifies transient-vs-permanent from
+   * this + `isNetworkError`, so the status is surfaced structurally rather
+   * than buried in `feilmelding` (RPT-018 retry classification SSoT).
+   */
+  httpStatus?: number;
+  /** True when the call never reached the regulator (DNS/TCP/TLS/timeout). */
+  isNetworkError?: boolean;
 }
 
 // ============================================================================
@@ -372,9 +458,10 @@ export class MattilsynetApiService {
   ) {
     // Default to test environment
     const environment = this.configService.get<string>('MATTILSYNET_ENV', 'TEST');
-    this.baseUrl = environment === 'PRODUCTION'
-      ? 'https://innrapportering-api.fisk.mattilsynet.io'
-      : 'https://innrapportering-api.fisk-dev.mattilsynet.io';
+    this.baseUrl =
+      environment === 'PRODUCTION'
+        ? 'https://innrapportering-api.fisk.mattilsynet.io'
+        : 'https://innrapportering-api.fisk-dev.mattilsynet.io';
 
     this.logger.log(`Mattilsynet API configured for: ${this.baseUrl}`);
   }
@@ -384,13 +471,13 @@ export class MattilsynetApiService {
    */
   private async getHeaders(tenantId: string, scope: string): Promise<Record<string, string>> {
     const token = await this.maskinporten.getAccessToken(tenantId, [scope]);
-    const clientId = await this.settingsService.getDecryptedClientId(tenantId) || '';
+    const clientId = (await this.settingsService.getDecryptedClientId(tenantId)) || '';
 
     return {
-      'Authorization': `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
       'Client-Id': clientId,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      Accept: 'application/json',
     };
   }
 
@@ -398,45 +485,76 @@ export class MattilsynetApiService {
    * Submit a Sea Lice report
    * POST /api/lakselus/v1/lakselus
    */
-  async submitSeaLiceReport(tenantId: string, payload: SeaLicePayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/lakselus/v1/lakselus`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SEA_LICE, 'Sea Lice');
+  async submitSeaLiceReport(
+    tenantId: string,
+    payload: ValidatedPayload<SeaLicePayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SEA_LICE, payload);
   }
 
   /**
    * Submit a Cleaner Fish report
    * POST /api/rensefisk/v1/rensefisk
    */
-  async submitCleanerFishReport(tenantId: string, payload: CleanerFishPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/rensefisk/v1/rensefisk`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.CLEANER_FISH, 'Cleaner Fish');
+  async submitCleanerFishReport(
+    tenantId: string,
+    payload: ValidatedPayload<CleanerFishPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.CLEANER_FISH, payload);
   }
 
   /**
    * Submit a Smolt report
    * POST /api/settefisk/v1/settefisk
    */
-  async submitSmoltReport(tenantId: string, payload: SmoltPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/settefisk/v1/settefisk`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SMOLT, 'Smolt');
+  async submitSmoltReport(
+    tenantId: string,
+    payload: ValidatedPayload<SmoltPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SMOLT, payload);
   }
 
   /**
    * Submit a Planned Slaughter report
    * POST /api/slakt/v1/planlagt
    */
-  async submitPlannedSlaughterReport(tenantId: string, payload: PlannedSlaughterPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/slakt/v1/planlagt`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SLAUGHTER, 'Planned Slaughter');
+  async submitPlannedSlaughterReport(
+    tenantId: string,
+    payload: ValidatedPayload<PlannedSlaughterPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SLAUGHTER_PLANNED, payload);
   }
 
   /**
    * Submit an Executed Slaughter report
    * POST /api/slakt/v1/utfort
    */
-  async submitExecutedSlaughterReport(tenantId: string, payload: ExecutedSlaughterPayload): Promise<MattilsynetApiResponse> {
-    const endpoint = `${this.baseUrl}/api/slakt/v1/utfort`;
-    return this.submitReport(tenantId, endpoint, payload, MATTILSYNET_SCOPES.SLAUGHTER, 'Executed Slaughter');
+  async submitExecutedSlaughterReport(
+    tenantId: string,
+    payload: ValidatedPayload<ExecutedSlaughterPayload>,
+  ): Promise<MattilsynetApiResponse> {
+    return this.submitByType(tenantId, RegulatoryReportType.SLAUGHTER_EXECUTED, payload);
+  }
+
+  /**
+   * By-report-type submission — the endpoint/scope SSoT keyed by report type,
+   * so the typed methods above AND the retry sweep's replay path (which holds a
+   * re-validated base payload) share one endpoint table with no duplication.
+   * The brand still gates this: only a ValidatedPayload can reach it.
+   */
+  async submitByType(
+    tenantId: string,
+    reportType: MattilsynetRestReportType,
+    payload: ValidatedPayload<MattilsynetBasePayload>,
+  ): Promise<MattilsynetApiResponse> {
+    const route = MATTILSYNET_REST_ROUTES[reportType];
+    return this.submitReport(
+      tenantId,
+      `${this.baseUrl}${route.path}`,
+      payload,
+      route.scope,
+      route.label,
+    );
   }
 
   /**
@@ -473,6 +591,7 @@ export class MattilsynetApiService {
           klientReferanse: payload.klientReferanse,
           feilmelding: responseData.message || `HTTP ${response.status}`,
           valideringsfeil: responseData.errors || responseData.validationErrors,
+          httpStatus: response.status,
         };
       }
 
@@ -492,6 +611,7 @@ export class MattilsynetApiService {
         success: false,
         klientReferanse: payload.klientReferanse,
         feilmelding: error instanceof Error ? error.message : 'Unknown error',
+        isNetworkError: true,
       };
     }
   }
@@ -502,7 +622,7 @@ export class MattilsynetApiService {
   async healthCheck(tenantId: string): Promise<{ healthy: boolean; message: string }> {
     try {
       // Try to get a token (validates Maskinporten connection)
-      if (!await this.maskinporten.isConfiguredForTenant(tenantId)) {
+      if (!(await this.maskinporten.isConfiguredForTenant(tenantId))) {
         return {
           healthy: false,
           message: 'Maskinporten not configured',

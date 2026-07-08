@@ -40,7 +40,7 @@ export class UpdateGrowthMeasurementInput {
 
   @Field(() => ID, { description: 'Measurement ID to update' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   // -------------------------------------------------------------------------
   // LOCATION (can be updated if fish moved)

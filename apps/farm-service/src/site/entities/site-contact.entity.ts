@@ -34,12 +34,12 @@ import { Site } from './site.entity';
 export class SiteContact {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // SITE İLİŞKİSİ
@@ -48,11 +48,11 @@ export class SiteContact {
   @Field()
   @Column('uuid')
   @Index()
-  siteId: string;
+  siteId!: string;
 
   @ManyToOne(() => Site, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
-  site: Site;
+  site!: Site;
 
   // -------------------------------------------------------------------------
   // KİŞİ BİLGİLERİ
@@ -60,7 +60,7 @@ export class SiteContact {
 
   @Field()
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
@@ -76,7 +76,7 @@ export class SiteContact {
 
   @Field()
   @Column({ default: false })
-  isPrimary: boolean;                  // Ana irtibat kişisi mi?
+  isPrimary!: boolean;                  // Ana irtibat kişisi mi?
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -84,7 +84,7 @@ export class SiteContact {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

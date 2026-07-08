@@ -43,17 +43,17 @@ export class HarvestCriteriaInput {
   @Field(() => Float, { description: 'Minimum target weight in grams' })
   @IsNumber()
   @Min(0)
-  targetWeightMin: number;
+  targetWeightMin!: number;
 
   @Field(() => Float, { description: 'Maximum target weight in grams' })
   @IsNumber()
   @Min(0)
-  targetWeightMax: number;
+  targetWeightMax!: number;
 
   @Field(() => Float, { description: 'Ideal target weight in grams' })
   @IsNumber()
   @Min(0)
-  targetWeightTarget: number;
+  targetWeightTarget!: number;
 
   @Field(() => Float, { nullable: true, description: 'Target quantity value' })
   @IsOptional()
@@ -87,27 +87,27 @@ export class HarvestEstimatesInput {
   @Field(() => Int, { description: 'Estimated quantity (pieces)' })
   @IsNumber()
   @Min(0)
-  estimatedQuantity: number;
+  estimatedQuantity!: number;
 
   @Field(() => Float, { description: 'Estimated biomass in kg' })
   @IsNumber()
   @Min(0)
-  estimatedBiomass: number;
+  estimatedBiomass!: number;
 
   @Field(() => Float, { description: 'Estimated average weight in grams' })
   @IsNumber()
   @Min(0)
-  estimatedAvgWeight: number;
+  estimatedAvgWeight!: number;
 
   @Field(() => Float, { description: 'Estimated yield percentage (after processing)' })
   @IsNumber()
   @Min(0)
   @Max(100)
-  estimatedYield: number;
+  estimatedYield!: number;
 
   @Field({ description: 'Confidence level: low, medium, or high' })
   @IsString()
-  confidenceLevel: 'low' | 'medium' | 'high';
+  confidenceLevel!: 'low' | 'medium' | 'high';
 
   @Field({ nullable: true, description: 'Date of measurement these estimates are based on' })
   @IsOptional()
@@ -124,34 +124,34 @@ export class FinancialProjectionInput {
   @Field(() => Float, { description: 'Estimated revenue' })
   @IsNumber()
   @Min(0)
-  estimatedRevenue: number;
+  estimatedRevenue!: number;
 
   @Field(() => Float, { description: 'Estimated unit price' })
   @IsNumber()
   @Min(0)
-  estimatedPrice: number;
+  estimatedPrice!: number;
 
   @Field({ description: 'Price unit: per_kg or per_piece' })
   @IsString()
-  priceUnit: 'per_kg' | 'per_piece';
+  priceUnit!: 'per_kg' | 'per_piece';
 
   @Field(() => Float, { description: 'Estimated cost' })
   @IsNumber()
   @Min(0)
-  estimatedCost: number;
+  estimatedCost!: number;
 
   @Field(() => Float, { description: 'Estimated profit' })
   @IsNumber()
-  estimatedProfit: number;
+  estimatedProfit!: number;
 
   @Field(() => Float, { description: 'Margin percentage' })
   @IsNumber()
-  margin: number;
+  margin!: number;
 
   @Field({ description: 'Currency code (e.g., TRY, USD, EUR)' })
   @IsString()
   @MaxLength(3)
-  currency: string;
+  currency!: string;
 }
 
 /**
@@ -307,7 +307,7 @@ export class CreateHarvestPlanInput {
   @IsString()
   @MinLength(3)
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true, description: 'Plan description' })
   @IsOptional()
@@ -321,7 +321,7 @@ export class CreateHarvestPlanInput {
 
   @Field(() => ID, { description: 'Batch ID to harvest' })
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   // -------------------------------------------------------------------------
   // STATUS AND TYPE
@@ -344,7 +344,7 @@ export class CreateHarvestPlanInput {
   @Field({ description: 'Planned harvest date' })
   @IsDate()
   @Type(() => Date)
-  plannedDate: Date;
+  plannedDate!: Date;
 
   @Field({ nullable: true, description: 'Confirmed harvest date' })
   @IsOptional()
@@ -371,7 +371,7 @@ export class CreateHarvestPlanInput {
   @Field(() => HarvestCriteriaInput, { description: 'Harvest criteria' })
   @ValidateNested()
   @Type(() => HarvestCriteriaInput)
-  criteria: HarvestCriteriaInput;
+  criteria!: HarvestCriteriaInput;
 
   @Field(() => HarvestMethod, { nullable: true, description: 'Harvest method' })
   @IsOptional()
@@ -390,7 +390,7 @@ export class CreateHarvestPlanInput {
   @Field(() => HarvestEstimatesInput, { description: 'Harvest estimates' })
   @ValidateNested()
   @Type(() => HarvestEstimatesInput)
-  estimates: HarvestEstimatesInput;
+  estimates!: HarvestEstimatesInput;
 
   // -------------------------------------------------------------------------
   // FINANCIAL PROJECTION

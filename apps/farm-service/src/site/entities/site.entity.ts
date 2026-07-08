@@ -17,13 +17,7 @@ import {
   VersionColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
 // ============================================================================
@@ -34,12 +28,12 @@ import GraphQLJSON from 'graphql-type-json';
  * Site tipi - Tesis türü
  */
 export enum SiteType {
-  LAND_BASED = 'land_based',           // Kara tabanlı RAS
-  SEA_CAGE = 'sea_cage',               // Deniz kafesi
-  POND = 'pond',                       // Gölet/Havuz
-  RACEWAY = 'raceway',                 // Oluk sistemi
-  RECIRCULATING = 'recirculating',     // Kapalı devre (RAS)
-  HATCHERY = 'hatchery',               // Kuluçkahane
+  LAND_BASED = 'land_based', // Kara tabanlı RAS
+  SEA_CAGE = 'sea_cage', // Deniz kafesi
+  POND = 'pond', // Gölet/Havuz
+  RACEWAY = 'raceway', // Oluk sistemi
+  RECIRCULATING = 'recirculating', // Kapalı devre (RAS)
+  HATCHERY = 'hatchery', // Kuluçkahane
 }
 
 registerEnumType(SiteType, {
@@ -70,8 +64,8 @@ registerEnumType(SiteStatus, {
  * Site GPS koordinatları
  */
 export interface SiteLocation {
-  latitude: number;                    // -90 ile 90 arası
-  longitude: number;                   // -180 ile 180 arası
+  latitude: number; // -90 ile 90 arası
+  longitude: number; // -180 ile 180 arası
   altitude?: number;
 }
 
@@ -90,18 +84,18 @@ export interface SiteAddress {
  * Site tesisleri ve olanakları
  */
 export interface SiteFacilities {
-  waterSupply: boolean;                // Su temini
-  electricity: boolean;                // Elektrik
-  generator: boolean;                  // Jeneratör
-  storage: boolean;                    // Depo
-  office: boolean;                     // Ofis
-  workshop: boolean;                   // Atölye
-  feedStorage: boolean;                // Yem deposu
-  coldStorage: boolean;                // Soğuk depo
-  laboratory: boolean;                 // Laboratuvar
-  quarantine: boolean;                 // Karantina alanı
-  processingArea: boolean;             // İşleme alanı
-  staffQuarters: boolean;              // Personel konaklama
+  waterSupply: boolean; // Su temini
+  electricity: boolean; // Elektrik
+  generator: boolean; // Jeneratör
+  storage: boolean; // Depo
+  office: boolean; // Ofis
+  workshop: boolean; // Atölye
+  feedStorage: boolean; // Yem deposu
+  coldStorage: boolean; // Soğuk depo
+  laboratory: boolean; // Laboratuvar
+  quarantine: boolean; // Karantina alanı
+  processingArea: boolean; // İşleme alanı
+  staffQuarters: boolean; // Personel konaklama
 }
 
 /**
@@ -154,7 +148,24 @@ export class Site {
 
   @Field()
   @Column({ length: 20 })
-  code!: string;                        // Kısa kod: "BOD-01"
+  code!: string; // Kısa kod: "BOD-01"
+
+  /**
+   * Norwegian locality number from the Akvakulturregisteret (5-digit) — the
+   * primary site key in every regulatory report. Nullable: non-Norwegian /
+   * non-reporting sites have none; reporting fails closed without it.
+   * Unique per tenant (partial index). RPT-015: this column is the SSoT;
+   * regulatory_settings.site_locality_mappings is a transition fallback
+   * removed in Phase 4.
+   */
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'int', nullable: true })
+  lokalitetsnummer?: number;
+
+  /** Org number override when this site is operated under a different entity. */
+  @Field({ nullable: true })
+  @Column({ length: 20, nullable: true })
+  organisationNumberOverride?: string;
 
   @Field(() => SiteType)
   @Column({
@@ -197,16 +208,34 @@ export class Site {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  areaM2?: number;                     // Tesis alanı (m²)
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  areaM2?: number; // Tesis alanı (m²)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  waterCapacityM3?: number;            // Su kapasitesi (m³)
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  waterCapacityM3?: number; // Su kapasitesi (m³)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  maxBiomassKg?: number;               // Maksimum biyokütle kapasitesi (kg)
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  maxBiomassKg?: number; // Maksimum biyokütle kapasitesi (kg)
 
   // -------------------------------------------------------------------------
   // TARİHLER
@@ -332,12 +361,7 @@ export class Site {
   hasValidCoordinates(): boolean {
     if (!this.location) return false;
     const { latitude, longitude } = this.location;
-    return (
-      latitude >= -90 &&
-      latitude <= 90 &&
-      longitude >= -180 &&
-      longitude <= 180
-    );
+    return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
   }
 
   /**

@@ -56,7 +56,6 @@ describe('RegulatorySettingsSeederService', () => {
     expect(calls.create).toHaveBeenCalledWith({
       tenantId: TENANT_A,
       maskinportenEnvironment: 'TEST',
-      siteLocalityMappings: {},
     });
     expect(calls.save).toHaveBeenCalledTimes(1);
     expect(result).toEqual({

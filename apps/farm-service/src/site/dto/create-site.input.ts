@@ -1,8 +1,21 @@
 /**
  * Create Site Input DTO
  */
-import { InputType, Field, Float } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, IsEmail, MaxLength, MinLength, IsEnum, IsObject } from 'class-validator';
+import { Int, InputType, Field, Float } from '@nestjs/graphql';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsEmail,
+  MaxLength,
+  MinLength,
+  IsEnum,
+  IsObject,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
 import { SiteStatus } from '../entities/site.entity';
 
@@ -70,6 +83,24 @@ export class CreateSiteInput {
   @MinLength(2)
   @MaxLength(50)
   code!: string;
+
+  /**
+   * Norwegian locality number (Akvakulturregisteret, 5-digit). Required for
+   * regulatory reporting; unique per tenant.
+   */
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(10000)
+  @Max(99999)
+  lokalitetsnummer?: number;
+
+  /** Org number override when the site is operated under a different entity. */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  organisationNumberOverride?: string;
 
   @Field({ nullable: true })
   @IsOptional()

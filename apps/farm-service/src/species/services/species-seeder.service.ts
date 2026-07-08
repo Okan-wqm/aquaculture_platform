@@ -37,6 +37,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { resolveOfficialSpeciesCode } from '../data/official-species-codes';
 import {
   Species,
   SpeciesCategory,
@@ -153,6 +154,9 @@ export class SpeciesSeederService {
       const row = this.speciesRepository.create({
         tenantId,
         ...entry,
+        // Official regulatory artskode from the seed-map SSoT — reports fail
+        // closed on species without one, so new tenants start mapped.
+        officialCode: resolveOfficialSpeciesCode(entry.scientificName),
         status: SpeciesStatus.ACTIVE,
         isActive: true,
         isDeleted: false,

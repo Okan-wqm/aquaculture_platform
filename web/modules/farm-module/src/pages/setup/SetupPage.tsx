@@ -12,6 +12,7 @@ import { SystemsTab } from './tabs/SystemsTab';
 import { EquipmentTab } from './tabs/EquipmentTab';
 import { SpeciesTab } from './tabs/SpeciesTab';
 import { SuppliersTab } from './tabs/SuppliersTab';
+import { SlaughterFacilitiesTab } from './tabs/SlaughterFacilitiesTab';
 import { ChemicalsTab } from './tabs/ChemicalsTab';
 import { ConsumablesTab } from './tabs/ConsumablesTab';
 import { FishHealthChemicalsTab } from './tabs/FishHealthChemicalsTab';
@@ -128,6 +129,22 @@ const setupTabs: SetupTab[] = [
       </svg>
     ),
     description: 'Manage equipment and feed suppliers',
+  },
+  {
+    id: 'slaughter-facilities',
+    label: 'Slaughter Facilities',
+    path: 'slaughter-facilities',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+        />
+      </svg>
+    ),
+    description: 'Slaughter facility approval numbers for regulatory reports',
   },
   {
     id: 'chemicals',
@@ -330,6 +347,7 @@ export const SetupPage: React.FC = () => {
           <Route path="equipment" element={<EquipmentTab />} />
           <Route path="species" element={<SpeciesTab />} />
           <Route path="suppliers" element={<SuppliersTab />} />
+          <Route path="slaughter-facilities" element={<SlaughterFacilitiesTab />} />
           <Route path="chemicals" element={<ChemicalsTab />} />
           <Route path="consumables" element={<ConsumablesTab />} />
           <Route path="fish-health" element={<FishHealthChemicalsTab />} />

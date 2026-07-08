@@ -34,8 +34,20 @@ const GET_REGULATORY_SETTINGS = gql`
         lokalitetsnummer
         siteName
       }
-      slaughterApprovalNumber
+      autoSubmitPolicies {
+        reportType
+        enabled
+      }
       updatedAt
+    }
+  }
+`;
+
+const UPDATE_AUTO_SUBMIT_POLICY = gql`
+  mutation UpdateAutoSubmitPolicy($input: UpdateAutoSubmitPolicyInput!) {
+    updateAutoSubmitPolicy(input: $input) {
+      reportType
+      enabled
     }
   }
 `;
@@ -103,9 +115,23 @@ interface RegulatorySettings {
   defaultContactEmail?: string;
   defaultContactPhone?: string;
   siteLocalityMappings?: SiteLocalityMapping[];
-  slaughterApprovalNumber?: string;
+  autoSubmitPolicies?: AutoSubmitPolicy[];
   updatedAt?: string;
 }
+
+interface AutoSubmitPolicy {
+  reportType: string;
+  enabled: boolean;
+}
+
+/** The five Mattilsynet REST report types that can be auto-submitted. */
+const AUTO_SUBMIT_REPORT_TYPES: { value: string; label: string }[] = [
+  { value: 'SEA_LICE', label: 'Sea Lice' },
+  { value: 'CLEANER_FISH', label: 'Cleaner Fish' },
+  { value: 'SMOLT', label: 'Smolt' },
+  { value: 'SLAUGHTER_PLANNED', label: 'Planned Slaughter' },
+  { value: 'SLAUGHTER_EXECUTED', label: 'Executed Slaughter' },
+];
 
 interface ConfigurationStatus {
   hasMaskinportenCredentials: boolean;
@@ -163,7 +189,6 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
     defaultContactName: '',
     defaultContactEmail: '',
     defaultContactPhone: '',
-    slaughterApprovalNumber: '',
   });
 
   const [siteMappings, setSiteMappings] = useState<{ [siteId: string]: string }>({});
@@ -220,6 +245,17 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
     },
   });
 
+  const updateAutoSubmitMutation = useMutation({
+    mutationFn: async (input: { reportType: string; enabled: boolean }) => {
+      return graphqlClient.request(UPDATE_AUTO_SUBMIT_POLICY, { input });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'regulatorySettings'),
+      });
+    },
+  });
+
   const testConnectionMutation = useMutation({
     mutationFn: async () => {
       return graphqlClient.request<{
@@ -254,7 +290,6 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
         defaultContactName: settingsData.defaultContactName || '',
         defaultContactEmail: settingsData.defaultContactEmail || '',
         defaultContactPhone: settingsData.defaultContactPhone || '',
-        slaughterApprovalNumber: settingsData.slaughterApprovalNumber || '',
       });
 
       if (settingsData.siteLocalityMappings) {
@@ -284,10 +319,6 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
     if (formData.defaultContactName) input.defaultContactName = formData.defaultContactName;
     if (formData.defaultContactEmail) input.defaultContactEmail = formData.defaultContactEmail;
     if (formData.defaultContactPhone) input.defaultContactPhone = formData.defaultContactPhone;
-
-    // Slaughter
-    if (formData.slaughterApprovalNumber)
-      input.slaughterApprovalNumber = formData.slaughterApprovalNumber;
 
     // Site mappings
     const mappingsArray = Object.entries(siteMappings)
@@ -624,26 +655,71 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
               )}
             </div>
 
-            {/* Slaughter Facility */}
+            {/* Slaughter Facility — managed in the facility catalog (SSoT) */}
             <div className="border border-gray-200 rounded-lg p-4">
               <h3 className="text-base font-semibold text-gray-900 mb-3">Slaughter Facility</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Configure slaughter facility approval number for slaughter reports (Slakterapport).
+              <p className="text-sm text-gray-600">
+                Slaughter facilities and their approval numbers (godkjenningsnummer) are managed in
+                Setup → Slaughter Facilities. The default facility supplies the godkjenningsnummer on
+                the executed/planned slaughter reports — no approval number is entered here.
               </p>
-              <div className="max-w-md">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Approval Number (Godkjenningsnummer)
-                </label>
-                <input
-                  type="text"
-                  value={formData.slaughterApprovalNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, slaughterApprovalNumber: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g., N-123"
-                />
+              <div className="mt-2">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
+                    statusData?.hasSlaughterApproval
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {statusData?.hasSlaughterApproval
+                    ? 'Default facility configured'
+                    : 'No default facility yet'}
+                </span>
               </div>
+            </div>
+
+            {/* Automated submission (RPT-003) */}
+            <div className="border border-gray-200 rounded-lg p-4">
+              <h3 className="text-base font-semibold text-gray-900 mb-1">Automated submission</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                When enabled, a READY draft for the report type is submitted to Mattilsynet
+                automatically each period — no manual approval needed. Leave off to review and
+                approve every submission yourself.
+              </p>
+              <ul className="divide-y divide-gray-100">
+                {AUTO_SUBMIT_REPORT_TYPES.map((rt) => {
+                  const enabled =
+                    settingsData?.autoSubmitPolicies?.find((p) => p.reportType === rt.value)
+                      ?.enabled ?? false;
+                  return (
+                    <li key={rt.value} className="flex items-center justify-between py-2">
+                      <span className="text-sm text-gray-800">{rt.label}</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={enabled}
+                        aria-label={`Auto-submit ${rt.label}`}
+                        disabled={updateAutoSubmitMutation.isPending}
+                        onClick={() =>
+                          updateAutoSubmitMutation.mutate({
+                            reportType: rt.value,
+                            enabled: !enabled,
+                          })
+                        }
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                          enabled ? 'bg-blue-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           </>
         )}

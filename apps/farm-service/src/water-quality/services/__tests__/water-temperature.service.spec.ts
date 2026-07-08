@@ -84,6 +84,7 @@ describe('WaterTemperatureService', () => {
     expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
       celsius: 12.5,
       source: 'sensor',
+      measuredAt: expect.any(Date),
     });
   });
 
@@ -92,6 +93,7 @@ describe('WaterTemperatureService', () => {
     expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
       celsius: 9,
       source: 'manual',
+      measuredAt: expect.any(Date),
     });
   });
 
@@ -100,9 +102,10 @@ describe('WaterTemperatureService', () => {
       [at('2026-07-04T12:00:00.000Z', 14)], // newer
       [at('2026-07-04T08:00:00.000Z', 10)],
     );
-    expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
+    expect(await service.getCurrentTemperature(TENANT, TANK)).toMatchObject({
       celsius: 14,
       source: 'sensor',
+      measuredAt: expect.any(Date),
     });
   });
 
@@ -111,9 +114,10 @@ describe('WaterTemperatureService', () => {
       [at('2026-07-04T08:00:00.000Z', 14)],
       [at('2026-07-04T12:00:00.000Z', 11)], // newer
     );
-    expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
+    expect(await service.getCurrentTemperature(TENANT, TANK)).toMatchObject({
       celsius: 11,
       source: 'manual',
+      measuredAt: expect.any(Date),
     });
   });
 
@@ -132,6 +136,7 @@ describe('WaterTemperatureService', () => {
       expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
         celsius: 9,
         source: 'manual',
+        measuredAt: expect.any(Date),
       });
       // the failed source was rolled back to its savepoint, not left to poison
       // the surrounding READ COMMITTED transaction (25P02)
@@ -148,6 +153,7 @@ describe('WaterTemperatureService', () => {
       expect(await service.getCurrentTemperature(TENANT, TANK)).toEqual({
         celsius: 12.5,
         source: 'sensor',
+        measuredAt: expect.any(Date),
       });
       expect(metrics.recordWaterTemperatureReadFailure).toHaveBeenCalledWith({ source: 'manual' });
     });
@@ -207,5 +213,68 @@ describe('WaterTemperatureService', () => {
     // them; no tenant-derived schema string is ever interpolated into SQL.
     expect(sensorSql).not.toContain('tenant_');
     expect(sensorSql).not.toContain('".tanks');
+  });
+
+  describe('getPeriodTemperature', () => {
+    const SITE = 'dddddddd-4444-4555-8666-777777777777';
+
+    function periodService(
+      sensorRows: Array<Record<string, unknown>>,
+      manualRows: Array<Record<string, unknown>>,
+    ): WaterTemperatureService {
+      const query = jest.fn((sql: string) => {
+        if (sql.includes('sensor_temperature_daily')) return Promise.resolve(sensorRows);
+        if (sql.includes('water_quality_measurements')) return Promise.resolve(manualRows);
+        return Promise.resolve([]);
+      });
+      runInTenantRead.mockImplementation(
+        async (
+          _ds,
+          _schema,
+          _tenant,
+          cb: (qr: { manager: Partial<EntityManager> }) => Promise<unknown>,
+        ) => cb({ manager: { query } as Partial<EntityManager> }),
+      );
+      return new WaterTemperatureService({} as Partial<DataSource> as DataSource);
+    }
+
+    it('returns the sensor-daily period mean (sumC/sampleCount) with coverage', async () => {
+      // 100°C over 8 samples across 6 days → mean 12.5.
+      const service = periodService(
+        [{ sumC: '100', sampleCount: '8', minC: '11.8', maxC: '13.1', coverageDays: '6' }],
+        [],
+      );
+      expect(await service.getPeriodTemperature(TENANT, SITE, '2026-06-29', '2026-07-05')).toEqual({
+        celsius: 12.5,
+        source: 'sensor',
+        coverageDays: 6,
+        minC: 11.8,
+        maxC: 13.1,
+      });
+    });
+
+    it('falls back to the manual period average when no sensor daily rows exist', async () => {
+      const service = periodService(
+        [{ sumC: null, sampleCount: '0', minC: null, maxC: null, coverageDays: '0' }],
+        [{ avgC: '10.256', minC: '9.5', maxC: '11.0', coverageDays: '2' }],
+      );
+      expect(await service.getPeriodTemperature(TENANT, SITE, '2026-06-29', '2026-07-05')).toEqual({
+        celsius: 10.26,
+        source: 'manual',
+        coverageDays: 2,
+        minC: 9.5,
+        maxC: 11,
+      });
+    });
+
+    it('returns null when neither source has data in the period (caller blocks)', async () => {
+      const service = periodService(
+        [{ sumC: null, sampleCount: '0', minC: null, maxC: null, coverageDays: '0' }],
+        [{ avgC: null, minC: null, maxC: null, coverageDays: '0' }],
+      );
+      expect(
+        await service.getPeriodTemperature(TENANT, SITE, '2026-06-29', '2026-07-05'),
+      ).toBeNull();
+    });
   });
 });

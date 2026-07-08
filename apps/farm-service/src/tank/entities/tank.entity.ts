@@ -207,12 +207,12 @@ export interface AerationInfo {
 export class Tank {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -220,11 +220,11 @@ export class Tank {
 
   @Field()
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 50 })
-  code: string; // TNK-2024-00001
+  code!: string; // TNK-2024-00001
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -236,11 +236,11 @@ export class Tank {
 
   @Field()
   @Column('uuid')
-  departmentId: string;
+  departmentId!: string;
 
   @ManyToOne(() => Department, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'departmentId' })
-  department: Department;
+  department!: Department;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -252,7 +252,7 @@ export class Tank {
     enum: TankContainerKind,
     default: TankContainerKind.TANK,
   })
-  containerKind: TankContainerKind;
+  containerKind!: TankContainerKind;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -272,6 +272,17 @@ export class Tank {
   @Column({ length: 100, nullable: true })
   equipmentTypeCode?: string;
 
+  /**
+   * Official regulatory unit id (kar-/merd-nummer) reported to Mattilsynet as
+   * `karId` in the settefisk report (RPT-016b). Optional override for when the
+   * regulator's unit number differs from the internal `code`; the settefisk
+   * assembler falls back to `code` when this is unset. Partial-unique per
+   * tenant (only non-null values must be distinct).
+   */
+  @Field({ nullable: true })
+  @Column({ length: 50, nullable: true })
+  regulatoryUnitId?: string;
+
   // -------------------------------------------------------------------------
   // TİP VE MALZEME
   // -------------------------------------------------------------------------
@@ -282,7 +293,7 @@ export class Tank {
     enum: TankType,
     default: TankType.CIRCULAR,
   })
-  tankType: TankType;
+  tankType!: TankType;
 
   @Field(() => TankMaterial)
   @Column({
@@ -290,7 +301,7 @@ export class Tank {
     enum: TankMaterial,
     default: TankMaterial.FIBERGLASS,
   })
-  material: TankMaterial;
+  material!: TankMaterial;
 
   @Field(() => WaterType)
   @Column({
@@ -298,7 +309,7 @@ export class Tank {
     enum: WaterType,
     default: WaterType.SALTWATER,
   })
-  waterType: WaterType;
+  waterType!: WaterType;
 
   // -------------------------------------------------------------------------
   // BOYUTLAR (Dimensions are required based on tank type)
@@ -348,7 +359,7 @@ export class Tank {
    */
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
-  depth: number;
+  depth!: number;
 
   /**
    * Su derinliği - Gerçek su seviyesi (m)
@@ -385,7 +396,7 @@ export class Tank {
    */
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
-  volume: number;
+  volume!: number;
 
   /**
    * Su hacmi (m³) - waterDepth'e göre hesaplanır
@@ -415,7 +426,7 @@ export class Tank {
     default: 0,
     transformer: new DecimalTransformer(),
   })
-  maxBiomass: number;
+  maxBiomass!: number;
 
   /**
    * Mevcut biomass (kg) - Batch'lerden hesaplanır
@@ -428,7 +439,7 @@ export class Tank {
     default: 0,
     transformer: new DecimalTransformer(),
   })
-  currentBiomass: number;
+  currentBiomass!: number;
 
   /**
    * Maksimum yoğunluk (kg/m³)
@@ -441,7 +452,7 @@ export class Tank {
     default: 30,
     transformer: new DecimalTransformer(),
   })
-  maxDensity: number;
+  maxDensity!: number;
 
   /**
    * Mevcut adet (batch'lerden)
@@ -484,7 +495,7 @@ export class Tank {
     enum: TankStatus,
     default: TankStatus.PREPARING,
   })
-  status: TankStatus;
+  status!: TankStatus;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -497,7 +508,7 @@ export class Tank {
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -525,11 +536,11 @@ export class Tank {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -540,7 +551,7 @@ export class Tank {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // İLİŞKİLER - İleride aktifleştirilecek

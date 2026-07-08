@@ -29,7 +29,7 @@ registerEnumType(ReceiptStatus, { name: 'ReceiptStatus' });
 @Index('idx_receipts_tenant', ['tenantId'])
 export class MessageReceipt {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from parent message in migration
@@ -37,37 +37,37 @@ export class MessageReceipt {
    * tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Field()
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Field(() => ReceiptStatus)
   @Column({ type: 'varchar', length: 20, default: ReceiptStatus.DELIVERED })
-  status: ReceiptStatus;
+  status!: ReceiptStatus;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  deliveredAt: Date | null;
+  deliveredAt!: Date | null;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  readAt: Date | null;
+  readAt!: Date | null;
 
   @PrimaryColumn({ type: 'timestamptz', default: () => 'NOW()' })
-  receiptCreatedAt: Date;
+  receiptCreatedAt!: Date;
 
   @ManyToOne(() => Message, (msg) => msg.receipts, { onDelete: 'CASCADE' })
   @JoinColumn([
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  message: Message;
+  message!: Message;
 }

@@ -132,18 +132,18 @@ export class ChemicalDocumentInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)
-  type: string;
+  type!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  url: string;
+  url!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -157,18 +157,18 @@ export class CreateChemicalInput {
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field(() => ChemicalType)
   @IsEnum(ChemicalType)
-  type: ChemicalType;
+  type!: ChemicalType;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -189,7 +189,7 @@ export class CreateChemicalInput {
 
   @Field(() => ID, { description: 'Site this chemical is available in' })
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -213,7 +213,7 @@ export class CreateChemicalInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)
-  unit: string;
+  unit!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()

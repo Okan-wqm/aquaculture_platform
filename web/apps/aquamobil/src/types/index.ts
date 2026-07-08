@@ -85,7 +85,12 @@ export type CullReason =
   | 'QUALITY'
   | 'OTHER';
 
-export type QualityGrade = 'PREMIUM' | 'GRADE_A' | 'GRADE_B' | 'GRADE_C' | 'REJECT';
+/**
+ * Norwegian official slaughter quality class (kvalitetsklasse) — the stored SSoT
+ * for harvest quality (RPT-007). Values are the GraphQL enum names. The legacy
+ * 5-level display grade was retired; operators select the class directly.
+ */
+export type QualityClass = 'SUPERIOR' | 'ORDINAER' | 'PRODUKSJONSFISK' | 'UTKAST';
 
 export interface MortalityInput {
   batchId: string;
@@ -115,7 +120,7 @@ export interface HarvestInput {
   quantityHarvested: number;
   averageWeight: number;
   totalBiomass: number;
-  qualityGrade: QualityGrade;
+  qualityClass: QualityClass;
   harvestDate: string;
   pricePerKg?: number;
   buyerName?: string;

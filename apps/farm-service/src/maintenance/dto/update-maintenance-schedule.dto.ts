@@ -35,7 +35,7 @@ import { ChecklistItemInput, RequiredMaterialInput } from './create-work-order.d
 export class UpdateMaintenanceScheduleInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -166,12 +166,12 @@ export class UpdateMaintenanceScheduleInput {
 export class UpdateMeterReadingInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  meterReading: number;
+  meterReading!: number;
 }
 
 /**
@@ -181,7 +181,7 @@ export class UpdateMeterReadingInput {
 export class CompleteMaintenanceInput {
   @Field(() => ID)
   @IsUUID()
-  scheduleId: string;
+  scheduleId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()

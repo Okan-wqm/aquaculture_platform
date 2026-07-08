@@ -28,15 +28,15 @@ import { ValidateDynamicParameters } from '../validators/dynamic-parameters.vali
 export class BatchMeasurementItem {
   @Field(() => ID)
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => GraphQLJSON)
   @ValidateDynamicParameters()
-  dynamicParameters: Record<string, number | string | boolean>;
+  dynamicParameters!: Record<string, number | string | boolean>;
 
   @Field(() => ID)
   @IsUUID()
-  idempotencyKey: string;
+  idempotencyKey!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -50,11 +50,11 @@ export class CreateBatchWaterQualityInput {
   @Field()
   @IsDate()
   @Type(() => Date)
-  measuredAt: Date;
+  measuredAt!: Date;
 
   @Field(() => MeasurementSource, { defaultValue: MeasurementSource.MANUAL })
   @IsEnum(MeasurementSource)
-  source: MeasurementSource;
+  source!: MeasurementSource;
 
   @Field(() => [BatchMeasurementItem])
   @IsArray()
@@ -62,5 +62,5 @@ export class CreateBatchWaterQualityInput {
   @Type(() => BatchMeasurementItem)
   @ArrayMinSize(1)
   @ArrayMaxSize(50)
-  measurements: BatchMeasurementItem[];
+  measurements!: BatchMeasurementItem[];
 }

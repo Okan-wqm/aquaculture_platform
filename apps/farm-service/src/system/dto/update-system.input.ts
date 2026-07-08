@@ -10,7 +10,7 @@ import { SystemType, SystemStatus } from '../entities/system.entity';
 export class UpdateSystemInput extends PartialType(CreateSystemInput) {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   // Override inherited required fields to make them optional for partial updates
   @Field(() => String, { nullable: true })

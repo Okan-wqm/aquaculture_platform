@@ -77,24 +77,24 @@ export class MedicationInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field({ description: 'Active ingredient' })
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  activeIngredient: string;
+  activeIngredient!: string;
 
   @Field(() => Float, { description: 'Dosage (mg/kg or mg/L)' })
   @IsNumber()
   @Min(0)
-  dosage: number;
+  dosage!: number;
 
   @Field({ description: 'Dosage unit' })
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)
-  dosageUnit: string;
+  dosageUnit!: string;
 
   @Field(() => Float, { nullable: true, description: 'Concentration' })
   @IsOptional()
@@ -129,7 +129,7 @@ export class TreatmentDurationInput {
   @Field({ description: 'Treatment start date' })
   @IsDate()
   @Type(() => Date)
-  startDate: Date;
+  startDate!: Date;
 
   @Field({ nullable: true, description: 'Treatment end date' })
   @IsOptional()
@@ -141,7 +141,7 @@ export class TreatmentDurationInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  frequency: string;
+  frequency!: string;
 
   @Field(() => Int, { nullable: true, description: 'Total treatment days' })
   @IsOptional()
@@ -157,7 +157,7 @@ export class TreatmentDurationInput {
 export class TreatmentDetailsInput {
   @Field(() => TreatmentMethod, { description: 'Treatment method' })
   @IsEnum(TreatmentMethod)
-  method: TreatmentMethod;
+  method!: TreatmentMethod;
 
   @Field(() => MedicationInput, { nullable: true, description: 'Medication details' })
   @IsOptional()
@@ -168,7 +168,7 @@ export class TreatmentDetailsInput {
   @Field(() => TreatmentDurationInput, { description: 'Treatment duration' })
   @ValidateNested()
   @Type(() => TreatmentDurationInput)
-  duration: TreatmentDurationInput;
+  duration!: TreatmentDurationInput;
 
   @Field(() => Int, { nullable: true, description: 'Withdrawal period in days (before harvest)' })
   @IsOptional()
@@ -203,13 +203,13 @@ export class AffectedPopulationInput {
   @Field(() => Int, { description: 'Estimated number of affected fish' })
   @IsNumber()
   @Min(0)
-  estimatedAffected: number;
+  estimatedAffected!: number;
 
   @Field(() => Float, { description: 'Affected percentage' })
   @IsNumber()
   @Min(0)
   @Max(100)
-  affectedPercent: number;
+  affectedPercent!: number;
 
   @Field(() => Int, { nullable: true, description: 'Mortality count related to this event' })
   @IsOptional()
@@ -239,13 +239,13 @@ export class LabResultEntryInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  parameter: string;
+  parameter!: string;
 
   @Field({ description: 'Result value' })
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  value: string;
+  value!: string;
 
   @Field({ nullable: true, description: 'Unit of measurement' })
   @IsOptional()
@@ -262,7 +262,7 @@ export class LabResultEntryInput {
   @Field({ description: 'Result interpretation: normal, abnormal, positive, negative' })
   @IsNotEmpty()
   @IsString()
-  interpretation: 'normal' | 'abnormal' | 'positive' | 'negative';
+  interpretation!: 'normal' | 'abnormal' | 'positive' | 'negative';
 }
 
 /**
@@ -273,12 +273,12 @@ export class LabResultsInput {
   @Field({ description: 'Sample type: tissue, water, mucus, blood, other' })
   @IsNotEmpty()
   @IsString()
-  sampleType: 'tissue' | 'water' | 'mucus' | 'blood' | 'other';
+  sampleType!: 'tissue' | 'water' | 'mucus' | 'blood' | 'other';
 
   @Field({ description: 'Sample collection date' })
   @IsDate()
   @Type(() => Date)
-  sampleDate: Date;
+  sampleDate!: Date;
 
   @Field({ nullable: true, description: 'Laboratory name' })
   @IsOptional()
@@ -290,13 +290,13 @@ export class LabResultsInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  testType: string;
+  testType!: string;
 
   @Field(() => [LabResultEntryInput], { description: 'Test results' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LabResultEntryInput)
-  results: LabResultEntryInput[];
+  results!: LabResultEntryInput[];
 
   @Field({ nullable: true, description: 'Lab conclusion' })
   @IsOptional()
@@ -320,7 +320,7 @@ export class VetConsultationInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  vetName: string;
+  vetName!: string;
 
   @Field({ nullable: true, description: 'Veterinarian license number' })
   @IsOptional()
@@ -331,7 +331,7 @@ export class VetConsultationInput {
   @Field({ description: 'Consultation date' })
   @IsDate()
   @Type(() => Date)
-  consultationDate: Date;
+  consultationDate!: Date;
 
   @Field({ nullable: true, description: 'Diagnosis' })
   @IsOptional()
@@ -353,7 +353,7 @@ export class VetConsultationInput {
 
   @Field({ description: 'Whether follow-up is required' })
   @IsBoolean()
-  followUpRequired: boolean;
+  followUpRequired!: boolean;
 
   @Field({ nullable: true, description: 'Follow-up date' })
   @IsOptional()
@@ -419,7 +419,7 @@ export class CreateHealthEventInput {
 
   @Field(() => ID, { description: 'Batch ID (required)' })
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { nullable: true, description: 'Tank ID' })
   @IsOptional()
@@ -440,7 +440,7 @@ export class CreateHealthEventInput {
   @IsString()
   @MinLength(3)
   @MaxLength(200)
-  title: string;
+  title!: string;
 
   @Field({ nullable: true, description: 'Detailed description' })
   @IsOptional()
@@ -450,12 +450,12 @@ export class CreateHealthEventInput {
 
   @Field(() => HealthEventType, { description: 'Type of health event' })
   @IsEnum(HealthEventType)
-  eventType: HealthEventType;
+  eventType!: HealthEventType;
 
   @Field({ description: 'Event date' })
   @IsDate()
   @Type(() => Date)
-  eventDate: Date;
+  eventDate!: Date;
 
   @Field({ nullable: true, description: 'Event time (e.g., "08:30")' })
   @IsOptional()

@@ -62,7 +62,6 @@ export interface RegulatorySettings {
   defaultContactEmail?: string;
   defaultContactPhone?: string;
   siteLocalityMappings?: SiteLocalityMapping[];
-  slaughterApprovalNumber?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -129,7 +128,6 @@ export interface UpdateRegulatorySettingsInput {
   defaultContactEmail?: string;
   defaultContactPhone?: string;
   siteLocalityMappings?: { siteId: string; lokalitetsnummer: number }[];
-  slaughterApprovalNumber?: string;
 }
 
 export interface KontaktpersonInput {

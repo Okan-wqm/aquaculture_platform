@@ -119,7 +119,7 @@ export class WaterFlowInput {
 export class AerationInput {
   @Field()
   @IsBoolean()
-  hasAeration: boolean;
+  hasAeration!: boolean;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -156,7 +156,7 @@ export class CreateTankInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -170,7 +170,7 @@ export class CreateTankInput {
   @Field()
   @IsNotEmpty()
   @IsUUID()
-  departmentId: string;
+  departmentId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -198,6 +198,13 @@ export class CreateTankInput {
   @IsString()
   @MaxLength(100)
   equipmentTypeCode?: string;
+
+  /** Official regulatory unit id (kar-/merd-nummer) for the settefisk report. */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  regulatoryUnitId?: string;
 
   // -------------------------------------------------------------------------
   // TİP VE MALZEME
@@ -272,7 +279,7 @@ export class CreateTankInput {
   @IsNumber()
   @Min(0.1)
   @Max(20)
-  depth: number;
+  depth!: number;
 
   /**
    * Su derinliği (m)
@@ -300,7 +307,7 @@ export class CreateTankInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  maxBiomass: number;
+  maxBiomass!: number;
 
   @Field(() => Float, {
     nullable: true,

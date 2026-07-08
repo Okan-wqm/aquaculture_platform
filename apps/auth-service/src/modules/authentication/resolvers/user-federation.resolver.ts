@@ -1,4 +1,4 @@
-import { Resolver, ResolveReference } from '@nestjs/graphql';
+import { Args, ID, Query, Resolver, ResolveReference } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -27,6 +27,23 @@ export class PublicUserProfileFederationResolver {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {}
+
+  /**
+   * Public (display-only, no-PII) profile of any user by id. Two jobs: (1) it is a
+   * genuine lookup the client uses for @mentions / member displays, and (2) it
+   * makes PublicUserProfile a REACHABLE root type so it emits into the subgraph
+   * SDL — the code-first SDL emitter (tools/scripts/emit-subgraph-sdl.ts) builds
+   * with orphanedTypes:[] and would otherwise drop a reference-only entity, so the
+   * composed supergraph would carry PublicUserProfile without its display fields.
+   * Authenticated by auth's global JwtAuthGuard; returns ONLY display fields —
+   * never email/role/tenantId.
+   */
+  @Query(() => PublicUserProfile, { nullable: true, name: 'publicUserProfile' })
+  async publicUserProfile(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<PublicUserProfile | null> {
+    return this.resolveReference({ __typename: 'PublicUserProfile', id });
+  }
 
   @ResolveReference()
   async resolveReference(reference: {

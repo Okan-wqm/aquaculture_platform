@@ -4619,6 +4619,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/entities/public-user-profile.type.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/entities/refresh-token.entity.ts",
       "prettier_managed": true
     },
@@ -40380,6 +40386,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -41002,7 +41020,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5360a7fdbc5aae3fa5d42b3616cd018e4c66d8639c52025cc935f0219039ce0b",
+      "content_sha256": "bd9b4851cc04864126033e10c2e37b9e670e3d52d3dd9955e7e28f54896e9450",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -50966,7 +50984,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f89b35e44f54e93534dcb5f7f32e223e8e9b466149281cf4f1de8a5f782394f7",
+      "content_sha256": "cfeda1d56cac599edffcdc795db7fc2ddecb24058c0bfeedcabc5a46767dc907",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -51636,10 +51654,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8460,
+  "file_count": 8463,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8285,
-  "managed_file_list_sha256": "33347c607cb0999274ea802c253729eb296ee7bce8abdcdc993621d48051fe8d",
+  "managed_count": 8288,
+  "managed_file_list_sha256": "03b2101d24148f2213422d8132091dcb3a2acff2e1b5549cd3906d4190514d96",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -44,6 +44,7 @@ import { HealthModule } from './health/health.module';
 import { AuthMetricsModule } from './metrics/metrics.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { AuthenticationModule } from './modules/authentication/authentication.module';
+import { PublicUserProfile } from './modules/authentication/entities/public-user-profile.type';
 import { JwtAuthGuard } from './modules/authentication/guards/jwt-auth.guard';
 import { GdprModule } from './modules/gdpr/gdpr.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
@@ -114,6 +115,15 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
           autoSchemaFile: {
             federation: 2,
             path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql'),
+          },
+          // PublicUserProfile is a reference-only federated entity — no auth query
+          // returns it (messaging references it by id for display), so it must be
+          // registered explicitly to emit into the subgraph SDL with its display
+          // fields (firstName/lastName/profileImageUrl). Without this the composed
+          // supergraph's PublicUserProfile would carry only messaging's presence
+          // fields and `sender { firstName }` would fail composition.
+          buildSchemaOptions: {
+            orphanedTypes: [PublicUserProfile],
           },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as

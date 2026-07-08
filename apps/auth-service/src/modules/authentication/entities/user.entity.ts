@@ -1,6 +1,6 @@
 import { hashPassword as hashPasswordWithPepper, verifyPassword as verifyPasswordWithPepper, PEPPERED_PREFIX_V1 } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
+import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -47,14 +47,15 @@ registerEnumType(AccessType, {
  * - MODULE_USER: Single tenant + assigned modules, limited access
  */
 @ObjectType()
-// Federated entity (Apollo Federation v2): other subgraphs (e.g. messaging) carry
-// a `User` reference and the gateway resolves display fields here via
-// __resolveReference (UserFederationResolver). MSG-MEDIUM-052. The reference
-// resolver deliberately returns DISPLAY-ONLY fields (id/firstName/lastName/
-// profileImageUrl) — email/role/tenantId never cross a federated reference, so a
-// channel member cannot harvest another member's email through messaging.sender;
-// auth's own admin-gated queries (tenantUsers) still return email directly.
-@Directive('@key(fields: "id")')
+// AUTHENTICATED user type — returned ONLY by auth's own self/admin queries
+// (currentUser, tenantUsers, login/register payloads). email/role/tenantId are
+// safe here because `User` is NOT a federation join point anymore: cross-subgraph
+// references (messaging `Message.sender`, `ChannelMember.user`, userPresence) use
+// the display-only `PublicUserProfile` (public-user-profile.type.ts), which
+// structurally omits email. So `email` below stays non-null and can never resolve
+// to null over a federated reference. The `@key` + reference resolver moved to
+// PublicUserProfile (PublicUserProfileFederationResolver). SSoT: auth owns both
+// shapes of user identity; the public one carries no PII.
 @Entity('users', { schema: 'auth' })
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
 // created by migration RestoreCaseInsensitiveEmailUniqueness1800300000000

@@ -5045,6 +5045,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/resolvers/__tests__/tenant-role.resolver.gating.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/resolvers/mobile-settings.resolver.ts",
       "prettier_managed": true
     },
@@ -5075,6 +5081,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/permission-overrides.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/unlock-user.spec.ts",
       "prettier_managed": true
     },
@@ -5082,6 +5094,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/mobile-settings.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/permission-overrides.util.ts",
       "prettier_managed": true
     },
     {
@@ -31141,6 +31159,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/tenant-rbac/2026-07-07-tenant-rbac-bridge.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/test-runner/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -50127,12 +50151,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/TenantAdminSidebar.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/ui/index.ts",
       "prettier_managed": true
     },
@@ -51086,6 +51104,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/utils/__tests__/tenant-capabilities.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/utils/__tests__/tenant-scoped-storage-namespace.spec.ts",
       "prettier_managed": true
     },
@@ -51195,6 +51219,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/specificationValidation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/tenant-capabilities.ts",
       "prettier_managed": true
     },
     {
@@ -51612,10 +51642,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8456,
+  "file_count": 8461,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8281,
-  "managed_file_list_sha256": "74f3c303b90669046b4f3197fc59cddff6714e6e5a04a5ee523b2a2a8f777f7f",
+  "managed_count": 8286,
+  "managed_file_list_sha256": "336b7cea9bfc7c71f1b333ab924b86e61cb2e0373248ce1a9742e8d3748115f3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

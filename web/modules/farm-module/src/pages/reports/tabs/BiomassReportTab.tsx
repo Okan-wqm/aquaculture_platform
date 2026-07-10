@@ -969,7 +969,13 @@ interface FeedStepProps {
   prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
+export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
+  // Feed consumption summed from feeding_records is the SSoT — the per-feed-type
+  // rows render read-only (corrections go to the feeding records, not the
+  // report). hydrateFormFromPayload already seeded the rows on wizard open.
+  const feedMeta = prefill ? findFieldMeta(prefill.fields, '/feedConsumption') : undefined;
+  const feedFromRecords = feedMeta?.provenance === 'RECORDS';
+
   const handleLoadFeedFromSystem = () => {
     if (!prefill) return;
     // Real period sums from feeding_records — the old "daily rate × 30"
@@ -1036,7 +1042,7 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
           <p className="text-xs text-gray-500">Total feed used during the reporting period</p>
         </div>
         <div className="flex items-center gap-2">
-          {prefill && (
+          {prefill && !feedFromRecords && (
             <button
               type="button"
               onClick={handleLoadFeedFromSystem}
@@ -1053,13 +1059,15 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
               Load from System
             </button>
           )}
-          <button
-            type="button"
-            onClick={addFeedType}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Feed Type
-          </button>
+          {!feedFromRecords && (
+            <button
+              type="button"
+              onClick={addFeedType}
+              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+            >
+              + Add Feed Type
+            </button>
+          )}
         </div>
       </div>
 
@@ -1075,7 +1083,10 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           <span className="text-sm text-green-700">
-            Summed from feeding records for the reporting period. Adjust as needed.
+            Summed from feeding records for the reporting period.
+            {feedFromRecords
+              ? ' Corrections go to the feeding records, not the report.'
+              : ' Adjust as needed.'}
           </span>
         </div>
       )}
@@ -1118,20 +1129,22 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
             <div key={index} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-start justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">Feed #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFeedType(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!feedFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeFeedType(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -1140,7 +1153,10 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
                     type="text"
                     value={feed.feedName}
                     onChange={(e) => updateFeedType(index, { feedName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={feedFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      feedFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                    }`}
                     placeholder="e.g., Grower 2mm"
                   />
                 </div>
@@ -1150,7 +1166,10 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
                     type="text"
                     value={feed.brandName}
                     onChange={(e) => updateFeedType(index, { brandName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={feedFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      feedFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                    }`}
                     placeholder="e.g., Skretting"
                   />
                 </div>
@@ -1163,7 +1182,10 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill }) => {
                     onChange={(e) =>
                       updateFeedType(index, { quantityKg: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={feedFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      feedFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                    }`}
                     placeholder="0"
                   />
                 </div>

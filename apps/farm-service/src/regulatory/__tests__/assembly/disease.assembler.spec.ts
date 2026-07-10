@@ -65,12 +65,13 @@ describe('DiseaseReportAssembler', () => {
     expect(draftPayload.diseaseName).toBe('Gill disease outbreak');
   });
 
-  it('reads only real health_events columns and scopes the site through the batch (not the nullable tankId)', async () => {
-    // Guards the exact drift a mocked query hid before: the phantom `he.diagnosis`
-    // and top-level `he."affectedPercent"` do not exist, and an INNER JOIN on the
-    // nullable he.tankId dropped batch-scoped outbreaks. The real diseaseName
-    // column, the affectedPopulation jsonb path, and a batch-scoped EXISTS must be
-    // used, with a deterministic tiebreak on createdAt.
+  it('reads only real columns, scopes the site through real tank_batches columns, and excludes terminal outbreaks', async () => {
+    // Guards the exact drift a mocked query hid: the phantom `he.diagnosis`,
+    // top-level `he."affectedPercent"`, and `tank_batches.batchId` (which does not
+    // exist — the real columns are primaryBatchId + the batchDetails jsonb) must
+    // never come back, an INNER JOIN on the nullable he.tankId must not scope the
+    // site, and a resolved/cancelled outbreak must not be surfaced for a
+    // legally-immediate varsling.
     const { assembler, sql } = makeAssembler([row()]);
     await assembler.assemble(tenantId, siteId);
     const text = sql();
@@ -78,12 +79,17 @@ describe('DiseaseReportAssembler', () => {
     expect(text).toContain(`"affectedPopulation" ->> 'affectedPercent'`);
     expect(text).toContain('EXISTS');
     expect(text).toContain('tank_batches');
-    expect(text).toContain('tb."batchId" = he."batchId"');
+    // site scope uses the REAL tank_batches columns (mirrors biomass queryStockings)
+    expect(text).toContain('tb."primaryBatchId" = he."batchId"');
+    expect(text).toContain('tb."batchDetails"');
+    expect(text).toContain(`bd->>'batchId' = he."batchId"::text`);
+    // terminal outbreaks are excluded
+    expect(text).toContain(`he.status NOT IN ('resolved', 'cancelled')`);
     expect(text).toContain('ORDER BY he."eventDate" DESC, he."createdAt" DESC');
-    // the phantom identifiers must never come back
+    // phantom / non-existent identifiers must never come back
     expect(text).not.toContain('he.diagnosis');
     expect(text).not.toContain('he."affectedPercent"');
-    // the site scope must not depend on the nullable tank JOIN
+    expect(text).not.toContain('tb."batchId" = he."batchId"');
     expect(text).not.toContain('JOIN tanks t ON t.id = he."tankId"');
   });
 

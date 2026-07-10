@@ -1,0 +1,165 @@
+# Regulatory Reporting Subsystem — End-to-End Multi-Agent Audit — 2026-07-10
+
+Scope: the **entire** Norwegian regulatory reporting subsystem (Mattilsynet REST +
+Fiskeridirektoratet FD-0001/Altinn + varsling), backend `apps/farm-service/src/regulatory/**`
+(assembly, scheduler, submission, drafts, Maskinporten/Mattilsynet clients, 5 official schemas,
+24 migrations, 5 fish-health capture entities) and frontend
+`web/modules/farm-module/src/pages/reports/**`. Bar: production-ready, enterprise-grade,
+steel-secure, performant.
+
+Method: ten specialised agents reviewed in parallel from distinct angles — farm domain, data/
+migrations, auth-security, performance, multi-tenant isolation, compliance, job-queue/scheduler,
+contract-parity, observability, and circuit-breaker/resilience. Every problem was noted, related
+or not. Findings below are the consolidated, de-duplicated set. Items marked **FIXED (this PR)**
+landed on `claude/serene-allen-8mo9q1`; the rest are tracked for phased remediation.
+
+> Cross-agent convergence: the **advisory-lock-on-pooled-connection** defect was found
+> **independently by three agents** (circuit-breaker, multi-tenant, job-queue), making it the
+> highest-confidence defect in the audit.
+
+---
+
+## FIXED (this PR)
+
+### FARM-HIGH-160 — disease varsling assembler regression (non-existent column + missing status filter)
+
+The FARM-HIGH-155 fix scoped the disease site through `tb."batchId" = he."batchId"`, but
+`tank_batches` has **no** `batchId` column (real columns: `primaryBatchId` + the `batchDetails`
+jsonb), so `DISEASE_OUTBREAK` prefill still threw Postgres `42703`, and the SQL-pinning spec locked
+the wrong column in. It also did not exclude `resolved`/`cancelled` outbreaks, so a closed event
+could be offered for a legally-immediate varsling. Fixed: the `primaryBatchId` + `batchDetails`
+jsonb `EXISTS` pattern (mirroring `BiomassReportAssembler.queryStockings`) plus
+`he.status NOT IN ('resolved','cancelled')`; the spec now pins the real columns. Durable guard is
+the real-DB assembler harness (FARM-MEDIUM-157).
+
+### FARM-HIGH-159 — planned-slaughter assembler two fatal SQL errors
+
+`SlaktReportAssembler.queryPlanned` selected `SUM(hp."estimatedBiomass")` (that column lives inside
+the `estimates` jsonb) and grouped by `s.code` while selecting `COALESCE(s."officialCode", s.code)`
+(illegal aggregate, `42803`). Either error alone made every `SLAUGHTER_PLANNED` assemble throw, so
+the scheduler silently created no planned-slaughter draft and `reportPrefill(SLAUGHTER_PLANNED)`
+500'd. Fixed: `SUM((hp.estimates->>'estimatedBiomass')::numeric)` and
+`GROUP BY/ORDER BY COALESCE(s."officialCode", s.code), weekday`.
+
+---
+
+## OPEN — CRITICAL (tracked for remediation)
+
+- **Executed-slaughter wizard fabricates the government report** (farm-expert FARM-CRITICAL-001).
+  `SlaughterReportTab.tsx` places the quality-grade **percentages** into the Mattilsynet `*Kg`
+  weight fields and hard-codes `art:'SAL'`, so "50,000 kg trout, 80% Superior" is filed as "80 kg
+  salmon". Structurally schema-valid, fully fabricated. Root fix: drive executed slaughter from the
+  records-based assembled draft (per-species absolute gutted-kg), retire the percentage form.
+
+- **Advisory lock acquired/released on different pooled connections** (circuit-breaker
+  CIRCUIT-HIGH-001, multi-tenant REG-HIGH-001, job-queue PRODUCT-JOB-CRITICAL-001 — **triple
+  confirmed**). `report-scheduler.service.ts` runs `pg_try_advisory_lock` and `pg_advisory_unlock`
+  via separate `dataSource.query()` calls (different pooled connections). The session lock leaks
+  onto the acquiring connection and is never released; every later cron tick then self-skips, so
+  weekly/monthly rollover, deadline sweep, and retry sweep silently stop for **all** tenants →
+  missed statutory deadlines. Fix: hold one dedicated `QueryRunner` for lock+work+unlock, or use
+  `pg_advisory_xact_lock` in a job-spanning transaction. Same pattern exists in `FeedingCronService`.
+
+- **Drafts never reconciled with their terminal submission → re-file every rollover** (job-queue
+  PRODUCT-JOB-CRITICAL-002). A draft is marked SUBMITTED only on synchronous first-call success; a
+  retry-sweep success or a PERMANENT failure leaves it `READY`, so `autoSubmitForTenant` re-lists
+  and re-submits an already-accepted (duplicate filing, receipt nulled by `recordPending`) or
+  already-rejected (infinite re-send + alert spam) report every cycle. Only Mattilsynet's own
+  `klientReferanse` dedup prevents a true duplicate. Fix: reconcile the draft from its
+  `regulatory_reports` row; exclude drafts with a terminal/in-flight submission from auto-submit;
+  guard `recordPending` against resurrecting a SUBMITTED row.
+
+- **Migration `1804400` drops `qualityGrade` from tenant schemas before their own backfill runs**
+  (data-expert DATA-CRITICAL-001). The source-first fan-out drops the shared column across all
+  tenant schemas during the `farm` pass; a tenant still behind on the expand migration `1803100`
+  then hits `42703` in its backfill → deploy aborts (outage). Triggered by the first prod deploy or
+  any replay onto a snapshot with pre-existing tenant schemas. Fix: gate the cross-schema drop to
+  tenants whose ledger already contains `1803100`/`1804300`, or reclaim the shared enum in a
+  post-fan-out step.
+
+- **Enum-casing drift kills Welfare/Disease varsling submit** (contract-parity CONTRACT-CRITICAL-001).
+  Hand-written farm-module types send lowercase enum values (`welfare_impact`, `high`, `suspected`)
+  but the GraphQL SDL exposes uppercase names → enum-coercion error before the resolver → the
+  legally-immediate welfare/disease varsling never files. Fix: send the GraphQL enum NAMES; migrate
+  farm-module to codegen (aquamobil already is).
+
+- **Enum-casing drift kills the scheduled-draft Approve & Submit surface** (contract-parity
+  CONTRACT-CRITICAL-002). `ReportsDueSection` compares `status === 'ready'` but the wire value is
+  `'READY'`, so the Approve & Submit button never renders for any READY draft — the whole
+  review→approve→submit surface is inoperable. Fix: compare uppercase names; codegen.
+
+- **No circuit breaker + no timeout on any government-API/auth call** (circuit-breaker
+  CIRCUIT-CRITICAL-001/002, job-queue PRODUCT-JOB-HIGH-002). The three external `fetch()` calls
+  (Maskinporten discovery, token, Mattilsynet submit) are raw and untimed despite a CI-mandated
+  canonical `CircuitBreakerService`. A hung/slow regulator has no backpressure and no bounded wait;
+  under the serial lock-held sweep one slow downstream stalls the whole cron and every tenant. Fix:
+  per-tenant, fail-closed, timed breaker on each boundary; gate the retry/auto-submit sweeps through
+  it; add jitter + single-flight token acquisition.
+
+## OPEN — HIGH (tracked)
+
+- **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`
+  into the required `utførteLokaliteter`/`planlagteLokaliteter` locality wrapper, so every slaughter
+  draft fails official-schema validation (farm-expert FARM-HIGH-002, contract CONTRACT-HIGH-003).
+- **No immutable, actor-attributed audit trail** for any regulator action (submit/approve/override/
+  dismiss/resubmit) — the module never writes `farm_audit_logs` (compliance COMPLIANCE-HIGH-001).
+- **A SUBMITTED report can be silently overwritten** — `regulatory-report-store.upsert` resets an
+  accepted row to PENDING and nulls the receipt with no terminal-state guard and no DB immutability
+  trigger (compliance COMPLIANCE-HIGH-002, job-queue PRODUCT-JOB-MEDIUM-002).
+- **Tenant erasure deletes government-filed records under statutory retention** and cannot scrub a
+  single worker's PII embedded in a filed report (compliance COMPLIANCE-HIGH-003).
+- **Direct REST submit trusts client-supplied org/lokalitet** instead of deriving them server-side
+  like the draft path does (auth-security SEC-HIGH-001).
+- **`regulatory_report_drafts` has no RLS** (its sibling `regulatory_reports` does) and the draft
+  service reads via a plain repository outside `runInTenantRead` (multi-tenant REG-HIGH-002).
+- **No RED metrics / cron heartbeat / operator alerts** on the government-submission pipeline — a
+  Mattilsynet rejection returns GraphQL-200 and counts as success everywhere (observability
+  OBS-HIGH-001/002/003).
+- **No max-attempt / dead-letter** — chronic TRANSIENT failures (incl. 401/403) retry forever,
+  surfaced to no operator (job-queue PRODUCT-JOB-HIGH-001, observability OBS-HIGH-002).
+- **Biomass draft in the "due" list has a broken Mattilsynet Approve & Submit** and is a duplicate of
+  the `biomass_reports` Altinn state machine (farm-expert FARM-HIGH-004).
+- **Monthly standing-stock read "as of now", not period-end** — `refresh` on a historical month
+  stamps today's stock as that month's closing beholdning with RECORDS provenance (farm-expert
+  FARM-HIGH-005, data-expert DATA-MEDIUM-004).
+- **Settefisk CTEs are not site-scoped** → whole-tenant mortality scans re-run once per site
+  (performance PERF-HIGH-002).
+- **Daily deadline sweep + auto-submit load every draft ever created** then filter in JS
+  (performance PERF-HIGH-003, job-queue PRODUCT-JOB-MEDIUM-003).
+- **No farm-module code-splitting / bundle budget** — the whole reporting UI ships eagerly
+  (performance PERF-HIGH-004).
+- **Each assembler sub-query opens its own ~6-round-trip tenant boundary** (performance PERF-HIGH-005).
+
+## OPEN — MEDIUM / LOW (tracked)
+
+Biomass assembler defaults a missing stocking avg-weight to `0` tagged RECORDS (compliance
+COMPLIANCE-MEDIUM-005); manual overrides stored/injected as strings fail numeric schema validation
+(farm-expert FARM-MEDIUM-006); executed-slaughter uses round weight where the regulator may expect
+gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters (auth-security SEC-MEDIUM-002);
+KEK dev-fallback gated only on `NODE_ENV==='production'` (SEC-MEDIUM-003); regulator error bodies +
+PII logged via string interpolation that bypasses `maskPii` (SEC-MEDIUM-004, observability
+OBS-MEDIUM-003); `updateAutoSubmitPolicy` accepts arbitrary report types (COMPLIANCE-MEDIUM-006);
+varsling QUEUED shown as "Submitted" with the internal event id as a fake "Mattilsynet receipt"
+(COMPLIANCE-MEDIUM-004, farm-expert FARM-LOW-012); settefisk mixed-batch attribution (FARM-MEDIUM-010);
+`EscapeIncidentRecordedEvent` has no consumer so the "varsling is immediate" reminder is dropped
+(contract CONTRACT-MEDIUM-005); stale codegen/subgraph SDL missing the prefill/draft surface
+(CONTRACT-MEDIUM-004); no DB CHECK constraints on welfare 0–3 / lice non-negative (data DATA-LOW-007);
+lossy relocation-before-drop migrations with no backup step (DATA-MEDIUM-005/006); duplicate parallel
+submission systems (manual wizard vs assembled draft) per report type (farm-expert FARM-MEDIUM-009);
+inconsistent artskode regex + COALESCE laundering (FARM-LOW-011, FARM-MEDIUM-158); non-atomic
+attemptCount RMW + operator/sweep race (job-queue PRODUCT-JOB-MEDIUM-001); no span coverage / deterministic
+backoff without jitter / token single-flight + LRU (OBS-MEDIUM-001/002, CIRCUIT-MEDIUM-001/002/003);
+plus assorted LOWs (siteName never populated, sea-lice temperature not hydrated, tenant discovery keyed
+off `sites`).
+
+## Verified sound (no action)
+
+Maskinporten token cache tenant-keying + AES-256-GCM credential-at-rest + no GraphQL exposure; the
+`ValidatedPayload<T>` brand gate (unvalidated submit is a compile error); persist-first submit +
+transient/permanent classification; `klientReferanse` idempotency (happy path); the biomass Altinn
+READY→CONFIRMED_SUBMITTED honesty state machine + terminal immutability; ISO-week/month period math
+and Oslo/DST-safe deadline computation; rollover `ON CONFLICT` idempotency; the sea-lice
+`fishSampled`-weighted pooled mean; the temperature `sensor_temperature_daily` rollup reader;
+frontend tenant-scoped query-key cache hygiene; no `console.*`, no secrets logged; the authz matrix
+(global fail-closed RolesGuard + PermissionMatrixGuard) and `saveOverrides` RECORDS/SENSOR rejection;
+per-tenant exception isolation in the sweeps; MODULE_SCHEMAS registration + RLS on `regulatory_reports`.

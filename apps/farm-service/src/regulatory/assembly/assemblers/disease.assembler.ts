@@ -192,13 +192,27 @@ export class DiseaseReportAssembler {
            FROM health_events he
           WHERE he."tenantId" = $1
             AND he."eventType" = 'disease_outbreak'
-            AND EXISTS (
-              SELECT 1
-                FROM tank_batches tb
-                JOIN tanks t ON t.id = tb."tankId"
-                JOIN departments d ON d.id = t."departmentId"
-               WHERE tb."batchId" = he."batchId"
-                 AND d."siteId" = $2
+            AND he.status NOT IN ('resolved', 'cancelled')
+            AND (
+              EXISTS (
+                SELECT 1
+                  FROM tank_batches tb
+                  JOIN tanks t ON t.id = tb."tankId"
+                  JOIN departments d ON d.id = t."departmentId"
+                 WHERE tb."tenantId" = he."tenantId"
+                   AND tb."primaryBatchId" = he."batchId"
+                   AND d."siteId" = $2
+              )
+              OR EXISTS (
+                SELECT 1
+                  FROM tank_batches tb
+                  JOIN tanks t ON t.id = tb."tankId"
+                  JOIN departments d ON d.id = t."departmentId",
+                       jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS bd
+                 WHERE tb."tenantId" = he."tenantId"
+                   AND d."siteId" = $2
+                   AND bd->>'batchId' = he."batchId"::text
+              )
             )
           ORDER BY he."eventDate" DESC, he."createdAt" DESC
           LIMIT 1`,

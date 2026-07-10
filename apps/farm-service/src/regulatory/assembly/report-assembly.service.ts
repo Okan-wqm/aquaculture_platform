@@ -13,6 +13,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { BiomassReportAssembler } from './biomass.assembler';
+import { DiseaseReportAssembler } from './assemblers/disease.assembler';
 import { EscapeReportAssembler } from './assemblers/escape.assembler';
 import { LakselusReportAssembler } from './assemblers/lakselus.assembler';
 import { RensefiskReportAssembler } from './assemblers/rensefisk.assembler';
@@ -78,6 +79,7 @@ export class ReportAssemblyService {
     private readonly slaktAssembler: SlaktReportAssembler,
     private readonly escapeAssembler: EscapeReportAssembler,
     private readonly welfareAssembler: WelfareReportAssembler,
+    private readonly diseaseAssembler: DiseaseReportAssembler,
   ) {}
 
   async assemble(
@@ -157,6 +159,10 @@ export class ReportAssemblyService {
         // Event-triggered: assembles the site's latest welfare_assessment
         // (period is nominal).
         return this.welfareAssembler.assemble(tenantId, siteId);
+      case ReportPrefillType.DISEASE_OUTBREAK:
+        // Event-triggered: assembles the site's latest disease_outbreak health
+        // event (interim source — FARM-MEDIUM-152; period is nominal).
+        return this.diseaseAssembler.assemble(tenantId, siteId);
       default:
         throw new BadRequestException(
           `Server-side assembly for ${reportType} has not landed yet — tracked in ` +

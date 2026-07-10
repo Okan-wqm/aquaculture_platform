@@ -98,3 +98,71 @@ build, so the service cannot boot. The test suite masked it (vitest/jest transpi
 type-check and no spec imports the DTO); `tsc` is the gate that caught it. Fix: add `Min, Max` to
 the import. Sibling DTOs (`update-site.input.ts`, `site-contact.input.ts`) already import what
 they use.
+
+## FARM-HIGH-151 — the three varsling report types had no server-side assembly (plan Phase 4, umbrella)
+
+Escape (rømming), welfare and disease are event-triggered varsling reports; unlike the period-based
+REST types they had no assembler, so every field was manual. Phase 4 lands
+`EscapeReportAssembler`, `WelfareReportAssembler` and `DiseaseReportAssembler`
+(`regulatory/assembly/assemblers/`), each assembling `(tenantId, siteId)` from the recorded
+incident/assessment/event with the same RECORDS / MANUAL_REQUIRED provenance discipline, wired into
+`ReportAssemblyService` dispatch (now exhaustive across all nine `ReportPrefillType` values) and
+surfaced on the three tabs as read-only review cards. What the entities cannot express stays
+blocking MANUAL_REQUIRED; a missing source record blocks the whole draft (fail-closed).
+
+## FARM-MEDIUM-152 — disease outbreaks have no dedicated operational entity (interim health_events source)
+
+Unlike escape and welfare, disease has no operational entity — `DiseaseReportAssembler` reads the
+generic `health_events` ledger (latest `disease_outbreak`) as an interim source, which cannot
+express the regulator's A/C/F disease list, suspected/confirmed status, affected count or vet
+notification (all kept blocking MANUAL_REQUIRED). Root solution: a dedicated disease-outbreak entity
+carrying the varsling wire fields, at which point the assembler moves those fields to RECORDS.
+
+## FARM-MEDIUM-153 — CleanerFish client aggregation is richer than the rensefisk assembler (dedup blocked)
+
+The CleanerFish tab's `aggregateCleanerFishFromTanks` reads `tank.batchMetrics.cleanerFishDetails`
+and is richer than the rensefisk assembler (4 blocking MANUAL_REQUIRED / 1 RECORDS). Deleting the
+client math in favour of the server draft now would regress the operator UX, so the dedup is blocked
+until the rensefisk assembler reaches RECORDS coverage for the nine uttak causes.
+
+## FARM-MEDIUM-154 — SourceRecordsDrawer deep-link is blocked on a sourceQuery→route map
+
+The provenance badges carry a `sourceQuery` string, but it does not map cleanly to farm-module routes
+(mortality is per-batch with no site-wide page; lice-counts has no dedicated route), so a one-click
+deep-link from a RECORDS badge to its source record needs a deliberate sourceQuery→route UX design
+first. Until then corrections are routed by prose ("corrections go to Fish Health").
+
+## FARM-HIGH-155 — disease assembler queried non-existent health_events columns + dropped batch-scoped outbreaks (pre-merge review)
+
+The disease assembler selected `he.diagnosis` and `he."affectedPercent"` — neither is a column on
+`health_events` (real: `diseaseName`; the percentage is nested in the `affectedPopulation` jsonb) —
+so every `DISEASE_OUTBREAK` prefill threw Postgres `42703` at plan time, and the fail-closed
+"no event" path never ran. Site scope also used an INNER JOIN on the nullable `he.tankId`, silently
+dropping batch-scoped outbreaks. The mocked London spec returned fabricated column keys and hid the
+crash. Fix: real columns + `affectedPopulation ->> 'affectedPercent'`; batch-scoped `EXISTS` through
+`tank_batches` (batchId is NOT NULL); deterministic `ORDER BY eventDate DESC, createdAt DESC`; a
+SQL-capturing spec guard that pins the real columns and rejects the phantom identifiers.
+
+## FARM-MEDIUM-156 — biomass slaughter section SQL is an illegal aggregate (42803)
+
+`BiomassReportAssembler.querySlaughter` selected `COALESCE(s."officialCode", s.code)` while grouping
+only by `s.code` — `officialCode` is neither grouped nor functionally dependent on the non-PK
+`s.code`, so Postgres rejects it with `42803`, 500-ing the monthly biomass slaughter section. Fix:
+add `s."officialCode"` to the GROUP BY (unchanged cardinality since `(tenantId, code)` is unique).
+
+## FARM-MEDIUM-157 — report assemblers have no real-database integration coverage (systemic root)
+
+The assembler London specs mock `queryRunner.query`, so raw-SQL column-name drift (FARM-HIGH-155) and
+GROUP BY aggregation errors (FARM-MEDIUM-156) are invisible to the unit suite and only surface at
+runtime. Interim detectable guard landed: the disease spec captures the emitted SQL and pins the real
+columns / batch-scoped EXISTS / tiebreak. Durable close: a `bootPostgresContainer` harness (pattern:
+`apps/farm-service/src/__tests__/e2e/*.postgres.spec.ts`) that runs each assembler against a migrated
+schema with seeded rows.
+
+## FARM-MEDIUM-158 — artskode COALESCE can launder an internal species code into the official FAO field
+
+Across the assembler family, artskode is sourced as `COALESCE(s."officialCode", s.code)`; when
+`officialCode` is unset an internal code that passes the format gate is surfaced as the official
+Mattilsynet FAO artskode with trusted RECORDS provenance. The official wire field should come solely
+from `species.officialCode` (the artskode SSoT added in migration `1802500000000`) and emit blocking
+MANUAL_REQUIRED when unset. Family-wide fix deferred to avoid a one-off escape divergence.

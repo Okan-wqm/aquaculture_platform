@@ -13,6 +13,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { BiomassReportAssembler } from './biomass.assembler';
+import { EscapeReportAssembler } from './assemblers/escape.assembler';
 import { LakselusReportAssembler } from './assemblers/lakselus.assembler';
 import { RensefiskReportAssembler } from './assemblers/rensefisk.assembler';
 import { SettefiskReportAssembler } from './assemblers/settefisk.assembler';
@@ -74,6 +75,7 @@ export class ReportAssemblyService {
     private readonly settefiskAssembler: SettefiskReportAssembler,
     private readonly rensefiskAssembler: RensefiskReportAssembler,
     private readonly slaktAssembler: SlaktReportAssembler,
+    private readonly escapeAssembler: EscapeReportAssembler,
   ) {}
 
   async assemble(
@@ -145,6 +147,10 @@ export class ReportAssemblyService {
           period.year,
           this.requireWeek(reportType, period),
         );
+      case ReportPrefillType.ESCAPE:
+        // Incident-triggered, not period-based: assembles the latest open,
+        // unreported escape_incident for the site (period is nominal).
+        return this.escapeAssembler.assemble(tenantId, siteId);
       default:
         throw new BadRequestException(
           `Server-side assembly for ${reportType} has not landed yet — tracked in ` +

@@ -20,7 +20,7 @@ import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
-import { PrefilledField } from '../components/common';
+import { PrefilledField, ProvenanceBadge } from '../components/common';
 
 // ============================================================================
 // Types
@@ -282,10 +282,23 @@ interface LiceCountStepProps {
   formData: SeaLiceFormData;
   onChange: (data: Partial<SeaLiceFormData>) => void;
   tankOptions: TankOption[];
+  lusetellingMeta?: ReportFieldMeta;
 }
 
-const LiceCountStep: React.FC<LiceCountStepProps> = ({ formData, onChange, tankOptions }) => {
+export const LiceCountStep: React.FC<LiceCountStepProps> = ({
+  formData,
+  onChange,
+  tankOptions,
+  lusetellingMeta,
+}) => {
   const [showCageBreakdown, setShowCageBreakdown] = useState(false);
+
+  // When the platform has weekly lice_counts, the aggregated site counts are
+  // the SSoT and render read-only (corrections go to Fish Health). Per-cage
+  // entry, if the operator deliberately opens it, still takes over — an explicit
+  // manual action, never a silent override.
+  const countsFromRecords = lusetellingMeta?.provenance === 'RECORDS';
+  const countsReadOnly = countsFromRecords || formData.cageCounts.length > 0;
 
   const updateSiteCounts = (field: keyof SeaLiceCounts, value: number) => {
     const newCounts = { ...formData.siteCounts, [field]: value };
@@ -403,14 +416,21 @@ const LiceCountStep: React.FC<LiceCountStepProps> = ({ formData, onChange, tankO
 
       {/* Site-Level Counts */}
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3">
-          Site-Level Average Counts (per fish)
+        <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+          <span>Site-Level Average Counts (per fish)</span>
+          {lusetellingMeta && <ProvenanceBadge meta={lusetellingMeta} />}
           {formData.cageCounts.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-blue-600">
+            <span className="text-xs font-normal text-blue-600">
               Auto-calculated from per-cage data
             </span>
           )}
         </h4>
+        {countsFromRecords && formData.cageCounts.length === 0 && (
+          <p className="text-xs text-gray-500 mb-2">
+            Aggregated from the week&apos;s lice-count records; corrections go to the source counts
+            in Fish Health.
+          </p>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">
@@ -422,11 +442,11 @@ const LiceCountStep: React.FC<LiceCountStepProps> = ({ formData, onChange, tankO
               min="0"
               value={formData.siteCounts.adultFemale || ''}
               onChange={(e) => updateSiteCounts('adultFemale', parseFloat(e.target.value) || 0)}
-              disabled={formData.cageCounts.length > 0}
+              disabled={countsReadOnly}
               className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
                 formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL
                   ? 'border-orange-300 bg-orange-50'
-                  : formData.cageCounts.length > 0
+                  : countsReadOnly
                     ? 'border-gray-200 bg-gray-100 text-gray-700'
                     : 'border-gray-300'
               }`}
@@ -446,9 +466,9 @@ const LiceCountStep: React.FC<LiceCountStepProps> = ({ formData, onChange, tankO
               min="0"
               value={formData.siteCounts.mobile || ''}
               onChange={(e) => updateSiteCounts('mobile', parseFloat(e.target.value) || 0)}
-              disabled={formData.cageCounts.length > 0}
+              disabled={countsReadOnly}
               className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
-                formData.cageCounts.length > 0
+                countsReadOnly
                   ? 'border-gray-200 bg-gray-100 text-gray-700'
                   : 'border-gray-300'
               }`}
@@ -465,9 +485,9 @@ const LiceCountStep: React.FC<LiceCountStepProps> = ({ formData, onChange, tankO
               min="0"
               value={formData.siteCounts.attached || ''}
               onChange={(e) => updateSiteCounts('attached', parseFloat(e.target.value) || 0)}
-              disabled={formData.cageCounts.length > 0}
+              disabled={countsReadOnly}
               className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 ${
-                formData.cageCounts.length > 0
+                countsReadOnly
                   ? 'border-gray-200 bg-gray-100 text-gray-700'
                   : 'border-gray-300'
               }`}
@@ -1399,12 +1419,12 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
     const seed = getInitialFormData();
     return { year: seed.year, week: seed.weekNumber };
   }, []);
-  const { data: prefill } = useReportPrefill<{ sjøtemperatur: number | null }>(
-    'SEA_LICE',
-    effectiveSiteId,
-    prefillPeriod,
-  );
+  const { data: prefill } = useReportPrefill<{
+    sjøtemperatur: number | null;
+    lusetelling: { voksneHunnlus: number; bevegeligeLus: number; fastsittendeLus: number };
+  }>('SEA_LICE', effectiveSiteId, prefillPeriod);
   const temperatureMeta = findFieldMeta(prefill?.fields, '/sjøtemperatur');
+  const lusetellingMeta = findFieldMeta(prefill?.fields, '/lusetelling');
 
   // Derive site name from tanks data if available
   const derivedSiteName = useMemo(() => {
@@ -1427,9 +1447,22 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
     if (assembled != null) {
       initial.waterTemperature3m = assembled;
     }
+    // Seed the site-level lice counts from the weekly lice_counts aggregate when
+    // the platform has records; the counts then render read-only (corrections
+    // flow to the source counts in Fish Health). A MANUAL_REQUIRED verdict leaves
+    // them at zero for entry.
+    const lus = prefill?.draftPayload.lusetelling;
+    if (lus && lusetellingMeta?.provenance === 'RECORDS') {
+      initial.siteCounts = {
+        adultFemale: lus.voksneHunnlus,
+        mobile: lus.bevegeligeLus,
+        attached: lus.fastsittendeLus,
+        averagePerFish: lus.voksneHunnlus + lus.bevegeligeLus + lus.fastsittendeLus,
+      };
+    }
     setFormData(initial);
     setIsWizardOpen(true);
-  }, [prefill]);
+  }, [prefill, lusetellingMeta]);
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
@@ -1571,6 +1604,7 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
             formData={formData}
             onChange={handleFormChange}
             tankOptions={tankOptions}
+            lusetellingMeta={lusetellingMeta}
           />
         ),
         isValid: () =>

@@ -675,9 +675,16 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
 interface StockingStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
+export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, prefill }) => {
+  // Stockings assembled from batches_v2 (stockedAt / initialQuantity) are the
+  // SSoT — the rows render read-only (corrections go to the batch records, not
+  // the report). hydrateFormFromPayload already seeded them on wizard open.
+  const stockingsMeta = prefill ? findFieldMeta(prefill.fields, '/stockings') : undefined;
+  const stockingsFromRecords = stockingsMeta?.provenance === 'RECORDS';
+
   const addStockingRecord = () => {
     const newRecord: StockingFormRecord = {
       id: `stk-${Date.now()}`,
@@ -704,18 +711,23 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Stocking Records</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            <span>Stocking Records</span>
+            <SectionProvenance prefill={prefill} path="/stockings" />
+          </h4>
           <p className="text-xs text-gray-500">
             Fish arrivals during the reporting period (required by Fiskeridirektoratet)
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addStockingRecord}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Stocking Record
-        </button>
+        {!stockingsFromRecords && (
+          <button
+            type="button"
+            onClick={addStockingRecord}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Stocking Record
+          </button>
+        )}
       </div>
 
       {/* Summary */}
@@ -749,25 +761,30 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <fieldset
+          disabled={stockingsFromRecords}
+          className={`space-y-3 border-0 p-0 m-0 ${stockingsFromRecords ? 'opacity-75' : ''}`}
+        >
           {formData.stockings.map((record, index) => (
             <div key={record.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Stocking #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeStockingRecord(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!stockingsFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeStockingRecord(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
@@ -839,7 +856,7 @@ const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
               </div>
             </div>
           ))}
-        </div>
+        </fieldset>
       )}
     </div>
   );
@@ -1931,7 +1948,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'stockings',
         title: 'Stockings',
         description: 'Fish arrivals',
-        content: <StockingStep formData={formData} onChange={handleFormChange} />,
+        content: <StockingStep formData={formData} onChange={handleFormChange} prefill={prefill} />,
       },
       {
         id: 'mortality',

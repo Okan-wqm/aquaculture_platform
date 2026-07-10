@@ -1,17 +1,16 @@
 /**
- * HR finance mutation inputs. Currency is optional on entries — the
- * handlers resolve the tenant default through PayrollCostSettingsService
- * (event-projected from the farm finance_settings SSoT).
+ * HR finance mutation inputs. Entries carry NO currency field — every
+ * entry is booked in the tenant default currency resolved through
+ * PayrollCostSettingsService (event-projected from the farm
+ * finance_settings SSoT), so the HR ledger is structurally single-currency.
  */
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import {
-  IsBoolean,
   IsDateString,
   IsInt,
   IsNumber,
   IsOptional,
   IsUUID,
-  Matches,
   Max,
   MaxLength,
   Min,
@@ -32,11 +31,6 @@ export class CreateHrFinanceEntryInput {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   amount!: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO 4217 alpha-3 code' })
-  currency?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -71,11 +65,6 @@ export class UpdateHrFinanceEntryInput {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   amount?: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO 4217 alpha-3 code' })
-  currency?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -119,10 +108,8 @@ export class UpdateHrFinanceCategoryInput {
   @IsInt()
   displayOrder?: number;
 
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  // Activation state is NOT editable here — archival/restoral is
+  // TENANT_ADMIN-only via archiveHrFinanceCategory / restoreHrFinanceCategory.
 }
 
 /**

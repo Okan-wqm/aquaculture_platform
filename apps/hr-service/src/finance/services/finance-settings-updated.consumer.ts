@@ -11,6 +11,11 @@
  * Fail-closed posture: payload is validated against the AJV wire schema
  * before any write (same trust-boundary rule as the farm NATS bridge);
  * an invalid or cross-tenant-shaped payload is dropped with a warn.
+ *
+ * Ordered + idempotent: each apply records the source event timestamp in
+ * `currencyProjectedAt`; an event whose timestamp is not newer than the
+ * watermark is a no-op, so an out-of-order NATS redelivery can never
+ * regress the tenant currency to a stale value.
  */
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -66,25 +71,47 @@ export class FinanceSettingsUpdatedConsumer
     }
 
     const { tenantId, defaultCurrency } = event;
-    await runInTenantTransaction(this.dataSource, 'hr', tenantId, async (queryRunner) => {
-      const manager = queryRunner.manager;
-      let settings = await manager.findOne(PayrollCostSettings, {
-        where: { tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!settings) {
-        settings = manager.create(PayrollCostSettings, {
-          tenantId,
-          pensionFundPct: 0,
-          socialInsurancePct: 0,
-          medicalInsurancePct: 0,
-          otherCostPct: 5,
-          defaultCurrency: HR_PLATFORM_DEFAULT_CURRENCY,
+    const eventTimestamp = new Date(event.timestamp);
+    const applied = await runInTenantTransaction(
+      this.dataSource,
+      'hr',
+      tenantId,
+      async (queryRunner) => {
+        const manager = queryRunner.manager;
+        let settings = await manager.findOne(PayrollCostSettings, {
+          where: { tenantId },
+          lock: { mode: 'pessimistic_write' },
         });
-      }
-      settings.defaultCurrency = defaultCurrency;
-      await manager.save(settings);
-    });
+        if (
+          settings?.currencyProjectedAt &&
+          eventTimestamp <= settings.currencyProjectedAt
+        ) {
+          // Stale or out-of-order redelivery — the watermark already
+          // reflects a newer (or equal) currency decision.
+          return false;
+        }
+        if (!settings) {
+          settings = manager.create(PayrollCostSettings, {
+            tenantId,
+            pensionFundPct: 0,
+            socialInsurancePct: 0,
+            medicalInsurancePct: 0,
+            otherCostPct: 5,
+            defaultCurrency: HR_PLATFORM_DEFAULT_CURRENCY,
+          });
+        }
+        settings.defaultCurrency = defaultCurrency;
+        settings.currencyProjectedAt = eventTimestamp;
+        await manager.save(settings);
+        return true;
+      },
+    );
+    if (!applied) {
+      this.logger.debug(
+        `Skipped stale FinanceSettingsUpdated for tenant ${tenantId.slice(0, 8)}… (watermark newer)`,
+      );
+      return;
+    }
     this.settingsService.invalidate(tenantId);
     this.logger.log(
       `Projected default currency ${defaultCurrency} for tenant ${tenantId.slice(0, 8)}…`,

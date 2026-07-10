@@ -26,6 +26,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   createFinanceCategory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createFinanceEntry: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   deleteFinanceEntry: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  restoreFinanceCategory: [Role.TENANT_ADMIN],
   updateFinanceCategory: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateFinanceEntry: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateFinanceSettings: [Role.TENANT_ADMIN],

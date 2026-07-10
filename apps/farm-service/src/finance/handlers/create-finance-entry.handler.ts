@@ -44,10 +44,13 @@ export class CreateFinanceEntryHandler
   async execute(command: CreateFinanceEntryCommand): Promise<FinanceExpenseEntry> {
     const { tenantId, input, userId } = command;
 
+    // Seed (idempotently) in its own committed tx before the booking tx —
+    // categories exist before we look one up, and a booking rollback can
+    // never undo the seed.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
+
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
-
       const category = await manager.findOne(FinanceCategory, {
         where: { id: input.categoryId, tenantId },
       });
@@ -66,9 +69,9 @@ export class CreateFinanceEntryHandler
         );
       }
 
-      const currency =
-        input.currency ??
-        (await this.settingsService.getDefaultCurrencyInTx(manager, tenantId));
+      // Every manual entry is booked in the tenant default currency (SSoT)
+      // — the ledger is structurally single-currency.
+      const currency = await this.settingsService.getDefaultCurrencyInTx(manager, tenantId);
 
       const entry = manager.create(FinanceExpenseEntry, {
         tenantId,

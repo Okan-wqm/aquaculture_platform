@@ -9,8 +9,9 @@
  * The pension/social/medical fund lines are NOT seeded as categories —
  * they are computed projections of hr_payroll_cost_settings.
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 import { HrFinanceComputedRule } from '../entities/hr-finance-category.entity';
 
@@ -41,10 +42,26 @@ export class HrFinanceCategorySeedService {
   /** Per-process fast path; correctness comes from ON CONFLICT. */
   private readonly seededTenants = new Set<string>();
 
-  async ensureDefaults(manager: EntityManager, tenantId: string): Promise<void> {
+  /**
+   * Idempotently seed defaults in a DEDICATED tenant write transaction
+   * that commits before the caller opens its own read/write boundary.
+   * Must be called OUTSIDE a `runInTenantRead` boundary — a read-only
+   * transaction rejects the INSERT (SQLSTATE 25006). The per-process guard
+   * is populated only after the seed transaction commits, so a failed seed
+   * never poisons it and a caller's rollback never undoes the seed.
+   */
+  async ensureDefaults(dataSource: DataSource, tenantId: string): Promise<void> {
     if (this.seededTenants.has(tenantId)) {
       return;
     }
+    await runInTenantTransaction(dataSource, 'hr', tenantId, (queryRunner) =>
+      this.insertDefaults(queryRunner.manager, tenantId),
+    );
+    this.seededTenants.add(tenantId);
+    this.logger.log(`HR finance categories ensured for tenant ${tenantId.slice(0, 8)}…`);
+  }
+
+  private async insertDefaults(manager: EntityManager, tenantId: string): Promise<void> {
     for (const def of DEFAULT_HR_FINANCE_CATEGORIES) {
       await manager.query(
         `INSERT INTO hr_finance_categories
@@ -61,7 +78,5 @@ export class HrFinanceCategorySeedService {
         ],
       );
     }
-    this.seededTenants.add(tenantId);
-    this.logger.log(`HR finance categories ensured for tenant ${tenantId.slice(0, 8)}…`);
   }
 }

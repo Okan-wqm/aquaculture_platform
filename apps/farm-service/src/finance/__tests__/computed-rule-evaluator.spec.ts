@@ -59,7 +59,11 @@ describe('ComputedRuleEvaluator', () => {
       computedRule: { type: 'PERCENT_OF_SCOPE_TOTAL', percent, base: 'NON_COMPUTED' },
     });
 
-    const result = evaluator.evaluate([...base, computed], new Map(totals));
+    const result = evaluator.evaluate(
+      [...base, computed],
+      new Map(totals),
+      FinanceCategoryScope.FARM_OPEX,
+    );
 
     expect(result).toEqual([
       { categoryId: 'other-variable', code: 'OTHER_VARIABLE', value: expected },
@@ -83,6 +87,7 @@ describe('ComputedRuleEvaluator', () => {
         ['feed', 1000],
         ['computed-a', 999999],
       ]),
+      FinanceCategoryScope.FARM_OPEX,
     );
 
     expect(result).toEqual([
@@ -91,7 +96,42 @@ describe('ComputedRuleEvaluator', () => {
     ]);
   });
 
+  it('never folds another scope’s totals into the percentage base (regression: FINANCE-HIGH-001)', () => {
+    const feed = makeCategory('feed', { scope: FinanceCategoryScope.FARM_OPEX });
+    const otherVariable = makeCategory('other-variable', {
+      code: 'OTHER_VARIABLE',
+      scope: FinanceCategoryScope.FARM_OPEX,
+      computedRule: { type: 'PERCENT_OF_SCOPE_TOTAL', percent: 5, base: 'NON_COMPUTED' },
+    });
+    const harvestRevenue = makeCategory('harvest-revenue', {
+      code: 'HARVEST_REVENUE',
+      scope: FinanceCategoryScope.FARM_REVENUE,
+      kind: FinanceCategoryKind.REVENUE,
+    });
+
+    // OPEX = 100_000, REVENUE = 1_000_000. The 5% OPEX line MUST be
+    // 5% × 100_000 = 5_000 — revenue is a different scope and excluded.
+    const result = evaluator.evaluate(
+      [feed, otherVariable, harvestRevenue],
+      new Map([
+        ['feed', 100_000],
+        ['harvest-revenue', 1_000_000],
+      ]),
+      FinanceCategoryScope.FARM_OPEX,
+    );
+
+    expect(result).toEqual([
+      { categoryId: 'other-variable', code: 'OTHER_VARIABLE', value: 5_000 },
+    ]);
+  });
+
   it('returns an empty list when no computed categories exist', () => {
-    expect(evaluator.evaluate([makeCategory('feed')], new Map([['feed', 100]]))).toEqual([]);
+    expect(
+      evaluator.evaluate(
+        [makeCategory('feed')],
+        new Map([['feed', 100]]),
+        FinanceCategoryScope.FARM_OPEX,
+      ),
+    ).toEqual([]);
   });
 });

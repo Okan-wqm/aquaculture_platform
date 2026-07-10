@@ -60,6 +60,14 @@ export class ArchiveHrFinanceCategoryCommand {
   ) {}
 }
 
+export class RestoreHrFinanceCategoryCommand {
+  constructor(
+    public readonly tenantId: string,
+    public readonly categoryId: string,
+    public readonly userId: string,
+  ) {}
+}
+
 export class UpdatePayrollCostSettingsCommand {
   constructor(
     public readonly tenantId: string,

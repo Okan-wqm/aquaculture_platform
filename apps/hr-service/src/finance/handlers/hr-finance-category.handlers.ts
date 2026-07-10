@@ -22,6 +22,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import {
   ArchiveHrFinanceCategoryCommand,
   CreateHrFinanceCategoryCommand,
+  RestoreHrFinanceCategoryCommand,
   UpdateHrFinanceCategoryCommand,
 } from '../commands/hr-finance.commands';
 import { HrFinanceCategory } from '../entities/hr-finance-category.entity';
@@ -59,9 +60,10 @@ export class CreateHrFinanceCategoryHandler
 
   async execute(command: CreateHrFinanceCategoryCommand): Promise<HrFinanceCategory> {
     const { tenantId, input, userId } = command;
+    // Seed (idempotently) in its own committed tx before the create tx.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
     return runInTenantTransaction(this.dataSource, 'hr', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
       await assertNameFree(manager, tenantId, input.name);
 
       const category = manager.create(HrFinanceCategory, {
@@ -118,18 +120,12 @@ export class UpdateHrFinanceCategoryHandler
       if (!category) {
         throw new NotFoundException(`HR finance category ${categoryId} not found`);
       }
-      if (input.isActive === false && category.computedRule) {
-        throw new BadRequestException(
-          `Category "${category.name}" carries a computed rule and cannot be archived`,
-        );
-      }
       if (input.name && input.name.toLowerCase() !== category.name.toLowerCase()) {
         await assertNameFree(manager, tenantId, input.name, category.id);
       }
 
       if (input.name !== undefined) category.name = input.name;
       if (input.displayOrder !== undefined) category.displayOrder = input.displayOrder;
-      if (input.isActive !== undefined) category.isActive = input.isActive;
       category.updatedBy = userId;
 
       const saved = await manager.save(category);
@@ -193,6 +189,55 @@ export class ArchiveHrFinanceCategoryHandler
         }),
         categoryId: saved.id,
         code: saved.code ?? undefined,
+        scope: 'HR_EXPENSE',
+        sourceService: 'hr-service',
+      };
+      await this.outboxPublisher.enqueue(event, manager);
+
+      return saved;
+    });
+  }
+}
+
+@Injectable()
+@CommandHandler(RestoreHrFinanceCategoryCommand)
+export class RestoreHrFinanceCategoryHandler
+  implements ICommandHandler<RestoreHrFinanceCategoryCommand, HrFinanceCategory>
+{
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
+  ) {}
+
+  async execute(command: RestoreHrFinanceCategoryCommand): Promise<HrFinanceCategory> {
+    const { tenantId, categoryId, userId } = command;
+    return runInTenantTransaction(this.dataSource, 'hr', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+
+      const category = await manager.findOne(HrFinanceCategory, {
+        where: { id: categoryId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!category) {
+        throw new NotFoundException(`HR finance category ${categoryId} not found`);
+      }
+      if (!category.isActive) {
+        await assertNameFree(manager, tenantId, category.name, category.id);
+      }
+
+      category.isActive = true;
+      category.updatedBy = userId;
+      const saved = await manager.save(category);
+
+      const event: FinanceCategoryUpdatedEvent = {
+        ...createBaseEvent<FinanceCategoryUpdatedEvent>('FinanceCategoryUpdated', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'FinanceCategory',
+          userId,
+        }),
+        categoryId: saved.id,
+        code: saved.code ?? undefined,
+        name: saved.name,
         scope: 'HR_EXPENSE',
         sourceService: 'hr-service',
       };

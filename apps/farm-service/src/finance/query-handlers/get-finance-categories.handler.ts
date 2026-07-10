@@ -3,7 +3,7 @@
  * Seeds the defaults on first touch so a fresh tenant always sees the
  * standard taxonomy (idempotent — ON CONFLICT DO NOTHING).
  */
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { IQueryHandler, QueryHandler } from '@platform/cqrs';
@@ -26,12 +26,11 @@ export class GetFinanceCategoriesHandler
 
   async execute(query: GetFinanceCategoriesQuery): Promise<FinanceCategory[]> {
     const { tenantId, scope, includeArchived } = query;
-    // A write transaction (not runInTenantRead) because the first call
-    // per tenant lazily seeds the default catalogue.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    // Seed (idempotently) in its own committed write tx BEFORE opening the
+    // read-only boundary — seeding is a write concern.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
+    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
-
       const qb = manager
         .createQueryBuilder(FinanceCategory, 'c')
         .where('c."tenantId" = :tenantId', { tenantId })

@@ -122,7 +122,8 @@ export interface FinanceSummaryShape {
 }
 
 interface DerivedAggRow {
-  bucket: Date | null;
+  /** Canonical UTC bucket key `YYYY-MM-DD` (null in batch-grouped mode). */
+  bucket: string | null;
   batchId: string | null;
   total: string;
 }
@@ -144,9 +145,11 @@ export class FinanceLedgerQueryService {
   // ==========================================================================
 
   async getLineItems(tenantId: string, filter: LedgerFilter): Promise<FinanceLineItemShape[]> {
+    // Seeding is a write concern — run it (idempotently) before opening the
+    // read-only boundary, which structurally rejects INSERTs.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
       const defaultCurrency = await this.settingsService.getDefaultCurrencyInTx(manager, tenantId);
@@ -182,33 +185,36 @@ export class FinanceLedgerQueryService {
     range: { from: Date; to: Date },
     granularity: FinanceGranularity,
   ): Promise<FinanceSummaryShape> {
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
       const currency = await this.settingsService.getDefaultCurrencyInTx(manager, tenantId);
       const truncUnit = GRANULARITY_SQL[granularity];
 
-      // categoryId → booked total; (bucketIso|categoryId) → bucket totals
+      // categoryId → booked total; (bucketKey|categoryId) → bucket totals.
+      // bucketKey is a canonical UTC `YYYY-MM-DD` string computed in SQL, so
+      // manual (DATE) and derived (timestamptz) columns land in the SAME
+      // bucket regardless of the DB session timezone (no Date round-trip).
       const categoryTotals = new Map<string, number>();
-      const bucketTotals = new Map<string, Map<string, number>>(); // bucketIso → categoryId → total
+      const bucketTotals = new Map<string, Map<string, number>>();
 
-      const record = (categoryId: string, bucket: Date, amount: number): void => {
+      const record = (categoryId: string, bucketKey: string, amount: number): void => {
         categoryTotals.set(categoryId, (categoryTotals.get(categoryId) ?? 0) + amount);
-        const bucketIso = bucket.toISOString();
-        let perCategory = bucketTotals.get(bucketIso);
+        let perCategory = bucketTotals.get(bucketKey);
         if (!perCategory) {
           perCategory = new Map<string, number>();
-          bucketTotals.set(bucketIso, perCategory);
+          bucketTotals.set(bucketKey, perCategory);
         }
         perCategory.set(categoryId, (perCategory.get(categoryId) ?? 0) + amount);
       };
 
-      // Manual entries: one grouped query.
+      // Manual entries: one grouped query. entryDate is a DATE (tz-free), so
+      // to_char is deterministic.
       const manualRows = (await manager
         .createQueryBuilder(FinanceExpenseEntry, 'e')
-        .select(`date_trunc('${truncUnit}', e."entryDate")`, 'bucket')
+        .select(`to_char(date_trunc('${truncUnit}', e."entryDate"), 'YYYY-MM-DD')`, 'bucket')
         .addSelect('e."categoryId"', 'categoryId')
         .addSelect('SUM(e."amount")', 'total')
         .where('e."tenantId" = :tenantId', { tenantId })
@@ -217,10 +223,10 @@ export class FinanceLedgerQueryService {
         .andWhere('e."entryDate" <= :to', { to: range.to })
         .groupBy('bucket')
         .addGroupBy('e."categoryId"')
-        .getRawMany<{ bucket: Date; categoryId: string; total: string }>());
+        .getRawMany<{ bucket: string; categoryId: string; total: string }>());
 
       for (const row of manualRows) {
-        record(row.categoryId, new Date(row.bucket), Number(row.total));
+        record(row.categoryId, row.bucket, Number(row.total));
       }
 
       // Derived sources: one grouped query per source.
@@ -229,19 +235,23 @@ export class FinanceLedgerQueryService {
         if (!category) continue;
         const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, truncUnit, null);
         for (const row of rows) {
-          record(category.id, new Date(row.bucket as Date), Number(row.total));
+          if (row.bucket === null) continue;
+          record(category.id, row.bucket, Number(row.total));
         }
       }
 
-      // Computed categories — per whole period AND per bucket.
-      const computedValues = this.ruleEvaluator.evaluate(categories, categoryTotals);
-      for (const computed of computedValues) {
-        categoryTotals.set(computed.categoryId, computed.value);
-      }
-      for (const perCategory of bucketTotals.values()) {
-        const bucketComputed = this.ruleEvaluator.evaluate(categories, perCategory);
-        for (const computed of bucketComputed) {
-          perCategory.set(computed.categoryId, computed.value);
+      // Computed categories — per whole period AND per bucket. Evaluated
+      // per scope so a scope's percentage base can never include another
+      // scope's totals (e.g. harvest REVENUE inflating the OPEX 5% line).
+      const scopes = [...new Set(categories.map((c) => c.scope))];
+      for (const scope of scopes) {
+        for (const computed of this.ruleEvaluator.evaluate(categories, categoryTotals, scope)) {
+          categoryTotals.set(computed.categoryId, computed.value);
+        }
+        for (const perCategory of bucketTotals.values()) {
+          for (const computed of this.ruleEvaluator.evaluate(categories, perCategory, scope)) {
+            perCategory.set(computed.categoryId, computed.value);
+          }
         }
       }
 
@@ -262,7 +272,7 @@ export class FinanceLedgerQueryService {
         .sort((a, b) => b.total - a.total);
 
       const series: TimeBucketShape[] = [...bucketTotals.entries()]
-        .map(([bucketIso, perCategory]) => {
+        .map(([bucketKey, perCategory]) => {
           let totalExpense = 0;
           let totalRevenue = 0;
           for (const [categoryId, total] of perCategory.entries()) {
@@ -273,7 +283,8 @@ export class FinanceLedgerQueryService {
             }
           }
           return {
-            bucketStart: new Date(bucketIso),
+            // Canonical UTC midnight for the bucket key — no local-tz drift.
+            bucketStart: new Date(`${bucketKey}T00:00:00.000Z`),
             totalExpense: round2(totalExpense),
             totalRevenue: round2(totalRevenue),
           };
@@ -307,9 +318,9 @@ export class FinanceLedgerQueryService {
   // ==========================================================================
 
   async getBatchTotals(tenantId: string, range: { from: Date; to: Date }): Promise<BatchTotalShape[]> {
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
 
@@ -527,9 +538,14 @@ export class FinanceLedgerQueryService {
       .andWhere(`${source.dateExpr} <= :to`, { to: range.to });
 
     if (truncUnit) {
-      qb.addSelect(`date_trunc('${truncUnit}', ${source.dateExpr})`, 'bucket').groupBy('bucket');
+      // Normalize the timestamptz to UTC wall-clock before truncating so the
+      // bucket key matches the manual (DATE) side regardless of session tz.
+      qb.addSelect(
+        `to_char(date_trunc('${truncUnit}', ${source.dateExpr} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
+        'bucket',
+      ).groupBy('bucket');
     } else {
-      qb.addSelect('NULL::timestamptz', 'bucket');
+      qb.addSelect('NULL::text', 'bucket');
     }
     if (batchExpr) {
       qb.addSelect(batchExpr, 'batchId').addGroupBy(batchExpr);

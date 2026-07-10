@@ -30,7 +30,12 @@ export const PLATFORM_DEFAULT_CURRENCY = 'NOK';
 @Entity('finance_settings')
 @Index('UQ_finance_settings_tenant', ['tenantId'], { unique: true })
 export class FinanceSettings {
-  @Field(() => ID)
+  // Nullable in GraphQL: the read path returns an in-memory defaults view
+  // (no persisted row) for a tenant that has not saved settings yet — that
+  // view has no id, and a non-null id would crash serialization. This is a
+  // GraphQL-decorator change only — the @PrimaryGeneratedColumn uuid column
+  // is unchanged, so there is no DDL delta and no migration is required.
+  @Field(() => ID, { nullable: true })
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 

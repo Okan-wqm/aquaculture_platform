@@ -70,14 +70,15 @@ export class CreateHrFinanceEntryHandler
 
   async execute(command: CreateHrFinanceEntryCommand): Promise<HrFinanceEntry> {
     const { tenantId, input, userId } = command;
+    // Seed (idempotently) in its own committed tx before the booking tx.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
     return runInTenantTransaction(this.dataSource, 'hr', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
       const category = await loadBookableCategory(manager, tenantId, input.categoryId);
 
-      const currency =
-        input.currency ??
-        (await this.settingsService.getDefaultCurrencyInTx(manager, tenantId));
+      // Every HR entry is booked in the tenant default currency (SSoT) —
+      // the ledger is structurally single-currency.
+      const currency = await this.settingsService.getDefaultCurrencyInTx(manager, tenantId);
 
       const entry = manager.create(HrFinanceEntry, {
         tenantId,
@@ -155,7 +156,8 @@ export class UpdateHrFinanceEntryHandler
 
       if (input.entryDate !== undefined) entry.entryDate = new Date(input.entryDate);
       if (input.amount !== undefined) entry.amount = input.amount;
-      if (input.currency !== undefined) entry.currency = input.currency;
+      // Currency is not editable — an entry stays in the tenant default it
+      // was booked in (the ledger is structurally single-currency).
       if (input.description !== undefined) entry.description = input.description;
       if (input.departmentHrId !== undefined) entry.departmentHrId = input.departmentHrId;
       if (input.employeeId !== undefined) entry.employeeId = input.employeeId;

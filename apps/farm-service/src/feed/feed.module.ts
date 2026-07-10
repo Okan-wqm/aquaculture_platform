@@ -20,6 +20,8 @@ import { FeedingProtocolResolver } from './feeding-protocol.resolver';
 import { FeedingProtocolSeederService } from './services/feeding-protocol-seeder.service';
 
 import { RestoreModule } from '../common/services/restore.module';
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
+import { FinanceModule } from '../finance/finance.module';
 
 // Feed Command Handlers
 import { CreateFeedHandler } from './handlers/create-feed.handler';
@@ -72,6 +74,7 @@ const QueryHandlers = [
       Species,
     ]),
     RestoreModule,
+    FinanceModule,
   ],
   providers: [
     FeedResolver,

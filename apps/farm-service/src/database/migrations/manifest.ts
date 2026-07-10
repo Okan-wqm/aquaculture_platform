@@ -44,6 +44,10 @@ import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-Drop
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
 import { HealBehindTenantQualityGrade1804500000000 } from './1804500000000-HealBehindTenantQualityGrade';
+// Finance tables migration — renumbered from 1802500000000 to 1804600000000
+// on the main merge to resolve a timestamp collision with main's
+// AddSpeciesOfficialCode1802500000000 (migrations are append-only + ordered).
+import { CreateFinanceTables1804600000000 } from './1804600000000-CreateFinanceTables';
 
 /**
  * Canonical farm-service migration class list.
@@ -100,4 +104,6 @@ export const FARM_MIGRATIONS = [
   DropHarvestQualityGrade1804300000000,
   DropOrphanQualityGradeEnum1804400000000,
   HealBehindTenantQualityGrade1804500000000,
+  CreateFinanceTables1804600000000,
+
 ] as const;

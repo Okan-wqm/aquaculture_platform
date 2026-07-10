@@ -20,6 +20,8 @@ import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
 import { Consumable } from '../consumable/entities/consumable.entity';
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
+import { FinanceModule } from '../finance/finance.module';
 
 import { StorageResolver } from './storage.resolver';
 import { InventoryCountResponseResolver } from './resolvers/inventory-count-response.resolver';
@@ -102,6 +104,7 @@ const QueryHandlers = [
       Chemical,
       Consumable,
     ]),
+    FinanceModule,
   ],
   providers: [
     StorageResolver,

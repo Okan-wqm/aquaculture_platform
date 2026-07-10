@@ -69,6 +69,11 @@ import { RestoreModule } from '../common/services/restore.module';
 // FeedingModule, so there is no DI cycle.
 import { BatchModule } from '../batch/batch.module';
 import { InventoryModule } from '../storage/storage.module';
+// Currency SSoT: CreateFeedingRecordHandler resolves the tenant default
+// currency through FinanceSettingsService (finance_settings row) instead
+// of a hardcoded literal. FinanceModule does not import FeedingModule,
+// so there is no DI cycle.
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -92,6 +97,7 @@ import { InventoryModule } from '../storage/storage.module';
     RestoreModule,
     BatchModule,
     InventoryModule,
+    FinanceModule,
   ],
   controllers: [GetFeedingOverviewResponder],
   providers: [

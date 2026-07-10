@@ -30,6 +30,7 @@ import { CreateCleanerBatchCommand } from '../../commands/create-cleaner-batch.c
 import { Batch } from '../../entities/batch.entity';
 import { Species } from '../../../species/entities/species.entity';
 import type { CodeGeneratorService } from '../../../database/services/code-generator.service';
+import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -85,6 +86,9 @@ function makeHarness(opts: HarnessOpts = {}): {
     return undefined;
   });
   const outboxPublisher: Pick<OutboxPublisher, 'enqueue'> = { enqueue };
+  const financeSettings: Pick<FinanceSettingsService, 'getDefaultCurrency'> = {
+    getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
+  };
 
   const handler = new CreateCleanerBatchHandler(
     batchRepository as Repository<Batch>,
@@ -92,6 +96,7 @@ function makeHarness(opts: HarnessOpts = {}): {
     codeGenerator as CodeGeneratorService,
     mockDataSource,
     outboxPublisher as OutboxPublisher,
+    financeSettings as FinanceSettingsService,
   );
 
   return { handler, enqueue, commit, rollback, managerSave };

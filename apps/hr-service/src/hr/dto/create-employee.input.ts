@@ -17,7 +17,7 @@ import {
   IsNotEmpty,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-import { EmploymentType, Department } from '../entities/employee.entity';
+import { EmploymentType, Department, LaborCategory } from '../entities/employee.entity';
 
 @InputType()
 export class ContactInfoInput {
@@ -187,6 +187,12 @@ export class CreateEmployeeInput {
   @MaxLength(100, { message: 'Position must be at most 100 characters' })
   @Transform(({ value }) => value?.trim())
   position!: string;
+
+  /** Structured workforce category for labour-cost analytics. */
+  @Field(() => LaborCategory, { nullable: true })
+  @IsOptional()
+  @IsEnum(LaborCategory, { message: 'Invalid labor category' })
+  laborCategory?: LaborCategory;
 
   @Field()
   @IsDateString({}, { message: 'Hire date must be a valid ISO date string' })

@@ -5,10 +5,22 @@ import { CreateWorkerCommand } from '../commands/create-worker.command';
 import { CreateWorkerHandler } from '../handlers/create-worker.handler';
 import { Worker, workerEmailBlindIndex } from '../entities/worker.entity';
 import type { CreateWorkerInput } from '../dto/create-worker.input';
+import type { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+
+/** Typed partial-mock helper (repo pattern — keeps mocks type-safe without a blanket cast). */
+function mock<T>(impl: Partial<T>): T {
+  return impl as T;
+}
 
 describe('CreateWorkerHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  // Currency SSoT resolver (FARM-HIGH-151) — the handler resolves the
+  // tenant default currency through it instead of a hardcoded literal.
+  const financeSettings = mock<FinanceSettingsService>({
+    getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
+  });
 
   const makeInput = (overrides: Partial<CreateWorkerInput> = {}): CreateWorkerInput => ({
     firstName: 'Ada',
@@ -24,7 +36,7 @@ describe('CreateWorkerHandler', () => {
     const workerRepository = createMockRepository<Worker>();
     (workerRepository.findOne as jest.Mock).mockResolvedValueOnce({ id: 'existing' } as Worker);
 
-    const handler = new CreateWorkerHandler(workerRepository, mockDataSource);
+    const handler = new CreateWorkerHandler(workerRepository, mockDataSource, financeSettings);
 
     await expect(
       handler.execute(new CreateWorkerCommand(makeInput(), tenantId, userId)),
@@ -46,7 +58,7 @@ describe('CreateWorkerHandler', () => {
       Promise.resolve({ ...entity, id: 'worker-1' }),
     );
 
-    const handler = new CreateWorkerHandler(workerRepository, mockDataSource);
+    const handler = new CreateWorkerHandler(workerRepository, mockDataSource, financeSettings);
     const result = await handler.execute(new CreateWorkerCommand(makeInput(), tenantId, userId));
 
     const year = new Date().getFullYear();
@@ -83,7 +95,7 @@ describe('CreateWorkerHandler', () => {
       Promise.resolve({ ...entity, id: 'worker-2' }),
     );
 
-    const handler = new CreateWorkerHandler(workerRepository, mockDataSource);
+    const handler = new CreateWorkerHandler(workerRepository, mockDataSource, financeSettings);
     const result = await handler.execute(new CreateWorkerCommand(makeInput(), tenantId, userId));
 
     expect(result.employeeNumber).toBe(`EMP-${year}-00042`);

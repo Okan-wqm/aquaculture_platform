@@ -25,6 +25,7 @@ import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import BatchDetailPage from './pages/production/BatchDetailPage';
 import MaintenancePage from './pages/maintenance/MaintenancePage';
+import FinancePage from './pages/finance/FinancePage';
 
 // ============================================================================
 // Sites Module
@@ -125,6 +126,9 @@ const FarmModule: React.FC = () => {
 
       {/* Ayarlar - Sentinel Hub */}
       <Route path="settings/sentinel-hub" element={<SentinelHubSettingsPage />} />
+
+      {/* Finance - Operational cost/revenue ledger, categories, charts */}
+      <Route path="finance/*" element={<FinancePage />} />
 
       {/* Analytics - Performance metrics and insights */}
       <Route path="analytics/*" element={<AnalyticsPage />} />

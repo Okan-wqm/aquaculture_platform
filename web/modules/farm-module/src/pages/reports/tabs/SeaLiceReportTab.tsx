@@ -20,7 +20,7 @@ import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
-import { ProvenanceBadge } from '../components/common';
+import { PrefilledField } from '../components/common';
 
 // ============================================================================
 // Types
@@ -67,7 +67,7 @@ interface TankOption {
   code: string;
 }
 
-interface SeaLiceFormData {
+export interface SeaLiceFormData {
   weekNumber: number;
   year: number;
   waterTemperature3m: number;
@@ -180,7 +180,7 @@ interface BasicInfoStepProps {
   temperatureMeta?: ReportFieldMeta;
 }
 
-const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
+export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
   formData,
   onChange,
   siteName,
@@ -208,18 +208,46 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
       </div>
     </div>
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-        Water Temperature at 3m Depth (°C) <span className="text-red-500">*</span>
-        {temperatureMeta && <ProvenanceBadge meta={temperatureMeta} />}
-      </label>
-      <input
-        type="number"
-        step="0.1"
-        value={formData.waterTemperature3m || ''}
-        onChange={(e) => onChange({ waterTemperature3m: parseFloat(e.target.value) || 0 })}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-        placeholder="Enter water temperature"
-      />
+      {temperatureMeta ? (
+        // Review-and-approve: a SENSOR/RECORDS temperature is READ-ONLY here —
+        // corrections flow to the source measurement, never the report — and
+        // only a MANUAL_REQUIRED verdict exposes an editable field. PrefilledField
+        // is the SSoT for this "editable ⟺ manual" rule; the value still submits
+        // from formData.waterTemperature3m (seeded from the assembled draft).
+        <PrefilledField
+          label="Water Temperature at 3m Depth (°C)"
+          meta={temperatureMeta}
+          value={formData.waterTemperature3m ? `${formData.waterTemperature3m} °C` : undefined}
+          overrideValue={
+            temperatureMeta.provenance === 'MANUAL_REQUIRED'
+              ? String(formData.waterTemperature3m || '')
+              : undefined
+          }
+          onOverrideChange={
+            temperatureMeta.provenance === 'MANUAL_REQUIRED'
+              ? (v) => onChange({ waterTemperature3m: parseFloat(v) || 0 })
+              : undefined
+          }
+          inputType="number"
+        />
+      ) : (
+        // Provenance not resolved yet (prefill in flight) — keep the field
+        // editable so a schema-required value is never locked read-only before
+        // the assembler verdict lands.
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Water Temperature at 3m Depth (°C) <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            value={formData.waterTemperature3m || ''}
+            onChange={(e) => onChange({ waterTemperature3m: parseFloat(e.target.value) || 0 })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Enter water temperature"
+          />
+        </div>
+      )}
       <p className="mt-1 text-xs text-gray-500">
         Standard measurement depth for Norwegian sea lice reporting
       </p>

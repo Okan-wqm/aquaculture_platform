@@ -10,7 +10,7 @@
  *   1. REST reports (sea lice, cleaner fish, smolt, planned/executed
  *      slaughter) — persist-FIRST: `recordPending` upserts the row in its
  *      own tenant-pinned transaction BEFORE the synchronous Mattilsynet
- *      call; `markSubmitted` / `markFailed` update it afterwards. A crash
+ *      call; `markSubmitted` / `recordFailure` update it afterwards. A crash
  *      between persist and submit leaves an honest PENDING row, and a
  *      retry with the same klientReferanse updates that row instead of
  *      duplicating (the unique key mirrors Mattilsynet's own idempotency
@@ -33,6 +33,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 import {
+  RegulatoryFailureClass,
   RegulatoryReport,
   RegulatoryReportPayload,
   RegulatoryReportSubmissionStatus,
@@ -102,23 +103,92 @@ export class RegulatoryReportStoreService {
       row.referanse = referanse;
       row.feilmelding = null;
       row.submittedAt = new Date();
+      // A success closes the retry pipeline for this row.
+      row.nextAttemptAt = null;
+      row.failureClass = null;
       await queryRunner.manager.save(RegulatoryReport, row);
     });
     this.logger.log(`Regulatory report ${id} marked SUBMITTED (referanse=${referanse ?? 'n/a'})`);
   }
 
-  async markFailed(tenantId: string, id: string, feilmelding: string): Promise<void> {
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const row = await queryRunner.manager.findOneOrFail(RegulatoryReport, {
-        where: { id, tenantId },
-      });
-      row.status = RegulatoryReportSubmissionStatus.FAILED;
-      row.feilmelding = feilmelding;
-      // FARM-LOW-133: a failed submission has no valid receipt.
-      row.referanse = null;
-      await queryRunner.manager.save(RegulatoryReport, row);
-    });
-    this.logger.warn(`Regulatory report ${id} marked FAILED`);
+  /**
+   * Record a failed attempt with its retry classification. Increments
+   * attemptCount, sets failureClass, and schedules (TRANSIENT) or clears
+   * (PERMANENT) the next replay. A failed submission carries no receipt.
+   */
+  async recordFailure(
+    tenantId: string,
+    id: string,
+    feilmelding: string,
+    failureClass: RegulatoryFailureClass,
+    nextAttemptAt: Date | null,
+  ): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      this.applyFailure(
+        queryRunner.manager,
+        tenantId,
+        id,
+        feilmelding,
+        failureClass,
+        nextAttemptAt,
+      ),
+    );
+  }
+
+  /**
+   * Manager-based failure write so a PERMANENT failure can commit atomically
+   * with its outbox notification event in the caller's transaction (mirrors
+   * recordQueued). recordFailure wraps this in its own transaction for the
+   * TRANSIENT path, so the row-update logic lives in exactly one place.
+   */
+  async applyFailure(
+    manager: EntityManager,
+    tenantId: string,
+    id: string,
+    feilmelding: string,
+    failureClass: RegulatoryFailureClass,
+    nextAttemptAt: Date | null,
+  ): Promise<RegulatoryReport> {
+    const row = await manager.findOneOrFail(RegulatoryReport, { where: { id, tenantId } });
+    row.status = RegulatoryReportSubmissionStatus.FAILED;
+    row.feilmelding = feilmelding;
+    // FARM-LOW-133: a failed submission has no valid receipt.
+    row.referanse = null;
+    row.attemptCount = (row.attemptCount ?? 0) + 1;
+    row.failureClass = failureClass;
+    row.nextAttemptAt = nextAttemptAt;
+    const saved = await manager.save(RegulatoryReport, row);
+    this.logger.warn(
+      `Regulatory report ${id} marked FAILED (${failureClass}` +
+        `${nextAttemptAt ? `, retry at ${nextAttemptAt.toISOString()}` : ''})`,
+    );
+    return saved;
+  }
+
+  async findById(tenantId: string, id: string): Promise<RegulatoryReport | null> {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      queryRunner.manager.findOne(RegulatoryReport, { where: { id, tenantId } }),
+    );
+  }
+
+  /**
+   * FAILED + TRANSIENT rows whose scheduled retry is due — the 30-minute sweep's
+   * work list. Ordered oldest-due first; bounded so one tenant cannot starve
+   * the sweep.
+   */
+  async listDueRetries(tenantId: string, now: Date, limit: number): Promise<RegulatoryReport[]> {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      queryRunner.manager
+        .createQueryBuilder(RegulatoryReport, 'r')
+        .where('r.tenantId = :tenantId', { tenantId })
+        .andWhere('r.status = :status', { status: RegulatoryReportSubmissionStatus.FAILED })
+        .andWhere('r.failureClass = :cls', { cls: RegulatoryFailureClass.TRANSIENT })
+        .andWhere('r.nextAttemptAt IS NOT NULL')
+        .andWhere('r.nextAttemptAt <= :now', { now })
+        .orderBy('r.nextAttemptAt', 'ASC')
+        .take(limit)
+        .getMany(),
+    );
   }
 
   private async upsert(

@@ -61,7 +61,8 @@ function getChannelDisplayName(channel: Channel): string {
     if (other?.user) {
       const parts = [other.user.firstName, other.user.lastName].filter(Boolean);
       if (parts.length > 0) return parts.join(' ');
-      if (other.user.email) return other.user.email.split('@')[0] ?? 'DM';
+      // email is not available on a PublicUserProfile (never crosses federation).
+      return 'Direct Message';
     }
   }
   return 'Unnamed Channel';

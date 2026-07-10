@@ -23,14 +23,14 @@
  *     ledgers themselves), and
  *   - the cross-domain create-handlers that seed an entity currency:
  *     `create-feeding-record` (was `|| 'NOK'`), HR `create-employee`
- *     (was `|| 'USD'`), and — closing FARM-HIGH-146 — the eight further
+ *     (was `|| 'USD'`), and — closing FARM-HIGH-151 — the eight further
  *     farm create-handlers that seeded a `'TRY'`/`'NOK'` literal:
  *     `create-batch`, `create-cleaner-batch`, `create-chemical`,
  *     `create-consumable`, `create-equipment`, `create-feed`,
  *     `add-feed-inventory`, and `create-purchase-order`.
  *
  * It bans a `|| '<ISO>'` / `?? '<ISO>'` currency fallback (from the
- * recognised-currency allowlist) in those files. FARM-HIGH-146 is now
+ * recognised-currency allowlist) in those files. FARM-HIGH-151 is now
  * CLOSED: every farm/HR create-handler that seeds an entity currency
  * resolves the tenant default through `FinanceSettingsService`
  * (`getDefaultCurrency` / `getDefaultCurrencyInTx`) — there is no longer
@@ -57,13 +57,13 @@ const FINANCE_HANDLER_ROOTS = [
 /**
  * Named cross-domain create-handlers that seed an entity currency and
  * MUST resolve it through the settings SSoT. The first two are the
- * handlers FARM-MEDIUM-145 named; the rest closed FARM-HIGH-146 (every
+ * handlers FARM-MEDIUM-145 named; the rest closed FARM-HIGH-151 (every
  * farm create-handler that previously seeded a `'TRY'`/`'NOK'` literal).
  */
 const NAMED_GUARDED_FILES = [
   'apps/farm-service/src/feeding/handlers/create-feeding-record.handler.ts',
   'apps/hr-service/src/hr/handlers/create-employee.handler.ts',
-  // FARM-HIGH-146 — every further farm create-handler that seeded a
+  // FARM-HIGH-151 — every further farm create-handler that seeded a
   // currency literal, now migrated to the settings SSoT.
   'apps/farm-service/src/batch/handlers/create-batch.handler.ts',
   'apps/farm-service/src/batch/handlers/create-cleaner-batch.handler.ts',
@@ -82,7 +82,7 @@ const NAMED_GUARDED_FILES = [
  * path, in either shape:
  *   - a fallback:      `|| 'USD'` / `?? "nok"`
  *   - a direct assign: `currency: 'TRY'` (the bare form used by the
- *     purchase-order / harvest / worker handlers before FARM-HIGH-146).
+ *     purchase-order / harvest / worker handlers before FARM-HIGH-151).
  * The allowlist keeps the match precise (a bare `[A-Za-z]{3}` would also
  * flag `'ASC'` sort orders and `'UTC'` zones).
  */

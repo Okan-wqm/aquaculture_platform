@@ -69,13 +69,13 @@ export class PaginatedHarvestsResponse extends StandardPaginatedResponse(Harvest
 @ObjectType()
 export class HarvestStatusStats {
   @Field(() => HarvestRecordStatus)
-  status: HarvestRecordStatus;
+  status!: HarvestRecordStatus;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 
   @Field(() => Float)
-  totalBiomass: number;
+  totalBiomass!: number;
 }
 
 /**
@@ -84,16 +84,16 @@ export class HarvestStatusStats {
 @ObjectType()
 export class HarvestQualityStats {
   @Field(() => QualityGrade)
-  grade: QualityGrade;
+  grade!: QualityGrade;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 
   @Field(() => Float)
-  totalBiomass: number;
+  totalBiomass!: number;
 
   @Field(() => Float)
-  percentage: number;
+  percentage!: number;
 }
 
 /**
@@ -102,19 +102,19 @@ export class HarvestQualityStats {
 @ObjectType()
 export class HarvestMonthlyStats {
   @Field(() => Int)
-  year: number;
+  year!: number;
 
   @Field(() => Int)
-  month: number;
+  month!: number;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 
   @Field(() => Float)
-  totalBiomass: number;
+  totalBiomass!: number;
 
   @Field(() => Float)
-  totalRevenue: number;
+  totalRevenue!: number;
 }
 
 /**
@@ -123,22 +123,22 @@ export class HarvestMonthlyStats {
 @ObjectType()
 export class HarvestSummary {
   @Field(() => Int)
-  totalHarvests: number;
+  totalHarvests!: number;
 
   @Field(() => Int)
-  totalQuantityHarvested: number;
+  totalQuantityHarvested!: number;
 
   @Field(() => Float)
-  totalBiomassKg: number;
+  totalBiomassKg!: number;
 
   @Field(() => Float)
-  totalRevenue: number;
+  totalRevenue!: number;
 
   @Field(() => Float)
-  averageWeight: number;
+  averageWeight!: number;
 
   @Field(() => Float)
-  averagePricePerKg: number;
+  averagePricePerKg!: number;
 }
 
 /**
@@ -147,13 +147,13 @@ export class HarvestSummary {
 @ObjectType()
 export class HarvestTrends {
   @Field(() => Float)
-  avgBiomassPerHarvest: number;
+  avgBiomassPerHarvest!: number;
 
   @Field(() => Float)
-  avgQuantityPerHarvest: number;
+  avgQuantityPerHarvest!: number;
 
   @Field(() => Float)
-  harvestsPerMonth: number;
+  harvestsPerMonth!: number;
 }
 
 /**
@@ -162,28 +162,28 @@ export class HarvestTrends {
 @ObjectType()
 export class HarvestStatisticsResponse {
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  startDate: Date;
+  startDate!: Date;
 
   @Field()
-  endDate: Date;
+  endDate!: Date;
 
   @Field(() => HarvestSummary)
-  summary: HarvestSummary;
+  summary!: HarvestSummary;
 
   @Field(() => [HarvestStatusStats])
-  byStatus: HarvestStatusStats[];
+  byStatus!: HarvestStatusStats[];
 
   @Field(() => [HarvestQualityStats])
-  byQualityGrade: HarvestQualityStats[];
+  byQualityGrade!: HarvestQualityStats[];
 
   @Field(() => [HarvestMonthlyStats])
-  byMonth: HarvestMonthlyStats[];
+  byMonth!: HarvestMonthlyStats[];
 
   @Field(() => HarvestTrends)
-  trends: HarvestTrends;
+  trends!: HarvestTrends;
 }
 
 // ============================================================================
@@ -230,6 +230,8 @@ export class HarvestResolver {
         siteId: filter.siteId,
         status: filter.status,
         statuses: filter.statuses,
+        qualityClass: filter.qualityClass,
+        qualityClasses: filter.qualityClasses,
         qualityGrade: filter.qualityGrade,
         qualityGrades: filter.qualityGrades,
         method: filter.method,
@@ -390,7 +392,7 @@ export class HarvestResolver {
           quantityHarvested: input.quantityHarvested,
           totalBiomass: input.totalBiomass,
           averageWeight: input.averageWeight,
-          qualityGrade: input.qualityGrade,
+          qualityClass: input.qualityClass,
           method: input.method,
           productForm: input.productForm,
           totalRevenue: input.totalRevenue,

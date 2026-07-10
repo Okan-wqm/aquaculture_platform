@@ -17,7 +17,7 @@ import { MonitoringFrequency } from '../entities/water-quality-param-equipment.e
 export class UpdateParamEquipmentInput {
   @Field(() => ID, { description: 'Mapping ID to update' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => MonitoringFrequency, { nullable: true, description: 'Monitoring frequency' })
   @IsOptional()

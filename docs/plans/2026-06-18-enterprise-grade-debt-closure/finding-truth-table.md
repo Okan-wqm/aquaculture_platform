@@ -43,6 +43,7 @@ Allowed truth buckets:
 | `AISAFETY-CRITICAL-003` | OPEN         | —            | ai-safety-auditor | already-fixed-needs-close |
 | `SENSOR-CRITICAL-002` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
+| `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 
 ## Mutation Rules
 

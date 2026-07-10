@@ -40,11 +40,11 @@ registerEnumType(InventoryCountStatus, {
 @Index(['tenantId', 'storageLocationId'])
 export class InventoryCount {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   /**
    * Auto-generated count number in the format IC-YYYYMMDD-NNN.
@@ -52,7 +52,7 @@ export class InventoryCount {
    * for warehouse staff writing on physical count sheets.
    */
   @Column({ type: 'varchar', length: 50, name: 'count_number' })
-  countNumber: string;
+  countNumber!: string;
 
   /**
    * The storage location being counted. Each count session targets a single
@@ -60,10 +60,10 @@ export class InventoryCount {
    * create one InventoryCount per location.
    */
   @Column({ type: 'uuid', name: 'storage_location_id' })
-  storageLocationId: string;
+  storageLocationId!: string;
 
   @Column({ type: 'varchar', length: 30, default: 'PLANNED' })
-  status: InventoryCountStatus;
+  status!: InventoryCountStatus;
 
   /** Timestamp when counting physically began (status transitions to IN_PROGRESS) */
   @Column({ type: 'timestamptz', nullable: true, name: 'started_at' })
@@ -82,7 +82,7 @@ export class InventoryCount {
    * separation of duties enforcement: approvedBy must differ from performedBy.
    */
   @Column({ type: 'uuid', name: 'performed_by' })
-  performedBy: string;
+  performedBy!: string;
 
   /** Denormalized display name of the counter (from JWT) for self-contained audit trail */
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'performed_by_name' })
@@ -105,17 +105,17 @@ export class InventoryCount {
    * This is a denormalized field recalculated on every item update for query efficiency.
    */
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'total_variance', transformer: new DecimalTransformer() })
-  totalVariance: number;
+  totalVariance!: number;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   @OneToMany(() => InventoryCountItem, (item) => item.inventoryCount, { cascade: true })
-  items: InventoryCountItem[];
+  items!: InventoryCountItem[];
 }

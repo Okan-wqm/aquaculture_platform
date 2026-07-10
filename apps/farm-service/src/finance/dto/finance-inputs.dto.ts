@@ -27,16 +27,16 @@ import {
 export class CreateFinanceEntryInput {
   @Field(() => ID)
   @IsUUID()
-  categoryId: string;
+  categoryId!: string;
 
   @Field()
   @IsDateString()
-  entryDate: string;
+  entryDate!: string;
 
   @Field(() => Float)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  amount: number;
+  amount!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -123,10 +123,10 @@ export class CreateFinanceCategoryInput {
   @Field()
   @MinLength(1)
   @MaxLength(120)
-  name: string;
+  name!: string;
 
   @Field(() => FinanceCategoryScope)
-  scope: FinanceCategoryScope;
+  scope!: FinanceCategoryScope;
 
   @Field(() => FinanceCategoryKind, { nullable: true })
   @IsOptional()

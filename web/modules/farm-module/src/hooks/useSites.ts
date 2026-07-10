@@ -3,7 +3,12 @@
  * Handles CRUD operations for sites via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 
 // Types
 export interface SiteLocation {
@@ -24,6 +29,9 @@ export interface Site {
   id: string;
   name: string;
   code: string;
+  /** Norwegian locality number (Akvakulturregisteret) — regulatory reports fail closed without it. */
+  lokalitetsnummer?: number;
+  organisationNumberOverride?: string;
   type: string;
   status: string;
   description?: string;
@@ -44,11 +52,19 @@ export interface Site {
 export interface CreateSiteInput {
   name: string;
   code: string;
+  lokalitetsnummer?: number;
+  organisationNumberOverride?: string;
   type?: string;
   status?: string;
   description?: string;
   location?: { latitude: number; longitude: number; altitude?: number };
-  address?: { street?: string; city?: string; state?: string; postalCode?: string; country?: string };
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
   country?: string;
   region?: string;
   timezone?: string;
@@ -78,6 +94,7 @@ const SITES_LIST_QUERY = `
         id
         name
         code
+        lokalitetsnummer
         type
         status
         description
@@ -117,6 +134,7 @@ const SITE_QUERY = `
       id
       name
       code
+      lokalitetsnummer
       type
       status
       description
@@ -152,6 +170,7 @@ const CREATE_SITE_MUTATION = `
       id
       name
       code
+      lokalitetsnummer
       status
       isActive
     }
@@ -164,6 +183,7 @@ const UPDATE_SITE_MUTATION = `
       id
       name
       code
+      lokalitetsnummer
       status
       isActive
     }
@@ -183,6 +203,7 @@ const SITE_DELETE_PREVIEW_QUERY = `
         id
         name
         code
+        lokalitetsnummer
       }
       canDelete
       blockers
@@ -236,10 +257,10 @@ export function useSiteList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'sites', 'list', tenantId, filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ sites: PaginatedResponse }>(
-        SITES_LIST_QUERY,
-        { filter, pagination: { page: 1, limit: 100 } }
-      );
+      const data = await graphqlClient.request<{ sites: PaginatedResponse }>(SITES_LIST_QUERY, {
+        filter,
+        pagination: { page: 1, limit: 100 },
+      });
       return data.sites;
     },
     staleTime: 30000,
@@ -256,10 +277,7 @@ export function useSite(id: string) {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'sites', 'detail', tenantId, id),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ site: Site }>(
-        SITE_QUERY,
-        { id }
-      );
+      const data = await graphqlClient.request<{ site: Site }>(SITE_QUERY, { id });
       return data.site;
     },
     staleTime: 30000,
@@ -282,14 +300,15 @@ export function useCreateSite() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ createSite: Site }>(
-        CREATE_SITE_MUTATION,
-        { input }
-      );
+      const data = await graphqlClient.request<{ createSite: Site }>(CREATE_SITE_MUTATION, {
+        input,
+      });
       return data.createSite;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
+      });
     },
   });
 }
@@ -309,15 +328,18 @@ export function useUpdateSite() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ updateSite: Site }>(
-        UPDATE_SITE_MUTATION,
-        { input }
-      );
+      const data = await graphqlClient.request<{ updateSite: Site }>(UPDATE_SITE_MUTATION, {
+        input,
+      });
       return data.updateSite;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sites', 'detail', variables.id) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'detail', variables.id),
+      });
     },
   });
 }
@@ -328,10 +350,22 @@ export interface SiteDeletePreviewResult {
   canDelete: boolean;
   blockers: string[];
   affectedItems: {
-    departments: Array<{ id: string; name: string; code: string; equipmentCount: number; tankCount: number }>;
+    departments: Array<{
+      id: string;
+      name: string;
+      code: string;
+      equipmentCount: number;
+      tankCount: number;
+    }>;
     systems: Array<{ id: string; name: string; code: string; equipmentCount: number }>;
     equipment: Array<{ id: string; name: string; code: string; status: string }>;
-    tanks: Array<{ id: string; name: string; code: string; currentBiomass: number; hasActiveBiomass: boolean }>;
+    tanks: Array<{
+      id: string;
+      name: string;
+      code: string;
+      currentBiomass: number;
+      hasActiveBiomass: boolean;
+    }>;
     totalCount: number;
   };
 }
@@ -347,7 +381,7 @@ export function useSiteDeletePreview(id: string | null) {
     queryFn: async () => {
       const data = await graphqlClient.request<{ siteDeletePreview: SiteDeletePreviewResult }>(
         SITE_DELETE_PREVIEW_QUERY,
-        { id }
+        { id },
       );
       return data.siteDeletePreview;
     },
@@ -372,17 +406,25 @@ export function useDeleteSite() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ deleteSite: boolean }>(
-        DELETE_SITE_MUTATION,
-        { id, cascade }
-      );
+      const data = await graphqlClient.request<{ deleteSite: boolean }>(DELETE_SITE_MUTATION, {
+        id,
+        cascade,
+      });
       return data.deleteSite;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'departments', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'systems', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'equipment', 'list') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'sites', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'departments', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'systems', 'list'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'equipment', 'list'),
+      });
     },
   });
 }

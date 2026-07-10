@@ -183,6 +183,19 @@ async function provisionTestTenantSchema(
     }
     provisioned.set(sourceSchema, tableNames);
   }
+
+  // DATA-HIGH-006: mirror the messaging grant step SchemaManagerService.
+  // createTenantSchema runs. Production re-owns the partitioned messaging
+  // relations to messaging_schema_owner (the SECURITY DEFINER partition function
+  // needs parent OWNERSHIP on pg16) and re-grants the messaging_service runtime
+  // role SELECT/INSERT/UPDATE/DELETE via platform.grant_messaging_partition_-
+  // authority. CREATE TABLE LIKE above copies neither ownership nor grants, so
+  // without this the DATA-HIGH-006 regression guard fails on a test-provisioned
+  // tenant a real one would pass. Calling the SAME SSoT function the production
+  // path uses keeps the guard honest: break the grant function and this test
+  // breaks with it.
+  await db.query(`SELECT platform.grant_messaging_partition_authority($1)`, [schemaName]);
+
   return { schemaName, provisionedTables: provisioned };
 }
 
@@ -412,5 +425,68 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
           `but isolates nothing.`,
       );
     }
+  });
+
+  it('grants the messaging runtime role DML on the partitioned messaging relations (DATA-HIGH-006 regression guard)', async () => {
+    // messages/message_receipts + their monthly children are re-owned to
+    // messaging_schema_owner so the SECURITY DEFINER partition function can
+    // place children (pg16 needs parent OWNERSHIP for PARTITION OF). That
+    // re-owning must NOT strip the runtime role's DML — grantTenantMessaging-
+    // PartitionAuthority (+ the Stage 010 backfill) re-grant it. Without this
+    // the app hits "permission denied for table messages" and the tenant
+    // Messages surface cannot load (only super-admin's separate platform-support
+    // messaging keeps working). This guard fails the class of regression back.
+    const REQUIRED = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+
+    const relations = await db.query<{ table_name: string }>(
+      `SELECT c.relname AS table_name
+         FROM pg_catalog.pg_class c
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1
+          AND c.relkind IN ('r', 'p')
+          AND c.relname ~ '^(messages|message_receipts)(_[0-9]{4}_[0-9]{2})?$'
+        ORDER BY c.relname`,
+      [tenantSchemaName],
+    );
+    expect(relations.rows.length).toBeGreaterThan(0);
+
+    const gaps: string[] = [];
+    for (const { table_name } of relations.rows) {
+      const grants = await db.query<{ privilege_type: string }>(
+        `SELECT privilege_type FROM information_schema.role_table_grants
+          WHERE table_schema = $1 AND table_name = $2 AND grantee = 'messaging_service'`,
+        [tenantSchemaName, table_name],
+      );
+      const held = new Set(grants.rows.map((r) => r.privilege_type));
+      const missing = REQUIRED.filter((p) => !held.has(p));
+      if (missing.length > 0) {
+        gaps.push(`${tenantSchemaName}.${table_name}: messaging_service missing ${missing.join(',')}`);
+      }
+    }
+    if (gaps.length > 0) {
+      throw new Error(
+        `messaging_service lacks DML on ${gaps.length} partitioned messaging relation(s):\n  ` +
+          gaps.join('\n  ') +
+          `\nRe-owning to messaging_schema_owner stripped the runtime grant; ` +
+          `grantTenantMessagingPartitionAuthority must re-grant it.`,
+      );
+    }
+
+    // Forward cover: monthly children the definer role creates AFTER
+    // provisioning must inherit the grant via ALTER DEFAULT PRIVILEGES keyed to
+    // that creator role — otherwise next month's partition silently breaks.
+    const defaultAcl = await db.query<{ acl: string | null }>(
+      `SELECT array_to_string(d.defaclacl, ' ') AS acl
+         FROM pg_default_acl d
+         JOIN pg_namespace n ON n.oid = d.defaclnamespace
+        WHERE n.nspname = $1
+          AND pg_get_userbyid(d.defaclrole) = 'messaging_schema_owner'
+          AND d.defaclobjtype = 'r'`,
+      [tenantSchemaName],
+    );
+    const defaultGrantsRuntime = defaultAcl.rows.some(
+      (r) => r.acl !== null && /\bmessaging_service=[a-zA-Z]+/.test(r.acl),
+    );
+    expect(defaultGrantsRuntime).toBe(true);
   });
 });

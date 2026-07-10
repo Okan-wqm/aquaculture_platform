@@ -58,7 +58,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       return this.tankEquipmentAdapter.createFromEquipment(tenantId, userId, input, equipmentType);
     }
 
-    // Currency SSoT (FARM-HIGH-146): equipment.purchasePrice books under
+    // Currency SSoT (FARM-HIGH-151): equipment.purchasePrice books under
     // the tenant default currency from finance_settings, never a
     // hardcoded literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);

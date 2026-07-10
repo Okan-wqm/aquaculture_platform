@@ -21,7 +21,7 @@ export class CreateConsumableHandler implements ICommandHandler<CreateConsumable
 
     this.logger.log(`Creating consumable "${input.name}" for tenant ${tenantId}`);
 
-    // Currency SSoT (FARM-HIGH-146): tenant default from finance_settings,
+    // Currency SSoT (FARM-HIGH-151): tenant default from finance_settings,
     // never a hardcoded literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 

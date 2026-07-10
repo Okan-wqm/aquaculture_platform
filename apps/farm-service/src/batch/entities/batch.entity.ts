@@ -66,12 +66,12 @@ export type {
 export class Batch {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -79,7 +79,7 @@ export class Batch {
 
   @Field()
   @Column({ length: 50 })
-  batchNumber: string; // B-2024-00001
+  batchNumber!: string; // B-2024-00001
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
@@ -95,7 +95,7 @@ export class Batch {
 
   @Field()
   @Column('uuid')
-  speciesId: string;
+  speciesId!: string;
 
   @ManyToOne('Species', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'speciesId' })
@@ -127,7 +127,7 @@ export class Batch {
     enum: BatchInputType,
     default: BatchInputType.FRY,
   })
-  inputType: BatchInputType;
+  inputType!: BatchInputType;
 
   // -------------------------------------------------------------------------
   // BATCH TİPİ (Production vs Cleaner Fish)
@@ -139,7 +139,7 @@ export class Batch {
     enum: BatchType,
     default: BatchType.PRODUCTION,
   })
-  batchType: BatchType;
+  batchType!: BatchType;
 
   /**
    * Cleaner fish kaynak tipi
@@ -164,15 +164,15 @@ export class Batch {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  initialQuantity: number; // Başlangıç adedi
+  initialQuantity!: number; // Başlangıç adedi
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  currentQuantity: number; // Mevcut adet (mortality düşülmüş)
+  currentQuantity!: number; // Mevcut adet (mortality düşülmüş)
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  totalMortality: number; // Toplam ölüm adedi
+  totalMortality!: number; // Toplam ölüm adedi
 
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
@@ -180,7 +180,7 @@ export class Batch {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  cullCount: number; // Ayıklama sayısı (cull)
+  cullCount!: number; // Ayıklama sayısı (cull)
 
   @Field(() => Float)
   @Column({
@@ -190,7 +190,7 @@ export class Batch {
     default: 0,
     transformer: new DecimalTransformer(),
   })
-  totalFeedConsumed: number; // Toplam yem tüketimi (kg)
+  totalFeedConsumed!: number; // Toplam yem tüketimi (kg)
 
   @Field(() => Float)
   @Column({
@@ -200,7 +200,7 @@ export class Batch {
     default: 0,
     transformer: new DecimalTransformer(),
   })
-  totalFeedCost: number; // Toplam yem maliyeti
+  totalFeedCost!: number; // Toplam yem maliyeti
 
   @Field(() => Float, { nullable: true })
   @Column({
@@ -238,7 +238,7 @@ export class Batch {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  weight: BatchWeight;
+  weight!: BatchWeight;
 
   // -------------------------------------------------------------------------
   // FCR TAKİBİ
@@ -246,7 +246,7 @@ export class Batch {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  fcr: BatchFCR;
+  fcr!: BatchFCR;
 
   // -------------------------------------------------------------------------
   // YEMLEME ÖZETİ
@@ -254,7 +254,7 @@ export class Batch {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  feedingSummary: BatchFeedingSummary;
+  feedingSummary!: BatchFeedingSummary;
 
   // -------------------------------------------------------------------------
   // BÜYÜME METRİKLERİ
@@ -262,7 +262,7 @@ export class Batch {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  growthMetrics: BatchGrowthMetrics;
+  growthMetrics!: BatchGrowthMetrics;
 
   // -------------------------------------------------------------------------
   // MORTALITY ÖZETİ
@@ -270,7 +270,7 @@ export class Batch {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  mortalitySummary: BatchMortalitySummary;
+  mortalitySummary!: BatchMortalitySummary;
 
   // -------------------------------------------------------------------------
   // TARİHLER
@@ -278,7 +278,7 @@ export class Batch {
 
   @Field()
   @Column({ type: 'date' })
-  stockedAt: Date; // Stoklama tarihi
+  stockedAt!: Date; // Stoklama tarihi
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -336,7 +336,7 @@ export class Batch {
     enum: BatchStatus,
     default: BatchStatus.QUARANTINE,
   })
-  status: BatchStatus;
+  status!: BatchStatus;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -349,7 +349,7 @@ export class Batch {
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -361,11 +361,11 @@ export class Batch {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -376,7 +376,7 @@ export class Batch {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // İLİŞKİLER

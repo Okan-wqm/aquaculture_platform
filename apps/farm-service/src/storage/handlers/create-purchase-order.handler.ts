@@ -22,7 +22,7 @@ export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchas
   async execute(command: CreatePurchaseOrderCommand): Promise<PurchaseOrder> {
     const { input, tenantId, userId } = command;
 
-    // Currency SSoT (FARM-HIGH-146): the purchase order books under the
+    // Currency SSoT (FARM-HIGH-151): the purchase order books under the
     // tenant default currency from finance_settings, never a hardcoded
     // literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);

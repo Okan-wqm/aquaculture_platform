@@ -1,0 +1,225 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mattilsynet/lakselus/v1",
+  "title": "Mattilsynet lakselus (sea lice) weekly report — POST /api/lakselus/v1/lakselus",
+  "description": "Transcribed from docs/integrations/mattilsynet-reporting-api.md §3 + lakselusforskriften §10. x-verified=false until diffed against the live swagger (RPT-017).",
+  "x-verified": false,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "klientReferanse",
+    "organisasjonsnummer",
+    "lokalitetsnummer",
+    "kontaktperson",
+    "rapporteringsår",
+    "rapporteringsuke",
+    "sjøtemperatur",
+    "lusetelling"
+  ],
+  "properties": {
+    "klientReferanse": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+    "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+    "kontaktperson": { "$ref": "#/definitions/kontaktperson" },
+    "rapporteringsår": { "type": "integer", "minimum": 2020, "maximum": 2100 },
+    "rapporteringsuke": { "type": "integer", "minimum": 1, "maximum": 53 },
+    "sjøtemperatur": { "type": "number", "minimum": -5, "maximum": 45 },
+    "lusetelling": { "$ref": "#/definitions/lusetelling" },
+    "ikkeMedikamentelleBehandlinger": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ikkeMedikamentellBehandling" }
+    },
+    "medikamentelleBehandlinger": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/medikamentellBehandling" }
+    },
+    "kombinasjonsbehandlinger": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/kombinasjonsbehandling" }
+    },
+    "resistensMistanker": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/resistensMistanke" }
+    },
+    "følsomhetsundersøkelser": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/følsomhetsundersøkelse" }
+    }
+  },
+  "definitions": {
+    "kontaktperson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navn", "epost", "telefonnummer"],
+      "properties": {
+        "navn": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "epost": { "type": "string", "format": "email", "maxLength": 255 },
+        "telefonnummer": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "lusetelling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["voksneHunnlus", "bevegeligeLus", "fastsittendeLus"],
+      "properties": {
+        "voksneHunnlus": { "type": "number", "minimum": 0 },
+        "bevegeligeLus": { "type": "number", "minimum": 0 },
+        "fastsittendeLus": { "type": "number", "minimum": 0 }
+      }
+    },
+    "ikkeMedikamentellBehandling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "gjennomførtFørTelling", "heleLokaliteten"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "TERMISK_BEHANDLING",
+            "MEKANISK_BEHANDLING",
+            "FERSKVANNSBEHANDLING",
+            "ANNEN_BEHANDLING"
+          ]
+        },
+        "gjennomførtFørTelling": { "type": "boolean" },
+        "heleLokaliteten": { "type": "boolean" },
+        "antallMerder": { "type": "integer", "minimum": 1 },
+        "beskrivelse": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "virkestoffStyrke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdi", "enhet"],
+      "properties": {
+        "verdi": { "type": "number", "exclusiveMinimum": 0 },
+        "enhet": {
+          "type": "string",
+          "enum": [
+            "MILLIGRAM_PER_GRAM",
+            "MILLIGRAM_PER_MILLILITER",
+            "GRAM_PER_KILO",
+            "MILLIGRAM_PER_KILO",
+            "PROSENT"
+          ]
+        }
+      }
+    },
+    "virkestoffMengde": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdi", "enhet"],
+      "properties": {
+        "verdi": { "type": "number", "exclusiveMinimum": 0 },
+        "enhet": { "type": "string", "enum": ["GRAM", "KILO", "TONN", "LITER"] }
+      }
+    },
+    "virkestoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "AZAMETHIPHOS",
+            "CYPERMETHRIN",
+            "DELTAMETHRIN",
+            "IMIDAKLOPRID",
+            "HYDROGENPEROKSID",
+            "DIFLUBENZURON",
+            "EMAMECTIN_BENZOAT",
+            "TEFLUBENZURON",
+            "ANNET_VIRKESTOFF"
+          ]
+        },
+        "styrke": { "$ref": "#/definitions/virkestoffStyrke" },
+        "mengde": { "$ref": "#/definitions/virkestoffMengde" },
+        "annetVirkestoff": { "type": "string", "maxLength": 255 }
+      }
+    },
+    "medikamentellBehandling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "gjennomførtFørTelling", "heleLokaliteten", "virkestoff"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["FORBEHANDLING", "BADEBEHANDLING", "ANNEN_BEHANDLING"]
+        },
+        "gjennomførtFørTelling": { "type": "boolean" },
+        "heleLokaliteten": { "type": "boolean" },
+        "antallMerder": { "type": "integer", "minimum": 1 },
+        "virkestoff": { "$ref": "#/definitions/virkestoff" },
+        "beskrivelse": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "kombinasjonsbehandling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ikkeMedikamentelleBehandlinger": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ikkeMedikamentellBehandling" }
+        },
+        "medikamentelleBehandlinger": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/medikamentellBehandling" }
+        }
+      }
+    },
+    "resistensMistanke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resistens", "årsak"],
+      "properties": {
+        "resistens": {
+          "type": "string",
+          "enum": [
+            "AZAMETHIPHOS",
+            "CYPERMETHRIN",
+            "DELTAMETHRIN",
+            "IMIDAKLOPRID",
+            "HYDROGENPEROKSID",
+            "DIFLUBENZURON",
+            "EMAMECTIN_BENZOAT",
+            "TEFLUBENZURON",
+            "FERSKVANNSBEHANDLING",
+            "ANNEN_RESISTENS"
+          ]
+        },
+        "årsak": {
+          "type": "string",
+          "enum": ["BIOESSAY", "NEDSATT_BEHANDLINGSEFFEKT", "SITUASJONEN_I_OMRÅDET", "ANNEN_ÅRSAK"]
+        },
+        "annenResistens": { "type": "string", "maxLength": 255 },
+        "annenÅrsak": { "type": "string", "maxLength": 255 }
+      }
+    },
+    "følsomhetsundersøkelse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["utførtDato", "laboratorium", "resistens", "testresultat"],
+      "properties": {
+        "utførtDato": { "type": "string", "format": "date" },
+        "laboratorium": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "resistens": {
+          "type": "string",
+          "enum": [
+            "AZAMETHIPHOS",
+            "CYPERMETHRIN",
+            "DELTAMETHRIN",
+            "IMIDAKLOPRID",
+            "HYDROGENPEROKSID",
+            "DIFLUBENZURON",
+            "EMAMECTIN_BENZOAT",
+            "TEFLUBENZURON",
+            "FERSKVANNSBEHANDLING",
+            "ANNEN_RESISTENS"
+          ]
+        },
+        "testresultat": { "type": "string", "enum": ["FØLSOM", "NEDSATT_FØLSOMHET", "RESISTENS"] }
+      }
+    }
+  }
+}

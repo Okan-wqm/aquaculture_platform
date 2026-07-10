@@ -58,7 +58,7 @@ class CreateRecurringTemplateInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -68,17 +68,17 @@ class CreateRecurringTemplateInput {
   @Field(() => TaskCategory)
   @IsNotEmpty()
   @IsEnum(TaskCategory)
-  category: TaskCategory;
+  category!: TaskCategory;
 
   @Field(() => TaskPriority)
   @IsNotEmpty()
   @IsEnum(TaskPriority)
-  priority: TaskPriority;
+  priority!: TaskPriority;
 
   @Field(() => RecurrenceFrequency)
   @IsNotEmpty()
   @IsEnum(RecurrenceFrequency)
-  frequency: RecurrenceFrequency;
+  frequency!: RecurrenceFrequency;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -88,12 +88,12 @@ class CreateRecurringTemplateInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  assignedTo: string;
+  assignedTo!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  assignedToName: string;
+  assignedToName!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -122,7 +122,7 @@ class UpdateRecurringTemplateInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

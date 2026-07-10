@@ -37,16 +37,16 @@ import { FinanceCategory } from './finance-category.entity';
 export class FinanceExpenseEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('uuid')
-  categoryId: string;
+  categoryId!: string;
 
   @Field(() => FinanceCategory, { nullable: true })
   @ManyToOne(() => FinanceCategory, { nullable: true })
@@ -56,7 +56,7 @@ export class FinanceExpenseEntry {
   /** Day the expense/revenue is booked on (drives all time aggregation). */
   @Field()
   @Column('date')
-  entryDate: Date;
+  entryDate!: Date;
 
   /** Optional coverage period (e.g. an annual insurance premium). */
   @Field({ nullable: true })
@@ -74,12 +74,12 @@ export class FinanceExpenseEntry {
     scale: 2,
     transformer: new DecimalTransformer(),
   })
-  amount: number;
+  amount!: number;
 
   /** ISO 4217 — defaulted from the tenant finance settings at write time. */
   @Field()
   @Column('varchar', { length: 3 })
-  currency: string;
+  currency!: string;
 
   @Field(() => String, { nullable: true })
   @Column('text', { nullable: true })
@@ -103,19 +103,19 @@ export class FinanceExpenseEntry {
 
   /** Soft delete — deleted rows leave aggregates but keep audit history. */
   @Column('boolean', { default: false })
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column('timestamptz', { nullable: true })
   deletedAt?: Date | null;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

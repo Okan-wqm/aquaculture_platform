@@ -2789,37 +2789,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/tenant-role-permissions.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/tenant-role.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/entities/user-permissions.entity.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/users/entities/user-role-assignment.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/users/services/role-template.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/tenant-role.service.ts",
       "prettier_managed": true
     },
     {
@@ -2832,12 +2808,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/users/services/user-provisioning.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/users/services/user-role-assignment.service.ts",
       "prettier_managed": true
     },
     {
@@ -4619,6 +4589,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/entities/public-user-profile.type.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/entities/refresh-token.entity.ts",
       "prettier_managed": true
     },
@@ -5039,6 +5015,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/resolvers/__tests__/tenant-role.resolver.gating.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/resolvers/mobile-settings.resolver.ts",
       "prettier_managed": true
     },
@@ -5069,6 +5051,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/permission-overrides.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/unlock-user.spec.ts",
       "prettier_managed": true
     },
@@ -5076,6 +5064,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/mobile-settings.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/permission-overrides.util.ts",
       "prettier_managed": true
     },
     {
@@ -6802,6 +6796,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/handlers/get-mortality-by-cause.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/handlers/get-transfers-summary.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/__tests__/handlers/record-cleaner-mortality.handler.spec.ts",
       "prettier_managed": true
     },
@@ -7324,6 +7330,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/queries/get-mortality-by-cause.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/queries/get-transfers-summary.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/queries/index.ts",
       "prettier_managed": true
     },
@@ -7373,6 +7391,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/query-handlers/get-batch.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/query-handlers/get-mortality-by-cause.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/query-handlers/get-transfers-summary.handler.ts",
       "prettier_managed": true
     },
     {
@@ -8841,7 +8871,133 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/farm-service/src/database/migrations/1802500000000-CreateFinanceTables.ts",
+      "path": "apps/farm-service/src/database/migrations/1802500000000-AddSpeciesOfficialCode.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802600000000-AddSiteRegulatoryIdentity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802700000000-CreateLiceCounts.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802800000000-CreateTreatmentApplications.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1802900000000-CreateWelfareAssessments.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803000000000-CreateEscapeIncidents.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803100000000-AddHarvestNorwegianQualityClass.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803200000000-AddTankRegulatoryUnitId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803300000000-AddBatchInputTypeSmolt.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803400000000-AddWorkerVeterinaryFields.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803450000000-CreateSlaughterFacilities.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803500000000-CreateSensorTemperatureDaily.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803600000000-CreateRegulatoryReportDrafts.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803700000000-AddRegulatoryReportRetryColumns.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1803750000000-AddReportDraftDeadlineNotifiedBucket.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804000000000-ExtendBiomassReportStatusAltinnManual.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804100000000-DropRegulatorySettingsSlaughterApprovalNumber.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804200000000-DropSiteLocalityMappingsJsonb.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804300000000-DropHarvestQualityGrade.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804400000000-DropOrphanQualityGradeEnum.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804500000000-HealBehindTenantQualityGrade.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804600000000-CreateFinanceTables.ts",
       "prettier_managed": true
     },
     {
@@ -10017,6 +10173,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding/__tests__/get-site-feed-consumption.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding/__tests__/handlers/add-feed-inventory.handler.spec.ts",
       "prettier_managed": true
     },
@@ -10293,6 +10455,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding/queries/get-site-feed-consumption.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding/queries/index.ts",
       "prettier_managed": true
     },
@@ -10318,6 +10486,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding/query-handlers/get-feeding-summary.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/query-handlers/get-site-feed-consumption.handler.ts",
       "prettier_managed": true
     },
     {
@@ -10701,13 +10875,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/escape-incident.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/__tests__/health-event-read-handlers.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/lice-count.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/__tests__/treatment-application.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/dto/create-health-event.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/dto/field-capture.inputs.ts",
       "prettier_managed": true
     },
     {
@@ -10731,6 +10929,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/entities/escape-incident.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/entities/health-event.entity.ts",
       "prettier_managed": true
     },
@@ -10738,6 +10942,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/entities/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/entities/lice-count.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/entities/treatment-application.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/entities/welfare-assessment.entity.ts",
       "prettier_managed": true
     },
     {
@@ -10767,6 +10989,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/handlers/list-escape-incidents.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/handlers/list-health-events-by-batch.handler.ts",
       "prettier_managed": true
     },
@@ -10779,7 +11007,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/handlers/list-lice-counts.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/handlers/list-overdue-follow-ups.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/handlers/list-treatment-applications.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/handlers/list-welfare-assessments.handler.ts",
       "prettier_managed": true
     },
     {
@@ -10809,6 +11055,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/queries/list-escape-incidents.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/queries/list-health-events-by-batch.query.ts",
       "prettier_managed": true
     },
@@ -10821,7 +11073,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/queries/list-lice-counts.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/queries/list-overdue-follow-ups.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/queries/list-treatment-applications.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/queries/list-welfare-assessments.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -10839,7 +11115,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/fish-health/services/escape-incident.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/fish-health/services/health-event.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/services/lice-count.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/services/treatment-application.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/services/welfare-assessment.service.ts",
       "prettier_managed": true
     },
     {
@@ -11925,6 +12225,54 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/biomass.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/lakselus.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/period.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/rensefisk.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/report-assembly.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/settefisk.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/assembly/slakt.assembler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/biomass-altinn-export.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/__tests__/biomass-report-read-handlers.spec.ts",
       "prettier_managed": true
     },
@@ -11932,6 +12280,48 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/__tests__/biomass-report.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/contract/official-payload.fixtures.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/contract/official-schema-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/json-pointer.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/mattilsynet-schema-validator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/regulatory-draft-submission.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/regulatory-report-draft.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/regulatory-report-draft.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11955,7 +12345,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/regulatory-settings-auto-submit.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/regulatory-settings-locality.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/__tests__/regulatory-settings-seeder.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/regulatory-submission.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11967,7 +12375,85 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/report-deadlines.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/report-scheduler.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/slaughter-facility.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/__tests__/validated-payload.type-guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/lakselus.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/rensefisk.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/settefisk.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/assemblers/slakt.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/biomass.assembler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/period.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/provenance.types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/assembly/report-assembly.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/biomass-report.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/dto/biomass-altinn-export.dto.ts",
       "prettier_managed": true
     },
     {
@@ -11980,6 +12466,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/dto/regulatory-inputs.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/dto/regulatory-report-draft.dto.ts",
       "prettier_managed": true
     },
     {
@@ -12003,7 +12495,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/dto/report-prefill.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/dto/slaughter-facility.inputs.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/entities/biomass-report.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/entities/regulatory-report-draft.entity.ts",
       "prettier_managed": true
     },
     {
@@ -12016,6 +12526,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/entities/regulatory-settings.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/entities/slaughter-facility.entity.ts",
       "prettier_managed": true
     },
     {
@@ -12039,6 +12555,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/handlers/get-report-prefill.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/handlers/list-biomass-reports-for-site.handler.ts",
       "prettier_managed": true
     },
@@ -12046,6 +12568,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/handlers/list-regulatory-reports.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/handlers/list-slaughter-facilities.handler.ts",
       "prettier_managed": true
     },
     {
@@ -12087,6 +12615,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/queries/get-report-prefill.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/queries/list-biomass-reports-for-site.query.ts",
       "prettier_managed": true
     },
@@ -12094,6 +12628,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/regulatory/queries/list-regulatory-reports.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/queries/list-slaughter-facilities.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/regulatory-report-draft.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -12123,7 +12669,97 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/report-prefill.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/resolvers/slaughter-facility.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/official/lakselus-v1.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/official/rensefisk-v1.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/official/settefisk-v1.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/official/slakt-planlagt-v1.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/official/slakt-utfort-v1.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/schema-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/schemas/validated-payload.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/biomass-altinn-export.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/services/biomass-report.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/json-pointer.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/mattilsynet-schema-validator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/regulatory-draft-submission.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/regulatory-report-draft.service.ts",
       "prettier_managed": true
     },
     {
@@ -12141,7 +12777,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/regulatory-submission.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/regulatory/services/regulatory-varsling.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/report-deadlines.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/report-scheduler.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/regulatory/services/slaughter-facility.service.ts",
       "prettier_managed": true
     },
     {
@@ -12496,6 +13156,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/species/commands/update-species.command.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/species/data/official-species-codes.ts",
       "prettier_managed": true
     },
     {
@@ -14362,6 +15028,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/entities/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/entities/sensor-temperature-daily.entity.ts",
       "prettier_managed": true
     },
     {
@@ -26905,6 +27577,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/integrations/mattilsynet-reporting-api.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/investor/mortality-prevention.en.md",
       "prettier_managed": true
     },
@@ -28363,6 +29041,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
       "prettier_managed": true
     },
@@ -28376,6 +29066,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/plans/2026-07-02-untracked-worktree-remediation/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-07-06-mattilsynet-automated-reporting/PLAN.md",
       "prettier_managed": true
     },
     {
@@ -29773,6 +30469,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-07-farm-messaging-strict-property-init.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -30001,6 +30703,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-07-07-harvest-qualitygrade-tenant-enum.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -30200,6 +30908,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/farm-expert/2026-07-06-finance-capability.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-07-06-regulatory-automation.md",
       "prettier_managed": true
     },
     {
@@ -30842,6 +31556,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/tenant-cost-attribution-expert/2026-04-28-core-platform-review.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/tenant-rbac/2026-07-07-tenant-rbac-bridge.md",
       "prettier_managed": true
     },
     {
@@ -38946,6 +39666,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/no-unguarded-drop-type-in-migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/orchestrator-routing-coverage.spec.ts",
       "prettier_managed": true
     },
@@ -39060,6 +39786,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/schema-role-drift-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/script-graphql-client-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -39139,6 +39871,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/stock-mutating-handlers-reject-legacy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/strict-property-initialization-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -40080,6 +40818,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -40702,7 +41452,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "eec338b84baa6bc0a807d75e058be581f573d4e9b270dc717711a94f4977fbcf",
+      "content_sha256": "bd9b4851cc04864126033e10c2e37b9e670e3d52d3dd9955e7e28f54896e9450",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -42748,6 +43498,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/graphql/regulatory-drafts.operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
       "prettier_managed": true
     },
@@ -42755,6 +43511,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/hooks/__tests__/useCreateBatch.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/__tests__/useReportPrefill.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42976,6 +43738,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/useReportDeadlines.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/useReportPrefill.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/useSensors.ts",
       "prettier_managed": true
     },
@@ -42995,6 +43769,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/hooks/useSites.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/useSlaughterFacilities.ts",
       "prettier_managed": true
     },
     {
@@ -43576,7 +44356,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/__tests__/BiomassAltinnPanel.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/__tests__/ReportsDueSection.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/__tests__/ReportSettingsAutoSubmit.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/components/__tests__/SubmissionHistorySection.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/BiomassAltinnPanel.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/common/__tests__/DeadlineIndicator.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/common/__tests__/PrefilledField.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -43594,6 +44410,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/common/PrefilledField.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/common/ProvenanceBadge.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/components/common/ReportCard.tsx",
       "prettier_managed": true
     },
@@ -43601,6 +44429,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/components/common/ReportStatusBadge.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/DraftReviewPanel.tsx",
       "prettier_managed": true
     },
     {
@@ -43648,6 +44482,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/reports/components/ReportsDueSection.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/components/ReportSettingsModal.tsx",
       "prettier_managed": true
     },
@@ -43690,12 +44530,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/farm-module/src/pages/reports/hooks/__tests__/useReportDraft.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/hooks/index.ts",
       "prettier_managed": true
     },
@@ -43703,12 +44537,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/reports/hooks/useEffectiveReportSite.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/farm-module/src/pages/reports/hooks/useReportDraft.ts",
       "prettier_managed": true
     },
     {
@@ -43937,6 +44765,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/setup/tabs/SitesTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/setup/tabs/SlaughterFacilitiesTab.tsx",
       "prettier_managed": true
     },
     {
@@ -49875,12 +50709,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/TenantAdminSidebar.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/ui/index.ts",
       "prettier_managed": true
     },
@@ -50702,7 +51530,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f89b35e44f54e93534dcb5f7f32e223e8e9b466149281cf4f1de8a5f782394f7",
+      "content_sha256": "cfeda1d56cac599edffcdc795db7fc2ddecb24058c0bfeedcabc5a46767dc907",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -50834,6 +51662,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/utils/__tests__/tenant-capabilities.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/utils/__tests__/tenant-scoped-storage-namespace.spec.ts",
       "prettier_managed": true
     },
@@ -50943,6 +51777,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/specificationValidation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/tenant-capabilities.ts",
       "prettier_managed": true
     },
     {
@@ -51360,10 +52200,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8414,
+  "file_count": 8554,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8239,
-  "managed_file_list_sha256": "529167c0603e702712d6d63abc4d26b999f6b0e7e26e5169c1c23e8d3903e575",
+  "managed_count": 8379,
+  "managed_file_list_sha256": "4610f32fa9c5f72effd90804e6c37ad8747c9121581c9340e8b656c95445e886",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

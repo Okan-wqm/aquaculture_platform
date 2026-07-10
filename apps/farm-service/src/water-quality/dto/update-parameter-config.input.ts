@@ -27,7 +27,7 @@ import GraphQLJSON from 'graphql-type-json';
 export class UpdateParameterConfigInput {
   @Field(() => ID, { description: 'Parameter config ID' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true, description: 'Machine-readable code' })
   @IsOptional()

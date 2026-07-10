@@ -16,7 +16,7 @@ import { ChemicalResolver } from './chemical.resolver';
 
 import { RestoreModule } from '../common/services/restore.module';
 // FinanceModule exports FinanceSettingsService — the currency SSoT the
-// create handler resolves the tenant default from (FARM-HIGH-146). No
+// create handler resolves the tenant default from (FARM-HIGH-151). No
 // cycle: FinanceModule imports no domain module.
 import { FinanceModule } from '../finance/finance.module';
 

@@ -22,16 +22,16 @@ export class CreatePondInput {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @Field(() => ID)
   @IsUUID()
-  farmId: string;
+  farmId!: string;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  capacity: number; // in cubic meters
+  capacity!: number; // in cubic meters
 
   @Field(() => WaterType, { nullable: true })
   @IsEnum(WaterType)

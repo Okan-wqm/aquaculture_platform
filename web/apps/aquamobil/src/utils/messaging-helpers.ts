@@ -109,12 +109,11 @@ export function getUserDisplayName(user: {
   firstName?: string | null;
   lastName?: string | null;
   displayName?: string | null;
-  email?: string | null;
 }): string {
   if (user.displayName) return user.displayName;
   const parts = [user.firstName, user.lastName].filter(Boolean);
   if (parts.length > 0) return parts.join(' ');
-  if (user.email) return user.email.split('@')[0] ?? user.email;
+  // email is not available on a PublicUserProfile (never crosses federation).
   return 'Unknown';
 }
 

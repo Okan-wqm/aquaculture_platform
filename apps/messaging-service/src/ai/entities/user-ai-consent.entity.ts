@@ -15,20 +15,20 @@ import {
 @Index('uq_user_ai_consent_tenant_user', ['tenantId', 'userId'], { unique: true })
 export class UserAiConsent {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Column({ type: 'boolean', default: false })
-  consented: boolean;
+  consented!: boolean;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  consentedAt: Date;
+  consentedAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

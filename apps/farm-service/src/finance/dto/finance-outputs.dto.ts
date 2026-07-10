@@ -30,10 +30,10 @@ registerEnumType(FinanceGranularity, {
 @ObjectType()
 export class FinanceLineItem {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => FinanceLineOrigin)
-  origin: FinanceLineOrigin;
+  origin!: FinanceLineOrigin;
 
   @Field(() => ID, { nullable: true })
   categoryId?: string | null;
@@ -42,19 +42,19 @@ export class FinanceLineItem {
   categoryCode?: string | null;
 
   @Field()
-  categoryName: string;
+  categoryName!: string;
 
   @Field(() => FinanceCategoryKind)
-  kind: FinanceCategoryKind;
+  kind!: FinanceCategoryKind;
 
   @Field(() => Float)
-  amount: number;
+  amount!: number;
 
   @Field()
-  currency: string;
+  currency!: string;
 
   @Field()
-  entryDate: Date;
+  entryDate!: Date;
 
   @Field(() => ID, { nullable: true })
   batchId?: string | null;
@@ -67,11 +67,11 @@ export class FinanceLineItem {
 
   /** True when the amount is an estimate (e.g. an uncosted work order). */
   @Field()
-  estimated: boolean;
+  estimated!: boolean;
 
   /** MANUAL rows are editable here; DERIVED rows are edited at their source. */
   @Field()
-  editable: boolean;
+  editable!: boolean;
 
   @Field(() => String, { nullable: true })
   sourceDomain?: string | null;
@@ -83,71 +83,71 @@ export class FinanceLineItem {
 @ObjectType()
 export class FinanceCategoryTotal {
   @Field(() => ID)
-  categoryId: string;
+  categoryId!: string;
 
   @Field(() => String, { nullable: true })
   categoryCode?: string | null;
 
   @Field()
-  categoryName: string;
+  categoryName!: string;
 
   @Field(() => FinanceCategoryScope)
-  scope: FinanceCategoryScope;
+  scope!: FinanceCategoryScope;
 
   @Field(() => FinanceCategoryKind)
-  kind: FinanceCategoryKind;
+  kind!: FinanceCategoryKind;
 
   @Field()
-  isComputed: boolean;
+  isComputed!: boolean;
 
   @Field()
-  isDerived: boolean;
+  isDerived!: boolean;
 
   @Field(() => Float)
-  total: number;
+  total!: number;
 }
 
 @ObjectType()
 export class FinanceTimeBucket {
   @Field()
-  bucketStart: Date;
+  bucketStart!: Date;
 
   @Field(() => Float)
-  totalExpense: number;
+  totalExpense!: number;
 
   @Field(() => Float)
-  totalRevenue: number;
+  totalRevenue!: number;
 }
 
 @ObjectType()
 export class FinanceBatchTotal {
   @Field(() => ID)
-  batchId: string;
+  batchId!: string;
 
   @Field(() => Float)
-  totalExpense: number;
+  totalExpense!: number;
 
   @Field(() => Float)
-  totalRevenue: number;
+  totalRevenue!: number;
 }
 
 @ObjectType()
 export class FinanceSummary {
   @Field()
-  currency: string;
+  currency!: string;
 
   @Field(() => Float)
-  totalExpense: number;
+  totalExpense!: number;
 
   @Field(() => Float)
-  totalRevenue: number;
+  totalRevenue!: number;
 
   @Field(() => Float)
-  netResult: number;
+  netResult!: number;
 
   @Field(() => [FinanceCategoryTotal])
-  byCategory: FinanceCategoryTotal[];
+  byCategory!: FinanceCategoryTotal[];
 
   @Field(() => [FinanceTimeBucket])
-  series: FinanceTimeBucket[];
+  series!: FinanceTimeBucket[];
 }

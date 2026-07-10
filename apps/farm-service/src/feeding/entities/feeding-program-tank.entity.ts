@@ -83,14 +83,14 @@ registerEnumType(ProgramEquipmentType, {
 export class FeedingProgramTank {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
   @IsUUID()
   @IsNotEmpty()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // PROGRAM İLİŞKİSİ
@@ -101,7 +101,7 @@ export class FeedingProgramTank {
   @Index()
   @IsUUID()
   @IsNotEmpty()
-  feedingProgramId: string;
+  feedingProgramId!: string;
 
   @ManyToOne(() => FeedingProgram, (program) => program.tanks, {
     onDelete: 'CASCADE',
@@ -118,7 +118,7 @@ export class FeedingProgramTank {
   @Index()
   @IsUUID()
   @IsNotEmpty()
-  equipmentId: string;           // Equipment (tank/pond/cage) ID
+  equipmentId!: string;           // Equipment (tank/pond/cage) ID
 
   /**
    * ManyToOne relationship to Equipment entity
@@ -134,15 +134,15 @@ export class FeedingProgramTank {
     type: 'enum',
     enum: ProgramEquipmentType,
   })
-  equipmentType: ProgramEquipmentType;
+  equipmentType!: ProgramEquipmentType;
 
   @Field()
   @Column({ length: 200 })
-  equipmentName: string;         // Denormalized - hızlı erişim için (sync via service layer)
+  equipmentName!: string;         // Denormalized - hızlı erişim için (sync via service layer)
 
   @Field()
   @Column({ length: 50 })
-  equipmentCode: string;         // Denormalized - hızlı erişim için (sync via service layer)
+  equipmentCode!: string;         // Denormalized - hızlı erişim için (sync via service layer)
 
   // -------------------------------------------------------------------------
   // MEVCUT YEM DURUMU (Her tank için ayrı tracking)
@@ -183,7 +183,7 @@ export class FeedingProgramTank {
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   @Min(0)
-  totalFeedTransitions: number;  // Toplam yem geçişi sayısı
+  totalFeedTransitions!: number;  // Toplam yem geçişi sayısı
 
   // -------------------------------------------------------------------------
   // SICAKLIK SENSÖRÜ
@@ -222,13 +222,13 @@ export class FeedingProgramTank {
   @Field()
   @Column({ default: true })
   @IsBoolean()
-  isActive: boolean;             // Program içinde aktif mi?
+  isActive!: boolean;             // Program içinde aktif mi?
 
   @Field()
   @Column({ type: 'timestamptz' })
   @IsDate()
   @IsNotEmpty()
-  addedAt: Date;                 // Programa eklenme tarihi
+  addedAt!: Date;                 // Programa eklenme tarihi
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -252,7 +252,7 @@ export class FeedingProgramTank {
   @Column('uuid')
   @IsUUID()
   @IsNotEmpty()
-  createdBy: string;
+  createdBy!: string;
 
   /**
    * UUID of the user who last modified this program-tank association
@@ -265,11 +265,11 @@ export class FeedingProgramTank {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // LIFECYCLE HOOKS

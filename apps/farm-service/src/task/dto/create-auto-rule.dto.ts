@@ -24,7 +24,7 @@ export class CreateAutoRuleInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -35,19 +35,19 @@ export class CreateAutoRuleInput {
   @Field(() => AutoRuleTrigger)
   @IsNotEmpty()
   @IsEnum(AutoRuleTrigger)
-  trigger: AutoRuleTrigger;
+  trigger!: AutoRuleTrigger;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(2000)
-  triggerCondition: string;
+  triggerCondition!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  taskTitle: string;
+  taskTitle!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -58,12 +58,12 @@ export class CreateAutoRuleInput {
   @Field(() => TaskCategory)
   @IsNotEmpty()
   @IsEnum(TaskCategory)
-  taskCategory: TaskCategory;
+  taskCategory!: TaskCategory;
 
   @Field(() => TaskPriority)
   @IsNotEmpty()
   @IsEnum(TaskPriority)
-  taskPriority: TaskPriority;
+  taskPriority!: TaskPriority;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()

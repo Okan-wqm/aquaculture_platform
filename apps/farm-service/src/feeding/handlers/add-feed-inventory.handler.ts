@@ -49,7 +49,7 @@ export class AddFeedInventoryHandler implements ICommandHandler<AddFeedInventory
   async execute(command: AddFeedInventoryCommand): Promise<FeedInventory> {
     const { tenantId, payload, userId } = command;
 
-    // Currency SSoT (FARM-HIGH-146): feed-lot value books under the
+    // Currency SSoT (FARM-HIGH-151): feed-lot value books under the
     // tenant default currency from finance_settings, never a hardcoded
     // literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);

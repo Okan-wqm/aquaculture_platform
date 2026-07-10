@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mattilsynet/rensefisk/v1",
+  "title": "Mattilsynet rensefisk (cleaner fish) monthly report — POST /api/rensefisk/v1/rensefisk",
+  "description": "Transcribed from docs/integrations/mattilsynet-reporting-api.md §3. x-verified=false until diffed against the live swagger (RPT-017).",
+  "x-verified": false,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "klientReferanse",
+    "organisasjonsnummer",
+    "lokalitetsnummer",
+    "kontaktperson",
+    "rapporteringsmåned",
+    "rapporteringsår",
+    "produksjonsenheter"
+  ],
+  "properties": {
+    "klientReferanse": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+    "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+    "kontaktperson": { "$ref": "#/definitions/kontaktperson" },
+    "rapporteringsmåned": { "type": "integer", "minimum": 1, "maximum": 12 },
+    "rapporteringsår": { "type": "integer", "minimum": 2020, "maximum": 2100 },
+    "samdriftOrganisasjonsnumre": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9]{9}$" }
+    },
+    "produksjonssyklusStart": { "type": "string", "format": "date" },
+    "tørrforKg": { "type": "number", "minimum": 0 },
+    "våtforKg": { "type": "number", "minimum": 0 },
+    "produksjonsenheter": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/produksjonsenhet" }
+    }
+  },
+  "definitions": {
+    "kontaktperson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navn", "epost", "telefonnummer"],
+      "properties": {
+        "navn": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "epost": { "type": "string", "format": "email", "maxLength": 255 },
+        "telefonnummer": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "produksjonsenhet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["merdId", "arter"],
+      "properties": {
+        "merdId": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "arter": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/art" }
+        }
+      }
+    },
+    "art": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artskode", "opprinnelse", "beholdningVedForrigeMånedsslutt", "utsett", "uttak"],
+      "properties": {
+        "artskode": { "type": "string", "enum": ["USB", "BER", "GRO", "BNB"] },
+        "opprinnelse": {
+          "type": "string",
+          "enum": ["UKJENT", "VILLFANGET", "OPPDRETTET", "VILLFANGET_OG_OPPDRETTET"]
+        },
+        "beholdningVedForrigeMånedsslutt": { "type": "integer", "minimum": 0 },
+        "utsett": { "$ref": "#/definitions/utsett" },
+        "uttak": { "$ref": "#/definitions/uttak" }
+      }
+    },
+    "utsett": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["antallFlyttetInn", "antallNy"],
+      "properties": {
+        "antallFlyttetInn": { "type": "integer", "minimum": 0 },
+        "antallNy": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "uttak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "antallAvlivetSykdom",
+        "antallAvlivetSkader",
+        "antallAvlivetAvmagret",
+        "antallAvlivetForeståendeHåndteringAvLaksen",
+        "antallAvlivetForeståendeUgunstigLevemiljø",
+        "antallAvlivetSkalIkkeBrukes",
+        "antallSelvdød",
+        "antallFlyttetUt",
+        "antallKanIkkeGjøresRedeFor"
+      ],
+      "properties": {
+        "antallAvlivetSykdom": { "type": "integer", "minimum": 0 },
+        "antallAvlivetSkader": { "type": "integer", "minimum": 0 },
+        "antallAvlivetAvmagret": { "type": "integer", "minimum": 0 },
+        "antallAvlivetForeståendeHåndteringAvLaksen": { "type": "integer", "minimum": 0 },
+        "antallAvlivetForeståendeUgunstigLevemiljø": { "type": "integer", "minimum": 0 },
+        "antallAvlivetSkalIkkeBrukes": { "type": "integer", "minimum": 0 },
+        "antallSelvdød": { "type": "integer", "minimum": 0 },
+        "antallFlyttetUt": { "type": "integer", "minimum": 0 },
+        "antallKanIkkeGjøresRedeFor": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

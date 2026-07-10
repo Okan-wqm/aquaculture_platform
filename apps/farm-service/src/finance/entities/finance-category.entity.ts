@@ -74,16 +74,16 @@ export interface FinanceComputedRule {
 export class FinanceCategory {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('varchar', { length: 120 })
-  name: string;
+  name!: string;
 
   /**
    * Stable machine code — system categories only. Uniqueness per
@@ -101,7 +101,7 @@ export class FinanceCategory {
     enum: FinanceCategoryScope,
     enumName: 'finance_category_scope_enum',
   })
-  scope: FinanceCategoryScope;
+  scope!: FinanceCategoryScope;
 
   @Field(() => FinanceCategoryKind)
   @Column({
@@ -110,7 +110,7 @@ export class FinanceCategory {
     enumName: 'finance_category_kind_enum',
     default: FinanceCategoryKind.EXPENSE,
   })
-  kind: FinanceCategoryKind;
+  kind!: FinanceCategoryKind;
 
   /**
    * Read-time computation rule (see FinanceComputedRule). Categories with
@@ -122,15 +122,15 @@ export class FinanceCategory {
 
   @Field()
   @Column('boolean', { default: false })
-  isSystem: boolean;
+  isSystem!: boolean;
 
   @Field()
   @Column('boolean', { default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field(() => Int)
   @Column('int', { default: 0 })
-  displayOrder: number;
+  displayOrder!: number;
 
   @Field(() => String, { nullable: true })
   @Column('uuid', { nullable: true })
@@ -142,9 +142,9 @@ export class FinanceCategory {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

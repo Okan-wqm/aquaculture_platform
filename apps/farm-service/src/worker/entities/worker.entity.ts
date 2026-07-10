@@ -55,24 +55,24 @@ export interface WorkerAddress {
 @Index(['tenantId', 'department'])
 export class Worker {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ unique: true })
-  employeeNumber: string;
+  employeeNumber!: string;
 
   /**
    * SECURITY (pii-at-rest): encrypted at rest with AES-256-GCM. DB column stores
    * ciphertext; the transformer decrypts transparently on read.
    */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  firstName: string;
+  firstName!: string;
 
   /** SECURITY (pii-at-rest): encrypted at rest with AES-256-GCM. */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  lastName: string;
+  lastName!: string;
 
   /**
    * SECURITY (pii-at-rest): encrypted at rest with AES-256-GCM. Equality lookups
@@ -80,7 +80,7 @@ export class Worker {
    * class-level @Index comment and the @BeforeInsert/@BeforeUpdate hook.
    */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  email: string;
+  email!: string;
 
   /**
    * SECURITY (pii-at-rest): deterministic keyed blind index of the normalized
@@ -88,15 +88,15 @@ export class Worker {
    * callers never set it directly. Backs the (tenantId, emailHash) UNIQUE index.
    */
   @Column({ type: 'text' })
-  emailHash: string;
+  emailHash!: string;
 
   /** SECURITY (pii-at-rest): JSONB PII encrypted at rest (JSON serialized, then AES-256-GCM). */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV, { json: true }) })
-  contactInfo: WorkerContactInfo;
+  contactInfo!: WorkerContactInfo;
 
   /** SECURITY (pii-at-rest): JSONB PII encrypted at rest (JSON serialized, then AES-256-GCM). */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV, { json: true }) })
-  address: WorkerAddress;
+  address!: WorkerAddress;
 
   /**
    * SECURITY (pii-at-rest): date-of-birth encrypted at rest. Stored as text
@@ -106,7 +106,7 @@ export class Worker {
    * `from()` returns a decrypted string. Callers write a normalized ISO date.
    */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  dateOfBirth: string;
+  dateOfBirth!: string;
 
   /**
    * SECURITY: Government ID encrypted at rest with AES-256-GCM.
@@ -114,46 +114,58 @@ export class Worker {
    * @see DB-CRITICAL-001
    */
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
-  nationalId: string;
+  nationalId!: string;
 
   @Column({ type: 'varchar', default: 'active' })
-  status: string;
+  status!: string;
 
   @Column({ type: 'varchar' })
-  employmentType: string;
+  employmentType!: string;
 
   @Column({ type: 'varchar' })
-  department: string;
+  department!: string;
 
   @Column()
-  position: string;
+  position!: string;
 
   @Column({ type: 'date' })
-  hireDate: Date;
+  hireDate!: Date;
 
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  baseSalary: number;
+  baseSalary!: number;
 
   @Column({ default: 'USD' })
-  currency: string;
+  currency!: string;
 
   @Column({ default: false })
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column({ default: false })
-  isFarmWorker: boolean;
+  isFarmWorker!: boolean;
+
+  /**
+   * Marks a worker as a veterinarian (RPT-011) so treatment applications can
+   * attribute the responsible vet via `treatment_applications.veterinarianWorkerId`
+   * and the capture forms can offer a vet-only picker.
+   */
+  @Column({ default: false })
+  isVeterinarian!: boolean;
+
+  /** Professional veterinary licence number (registrable credential, not PII). */
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  veterinaryLicenseNumber?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column({ nullable: true })
   createdBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   /**
    * SECURITY (pii-at-rest): keep the blind index in lock-step with the email on

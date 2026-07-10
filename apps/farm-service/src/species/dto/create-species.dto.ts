@@ -42,23 +42,23 @@ export class TemperatureRangeInput {
   @IsNumber()
   @Min(-10)
   @Max(50)
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(-10)
   @Max(50)
-  max: number;
+  max!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(-10)
   @Max(50)
-  optimal: number;
+  optimal!: number;
 
   @Field({ defaultValue: 'celsius' })
   @IsString()
-  unit: 'celsius' | 'fahrenheit';
+  unit!: 'celsius' | 'fahrenheit';
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -77,13 +77,13 @@ export class PHRangeInput {
   @IsNumber()
   @Min(0)
   @Max(14)
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
   @Max(14)
-  max: number;
+  max!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -96,12 +96,12 @@ export class DissolvedOxygenInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  optimal: number;
+  optimal!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -110,7 +110,7 @@ export class DissolvedOxygenInput {
 
   @Field({ defaultValue: 'mg/L' })
   @IsString()
-  unit: 'mg/L' | 'ppm';
+  unit!: 'mg/L' | 'ppm';
 }
 
 @InputType()
@@ -119,13 +119,13 @@ export class SalinityInput {
   @IsNumber()
   @Min(0)
   @Max(50)
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
   @Max(50)
-  max: number;
+  max!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -134,7 +134,7 @@ export class SalinityInput {
 
   @Field({ defaultValue: 'ppt' })
   @IsString()
-  unit: 'ppt' | 'psu';
+  unit!: 'ppt' | 'psu';
 }
 
 @InputType()
@@ -142,7 +142,7 @@ export class WaterParameterLimitInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  max: number;
+  max!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -155,12 +155,12 @@ export class CO2RangeInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  max: number;
+  max!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -174,13 +174,13 @@ export class LightRegimeInput {
   @IsNumber()
   @Min(0)
   @Max(24)
-  lightHours: number;
+  lightHours!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
   @Max(24)
-  darkHours: number;
+  darkHours!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -250,7 +250,7 @@ export class GrowthParametersInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  maxDensity: number;
+  maxDensity!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -259,12 +259,12 @@ export class GrowthParametersInput {
 
   @Field({ defaultValue: 'kg/m3' })
   @IsString()
-  densityUnit: 'kg/m3' | 'pcs/m3';
+  densityUnit!: 'kg/m3' | 'pcs/m3';
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  avgDailyGrowth: number;
+  avgDailyGrowth!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -279,7 +279,7 @@ export class GrowthParametersInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  avgHarvestWeight: number;
+  avgHarvestWeight!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -293,12 +293,12 @@ export class GrowthParametersInput {
 
   @Field({ defaultValue: 'gram' })
   @IsString()
-  harvestWeightUnit: 'gram' | 'kg';
+  harvestWeightUnit!: 'gram' | 'kg';
 
   @Field()
   @IsNumber()
   @Min(1)
-  avgTimeToHarvestDays: number;
+  avgTimeToHarvestDays!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -314,7 +314,7 @@ export class GrowthParametersInput {
   @IsNumber()
   @Min(0.1)
   @Max(10)
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -330,7 +330,7 @@ export class GrowthParametersInput {
   @IsNumber()
   @Min(0)
   @Max(100)
-  expectedSurvivalRate: number;
+  expectedSurvivalRate!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -357,13 +357,13 @@ export class CreateSpeciesInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  scientificName: string;
+  scientificName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  commonName: string;
+  commonName!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -376,7 +376,18 @@ export class CreateSpeciesInput {
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
+
+  /**
+   * Official regulatory species code (artskode) — FAO 3-alpha for grow-out,
+   * USB/BER/GRO/BNB for cleaner fish. Optional: non-reportable species have
+   * none; report assembly fails closed on unmapped reportable species.
+   */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  officialCode?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -480,13 +491,13 @@ export class CreateSpeciesInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsUUID()
-  supplierId?: string;             // Yavru/Yumurta tedarikçisi
+  supplierId?: string; // Yavru/Yumurta tedarikçisi
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
-  feedIds?: string[];              // Bu türe uygun yemler
+  feedIds?: string[]; // Bu türe uygun yemler
 
   // -------------------------------------------------------------------------
   // TAGS - Kategorize ve Filtreleme

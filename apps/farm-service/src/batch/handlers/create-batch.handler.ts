@@ -92,7 +92,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       }
     }
 
-    // Currency SSoT (FARM-HIGH-146): batch.purchaseCost feeds the
+    // Currency SSoT (FARM-HIGH-151): batch.purchaseCost feeds the
     // FINGERLINGS derived-cost line — resolve the tenant default from
     // finance_settings, never a hardcoded literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);

@@ -88,12 +88,12 @@ registerEnumType(InventoryStatus, {
 export class FeedInventory {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // FEED İLİŞKİSİ
@@ -102,7 +102,7 @@ export class FeedInventory {
   @Field()
   @Column('uuid')
   @Index()
-  feedId: string;
+  feedId!: string;
 
   @ManyToOne('Feed', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'feedId' })
@@ -115,7 +115,7 @@ export class FeedInventory {
   @Field()
   @Column('uuid')
   @Index()
-  siteId: string;
+  siteId!: string;
 
   @ManyToOne('Site', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
@@ -135,11 +135,11 @@ export class FeedInventory {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  quantityKg: number;                    // Mevcut miktar (kg)
+  quantityKg!: number;                    // Mevcut miktar (kg)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  minStockKg: number;                    // Minimum stok seviyesi (kg)
+  minStockKg!: number;                    // Minimum stok seviyesi (kg)
 
   @Field(() => InventoryStatus)
   @Column({
@@ -147,7 +147,7 @@ export class FeedInventory {
     enum: InventoryStatus,
     default: InventoryStatus.AVAILABLE,
   })
-  status: InventoryStatus;
+  status!: InventoryStatus;
 
   // -------------------------------------------------------------------------
   // LOT BİLGİLERİ
@@ -211,11 +211,11 @@ export class FeedInventory {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

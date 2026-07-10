@@ -167,17 +167,17 @@ export interface FeedingMatrix2D {
 @Index(['tenantId', 'targetSpecies'])
 export class Feed {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -200,7 +200,7 @@ export class Feed {
     enum: FeedType,
     default: FeedType.GROWER,
   })
-  type: FeedType;
+  type!: FeedType;
 
   @Column({ length: 100, nullable: true })
   targetSpecies?: string; // Salmon, Trout, Seabass, etc.
@@ -213,7 +213,7 @@ export class Feed {
     enum: FloatingType,
     default: FloatingType.FLOATING,
   })
-  floatingType: FloatingType;
+  floatingType!: FloatingType;
 
   @Column({ type: 'jsonb', nullable: true })
   nutritionalContent?: NutritionalContent;
@@ -226,16 +226,16 @@ export class Feed {
     enum: FeedStatus,
     default: FeedStatus.AVAILABLE,
   })
-  status: FeedStatus;
+  status!: FeedStatus;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  quantity: number; // kg cinsinden stok
+  quantity!: number; // kg cinsinden stok
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  minStock: number;
+  minStock!: number;
 
   @Column({ length: 20, default: 'kg' })
-  unit: string;
+  unit!: string;
 
   @Column({ type: 'text', nullable: true })
   storageRequirements?: string;
@@ -290,7 +290,7 @@ export class Feed {
   pricePerKg?: number;
 
   @Column({ length: 3, default: 'TRY' })
-  currency: string;
+  currency!: string;
 
   @Column({ type: 'jsonb', nullable: true })
   documents?: FeedDocument[];
@@ -350,7 +350,7 @@ export class Feed {
   maxFishWeightG?: number;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -358,7 +358,7 @@ export class Feed {
 
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column({ type: 'timestamptz', nullable: true })
   deletedAt?: Date;
@@ -367,10 +367,10 @@ export class Feed {
   deletedBy?: string;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column('uuid', { nullable: true })
   createdBy?: string;
@@ -379,7 +379,7 @@ export class Feed {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

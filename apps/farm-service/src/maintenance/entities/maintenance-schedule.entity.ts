@@ -178,12 +178,12 @@ export interface ScheduleMetrics {
 export class MaintenanceSchedule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -192,11 +192,11 @@ export class MaintenanceSchedule {
   @Field()
   @Column({ length: 50 })
   @Index()
-  scheduleCode: string;              // MS-2024-00001
+  scheduleCode!: string;              // MS-2024-00001
 
   @Field()
   @Column({ length: 200 })
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -209,7 +209,7 @@ export class MaintenanceSchedule {
     default: MaintenanceCategory.GENERAL,
   })
   @Index()
-  category: MaintenanceCategory;
+  category!: MaintenanceCategory;
 
   @Field(() => MaintenanceScheduleStatus)
   @Column({
@@ -218,7 +218,7 @@ export class MaintenanceSchedule {
     default: MaintenanceScheduleStatus.ACTIVE,
   })
   @Index()
-  status: MaintenanceScheduleStatus;
+  status!: MaintenanceScheduleStatus;
 
   // -------------------------------------------------------------------------
   // İLİŞKİLİ VARLIK
@@ -248,11 +248,11 @@ export class MaintenanceSchedule {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  recurrenceRule: RecurrenceRule;
+  recurrenceRule!: RecurrenceRule;
 
   @Field()
   @Column({ type: 'date' })
-  startDate: Date;
+  startDate!: Date;
 
   @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
@@ -341,7 +341,7 @@ export class MaintenanceSchedule {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  executionCount: number;
+  executionCount!: number;
 
   // -------------------------------------------------------------------------
   // OTOMATİK İŞ EMRİ
@@ -349,11 +349,11 @@ export class MaintenanceSchedule {
 
   @Field()
   @Column({ default: true })
-  autoGenerateWorkOrder: boolean;
+  autoGenerateWorkOrder!: boolean;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 7 })
-  generateDaysBefore: number;        // Due date'den kaç gün önce oluştur
+  generateDaysBefore!: number;        // Due date'den kaç gün önce oluştur
 
   // -------------------------------------------------------------------------
   // NOTLAR
@@ -369,15 +369,15 @@ export class MaintenanceSchedule {
 
   @Field()
   @Column('uuid')
-  createdBy: string;
+  createdBy!: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

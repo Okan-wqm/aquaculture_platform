@@ -32,20 +32,20 @@ export const PLATFORM_DEFAULT_CURRENCY = 'NOK';
 export class FinanceSettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column('varchar', { length: 3, default: PLATFORM_DEFAULT_CURRENCY })
-  defaultCurrency: string;
+  defaultCurrency!: string;
 
   /** 1-12; month the tenant's fiscal year starts in (yearly aggregation anchor). */
   @Field(() => Int)
   @Column('smallint', { default: 1 })
-  fiscalYearStartMonth: number;
+  fiscalYearStartMonth!: number;
 
   @Field(() => String, { nullable: true })
   @Column('uuid', { nullable: true })
@@ -53,9 +53,9 @@ export class FinanceSettings {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

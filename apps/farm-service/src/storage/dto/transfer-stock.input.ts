@@ -8,23 +8,23 @@ import { StorageItemType } from '../entities/storage-inventory.entity';
 export class TransferStockInput extends MobileCommandEnvelopeInput {
   @Field(() => StorageItemType)
   @IsEnum(StorageItemType)
-  itemType: StorageItemType;
+  itemType!: StorageItemType;
 
   @Field(() => ID)
   @IsUUID()
-  itemId: string;
+  itemId!: string;
 
   @Field(() => Float)
   @IsNumber()
-  quantity: number;
+  quantity!: number;
 
   @Field(() => ID)
   @IsUUID()
-  fromLocationId: string;
+  fromLocationId!: string;
 
   @Field(() => ID)
   @IsUUID()
-  toLocationId: string;
+  toLocationId!: string;
 
   @Field({ nullable: true })
   @IsOptional()

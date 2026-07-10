@@ -21,7 +21,7 @@ export class FeederCalibrationItemInput {
   @IsNumber()
   @Min(0.01)
   @Max(100)
-  feedSizeMm: number;
+  feedSizeMm!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -33,13 +33,13 @@ export class FeederCalibrationItemInput {
   @IsNumber()
   @Min(0.1)
   @Max(100000)
-  gramsPerDispensing: number;
+  gramsPerDispensing!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
   @Max(100000)
-  siloCapacityKg: number;
+  siloCapacityKg!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -52,11 +52,11 @@ export class FeederCalibrationItemInput {
 export class SaveFeederCalibrationsInput {
   @Field()
   @IsUUID('4')
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => [FeederCalibrationItemInput])
   @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => FeederCalibrationItemInput)
-  calibrations: FeederCalibrationItemInput[];
+  calibrations!: FeederCalibrationItemInput[];
 }

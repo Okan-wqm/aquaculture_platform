@@ -27,7 +27,7 @@ import { TankOperation } from '../batch/entities/tank-operation.entity';
 import { TankBatchModule } from '../batch/tank-batch.module';
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
-// FinanceModule exports the currency SSoT resolver (FARM-HIGH-146).
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
 import { FinanceModule } from '../finance/finance.module';
 import { FishHealthModule } from '../fish-health/fish-health.module';
 import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';

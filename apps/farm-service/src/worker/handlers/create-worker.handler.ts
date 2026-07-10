@@ -23,7 +23,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
 
     this.logger.log(`Creating worker for tenant ${tenantId}`);
 
-    // Currency SSoT (FARM-HIGH-146): the worker's salary currency is the
+    // Currency SSoT (FARM-HIGH-151): the worker's salary currency is the
     // tenant default from finance_settings, never a hardcoded literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
@@ -84,6 +84,8 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
         employmentType: 'full_time',
         department: 'operations',
         position: input.position,
+        isVeterinarian: input.isVeterinarian ?? false,
+        veterinaryLicenseNumber: input.veterinaryLicenseNumber,
         hireDate: now,
         baseSalary: 0,
         currency: defaultCurrency,

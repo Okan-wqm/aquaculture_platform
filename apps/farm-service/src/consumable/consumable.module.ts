@@ -10,7 +10,7 @@ import { Supplier } from '../supplier/entities/supplier.entity';
 import { ConsumableResolver } from './consumable.resolver';
 
 import { RestoreModule } from '../common/services/restore.module';
-// FinanceModule exports the currency SSoT resolver (FARM-HIGH-146).
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
 import { FinanceModule } from '../finance/finance.module';
 
 import { CreateConsumableHandler } from './handlers/create-consumable.handler';

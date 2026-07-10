@@ -33,30 +33,30 @@ export class FeedingTableBaseDataInput {
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  endDate: string;
+  endDate!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.1)
-  startWeight: number;
+  startWeight!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.1)
-  targetWeight: number;
+  targetWeight!: number;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  currentQuantity: number;
+  currentQuantity!: number;
 
   @Field(() => Float, { defaultValue: 5 })
   @IsOptional()
@@ -76,7 +76,7 @@ export class EnvironmentalFactorsInput {
   @IsNumber()
   @Min(0)
   @Max(40)
-  avgWaterTemp: number;
+  avgWaterTemp!: number;
 
   @Field(() => Float, { defaultValue: 1 })
   @IsOptional()
@@ -94,38 +94,38 @@ export class FeedingTableParametersInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  feedName: string;
+  feedName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)
-  feedCode: string;
+  feedCode!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.1)
   @Max(5)
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field(() => FeedingTableBaseDataInput)
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => FeedingTableBaseDataInput)
-  baseData: FeedingTableBaseDataInput;
+  baseData!: FeedingTableBaseDataInput;
 
   @Field(() => EnvironmentalFactorsInput)
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => EnvironmentalFactorsInput)
-  environmentalFactors: EnvironmentalFactorsInput;
+  environmentalFactors!: EnvironmentalFactorsInput;
 
   @Field(() => CalculationMethod, { defaultValue: CalculationMethod.FCR_BASED })
   @IsOptional()
@@ -143,36 +143,36 @@ export class FeedingTableScheduleEntryInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  day: number;
+  day!: number;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  date: string;
+  date!: string;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  estimatedQuantity: number;
+  estimatedQuantity!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  estimatedAvgWeight: number;
+  estimatedAvgWeight!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  estimatedBiomass: number;
+  estimatedBiomass!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  feedAmount: number;
+  feedAmount!: number;
 
   @Field(() => Int, { defaultValue: 2 })
   @IsOptional()
@@ -185,14 +185,14 @@ export class FeedingTableScheduleEntryInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  perFeedingAmount: number;
+  perFeedingAmount!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
   @Max(20)
-  feedingRatePercent: number;
+  feedingRatePercent!: number;
 
   @Field(() => Float, { defaultValue: 0 })
   @IsOptional()
@@ -234,37 +234,37 @@ export class FeedingTableSummaryInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  totalDays: number;
+  totalDays!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  totalFeedRequired: number;
+  totalFeedRequired!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  totalGrowthExpected: number;
+  totalGrowthExpected!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  avgDailyGrowth: number;
+  avgDailyGrowth!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  avgDailyFeed: number;
+  avgDailyFeed!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  estimatedFinalFCR: number;
+  estimatedFinalFCR!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -276,13 +276,13 @@ export class FeedingTableSummaryInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  estimatedFinalWeight: number;
+  estimatedFinalWeight!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  estimatedFinalBiomass: number;
+  estimatedFinalBiomass!: number;
 }
 
 /**
@@ -293,18 +293,18 @@ export class CreateFeedingTableInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field(() => FeedingTableParametersInput)
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => FeedingTableParametersInput)
-  parameters: FeedingTableParametersInput;
+  parameters!: FeedingTableParametersInput;
 
   @Field(() => [FeedingTableScheduleEntryInput], { nullable: true })
   @IsOptional()
@@ -324,17 +324,17 @@ export class CreateFeedingTableInput {
   @IsNumber()
   @Min(0.1)
   @Max(5)
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  endDate: string;
+  endDate!: string;
 
   @Field(() => FeedingTableStatus, { defaultValue: FeedingTableStatus.DRAFT })
   @IsOptional()
@@ -354,7 +354,7 @@ export class CreateFeedingTableInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  calculatedBy: string;
+  calculatedBy!: string;
 }
 
 /**
@@ -365,47 +365,47 @@ export class GenerateFeedingTableInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.1)
   @Max(5)
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  endDate: string;
+  endDate!: string;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.1)
-  startWeight: number;
+  startWeight!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0.1)
-  targetWeight: number;
+  targetWeight!: number;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  currentQuantity: number;
+  currentQuantity!: number;
 
   @Field(() => Float, { defaultValue: 5 })
   @IsOptional()
@@ -419,7 +419,7 @@ export class GenerateFeedingTableInput {
   @IsNumber()
   @Min(0)
   @Max(40)
-  avgWaterTemp: number;
+  avgWaterTemp!: number;
 
   @Field(() => CalculationMethod, { defaultValue: CalculationMethod.FCR_BASED })
   @IsOptional()
@@ -429,7 +429,7 @@ export class GenerateFeedingTableInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  calculatedBy: string;
+  calculatedBy!: string;
 
   @Field({ nullable: true })
   @IsOptional()

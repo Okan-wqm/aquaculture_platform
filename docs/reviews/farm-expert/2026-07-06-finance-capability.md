@@ -50,7 +50,7 @@ into hr-service so a second tenant-editable source never exists; a
 currency-literal ban invariant spec (`finance-currency-ssot.spec.ts`) makes
 regressions detectable at PR time.
 
-## FARM-HIGH-146 — Remaining farm create-handlers still seed an entity currency default from a hardcoded literal
+## FARM-HIGH-151 — Remaining farm create-handlers still seed an entity currency default from a hardcoded literal
 
 **Severity:** HIGH · **Owner:** farm-expert · **Deadline:** 2026-08-15
 

@@ -16,7 +16,7 @@ describe('CreateWorkerHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
-  // Currency SSoT resolver (FARM-HIGH-146) — the handler resolves the
+  // Currency SSoT resolver (FARM-HIGH-151) — the handler resolves the
   // tenant default currency through it instead of a hardcoded literal.
   const financeSettings = mock<FinanceSettingsService>({
     getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),

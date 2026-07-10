@@ -26,7 +26,7 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
 
     this.logger.log(`Creating chemical "${input.name}" for tenant ${tenantId}`);
 
-    // Currency SSoT (FARM-HIGH-146): tenant default resolved from
+    // Currency SSoT (FARM-HIGH-151): tenant default resolved from
     // finance_settings, never a hardcoded literal — so chemicals book in
     // the same currency as the rest of the tenant's finance ledger.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);

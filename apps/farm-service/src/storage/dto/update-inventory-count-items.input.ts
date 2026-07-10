@@ -10,7 +10,7 @@ import { Type } from 'class-transformer';
 export class InventoryCountItemUpdateInput {
   @Field(() => ID, { description: 'ID of the InventoryCountItem to update' })
   @IsUUID()
-  itemId: string;
+  itemId!: string;
 
   /**
    * Physical quantity observed. Must be >= 0 (negative stock is physically
@@ -20,7 +20,7 @@ export class InventoryCountItemUpdateInput {
   @Field(() => Float, { description: 'Physical quantity observed during counting' })
   @IsNumber()
   @Min(0)
-  actualQuantity: number;
+  actualQuantity!: number;
 
   @Field({ nullable: true, description: 'Notes about this specific item count (e.g., damage observed)' })
   @IsOptional()
@@ -41,11 +41,11 @@ export class InventoryCountItemUpdateInput {
 export class UpdateInventoryCountItemsInput {
   @Field(() => ID, { description: 'ID of the inventory count session' })
   @IsUUID()
-  countId: string;
+  countId!: string;
 
   @Field(() => [InventoryCountItemUpdateInput], { description: 'Items to update with actual quantities' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => InventoryCountItemUpdateInput)
-  items: InventoryCountItemUpdateInput[];
+  items!: InventoryCountItemUpdateInput[];
 }

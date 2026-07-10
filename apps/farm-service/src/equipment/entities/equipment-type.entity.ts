@@ -65,13 +65,13 @@ export interface SpecificationSchema {
 @Index(['isActive'])
 export class EquipmentType {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50, unique: true })
-  code: string;
+  code!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -81,29 +81,29 @@ export class EquipmentType {
     enum: EquipmentCategory,
     default: EquipmentCategory.OTHER,
   })
-  category: EquipmentCategory;
+  category!: EquipmentCategory;
 
   @Column({ length: 50, nullable: true })
   icon?: string; // Icon name for UI
 
   @Column({ type: 'jsonb' })
-  specificationSchema: SpecificationSchema;
+  specificationSchema!: SpecificationSchema;
 
   @Column('text', { array: true, nullable: true })
   allowedSubEquipmentTypes?: string[]; // SubEquipmentType code'ları
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ default: false })
-  isSystem: boolean; // Sistem tanımlı, silinemez
+  isSystem!: boolean; // Sistem tanımlı, silinemez
 
   @Column({ type: 'int', default: 0 })
-  sortOrder: number;
+  sortOrder!: number;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

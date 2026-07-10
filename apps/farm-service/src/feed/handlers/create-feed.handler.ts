@@ -28,7 +28,7 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Fee
 
     this.logger.log(`Creating feed "${input.name}" for tenant ${tenantId}`);
 
-    // Currency SSoT (FARM-HIGH-146): feed.pricePerKg feeds the FEED
+    // Currency SSoT (FARM-HIGH-151): feed.pricePerKg feeds the FEED
     // derived-cost line — the currency must be the tenant default from
     // finance_settings, never a hardcoded literal.
     const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);

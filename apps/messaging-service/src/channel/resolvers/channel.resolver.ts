@@ -51,7 +51,7 @@ import { GetChannelQuery } from '../queries/get-channel.query';
 import { GetChannelsResult } from '../queries/get-channels.handler';
 
 // Message resolver types (for user federation)
-import { User } from '../../message/resolvers/message.resolver';
+import { PublicUserProfile } from '../../message/resolvers/message.resolver';
 import { PresenceService } from '../../presence/presence.service';
 
 // Enum input-boundary normalization SSoT (NAME → DB VALUE)
@@ -540,14 +540,14 @@ export class ChannelMemberResolver {
    * Resolve the user field for a ChannelMember.
    * Returns a User with profile details for rendering member lists and DM channel names.
    */
-  @ResolveField(() => User, { name: 'user', nullable: true, description: 'User profile details for this channel member' })
+  @ResolveField(() => PublicUserProfile, { name: 'user', nullable: true, description: 'User profile details for this channel member' })
   async resolveUser(
     @Parent() member: ChannelMember,
     @Tenant() tenantId: string,
-    @Context() ctx: { memberUserLoader?: DataLoader<string, User> },
-  ): Promise<User | null> {
+    @Context() ctx: { memberUserLoader?: DataLoader<string, PublicUserProfile> },
+  ): Promise<PublicUserProfile | null> {
     if (!ctx.memberUserLoader) {
-      ctx.memberUserLoader = new DataLoader<string, User>(
+      ctx.memberUserLoader = new DataLoader<string, PublicUserProfile>(
         async (userIds: readonly string[]) => {
           return this.batchLoadMemberUsers([...userIds], tenantId);
         },
@@ -567,7 +567,7 @@ export class ChannelMemberResolver {
    * @param tenantId - Tenant context for presence lookups
    * @returns Array of User objects in the same order as userIds
    */
-  private async batchLoadMemberUsers(userIds: string[], tenantId: string): Promise<User[]> {
+  private async batchLoadMemberUsers(userIds: string[], tenantId: string): Promise<PublicUserProfile[]> {
     // Get online status for all users in one call
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
 

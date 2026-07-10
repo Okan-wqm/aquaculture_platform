@@ -19,7 +19,7 @@
 import { getMetadataStorage, validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 
-import { QualityGrade } from '../../entities/harvest-record.entity';
+import { QualityClass } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordInput } from '../create-harvest-record.input';
 
 /**
@@ -34,7 +34,7 @@ function mobileHarvestPayload(): Record<string, unknown> {
     quantityHarvested: 400,
     averageWeight: 500,
     totalBiomass: 200,
-    qualityGrade: QualityGrade.GRADE_A,
+    qualityClass: QualityClass.SUPERIOR,
     harvestDate: '2026-06-10T08:00:00.000Z',
   };
 }

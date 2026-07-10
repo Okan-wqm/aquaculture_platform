@@ -1224,6 +1224,24 @@ export interface EscapeReportedEvent extends BaseEvent {
 }
 
 /**
+ * Operational escape incident recorded (distinct from EscapeReported, which
+ * is the varsling SUBMISSION event). Emitted when a field operator records
+ * that an escape happened; consumed by notification-service to remind the
+ * responsible manager that the romming varsling is legally immediate.
+ */
+export interface EscapeIncidentRecordedEvent extends BaseEvent {
+  eventType: 'EscapeIncidentRecorded';
+  incidentId: string;
+  siteId: string;
+  tankId?: string;
+  speciesId: string;
+  estimatedCount: number;
+  cause: string;
+  detectedAt: string;
+  recordedBy: string;
+}
+
+/**
  * Notifiable disease outbreak reported to Mattilsynet (varsling).
  *
  * Emitted when an operator submits a Liste A/C/F disease outbreak.
@@ -1314,6 +1332,48 @@ export interface HarvestRegulatoryRecordedEvent extends BaseEvent {
   harvestedBy?: string;
   /** True when this harvest emptied the batch (mirrors BatchHarvested.isFinal). */
   isFinal: boolean;
+}
+
+/**
+ * A Mattilsynet submission failed PERMANENTLY (RPT-018) — a 400/valideringsfeil
+ * that retrying would only re-reject. Consumed by notification-service to alert
+ * the operator that manual correction + resubmit is required; the retry sweep
+ * never touches a PERMANENT row. TRANSIENT failures do NOT raise this event
+ * (they self-heal via backoff replay).
+ */
+export interface RegulatoryReportSubmissionFailedEvent extends BaseEvent {
+  eventType: 'RegulatoryReportSubmissionFailed';
+  reportId: string;
+  reportType: string;
+  klientReferanse: string;
+  siteId?: string;
+  lokalitetsnummer: number;
+  feilmelding: string;
+  attemptCount: number;
+}
+
+/**
+ * A scheduled regulatory report draft is approaching (or past) its official
+ * Mattilsynet deadline (RPT-003). Raised by the daily deadline sweep once per
+ * bucket transition (APPROACHING → DUE_SOON → DUE → OVERDUE), deduped by the
+ * draft's deadlineNotifiedBucket + the outbox idempotencyKey
+ * `deadline:{draftId}:{bucket}`. Consumed by notification-service to remind the
+ * operator to review + approve the draft before the deadline.
+ */
+export interface RegulatoryReportDeadlineApproachingEvent extends BaseEvent {
+  eventType: 'RegulatoryReportDeadlineApproaching';
+  draftId: string;
+  reportType: string;
+  siteId: string;
+  reportYear: number;
+  reportWeek?: number;
+  reportMonth?: number;
+  /** Official deadline (Oslo calendar date, ISO yyyy-mm-dd). */
+  dueAt: string;
+  /** APPROACHING | DUE_SOON | DUE | OVERDUE. */
+  bucket: string;
+  /** Whole Oslo-calendar days until the deadline (negative when overdue). */
+  daysUntilDue: number;
 }
 
 /**
@@ -1417,8 +1477,11 @@ export type FarmEvent =
   | FeedInventoryLowEvent
   | WelfareEventReportedEvent
   | EscapeReportedEvent
+  | EscapeIncidentRecordedEvent
   | DiseaseOutbreakReportedEvent
   | MortalityAlertRaisedEvent
   | HarvestRegulatoryRecordedEvent
+  | RegulatoryReportSubmissionFailedEvent
+  | RegulatoryReportDeadlineApproachingEvent
   | TankClearedEvent
   | BatchProductionCompletedEvent;

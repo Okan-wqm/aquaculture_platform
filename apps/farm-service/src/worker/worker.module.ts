@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Worker } from './entities/worker.entity';
 import { WorkerResolver } from './worker.resolver';
-// FinanceModule exports the currency SSoT resolver (FARM-HIGH-146).
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
 import { FinanceModule } from '../finance/finance.module';
 
 import { CreateWorkerHandler } from './handlers/create-worker.handler';

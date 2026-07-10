@@ -26,7 +26,7 @@ import { EquipmentType } from '../equipment/entities/equipment-type.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { Feed } from '../feed/entities/feed.entity';
-// FinanceModule exports the currency SSoT resolver (FARM-HIGH-146). No
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151). No
 // cycle: FinanceModule imports no domain module.
 import { FinanceModule } from '../finance/finance.module';
 import { HealthEvent } from '../fish-health/entities/health-event.entity';

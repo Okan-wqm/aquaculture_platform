@@ -67,14 +67,14 @@ export class FishBehaviorInput {
   @Field(() => FishAppetite)
   @IsNotEmpty()
   @IsEnum(FishAppetite)
-  appetite: FishAppetite;
+  appetite!: FishAppetite;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
   @Max(10)
-  feedingIntensity: number;
+  feedingIntensity!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -101,7 +101,7 @@ export class CreateFeedingRecordInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -121,13 +121,13 @@ export class CreateFeedingRecordInput {
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  feedingDate: string;
+  feedingDate!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(10)
-  feedingTime: string;
+  feedingTime!: string;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
@@ -146,7 +146,7 @@ export class CreateFeedingRecordInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -158,13 +158,13 @@ export class CreateFeedingRecordInput {
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  plannedAmount: number;
+  plannedAmount!: number;
 
   @Field(() => Float)
   @IsNotEmpty()
   @IsNumber()
   @Min(0)
-  actualAmount: number;
+  actualAmount!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -215,7 +215,7 @@ export class CreateFeedingRecordInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  fedBy: string;
+  fedBy!: string;
 
   @Field({ nullable: true })
   @IsOptional()

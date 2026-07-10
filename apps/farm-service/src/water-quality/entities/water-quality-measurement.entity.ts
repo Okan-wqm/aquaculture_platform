@@ -187,12 +187,12 @@ export interface SensorInfo {
 export class WaterQualityMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // LOKASYON
@@ -232,7 +232,7 @@ export class WaterQualityMeasurement {
   @Field()
   @Column({ type: 'timestamptz' })
   @Index()
-  measuredAt: Date;
+  measuredAt!: Date;
 
   @Field(() => MeasurementSource)
   @Column({
@@ -240,7 +240,7 @@ export class WaterQualityMeasurement {
     enum: MeasurementSource,
     default: MeasurementSource.MANUAL,
   })
-  source: MeasurementSource;
+  source!: MeasurementSource;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -252,7 +252,7 @@ export class WaterQualityMeasurement {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  parameters: WaterParameters;
+  parameters!: WaterParameters;
 
   // Quick access fields (sık kullanılanlar)
   @Field(() => Float, { nullable: true })
@@ -286,7 +286,7 @@ export class WaterQualityMeasurement {
     default: WaterQualityStatus.UNKNOWN,
   })
   @Index()
-  overallStatus: WaterQualityStatus;
+  overallStatus!: WaterQualityStatus;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
@@ -298,7 +298,7 @@ export class WaterQualityMeasurement {
 
   @Field()
   @Column({ default: false })
-  hasAlarm: boolean;
+  hasAlarm!: boolean;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -379,11 +379,11 @@ export class WaterQualityMeasurement {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // COMPUTED FIELDS

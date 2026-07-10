@@ -10,7 +10,7 @@ import { Department } from '../department/entities/department.entity';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { Feed } from '../feed/entities/feed.entity';
 import { FeedingModule } from '../feeding/feeding.module';
-// FinanceModule exports the currency SSoT resolver (FARM-HIGH-146).
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
 import { FinanceModule } from '../finance/finance.module';
 import { Supplier } from '../supplier/entities/supplier.entity';
 import { SubSystem } from '../system/entities/sub-system.entity';

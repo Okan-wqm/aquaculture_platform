@@ -22,6 +22,10 @@ import { User, AccessType } from '../../authentication/entities/user.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
 import { Tenant } from '../entities/tenant.entity';
 
+import {
+  applyPermissionOverrides,
+  parsePermissionOverrides as parsePermissionOverridesSSoT,
+} from './permission-overrides.util';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -1133,20 +1137,10 @@ export class TenantUserManagementService {
     rolePermissions: string[],
     overrides: { grants: string[]; revokes: string[] },
   ): string[] {
-    // Start with role permissions
-    const effective = new Set(rolePermissions);
-
-    // Remove revoked permissions
-    for (const revoke of overrides.revokes) {
-      effective.delete(revoke);
-    }
-
-    // Add granted permissions
-    for (const grant of overrides.grants) {
-      effective.add(grant);
-    }
-
-    return Array.from(effective);
+    // Delegates to the shared SSoT so this read path and TokenService's JWT
+    // `resourcePermissions` mint apply overrides identically (see
+    // permission-overrides.util.ts).
+    return applyPermissionOverrides(rolePermissions, overrides);
   }
 
   /**
@@ -1155,35 +1149,9 @@ export class TenantUserManagementService {
   private parsePermissionOverrides(
     raw: unknown,
   ): { grants: string[]; revokes: string[] } {
-    if (!raw) {
-      return { grants: [], revokes: [] };
-    }
-
-    if (typeof raw === 'string') {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        if (typeof parsed === 'object' && parsed !== null) {
-          const candidate = parsed as { grants?: unknown; revokes?: unknown };
-          return {
-            grants: Array.isArray(candidate.grants) ? (candidate.grants as string[]) : [],
-            revokes: Array.isArray(candidate.revokes) ? (candidate.revokes as string[]) : [],
-          };
-        }
-        return { grants: [], revokes: [] };
-      } catch {
-        return { grants: [], revokes: [] };
-      }
-    }
-
-    if (typeof raw === 'object') {
-      const obj = raw as { grants?: string[]; revokes?: string[] };
-      return {
-        grants: Array.isArray(obj.grants) ? obj.grants : [],
-        revokes: Array.isArray(obj.revokes) ? obj.revokes : [],
-      };
-    }
-
-    return { grants: [], revokes: [] };
+    // Delegates to the shared SSoT (permission-overrides.util.ts) so the
+    // jsonb/string/object normalisation is defined in exactly one place.
+    return parsePermissionOverridesSSoT(raw);
   }
 
   /**

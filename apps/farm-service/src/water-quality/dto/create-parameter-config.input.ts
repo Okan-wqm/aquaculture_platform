@@ -30,22 +30,22 @@ export class CreateParameterConfigInput {
     message: 'code must start with a lowercase letter and contain only lowercase letters, digits, and underscores',
   })
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field({ description: 'Display name' })
   @IsString()
   @MinLength(1)
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @Field({ description: 'Measurement unit, e.g. °C, mg/L' })
   @IsString()
   @MaxLength(30)
-  unit: string;
+  unit!: string;
 
   @Field(() => ParameterDataType, { description: 'Value data type' })
   @IsEnum(ParameterDataType)
-  dataType: ParameterDataType;
+  dataType!: ParameterDataType;
 
   @Field(() => Int, { nullable: true, defaultValue: 2, description: 'Decimal places' })
   @IsOptional()
@@ -56,7 +56,7 @@ export class CreateParameterConfigInput {
 
   @Field(() => ParameterGroup, { description: 'Parameter group' })
   @IsEnum(ParameterGroup)
-  group: ParameterGroup;
+  group!: ParameterGroup;
 
   // -------------------------------------------------------------------------
   // THRESHOLD LIMITS

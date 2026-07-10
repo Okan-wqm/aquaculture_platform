@@ -1243,9 +1243,16 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
 interface TransfersStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
+  prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => {
+export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange, prefill }) => {
+  // Transfers assembled from tank_operations (TRANSFER_IN/OUT) are the SSoT — the
+  // rows render read-only (corrections go to the transfer records, not the
+  // report). hydrateFormFromPayload already seeded them on wizard open.
+  const transfersMeta = prefill ? findFieldMeta(prefill.fields, '/transfers') : undefined;
+  const transfersFromRecords = transfersMeta?.provenance === 'RECORDS';
+
   const addTransfer = () => {
     const newTransfer: TransferFormRecord = {
       id: `tr-${Date.now()}`,
@@ -1277,18 +1284,23 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Transfers</h4>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            <span>Transfers</span>
+            <SectionProvenance prefill={prefill} path="/transfers" />
+          </h4>
           <p className="text-xs text-gray-500">
             Record fish transfers in and out during the reporting period
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addTransfer}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Transfer
-        </button>
+        {!transfersFromRecords && (
+          <button
+            type="button"
+            onClick={addTransfer}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Transfer
+          </button>
+        )}
       </div>
 
       {/* Summary */}
@@ -1328,7 +1340,10 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <fieldset
+          disabled={transfersFromRecords}
+          className={`space-y-3 border-0 p-0 m-0 ${transfersFromRecords ? 'opacity-75' : ''}`}
+        >
           {formData.transfers.map((transfer, index) => (
             <div key={transfer.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-start justify-between mb-3">
@@ -1344,20 +1359,22 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
                     {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeTransfer(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!transfersFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeTransfer(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
@@ -1455,7 +1472,7 @@ const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => 
               </div>
             </div>
           ))}
-        </div>
+        </fieldset>
       )}
     </div>
   );
@@ -1969,7 +1986,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'transfers',
         title: 'Transfers',
         description: 'Fish movements in/out',
-        content: <TransfersStep formData={formData} onChange={handleFormChange} />,
+        content: <TransfersStep formData={formData} onChange={handleFormChange} prefill={prefill} />,
       },
       {
         id: 'review',

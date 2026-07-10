@@ -33,7 +33,7 @@ import * as crypto from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
@@ -394,35 +394,49 @@ export class ReportSchedulerService {
     jobName: string,
     perTenant: (tenantId: string) => Promise<number>,
   ): Promise<void> {
-    if (!(await this.tryAcquireAdvisoryLock(jobName))) {
-      this.logger.log(`${jobName}: another instance holds the lock, skipping`);
-      return;
-    }
-    const startedAt = Date.now();
-    let tenants = 0;
-    let total = 0;
+    // pg_try_advisory_lock is SESSION-scoped: it stays held on the exact backend
+    // connection that acquired it, and pg_advisory_unlock only releases it when
+    // run on that SAME connection. DataSource.query() borrows an arbitrary pooled
+    // connection per call, so acquiring and releasing through the pool would leak
+    // the lock onto one connection forever (unlock lands on a different one, no-ops)
+    // and every later run of every cron would then self-skip. Hold ONE dedicated
+    // QueryRunner for the lock's whole lifetime so acquire + release are provably
+    // the same session.
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
     try {
-      const tenantIds = await this.discoverTenantIds();
-      for (const tenantId of tenantIds) {
-        try {
-          // Establish the tenant AsyncLocalStorage frame so every scoped-repo
-          // read inside perTenant (settings, drafts) resolves search_path to
-          // tenant_<uuid>; without it the connection bootstrap falls back to the
-          // source `farm` schema and the job silently reads an empty template.
-          total += await withTenantContext(tenantId, () => perTenant(tenantId));
-          tenants += 1;
-        } catch (error) {
-          this.logger.error(
-            `${jobName} failed for tenant ${tenantId.slice(0, 8)}…: ${(error as Error).message}`,
-            (error as Error).stack,
-          );
-        }
+      if (!(await this.tryAcquireAdvisoryLock(lockRunner, jobName))) {
+        this.logger.log(`${jobName}: another instance holds the lock, skipping`);
+        return;
       }
-      this.logger.log(
-        `${jobName}: processed ${tenants} tenant(s), ${total} unit(s) in ${Date.now() - startedAt}ms`,
-      );
+      const startedAt = Date.now();
+      let tenants = 0;
+      let total = 0;
+      try {
+        const tenantIds = await this.discoverTenantIds();
+        for (const tenantId of tenantIds) {
+          try {
+            // Establish the tenant AsyncLocalStorage frame so every scoped-repo
+            // read inside perTenant (settings, drafts) resolves search_path to
+            // tenant_<uuid>; without it the connection bootstrap falls back to the
+            // source `farm` schema and the job silently reads an empty template.
+            total += await withTenantContext(tenantId, () => perTenant(tenantId));
+            tenants += 1;
+          } catch (error) {
+            this.logger.error(
+              `${jobName} failed for tenant ${tenantId.slice(0, 8)}…: ${(error as Error).message}`,
+              (error as Error).stack,
+            );
+          }
+        }
+        this.logger.log(
+          `${jobName}: processed ${tenants} tenant(s), ${total} unit(s) in ${Date.now() - startedAt}ms`,
+        );
+      } finally {
+        await this.releaseAdvisoryLock(lockRunner, jobName);
+      }
     } finally {
-      await this.releaseAdvisoryLock(jobName);
+      await lockRunner.release();
     }
   }
 
@@ -461,16 +475,16 @@ export class ReportSchedulerService {
     return crypto.createHash('sha256').update(jobName).digest().readInt32LE(0);
   }
 
-  private async tryAcquireAdvisoryLock(jobName: string): Promise<boolean> {
-    const result = await this.dataSource.query(`SELECT pg_try_advisory_lock($1, $2) AS acquired`, [
+  private async tryAcquireAdvisoryLock(runner: QueryRunner, jobName: string): Promise<boolean> {
+    const result = await runner.query(`SELECT pg_try_advisory_lock($1, $2) AS acquired`, [
       ADVISORY_LOCK_NAMESPACE,
       this.getAdvisoryLockKey(jobName),
     ]);
     return result[0]?.acquired === true;
   }
 
-  private async releaseAdvisoryLock(jobName: string): Promise<void> {
-    await this.dataSource.query(`SELECT pg_advisory_unlock($1, $2)`, [
+  private async releaseAdvisoryLock(runner: QueryRunner, jobName: string): Promise<void> {
+    await runner.query(`SELECT pg_advisory_unlock($1, $2)`, [
       ADVISORY_LOCK_NAMESPACE,
       this.getAdvisoryLockKey(jobName),
     ]);

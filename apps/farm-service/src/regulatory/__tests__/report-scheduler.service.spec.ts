@@ -5,15 +5,17 @@
  * orchestration (advisory lock + tenant discovery) is integration surface; here
  * we drive the pure + per-tenant core.
  */
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 const runInTenantTransaction = jest.fn();
+const listTenantSchemas = jest.fn().mockResolvedValue([]);
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
   runInTenantTransaction: (ds: unknown, schema: string, tenantId: string, cb: unknown) =>
     runInTenantTransaction(ds, schema, tenantId, cb),
+  listTenantSchemas: (ds: unknown) => listTenantSchemas(ds),
 }));
 
 import { ReportSchedulerService } from '../services/report-scheduler.service';
@@ -41,6 +43,7 @@ function makeService(options: {
   autoSubmitPolicies?: Record<string, boolean>;
   drafts?: RegulatoryReportDraft[];
   approveAndSubmit?: jest.Mock;
+  dataSource?: DataSource;
 }): {
   service: ReportSchedulerService;
   assemble: jest.Mock;
@@ -104,7 +107,7 @@ function makeService(options: {
   } as Partial<RegulatoryDraftSubmissionService> as RegulatoryDraftSubmissionService;
 
   const service = new ReportSchedulerService(
-    {} as Partial<DataSource> as DataSource,
+    options.dataSource ?? ({} as Partial<DataSource> as DataSource),
     assemblyService,
     settingsService,
     reportStore,
@@ -338,6 +341,93 @@ describe('ReportSchedulerService.retrySweepForTenant', () => {
 
     expect(resubmit).not.toHaveBeenCalled();
     expect(submitted).toBe(0);
+  });
+});
+
+describe('ReportSchedulerService advisory-lock discipline', () => {
+  /**
+   * Regression guard for the session-lock-on-pooled-connection class: the lock
+   * MUST be acquired and released on the SAME connection, or a session-scoped
+   * pg_try_advisory_lock leaks onto a pool connection and every later cron run
+   * self-skips. Invisible in a single-connection dev pool, so it needs an
+   * explicit assertion.
+   */
+  beforeEach(() => {
+    listTenantSchemas.mockReset();
+    listTenantSchemas.mockResolvedValue([]);
+  });
+
+  function makeLockService(): {
+    service: ReportSchedulerService;
+    lockRunner: { query: jest.Mock; connect: jest.Mock; release: jest.Mock };
+    createQueryRunner: jest.Mock;
+  } {
+    const lockRunner: { connect: jest.Mock; release: jest.Mock; query: jest.Mock } = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn((sql: string) => {
+        if (sql.includes('pg_try_advisory_lock')) return Promise.resolve([{ acquired: true }]);
+        return Promise.resolve([]);
+      }),
+    };
+    const createQueryRunner = jest.fn(() => lockRunner as Partial<QueryRunner> as QueryRunner);
+    const dataSource = { createQueryRunner } as Partial<DataSource> as DataSource;
+    const { service } = makeService({ dataSource });
+    return { service, lockRunner, createQueryRunner };
+  }
+
+  it('acquires and releases the advisory lock on the same dedicated connection', async () => {
+    listTenantSchemas.mockResolvedValueOnce([]); // no tenants → body is a no-op
+    const { service, lockRunner, createQueryRunner } = makeLockService();
+
+    await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
+
+    // exactly one dedicated runner, connected then released
+    expect(createQueryRunner).toHaveBeenCalledTimes(1);
+    expect(lockRunner.connect).toHaveBeenCalledTimes(1);
+    expect(lockRunner.release).toHaveBeenCalledTimes(1);
+    // both the acquire and the release ran on THAT runner
+    const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((s) => s.includes('pg_try_advisory_lock'))).toBe(true);
+    expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(true);
+  });
+
+  it('releases the lock (and the connection) even when the job body throws', async () => {
+    listTenantSchemas.mockRejectedValueOnce(new Error('discovery boom'));
+    const { service, lockRunner } = makeLockService();
+
+    // the error still propagates (the cron logs it) — but the lock+connection
+    // are released in finally regardless.
+    await expect(service.retrySweep(new Date('2026-07-06T05:00:00Z'))).rejects.toThrow(
+      'discovery boom',
+    );
+
+    const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
+    expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(true);
+    expect(lockRunner.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not run the job body (nor unlock without acquire) when the lock is held elsewhere', async () => {
+    const lockRunner: { connect: jest.Mock; release: jest.Mock; query: jest.Mock } = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn((sql: string) => {
+        if (sql.includes('pg_try_advisory_lock')) return Promise.resolve([{ acquired: false }]);
+        return Promise.resolve([]);
+      }),
+    };
+    const dataSource = {
+      createQueryRunner: jest.fn(() => lockRunner as Partial<QueryRunner> as QueryRunner),
+    } as Partial<DataSource> as DataSource;
+    const { service } = makeService({ dataSource });
+
+    await service.deadlineSweep(new Date('2026-07-06T05:00:00Z'));
+
+    const sqls = lockRunner.query.mock.calls.map((c) => c[0] as string);
+    // acquire attempted, but no unlock when we never held it, and the runner is still released
+    expect(sqls.some((s) => s.includes('pg_advisory_unlock'))).toBe(false);
+    expect(lockRunner.release).toHaveBeenCalledTimes(1);
+    expect(listTenantSchemas).not.toHaveBeenCalled();
   });
 });
 

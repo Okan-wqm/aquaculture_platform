@@ -21,6 +21,24 @@ landed on `claude/serene-allen-8mo9q1`; the rest are tracked for phased remediat
 
 ## FIXED (this PR)
 
+### FARM-CRITICAL-161 — regulatory scheduler advisory-lock-on-pooled-connection (triple-confirmed)
+
+`ReportSchedulerService` acquired `pg_try_advisory_lock` and released `pg_advisory_unlock` through
+two separate `dataSource.query()` calls (different pooled connections). A session-scoped lock stays
+held on the acquiring connection; the unlock landed on a different one and no-op'd, so the lock
+leaked and every later run of all four regulatory crons self-skipped — silently halting rollover,
+deadline sweep, and retry replay for all tenants (missed statutory deadlines). Fixed: `runJob` holds
+**one** dedicated `QueryRunner` for the lock's whole lifetime (acquire + work + release provably the
+same session), released in `finally`, connection released after. Tier-3 guard: the spec now asserts
+acquire/release share one connection and that the lock releases even when the job body throws.
+
+### FARM-HIGH-162 — FeedingCronService shares the same advisory-lock defect
+
+Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
+`dataSource.query()`-per-call acquire/release across four cron methods. Same root cause, same fix
+(dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
+is corrected everywhere, not patched in one service.
+
 ### FARM-HIGH-160 — disease varsling assembler regression (non-existent column + missing status filter)
 
 The FARM-HIGH-155 fix scoped the disease site through `tb."batchId" = he."batchId"`, but

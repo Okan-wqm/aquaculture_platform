@@ -8,7 +8,7 @@
  * - Slaughter facility with approval number
  * - Regulatory metadata from settings
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useRegulatorySettings,
   useSubmitPlannedSlaughterReport,
@@ -24,6 +24,7 @@ import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizar
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
+import { useSlaughterFacilities } from '../../../hooks/useSlaughterFacilities';
 
 // ============================================================================
 // Types
@@ -71,7 +72,7 @@ interface DayPlanEntry {
   batchNumber: string;
 }
 
-interface SlaughterFormData {
+export interface SlaughterFormData {
   reportType: SlaughterReportType;
   // Week/year selection
   weekNumber: number;
@@ -214,7 +215,7 @@ function extractBatchOptions(tanks: Tank[] | undefined): BatchOption[] {
   return options;
 }
 
-function getInitialFormData(): SlaughterFormData {
+export function getInitialFormData(): SlaughterFormData {
   const now = new Date();
   return {
     reportType: 'planned',
@@ -399,10 +400,38 @@ interface FacilityStepProps {
   onChange: (data: Partial<SlaughterFormData>) => void;
 }
 
-const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
+export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
+  // The slaughter-facility catalog is the SSoT for godkjenningsnummer (Phase 2 /
+  // RPT-007): the report binds an approved facility from Setup rather than
+  // accepting free text, so the approval number cannot drift from the catalog
+  // the server-side slakt assembler reads.
+  const { data: facilities = [], isLoading: facilitiesLoading } = useSlaughterFacilities();
+
   const updateFacility = (updates: Partial<SlaughterFacility>) => {
     onChange({ facility: { ...formData.facility, ...updates } });
   };
+
+  // Seed the default facility once the catalog resolves and none is chosen yet.
+  // The empty-approvalNumber guard makes this idempotent: after onChange sets the
+  // facility, formData.facility changes and the effect re-runs into a no-op, so
+  // declaring the real deps (no exhaustive-deps suppression) cannot loop.
+  useEffect(() => {
+    if (!formData.facility.approvalNumber && facilities.length > 0) {
+      const preferred = facilities.find((f) => f.isDefault) ?? facilities[0];
+      if (preferred) {
+        onChange({
+          facility: {
+            ...formData.facility,
+            facilityName: preferred.name,
+            approvalNumber: preferred.godkjenningsnummer,
+          },
+        });
+      }
+    }
+  }, [facilities, formData.facility, onChange]);
+
+  const selectedFacilityId =
+    facilities.find((f) => f.godkjenningsnummer === formData.facility.approvalNumber)?.id ?? '';
 
   const updateRegulatory = (updates: Partial<RegulatoryMetadata>) => {
     onChange({ regulatory: { ...formData.regulatory, ...updates } });
@@ -504,33 +533,52 @@ const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }) => {
             Required
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        {facilitiesLoading ? (
+          <p className="text-xs text-gray-400">Loading facilities…</p>
+        ) : facilities.length === 0 ? (
+          <p className="text-xs text-amber-600">
+            No slaughter facilities registered. Add one under Setup → Slaughter
+            Facilities — the catalog is the source of the approval number
+            (godkjenningsnummer) the report submits.
+          </p>
+        ) : (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              Facility Name (godkjenningsnavn)
-            </label>
-            <input
-              type="text"
-              value={formData.facility.facilityName}
-              onChange={(e) => updateFacility({ facilityName: e.target.value })}
+            <label className="block text-xs text-gray-500 mb-1">Facility (slakteri) *</label>
+            <select
+              value={selectedFacilityId}
+              onChange={(e) => {
+                const picked = facilities.find((f) => f.id === e.target.value);
+                if (picked) {
+                  updateFacility({
+                    facilityName: picked.name,
+                    approvalNumber: picked.godkjenningsnummer,
+                  });
+                }
+              }}
+              aria-label="Slaughter facility"
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-              placeholder="Marine Harvest Processing AS"
-            />
+            >
+              <option value="" disabled>
+                Select a facility…
+              </option>
+              {facilities.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name} — {f.godkjenningsnummer}
+                  {f.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+            {formData.facility.approvalNumber && (
+              <p className="text-xs text-gray-500 mt-1">
+                Approval number (godkjenningsnummer):{' '}
+                <span className="font-medium text-gray-700">
+                  {formData.facility.approvalNumber}
+                </span>{' '}
+                — from the facility catalog; corrections go to Setup.
+              </p>
+            )}
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              Approval Number (godkjenningsnummer) *
-            </label>
-            <input
-              type="text"
-              value={formData.facility.approvalNumber}
-              onChange={(e) => updateFacility({ approvalNumber: e.target.value })}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-              placeholder="H-001234"
-            />
-            <p className="text-xs text-gray-400 mt-1">Required by Mattilsynet</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

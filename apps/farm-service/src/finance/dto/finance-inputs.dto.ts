@@ -1,17 +1,17 @@
 /**
- * Finance mutation inputs. Currency is optional everywhere — when
- * omitted, handlers resolve the tenant default via FinanceSettingsService
- * (the currency SSoT); a hardcoded fallback literal is banned.
+ * Finance mutation inputs. Manual entries carry NO currency field — every
+ * entry is booked in the tenant default currency resolved from
+ * finance_settings (the currency SSoT), so the ledger is structurally
+ * single-currency and cross-currency aggregation is impossible. The tenant
+ * default itself is validated against the supported-currency registry.
  */
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import {
-  IsBoolean,
   IsDateString,
   IsInt,
   IsNumber,
   IsOptional,
   IsUUID,
-  Matches,
   Max,
   MaxLength,
   Min,
@@ -22,6 +22,7 @@ import {
   FinanceCategoryKind,
   FinanceCategoryScope,
 } from '../entities/finance-category.entity';
+import { IsSupportedCurrency } from './is-supported-currency.validator';
 
 @InputType()
 export class CreateFinanceEntryInput {
@@ -37,11 +38,6 @@ export class CreateFinanceEntryInput {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   amount!: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO 4217 alpha-3 code' })
-  currency?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -86,11 +82,6 @@ export class UpdateFinanceEntryInput {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   amount?: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO 4217 alpha-3 code' })
-  currency?: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -151,17 +142,16 @@ export class UpdateFinanceCategoryInput {
   @IsInt()
   displayOrder?: number;
 
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  // Activation state is NOT editable here — archival is TENANT_ADMIN-only
+  // via archiveFinanceCategory / restoreFinanceCategory, so a MODULE_MANAGER
+  // cannot archive a category by side-channel through this mutation.
 }
 
 @InputType()
 export class UpdateFinanceSettingsInput {
   @Field({ nullable: true })
   @IsOptional()
-  @Matches(/^[A-Z]{3}$/, { message: 'defaultCurrency must be an ISO 4217 alpha-3 code' })
+  @IsSupportedCurrency()
   defaultCurrency?: string;
 
   @Field(() => Int, { nullable: true })

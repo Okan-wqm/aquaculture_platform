@@ -107,7 +107,6 @@ export interface CreateHrFinanceEntryInput {
   categoryId: string;
   entryDate: string;
   amount: number;
-  currency?: string;
   description?: string;
   departmentHrId?: string;
   employeeId?: string;
@@ -123,7 +122,6 @@ export interface CreateHrFinanceCategoryInput {
 export interface UpdateHrFinanceCategoryInput {
   name?: string;
   displayOrder?: number;
-  isActive?: boolean;
 }
 
 export interface UpdatePayrollCostSettingsInput {

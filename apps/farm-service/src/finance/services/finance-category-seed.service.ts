@@ -4,10 +4,15 @@
  * Idempotently seeds the default farm finance category catalogue into a
  * tenant's schema. Two invocation paths cover every tenant:
  *
- *   1. Lazily — every finance query/mutation handler calls
- *      `ensureDefaults(manager, tenantId)` inside its tenant transaction.
- *      The per-process guard set makes the hot path a no-op after the
- *      first call; the partial unique index
+ *   1. Lazily — finance query/mutation handlers call
+ *      `ensureDefaults(dataSource, tenantId)` BEFORE opening their own
+ *      read/write boundary. `ensureDefaults` owns a dedicated tenant
+ *      WRITE transaction that commits independently, so a seed never runs
+ *      inside a read-only transaction (which PostgreSQL rejects, SQLSTATE
+ *      25006) and a caller's later rollback can never undo the seed. The
+ *      per-process guard set makes the hot path a no-op after the first
+ *      call and is populated ONLY after the seed transaction commits, so a
+ *      failed seed never poisons the guard. The partial unique index
  *      UQ_finance_categories_tenant_scope_code makes duplicates
  *      structurally impossible (ON CONFLICT DO NOTHING).
  *   2. On tenant onboarding — `seedDefaults(tenantId)` plugs into the
@@ -17,9 +22,10 @@
  * System categories are identified by CODE, so tenants renaming the
  * display name never break derivation or reseeding.
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import {
   FinanceCategory,
@@ -81,14 +87,22 @@ export class FinanceCategorySeedService {
   ) {}
 
   /**
-   * Idempotently insert any missing default categories inside the
-   * caller's tenant transaction. Safe to call on every finance request.
+   * Idempotently insert any missing default categories in a DEDICATED
+   * tenant write transaction that commits before the caller opens its own
+   * read/write boundary. Safe to call on every finance request; a no-op
+   * after the first successful seed per process. Must be invoked OUTSIDE
+   * (before) a `runInTenantRead` boundary — seeding is a write concern and
+   * a read-only transaction rejects the INSERT.
    */
-  async ensureDefaults(manager: EntityManager, tenantId: string): Promise<void> {
+  async ensureDefaults(dataSource: DataSource, tenantId: string): Promise<void> {
     if (this.seededTenants.has(tenantId)) {
       return;
     }
-    await this.insertDefaults(manager, tenantId);
+    await runInTenantTransaction(dataSource, 'farm', tenantId, (queryRunner) =>
+      this.insertDefaults(queryRunner.manager, tenantId),
+    );
+    // Populated only after the seed transaction commits — a failed seed
+    // never poisons the guard.
     this.seededTenants.add(tenantId);
   }
 

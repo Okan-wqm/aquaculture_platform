@@ -23,6 +23,7 @@ import {
   CreateHrFinanceCategoryCommand,
   CreateHrFinanceEntryCommand,
   DeleteHrFinanceEntryCommand,
+  RestoreHrFinanceCategoryCommand,
   UpdateHrFinanceCategoryCommand,
   UpdateHrFinanceEntryCommand,
   UpdatePayrollCostSettingsCommand,
@@ -228,6 +229,18 @@ export class HrFinanceResolver {
   ): Promise<HrFinanceCategory> {
     return this.commandBus.execute(
       new ArchiveHrFinanceCategoryCommand(this.getTenantId(ctx), id, this.getUserId(ctx)),
+    );
+  }
+
+  @Mutation(() => HrFinanceCategory)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN)
+  async restoreHrFinanceCategory(
+    @Context() ctx: GraphQLContext,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<HrFinanceCategory> {
+    return this.commandBus.execute(
+      new RestoreHrFinanceCategoryCommand(this.getTenantId(ctx), id, this.getUserId(ctx)),
     );
   }
 

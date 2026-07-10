@@ -20,6 +20,7 @@ import { Injectable } from '@nestjs/common';
 
 import {
   FinanceCategory,
+  FinanceCategoryScope,
 } from '../entities/finance-category.entity';
 
 export interface ComputedCategoryValue {
@@ -31,20 +32,34 @@ export interface ComputedCategoryValue {
 @Injectable()
 export class ComputedRuleEvaluator {
   /**
-   * @param categories categories of ONE scope (mixed computed + regular)
+   * Evaluate the computed categories of a SINGLE scope.
+   *
+   * `scope` is a required argument and the evaluator filters both the base
+   * and the output to it, so a caller cannot accidentally fold another
+   * scope's totals into the percentage base (e.g. harvest REVENUE inflating
+   * the FARM_OPEX "5% of operational cost" line). The base is the sum of
+   * NON-computed categories in that scope, which keeps the definition
+   * non-self-referential and lets two computed categories in one scope
+   * never feed each other.
+   *
+   * @param categories all categories (any scope, mixed computed + regular)
    * @param baseTotals categoryId → booked total for the queried period
    *                   (manual + derived; computed categories absent)
-   * @returns value per computed category, rounded to 2 decimals
+   * @param scope      the scope to evaluate; only its categories participate
+   * @returns value per computed category IN `scope`, rounded to 2 decimals
    */
   evaluate(
     categories: readonly FinanceCategory[],
     baseTotals: ReadonlyMap<string, number>,
+    scope: FinanceCategoryScope,
   ): ComputedCategoryValue[] {
-    const nonComputedTotal = categories
+    const scoped = categories.filter((c) => c.scope === scope);
+
+    const nonComputedTotal = scoped
       .filter((c) => !c.computedRule)
       .reduce((sum, c) => sum + (baseTotals.get(c.id) ?? 0), 0);
 
-    return categories
+    return scoped
       .filter((c): c is FinanceCategory & { computedRule: NonNullable<FinanceCategory['computedRule']> } =>
         Boolean(c.computedRule),
       )

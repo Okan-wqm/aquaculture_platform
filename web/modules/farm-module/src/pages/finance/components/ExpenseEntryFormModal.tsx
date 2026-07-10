@@ -164,7 +164,9 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
         </div>
 
         {errorMessage && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{errorMessage}</div>
+          <div role="alert" aria-live="assertive" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
         )}
       </form>
     </Modal>

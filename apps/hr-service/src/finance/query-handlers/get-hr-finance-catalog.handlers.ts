@@ -6,10 +6,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
-import {
-  runInTenantRead,
-  runInTenantTransaction,
-} from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 import { HrFinanceCategory } from '../entities/hr-finance-category.entity';
 import { HrFinanceEntry } from '../entities/hr-finance-entry.entity';
@@ -35,10 +32,11 @@ export class GetHrFinanceCategoriesHandler
 
   async execute(query: GetHrFinanceCategoriesQuery): Promise<HrFinanceCategory[]> {
     const { tenantId, includeArchived } = query;
-    // Write transaction: the first call per tenant lazily seeds defaults.
-    return runInTenantTransaction(this.dataSource, 'hr', tenantId, async (queryRunner) => {
+    // Seed (idempotently) in its own committed write tx BEFORE opening the
+    // read-only boundary — seeding is a write concern.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
+    return runInTenantRead(this.dataSource, 'hr', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
       const qb = manager
         .createQueryBuilder(HrFinanceCategory, 'c')
         .where('c."tenantId" = :tenantId', { tenantId })

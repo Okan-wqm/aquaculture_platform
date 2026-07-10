@@ -17,6 +17,7 @@ import {
   GET_FINANCE_LEDGER,
   GET_FINANCE_SETTINGS,
   GET_FINANCE_SUMMARY,
+  RESTORE_FINANCE_CATEGORY,
   UPDATE_FINANCE_CATEGORY,
   UPDATE_FINANCE_ENTRY,
   UPDATE_FINANCE_SETTINGS,
@@ -134,7 +135,6 @@ export interface CreateFinanceEntryInput {
   categoryId: string;
   entryDate: string;
   amount: number;
-  currency?: string;
   description?: string;
   siteId?: string;
   batchId?: string;
@@ -154,7 +154,6 @@ export interface CreateFinanceCategoryInput {
 export interface UpdateFinanceCategoryInput {
   name?: string;
   displayOrder?: number;
-  isActive?: boolean;
 }
 
 export interface UpdateFinanceSettingsInput {
@@ -312,6 +311,19 @@ export function useArchiveFinanceCategory() {
         { id },
       );
       return data.archiveFinanceCategory;
+    },
+    { invalidate: INVALIDATE_FINANCE },
+  );
+}
+
+export function useRestoreFinanceCategory() {
+  return useTenantMutation(
+    async (id: string) => {
+      const data = await graphqlClient.request<{ restoreFinanceCategory: FinanceCategory }>(
+        RESTORE_FINANCE_CATEGORY,
+        { id },
+      );
+      return data.restoreFinanceCategory;
     },
     { invalidate: INVALIDATE_FINANCE },
   );

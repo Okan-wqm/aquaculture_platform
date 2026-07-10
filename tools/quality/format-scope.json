@@ -10653,6 +10653,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/commands/restore-finance-category.command.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/commands/update-finance-category.command.ts",
       "prettier_managed": true
     },
@@ -10678,6 +10684,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/finance/dto/finance-outputs.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/dto/is-supported-currency.validator.ts",
       "prettier_managed": true
     },
     {
@@ -10738,6 +10750,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/finance/handlers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/handlers/restore-finance-category.handler.ts",
       "prettier_managed": true
     },
     {
@@ -17308,6 +17326,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/database/migrations/1801700000000-CreateHrFinanceTables.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1801800000000-AddPayrollCurrencyProjectionWatermark.ts",
       "prettier_managed": true
     },
     {
@@ -30458,6 +30482,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/2026-07-07-farm-messaging-strict-property-init.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-10-finance-e2e-review.md",
       "prettier_managed": true
     },
     {
@@ -52176,10 +52206,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8550,
+  "file_count": 8555,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8375,
-  "managed_file_list_sha256": "a09a5f4e094cac54a6e8593e1d7209b0fdcc6cc33e34891a5a37472a04fbe568",
+  "managed_count": 8380,
+  "managed_file_list_sha256": "b83a57e7f27a3b3684511a1f2e0b4cc2b33336627f99f0fc5be11175fe623501",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

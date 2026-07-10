@@ -38,7 +38,10 @@ const pct = {
 @Entity('hr_payroll_cost_settings')
 @Index('UQ_hr_payroll_cost_settings_tenant', ['tenantId'], { unique: true })
 export class PayrollCostSettings {
-  @Field(() => ID)
+  // Nullable in GraphQL: the read path returns an in-memory defaults view
+  // (no persisted row) for a tenant that has not saved settings yet — that
+  // view has no id, and a non-null id would crash serialization.
+  @Field(() => ID, { nullable: true })
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -65,6 +68,14 @@ export class PayrollCostSettings {
   @Field()
   @Column('varchar', { length: 3, default: HR_PLATFORM_DEFAULT_CURRENCY })
   defaultCurrency!: string;
+
+  /**
+   * Source timestamp of the last FinanceSettingsUpdated event applied to
+   * `defaultCurrency`. The consumer only projects an event newer than this
+   * watermark, so an out-of-order redelivery cannot regress the currency.
+   */
+  @Column('timestamptz', { nullable: true })
+  currencyProjectedAt?: Date | null;
 
   @Field(() => String, { nullable: true })
   @Column('uuid', { nullable: true })

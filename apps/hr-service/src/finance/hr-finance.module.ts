@@ -18,6 +18,7 @@ import { HrOutboxModule } from '../hr-outbox.module';
 import {
   ArchiveHrFinanceCategoryHandler,
   CreateHrFinanceCategoryHandler,
+  RestoreHrFinanceCategoryHandler,
   UpdateHrFinanceCategoryHandler,
 } from './handlers/hr-finance-category.handlers';
 import {
@@ -49,6 +50,7 @@ const CommandHandlers = [
   CreateHrFinanceCategoryHandler,
   UpdateHrFinanceCategoryHandler,
   ArchiveHrFinanceCategoryHandler,
+  RestoreHrFinanceCategoryHandler,
   UpdatePayrollCostSettingsHandler,
 ];
 

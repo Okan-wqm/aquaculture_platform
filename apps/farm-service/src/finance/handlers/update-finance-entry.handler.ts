@@ -75,7 +75,8 @@ export class UpdateFinanceEntryHandler
 
       if (input.entryDate !== undefined) entry.entryDate = new Date(input.entryDate);
       if (input.amount !== undefined) entry.amount = input.amount;
-      if (input.currency !== undefined) entry.currency = input.currency;
+      // Currency is not editable — an entry stays in the tenant default it
+      // was booked in (the ledger is structurally single-currency).
       if (input.description !== undefined) entry.description = input.description;
       if (input.siteId !== undefined) entry.siteId = input.siteId;
       if (input.batchId !== undefined) entry.batchId = input.batchId;

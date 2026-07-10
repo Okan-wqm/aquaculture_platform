@@ -198,6 +198,14 @@ export const ARCHIVE_FINANCE_CATEGORY = `
   }
 `;
 
+export const RESTORE_FINANCE_CATEGORY = `
+  mutation RestoreFinanceCategory($id: ID!) {
+    restoreFinanceCategory(id: $id) {
+      ${FINANCE_CATEGORY_FIELDS}
+    }
+  }
+`;
+
 export const UPDATE_FINANCE_SETTINGS = `
   mutation UpdateFinanceSettings($input: UpdateFinanceSettingsInput!) {
     updateFinanceSettings(input: $input) {

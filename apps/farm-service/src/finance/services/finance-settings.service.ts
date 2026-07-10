@@ -8,7 +8,7 @@
  * by the finance-currency-ssot invariant spec — this service is the only
  * legitimate defaulting path.
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
@@ -28,6 +28,7 @@ interface CachedSettings {
 
 @Injectable()
 export class FinanceSettingsService {
+  private readonly logger = new Logger(FinanceSettingsService.name);
   private readonly cache = new Map<string, CachedSettings>();
 
   constructor(
@@ -35,15 +36,31 @@ export class FinanceSettingsService {
     private readonly dataSource: DataSource,
   ) {}
 
-  /** Resolve the tenant's default currency (cached, fail-open to platform default). */
+  /**
+   * Resolve the tenant's default currency (cached). Genuinely fail-open:
+   * the 12 create-handlers call this before their write, so a transient
+   * settings-read error must fall back to the platform default rather than
+   * failing an unrelated create.
+   */
   async getDefaultCurrency(tenantId: string): Promise<string> {
     const cached = this.cache.get(tenantId);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.defaultCurrency;
     }
-    const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-      queryRunner.manager.findOne(FinanceSettings, { where: { tenantId } }),
-    );
+    let settings: FinanceSettings | null = null;
+    try {
+      settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
+        queryRunner.manager.findOne(FinanceSettings, { where: { tenantId } }),
+      );
+    } catch (error) {
+      // Fail-open to the platform default; do NOT cache the fallback so the
+      // next call retries the real read.
+      this.logger.warn(
+        `Finance settings read failed for tenant ${tenantId.slice(0, 8)}…; ` +
+          `falling back to ${PLATFORM_DEFAULT_CURRENCY}: ${(error as Error).message}`,
+      );
+      return PLATFORM_DEFAULT_CURRENCY;
+    }
     const resolved: CachedSettings = {
       defaultCurrency: settings?.defaultCurrency ?? PLATFORM_DEFAULT_CURRENCY,
       fiscalYearStartMonth: settings?.fiscalYearStartMonth ?? 1,

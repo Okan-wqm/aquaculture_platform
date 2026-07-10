@@ -20,6 +20,7 @@ import {
   CreateFinanceCategoryCommand,
   CreateFinanceEntryCommand,
   DeleteFinanceEntryCommand,
+  RestoreFinanceCategoryCommand,
   UpdateFinanceCategoryCommand,
   UpdateFinanceEntryCommand,
   UpdateFinanceSettingsCommand,
@@ -52,6 +53,13 @@ import {
 import { FinanceGranularity } from '../services/finance-ledger-query.service';
 
 const MAX_LEDGER_PAGE = 200;
+/**
+ * Upper bound on the paging offset. The merge-paginate strategy over-fetches
+ * `offset + limit` rows from each of the ~7 ledger sources, so an unbounded
+ * offset is a cheap self-DoS (deep scans of the high-frequency source
+ * tables). Cap it; deeper navigation must use a narrower date range.
+ */
+const MAX_LEDGER_OFFSET = 5_000;
 
 @Resolver(() => FinanceExpenseEntry)
 @UseGuards(GqlAuthGuard)
@@ -109,7 +117,7 @@ export class FinanceResolver {
         siteId,
         includeDerived: includeDerived ?? true,
         limit: Math.min(Math.max(limit ?? 50, 1), MAX_LEDGER_PAGE),
-        offset: Math.max(offset ?? 0, 0),
+        offset: Math.min(Math.max(offset ?? 0, 0), MAX_LEDGER_OFFSET),
       }),
     );
   }
@@ -206,7 +214,7 @@ export class FinanceResolver {
   }
 
   @Mutation(() => FinanceCategory, {
-    description: 'Rename / reorder / (re)activate a finance category.',
+    description: 'Rename / reorder a finance category (activation state is admin-gated).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateFinanceCategory(
@@ -231,6 +239,18 @@ export class FinanceResolver {
     @Args('id', { type: () => ID }) id: string,
   ): Promise<FinanceCategory> {
     return this.commandBus.execute(new ArchiveFinanceCategoryCommand(tenantId, id, user.sub));
+  }
+
+  @Mutation(() => FinanceCategory, {
+    description: 'Reactivate an archived finance category.',
+  })
+  @Roles(Role.TENANT_ADMIN)
+  async restoreFinanceCategory(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<FinanceCategory> {
+    return this.commandBus.execute(new RestoreFinanceCategoryCommand(tenantId, id, user.sub));
   }
 
   @Mutation(() => FinanceSettings, {

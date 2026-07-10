@@ -34,10 +34,11 @@ export class CreateFinanceCategoryHandler
   async execute(command: CreateFinanceCategoryCommand): Promise<FinanceCategory> {
     const { tenantId, input, userId } = command;
 
+    // Seed (idempotently) in its own committed tx before the create tx.
+    await this.seedService.ensureDefaults(this.dataSource, tenantId);
+
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      await this.seedService.ensureDefaults(manager, tenantId);
-
       const duplicate = await manager
         .createQueryBuilder(FinanceCategory, 'c')
         .where('c."tenantId" = :tenantId', { tenantId })

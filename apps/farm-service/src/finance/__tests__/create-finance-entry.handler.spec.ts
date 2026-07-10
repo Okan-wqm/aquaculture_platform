@@ -101,7 +101,7 @@ describe('CreateFinanceEntryHandler', () => {
     const { handler, mockManager, enqueue } = makeHarness();
 
     const result = await handler.execute(
-      new CreateFinanceEntryCommand(TENANT_ID, { ...baseInput, currency: 'EUR' }, USER_ID),
+      new CreateFinanceEntryCommand(TENANT_ID, baseInput, USER_ID),
     );
 
     expect(result.id).toBe('entry-1');
@@ -111,12 +111,13 @@ describe('CreateFinanceEntryHandler', () => {
     expect(event.eventType).toBe('FinanceEntryRecorded');
     expect(event.tenantId).toBe(TENANT_ID);
     expect(event.amount).toBe('1234.50'); // string-encoded decimal, never a JS number
-    expect(event.currency).toBe('EUR');
+    // No per-entry override exists: the entry is booked in the tenant default.
+    expect(event.currency).toBe('NOK');
     expect(event.scope).toBe('FARM_OPEX');
     expect(event.sourceService).toBe('farm-service');
   });
 
-  it('resolves the currency from the tenant finance settings when omitted', async () => {
+  it('always books in the tenant finance-settings default currency', async () => {
     const { handler, enqueue, settingsService } = makeHarness({ tenantCurrency: 'TRY' });
 
     await handler.execute(new CreateFinanceEntryCommand(TENANT_ID, baseInput, USER_ID));

@@ -15,6 +15,7 @@ import {
   useArchiveFinanceCategory,
   useCreateFinanceCategory,
   useFinanceCategories,
+  useRestoreFinanceCategory,
   useUpdateFinanceCategory,
 } from '../../../hooks/useFinance';
 
@@ -24,6 +25,7 @@ export const CategoriesTab: React.FC = () => {
   const createCategory = useCreateFinanceCategory();
   const updateCategory = useUpdateFinanceCategory();
   const archiveCategory = useArchiveFinanceCategory();
+  const restoreCategory = useRestoreFinanceCategory();
 
   const [newName, setNewName] = useState('');
   const [newScope, setNewScope] = useState<'FARM_OPEX' | 'FARM_REVENUE'>('FARM_OPEX');
@@ -123,7 +125,9 @@ export const CategoriesTab: React.FC = () => {
       </form>
 
       {errorMessage && (
-        <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{errorMessage}</div>
+        <div role="alert" aria-live="assertive" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
       )}
 
       {/* Category list */}
@@ -220,9 +224,7 @@ export const CategoriesTab: React.FC = () => {
                     )}
                     {!category.isActive && (
                       <button
-                        onClick={() =>
-                          updateCategory.mutate({ id: category.id, input: { isActive: true } })
-                        }
+                        onClick={() => restoreCategory.mutate(category.id)}
                         className="font-medium text-green-600 hover:text-green-800"
                       >
                         Restore

@@ -1,12 +1,11 @@
 /**
- * UpdateFinanceCategoryHandler — rename / reorder only.
+ * RestoreFinanceCategoryHandler — reactivate an archived category.
  *
- * System categories may be renamed (display name is presentation; the
- * stable `code` is the binding identity for derivation + rules). Activation
- * state is NOT mutated here — archival (TENANT_ADMIN) is governed by
- * ArchiveFinanceCategoryHandler and reactivation by
- * RestoreFinanceCategoryHandler, so a MODULE_MANAGER cannot archive a
- * category by side-channel through this mutation.
+ * The symmetric counterpart of ArchiveFinanceCategoryHandler: both are
+ * TENANT_ADMIN-gated so activation state can only ever change through an
+ * admin-authorised mutation (a MODULE_MANAGER cannot flip it via
+ * updateFinanceCategory). Restoring re-enables new bookings; the name must
+ * not collide with another active category in the same scope.
  */
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import {
@@ -20,21 +19,21 @@ import type { FinanceCategoryUpdatedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
-import { UpdateFinanceCategoryCommand } from '../commands/update-finance-category.command';
+import { RestoreFinanceCategoryCommand } from '../commands/restore-finance-category.command';
 import { FinanceCategory } from '../entities/finance-category.entity';
 
 @Injectable()
-@CommandHandler(UpdateFinanceCategoryCommand)
-export class UpdateFinanceCategoryHandler
-  implements ICommandHandler<UpdateFinanceCategoryCommand, FinanceCategory>
+@CommandHandler(RestoreFinanceCategoryCommand)
+export class RestoreFinanceCategoryHandler
+  implements ICommandHandler<RestoreFinanceCategoryCommand, FinanceCategory>
 {
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
-  async execute(command: UpdateFinanceCategoryCommand): Promise<FinanceCategory> {
-    const { tenantId, categoryId, input, userId } = command;
+  async execute(command: RestoreFinanceCategoryCommand): Promise<FinanceCategory> {
+    const { tenantId, categoryId, userId } = command;
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
@@ -47,26 +46,24 @@ export class UpdateFinanceCategoryHandler
         throw new NotFoundException(`Finance category ${categoryId} not found`);
       }
 
-      if (input.name && input.name.toLowerCase() !== category.name.toLowerCase()) {
+      if (!category.isActive) {
         const duplicate = await manager
           .createQueryBuilder(FinanceCategory, 'c')
           .where('c."tenantId" = :tenantId', { tenantId })
           .andWhere('c."scope" = :scope', { scope: category.scope })
           .andWhere('c."isActive" = true')
-          .andWhere('lower(c."name") = lower(:name)', { name: input.name })
+          .andWhere('lower(c."name") = lower(:name)', { name: category.name })
           .andWhere('c."id" != :id', { id: category.id })
           .getOne();
         if (duplicate) {
           throw new ConflictException(
-            `An active finance category named "${input.name}" already exists in ${category.scope}`,
+            `An active finance category named "${category.name}" already exists in ${category.scope}`,
           );
         }
       }
 
-      if (input.name !== undefined) category.name = input.name;
-      if (input.displayOrder !== undefined) category.displayOrder = input.displayOrder;
+      category.isActive = true;
       category.updatedBy = userId;
-
       const saved = await manager.save(category);
 
       const event: FinanceCategoryUpdatedEvent = {

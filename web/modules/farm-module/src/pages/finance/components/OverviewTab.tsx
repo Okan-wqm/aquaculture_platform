@@ -5,6 +5,7 @@
  * badged so the operator knows they came from source records; COMPUTED
  * rows (the 5% rule) are badged as calculated.
  */
+import { formatCurrency } from '@aquaculture/shared-ui';
 import React from 'react';
 
 import type { FinanceSummary } from '../../../hooks/useFinance';
@@ -17,12 +18,14 @@ interface OverviewTabProps {
   period: FinancePeriod;
 }
 
+/**
+ * Finance money formatter — delegates to the shared 2-decimal
+ * formatCurrency so rows reconcile with their totals (a 0-decimal format
+ * makes 0.50 × 3 render as "1" each yet total "2"). Booked amounts are
+ * always in the tenant default currency (backend SSoT).
+ */
 export function formatMoney(amount: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
+  return formatCurrency(amount, currency);
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, error, period }) => {

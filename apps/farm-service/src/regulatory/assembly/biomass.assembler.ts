@@ -250,7 +250,7 @@ export class BiomassReportAssembler {
            JOIN species s ON s.id = b."speciesId"
           WHERE hr."tenantId" = $1
             AND hr."harvestDate"::date BETWEEN $3 AND $4
-          GROUP BY hr."harvestDate"::date, s.code
+          GROUP BY hr."harvestDate"::date, s.code, s."officialCode"
           ORDER BY date`,
         [tenantId, siteId, fromDate, toDate],
       );

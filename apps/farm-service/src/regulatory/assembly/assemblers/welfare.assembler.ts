@@ -103,6 +103,9 @@ export class WelfareReportAssembler {
       fromRecords('/finScore', src, 1),
       fromRecords('/woundScore', src, 1),
       fromRecords('/deformityScore', src, 1),
+      // derived from the four RECORDS indicator scores — attributed so every
+      // payload leaf traces to a field meta.
+      fromRecords('/worstScore', `${src} (worst of the four indicator scores)`, 1),
     ];
 
     // severity — derivable only when the assessment actually indicates a welfare

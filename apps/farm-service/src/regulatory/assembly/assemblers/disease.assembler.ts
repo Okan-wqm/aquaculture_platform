@@ -43,7 +43,7 @@ interface DiseaseRow {
   id: string;
   eventDate: string;
   title: string;
-  diagnosis: string | null;
+  diseaseName: string | null;
   pathogenCategory: string | null;
   affectedPercent: string | null;
   description: string | null;
@@ -89,7 +89,7 @@ export class DiseaseReportAssembler {
     }
 
     const src = 'health_events (latest disease_outbreak event)';
-    const diseaseName = row.diagnosis ?? row.title;
+    const diseaseName = row.diseaseName ?? row.title;
     const affectedPercentage = row.affectedPercent != null ? round2(Number(row.affectedPercent)) : null;
 
     const fields: ReportFieldMeta[] = [
@@ -101,6 +101,13 @@ export class DiseaseReportAssembler {
     // operator pick the regulator's A/C/F list, but is NOT that classification.
     if (row.pathogenCategory) {
       fields.push(fromRecords('/pathogenCategory', src, 1));
+    }
+
+    // The free-text health-event description is surfaced as read-only context for
+    // the clinical-signs entry; trace its provenance so every RECORDS-sourced
+    // payload leaf resolves to a field meta.
+    if (row.description) {
+      fields.push(fromRecords('/description', src, 1));
     }
 
     if (affectedPercentage != null) {
@@ -168,20 +175,32 @@ export class DiseaseReportAssembler {
   ): Promise<DiseaseRow | null> {
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const rows: DiseaseRow[] = await queryRunner.query(
+        // Scope through the always-present batchId (health_events carry no siteId
+        // and tankId is nullable, so a tank-JOIN would silently drop batch-scoped
+        // outbreaks — FARM-MEDIUM-152). The batch → tank_batches → tank →
+        // department → site path mirrors BiomassReportAssembler.queryStockings.
+        // diseaseName is the real column; the affected percentage lives inside the
+        // affectedPopulation jsonb; diseaseCategory is the pathogen taxonomy
+        // (bacterial/viral/…), surfaced as context — NOT the regulator A/C/F list.
         `SELECT he.id,
                 he."eventDate"::text AS "eventDate",
                 he.title,
-                he.diagnosis,
+                he."diseaseName" AS "diseaseName",
                 he."diseaseCategory" AS "pathogenCategory",
-                he."affectedPercent" AS "affectedPercent",
+                (he."affectedPopulation" ->> 'affectedPercent')::numeric::text AS "affectedPercent",
                 he.description
            FROM health_events he
-           JOIN tanks t ON t.id = he."tankId"
-           JOIN departments d ON d.id = t."departmentId"
           WHERE he."tenantId" = $1
-            AND d."siteId" = $2
             AND he."eventType" = 'disease_outbreak'
-          ORDER BY he."eventDate" DESC
+            AND EXISTS (
+              SELECT 1
+                FROM tank_batches tb
+                JOIN tanks t ON t.id = tb."tankId"
+                JOIN departments d ON d.id = t."departmentId"
+               WHERE tb."batchId" = he."batchId"
+                 AND d."siteId" = $2
+            )
+          ORDER BY he."eventDate" DESC, he."createdAt" DESC
           LIMIT 1`,
         [tenantId, siteId],
       );

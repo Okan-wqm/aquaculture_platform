@@ -97,6 +97,12 @@ export class EscapeReportAssembler {
       fromRecords('/recoveryOngoing', src, 1),
     ];
 
+    // supplementary free-text cause detail — RECORDS context when the incident
+    // carries it; trace its provenance so no payload leaf goes unattributed.
+    if (row.causeDetails) {
+      fields.push(fromRecords('/causeDetails', src, 1));
+    }
+
     // species — an official FAO code is required to file; unmapped blocks.
     if (row.artskode && OFFICIAL_ARTSKODE.test(row.artskode)) {
       fields.push(fromRecords('/species', src, 1));
@@ -178,7 +184,7 @@ export class EscapeReportAssembler {
             AND ei."siteId" = $2
             AND ei.status = 'open'
             AND ei."varslingReportId" IS NULL
-          ORDER BY ei."detectedAt" DESC
+          ORDER BY ei."detectedAt" DESC, ei."createdAt" DESC
           LIMIT 1`,
         [tenantId, siteId],
       );

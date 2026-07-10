@@ -335,8 +335,11 @@ interface VarslingBaseInput {
 }
 
 export interface SubmitWelfareEventInput extends VarslingBaseInput {
-  welfareEventType: 'mortality_threshold' | 'equipment_failure' | 'welfare_impact';
-  severity: 'high' | 'critical';
+  // GraphQL enum WIRE names (the SDL exposes the enum KEYS, not the lowercase
+  // internal values) — sending the lowercase form fails enum coercion before the
+  // resolver, so the varsling never files.
+  welfareEventType: 'MORTALITY_THRESHOLD' | 'EQUIPMENT_FAILURE' | 'WELFARE_IMPACT';
+  severity: 'HIGH' | 'CRITICAL';
   mortalityRate?: number;
   mortalityPeriod?: string;
   affectedBatches?: string[];
@@ -357,7 +360,8 @@ export interface SubmitEscapeReportInput extends VarslingBaseInput {
 export interface SubmitDiseaseOutbreakInput extends VarslingBaseInput {
   diseaseCategory: 'A' | 'C' | 'F';
   diseaseName: string;
-  confirmation: 'suspected' | 'confirmed';
+  // GraphQL enum WIRE name (uppercase key), same reason as SubmitWelfareEventInput.
+  confirmation: 'SUSPECTED' | 'CONFIRMED';
   affectedCount: number;
   affectedPercentage: number;
   clinicalSigns: string[];

@@ -39,6 +39,19 @@ Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
 (dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
 is corrected everywhere, not patched in one service.
 
+### FARM-CRITICAL-165 — enum-casing drift killed varsling submit + draft Approve & Submit
+
+The hand-written farm-module types sent lowercase enum VALUES (`welfare_impact`/`high`/`suspected`)
+while the GraphQL SDL exposes the enum KEYS (`WELFARE_IMPACT`/`HIGH`/`SUSPECTED`), so the
+legally-immediate welfare + disease varsling failed enum coercion before the resolver; and
+`ReportsDueSection` compared draft `status === 'ready'` when the wire serializes to `'READY'`, so the
+Approve & Submit affordance never rendered for any scheduled draft. Fixed: the varsling inputs are
+retyped to the uppercase wire unions with domain→wire maps at the tab boundary; `ReportDraftStatusValue`
++ the `ReportsDueSection` comparisons are uppercased. A vitest guard asserts the mutation sends
+`WELFARE_IMPACT`/`HIGH`/`CONFIRMED`, and the `ReportsDueSection` fixtures now use the real uppercase
+wire status (both were false-greens on lowercase). The Tier-1 durable fix (codegen-backed FE types) is
+tracked as **FARM-MEDIUM-166**.
+
 ### FARM-CRITICAL-163 — draft ↔ submission reconciliation (auto-submit re-filed accepted/rejected reports)
 
 A report draft and its `regulatory_reports` row were two unlinked state machines: a draft became

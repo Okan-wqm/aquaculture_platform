@@ -46,9 +46,10 @@ function periodLabel(d: ReportDeadline): string {
 }
 
 function toIndicatorStatus(status: ReportDeadline['status']): ReportStatus {
-  // reportDeadlines only returns non-terminal drafts (draft / ready / approved);
-  // READY has no ReportStatus equivalent, so it renders as an active draft.
-  return status === 'approved' ? 'approved' : 'draft';
+  // reportDeadlines only returns non-terminal drafts (DRAFT / READY / APPROVED);
+  // READY has no ReportStatus equivalent, so it renders as an active draft. The
+  // wire status is the uppercase GraphQL enum key.
+  return status === 'APPROVED' ? 'approved' : 'draft';
 }
 
 interface RowResult {
@@ -152,7 +153,7 @@ export const ReportsDueSection: React.FC = () => {
                     >
                       {isReviewing ? 'Hide' : 'Review'}
                     </button>
-                    {d.status === 'ready' && (
+                    {d.status === 'READY' && (
                       <button
                         type="button"
                         onClick={() => handleApprove(d.id)}

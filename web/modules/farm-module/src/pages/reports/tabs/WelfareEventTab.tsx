@@ -8,12 +8,30 @@ import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/u
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
-import { WelfareEventReport } from '../types/reports.types';
+import { WelfareEventReport, WelfareEventType, WelfareEventSeverity } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
 import { WelfareEventModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { ProvenanceBadge } from '../components/common';
 import { useTanksList } from '../../../hooks/useTanks';
+
+/**
+ * Map the modal's internal domain values to the GraphQL enum WIRE names (the
+ * SDL exposes the enum KEYS, not the lowercase values). Sending the lowercase
+ * form fails enum coercion before the resolver, so the varsling never files.
+ */
+const WELFARE_EVENT_TYPE_WIRE: Record<
+  WelfareEventType,
+  'MORTALITY_THRESHOLD' | 'EQUIPMENT_FAILURE' | 'WELFARE_IMPACT'
+> = {
+  mortality_threshold: 'MORTALITY_THRESHOLD',
+  equipment_failure: 'EQUIPMENT_FAILURE',
+  welfare_impact: 'WELFARE_IMPACT',
+};
+const WELFARE_SEVERITY_WIRE: Record<WelfareEventSeverity, 'HIGH' | 'CRITICAL'> = {
+  high: 'HIGH',
+  critical: 'CRITICAL',
+};
 
 /** Data portion of the server-assembled welfare varsling (see WelfareReportAssembler). */
 interface WelfarePrefillPayload {
@@ -264,8 +282,8 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
       siteManagerEmail: identity.siteManagerEmail,
       detectedAt: (data.detectedAt ?? new Date()).toISOString(),
       reportedBy: identity.kontaktperson.navn,
-      welfareEventType: data.eventType ?? 'welfare_impact',
-      severity: data.severity ?? 'high',
+      welfareEventType: WELFARE_EVENT_TYPE_WIRE[data.eventType ?? 'welfare_impact'],
+      severity: WELFARE_SEVERITY_WIRE[data.severity ?? 'high'],
       mortalityRate: data.mortalityData?.actualRate,
       mortalityPeriod: data.mortalityData?.period,
       affectedBatches: data.mortalityData?.affectedBatches?.map((b) => b.batchNumber),

@@ -189,8 +189,9 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
       reportedBy: identity.kontaktperson.navn,
       diseaseCategory: data.disease?.category ?? 'F',
       diseaseName: data.disease?.name ?? 'Unknown disease',
+      // GraphQL enum WIRE name (uppercase key) — lowercase fails enum coercion.
       confirmation:
-        data.disease?.suspectedOrConfirmed === 'lab_confirmed' ? 'confirmed' : 'suspected',
+        data.disease?.suspectedOrConfirmed === 'lab_confirmed' ? 'CONFIRMED' : 'SUSPECTED',
       affectedCount: data.affectedPopulation?.estimatedCount ?? 0,
       affectedPercentage: data.affectedPopulation?.percentage ?? 0,
       clinicalSigns: data.clinicalSigns ?? [],

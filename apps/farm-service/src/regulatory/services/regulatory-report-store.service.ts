@@ -172,6 +172,24 @@ export class RegulatoryReportStoreService {
   }
 
   /**
+   * The submission row for a (reportType, klientReferanse) pair — the SSoT for
+   * whether a draft has already been filed. Used to reconcile a draft against its
+   * out-of-band submission state (e.g. the retry sweep accepted a report after a
+   * transient failure) so a re-approval never re-files an accepted report.
+   */
+  async findByKlientReferanse(
+    tenantId: string,
+    reportType: RegulatoryReportType,
+    klientReferanse: string,
+  ): Promise<RegulatoryReport | null> {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) =>
+      queryRunner.manager.findOne(RegulatoryReport, {
+        where: { tenantId, reportType, klientReferanse },
+      }),
+    );
+  }
+
+  /**
    * FAILED + TRANSIENT rows whose scheduled retry is due — the 30-minute sweep's
    * work list. Ordered oldest-due first; bounded so one tenant cannot starve
    * the sweep.
@@ -206,6 +224,21 @@ export class RegulatoryReportStoreService {
     });
 
     if (existing) {
+      // Immutability (COMPLIANCE-HIGH-002): an accepted terminal filing must never
+      // be reset to PENDING or lose its Mattilsynet receipt. A re-entry for an
+      // already-accepted klientReferanse is an idempotent no-op — return the row
+      // as-is. A genuine correction files under a NEW klientReferanse. Only a
+      // FAILED/PENDING row may legitimately re-enter PENDING (the retry pipeline).
+      if (
+        existing.status === RegulatoryReportSubmissionStatus.SUBMITTED ||
+        existing.status === RegulatoryReportSubmissionStatus.QUEUED
+      ) {
+        this.logger.warn(
+          `Regulatory report ${existing.id} is already ${existing.status}; refusing to reset it ` +
+            'to PENDING (accepted filings are immutable).',
+        );
+        return existing;
+      }
       existing.siteId = params.siteId ?? existing.siteId;
       existing.lokalitetsnummer = params.lokalitetsnummer;
       existing.reportYear = params.reportYear;

@@ -28,9 +28,13 @@ import { MattilsynetApiService, MattilsynetBasePayload } from '../mattilsynet-ap
 import { MattilsynetSchemaValidatorService } from './mattilsynet-schema-validator.service';
 import { MattilsynetSchemaValidationError } from './mattilsynet-schema-validator.service';
 import { RegulatorySubmissionService } from './regulatory-submission.service';
+import { RegulatoryReportStoreService } from './regulatory-report-store.service';
 import { RegulatoryReportDraftService } from './regulatory-report-draft.service';
 import { RegulatorySettingsService } from '../regulatory-settings.service';
-import { RegulatoryReportType } from '../entities/regulatory-report.entity';
+import {
+  RegulatoryReportSubmissionStatus,
+  RegulatoryReportType,
+} from '../entities/regulatory-report.entity';
 import {
   RegulatoryReportDraft,
   ReportDraftStatus,
@@ -58,6 +62,7 @@ export class RegulatoryDraftSubmissionService {
   constructor(
     private readonly draftService: RegulatoryReportDraftService,
     private readonly submissionService: RegulatorySubmissionService,
+    private readonly reportStore: RegulatoryReportStoreService,
     private readonly mattilsynetApi: MattilsynetApiService,
     private readonly schemaValidator: MattilsynetSchemaValidatorService,
     private readonly settingsService: RegulatorySettingsService,
@@ -86,6 +91,44 @@ export class RegulatoryDraftSubmissionService {
       );
     }
     const reportType = toRestReportType(draft.reportType);
+
+    // Reconcile against the submission SSoT (the regulatory_reports row keyed by
+    // klientReferanse = draft.id). A draft and its report are two state machines;
+    // out-of-band transitions (a retry-sweep success after a transient failure)
+    // leave the draft stale. Reconcile here so a re-approval NEVER re-files an
+    // already-accepted report (PRODUCT-JOB-CRITICAL-002).
+    const existing = await this.reportStore.findByKlientReferanse(tenantId, reportType, draft.id);
+    if (existing) {
+      if (
+        existing.status === RegulatoryReportSubmissionStatus.SUBMITTED ||
+        existing.status === RegulatoryReportSubmissionStatus.QUEUED
+      ) {
+        // Already filed — link the draft to its receipt and return it, no re-POST.
+        if (draft.status !== ReportDraftStatus.SUBMITTED) {
+          await this.draftService.markSubmitted(tenantId, draftId, existing.id, userId);
+        }
+        return {
+          success: true,
+          reportId: existing.id,
+          referanse: existing.referanse ?? undefined,
+          klientReferanse: draft.id,
+        };
+      }
+      // A non-accepted report exists (PENDING in-flight, TRANSIENT owned by the
+      // retry sweep, or a PERMANENT rejection). An AUTOMATED submission must not
+      // re-fire it every rollover — that duplicates a transient replay or loops a
+      // permanent rejection. An explicit operator re-approval MAY retry, so it
+      // falls through to submit.
+      if (userId === AUTO_SUBMIT_ACTOR_ID) {
+        return {
+          success: false,
+          klientReferanse: draft.id,
+          feilmelding:
+            `Report already has a ${existing.status} submission (attempt ${existing.attemptCount}) — ` +
+            'auto-submit does not re-file; the retry sweep (transient) or an operator (permanent) owns it.',
+        };
+      }
+    }
 
     const { wire, lokalitetsnummer } = await this.buildWirePayload(tenantId, draft);
 

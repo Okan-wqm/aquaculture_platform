@@ -98,6 +98,50 @@ describe('RegulatoryReportStoreService', () => {
       expect(row.referanse).toBeNull();
       expect(row.payload).toBe(seaLicePayload);
     });
+
+    it('refuses to reset an already-SUBMITTED row — the accepted filing + receipt are immutable', async () => {
+      // COMPLIANCE-HIGH-002: a re-entry for an accepted klientReferanse must not
+      // resurrect the row to PENDING or drop its Mattilsynet receipt.
+      const accepted = new RegulatoryReport();
+      accepted.id = 'row-accepted';
+      accepted.tenantId = TENANT_ID;
+      accepted.reportType = RegulatoryReportType.SEA_LICE;
+      accepted.klientReferanse = 'ref-123';
+      accepted.status = RegulatoryReportSubmissionStatus.SUBMITTED;
+      accepted.referanse = 'MT-ACCEPTED-7';
+      mocks.mockManager.findOne.mockResolvedValueOnce(accepted);
+
+      const row = await service.recordPending(TENANT_ID, baseParams);
+
+      expect(row.status).toBe(RegulatoryReportSubmissionStatus.SUBMITTED);
+      expect(row.referanse).toBe('MT-ACCEPTED-7');
+      // returned as-is: no create, no save-mutation of the accepted row
+      expect(mocks.mockManager.create).not.toHaveBeenCalled();
+      expect(mocks.mockManager.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findByKlientReferanse', () => {
+    it('looks up the submission row by (tenantId, reportType, klientReferanse)', async () => {
+      const existing = new RegulatoryReport();
+      existing.id = 'row-1';
+      mocks.mockManager.findOne.mockResolvedValueOnce(existing);
+
+      const found = await service.findByKlientReferanse(
+        TENANT_ID,
+        RegulatoryReportType.SEA_LICE,
+        'ref-123',
+      );
+
+      expect(found).toBe(existing);
+      expect(mocks.mockManager.findOne).toHaveBeenCalledWith(RegulatoryReport, {
+        where: {
+          tenantId: TENANT_ID,
+          reportType: RegulatoryReportType.SEA_LICE,
+          klientReferanse: 'ref-123',
+        },
+      });
+    });
   });
 
   describe('markSubmitted', () => {

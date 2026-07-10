@@ -39,6 +39,26 @@ Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
 (dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
 is corrected everywhere, not patched in one service.
 
+### FARM-CRITICAL-163 — draft ↔ submission reconciliation (auto-submit re-filed accepted/rejected reports)
+
+A report draft and its `regulatory_reports` row were two unlinked state machines: a draft became
+SUBMITTED only on synchronous first-call success, so a retry-sweep success or a PERMANENT failure
+left it `READY`, and `autoSubmitForTenant` re-listed and re-filed it every rollover — duplicating an
+already-accepted Mattilsynet filing (receipt nulled) or infinitely re-sending a rejected one. Fixed:
+`approveAndSubmit` reconciles against the submission SSoT (the report keyed by
+`klientReferanse = draft.id`); an accepted (SUBMITTED/QUEUED) row links the draft to its receipt and
+returns without re-POST; an automated (`AUTO_SUBMIT_ACTOR_ID`) re-file over a non-accepted row is
+refused (the retry sweep owns transient, the operator owns permanent); an explicit operator
+re-approval may still retry.
+
+### FARM-HIGH-164 — SUBMITTED report immutability guard
+
+`RegulatoryReportStoreService.upsert` reset an existing row to PENDING and nulled its receipt with no
+terminal-state guard, so a re-entry for an accepted `klientReferanse` silently converted an
+authoritative filing into a receiptless PENDING row. Fixed: `upsert` returns a SUBMITTED/QUEUED row
+unchanged (defense-in-depth to FARM-CRITICAL-163); a DB-level immutability trigger remains a
+follow-up.
+
 ### FARM-HIGH-160 — disease varsling assembler regression (non-existent column + missing status filter)
 
 The FARM-HIGH-155 fix scoped the disease site through `tb."batchId" = he."batchId"`, but

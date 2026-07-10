@@ -45,6 +45,7 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-003` | OPEN           | —            | sensor-expert | already-fixed-needs-close |
 | `DATA-CRITICAL-001`  | OPEN           | —            | data-expert  | real-open    |
 | `FARM-CRITICAL-161`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
+| `FARM-CRITICAL-163`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
 
 ## Mutation Rules
 

@@ -830,7 +830,14 @@ interface MortalityStepProps {
   prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefill }) => {
+export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefill }) => {
+  // When mortality is aggregated from mortality_records it is the SSoT and the
+  // per-cause grid renders read-only — corrections flow to the source records,
+  // never the report. hydrateFormFromPayload already seeded the counts on wizard
+  // open, so there is nothing to type.
+  const mortalityMeta = prefill ? findFieldMeta(prefill.fields, '/mortality') : undefined;
+  const mortalityFromRecords = mortalityMeta?.provenance === 'RECORDS';
+
   const handleLoadMortalityFromSystem = () => {
     if (!prefill) return;
     // Real per-cause aggregation from mortality_records — no more lumping
@@ -893,7 +900,7 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefi
           </h4>
           <p className="text-xs text-gray-500">Record fish losses during the reporting period</p>
         </div>
-        {prefill && (
+        {prefill && !mortalityFromRecords && (
           <button
             type="button"
             onClick={handleLoadMortalityFromSystem}
@@ -922,6 +929,13 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefi
         </div>
       </div>
 
+      {mortalityFromRecords && (
+        <p className="text-xs text-gray-500">
+          Aggregated per cause from mortality records; corrections go to the source records, not the
+          report.
+        </p>
+      )}
+
       {/* Cause Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {MORTALITY_CAUSES.map((cause) => (
@@ -932,7 +946,12 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, prefi
               min="0"
               value={getCauseCount(cause) || ''}
               onChange={(e) => updateByCause(cause, parseInt(e.target.value) || 0)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+              disabled={mortalityFromRecords}
+              className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                mortalityFromRecords
+                  ? 'border-gray-200 bg-gray-100 text-gray-700'
+                  : 'border-gray-300'
+              }`}
               placeholder="0"
             />
           </div>

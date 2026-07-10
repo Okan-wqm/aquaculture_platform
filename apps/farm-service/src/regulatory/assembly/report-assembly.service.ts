@@ -18,6 +18,7 @@ import { LakselusReportAssembler } from './assemblers/lakselus.assembler';
 import { RensefiskReportAssembler } from './assemblers/rensefisk.assembler';
 import { SettefiskReportAssembler } from './assemblers/settefisk.assembler';
 import { SlaktReportAssembler } from './assemblers/slakt.assembler';
+import { WelfareReportAssembler } from './assemblers/welfare.assembler';
 import { AssembledDraft, ReportFieldMeta } from './provenance.types';
 
 /**
@@ -76,6 +77,7 @@ export class ReportAssemblyService {
     private readonly rensefiskAssembler: RensefiskReportAssembler,
     private readonly slaktAssembler: SlaktReportAssembler,
     private readonly escapeAssembler: EscapeReportAssembler,
+    private readonly welfareAssembler: WelfareReportAssembler,
   ) {}
 
   async assemble(
@@ -151,6 +153,10 @@ export class ReportAssemblyService {
         // Incident-triggered, not period-based: assembles the latest open,
         // unreported escape_incident for the site (period is nominal).
         return this.escapeAssembler.assemble(tenantId, siteId);
+      case ReportPrefillType.WELFARE_EVENT:
+        // Event-triggered: assembles the site's latest welfare_assessment
+        // (period is nominal).
+        return this.welfareAssembler.assemble(tenantId, siteId);
       default:
         throw new BadRequestException(
           `Server-side assembly for ${reportType} has not landed yet — tracked in ` +

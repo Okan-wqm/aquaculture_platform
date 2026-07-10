@@ -10,6 +10,7 @@ import { LakselusReportAssembler } from '../../assembly/assemblers/lakselus.asse
 import { RensefiskReportAssembler } from '../../assembly/assemblers/rensefisk.assembler';
 import { SettefiskReportAssembler } from '../../assembly/assemblers/settefisk.assembler';
 import { SlaktReportAssembler } from '../../assembly/assemblers/slakt.assembler';
+import { WelfareReportAssembler } from '../../assembly/assemblers/welfare.assembler';
 import { ReportAssemblyService, ReportPrefillType } from '../../assembly/report-assembly.service';
 import { manualRequired, fromRecords } from '../../assembly/provenance.types';
 
@@ -28,6 +29,7 @@ function makeService(fields: ReturnType<typeof fromRecords>[]): ReportAssemblySe
     assemblePlanned: assemble(),
   };
   const escapeAssembler: Pick<EscapeReportAssembler, 'assemble'> = { assemble: assemble() };
+  const welfareAssembler: Pick<WelfareReportAssembler, 'assemble'> = { assemble: assemble() };
   return new ReportAssemblyService(
     biomassAssembler as BiomassReportAssembler,
     lakselusAssembler as LakselusReportAssembler,
@@ -35,6 +37,7 @@ function makeService(fields: ReturnType<typeof fromRecords>[]): ReportAssemblySe
     rensefiskAssembler as RensefiskReportAssembler,
     slaktAssembler as SlaktReportAssembler,
     escapeAssembler as EscapeReportAssembler,
+    welfareAssembler as WelfareReportAssembler,
   );
 }
 
@@ -79,8 +82,10 @@ describe('ReportAssemblyService', () => {
       [ReportPrefillType.CLEANER_FISH, { year: 2026, month: 6 }],
       [ReportPrefillType.SLAUGHTER_EXECUTED, { year: 2026, week: 27 }],
       [ReportPrefillType.SLAUGHTER_PLANNED, { year: 2026, week: 29 }],
-      // ESCAPE is incident-triggered — dispatches to its assembler with no period.
+      // ESCAPE + WELFARE_EVENT are incident/event-triggered — dispatch to their
+      // assemblers with no period.
       [ReportPrefillType.ESCAPE, { year: 2026 }],
+      [ReportPrefillType.WELFARE_EVENT, { year: 2026 }],
     ] as const) {
       const result = await service.assemble(tenantId, type, siteId, period);
       expect(result.reportType).toBe(type);
@@ -93,9 +98,9 @@ describe('ReportAssemblyService', () => {
 
   it('rejects a type whose assembler has not landed, naming the tracked plan', async () => {
     const service = makeService([]);
-    // WELFARE_EVENT / DISEASE_OUTBREAK assemblers have not landed yet (ESCAPE has).
+    // DISEASE_OUTBREAK assembler has not landed yet (ESCAPE + WELFARE_EVENT have).
     await expect(
-      service.assemble(tenantId, ReportPrefillType.WELFARE_EVENT, siteId, { year: 2026 }),
+      service.assemble(tenantId, ReportPrefillType.DISEASE_OUTBREAK, siteId, { year: 2026 }),
     ).rejects.toThrow(/2026-07-06-mattilsynet-automated-reporting/);
   });
 });

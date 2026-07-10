@@ -47,6 +47,7 @@ import { LakselusReportAssembler } from './assembly/assemblers/lakselus.assemble
 import { RensefiskReportAssembler } from './assembly/assemblers/rensefisk.assembler';
 import { SettefiskReportAssembler } from './assembly/assemblers/settefisk.assembler';
 import { SlaktReportAssembler } from './assembly/assemblers/slakt.assembler';
+import { WelfareReportAssembler } from './assembly/assemblers/welfare.assembler';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { ReportAssemblyService } from './assembly/report-assembly.service';
 import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
@@ -104,6 +105,7 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     RensefiskReportAssembler,
     SlaktReportAssembler,
     EscapeReportAssembler,
+    WelfareReportAssembler,
     // Same local-provider pattern feeding.module/equipment.module use — the
     // service only injects DataSource; no module cycle with water-quality.
     WaterTemperatureService,

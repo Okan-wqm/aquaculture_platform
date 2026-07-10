@@ -420,7 +420,14 @@ interface BiomassStepProps {
   prefill?: ReportPrefill<BiomassReportPayload>;
 }
 
-const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }) => {
+export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }) => {
+  // Standing stock assembled from batch/tank records (BiomassCalculatorService)
+  // is the SSoT — the per-species rows render read-only (corrections go to the
+  // batch/tank records, not the report). hydrateFormFromPayload already seeded
+  // the rows on wizard open.
+  const biomassMeta = prefill ? findFieldMeta(prefill.fields, '/currentBiomass') : undefined;
+  const biomassFromRecords = biomassMeta?.provenance === 'RECORDS';
+
   const handleLoadFromSystem = () => {
     if (!prefill) return;
     const { currentBiomass } = prefill.draftPayload;
@@ -492,7 +499,7 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
           <p className="text-xs text-gray-500">End of month standing stock</p>
         </div>
         <div className="flex items-center gap-2">
-          {prefill && (
+          {prefill && !biomassFromRecords && (
             <button
               type="button"
               onClick={handleLoadFromSystem}
@@ -509,13 +516,15 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
               Load from System
             </button>
           )}
-          <button
-            type="button"
-            onClick={addSpecies}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Species
-          </button>
+          {!biomassFromRecords && (
+            <button
+              type="button"
+              onClick={addSpecies}
+              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+            >
+              + Add Species
+            </button>
+          )}
         </div>
       </div>
 
@@ -531,7 +540,10 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
           <span className="text-sm text-green-700">
-            Assembled from batch and tank records. You can adjust values manually.
+            Assembled from batch and tank records.
+            {biomassFromRecords
+              ? ' Corrections go to the batch/tank records, not the report.'
+              : ' You can adjust values manually.'}
           </span>
         </div>
       )}
@@ -577,20 +589,22 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
             >
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Species #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeSpecies(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                {!biomassFromRecords && (
+                  <button
+                    type="button"
+                    onClick={() => removeSpecies(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="col-span-2 md:col-span-1">
@@ -599,7 +613,10 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
                     type="text"
                     value={species.speciesName}
                     onChange={(e) => updateSpecies(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={biomassFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      biomassFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                    }`}
                     placeholder="e.g., Atlantic Salmon"
                   />
                 </div>
@@ -612,7 +629,10 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
                     onChange={(e) =>
                       updateSpecies(index, { fishCount: parseInt(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={biomassFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      biomassFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                    }`}
                     placeholder="0"
                   />
                 </div>
@@ -625,7 +645,10 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, prefill }
                     onChange={(e) =>
                       updateSpecies(index, { biomassKg: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    disabled={biomassFromRecords}
+                    className={`w-full px-2 py-1.5 text-sm border rounded-md ${
+                      biomassFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                    }`}
                     placeholder="0"
                   />
                 </div>

@@ -88,14 +88,14 @@ order-insensitive.
 
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
-### PERF-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load
+### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load
 Owner: performance-expert. Deadline 2026-08-31. `financeSummary` re-aggregates the
 feeding/harvest/health/work-order tables every load; grows with tenant age. Needs a
 per-tenant outbox-refreshed rollup (or covering indexes + backend cache) with an
 EXPLAIN benchmark at 100k rows. Not fixed here: it is a self-contained caching
 subsystem, out of scope for the correctness/security pass.
 
-### DATA-009 — money persisted/transported as IEEE-754 float (platform-wide)
+### DATA-MEDIUM-009 — money persisted/transported as IEEE-754 float (platform-wide)
 Owner: billing-expert. Deadline 2026-09-30. `DecimalTransformer` returns a JS number
 and money crosses GraphQL as `Float`. The exact aggregation / string-decimal-scalar
 change is platform-wide (billing-expert primary) and larger than the finance domain.

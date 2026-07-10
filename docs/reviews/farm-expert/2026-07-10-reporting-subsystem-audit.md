@@ -39,6 +39,15 @@ Found while fixing FARM-CRITICAL-161: `FeedingCronService` uses the identical
 (dedicated per-job `QueryRunner`); tracked and fixed in the same remediation campaign so the pattern
 is corrected everywhere, not patched in one service.
 
+### FARM-HIGH-167 — slaughter drafts were un-submittable (missing official locality wrapper)
+
+`buildWirePayload` spread the flat assembled slakt body verbatim, but the official slakt schemas
+require the per-species `arter`/`ukeplanPerArt` nested inside `utførteLokaliteter`/
+`planlagteLokaliteter` (`additionalProperties:false`), so every scheduled slaughter draft failed
+official-schema validation and could never be submitted. Fixed: `reshapeForWire` wraps the executed
+`arter` and planned `ukeplanPerArt` into the single-locality wrapper (the draft's site, carrying the
+header org/lokalitet) and drops the assembler-only `totalKgPerArt`.
+
 ### FARM-CRITICAL-165 — enum-casing drift killed varsling submit + draft Approve & Submit
 
 The hand-written farm-module types sent lowercase enum VALUES (`welfare_impact`/`high`/`suspected`)

@@ -130,7 +130,7 @@ export class RegulatoryDraftSubmissionService {
       }
     }
 
-    const { wire, lokalitetsnummer } = await this.buildWirePayload(tenantId, draft);
+    const { wire, lokalitetsnummer } = await this.buildWirePayload(tenantId, reportType, draft);
 
     let validated;
     try {
@@ -173,6 +173,7 @@ export class RegulatoryDraftSubmissionService {
    */
   private async buildWirePayload(
     tenantId: string,
+    reportType: MattilsynetRestReportType,
     draft: RegulatoryReportDraft,
   ): Promise<{ wire: MattilsynetBasePayload; lokalitetsnummer: number }> {
     const [settings, orgNumber, mappings] = await Promise.all([
@@ -208,16 +209,78 @@ export class RegulatoryDraftSubmissionService {
       setByPointer(body, pointer, value);
     }
 
-    // Header LAST so it always wins over any colliding body key.
-    const wire: MattilsynetBasePayload = {
-      ...body,
+    const header = {
       klientReferanse: draft.id,
       organisasjonsnummer: orgNumber,
       lokalitetsnummer,
       kontaktperson: { navn, epost, telefonnummer },
     };
+
+    // Header LAST so it always wins over any colliding body key. The slakt types
+    // need the body's per-species arrays wrapped into the official locality
+    // wrapper (a draft is one site = one locality) — see reshapeForWire.
+    const wire = reshapeForWire(reportType, body, header);
     return { wire, lokalitetsnummer };
   }
+}
+
+/** The submission header fields common to every REST wire payload. */
+interface WireHeader {
+  klientReferanse: string;
+  organisasjonsnummer: string;
+  lokalitetsnummer: number;
+  kontaktperson: { navn: string; epost: string; telefonnummer: string };
+}
+
+/**
+ * Shape the assembled draft body into the exact official wire payload. Most REST
+ * types submit the assembled body verbatim under the header. The two slaughter
+ * types are the exception: the assembler emits a flat, review-friendly body
+ * (per-species `arter` / `ukeplanPerArt`, plus the assembler-only `totalKgPerArt`
+ * context), but the official schema requires the species arrays nested inside a
+ * single-locality wrapper (`utførteLokaliteter` / `planlagteLokaliteter`, both
+ * `additionalProperties:false`). A draft is one site, so the wrapper carries the
+ * same organisasjonsnummer + lokalitetsnummer as the header. Without this the
+ * slaughter draft can never pass official-schema validation (FARM-HIGH-002).
+ */
+function reshapeForWire(
+  reportType: MattilsynetRestReportType,
+  body: Record<string, unknown>,
+  header: WireHeader,
+): MattilsynetBasePayload {
+  if (reportType === RegulatoryReportType.SLAUGHTER_EXECUTED) {
+    // Drop the assembler-only arter/totalKgPerArt from the top level; nest arter.
+    const { arter, totalKgPerArt, ...rest } = body;
+    void totalKgPerArt;
+    const withWrapper = {
+      ...rest,
+      utførteLokaliteter: [
+        {
+          organisasjonsnummer: header.organisasjonsnummer,
+          lokalitetsnummer: header.lokalitetsnummer,
+          arter: Array.isArray(arter) ? arter : [],
+        },
+      ],
+    };
+    // Header via spread so its concrete types satisfy MattilsynetBasePayload while
+    // the wrapper key rides in through withWrapper (no excess-property check).
+    return { ...withWrapper, ...header };
+  }
+  if (reportType === RegulatoryReportType.SLAUGHTER_PLANNED) {
+    const { ukeplanPerArt, ...rest } = body;
+    const withWrapper = {
+      ...rest,
+      planlagteLokaliteter: [
+        {
+          organisasjonsnummer: header.organisasjonsnummer,
+          lokalitetsnummer: header.lokalitetsnummer,
+          ukeplanPerArt: Array.isArray(ukeplanPerArt) ? ukeplanPerArt : [],
+        },
+      ],
+    };
+    return { ...withWrapper, ...header };
+  }
+  return { ...body, ...header };
 }
 
 /** Resolve the draft's reportType string to a REST report type or reject it. */

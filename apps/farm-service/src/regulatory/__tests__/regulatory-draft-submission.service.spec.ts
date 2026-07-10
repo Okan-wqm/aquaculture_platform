@@ -234,6 +234,69 @@ describe('RegulatoryDraftSubmissionService', () => {
     expect(markSubmitted).not.toHaveBeenCalled();
   });
 
+  describe('slaughter wire reshape (FARM-HIGH-002 — official locality wrapper)', () => {
+    it('wraps executed-slaughter arter into utførteLokaliteter and drops the assembler-only fields', async () => {
+      getDraftOrThrow.mockResolvedValue(
+        makeDraft({
+          reportType: ReportPrefillType.SLAUGHTER_EXECUTED,
+          periodWeek: 27,
+          assembledPayload: {
+            slakteuke: 27,
+            slakteår: 2026,
+            godkjenningsnummer: 'M1234',
+            arter: [{ art: 'SAL', superiorKg: 40000, ordinærKg: 8000 }],
+            totalKgPerArt: [{ artskode: 'SAL', totalKg: 48000 }],
+          },
+        }),
+      );
+
+      await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+
+      const [, wire] = validate.mock.calls[0];
+      // nested official wrapper, one locality carrying the header identity
+      expect(wire.utførteLokaliteter).toEqual([
+        {
+          organisasjonsnummer: '987654321',
+          lokalitetsnummer: 12345,
+          arter: [{ art: 'SAL', superiorKg: 40000, ordinærKg: 8000 }],
+        },
+      ]);
+      // the flat assembler-only fields must NOT leak to the top level
+      // (schema is additionalProperties:false)
+      expect(wire.arter).toBeUndefined();
+      expect(wire.totalKgPerArt).toBeUndefined();
+      // top-level scalars survive
+      expect(wire).toMatchObject({ slakteuke: 27, slakteår: 2026, godkjenningsnummer: 'M1234' });
+    });
+
+    it('wraps planned-slaughter ukeplanPerArt into planlagteLokaliteter', async () => {
+      getDraftOrThrow.mockResolvedValue(
+        makeDraft({
+          reportType: ReportPrefillType.SLAUGHTER_PLANNED,
+          periodWeek: 30,
+          assembledPayload: {
+            uke: 30,
+            år: 2026,
+            godkjenningsnummer: 'M1234',
+            ukeplanPerArt: [{ artskode: 'SAL', mandagKg: 1000 }],
+          },
+        }),
+      );
+
+      await service.approveAndSubmit(TENANT, USER, DRAFT_ID);
+
+      const [, wire] = validate.mock.calls[0];
+      expect(wire.planlagteLokaliteter).toEqual([
+        {
+          organisasjonsnummer: '987654321',
+          lokalitetsnummer: 12345,
+          ukeplanPerArt: [{ artskode: 'SAL', mandagKg: 1000 }],
+        },
+      ]);
+      expect(wire.ukeplanPerArt).toBeUndefined();
+    });
+  });
+
   describe('reconciliation against the submission SSoT (PRODUCT-JOB-CRITICAL-002)', () => {
     it('reconciles + returns the receipt WITHOUT re-filing when the report is already SUBMITTED', async () => {
       // The retry sweep accepted the report out-of-band; the draft is still READY.

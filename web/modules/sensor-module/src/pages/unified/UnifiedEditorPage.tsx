@@ -47,6 +47,7 @@ import { useScadaPackageStore } from '../../store/scada';
 import { useProcess, type ProcessNode } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useUnifiedTags } from '../../hooks/useUnifiedTags';
+import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
 import {
   useScadaPackages,
   useCreateScadaPackage,
@@ -292,6 +293,13 @@ const UnifiedEditorPage: React.FC = () => {
   const scadaDirty = useScadaPackageStore((s) => s.isDirty);
   const scadaMarkClean = useScadaPackageStore((s) => s.markClean);
   const scadaReset = useScadaPackageStore((s) => s.reset);
+
+  // HMI undo/redo — the real history lives in the scada store; the toolbar
+  // buttons route here in HMI mode instead of the (undo-less) P&ID iframe.
+  const scadaUndo = useScadaPackageStore((s) => s.undo);
+  const scadaRedo = useScadaPackageStore((s) => s.redo);
+  const scadaCanUndo = useScadaPackageStore((s) => s.canUndo());
+  const scadaCanRedo = useScadaPackageStore((s) => s.canRedo());
 
   // Editor identity follows the route param. The scada store is a module
   // singleton shared with the standalone Builder, and this component instance
@@ -564,6 +572,12 @@ const UnifiedEditorPage: React.FC = () => {
     }
   };
 
+  // HMI keyboard shortcuts (undo/redo/copy/paste/cut/delete + Ctrl+S). Bound
+  // ONLY in HMI mode — the hook mutates the scada store, and Delete/Ctrl+Z in
+  // P&ID mode must not reach through to the hidden HMI canvas. isPreview drives
+  // the hook's early-return, so it attaches listeners solely in HMI.
+  useScadaKeyboardShortcuts({ onSave: handleSave, isPreview: mode !== 'hmi' });
+
   // Data-channel widget config modal handlers (6c parity). Save pushes the
   // updated widget data back to the canvas node; no console (no-console).
   const handleWidgetConfigClose = useCallback(() => {
@@ -687,18 +701,18 @@ const UnifiedEditorPage: React.FC = () => {
         {/* Center Controls */}
         <div className="flex items-center gap-1">
           <button
-            onClick={() => sendToCanvas('undo')}
+            onClick={() => (mode === 'hmi' ? scadaUndo() : sendToCanvas('undo'))}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Undo"
-            disabled={!isCanvasReady || !isCanvasEditable}
+            disabled={mode === 'hmi' ? !scadaCanUndo : !isCanvasReady || !isCanvasEditable}
           >
             <Undo className="w-4 h-4" />
           </button>
           <button
-            onClick={() => sendToCanvas('redo')}
+            onClick={() => (mode === 'hmi' ? scadaRedo() : sendToCanvas('redo'))}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Redo"
-            disabled={!isCanvasReady || !isCanvasEditable}
+            disabled={mode === 'hmi' ? !scadaCanRedo : !isCanvasReady || !isCanvasEditable}
           >
             <Redo className="w-4 h-4" />
           </button>

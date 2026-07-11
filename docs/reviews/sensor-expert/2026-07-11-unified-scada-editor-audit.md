@@ -34,3 +34,10 @@ record. Remediation is phased in
 - **Description:** The HMI branch of `UnifiedPropertiesPanel` read `useProcessStore.selectedNode` — the P&ID iframe's selection — while the real HMI `<ScreenCanvas>` writes selection to the SCADA store's `selectedWidgetId` via `setSelectedWidget`. The panel therefore never showed the selected widget and its Config/Tag writes targeted the wrong store; the Alarms/Control/Trends/Events/Animations/Scripts tabs were entirely unreachable.
 - **Impact:** HMI widgets could not be configured from the default editor — including safety-relevant control-security (PIN, emergency-stop) and alarm/trend configuration.
 - **Recommendation:** Wire the builder's full `PropertiesPanel` (via `usePropertiesPanelHandlers`) to the SCADA store's `selectedWidgetId` in unified HMI mode.
+
+### [SENSOR-HIGH-031] Unified editor Undo/Redo and editing shortcuts are dead no-ops in HMI mode
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`, `web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts`
+- **Category:** Product correctness / dead control
+- **Description:** The unified toolbar's Undo/Redo buttons posted `undo`/`redo` messages to the P&ID iframe, which has no such handler, and the SCADA store's real history (`undo`/`redo`/`canUndo`/`canRedo`) was never invoked. `useScadaKeyboardShortcuts` was never mounted, so Ctrl+Z/Y/C/V/X and Delete did nothing in HMI mode.
+- **Impact:** HMI editing in the default editor had no reachable undo history and no keyboard shortcuts — a regression from the standalone builder.
+- **Recommendation:** Route the toolbar Undo/Redo (and mount `useScadaKeyboardShortcuts`, gated to HMI so it cannot mutate the hidden HMI store from P&ID mode) to the SCADA store when `mode === 'hmi'`.

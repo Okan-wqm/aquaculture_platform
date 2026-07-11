@@ -1106,6 +1106,116 @@ impl Default for HealthState {
 #[cfg(feature = "health")]
 use axum::extract::State;
 
+// EDGE-HIGH-020: `Extension` must be a BARE NAME in scope for the
+// tuple-struct extractor pattern in the sensitive handlers (same
+// constraint as `State`, see BATCH-001-CI-FIX-017 above).
+#[cfg(feature = "health")]
+use axum::Extension;
+
+/// EDGE-HIGH-020 — authentication gate for the SENSITIVE health-server
+/// endpoints (`/metrics`, `/metrics/prometheus`, `/diagnostics`).
+///
+/// These expose internal counters and comprehensive diagnostics. Unlike
+/// the liveness (`/health`) and readiness (`/ready`) probes — which
+/// orchestrators MUST be able to hit anonymously — they are gated. The
+/// gate reuses the health-server HMAC mechanism: the same
+/// systemd-credential-delivered key the lifecycle control endpoint uses,
+/// carried on the shared `LifecycleHandlesCell`. No new key, no new config
+/// surface — one auth SSoT for the whole health server.
+///
+/// Trust boundary:
+///   * auth key present            → a valid per-request HMAC is REQUIRED;
+///   * auth key absent, loopback    → allowed (localhost is the SL-2 trust
+///     boundary — preserves the default local-scrape posture, zero
+///     regression);
+///   * auth key absent, NON-loopback → REFUSED (401).
+///
+/// The last arm is the fix: internal diagnostics can no longer be exposed
+/// to the network anonymously. Binding externally without a configured
+/// auth key fails closed by construction (make-it-impossible) rather than
+/// silently serving diagnostics to any network peer.
+#[cfg(feature = "health")]
+#[derive(Clone)]
+struct ObservabilityAuth {
+    lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
+    bind_is_loopback: bool,
+}
+
+#[cfg(feature = "health")]
+enum ObservabilityAuthRejection {
+    Hmac(String),
+    ExternalBindNoKey,
+}
+
+#[cfg(feature = "health")]
+impl ObservabilityAuthRejection {
+    fn into_response(self) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let (reason, detail) = match self {
+            Self::Hmac(e) => ("hmac_auth_failed", e),
+            Self::ExternalBindNoKey => (
+                "auth_required_for_external_bind",
+                "health server is bound to a non-loopback address but no HMAC \
+                 auth key is configured; sensitive endpoints refuse anonymous \
+                 network access"
+                    .to_string(),
+            ),
+        };
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "error": reason, "reason": detail })),
+        )
+            .into_response()
+    }
+}
+
+#[cfg(feature = "health")]
+impl ObservabilityAuth {
+    /// Fail-closed authorization for one sensitive request. `path` is the
+    /// canonical route (must match the HMAC input the client signed).
+    async fn authorize(
+        &self,
+        path: &str,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<(), ObservabilityAuthRejection> {
+        use crate::lifecycle_auth::{HEADER_HMAC, HEADER_TIMESTAMP, verify_request};
+
+        let handles = self.lifecycle_cell.as_ref().and_then(|c| c.get());
+        let auth_key = handles.and_then(|h| h.auth_key.as_ref());
+
+        match auth_key {
+            Some(key) => {
+                let hmac_header = headers.get(HEADER_HMAC).and_then(|v| v.to_str().ok());
+                let ts_header = headers.get(HEADER_TIMESTAMP).and_then(|v| v.to_str().ok());
+
+                // Prefer the wired clock authority (fail-closed on NTS-stale);
+                // fall back to a fresh SystemClockAuthority only when the cell
+                // predates clock wiring — same posture as the lifecycle handler.
+                let clock_owned;
+                let clock_ref: &dyn crate::runtime_safety::ClockAuthority =
+                    match handles.and_then(|h| h.clock_authority.as_ref()) {
+                        Some(c) => &**c,
+                        None => {
+                            clock_owned = crate::runtime_safety::SystemClockAuthority::new();
+                            &clock_owned
+                        }
+                    };
+
+                verify_request(key, "GET", path, hmac_header, ts_header, clock_ref)
+                    .await
+                    .map_err(|e| ObservabilityAuthRejection::Hmac(e.to_string()))
+            }
+            None => {
+                if self.bind_is_loopback {
+                    Ok(())
+                } else {
+                    Err(ObservabilityAuthRejection::ExternalBindNoKey)
+                }
+            }
+        }
+    }
+}
+
 #[cfg(feature = "health")]
 pub async fn start_health_server(
     addr: SocketAddr,
@@ -1124,12 +1234,22 @@ pub async fn start_health_server(
     // keep HealthState there + layer the lifecycle cell
     // on top so the routes that need it can extract it
     // via Extension<LifecycleHandlesCell>.
+    // EDGE-HIGH-020: the sensitive endpoints (/metrics, /metrics/prometheus,
+    // /diagnostics) authorize against the shared health-server HMAC key and
+    // fail closed on a non-loopback bind without a key. /health and /ready
+    // stay anonymous for orchestrator probes.
+    let obs_auth = ObservabilityAuth {
+        lifecycle_cell: lifecycle_cell.clone(),
+        bind_is_loopback: addr.ip().is_loopback(),
+    };
+
     let mut app = Router::new()
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
         .route("/metrics", get(metrics_handler))
         .route("/metrics/prometheus", get(metrics_prometheus_handler))
-        .route("/diagnostics", get(diagnostics_handler));
+        .route("/diagnostics", get(diagnostics_handler))
+        .layer(Extension(obs_auth));
 
     // Batch 122 Sprint 6.5: register the lifecycle
     // endpoint(s) conditionally. When the caller supplied
@@ -1196,8 +1316,15 @@ async fn ready_handler(
 #[cfg(feature = "health")]
 async fn metrics_handler(
     State(state): axum::extract::State<HealthState>,
-) -> impl axum::response::IntoResponse {
-    (axum::http::StatusCode::OK, axum::Json(state.metrics()))
+    Extension(auth): Extension<ObservabilityAuth>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rej) = auth.authorize("/metrics", &headers).await {
+        tracing::warn!("observability endpoint /metrics: auth REJECTED");
+        return rej.into_response();
+    }
+    (axum::http::StatusCode::OK, axum::Json(state.metrics())).into_response()
 }
 
 /// Prometheus text-format metrics endpoint (Batch 94
@@ -1211,7 +1338,14 @@ async fn metrics_handler(
 #[cfg(feature = "health")]
 async fn metrics_prometheus_handler(
     State(state): axum::extract::State<HealthState>,
-) -> impl axum::response::IntoResponse {
+    Extension(auth): Extension<ObservabilityAuth>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rej) = auth.authorize("/metrics/prometheus", &headers).await {
+        tracing::warn!("observability endpoint /metrics/prometheus: auth REJECTED");
+        return rej.into_response();
+    }
     let body = state.metrics_prometheus();
     (
         axum::http::StatusCode::OK,
@@ -1221,13 +1355,21 @@ async fn metrics_prometheus_handler(
         )],
         body,
     )
+        .into_response()
 }
 
 #[cfg(feature = "health")]
 async fn diagnostics_handler(
     State(state): axum::extract::State<HealthState>,
-) -> impl axum::response::IntoResponse {
-    (axum::http::StatusCode::OK, axum::Json(state.diagnostics()))
+    Extension(auth): Extension<ObservabilityAuth>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(rej) = auth.authorize("/diagnostics", &headers).await {
+        tracing::warn!("observability endpoint /diagnostics: auth REJECTED");
+        return rej.into_response();
+    }
+    (axum::http::StatusCode::OK, axum::Json(state.diagnostics())).into_response()
 }
 
 /// Simple TCP health check (no HTTP, just connection test)
@@ -1683,5 +1825,43 @@ mod tests {
             .expect("invalid");
         assert!(total.ends_with(" 5"), "total = 5, got: {}", total);
         assert!(invalid.ends_with(" 2"), "invalid = 2, got: {}", invalid);
+    }
+
+    // EDGE-HIGH-020: fail-closed posture of the sensitive-endpoint gate.
+    // When no HMAC key is available (lifecycle cell absent or auth disabled),
+    // a loopback bind stays open (localhost trust boundary) but a non-loopback
+    // bind refuses anonymous access — internal diagnostics cannot be exposed
+    // to the network without a configured key.
+
+    #[cfg(feature = "health")]
+    #[tokio::test]
+    async fn observability_gate_allows_loopback_without_key() {
+        let auth = ObservabilityAuth {
+            lifecycle_cell: None,
+            bind_is_loopback: true,
+        };
+        let headers = axum::http::HeaderMap::new();
+        assert!(
+            auth.authorize("/metrics", &headers).await.is_ok(),
+            "loopback bind without a key must stay open for local scrapers"
+        );
+    }
+
+    #[cfg(feature = "health")]
+    #[tokio::test]
+    async fn observability_gate_refuses_external_bind_without_key() {
+        let auth = ObservabilityAuth {
+            lifecycle_cell: None,
+            bind_is_loopback: false,
+        };
+        let headers = axum::http::HeaderMap::new();
+        let rejection = auth.authorize("/diagnostics", &headers).await;
+        assert!(
+            matches!(
+                rejection,
+                Err(ObservabilityAuthRejection::ExternalBindNoKey)
+            ),
+            "non-loopback bind without a key must fail closed"
+        );
     }
 }

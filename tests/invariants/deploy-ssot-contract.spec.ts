@@ -253,6 +253,39 @@ describe('deploy SSOT contract', () => {
     expect(partitionDefiner).toContain(
       'GRANT EXECUTE ON FUNCTION platform.create_messaging_partition(text, text, integer, integer) TO messaging_service',
     );
+
+    // DATA-HIGH-001 (mirror collapse): the messaging-partition privilege recipe
+    // — re-own to messaging_schema_owner AND the runtime-DML grant that MUST
+    // travel with it — lives in ONE SSoT function that both the Stage 010
+    // backfill and the TS provisioner forward path call. This regression guard
+    // fails if the runtime DML grant or its forward cover ever goes missing
+    // again (the "permission denied for table messages" bug), or if either
+    // caller re-inlines the recipe instead of delegating.
+    expect(partitionDefiner).toContain(
+      'CREATE OR REPLACE FUNCTION platform.grant_messaging_partition_authority',
+    );
+    expect(partitionDefiner).toContain(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %s TO messaging_service',
+    );
+    expect(partitionDefiner).toContain(
+      'ALTER DEFAULT PRIVILEGES FOR ROLE messaging_schema_owner IN SCHEMA %I ',
+    );
+    // The backfill delegates to the function — the recipe is not re-inlined.
+    expect(partitionDefiner).toContain(
+      'PERFORM platform.grant_messaging_partition_authority(tenant_schema)',
+    );
+    // The TS provisioner forward path calls the SAME function, never a
+    // hand-mirrored GRANT/ALTER sequence.
+    const messagingPartitionTs = read(
+      'libs/backend-common/src/database/messaging-partition-privileges.ts',
+    );
+    expect(messagingPartitionTs).toContain(
+      'SELECT platform.grant_messaging_partition_authority($1)',
+    );
+    // The recipe is not re-inlined in TS: no executor.query emitting the
+    // re-own / grant SQL directly (a comment may still describe the recipe).
+    expect(messagingPartitionTs).not.toContain('OWNER TO "${MESSAGING_PARTITION_OWNER_ROLE}"');
+
     expect(leastPrivilege).not.toContain("IF spec.schema_name = 'messaging' THEN");
 
     expect(provisioner).toContain('Platform Bootstrap — Stage 9');

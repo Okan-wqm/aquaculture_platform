@@ -834,4 +834,48 @@ describe('AuthenticationService', () => {
       expect(decodeRefreshTokenTransport(malformed)).toBe(malformed);
     });
   });
+
+  // confirmUserPassword backs the request.auth.verifyPassword responder that
+  // gates messaging's irreversible GDPR anonymizeMyData. It is a
+  // re-confirmation, NOT a login — these tests pin that distinction.
+  describe('confirmUserPassword() — GDPR re-confirmation (no login side effects)', () => {
+    it('returns true on a matching password WITHOUT touching lockout state', async () => {
+      const user = createMockUser({ failedLoginAttempts: 3 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockBcryptCompare.mockResolvedValue(true);
+
+      const result = await service.confirmUserPassword('user-uuid-123', 'correct');
+
+      expect(result).toBe(true);
+      // The lockout accounting UPDATE (dataSource.query) must NEVER run — a
+      // confirmation is not a login and must not lock or reset the account.
+      expect(mockDataSource.query).not.toHaveBeenCalled();
+      expect(user.failedLoginAttempts).toBe(3); // unchanged
+    });
+
+    it('returns false on a wrong password WITHOUT incrementing failedLoginAttempts', async () => {
+      const user = createMockUser({ failedLoginAttempts: 2 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockBcryptCompare.mockResolvedValue(false);
+
+      const result = await service.confirmUserPassword('user-uuid-123', 'wrong');
+
+      expect(result).toBe(false);
+      expect(mockDataSource.query).not.toHaveBeenCalled();
+      expect(user.failedLoginAttempts).toBe(2); // NOT incremented — no lockout path
+    });
+
+    it('returns false for an unknown user (timing-equalized dummy verify, no save)', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      mockBcryptCompare.mockResolvedValue(false);
+
+      const result = await service.confirmUserPassword('missing-user', 'whatever');
+
+      expect(result).toBe(false);
+      // The dummy-hash verify runs the same pipeline (enumeration-safe); no
+      // user row exists to persist.
+      expect(mockBcryptCompare).toHaveBeenCalled();
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+    });
+  });
 });

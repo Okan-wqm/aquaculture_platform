@@ -6,29 +6,29 @@ import { ObjectType, Field, Float, ID } from '@nestjs/graphql';
 @ObjectType()
 export class FeederCalibrationResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => Float)
-  feedSizeMm: number;
+  feedSizeMm!: number;
 
   @Field({ nullable: true })
   feedSizeLabel?: string;
 
   @Field(() => Float)
-  gramsPerDispensing: number;
+  gramsPerDispensing!: number;
 
   @Field(() => Float)
-  siloCapacityKg: number;
+  siloCapacityKg!: number;
 
   @Field({ nullable: true })
   notes?: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

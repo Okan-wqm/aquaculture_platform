@@ -27,19 +27,19 @@ export class InitialWeightInput {
   @Field(() => Float)
   @IsNumber()
   @Min(0.001)
-  avgWeight: number; // g
+  avgWeight!: number; // g
 
   @Field(() => Float)
   @IsNumber()
   @Min(0.001)
-  totalBiomass: number; // kg
+  totalBiomass!: number; // kg
 }
 
 @InputType()
 export class InitialLocationInput {
   @Field()
   @IsNotEmpty()
-  locationType: 'tank' | 'pond';
+  locationType!: 'tank' | 'pond';
 
   @Field({ nullable: true })
   @IsOptional()
@@ -54,12 +54,12 @@ export class InitialLocationInput {
   @Field(() => Int)
   @IsNumber()
   @Min(1)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0)
-  biomass: number;
+  biomass!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -74,13 +74,13 @@ export class InitialLocationInput {
 export class BatchDocumentInput {
   @Field(() => BatchDocumentType)
   @IsEnum(BatchDocumentType)
-  documentType: BatchDocumentType;
+  documentType!: BatchDocumentType;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  documentName: string;
+  documentName!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -91,27 +91,27 @@ export class BatchDocumentInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  storagePath: string;
+  storagePath!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  storageUrl: string;
+  storageUrl!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  originalFilename: string;
+  originalFilename!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  mimeType: string;
+  mimeType!: string;
 
   @Field(() => Int)
   @IsNumber()
   @Min(1)
-  fileSize: number;
+  fileSize!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -151,7 +151,7 @@ export class CreateBatchInput {
   @Field()
   @IsNotEmpty()
   @IsUUID()
-  speciesId: string;
+  speciesId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -167,23 +167,23 @@ export class CreateBatchInput {
 
   @Field(() => BatchInputType, { defaultValue: BatchInputType.FRY })
   @IsEnum(BatchInputType)
-  inputType: BatchInputType;
+  inputType!: BatchInputType;
 
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
   @Min(1)
-  initialQuantity: number;
+  initialQuantity!: number;
 
   @Field(() => InitialWeightInput)
   @ValidateNested()
   @Type(() => InitialWeightInput)
-  initialWeight: InitialWeightInput;
+  initialWeight!: InitialWeightInput;
 
   @Field()
   @IsNotEmpty()
   @IsDateString()
-  stockedAt: string;
+  stockedAt!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -194,7 +194,7 @@ export class CreateBatchInput {
   @IsNumber()
   @Min(0.5)
   @Max(5)
-  targetFCR: number;
+  targetFCR!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -244,7 +244,7 @@ export class CreateBatchInput {
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => InitialLocationInput)
-  initialLocations: InitialLocationInput[];
+  initialLocations!: InitialLocationInput[];
 
   @Field({ nullable: true })
   @IsOptional()

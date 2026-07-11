@@ -50,22 +50,22 @@ import { AiPersonasRegistryService } from '../services/ai-personas-registry.serv
 @ObjectType()
 export class SentimentTrendType {
   @Field(() => ID)
-  channelId: string;
+  channelId!: string;
 
   @Field()
-  channelName: string;
+  channelName!: string;
 
   @Field()
-  weekStart: string;
+  weekStart!: string;
 
   @Field(() => Float)
-  avgScore: number;
+  avgScore!: number;
 
   @Field(() => Int)
-  messageCount: number;
+  messageCount!: number;
 
   @Field()
-  trend: string;
+  trend!: string;
 }
 
 /**
@@ -74,10 +74,10 @@ export class SentimentTrendType {
 @ObjectType()
 export class SimilarMessageType {
   @Field(() => Message)
-  message: Message;
+  message!: Message;
 
   @Field(() => Float)
-  similarity: number;
+  similarity!: number;
 }
 
 /**
@@ -86,10 +86,10 @@ export class SimilarMessageType {
 @ObjectType()
 export class AiSettingsType {
   @Field(() => Boolean, { description: 'Tenant-level AI analysis master switch' })
-  tenantAiEnabled: boolean;
+  tenantAiEnabled!: boolean;
 
   @Field(() => Boolean, { description: 'User-level AI analysis consent' })
-  userAiConsent: boolean;
+  userAiConsent!: boolean;
 }
 
 /**
@@ -99,22 +99,22 @@ export class AiSettingsType {
 @ObjectType()
 export class AiPersonaType {
   @Field(() => String, { nullable: true, description: 'Persona ID (null = general assistant)' })
-  id: string | null;
+  id!: string | null;
 
   @Field(() => String, { description: 'Human-readable display name' })
-  name: string;
+  name!: string;
 
   @Field(() => String, { description: 'Short description of persona specialization' })
-  description: string;
+  description!: string;
 
   @Field(() => String, { description: 'Icon identifier (Lucide icon name)' })
-  icon: string;
+  icon!: string;
 
   @Field(() => String, { description: 'Theme color key for UI styling' })
-  color: string;
+  color!: string;
 
   @Field(() => [String], { description: 'List of capability labels' })
-  capabilities: string[];
+  capabilities!: string[];
 }
 
 // ============================================================================

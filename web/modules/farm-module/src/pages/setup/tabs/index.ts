@@ -7,5 +7,6 @@ export { SystemsTab } from './SystemsTab';
 export { EquipmentTab } from './EquipmentTab';
 export { SpeciesTab } from './SpeciesTab';
 export { SuppliersTab } from './SuppliersTab';
+export { SlaughterFacilitiesTab } from './SlaughterFacilitiesTab';
 export { ChemicalsTab } from './ChemicalsTab';
 export { FeedsTab } from './FeedsTab';

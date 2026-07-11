@@ -302,6 +302,10 @@ export class SensorResolver {
   /**
    * Ingest a sensor reading
    */
+  // SENSOR-LOW-001: forging readings can trigger/suppress alerts — require
+  // operator authority, matching createSensor/updateSensor. Device-originated
+  // ingestion uses the signed service-identity/MQTT path, not this user route.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => SensorReading, { name: 'ingestReading' })
   async ingestReading(
     @Args('input') input: IngestReadingInput,
@@ -321,6 +325,8 @@ export class SensorResolver {
   /**
    * Batch ingest sensor readings
    */
+  // SENSOR-LOW-001: same operator-authority gate as ingestReading.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => Int, { name: 'batchIngestReadings' })
   async batchIngestReadings(
     @Args('input') input: BatchIngestInput,

@@ -134,6 +134,11 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /embeddings-metadata\.entity\.ts$/i,
   // Send-idempotency ledger (DATA-HIGH-007): cross-tenant unique anchor.
   /message-send-idempotency\.entity\.ts$/i,
+  // SENSOR-MEDIUM-009: global VFD vendor reference data (Danfoss/ABB register
+  // addresses) — one cross-tenant table pinned to `sensor`, no per-tenant clone.
+  /vfd-register-mapping\.entity\.ts$/i,
+  // SENSOR-MEDIUM-004: cross-tenant O(1) device→tenant index pinned to `sensor`.
+  /edge-device-directory\.entity\.ts$/i,
 ];
 
 const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([

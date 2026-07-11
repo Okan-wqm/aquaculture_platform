@@ -120,4 +120,25 @@ export class TenantErasureAuditEntity {
    */
   @Column({ type: 'jsonb' })
   deletedRowsByTable!: Record<string, number>;
+
+  /**
+   * Per-table count of rows RETAINED under the GDPR Art 17(3)(b)
+   * legal-obligation carve-out (COMPLIANCE-HIGH-003) — government-filed
+   * regulatory records (regulatory_reports, biomass_reports) that the
+   * cascade keeps rather than deletes, with their PII columns anonymised
+   * in place. This is the auditable evidence that the controller made a
+   * lawful, documented retention decision instead of silently failing to
+   * erase. DEFAULT '{}' keeps the column blue-green safe for an in-flight
+   * old-code INSERT that predates the retention policy.
+   */
+  @Column({ type: 'jsonb', default: () => `'{}'::jsonb` })
+  retainedRowsByTable!: Record<string, number>;
+
+  /**
+   * How many of the retained rows actually had a PII column hashed
+   * (rows already free of identifiers are not counted). DEFAULT 0 keeps
+   * the column blue-green safe.
+   */
+  @Column({ type: 'integer', default: 0 })
+  retainedRowsAnonymised!: number;
 }

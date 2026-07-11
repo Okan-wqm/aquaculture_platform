@@ -19,30 +19,30 @@ import {
 @Index(['tenantId', 'entityType'])
 export class CodeSequence {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ length: 50 })
-  entityType: string; // 'Batch', 'Tank', 'Pond', etc.
+  entityType!: string; // 'Batch', 'Tank', 'Pond', etc.
 
   @Column({ length: 10 })
-  prefix: string; // 'B', 'TNK', 'PND', etc.
+  prefix!: string; // 'B', 'TNK', 'PND', etc.
 
   @Column({ type: 'int' })
-  year: number;
+  year!: number;
 
   @Column({ type: 'int', default: 0 })
-  lastSequence: number;
+  lastSequence!: number;
 
   @Column({ type: 'timestamptz', nullable: true })
   lastGeneratedAt?: Date;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

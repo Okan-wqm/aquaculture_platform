@@ -851,6 +851,11 @@ export enum VfdProgrammingParameterCategory {
   NETWORK = 'NETWORK',
 }
 
+// SENSOR-HIGH-028: member NAMES must match the backend VfdChangeSetStatus
+// (apps/sensor-service/src/vfd/entities/vfd.enums.ts) exactly — it is a real
+// GraphQL enum used as a query arg and a returned field. Previously the FE had
+// PARTIALLY_APPLIED (rejected as a $status arg) and was missing VERIFIED
+// (rendering a verified change set crashed STATUS_STYLES[undefined]).
 export enum VfdChangeSetStatus {
   DRAFT = 'DRAFT',
   PENDING_APPROVAL = 'PENDING_APPROVAL',
@@ -858,7 +863,7 @@ export enum VfdChangeSetStatus {
   REJECTED = 'REJECTED',
   APPLYING = 'APPLYING',
   APPLIED = 'APPLIED',
-  PARTIALLY_APPLIED = 'PARTIALLY_APPLIED',
+  VERIFIED = 'VERIFIED',
   FAILED = 'FAILED',
   ROLLED_BACK = 'ROLLED_BACK',
   CANCELLED = 'CANCELLED',

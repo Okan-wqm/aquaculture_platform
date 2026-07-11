@@ -12,6 +12,15 @@ interface DeadlineIndicatorProps {
   reportType?: string;
   showDate?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * Server-computed days-until-deadline (Oslo calendar). When provided, the
+   * indicator renders from this authoritative value instead of re-deriving the
+   * deadline from the browser's local clock — the data-driven path used by the
+   * Reports-due view (RPT-003). Negative = overdue.
+   */
+  daysUntilDue?: number;
+  /** Server-computed overdue flag (Oslo calendar); pairs with daysUntilDue. */
+  overdue?: boolean;
 }
 
 type UrgencyLevel = 'overdue' | 'today' | 'urgent' | 'soon' | 'normal' | 'submitted';
@@ -144,6 +153,34 @@ function getUrgencyLevel(deadline: Date, status: ReportStatus): UrgencyLevel {
   return 'normal';
 }
 
+/**
+ * Urgency from the server-authoritative days/overdue (Oslo calendar). The 0–3
+ * day window mirrors the backend deadline buckets (DUE_SOON = 1, APPROACHING =
+ * 2–3), so the chip and the outbox reminder agree.
+ */
+function getUrgencyFromServer(
+  daysUntilDue: number,
+  overdue: boolean,
+  status: ReportStatus,
+): UrgencyLevel {
+  if (status === 'submitted' || status === 'approved') {
+    return 'submitted';
+  }
+  if (overdue || daysUntilDue < 0) {
+    return 'overdue';
+  }
+  if (daysUntilDue === 0) {
+    return 'today';
+  }
+  if (daysUntilDue <= 3) {
+    return 'urgent';
+  }
+  if (daysUntilDue <= 7) {
+    return 'soon';
+  }
+  return 'normal';
+}
+
 function formatDaysRemaining(daysUntil: number): string {
   if (daysUntil < 0) {
     const daysOverdue = Math.abs(daysUntil);
@@ -171,9 +208,23 @@ export const DeadlineIndicator: React.FC<DeadlineIndicatorProps> = ({
   status,
   showDate = true,
   size = 'md',
+  daysUntilDue,
+  overdue,
 }) => {
-  const urgency = useMemo(() => getUrgencyLevel(deadline, status), [deadline, status]);
-  const daysUntil = useMemo(() => getDaysUntilDeadline(deadline), [deadline]);
+  // Prefer the server-computed days/overdue (Oslo calendar) when supplied;
+  // otherwise fall back to deriving from the deadline in the local clock.
+  const serverDriven = daysUntilDue !== undefined;
+  const urgency = useMemo(
+    () =>
+      serverDriven
+        ? getUrgencyFromServer(daysUntilDue, overdue ?? daysUntilDue < 0, status)
+        : getUrgencyLevel(deadline, status),
+    [serverDriven, daysUntilDue, overdue, deadline, status],
+  );
+  const daysUntil = useMemo(
+    () => (serverDriven ? daysUntilDue : getDaysUntilDeadline(deadline)),
+    [serverDriven, daysUntilDue, deadline],
+  );
   const config = urgencyConfig[urgency];
   const sizes = sizeConfig[size];
 

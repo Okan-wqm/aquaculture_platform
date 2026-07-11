@@ -6,7 +6,6 @@
     "types": ["jest", "node"],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "strictPropertyInitialization": false,
     "noUncheckedIndexedAccess": false,
     "noImplicitAny": false,
     "skipLibCheck": true

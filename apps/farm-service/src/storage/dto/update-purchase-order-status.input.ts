@@ -6,9 +6,9 @@ import { PurchaseOrderStatus } from '../entities/purchase-order.entity';
 export class UpdatePurchaseOrderStatusInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => PurchaseOrderStatus)
   @IsEnum(PurchaseOrderStatus)
-  status: PurchaseOrderStatus;
+  status!: PurchaseOrderStatus;
 }

@@ -99,7 +99,20 @@ function createService(
   const ds = opts.dataSource ?? createMockDataSource();
   const repo = opts.repository ?? createMockRepository();
   const cfg = createMockConfigService(opts.configOverrides);
-  return { service: new MqttAuthService(cfg, repo, ds), dataSource: ds, repo, cfg };
+  // Directory misses by default so tests exercise the authoritative scan path.
+  const directory = {
+    lookupTenantId: jest.fn().mockResolvedValue(null),
+    backfill: jest.fn().mockResolvedValue(undefined),
+    upsert: jest.fn().mockResolvedValue(undefined),
+    remove: jest.fn().mockResolvedValue(undefined),
+  };
+  return {
+    service: new MqttAuthService(cfg, repo, ds, directory as never),
+    dataSource: ds,
+    repo,
+    cfg,
+    directory,
+  };
 }
 
 // Helper: make the dataSource.query mock return a device for cross-schema lookup
@@ -351,19 +364,30 @@ describe('MqttAuthService', () => {
       expect(result).toBe(false);
     });
 
-    it('should ALLOW subscribe (acc=4) unconditionally', async () => {
+    it('should DENY subscribe (acc=4) to an unrelated/non-owned topic', async () => {
       const { service } = createService();
-      // acc=4 is MOSQ_ACL_SUBSCRIBE — always allowed
+      // SENSOR-MEDIUM-005: subscribe is no longer blanket-allowed — an
+      // arbitrary/cross-tenant filter must be denied (was `true` before).
       const result = await service.checkTopicAccess(MQTT_CLIENT, 'any/topic', 4);
-      expect(result).toBe(true);
+      expect(result).toBe(false);
     });
   });
 
   // ─── checkTopicAccess: legacy edge/ topics ─────────────────────────────
 
   describe('checkTopicAccess (legacy edge/ topics)', () => {
-    it('should ALLOW legacy edge/ topic for own username', async () => {
+    it('should DENY legacy edge/ topic by default (SENSOR-MEDIUM-006)', async () => {
+      // Tenant-unscoped edge/ topics are denied unless the migration flag is on.
       const { service } = createService({ configOverrides: { NODE_ENV: 'development' } });
+      const topic = `edge/${MQTT_CLIENT}/data`;
+      const result = await service.checkTopicAccess(MQTT_CLIENT, topic, 2);
+      expect(result).toBe(false);
+    });
+
+    it('should ALLOW legacy edge/ topic for own username only when migration flag enabled', async () => {
+      const { service } = createService({
+        configOverrides: { NODE_ENV: 'development', MQTT_LEGACY_EDGE_TOPICS_ENABLED: 'true' },
+      });
       const topic = `edge/${MQTT_CLIENT}/data`;
       const result = await service.checkTopicAccess(MQTT_CLIENT, topic, 2);
       expect(result).toBe(true);

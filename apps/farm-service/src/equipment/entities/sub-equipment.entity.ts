@@ -21,32 +21,32 @@ import { SubEquipmentType } from './sub-equipment-type.entity';
 @Index(['tenantId', 'status'])
 export class SubEquipment {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column('uuid')
   @Index()
-  parentEquipmentId: string;
+  parentEquipmentId!: string;
 
   @ManyToOne(() => Equipment, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'parentEquipmentId' })
-  parentEquipment: Equipment;
+  parentEquipment!: Equipment;
 
   @Column('uuid')
-  subEquipmentTypeId: string;
+  subEquipmentTypeId!: string;
 
   @ManyToOne(() => SubEquipmentType)
   @JoinColumn({ name: 'subEquipmentTypeId' })
-  subEquipmentType: SubEquipmentType;
+  subEquipmentType!: SubEquipmentType;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -65,7 +65,7 @@ export class SubEquipment {
     enum: EquipmentStatus,
     default: EquipmentStatus.OPERATIONAL,
   })
-  status: EquipmentStatus;
+  status!: EquipmentStatus;
 
   /**
    * Dinamik özellikler - SubEquipmentType.specificationSchema'ya göre
@@ -80,13 +80,13 @@ export class SubEquipment {
   notes?: string;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column('uuid', { nullable: true })
   createdBy?: string;
@@ -95,5 +95,5 @@ export class SubEquipment {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 }

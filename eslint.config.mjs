@@ -651,4 +651,24 @@ export default [
       '@typescript-eslint/no-unsafe-function-type': 'off',
     },
   },
+
+  // ── override: web microfrontend vite build configs ──
+  //    A vite.config.ts is a Node build script, not shipped app code. Two rules
+  //    are structurally unsatisfiable there and were previously tolerated only
+  //    because every module's config predates the affected-lint ratchet:
+  //      1. @typescript-eslint/no-unsafe-call — @vitejs/plugin-react (and the
+  //         federation plugin) export untyped factory functions the type-aware
+  //         parser resolves to `any`; calling them is unavoidable.
+  //      2. @nx/enforce-module-boundaries — the federation shared-deps SSoT lives
+  //         in shared-ui SOURCE (federationSharedConfig.ts) and is imported by
+  //         relative path because Node evaluates the config before the dist
+  //         barrel exists; the npm-scope entry does not export build helpers.
+  //    Scoping the relaxation to vite.config.ts keeps app code fully governed.
+  {
+    files: ['web/**/vite.config.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@nx/enforce-module-boundaries': 'off',
+    },
+  },
 ];

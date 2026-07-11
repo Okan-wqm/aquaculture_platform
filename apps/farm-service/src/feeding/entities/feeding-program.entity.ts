@@ -494,7 +494,7 @@ import type { FeedingProgramTank } from './feeding-program-tank.entity';
 export class FeedingProgram {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant ID for multi-tenancy isolation.
@@ -505,7 +505,7 @@ export class FeedingProgram {
   @Index()
   @IsUUID('4', { message: 'tenantId must be a valid UUID' })
   @IsNotEmpty({ message: 'tenantId is required' })
-  tenantId: string;
+  tenantId!: string;
 
   /**
    * Site ID for site-level filtering.
@@ -530,7 +530,7 @@ export class FeedingProgram {
   @IsNotEmpty({ message: 'name is required' })
   @IsString({ message: 'name must be a string' })
   @MaxLength(200, { message: 'name must not exceed 200 characters' })
-  name: string;
+  name!: string;
 
   /**
    * Unique program code within tenant - e.g., FP-2024-001
@@ -540,7 +540,7 @@ export class FeedingProgram {
   @IsNotEmpty({ message: 'code is required' })
   @IsString({ message: 'code must be a string' })
   @MaxLength(50, { message: 'code must not exceed 50 characters' })
-  code: string;
+  code!: string;
 
   /**
    * Optional program description
@@ -563,7 +563,7 @@ export class FeedingProgram {
    */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  feedAssignments: FeedAssignment[];
+  feedAssignments!: FeedAssignment[];
 
   // -------------------------------------------------------------------------
   // FCR TABLOSU (Opsiyonel)
@@ -592,7 +592,7 @@ export class FeedingProgram {
   })
   @Index()
   @IsEnum(FeedingProgramStatus, { message: 'status must be a valid FeedingProgramStatus' })
-  status: FeedingProgramStatus;
+  status!: FeedingProgramStatus;
 
   /**
    * Program start date
@@ -600,7 +600,7 @@ export class FeedingProgram {
   @Field()
   @Column({ type: 'date' })
   @IsDate({ message: 'startDate must be a valid date' })
-  startDate: Date;
+  startDate!: Date;
 
   /**
    * Optional program end date
@@ -651,7 +651,7 @@ export class FeedingProgram {
       defaultMealsPerDay: 4,
     },
   })
-  settings: ProgramSettings;
+  settings!: ProgramSettings;
 
   // -------------------------------------------------------------------------
   // ISTATISTIKLER (Runtime)
@@ -665,7 +665,7 @@ export class FeedingProgram {
   @IsNumber({}, { message: 'totalTanks must be a number' })
   @Min(0, { message: 'totalTanks must be at least 0' })
   @Max(10000, { message: 'totalTanks must not exceed 10000' })
-  totalTanks: number;
+  totalTanks!: number;
 
   /**
    * Total number of feed transitions across all tanks
@@ -674,7 +674,7 @@ export class FeedingProgram {
   @Column({ type: 'int', default: 0 })
   @IsNumber({}, { message: 'totalFeedTransitions must be a number' })
   @Min(0, { message: 'totalFeedTransitions must be at least 0' })
-  totalFeedTransitions: number;
+  totalFeedTransitions!: number;
 
   /**
    * Total feed consumed in kg (nullable).
@@ -705,7 +705,7 @@ export class FeedingProgram {
   @Column('uuid')
   @IsUUID('4', { message: 'createdBy must be a valid UUID' })
   @IsNotEmpty({ message: 'createdBy is required' })
-  createdBy: string;
+  createdBy!: string;
 
   /**
    * User ID who last modified this program.
@@ -726,14 +726,14 @@ export class FeedingProgram {
    */
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   /**
    * Record last update timestamp
    */
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   /**
    * Soft delete timestamp (null if not deleted)
@@ -748,7 +748,7 @@ export class FeedingProgram {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   /**
    * User ID who deleted this program (soft delete)
@@ -764,7 +764,7 @@ export class FeedingProgram {
    * Prevents concurrent update conflicts.
    */
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // RELATIONS

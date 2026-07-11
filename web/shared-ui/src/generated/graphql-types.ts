@@ -865,6 +865,11 @@ export type AutoRuleTrigger =
   | 'STOCK_LOW'
   | 'WATER_PARAM_ALERT';
 
+export type AutoSubmitPolicyEntry = {
+  enabled: Scalars['Boolean']['output'];
+  reportType: Scalars['String']['output'];
+};
+
 export type AutomationDeployStepResultType = {
   commandId?: Maybe<Scalars['String']['output']>;
   message?: Maybe<Scalars['String']['output']>;
@@ -1188,7 +1193,8 @@ export type BatchInputType =
   | 'FRY'
   | 'JUVENILES'
   | 'LARVAE'
-  | 'POST_LARVAE';
+  | 'POST_LARVAE'
+  | 'SMOLT';
 
 export type BatchListResponse = {
   hasNextPage: Scalars['Boolean']['output'];
@@ -1369,6 +1375,19 @@ export type BillingCycle =
   | 'QUARTERLY'
   | 'SEMI_ANNUAL';
 
+export type BiomassAltinnExportOutput = {
+  /** Form-ordered CSV (Section,Field,Value) */
+  csv: Scalars['String']['output'];
+  /** Suggested download filename for the CSV */
+  filename: Scalars['String']['output'];
+  /** When this export was generated */
+  generatedAt: Scalars['DateTime']['output'];
+  /** Reporting period label (yyyy-mm) */
+  periodLabel: Scalars['String']['output'];
+  /** Printable, section-ordered transcription block */
+  printable: Scalars['String']['output'];
+};
+
 export type BiomassCurrentStockInput = {
   bySpecies: Array<BiomassSpeciesBreakdownInput>;
   totalKg: Scalars['Float']['input'];
@@ -1406,9 +1425,12 @@ export type BiomassMortalityInput = {
 };
 
 export type BiomassReport = {
+  altinnReference?: Maybe<Scalars['String']['output']>;
+  confirmedBy?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
   generatedBy?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
+  readyAt?: Maybe<Scalars['DateTime']['output']>;
   reportData: Scalars['JSON']['output'];
   reportMonth: Scalars['Int']['output'];
   reportYear: Scalars['Int']['output'];
@@ -1423,7 +1445,9 @@ export type BiomassReport = {
 
 /** Lifecycle of a biomass report snapshot */
 export type BiomassReportStatus =
+  | 'CONFIRMED_SUBMITTED'
   | 'DRAFT'
+  | 'READY'
   | 'SUBMITTED';
 
 export type BiomassSlaughterInput = {
@@ -1848,7 +1872,7 @@ export type ChannelMember = {
   role: ChannelMemberRole;
   tenantId: Scalars['String']['output'];
   /** User profile details for this channel member */
-  user?: Maybe<User>;
+  user?: Maybe<PublicUserProfile>;
   userId: Scalars['String']['output'];
 };
 
@@ -2129,6 +2153,12 @@ export type ClockOutInput = {
 export type ClonePolicyInput = {
   newName: Scalars['String']['input'];
   policyId: Scalars['ID']['input'];
+};
+
+export type CloseEscapeIncidentInput = {
+  id: Scalars['ID']['input'];
+  /** Final recaptured count */
+  recoveredCount?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type ColumnInfo = {
@@ -2496,7 +2526,6 @@ export type CreateBiomassReportInput = {
   siteId: Scalars['ID']['input'];
   slaughter: BiomassSlaughterInput;
   stockings: Array<BiomassStockingRecordInput>;
-  submit?: InputMaybe<Scalars['Boolean']['input']>;
   transfers: Array<BiomassTransferRecordInput>;
 };
 
@@ -2967,8 +2996,8 @@ export type CreateHarvestRecordInput = {
   pricePerKg?: InputMaybe<Scalars['Float']['input']>;
   /** Product form (whole, gutted, fillet, etc.) */
   productForm?: InputMaybe<ProductForm>;
-  /** Quality grade of harvested fish */
-  qualityGrade: QualityGrade;
+  /** Norwegian quality class (kvalitetsklasse) — the stored SSoT. */
+  qualityClass: QualityClass;
   /** Number of fish harvested */
   quantityHarvested: Scalars['Int']['input'];
   /** Rejected quantity (kg) */
@@ -3464,13 +3493,23 @@ export type CreateSiteInput = {
   country?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
   location?: InputMaybe<SiteLocationInput>;
+  lokalitetsnummer?: InputMaybe<Scalars['Int']['input']>;
   name: Scalars['String']['input'];
+  organisationNumberOverride?: InputMaybe<Scalars['String']['input']>;
   region?: InputMaybe<Scalars['String']['input']>;
   settings?: InputMaybe<Scalars['JSON']['input']>;
   siteManager?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<SiteStatus>;
   timezone?: InputMaybe<Scalars['String']['input']>;
   totalArea?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type CreateSlaughterFacilityInput = {
+  address?: InputMaybe<Scalars['String']['input']>;
+  /** Official approval number (1–6 alphanumeric) */
+  godkjenningsnummer: Scalars['String']['input'];
+  isDefault?: Scalars['Boolean']['input'];
+  name: Scalars['String']['input'];
 };
 
 export type CreateSparePartInput = {
@@ -3508,6 +3547,7 @@ export type CreateSpeciesInput = {
   localName?: InputMaybe<Scalars['String']['input']>;
   marketInfo?: InputMaybe<Scalars['JSON']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  officialCode?: InputMaybe<Scalars['String']['input']>;
   optimalConditions?: InputMaybe<OptimalConditionsInput>;
   scientificName: Scalars['String']['input'];
   status?: SpeciesStatus;
@@ -3663,6 +3703,7 @@ export type CreateTankInput = {
   maxDensity?: Scalars['Float']['input'];
   name: Scalars['String']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+  regulatoryUnitId?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<TankStatus>;
   systemId?: InputMaybe<Scalars['String']['input']>;
   tankType?: InputMaybe<TankType>;
@@ -3942,9 +3983,11 @@ export type CreateWorkRotationInput = {
 export type CreateWorkerInput = {
   email: Scalars['String']['input'];
   firstName: Scalars['String']['input'];
+  isVeterinarian?: Scalars['Boolean']['input'];
   lastName: Scalars['String']['input'];
   phone?: InputMaybe<Scalars['String']['input']>;
   position: Scalars['String']['input'];
+  veterinaryLicenseNumber?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CreatedTenantUserResult = {
@@ -4810,8 +4853,20 @@ export type EdgeDeviceStats = {
 };
 
 export type EditMessageInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** New message content (max 4000 chars) */
   content: Scalars['String']['input'];
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EffectiveConfigurationDto = {
@@ -5366,6 +5421,43 @@ export type EscalationPolicy = {
   timezone?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['DateTime']['output'];
 };
+
+export type EscapeIncident = {
+  avgWeightG?: Maybe<Scalars['Float']['output']>;
+  batchId?: Maybe<Scalars['ID']['output']>;
+  cause: EscapeIncidentCause;
+  causeDetails?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['ID']['output']>;
+  detectedAt: Scalars['DateTime']['output'];
+  estimatedCount: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  recoveredCount?: Maybe<Scalars['Int']['output']>;
+  recoveryOngoing: Scalars['Boolean']['output'];
+  siteId: Scalars['ID']['output'];
+  speciesId: Scalars['ID']['output'];
+  status: EscapeIncidentStatus;
+  tankId?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  varslingReportId?: Maybe<Scalars['ID']['output']>;
+};
+
+/** Operational cause taxonomy for fish escape incidents */
+export type EscapeIncidentCause =
+  | 'HANDLING'
+  | 'HOLE_IN_NET'
+  | 'OPERATIONAL'
+  | 'OTHER'
+  | 'PREDATOR'
+  | 'STRUCTURAL_FAILURE'
+  | 'UNKNOWN';
+
+/** Lifecycle of an escape incident (recapture may continue while open) */
+export type EscapeIncidentStatus =
+  | 'CLOSED'
+  | 'OPEN';
 
 export type ExecutedSlaughterLocalityInput = {
   /** Quality grades per species */
@@ -6895,9 +6987,13 @@ export type HarvestFilterInput = {
   productForm?: InputMaybe<ProductForm>;
   /** Filter by quality approval status */
   qualityApproved?: InputMaybe<Scalars['Boolean']['input']>;
-  /** Filter by quality grade */
+  /** Filter by Norwegian quality class */
+  qualityClass?: InputMaybe<QualityClass>;
+  /** Filter by multiple Norwegian quality classes */
+  qualityClasses?: InputMaybe<Array<QualityClass>>;
+  /** DEPRECATED — filter by legacy display grade (mapped to quality class) */
   qualityGrade?: InputMaybe<QualityGrade>;
-  /** Filter by multiple quality grades */
+  /** DEPRECATED — filter by multiple legacy display grades (mapped to quality class) */
   qualityGrades?: InputMaybe<Array<QualityGrade>>;
   /** Search in record code, lot number, or notes */
   search?: InputMaybe<Scalars['String']['input']>;
@@ -7122,7 +7218,9 @@ export type HarvestRecord = {
   productForm: ProductForm;
   profitMargin?: Maybe<Scalars['Float']['output']>;
   qualityApproved: Scalars['Boolean']['output'];
+  qualityClass: QualityClass;
   qualityControl?: Maybe<Scalars['JSON']['output']>;
+  /** DEPRECATED display alias derived from qualityClass; use qualityClass. */
   qualityGrade: QualityGrade;
   quantityHarvested: Scalars['Int']['output'];
   recordCode: Scalars['String']['output'];
@@ -7933,6 +8031,27 @@ export type LegalHold = {
   tenantId: Scalars['String']['output'];
 };
 
+export type LiceCount = {
+  adultFemaleLice: Scalars['Float']['output'];
+  attachedLice: Scalars['Float']['output'];
+  batchId?: Maybe<Scalars['ID']['output']>;
+  countDate: Scalars['String']['output'];
+  countedBy?: Maybe<Scalars['ID']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  fishSampled: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  mobileLice: Scalars['Float']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  reportingWeek: Scalars['Int']['output'];
+  reportingYear: Scalars['Int']['output'];
+  seaTemperatureC?: Maybe<Scalars['Float']['output']>;
+  siteId: Scalars['ID']['output'];
+  tankId: Scalars['ID']['output'];
+  temperatureSource?: Maybe<Scalars['String']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
 export type LightRegimeInput = {
   darkHours: Scalars['Float']['input'];
   lightHours: Scalars['Float']['input'];
@@ -8202,8 +8321,20 @@ export type MarineObservation = {
 export type MarkReadInput = {
   /** Channel UUID */
   channelId: Scalars['ID']['input'];
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
   /** Last read message UUID */
   messageId: Scalars['ID']['input'];
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
 /** Result of Maskinporten connection test */
@@ -8331,7 +8462,7 @@ export type Message = {
   reactionSummary?: Maybe<Array<ReactionSummary>>;
   /** Read/delivery receipts for this message */
   receipts?: Maybe<Array<MessageReceipt>>;
-  sender?: Maybe<User>;
+  sender?: Maybe<PublicUserProfile>;
   senderId: Scalars['String']['output'];
   tenantId: Scalars['String']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
@@ -8509,6 +8640,8 @@ export type Mutation = {
   applyIndustryTemplate: Array<SensorTypeDefinition>;
   applyParameterTemplate: Array<WaterQualityParameterConfig>;
   applyProtocolDefaults: Scalars['JSON']['output'];
+  /** Approve a READY draft and submit it to Mattilsynet */
+  approveAndSubmitReportDraft: ReportSubmissionResult;
   approveAttendance: AttendanceRecord;
   approveChannelProposal: Array<SensorDataChannel>;
   approveEdgeDevice: EdgeDevice;
@@ -8579,6 +8712,8 @@ export type Mutation = {
   /** Programi kopyala */
   cloneFeedingProgram: FeedingProgram;
   closeBatch: Batch;
+  /** Close an escape incident (recapture finished) */
+  closeEscapeIncident: EscapeIncident;
   closeSupportThread: SupportMessageThread;
   /** Yemleme programini tamamla */
   completeFeedingProgram: FeedingProgram;
@@ -8592,6 +8727,8 @@ export type Mutation = {
   completeWorkOrder: WorkOrder;
   /** Confirm and execute a proposed AI action */
   confirmAiAction: Scalars['Boolean']['output'];
+  /** Confirm a READY biomass report was submitted to Fiskeridirektoratet via Altinn, recording the Altinn receipt reference (terminal, immutable). */
+  confirmBiomassReportSubmitted: BiomassReport;
   confirmSafetyTrainingAttendance: SafetyTrainingRecord;
   confirmTenantErasure: ErasureResultResponse;
   consumeFeedInventory: FeedInventory;
@@ -8601,7 +8738,7 @@ export type Mutation = {
   createAutomationProgram: AutomationProgram;
   createBatch: Batch;
   createBatchWaterQualityMeasurements: Array<WaterQualityMeasurement>;
-  /** Create or update (if draft) a monthly biomass report for a site. Pass submit=true to finalise — a SUBMITTED report becomes immutable. */
+  /** Create or update the DRAFT monthly biomass report for a site. Idempotent per (siteId, reportMonth, reportYear). Finalisation is never done here — the report is submitted to Fiskeridirektoratet manually via Altinn (markBiomassReportReady → confirmBiomassReportSubmitted). */
   createBiomassReport: BiomassReport;
   createCertificationType: CertificationType;
   /** Create a new channel */
@@ -8660,6 +8797,8 @@ export type Mutation = {
   createSensorType: SensorTypeDefinition;
   createShift: Shift;
   createSite: SiteResponse;
+  /** Add a slaughter facility to the catalog */
+  createSlaughterFacility: SlaughterFacility;
   createSparePart: SparePart;
   createSpecies: Species;
   createStorageLocation: StorageLocationResponse;
@@ -8763,6 +8902,8 @@ export type Mutation = {
   disableMfa: DisableMfaResponse;
   discoverDataChannels: DiscoveryResultType;
   discoverTags: TagDiscoveryResultType;
+  /** Dismiss a non-applicable regulatory report draft */
+  dismissReportDraft: RegulatoryReportDraft;
   duplicateProcess: ProcessResultType;
   editMessage: Message;
   emergencyStopVfd: VfdCommandResult;
@@ -8793,6 +8934,8 @@ export type Mutation = {
   login: AuthPayload;
   logout: LogoutResponse;
   markAllNotificationsAsRead: Scalars['Boolean']['output'];
+  /** Mark a DRAFT biomass report READY for the manual Altinn (FD-0001) export. */
+  markBiomassReportReady: BiomassReport;
   markMessagesRead: Scalars['Boolean']['output'];
   markNotificationAsRead: Scalars['Boolean']['output'];
   /** MFA step-up: re-verify identity for elevated operations */
@@ -8832,13 +8975,23 @@ export type Mutation = {
   recordCull: Batch;
   /** Gunluk yemleme kaydet */
   recordDailyFeeding: DailyFeedingExecution;
+  /** Record an operational escape incident (the rømming varsling assembles from it) */
+  recordEscapeIncident: EscapeIncident;
   recordGrading: Batch;
   recordGrowthSample: GrowthMeasurement;
+  /** Record a lice count for a pen/date (upserts — re-recording the same pen/date corrects the row) */
+  recordLiceCount: LiceCount;
   recordMortality: Batch;
   recordPayment: Payment;
   recordSparePartStockMovement: SparePart;
   recordStockMovement: StockMovementResponse;
+  /** Record an applied treatment (official Mattilsynet method/virkestoff values) */
+  recordTreatmentApplication: TreatmentApplication;
   recordWaterTemperature: Scalars['Boolean']['output'];
+  /** Record a structured welfare assessment (0–3 scores over a fish sample) */
+  recordWelfareAssessment: WelfareAssessment;
+  /** Re-assemble a draft from the current source records */
+  refreshReportDraft: RegulatoryReportDraft;
   refreshToken: AuthPayload;
   refundPayment: Payment;
   regenerateDeviceToken: RegenerateTokenResponse;
@@ -8900,8 +9053,12 @@ export type Mutation = {
   restoreSpecies: Species;
   restoreSupplier: SupplierResponse;
   restoreSystem: SystemResponse;
+  /** Replay a previously failed Mattilsynet REST report submission */
+  resubmitRegulatoryReport: ReportSubmissionResult;
   resumeMaintenanceSchedule: MaintenanceSchedule;
   resumeWorkOrder: WorkOrder;
+  /** Reopen a READY biomass report back to DRAFT for editing. */
+  revertBiomassReportToDraft: BiomassReport;
   revokeCertification: EmployeeCertification;
   revokeTenantProvisioningKey: Scalars['Boolean']['output'];
   revokeUserRole: Scalars['Boolean']['output'];
@@ -8911,6 +9068,8 @@ export type Mutation = {
   saveDashboardLayout: DashboardLayout;
   saveDiscoveredChannels: Array<DataChannelType>;
   saveFeederCalibrations: Array<FeederCalibrationResponse>;
+  /** Fill the blocking MANUAL_REQUIRED fields of a draft (RECORDS/SENSOR rejected) */
+  saveReportDraftOverrides: RegulatoryReportDraft;
   saveSentinelHubSettings: Scalars['Boolean']['output'];
   saveSystemDefaultLayout: DashboardLayout;
   scanEdgeDeviceHardware: HardwareScanResultType;
@@ -9006,6 +9165,8 @@ export type Mutation = {
   updateAiProviderSettings: AiSettings;
   updateAlertRule: AlertRule;
   updateAutoRule: AutoRule;
+  /** Toggle per-report-type automated submission (opt-in) */
+  updateAutoSubmitPolicy: Array<AutoSubmitPolicyEntry>;
   updateAutomationProgram: AutomationProgram;
   updateBatch: Batch;
   updateBatchFeedAssignment: BatchFeedAssignmentResponse;
@@ -9086,6 +9247,8 @@ export type Mutation = {
   updateSentinelHubInstanceId: Scalars['Boolean']['output'];
   updateShift: Shift;
   updateSite: SiteResponse;
+  /** Update a slaughter facility */
+  updateSlaughterFacility: SlaughterFacility;
   updateSparePart: SparePart;
   updateSpecies: Species;
   updateStepAction: StepAction;
@@ -9373,6 +9536,11 @@ export type MutationApplyParameterTemplateArgs = {
 export type MutationApplyProtocolDefaultsArgs = {
   config: Scalars['JSON']['input'];
   protocolCode: Scalars['String']['input'];
+};
+
+
+export type MutationApproveAndSubmitReportDraftArgs = {
+  draftId: Scalars['ID']['input'];
 };
 
 
@@ -9722,6 +9890,11 @@ export type MutationCloseBatchArgs = {
 };
 
 
+export type MutationCloseEscapeIncidentArgs = {
+  input: CloseEscapeIncidentInput;
+};
+
+
 export type MutationCloseSupportThreadArgs = {
   threadId: Scalars['ID']['input'];
 };
@@ -9778,6 +9951,12 @@ export type MutationCompleteWorkOrderArgs = {
 
 export type MutationConfirmAiActionArgs = {
   actionId: Scalars['ID']['input'];
+};
+
+
+export type MutationConfirmBiomassReportSubmittedArgs = {
+  altinnReference: Scalars['String']['input'];
+  id: Scalars['ID']['input'];
 };
 
 
@@ -10071,6 +10250,11 @@ export type MutationCreateShiftArgs = {
 
 export type MutationCreateSiteArgs = {
   input: CreateSiteInput;
+};
+
+
+export type MutationCreateSlaughterFacilityArgs = {
+  input: CreateSlaughterFacilityInput;
 };
 
 
@@ -10559,6 +10743,11 @@ export type MutationDiscoverTagsArgs = {
 };
 
 
+export type MutationDismissReportDraftArgs = {
+  draftId: Scalars['ID']['input'];
+};
+
+
 export type MutationDuplicateProcessArgs = {
   id: Scalars['ID']['input'];
   newName: Scalars['String']['input'];
@@ -10672,6 +10861,11 @@ export type MutationLockProgramArgs = {
 
 export type MutationLoginArgs = {
   input: LoginInput;
+};
+
+
+export type MutationMarkBiomassReportReadyArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -10825,6 +11019,11 @@ export type MutationRecordDailyFeedingArgs = {
 };
 
 
+export type MutationRecordEscapeIncidentArgs = {
+  input: RecordEscapeIncidentInput;
+};
+
+
 export type MutationRecordGradingArgs = {
   input: RecordGradingInput;
 };
@@ -10832,6 +11031,11 @@ export type MutationRecordGradingArgs = {
 
 export type MutationRecordGrowthSampleArgs = {
   input: RecordGrowthSampleInput;
+};
+
+
+export type MutationRecordLiceCountArgs = {
+  input: RecordLiceCountInput;
 };
 
 
@@ -10855,9 +11059,24 @@ export type MutationRecordStockMovementArgs = {
 };
 
 
+export type MutationRecordTreatmentApplicationArgs = {
+  input: RecordTreatmentApplicationInput;
+};
+
+
 export type MutationRecordWaterTemperatureArgs = {
   celsius: Scalars['Float']['input'];
   tankId: Scalars['ID']['input'];
+};
+
+
+export type MutationRecordWelfareAssessmentArgs = {
+  input: RecordWelfareAssessmentInput;
+};
+
+
+export type MutationRefreshReportDraftArgs = {
+  draftId: Scalars['ID']['input'];
 };
 
 
@@ -11146,12 +11365,22 @@ export type MutationRestoreSystemArgs = {
 };
 
 
+export type MutationResubmitRegulatoryReportArgs = {
+  reportId: Scalars['String']['input'];
+};
+
+
 export type MutationResumeMaintenanceScheduleArgs = {
   id: Scalars['ID']['input'];
 };
 
 
 export type MutationResumeWorkOrderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRevertBiomassReportToDraftArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -11200,6 +11429,11 @@ export type MutationSaveDiscoveredChannelsArgs = {
 
 export type MutationSaveFeederCalibrationsArgs = {
   input: SaveFeederCalibrationsInput;
+};
+
+
+export type MutationSaveReportDraftOverridesArgs = {
+  input: SaveReportDraftOverridesInput;
 };
 
 
@@ -11587,6 +11821,11 @@ export type MutationUpdateAutoRuleArgs = {
 };
 
 
+export type MutationUpdateAutoSubmitPolicyArgs = {
+  input: UpdateAutoSubmitPolicyInput;
+};
+
+
 export type MutationUpdateAutomationProgramArgs = {
   id: Scalars['ID']['input'];
   input: UpdateProgramInput;
@@ -11942,6 +12181,11 @@ export type MutationUpdateShiftArgs = {
 
 export type MutationUpdateSiteArgs = {
   input: UpdateSiteInput;
+};
+
+
+export type MutationUpdateSlaughterFacilityArgs = {
+  input: UpdateSlaughterFacilityInput;
 };
 
 
@@ -13733,6 +13977,9 @@ export type ProtocolConfigurationInput = {
   stopBits?: InputMaybe<Scalars['Int']['input']>;
   subnetMask?: InputMaybe<Scalars['String']['input']>;
   timeout?: InputMaybe<Scalars['Int']['input']>;
+  tls?: InputMaybe<Scalars['Boolean']['input']>;
+  tlsCaCert?: InputMaybe<Scalars['String']['input']>;
+  tlsRejectUnauthorized?: InputMaybe<Scalars['Boolean']['input']>;
   unitId?: InputMaybe<Scalars['Int']['input']>;
   updateRate?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -13809,6 +14056,15 @@ export type ProvisionedDeviceResponse = {
   tokenExpiresAt: Scalars['DateTime']['output'];
 };
 
+export type PublicUserProfile = {
+  firstName?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  isOnline: Scalars['Boolean']['output'];
+  lastName?: Maybe<Scalars['String']['output']>;
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  profileImageUrl?: Maybe<Scalars['String']['output']>;
+};
+
 /** Category of purchase order */
 export type PurchaseOrderCategory =
   | 'CHEMICAL'
@@ -13881,6 +14137,13 @@ export type PushIoConfigResult = {
   error?: Maybe<Scalars['String']['output']>;
   success: Scalars['Boolean']['output'];
 };
+
+/** Norwegian official slaughter quality class (kvalitetsklasse) */
+export type QualityClass =
+  | 'ORDINAER'
+  | 'PRODUKSJONSFISK'
+  | 'SUPERIOR'
+  | 'UTKAST';
 
 /** Kalite sınıfı */
 export type QualityGrade =
@@ -13964,6 +14227,8 @@ export type Query = {
   batches: BatchListResponse;
   /** Lookup a biomass report by (siteId, reportMonth, reportYear). */
   biomassReport?: Maybe<BiomassReport>;
+  /** Form-ordered FD-0001 export (CSV + printable) for a biomass report, to transcribe into the Altinn manual submission. */
+  biomassReportAltinnExport: BiomassAltinnExportOutput;
   /** List biomass reports for a site, newest period first. `limit` is clamped to 120. */
   biomassReports: Array<BiomassReport>;
   browseOpcUaNodes: Array<OpcUaNodeBrowseResult>;
@@ -13974,7 +14239,7 @@ export type Query = {
   certificationsForWorkArea: Array<CertificationType>;
   /** Get a channel by ID */
   channel: Channel;
-  channelEligibleUsers: Array<User>;
+  channelEligibleUsers: Array<PublicUserProfile>;
   checkLeaveOverlap: LeaveOverlapResult;
   chemical?: Maybe<ChemicalResponse>;
   chemicalSuppliers: Array<SupplierResponse>;
@@ -14052,6 +14317,8 @@ export type Query = {
   equipmentTypes: Array<EquipmentTypeResponse>;
   escalationPolicies: Array<EscalationPolicy>;
   escalationPolicy?: Maybe<EscalationPolicy>;
+  /** Escape incidents, optionally by site and lifecycle status */
+  escapeIncidents: Array<EscapeIncident>;
   /** Estimate SGR for species at temperature */
   estimateSGR: Scalars['Float']['output'];
   expiredCertifications: Array<EmployeeCertification>;
@@ -14167,6 +14434,8 @@ export type Query = {
   leaveTypes: Array<LeaveType>;
   /** All legal holds for current tenant. */
   legalHolds: Array<LegalHold>;
+  /** Lice counts, optionally by site/tank and ISO week */
+  liceCounts: Array<LiceCount>;
   loraDevices: Array<LoRaDeviceType>;
   lowStockAlerts: Array<LowStockAlertResponse>;
   maintenanceAlerts: Array<ScheduleAlertResponse>;
@@ -14276,6 +14545,7 @@ export type Query = {
   protocolSchema?: Maybe<Scalars['JSON']['output']>;
   protocolSummaries: Array<ProtocolSummaryType>;
   protocols: Array<ProtocolInfoType>;
+  publicUserProfile?: Maybe<PublicUserProfile>;
   purchaseOrder?: Maybe<PurchaseOrderResponse>;
   purchaseOrders: PaginatedPurchaseOrdersResponse;
   readOpcUaHistoricalData: Array<OpcUaHistoricalDataPoint>;
@@ -14295,6 +14565,12 @@ export type Query = {
   regulatoryReports: Array<RegulatoryReport>;
   /** Get regulatory settings for the current tenant */
   regulatorySettings: RegulatorySettingsOutput;
+  /** Upcoming/overdue regulatory report deadlines for the deadline view */
+  reportDeadlines: Array<ReportDeadlineOutput>;
+  /** Scheduler-assembled regulatory report drafts awaiting review */
+  reportDrafts: Array<RegulatoryReportDraft>;
+  /** Server-assembled regulatory report draft with per-field provenance */
+  reportPrefill: ReportPrefillOutput;
   resolveTagRefs: TagResolutionResultType;
   /** All retention policies for current tenant. */
   retentionPolicies: Array<RetentionPolicy>;
@@ -14328,6 +14604,8 @@ export type Query = {
   siteContacts: Array<SiteContactResponse>;
   siteDeletePreview: SiteDeletePreviewResponse;
   sites: PaginatedSitesResponse;
+  /** Slaughter-facility catalog for the tenant */
+  slaughterFacilities: Array<SlaughterFacility>;
   sparePart: SparePart;
   sparePartByCode: SparePart;
   sparePartByPartNumber: SparePart;
@@ -14410,6 +14688,8 @@ export type Query = {
   trainingCourse: TrainingCourse;
   trainingCourses: TrainingCourseConnection;
   trainingEnrollments: TrainingEnrollmentConnection;
+  /** Treatment applications, optionally by site and applied-at window */
+  treatmentApplications: Array<TreatmentApplication>;
   treatmentChemicals: Array<ChemicalResponse>;
   unacknowledgedPlcAlarms: Array<PlcAlarm>;
   unifiedTag?: Maybe<UnifiedTagType>;
@@ -14424,7 +14704,7 @@ export type Query = {
   userConsentHistory: ConsentHistoryResponse;
   /** Get consent status for any user (SuperAdmin only) */
   userConsentStatus: UserConsentStatus;
-  userPresence: Array<User>;
+  userPresence: Array<PublicUserProfile>;
   validateInvitation: InvitationValidationResponse;
   validateToken: TokenValidationResponse;
   validateVfdConfig: VfdValidationResult;
@@ -14467,6 +14747,8 @@ export type Query = {
   weatherSettings: WeatherSettings;
   weeklyPlan: WeeklyPlan;
   weeklyPlans: WeeklyPlanConnection;
+  /** Welfare assessments, optionally by site/tank and date window */
+  welfareAssessments: Array<WelfareAssessment>;
   workArea: WorkAreaDetail;
   workAreaOccupancy: WorkAreaOccupancyReport;
   workAreas: WorkAreaConnection;
@@ -14708,6 +14990,11 @@ export type QueryBiomassReportArgs = {
   reportMonth: Scalars['Int']['input'];
   reportYear: Scalars['Int']['input'];
   siteId: Scalars['ID']['input'];
+};
+
+
+export type QueryBiomassReportAltinnExportArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -15053,6 +15340,12 @@ export type QueryEscalationPoliciesArgs = {
 
 export type QueryEscalationPolicyArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryEscapeIncidentsArgs = {
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<EscapeIncidentStatus>;
 };
 
 
@@ -15418,6 +15711,14 @@ export type QueryLeaveRequestsArgs = {
 export type QueryLeaveTypesArgs = {
   category?: InputMaybe<LeaveCategory>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryLiceCountsArgs = {
+  reportingWeek?: InputMaybe<Scalars['Int']['input']>;
+  reportingYear?: InputMaybe<Scalars['Int']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -15818,6 +16119,11 @@ export type QueryProtocolsArgs = {
 };
 
 
+export type QueryPublicUserProfileArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type QueryPurchaseOrderArgs = {
   id: Scalars['ID']['input'];
 };
@@ -15868,6 +16174,16 @@ export type QueryRegulatoryReportsArgs = {
   offset?: Scalars['Int']['input'];
   reportType: RegulatoryReportType;
   siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryReportDraftsArgs = {
+  filter?: InputMaybe<ReportDraftFilterInput>;
+};
+
+
+export type QueryReportPrefillArgs = {
+  input: ReportPrefillInput;
 };
 
 
@@ -15993,6 +16309,11 @@ export type QuerySiteDeletePreviewArgs = {
 export type QuerySitesArgs = {
   filter?: InputMaybe<SiteFilterInput>;
   pagination?: InputMaybe<FarmPaginationInput>;
+};
+
+
+export type QuerySlaughterFacilitiesArgs = {
+  includeInactive?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 
@@ -16344,6 +16665,13 @@ export type QueryTrainingEnrollmentsArgs = {
 };
 
 
+export type QueryTreatmentApplicationsArgs = {
+  fromDate?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  toDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type QueryUnacknowledgedPlcAlarmsArgs = {
   plcConnectionId?: InputMaybe<Scalars['ID']['input']>;
 };
@@ -16590,6 +16918,14 @@ export type QueryWeeklyPlansArgs = {
 };
 
 
+export type QueryWelfareAssessmentsArgs = {
+  fromDate?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  toDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type QueryWorkAreaArgs = {
   id: Scalars['ID']['input'];
 };
@@ -16776,6 +17112,21 @@ export type RecordDailyFeedingInput = {
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type RecordEscapeIncidentInput = {
+  avgWeightG?: InputMaybe<Scalars['Float']['input']>;
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  cause?: EscapeIncidentCause;
+  causeDetails?: InputMaybe<Scalars['String']['input']>;
+  /** When the escape was detected (ISO timestamp) */
+  detectedAt: Scalars['String']['input'];
+  estimatedCount: Scalars['Int']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  recoveryOngoing?: Scalars['Boolean']['input'];
+  siteId: Scalars['ID']['input'];
+  speciesId: Scalars['ID']['input'];
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
 export type RecordGradingInput = {
   batchId: Scalars['ID']['input'];
   /** Stable client command UUID generated before first submission */
@@ -16809,6 +17160,24 @@ export type RecordGrowthSampleInput = {
   sampleSize: Scalars['Int']['input'];
   tankId?: InputMaybe<Scalars['ID']['input']>;
   updateBatchWeight?: Scalars['Boolean']['input'];
+};
+
+export type RecordLiceCountInput = {
+  /** Adult female lice (voksne hunnlus), avg per fish */
+  adultFemaleLice: Scalars['Float']['input'];
+  /** Attached lice (fastsittende lus), avg per fish */
+  attachedLice: Scalars['Float']['input'];
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  /** Counting date (yyyy-mm-dd) */
+  countDate: Scalars['String']['input'];
+  /** Fish sampled (regulation: 10 or 20 per pen) */
+  fishSampled: Scalars['Int']['input'];
+  /** Mobile lice (bevegelige lus), avg per fish */
+  mobileLice: Scalars['Float']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  seaTemperatureC?: InputMaybe<Scalars['Float']['input']>;
+  siteId: Scalars['ID']['input'];
+  tankId: Scalars['ID']['input'];
 };
 
 export type RecordMortalityInput = {
@@ -16874,6 +17243,47 @@ export type RecordStockMovementInput = {
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Target location (required for IN) */
   toLocationId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type RecordTreatmentApplicationInput = {
+  /** When the treatment was applied (ISO timestamp) */
+  appliedAt: Scalars['String']['input'];
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  beskrivelse?: InputMaybe<Scalars['String']['input']>;
+  category: TreatmentCategory;
+  /** Chemicals-catalog reference (medicinal) */
+  chemicalId?: InputMaybe<Scalars['ID']['input']>;
+  completedAt?: InputMaybe<Scalars['String']['input']>;
+  externalVetName?: InputMaybe<Scalars['String']['input']>;
+  healthEventId?: InputMaybe<Scalars['ID']['input']>;
+  mengdeEnhet?: InputMaybe<Scalars['String']['input']>;
+  mengdeVerdi?: InputMaybe<Scalars['Float']['input']>;
+  /** Official Mattilsynet method value (e.g. BADEBEHANDLING) */
+  method: Scalars['String']['input'];
+  pensCount?: InputMaybe<Scalars['Int']['input']>;
+  siteId: Scalars['ID']['input'];
+  styrkeEnhet?: InputMaybe<Scalars['String']['input']>;
+  styrkeVerdi?: InputMaybe<Scalars['Float']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+  veterinarianWorkerId?: InputMaybe<Scalars['ID']['input']>;
+  /** Official virkestoff enum value */
+  virkestoffType?: InputMaybe<Scalars['String']['input']>;
+  wholeSite?: Scalars['Boolean']['input'];
+};
+
+export type RecordWelfareAssessmentInput = {
+  /** Assessment date (yyyy-mm-dd) */
+  assessedAt: Scalars['String']['input'];
+  batchId?: InputMaybe<Scalars['ID']['input']>;
+  deformityScore: Scalars['Int']['input'];
+  finScore: Scalars['Int']['input'];
+  fishSampled: Scalars['Int']['input'];
+  /** 0 (healthy) .. 3 (severe) */
+  gillScore: Scalars['Int']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  siteId: Scalars['ID']['input'];
+  tankId: Scalars['ID']['input'];
+  woundScore: Scalars['Int']['input'];
 };
 
 /** Tekrarlama sıklığı */
@@ -17067,8 +17477,10 @@ export type RegisteredSensorType = {
   description?: Maybe<Scalars['String']['output']>;
   equipmentId?: Maybe<Scalars['ID']['output']>;
   farmId?: Maybe<Scalars['ID']['output']>;
+  firmwareVersion?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isParentDevice?: Maybe<Scalars['Boolean']['output']>;
+  lastCalibratedAt?: Maybe<Scalars['DateTime']['output']>;
   location?: Maybe<Scalars['String']['output']>;
   manufacturer?: Maybe<Scalars['String']['output']>;
   metadata?: Maybe<Scalars['JSON']['output']>;
@@ -17099,6 +17511,11 @@ export type RegulatoryConfigurationStatus = {
   siteMappingsCount: Scalars['Int']['output'];
 };
 
+/** Whether a failed regulatory submission is retryable */
+export type RegulatoryFailureClass =
+  | 'PERMANENT'
+  | 'TRANSIENT';
+
 export type RegulatoryHealthStatus = {
   maskinportenHealthy: Scalars['Boolean']['output'];
   mattilsynetHealthy: Scalars['Boolean']['output'];
@@ -17106,11 +17523,14 @@ export type RegulatoryHealthStatus = {
 };
 
 export type RegulatoryReport = {
+  attemptCount: Scalars['Int']['output'];
   createdAt: Scalars['DateTime']['output'];
+  failureClass?: Maybe<RegulatoryFailureClass>;
   feilmelding?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   klientReferanse: Scalars['String']['output'];
   lokalitetsnummer: Scalars['Int']['output'];
+  nextAttemptAt?: Maybe<Scalars['DateTime']['output']>;
   payload: Scalars['JSON']['output'];
   referanse?: Maybe<Scalars['String']['output']>;
   reportMonth?: Maybe<Scalars['Int']['output']>;
@@ -17121,6 +17541,29 @@ export type RegulatoryReport = {
   status: RegulatoryReportSubmissionStatus;
   submittedAt?: Maybe<Scalars['DateTime']['output']>;
   submittedBy: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+export type RegulatoryReportDraft = {
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  approvedBy?: Maybe<Scalars['ID']['output']>;
+  assembledAt: Scalars['DateTime']['output'];
+  assembledPayload: Scalars['JSON']['output'];
+  createdAt: Scalars['DateTime']['output'];
+  deadlineNotifiedBucket?: Maybe<Scalars['String']['output']>;
+  dueAt?: Maybe<Scalars['String']['output']>;
+  fieldMeta: Scalars['JSON']['output'];
+  id: Scalars['ID']['output'];
+  manualOverrides?: Maybe<Scalars['JSON']['output']>;
+  periodMonth?: Maybe<Scalars['Int']['output']>;
+  periodWeek?: Maybe<Scalars['Int']['output']>;
+  periodYear: Scalars['Int']['output'];
+  reportType: Scalars['String']['output'];
+  schemaValid: Scalars['Boolean']['output'];
+  siteId: Scalars['ID']['output'];
+  status: ReportDraftStatus;
+  submittedReportId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
 };
@@ -17154,6 +17597,7 @@ export type RegulatoryReportTypeSummary = {
 
 /** Regulatory settings for a tenant */
 export type RegulatorySettingsOutput = {
+  autoSubmitPolicies?: Maybe<Array<AutoSubmitPolicyEntry>>;
   companyAddress?: Maybe<CompanyAddressOutput>;
   companyName?: Maybe<Scalars['String']['output']>;
   createdAt?: Maybe<Scalars['DateTime']['output']>;
@@ -17171,7 +17615,6 @@ export type RegulatorySettingsOutput = {
   maskinportenKeyId?: Maybe<Scalars['String']['output']>;
   organisationNumber?: Maybe<Scalars['String']['output']>;
   siteLocalityMappings?: Maybe<Array<SiteLocalityMappingOutput>>;
-  slaughterApprovalNumber?: Maybe<Scalars['String']['output']>;
   updatedAt?: Maybe<Scalars['DateTime']['output']>;
 };
 
@@ -17256,6 +17699,93 @@ export type ReorderParameterConfigsInput = {
   /** Parameter config IDs in desired display order */
   orderedIds: Array<Scalars['ID']['input']>;
 };
+
+export type ReportDeadlineOutput = {
+  daysUntilDue?: Maybe<Scalars['Int']['output']>;
+  dueAt?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  overdue: Scalars['Boolean']['output'];
+  periodMonth?: Maybe<Scalars['Int']['output']>;
+  periodWeek?: Maybe<Scalars['Int']['output']>;
+  periodYear: Scalars['Int']['output'];
+  reportType: Scalars['String']['output'];
+  siteId: Scalars['ID']['output'];
+  status: ReportDraftStatus;
+};
+
+export type ReportDraftFilterInput = {
+  reportType?: InputMaybe<Scalars['String']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  status?: InputMaybe<ReportDraftStatus>;
+};
+
+/** Lifecycle of a scheduled regulatory report draft */
+export type ReportDraftStatus =
+  | 'APPROVED'
+  | 'DISMISSED'
+  | 'DRAFT'
+  | 'READY'
+  | 'SUBMITTED';
+
+export type ReportFieldMetaOutput = {
+  /** True when schema-required and still MANUAL_REQUIRED */
+  blocking: Scalars['Boolean']['output'];
+  /** SENSOR: measurement time of the used reading */
+  measuredAt?: Maybe<Scalars['DateTime']['output']>;
+  /** MANUAL_REQUIRED: actionable reason */
+  message?: Maybe<Scalars['String']['output']>;
+  /** JSON pointer into draftPayload, e.g. "/mortality/byCause" */
+  path: Scalars['String']['output'];
+  provenance: ReportFieldProvenance;
+  /** SENSOR: sensor identity */
+  sensorId?: Maybe<Scalars['String']['output']>;
+  /** RECORDS: query/service that produced the value */
+  sourceQuery?: Maybe<Scalars['String']['output']>;
+  /** RECORDS: source rows aggregated */
+  sourceRecordCount?: Maybe<Scalars['Int']['output']>;
+};
+
+/** Where a prefilled report field came from: aggregated operational records, a sensor projection, or operator input still required */
+export type ReportFieldProvenance =
+  | 'MANUAL_REQUIRED'
+  | 'RECORDS'
+  | 'SENSOR';
+
+export type ReportPrefillInput = {
+  /** Month 1-12 (monthly report types) */
+  periodMonth?: InputMaybe<Scalars['Int']['input']>;
+  /** ISO week (weekly report types) */
+  periodWeek?: InputMaybe<Scalars['Int']['input']>;
+  periodYear: Scalars['Int']['input'];
+  reportType: ReportPrefillType;
+  siteId: Scalars['ID']['input'];
+};
+
+export type ReportPrefillOutput = {
+  assembledAt: Scalars['DateTime']['output'];
+  /** Assembled draft in the exact report wire shape */
+  draftPayload: Scalars['JSON']['output'];
+  fields: Array<ReportFieldMetaOutput>;
+  periodMonth?: Maybe<Scalars['Int']['output']>;
+  periodWeek?: Maybe<Scalars['Int']['output']>;
+  periodYear: Scalars['Int']['output'];
+  reportType: ReportPrefillType;
+  /** True when zero blocking fields remain */
+  schemaValid: Scalars['Boolean']['output'];
+  siteId: Scalars['ID']['output'];
+};
+
+/** Report types that can be server-assembled into a prefilled draft */
+export type ReportPrefillType =
+  | 'BIOMASS'
+  | 'CLEANER_FISH'
+  | 'DISEASE_OUTBREAK'
+  | 'ESCAPE'
+  | 'SEA_LICE'
+  | 'SLAUGHTER_EXECUTED'
+  | 'SLAUGHTER_PLANNED'
+  | 'SMOLT'
+  | 'WELFARE_EVENT';
 
 export type ReportSubmissionResult = {
   /** Error message (if failed) */
@@ -17553,6 +18083,11 @@ export type SaveDiscoveredChannelsInput = {
 export type SaveFeederCalibrationsInput = {
   calibrations: Array<FeederCalibrationItemInput>;
   equipmentId: Scalars['String']['input'];
+};
+
+export type SaveReportDraftOverridesInput = {
+  draftId: Scalars['ID']['input'];
+  overrides: Scalars['JSON']['input'];
 };
 
 export type ScadaBackfillResultType = {
@@ -18301,7 +18836,9 @@ export type SiteResponse = {
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
   location?: Maybe<SiteLocationResponse>;
+  lokalitetsnummer?: Maybe<Scalars['Int']['output']>;
   name: Scalars['String']['output'];
+  organisationNumberOverride?: Maybe<Scalars['String']['output']>;
   region?: Maybe<Scalars['String']['output']>;
   settings?: Maybe<Scalars['JSON']['output']>;
   siteManager?: Maybe<Scalars['String']['output']>;
@@ -18333,6 +18870,18 @@ export type SiteType =
 export type SkipDailyFeedingInput = {
   executionId: Scalars['ID']['input'];
   skipReason: Scalars['String']['input'];
+};
+
+export type SlaughterFacility = {
+  address?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  godkjenningsnummer: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  isDefault: Scalars['Boolean']['output'];
+  name: Scalars['String']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
 };
 
 /** Sort direction for paginated queries */
@@ -18450,6 +18999,7 @@ export type Species = {
   localName?: Maybe<Scalars['String']['output']>;
   marketInfo?: Maybe<Scalars['JSON']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
+  officialCode?: Maybe<Scalars['String']['output']>;
   optimalConditions?: Maybe<Scalars['JSON']['output']>;
   scientificName: Scalars['String']['output'];
   status: SpeciesStatus;
@@ -19617,6 +20167,7 @@ export type Tank = {
   name: Scalars['String']['output'];
   nextMaintenanceDate?: Maybe<Scalars['DateTime']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
+  regulatoryUnitId?: Maybe<Scalars['String']['output']>;
   status: TankStatus;
   statusChangedAt?: Maybe<Scalars['DateTime']['output']>;
   statusReason?: Maybe<Scalars['String']['output']>;
@@ -20119,7 +20670,6 @@ export type TenantProvisioningKey = {
   expiresAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
-  keyToken: Scalars['String']['output'];
   maxDevices?: Maybe<Scalars['Int']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
@@ -20591,6 +21141,38 @@ export type TransportMethod =
   | 'OTHER'
   | 'VEHICLE';
 
+export type TreatmentApplication = {
+  appliedAt: Scalars['DateTime']['output'];
+  batchId?: Maybe<Scalars['ID']['output']>;
+  beskrivelse?: Maybe<Scalars['String']['output']>;
+  category: TreatmentCategory;
+  chemicalId?: Maybe<Scalars['ID']['output']>;
+  completedAt?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  externalVetName?: Maybe<Scalars['String']['output']>;
+  healthEventId?: Maybe<Scalars['ID']['output']>;
+  id: Scalars['ID']['output'];
+  mengdeEnhet?: Maybe<Scalars['String']['output']>;
+  mengdeVerdi?: Maybe<Scalars['Float']['output']>;
+  method: Scalars['String']['output'];
+  pensCount?: Maybe<Scalars['Int']['output']>;
+  recordedBy?: Maybe<Scalars['ID']['output']>;
+  siteId: Scalars['ID']['output'];
+  styrkeEnhet?: Maybe<Scalars['String']['output']>;
+  styrkeVerdi?: Maybe<Scalars['Float']['output']>;
+  tankId?: Maybe<Scalars['ID']['output']>;
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  veterinarianWorkerId?: Maybe<Scalars['ID']['output']>;
+  virkestoffType?: Maybe<Scalars['String']['output']>;
+  wholeSite: Scalars['Boolean']['output'];
+};
+
+/** Medicinal (virkestoff-based) vs non-medicinal (thermal/mechanical/freshwater) */
+export type TreatmentCategory =
+  | 'MEDICINAL'
+  | 'NON_MEDICINAL';
+
 export type TreatmentDetailsInput = {
   /** Treatment cost */
   cost?: InputMaybe<Scalars['Float']['input']>;
@@ -20762,6 +21344,11 @@ export type UpdateAutoRuleInput = {
   taskTitle?: InputMaybe<Scalars['String']['input']>;
   trigger?: InputMaybe<AutoRuleTrigger>;
   triggerCondition?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateAutoSubmitPolicyInput = {
+  enabled: Scalars['Boolean']['input'];
+  reportType: Scalars['String']['input'];
 };
 
 export type UpdateBatchFeedAssignmentInput = {
@@ -21232,8 +21819,8 @@ export type UpdateHarvestRecordInput = {
   qualityApprovedAt?: InputMaybe<Scalars['String']['input']>;
   /** User ID who approved quality */
   qualityApprovedBy?: InputMaybe<Scalars['ID']['input']>;
-  /** Update quality grade */
-  qualityGrade?: InputMaybe<QualityGrade>;
+  /** Update Norwegian quality class (kvalitetsklasse) — the stored SSoT. */
+  qualityClass?: InputMaybe<QualityClass>;
   /** Update quantity harvested */
   quantityHarvested?: InputMaybe<Scalars['Int']['input']>;
   /** Update rejected quantity (kg) */
@@ -21673,8 +22260,6 @@ export type UpdateRegulatorySettingsInput = {
   organisationNumber?: InputMaybe<Scalars['String']['input']>;
   /** Site to Lokalitetsnummer mappings for Mattilsynet reports */
   siteLocalityMappings?: InputMaybe<Array<SiteLocalityMappingInput>>;
-  /** Slaughter facility approval number */
-  slaughterApprovalNumber?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateScadaPackageInput = {
@@ -21770,13 +22355,24 @@ export type UpdateSiteInput = {
   id: Scalars['ID']['input'];
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   location?: InputMaybe<SiteLocationInput>;
+  lokalitetsnummer?: InputMaybe<Scalars['Int']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
+  organisationNumberOverride?: InputMaybe<Scalars['String']['input']>;
   region?: InputMaybe<Scalars['String']['input']>;
   settings?: InputMaybe<Scalars['JSON']['input']>;
   siteManager?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<SiteStatus>;
   timezone?: InputMaybe<Scalars['String']['input']>;
   totalArea?: InputMaybe<Scalars['Float']['input']>;
+};
+
+export type UpdateSlaughterFacilityInput = {
+  address?: InputMaybe<Scalars['String']['input']>;
+  godkjenningsnummer?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  isActive?: InputMaybe<Scalars['Boolean']['input']>;
+  isDefault?: InputMaybe<Scalars['Boolean']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateSparePartInput = {
@@ -21819,6 +22415,7 @@ export type UpdateSpeciesInput = {
   localName?: InputMaybe<Scalars['String']['input']>;
   marketInfo?: InputMaybe<Scalars['JSON']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  officialCode?: InputMaybe<Scalars['String']['input']>;
   optimalConditions?: InputMaybe<OptimalConditionsInput>;
   scientificName?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<SpeciesStatus>;
@@ -21960,6 +22557,7 @@ export type UpdateTankInput = {
   maxDensity?: InputMaybe<Scalars['Float']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  regulatoryUnitId?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<TankStatus>;
   systemId?: InputMaybe<Scalars['String']['input']>;
   tankType?: InputMaybe<TankType>;
@@ -22203,9 +22801,11 @@ export type UpdateWorkerInput = {
   email?: InputMaybe<Scalars['String']['input']>;
   firstName?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['ID']['input'];
+  isVeterinarian?: InputMaybe<Scalars['Boolean']['input']>;
   lastName?: InputMaybe<Scalars['String']['input']>;
   phone?: InputMaybe<Scalars['String']['input']>;
   position?: InputMaybe<Scalars['String']['input']>;
+  veterinaryLicenseNumber?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UsageProtocolInput = {
@@ -22251,10 +22851,8 @@ export type User = {
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
   isEmailVerified: Scalars['Boolean']['output'];
-  isOnline: Scalars['Boolean']['output'];
   lastLoginAt?: Maybe<Scalars['DateTime']['output']>;
   lastName?: Maybe<Scalars['String']['output']>;
-  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
   lockedUntil?: Maybe<Scalars['DateTime']['output']>;
   mfaEnabled: Scalars['Boolean']['output'];
   preferredLanguage?: Maybe<Scalars['String']['output']>;
@@ -22600,12 +23198,15 @@ export type VfdDevice = {
   location?: Maybe<Scalars['String']['output']>;
   metadata?: Maybe<Scalars['JSON']['output']>;
   model?: Maybe<Scalars['String']['output']>;
+  modelSeries?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
   pollIntervalMs: Scalars['Float']['output'];
   protocol: VfdProtocol;
   protocolConfiguration: Scalars['JSON']['output'];
+  pumpId?: Maybe<Scalars['String']['output']>;
   serialNumber?: Maybe<Scalars['String']['output']>;
   status: VfdDeviceStatus;
+  tags?: Maybe<Array<Scalars['String']['output']>>;
   tankId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
@@ -23433,6 +24034,24 @@ export type WeeklyPlanStatus =
   | 'DRAFT'
   | 'PUBLISHED';
 
+export type WelfareAssessment = {
+  assessedAt: Scalars['String']['output'];
+  assessedBy?: Maybe<Scalars['ID']['output']>;
+  batchId?: Maybe<Scalars['ID']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  deformityScore: Scalars['Int']['output'];
+  finScore: Scalars['Int']['output'];
+  fishSampled: Scalars['Int']['output'];
+  gillScore: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  siteId: Scalars['ID']['output'];
+  tankId: Scalars['ID']['output'];
+  tenantId: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  woundScore: Scalars['Int']['output'];
+};
+
 export type WelfareEventTypeInput =
   | 'EQUIPMENT_FAILURE'
   | 'MORTALITY_THRESHOLD'
@@ -23778,10 +24397,12 @@ export type WorkerResponse = {
   firstName: Scalars['String']['output'];
   hireDate: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
+  isVeterinarian: Scalars['Boolean']['output'];
   lastName: Scalars['String']['output'];
   phone?: Maybe<Scalars['String']['output']>;
   position: Scalars['String']['output'];
   status: Scalars['String']['output'];
+  veterinaryLicenseNumber?: Maybe<Scalars['String']['output']>;
 };
 
 export type WriteOpcUaNodeInput = {

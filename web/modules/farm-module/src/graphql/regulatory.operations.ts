@@ -58,7 +58,6 @@ const REGULATORY_SETTINGS_FIELDS = `
     lokalitetsnummer
     siteName
   }
-  slaughterApprovalNumber
   createdAt
   updatedAt
 `;
@@ -274,11 +273,11 @@ export const SUBMIT_DISEASE_OUTBREAK_MUTATION = `
 // ============================================================================
 
 /**
- * Create or update a monthly biomass report for a site. Pass
- * `input.submit = true` to finalise — a SUBMITTED period becomes
- * immutable. The mutation is idempotent per
- * (siteId, reportMonth, reportYear) so re-saving a DRAFT overwrites in
- * place instead of duplicating.
+ * Create or update the DRAFT monthly biomass report for a site. The
+ * mutation only ever writes a DRAFT — finalisation flows through the
+ * Altinn state machine (mark ready → confirm submitted). Idempotent per
+ * (siteId, reportMonth, reportYear) so re-saving overwrites in place
+ * instead of duplicating.
  */
 export const CREATE_BIOMASS_REPORT_MUTATION = `
   mutation CreateBiomassReport($input: CreateBiomassReportInput!) {
@@ -295,6 +294,57 @@ export const CREATE_BIOMASS_REPORT_MUTATION = `
   }
 `;
 
+/** Fields shared by the biomass state-machine mutations. */
+const BIOMASS_REPORT_STATE_FIELDS = `
+  id
+  status
+  totalBiomassKg
+  readyAt
+  altinnReference
+  submittedAt
+  updatedAt
+`;
+
+/** DRAFT → READY: the report is reviewed and ready for the FD-0001 Altinn export. */
+export const MARK_BIOMASS_REPORT_READY_MUTATION = `
+  mutation MarkBiomassReportReady($id: ID!) {
+    markBiomassReportReady(id: $id) {
+      ${BIOMASS_REPORT_STATE_FIELDS}
+    }
+  }
+`;
+
+/** READY → DRAFT: reopen for editing / re-assembly before submission. */
+export const REVERT_BIOMASS_REPORT_TO_DRAFT_MUTATION = `
+  mutation RevertBiomassReportToDraft($id: ID!) {
+    revertBiomassReportToDraft(id: $id) {
+      ${BIOMASS_REPORT_STATE_FIELDS}
+    }
+  }
+`;
+
+/** READY → CONFIRMED_SUBMITTED: record the Altinn receipt after a manual submission. */
+export const CONFIRM_BIOMASS_REPORT_SUBMITTED_MUTATION = `
+  mutation ConfirmBiomassReportSubmitted($id: ID!, $altinnReference: String!) {
+    confirmBiomassReportSubmitted(id: $id, altinnReference: $altinnReference) {
+      ${BIOMASS_REPORT_STATE_FIELDS}
+    }
+  }
+`;
+
+/** Form-ordered FD-0001 export (CSV + printable) to transcribe into Altinn. */
+export const BIOMASS_REPORT_ALTINN_EXPORT_QUERY = `
+  query BiomassReportAltinnExport($id: ID!) {
+    biomassReportAltinnExport(id: $id) {
+      filename
+      periodLabel
+      csv
+      printable
+      generatedAt
+    }
+  }
+`;
+
 /** Single-period lookup — drives the tab's pre-fill when returning to a drafted month. */
 export const BIOMASS_REPORT_QUERY = `
   query BiomassReport($siteId: ID!, $reportMonth: Int!, $reportYear: Int!) {
@@ -303,6 +353,8 @@ export const BIOMASS_REPORT_QUERY = `
       status
       totalBiomassKg
       reportData
+      readyAt
+      altinnReference
       submittedAt
       generatedBy
       updatedAt
@@ -319,6 +371,8 @@ export const BIOMASS_REPORTS_QUERY = `
       reportYear
       status
       totalBiomassKg
+      readyAt
+      altinnReference
       submittedAt
       updatedAt
     }
@@ -375,6 +429,40 @@ export const REGULATORY_REPORT_SUMMARY_QUERY = `
       queuedCount
       failedCount
       lastSubmittedAt
+    }
+  }
+`;
+
+// ============================================================================
+// SERVER-ASSEMBLED PREFILL (automated-reporting plan Phase 1)
+// ============================================================================
+
+/**
+ * Server-assembled report draft with per-field provenance. The form stops
+ * computing: values the platform owns arrive pre-aggregated from the
+ * operational SSoTs; the operator fills only MANUAL_REQUIRED fields.
+ */
+export const REPORT_PREFILL_QUERY = `
+  query ReportPrefill($input: ReportPrefillInput!) {
+    reportPrefill(input: $input) {
+      reportType
+      siteId
+      periodYear
+      periodWeek
+      periodMonth
+      draftPayload
+      fields {
+        path
+        provenance
+        sourceRecordCount
+        sourceQuery
+        sensorId
+        measuredAt
+        message
+        blocking
+      }
+      schemaValid
+      assembledAt
     }
   }
 `;

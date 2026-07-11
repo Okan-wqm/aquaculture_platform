@@ -26,11 +26,12 @@ import { TENANT_SCHEMA_NAME_RE } from './tenant-aware-schemas';
 const MESSAGING_PARTITION_OWNER_ROLE = 'messaging_schema_owner';
 
 /**
- * Parents and their partition children: `messages` / `message_receipts`
- * plus the `<table>_<year>_<month>` naming the partition function preserves.
+ * The runtime role that serves messaging queries. It must retain DML on the
+ * partitioned relations after they are re-owned to the definer role below —
+ * Stage 010's EXECUTE-only lockdown removes raw DDL from this role by design,
+ * NOT DML. `runtime_role` for the `messaging` schema in the Stage-008 role map.
  */
-const MESSAGING_PARTITIONED_RELATION_RE =
-  '^(messages|message_receipts)(_[0-9]{4}_[0-9]{2})?$';
+const MESSAGING_RUNTIME_ROLE = 'messaging_service';
 
 export interface MessagingPartitionAuthorityQueryExecutor {
   query(sql: string, parameters?: readonly unknown[]): Promise<unknown>;
@@ -43,7 +44,15 @@ export interface MessagingPartitionAuthorityOptions {
 export interface MessagingPartitionAuthorityGrant {
   tenantSchema: string;
   ownerRole: string;
+  /** The runtime role re-granted DML on the partitioned relations. */
+  runtimeRole: string;
   reownedRelations: string[];
+  /**
+   * Relations (parents + existing children) explicitly re-granted DML to the
+   * runtime role. Future children are covered by the ALTER DEFAULT PRIVILEGES
+   * keyed to the owner role, so they never appear here.
+   */
+  runtimeGrantedRelations: string[];
 }
 
 function assertTenantSchema(value: string): void {
@@ -56,9 +65,27 @@ function assertTenantSchema(value: string): void {
 }
 
 /**
- * Grant `messaging_schema_owner` the authority the partition definer
- * function needs inside one tenant schema: USAGE+CREATE on the schema and
- * ownership of the messaging-domain partitioned relations.
+ * The provisioner "forward path" for a newly provisioned tenant: apply the
+ * complete messaging-partition privilege recipe (re-own the partitioned
+ * relations to `messaging_schema_owner` for partition DDL AND grant the runtime
+ * `messaging_service` role DML — the two MUST travel together, see below).
+ *
+ * The recipe itself lives in ONE place — the bootstrap-owned SQL function
+ * `platform.grant_messaging_partition_authority(text)` (Stage 010) — which both
+ * this forward path AND the Stage 010 idempotent backfill loop call. Collapsing
+ * the recipe into a single function (rather than hand-mirroring it in TS and
+ * SQL) is deliberate: the bug it closed (DATA-HIGH-006 / "permission denied for
+ * table messages") existed because the runtime-DML grant lived in neither copy
+ * of a mirrored recipe. A single SSoT makes that drift structurally impossible,
+ * mirroring how `platform.create_messaging_partition` centralises partition DDL.
+ *
+ * The function is SECURITY INVOKER, so it runs with this caller's privileges
+ * (the db-migrate control connection) — identical to the inline SQL it
+ * replaced. It returns the relations it re-owned + granted.
+ *
+ * `assertTenantSchema` is kept as a fail-fast client-side guard (the function
+ * also validates server-side) so a bad schema name is rejected before any DB
+ * round-trip.
  */
 export async function grantTenantMessagingPartitionAuthority(
   executor: MessagingPartitionAuthorityQueryExecutor,
@@ -66,33 +93,17 @@ export async function grantTenantMessagingPartitionAuthority(
 ): Promise<MessagingPartitionAuthorityGrant> {
   assertTenantSchema(options.tenantSchema);
 
-  await executor.query(
-    `GRANT USAGE, CREATE ON SCHEMA "${options.tenantSchema}" ` +
-      `TO "${MESSAGING_PARTITION_OWNER_ROLE}"`,
-  );
-
-  const relations = (await executor.query(
-    `SELECT c.oid::regclass::text AS qualified_name
-       FROM pg_catalog.pg_class c
-       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = $1
-        AND c.relkind IN ('r', 'p')
-        AND c.relname ~ $2`,
-    [options.tenantSchema, MESSAGING_PARTITIONED_RELATION_RE],
-  )) as Array<{ qualified_name: string }>;
-
-  const reowned: string[] = [];
-  for (const relation of relations) {
-    await executor.query(
-      `ALTER TABLE ${relation.qualified_name} ` +
-        `OWNER TO "${MESSAGING_PARTITION_OWNER_ROLE}"`,
-    );
-    reowned.push(relation.qualified_name);
-  }
+  const rows = (await executor.query(
+    `SELECT platform.grant_messaging_partition_authority($1) AS relations`,
+    [options.tenantSchema],
+  )) as Array<{ relations: string[] | null }>;
+  const relations = rows[0]?.relations ?? [];
 
   return {
     tenantSchema: options.tenantSchema,
     ownerRole: MESSAGING_PARTITION_OWNER_ROLE,
-    reownedRelations: reowned,
+    runtimeRole: MESSAGING_RUNTIME_ROLE,
+    reownedRelations: relations,
+    runtimeGrantedRelations: relations,
   };
 }

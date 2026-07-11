@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mattilsynet/slakt-utfort/v1",
+  "title": "Mattilsynet utført slakt (executed slaughter) weekly report — POST /api/slakt/v1/utfort",
+  "description": "Transcribed from docs/integrations/mattilsynet-reporting-api.md §3. x-verified=false until diffed against the live swagger (RPT-017).",
+  "x-verified": false,
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "klientReferanse",
+    "organisasjonsnummer",
+    "lokalitetsnummer",
+    "kontaktperson",
+    "slakteuke",
+    "slakteår",
+    "godkjenningsnummer",
+    "utførteLokaliteter"
+  ],
+  "properties": {
+    "klientReferanse": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+    "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+    "kontaktperson": { "$ref": "#/definitions/kontaktperson" },
+    "slakteuke": { "type": "integer", "minimum": 1, "maximum": 53 },
+    "slakteår": { "type": "integer", "minimum": 2020, "maximum": 2100 },
+    "godkjenningsnummer": { "type": "string", "pattern": "^[A-Za-z0-9]{1,6}$" },
+    "utførteLokaliteter": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/utførtLokalitet" }
+    }
+  },
+  "definitions": {
+    "kontaktperson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["navn", "epost", "telefonnummer"],
+      "properties": {
+        "navn": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "epost": { "type": "string", "format": "email", "maxLength": 255 },
+        "telefonnummer": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "utførtLokalitet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organisasjonsnummer", "lokalitetsnummer", "arter"],
+      "properties": {
+        "organisasjonsnummer": { "type": "string", "pattern": "^[0-9]{9}$" },
+        "lokalitetsnummer": { "type": "integer", "minimum": 10000, "maximum": 99999 },
+        "arter": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/kvalitetsklasserPerArt" }
+        }
+      }
+    },
+    "kvalitetsklasserPerArt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["art", "superiorKg", "ordinærKg", "produksjonsfiskKg", "utkastKg"],
+      "properties": {
+        "art": { "type": "string", "pattern": "^[A-Z]{2,5}$" },
+        "superiorKg": { "type": "number", "minimum": 0 },
+        "ordinærKg": { "type": "number", "minimum": 0 },
+        "produksjonsfiskKg": { "type": "number", "minimum": 0 },
+        "utkastKg": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

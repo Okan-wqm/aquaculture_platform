@@ -187,14 +187,14 @@ export interface ExecutionResult {
 export class DailyFeedingExecution {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field({ description: 'Tenant ID for multi-tenant isolation' })
   @Column('uuid')
   @Index()
   @IsUUID()
   @IsString()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // PROGRAM İLİŞKİLERİ
@@ -203,7 +203,7 @@ export class DailyFeedingExecution {
   @Field()
   @Column('uuid')
   @Index()
-  feedingProgramId: string;
+  feedingProgramId!: string;
 
   @ManyToOne(() => FeedingProgram, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'feedingProgramId' })
@@ -212,7 +212,7 @@ export class DailyFeedingExecution {
   @Field()
   @Column('uuid')
   @Index()
-  feedingProgramTankId: string;
+  feedingProgramTankId!: string;
 
   @ManyToOne(() => FeedingProgramTank, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'feedingProgramTankId' })
@@ -225,7 +225,7 @@ export class DailyFeedingExecution {
   @Field()
   @Column({ type: 'date' })
   @Index()
-  executionDate: Date;
+  executionDate!: Date;
 
   // -------------------------------------------------------------------------
   // TANK BİLGİSİ (Denormalized - hızlı erişim)
@@ -233,22 +233,22 @@ export class DailyFeedingExecution {
 
   @Field()
   @Column('uuid')
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => ProgramEquipmentType)
   @Column({
     type: 'enum',
     enum: ProgramEquipmentType,
   })
-  equipmentType: ProgramEquipmentType;
+  equipmentType!: ProgramEquipmentType;
 
   @Field()
   @Column({ length: 200 })
-  equipmentName: string;
+  equipmentName!: string;
 
   @Field()
   @Column({ length: 50 })
-  equipmentCode: string;
+  equipmentCode!: string;
 
   // -------------------------------------------------------------------------
   // HESAPLANAN DEĞERLER (Calculated Values)
@@ -263,7 +263,7 @@ export class DailyFeedingExecution {
    */
   @Field(() => GraphQLJSON, { description: 'Calculated execution parameters' })
   @Column({ type: 'jsonb', default: () => "'{}'" })
-  calculations: ExecutionCalculation;
+  calculations!: ExecutionCalculation;
 
   // -------------------------------------------------------------------------
   // GERÇEKLEŞEN SONUÇLAR
@@ -284,7 +284,7 @@ export class DailyFeedingExecution {
     default: ExecutionStatus.PLANNED,
   })
   @Index()
-  status: ExecutionStatus;
+  status!: ExecutionStatus;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -357,7 +357,7 @@ export class DailyFeedingExecution {
   @Field({ description: 'UUID of the user who created this record' })
   @Column('uuid')
   @IsUUID()
-  createdBy: string;
+  createdBy!: string;
 
   /**
    * UUID of the user who last modified this execution record
@@ -370,11 +370,11 @@ export class DailyFeedingExecution {
 
   @Field({ description: 'Timestamp when the record was created' })
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field({ description: 'Timestamp when the record was last updated' })
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // COMPUTED FIELDS (GraphQL exposed calculated properties)

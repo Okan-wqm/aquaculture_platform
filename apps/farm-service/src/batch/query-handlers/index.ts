@@ -9,6 +9,8 @@ import { GenerateBatchNumberHandler } from './generate-batch-number.handler';
 import { GetBatchPerformanceHandler } from './get-batch-performance.handler';
 import { GetBatchHistoryHandler } from './get-batch-history.handler';
 import { GetBatchTraceabilityHandler } from './get-batch-traceability.handler';
+import { GetMortalityByCauseHandler } from './get-mortality-by-cause.handler';
+import { GetTransfersSummaryHandler } from './get-transfers-summary.handler';
 
 export * from './get-batch.handler';
 export * from './list-batches.handler';
@@ -17,6 +19,8 @@ export * from './generate-batch-number.handler';
 export * from './get-batch-performance.handler';
 export * from './get-batch-history.handler';
 export * from './get-batch-traceability.handler';
+export * from './get-mortality-by-cause.handler';
+export * from './get-transfers-summary.handler';
 
 /**
  * All batch query handlers for module registration
@@ -29,4 +33,6 @@ export const BatchQueryHandlers = [
   GetBatchPerformanceHandler,
   GetBatchHistoryHandler,
   GetBatchTraceabilityHandler,
+  GetMortalityByCauseHandler,
+  GetTransfersSummaryHandler,
 ];

@@ -24,6 +24,7 @@ import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
 import { FeedingRecord } from './entities/feeding-record.entity';
+import { GetFeedingOverviewResponder } from './responders/get-feeding-overview.responder';
 import { FeedInventory } from './entities/feed-inventory.entity';
 import { FeedingProgram } from './entities/feeding-program.entity';
 import { FeedingProgramTank } from './entities/feeding-program-tank.entity';
@@ -68,6 +69,11 @@ import { RestoreModule } from '../common/services/restore.module';
 // FeedingModule, so there is no DI cycle.
 import { BatchModule } from '../batch/batch.module';
 import { InventoryModule } from '../storage/storage.module';
+// Currency SSoT: CreateFeedingRecordHandler resolves the tenant default
+// currency through FinanceSettingsService (finance_settings row) instead
+// of a hardcoded literal. FinanceModule does not import FeedingModule,
+// so there is no DI cycle.
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -91,7 +97,9 @@ import { InventoryModule } from '../storage/storage.module';
     RestoreModule,
     BatchModule,
     InventoryModule,
+    FinanceModule,
   ],
+  controllers: [GetFeedingOverviewResponder],
   providers: [
     FeedSelectorService,
     WaterTemperatureService,

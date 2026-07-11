@@ -5,14 +5,41 @@
  * Uses pre-aggregated stats from useHRDashboardStats and department list.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Calendar, Award, Clock, Download } from 'lucide-react';
 import { useHRDashboardStats, useDepartments } from '../hooks';
+import { useHrFinanceSummary } from '../hooks/useHrFinance';
 
 const HRAnalyticsPage: React.FC = () => {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
   const { data: departments, isLoading: loadingDepts } = useDepartments();
+
+  // Real per-department headcount from the HR finance read model — replaces
+  // the former hard-coded 0%-width placeholder bars (HR-HIGH-001). The query
+  // is manager/admin-gated; on a non-privileged view it simply resolves empty
+  // and the breakdown shows honest em-dashes rather than fake zeros.
+  const currentYear = new Date().getUTCFullYear();
+  const { data: financeSummary } = useHrFinanceSummary(
+    `${currentYear}-01-01`,
+    `${currentYear}-12-31`,
+    'YEAR',
+  );
+
+  const headcountByDepartment = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const dept of financeSummary?.byDepartment ?? []) {
+      if (dept.departmentHrId) {
+        map.set(dept.departmentHrId, dept.headcount);
+      }
+    }
+    return map;
+  }, [financeSummary]);
+
+  const maxHeadcount = useMemo(
+    () => Math.max(1, ...[...headcountByDepartment.values()]),
+    [headcountByDepartment],
+  );
 
   const isLoading = loadingStats || loadingDepts;
 
@@ -113,29 +140,34 @@ const HRAnalyticsPage: React.FC = () => {
             Department Breakdown
           </h3>
           <div className="space-y-3">
-            {departments.map((dept) => (
-              <div key={dept.id} className="flex items-center gap-4">
-                <div
-                  className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: dept.colorCode || '#6366f1' }}
-                />
-                <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
-                  {dept.name}
-                </span>
-                <div className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700" style={{ height: 6 }}>
+            {departments.map((dept) => {
+              const headcount = headcountByDepartment.get(dept.id);
+              const widthPct =
+                headcount !== undefined ? Math.round((headcount / maxHeadcount) * 100) : 0;
+              return (
+                <div key={dept.id} className="flex items-center gap-4">
                   <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: '0%',
-                      backgroundColor: dept.colorCode || '#6366f1',
-                    }}
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: dept.colorCode || '#6366f1' }}
                   />
+                  <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
+                    {dept.name}
+                  </span>
+                  <div className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700" style={{ height: 6 }}>
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${widthPct}%`,
+                        backgroundColor: dept.colorCode || '#6366f1',
+                      }}
+                    />
+                  </div>
+                  <span className="w-12 text-right text-sm text-gray-500">
+                    {headcount !== undefined ? headcount : '—'}
+                  </span>
                 </div>
-                <span className="w-12 text-right text-sm text-gray-500">
-                  {'-'}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

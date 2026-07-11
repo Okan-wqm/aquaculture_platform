@@ -200,6 +200,8 @@ interface WireFeedingRecorded extends WireBaseEvent {
   feedingDate: string;
   feedingTime: string;
   variance: number;
+  feedCost?: string;
+  currency?: string;
 }
 
 interface WireFeedInventoryLow extends WireBaseEvent {
@@ -760,6 +762,14 @@ export const feedingRecordedSchema: JSONSchemaType<WireFeedingRecorded> = {
     feedingDate: ISO_DATE_STRING,
     feedingTime: SHORT_CODE,
     variance: { type: 'number' },
+    // Additive monetary fields (finance capability). String-encoded
+    // decimal per HR-MEDIUM-001 — a wire `number` is rejected.
+    feedCost: {
+      type: 'string',
+      pattern: '^\\d{1,13}(\\.\\d{1,2})?$',
+      nullable: true,
+    },
+    currency: { type: 'string', pattern: '^[A-Z]{3}$', nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,

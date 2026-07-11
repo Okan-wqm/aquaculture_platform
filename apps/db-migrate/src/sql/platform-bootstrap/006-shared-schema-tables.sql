@@ -546,9 +546,19 @@ END
 $$;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Install tenant_isolation_policy on each shared.* table that has tenantId.
+-- Install tenant_isolation_policy on each shared.* COMPLIANCE-STATE table.
 -- Canonical predicate from
 -- libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts.
+--
+-- shared.audit_logs is DELIBERATELY EXCLUDED here (ORPHAN-HIGH-308 /
+-- ORPHAN-MEDIUM-324): it is a CROSS-TENANT append-only audit ledger written
+-- from no-tenant-context paths (billing's unauthenticated Stripe webhook,
+-- cross-service admin actions, platform SUPER_ADMIN with tenantId NULL). Under
+-- tenant_isolation_policy those INSERTs are silently RLS-denied — the exact
+-- defect. It gets the canonical infrastructure-ledger policy in the next block
+-- (byte-for-byte identical to applyInfrastructureLedgerRls in backend-common,
+-- the SSoT for every OTHER audit ledger's policy; parity is enforced by
+-- tests/invariants/infrastructure-ledger-ssot.spec.ts).
 -- ──────────────────────────────────────────────────────────────────────────
 DO $$
 DECLARE
@@ -556,7 +566,6 @@ DECLARE
 BEGIN
   FOR entry IN
     SELECT * FROM (VALUES
-      ('audit_logs',         'tenantId'),
       ('gdpr_data_requests', 'tenantId'),
       ('user_consents',      'tenantId'),
       ('user_permissions',   'tenantId'),
@@ -576,6 +585,38 @@ BEGIN
       );
     END IF;
   END LOOP;
+END
+$$;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Canonical INFRASTRUCTURE-LEDGER policy for shared.audit_logs (cross-tenant,
+-- append-only, system-written). Mirrors applyInfrastructureLedgerRls exactly:
+--   - infra_ledger_append : FOR INSERT WITH CHECK (true) — a system / pre-auth
+--     / NULL-tenant write always lands.
+--   - infra_ledger_read   : FOR SELECT with the system-aware clause — any
+--     no-tenant-context connection (and INSERT … RETURNING) reads back the row;
+--     a tenant-scoped connection still sees only its own rows.
+--   - NO update/delete policy → immutable under FORCE RLS (belt-and-suspenders
+--     with the immutability trigger installed below).
+-- Drops the legacy tenant_isolation_policy + the auth-only audit_append_system
+-- prior so the canonical pair is the sole policy set.
+-- ──────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs') THEN
+    DROP POLICY IF EXISTS tenant_isolation_policy ON shared.audit_logs;
+    DROP POLICY IF EXISTS audit_append_system ON shared.audit_logs;
+    DROP POLICY IF EXISTS infra_ledger_append ON shared.audit_logs;
+    DROP POLICY IF EXISTS infra_ledger_read ON shared.audit_logs;
+    CREATE POLICY infra_ledger_append ON shared.audit_logs
+      FOR INSERT WITH CHECK (true);
+    CREATE POLICY infra_ledger_read ON shared.audit_logs
+      FOR SELECT USING (
+        current_setting('app.bypass_rls', true) = 'on'
+        OR NULLIF(current_setting('app.current_tenant', true), '') IS NULL
+        OR "tenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+      );
+  END IF;
 END
 $$;
 

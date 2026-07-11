@@ -5,11 +5,20 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Optional,
   OnModuleDestroy,
   SetMetadata,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { Request, Response } from 'express';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import {
+  InMemoryRateLimitStore,
+  RedisRateLimitStore,
+  type RateLimitEntry,
+  type RateLimitStore,
+} from '@aquaculture/backend-common/rate-limit';
 
 /**
  * Metadata key for custom rate limits
@@ -34,60 +43,55 @@ export const RateLimit = (config: RateLimitConfig): ReturnType<typeof SetMetadat
   SetMetadata(RATE_LIMIT_KEY, config);
 
 /**
- * Rate limit entry tracking
- */
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
-/**
- * Simple Rate Limit Guard for REST endpoints
- * Uses in-memory storage with automatic cleanup
+ * Simple Rate Limit Guard for public REST endpoints (provisioning, activation).
  *
- * Default: 10 requests per minute (brute-force protection)
+ * SENSOR-LOW-008: counters live in a distributed {@link RateLimitStore} backed
+ * by Redis, so every replica enforces ONE shared window per key. A per-instance
+ * in-memory Map multiplied every limit by the replica count and reset on each
+ * redeploy — brute-force protection you could scale around. The Redis store
+ * uses an atomic Lua INCR+PEXPIRE (no read-modify-write race). When no Redis is
+ * wired (local/dev) it degrades to the in-process fallback, logged loudly; in
+ * production an unreachable store fails CLOSED (429/503) rather than silently
+ * disabling protection.
  *
- * Use @RateLimit() decorator to customize per endpoint
+ * Default: 10 requests per minute (brute-force protection). Use @RateLimit() to
+ * customise per endpoint.
  */
 @Injectable()
 export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
   private readonly logger = new Logger(SimpleRateLimitGuard.name);
-  private readonly store = new Map<string, RateLimitEntry>();
-  private readonly cleanupInterval: ReturnType<typeof setInterval>;
+  private readonly distributedStore?: RateLimitStore;
+  private readonly fallbackStore = new InMemoryRateLimitStore();
+  private readonly isProduction: boolean;
 
   // Default limits for public endpoints (conservative for security)
   private readonly defaultLimit = 10;
   private readonly defaultWindowMs = 60000; // 1 minute
 
-  constructor(private readonly reflector: Reflector) {
-    // Cleanup expired entries every minute
-    this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly configService: ConfigService,
+    @Optional() redisService?: RedisService,
+  ) {
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    if (redisService) {
+      this.distributedStore = new RedisRateLimitStore(redisService, 'sensor:ratelimit:');
+    } else {
+      this.logger.warn(
+        'RedisService unavailable — provisioning rate limiting falls back to per-instance ' +
+          'in-memory counters (N replicas => N x limit). Wire Redis for a shared window.',
+      );
+    }
   }
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
     const key = this.generateKey(request);
     const config = this.getRateLimitConfig(context);
 
-    const now = Date.now();
-    let entry = this.store.get(key);
-
-    if (!entry || now > entry.resetTime) {
-      // Create new entry
-      entry = {
-        count: 1,
-        resetTime: now + config.windowMs,
-      };
-      this.store.set(key, entry);
-      this.setRateLimitHeaders(response, config, entry);
-      return true;
-    }
-
-    // Increment count
-    entry.count++;
-    this.store.set(key, entry);
+    const entry = await this.countWindow(key, config.windowMs);
     this.setRateLimitHeaders(response, config, entry);
 
     if (entry.count > config.limit) {
@@ -95,7 +99,7 @@ export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
         `Rate limit exceeded for ${key}: ${entry.count}/${config.limit}`,
       );
 
-      const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
+      const retryAfter = Math.max(1, Math.ceil((entry.resetTime - Date.now()) / 1000));
 
       throw new HttpException(
         {
@@ -108,6 +112,44 @@ export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
     }
 
     return true;
+  }
+
+  /**
+   * Increment the window for `key`, applying the fail-closed-in-prod policy on
+   * store failure (mirrors the platform rate-limit guard).
+   */
+  private async countWindow(key: string, windowMs: number): Promise<RateLimitEntry> {
+    try {
+      return (await this.selectStore().incrementOrCreate(key, windowMs)).entry;
+    } catch (error) {
+      if (this.isProduction && this.distributedStore) {
+        // Fail CLOSED: an attacker who can degrade Redis must not thereby unlock
+        // unlimited brute-force traffic against provisioning/activation.
+        this.logger.error(
+          `Rate-limit store unavailable — failing CLOSED: ${(error as Error).message}`,
+        );
+        throw new HttpException(
+          { statusCode: HttpStatus.SERVICE_UNAVAILABLE, message: 'Service temporarily unavailable' },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+      this.logger.warn(
+        `Rate-limit store unavailable — using in-process fallback: ${(error as Error).message}`,
+      );
+      return (await this.fallbackStore.incrementOrCreate(key, windowMs)).entry;
+    }
+  }
+
+  private selectStore(): RateLimitStore {
+    if (this.distributedStore?.isHealthy()) {
+      return this.distributedStore;
+    }
+    // In production, return the unhealthy distributed store so countWindow's
+    // catch fails closed; in dev, degrade to the in-process fallback.
+    if (this.distributedStore && this.isProduction) {
+      return this.distributedStore;
+    }
+    return this.distributedStore ?? this.fallbackStore;
   }
 
   private generateKey(request: Request): string {
@@ -152,25 +194,10 @@ export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
     );
   }
 
-  private cleanup(): void {
-    const now = Date.now();
-    let cleaned = 0;
-
-    for (const [key, entry] of this.store.entries()) {
-      if (now > entry.resetTime) {
-        this.store.delete(key);
-        cleaned++;
-      }
-    }
-
-    if (cleaned > 0) {
-      this.logger.debug(`Cleaned up ${cleaned} expired rate limit entries`);
-    }
-  }
-
   onModuleDestroy(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-    }
+    // The distributed store's connection lifecycle belongs to RedisService;
+    // only the in-process fallback owns a timer that must be released.
+    this.fallbackStore.destroy();
+    this.distributedStore?.destroy();
   }
 }

@@ -8,7 +8,7 @@ import { PurchaseOrderItemInput } from './purchase-order-item.input';
 export class CreatePurchaseOrderInput {
   @Field(() => PurchaseOrderCategory)
   @IsEnum(PurchaseOrderCategory)
-  category: PurchaseOrderCategory;
+  category!: PurchaseOrderCategory;
 
   /**
    * Supplier company name. MaxLength(500) prevents unbounded input that could
@@ -19,7 +19,7 @@ export class CreatePurchaseOrderInput {
   @Field()
   @IsString()
   @MaxLength(500)
-  supplierName: string;
+  supplierName!: string;
 
   /**
    * Supplier contact information (phone, email, or person name). MaxLength(500)
@@ -46,5 +46,5 @@ export class CreatePurchaseOrderInput {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PurchaseOrderItemInput)
-  items: PurchaseOrderItemInput[];
+  items!: PurchaseOrderItemInput[];
 }

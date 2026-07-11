@@ -168,7 +168,7 @@ export class AddTankInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -220,10 +220,10 @@ export class RecalculateParametersInput {
 @ObjectType()
 export class BulkFeedingFailure {
   @Field(() => ID)
-  executionId: string;
+  executionId!: string;
 
   @Field()
-  error: string;
+  error!: string;
 }
 
 /**
@@ -232,16 +232,16 @@ export class BulkFeedingFailure {
 @ObjectType()
 export class BulkFeedingResult {
   @Field(() => [DailyFeedingExecution])
-  successful: DailyFeedingExecution[];
+  successful!: DailyFeedingExecution[];
 
   @Field(() => [BulkFeedingFailure])
-  failed: BulkFeedingFailure[];
+  failed!: BulkFeedingFailure[];
 
   @Field(() => Int)
-  totalSuccessful: number;
+  totalSuccessful!: number;
 
   @Field(() => Int)
-  totalFailed: number;
+  totalFailed!: number;
 }
 
 /**
@@ -250,7 +250,7 @@ export class BulkFeedingResult {
 @ObjectType()
 export class RecalculatedExecution {
   @Field(() => DailyFeedingExecution)
-  execution: DailyFeedingExecution;
+  execution!: DailyFeedingExecution;
 
   @Field(() => GraphQLJSON, { nullable: true })
   previousCalculations?: Record<string, unknown>;
@@ -262,13 +262,13 @@ export class RecalculatedExecution {
 @ObjectType()
 export class GenerateDailyPlanResult {
   @Field()
-  date: Date;
+  date!: Date;
 
   @Field(() => Int)
-  generatedCount: number;
+  generatedCount!: number;
 
   @Field(() => [DailyFeedingExecution])
-  executions: DailyFeedingExecution[];
+  executions!: DailyFeedingExecution[];
 
   @Field(() => [String], { nullable: true })
   warnings?: string[];

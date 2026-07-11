@@ -545,16 +545,22 @@ function findEntityFiles(absRoot: string): string[] {
 function loadEntityClasses(absRoot: string): EntityClass[] {
   const files = findEntityFiles(absRoot);
   const classes: EntityClass[] = [];
+  const loadFailures: string[] = [];
   for (const file of files) {
     let mod: Record<string, unknown>;
     try {
       mod = requireModule(file) as Record<string, unknown>;
     } catch (err) {
-      // Skip entity files that can't be loaded (e.g., declare side
-      // effects on a Nest module not loaded in this test). Surface as
-      // warning rather than fatal — the file's @Entity decorators ran
-      // anyway through getMetadataArgsStorage.
-      logger.warn(`could not load entity file ${file}: ${(err as Error).message}`);
+      // A .entity.ts that fails to load is NEVER safe to skip. Because the
+      // require throws, the module body never executes — so its @Entity
+      // decorators do NOT register with getMetadataArgsStorage and the entity
+      // is fully ABSENT from the metadata graph. Silently continuing would let
+      // that entity's table pass the schema-drift matrix by omission: a
+      // genuinely missing table/column would go undetected. Collect every
+      // failure and fail the suite loudly (see throw below).
+      const message = `${file}: ${(err as Error).message}`;
+      loadFailures.push(message);
+      logger.error(`could not load entity file ${message}`);
       continue;
     }
     for (const v of Object.values(mod)) {
@@ -562,6 +568,14 @@ function loadEntityClasses(absRoot: string): EntityClass[] {
         classes.push(v);
       }
     }
+  }
+  if (loadFailures.length > 0) {
+    throw new Error(
+      `loadEntityClasses(${absRoot}) failed to load ${loadFailures.length} ` +
+        `entity file(s). An un-loadable entity silently drops out of the ` +
+        `schema-drift matrix, so this is a hard failure — fix the ` +
+        `compile/load error(s):\n${loadFailures.map((f) => `  - ${f}`).join('\n')}`,
+    );
   }
   return classes;
 }

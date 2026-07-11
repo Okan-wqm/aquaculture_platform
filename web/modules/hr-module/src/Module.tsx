@@ -28,6 +28,7 @@ const CertificationDashboardPage = lazy(() => import('./pages/training/Certifica
 const WeeklySchedulePage = lazy(() => import('./pages/scheduling/WeeklySchedulePage'));
 const TeamOverviewPage = lazy(() => import('./pages/scheduling/TeamOverviewPage'));
 const SchedulingSettingsPage = lazy(() => import('./pages/scheduling/SchedulingSettingsPage'));
+const HRFinancePage = lazy(() => import('./pages/finance/HRFinancePage'));
 
 // Loading fallback
 function PageLoader() {
@@ -119,6 +120,7 @@ const HRModule: React.FC = () => {
           <Route path="organization/positions" element={<PlaceholderPage title="Positions" />} />
 
           {/* Analytics */}
+          <Route path="finance" element={<HRFinancePage />} />
           <Route path="analytics" element={<HRAnalyticsPage />} />
           <Route path="reports" element={<PlaceholderPage title="HR Reports" />} />
 

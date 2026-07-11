@@ -85,7 +85,13 @@ export function SensorRegistrationWizard({
         case 2:
           return true; // Connection test is optional but recommended
         case 3:
-          return !!parentDeviceInfo.name;
+          // SENSOR-HIGH-024: enforce the Site + Department the step marks
+          // required (*), so the location hierarchy is actually supplied.
+          return (
+            !!parentDeviceInfo.name &&
+            !!parentDeviceInfo.siteId &&
+            !!parentDeviceInfo.departmentId
+          );
         case 4:
           return childSensors.filter((c) => c.selected).length > 0;
         case 5:
@@ -206,9 +212,14 @@ export function SensorRegistrationWizard({
         model: parentDeviceInfo.model,
         serialNumber: parentDeviceInfo.serialNumber,
         description: parentDeviceInfo.description,
-        farmId: parentDeviceInfo.farmId,
-        pondId: parentDeviceInfo.pondId,
-        tankId: parentDeviceInfo.tankId,
+        // SENSOR-HIGH-024: serialize the location hierarchy the wizard collects
+        // (and marks required). It was previously dropped — only the dead legacy
+        // farm/pond/tank keys were sent — so devices persisted with NULL
+        // site/department and were orphaned from the site tree.
+        siteId: parentDeviceInfo.siteId,
+        departmentId: parentDeviceInfo.departmentId,
+        systemId: parentDeviceInfo.systemId,
+        equipmentId: parentDeviceInfo.equipmentId,
         location: parentDeviceInfo.location,
       },
       children: selectedChildren.map((c): RegisterChildSensorInput => ({

@@ -80,12 +80,12 @@ registerEnumType(SubSystemStatus, {
 export class SubSystem {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // SYSTEM İLİŞKİSİ
@@ -94,11 +94,11 @@ export class SubSystem {
   @Field()
   @Column('uuid')
   @Index()
-  systemId: string;
+  systemId!: string;
 
   @ManyToOne(() => System, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'systemId' })
-  system: System;
+  system!: System;
 
   // -------------------------------------------------------------------------
   // DEPARTMENT İLİŞKİSİ
@@ -118,11 +118,11 @@ export class SubSystem {
 
   @Field()
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 20 })
-  code: string;
+  code!: string;
 
   @Field(() => SubSystemType)
   @Column({
@@ -130,7 +130,7 @@ export class SubSystem {
     enum: SubSystemType,
     default: SubSystemType.OTHER,
   })
-  type: SubSystemType;
+  type!: SubSystemType;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -146,12 +146,12 @@ export class SubSystem {
     enum: SubSystemStatus,
     default: SubSystemStatus.OPERATIONAL,
   })
-  status: SubSystemStatus;
+  status!: SubSystemStatus;
 
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -159,11 +159,11 @@ export class SubSystem {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -174,7 +174,7 @@ export class SubSystem {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -183,7 +183,7 @@ export class SubSystem {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

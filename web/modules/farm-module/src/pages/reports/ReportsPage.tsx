@@ -27,6 +27,9 @@ import { WelfareEventTab } from './tabs/WelfareEventTab';
 import { DiseaseOutbreakTab } from './tabs/DiseaseOutbreakTab';
 import { EscapeReportTab } from './tabs/EscapeReportTab';
 
+// Scheduled report drafts due (RPT-003)
+import { ReportsDueSection } from './components/ReportsDueSection';
+
 // Scheduled Report Tabs
 import { SeaLiceReportTab } from './tabs/SeaLiceReportTab';
 import { BiomassReportTab } from './tabs/BiomassReportTab';
@@ -408,6 +411,10 @@ export const ReportsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Scheduled report drafts due (RPT-003) — assembled each period by the
+          scheduler; approve & submit / refresh / dismiss from here. */}
+      <ReportsDueSection />
 
       {/* Tab Navigation */}
       <div className="bg-white border-b border-gray-200">

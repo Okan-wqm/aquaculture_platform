@@ -802,18 +802,28 @@ describe('platform-bootstrap atom — pre-existing initdb artifacts (ADR-031 pro
     expect(result.sharedTableCount).toBe(SHARED_SCHEMA_TABLES.length);
   }, 90_000);
 
-  it('preserves shared.audit_logs RLS policy after Phase 0 re-apply', async () => {
-    // After Phase 0 Stage 006 ran (drop-then-create), the policy must
-    // remain on the table — net effect identical to running with no
-    // prior policy, but exercising the conflict path.
+  it('installs the infrastructure-ledger RLS policy on shared.audit_logs (ORPHAN-MEDIUM-324)', async () => {
+    // shared.audit_logs is a CROSS-TENANT append-only audit ledger written from
+    // no-tenant-context paths (Stripe webhook, cross-service admin). Phase 0
+    // Stage 006 must give it the canonical infra-ledger pair (append + system
+    // read) and NOT tenant_isolation_policy — under the tenant policy the
+    // system-written rows were silently RLS-denied. Also exercises the
+    // drop-then-create conflict path (the pre-seeded legacy policy is removed).
     const qr = ctx.dataSource.createQueryRunner();
     try {
       const rows = (await qr.query(
-        `SELECT policyname FROM pg_policies
+        `SELECT policyname, cmd FROM pg_policies
           WHERE schemaname = 'shared' AND tablename = 'audit_logs'`,
-      )) as Array<{ policyname: string }>;
-      expect(rows.length).toBeGreaterThanOrEqual(1);
-      expect(rows.map((r) => r.policyname)).toContain('tenant_isolation_policy');
+      )) as Array<{ policyname: string; cmd: string }>;
+      const names = rows.map((r) => r.policyname);
+      expect(names).toContain('infra_ledger_append');
+      expect(names).toContain('infra_ledger_read');
+      // The category-error tenant policy must be GONE.
+      expect(names).not.toContain('tenant_isolation_policy');
+      // Immutability: no UPDATE/DELETE policy exists (append + read only).
+      const cmds = rows.map((r) => r.cmd);
+      expect(cmds).not.toContain('UPDATE');
+      expect(cmds).not.toContain('DELETE');
     } finally {
       await qr.release();
     }

@@ -18,6 +18,7 @@ import { SpeciesSeederService } from '../../../species/services/species-seeder.s
 import { FeedingProtocolSeederService } from '../../../feed/services/feeding-protocol-seeder.service';
 import { RegulatorySettingsSeederService } from '../../../regulatory/services/regulatory-settings-seeder.service';
 import { EquipmentTypeCatalogCheckerService } from '../../../equipment/services/equipment-type-catalog-checker.service';
+import { FinanceCategorySeedService } from '../../../finance/services/finance-category-seed.service';
 import type {
   TenantOnboardingAckEvent,
   TenantOnboardingFailedEvent,
@@ -26,6 +27,17 @@ import type {
 
 interface SeederDouble {
   seedDefaults: jest.Mock;
+}
+
+/**
+ * Narrow a SeederDouble to the finance seeder's public surface via a
+ * typed Partial (the handler only calls seedDefaults).
+ */
+function financeSeederDouble(double: SeederDouble): FinanceCategorySeedService {
+  const partial: Partial<FinanceCategorySeedService> = {
+    seedDefaults: double.seedDefaults,
+  };
+  return partial as FinanceCategorySeedService;
 }
 
 interface BusDouble {
@@ -52,6 +64,7 @@ function makeHandler(opts: {
   protocol: SeederDouble;
   regulatory: SeederDouble;
   equipment: SeederDouble;
+  finance: SeederDouble;
   bus?: BusDouble;
 } {
   const wq: SeederDouble = {
@@ -99,6 +112,12 @@ function makeHandler(opts: {
       );
     }),
   };
+  const finance: SeederDouble = {
+    seedDefaults: jest.fn().mockImplementation(async () => ({
+      seeded: ['FEED', 'ELECTRICITY'],
+      skipped: [],
+    })),
+  };
   const defaultEventBus: BusDouble = {
     subscribeWildcard: jest.fn().mockResolvedValue(undefined),
     publish: jest
@@ -114,10 +133,11 @@ function makeHandler(opts: {
     protocol as unknown as FeedingProtocolSeederService,
     regulatory as unknown as RegulatorySettingsSeederService,
     equipment as unknown as EquipmentTypeCatalogCheckerService,
+    financeSeederDouble(finance),
     eventBus as never,
   );
   (handler as unknown as { eventBus?: BusDouble }).eventBus = eventBus;
-  return { handler, wq, species, protocol, regulatory, equipment, bus: eventBus };
+  return { handler, wq, species, protocol, regulatory, equipment, finance, bus: eventBus };
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';

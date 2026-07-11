@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
 import { HrOutboxModule } from '../hr-outbox.module';
+import { HrFinanceModule } from '../finance/hr-finance.module';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { EmployeeCertification } from '../training/entities/employee-certification.entity';
 
@@ -64,6 +65,11 @@ const QueryHandlers = [
     ]),
     CqrsModule,
     HrOutboxModule,
+    // Currency SSoT: CreateEmployeeHandler resolves the tenant default
+    // currency through PayrollCostSettingsService (exported by
+    // HrFinanceModule). HrFinanceModule does not import HRModule, so
+    // there is no DI cycle.
+    HrFinanceModule,
   ],
   providers: [HRResolver, ...CommandHandlers, ...QueryHandlers, EmployeeErasureService],
   controllers: [InternalHrContactController],

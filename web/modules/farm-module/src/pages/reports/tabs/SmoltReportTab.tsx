@@ -5,10 +5,7 @@
  * Aligned with Norwegian Mattilsynet "settefisk" requirements
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import {
-  useRegulatorySettings,
-  useSubmitSmoltReport,
-} from '../../../hooks/useRegulatory';
+import { useRegulatorySettings, useSubmitSmoltReport } from '../../../hooks/useRegulatory';
 import type { SubmitSmoltReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
 import {
   SmoltUnitCount,
@@ -20,6 +17,8 @@ import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizar
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
+import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
+import { ProvenanceBadge } from '../components/common';
 import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';
@@ -44,7 +43,7 @@ const SPECIES_CODES = [
 
 /** Extended mortality unit with euthanized/natural death split */
 interface SmoltMortalityUnitExtended extends SmoltMortalityUnit {
-  euthanized: number;    // antallAvlivet
+  euthanized: number; // antallAvlivet
   naturalDeaths: number; // antallSelvdød
   externalTransfers: number; // antallFlyttetEksternt
 }
@@ -52,6 +51,50 @@ interface SmoltMortalityUnitExtended extends SmoltMortalityUnit {
 /** Extended unit count with species code */
 interface SmoltUnitCountExtended extends SmoltUnitCount {
   speciesCode: string; // artskode
+  /**
+   * Mattilsynet regulatory unit id (karId) carried from the server-assembled
+   * draft — SettefiskReportAssembler derives it from Tank.regulatoryUnitId /
+   * tank code, so the report matches the catalog the assembler read instead of
+   * re-deriving it from the display name at submission.
+   */
+  karId?: string;
+}
+
+/** Per-unit shape of the server-assembled settefisk draft (see SettefiskReportAssembler). */
+interface SmoltPrefillUnit {
+  karId: string;
+  artskode: string;
+  snittvektGram: number;
+  beholdningVedMånedsslutt: number;
+  antallAvlivet: number;
+  antallSelvdød: number;
+  antallFlyttetEksternt: number;
+}
+
+/**
+ * Map the form's per-unit rows to the Mattilsynet settefisk `produksjonsenheter`
+ * wire shape. The values come from the server-assembled draft (loaded via
+ * "Load from System"): the regulatory karId and per-unit average weight are the
+ * assembler's SSoT — a single overall weight and the display name are only
+ * fallbacks for units the operator adds by hand.
+ */
+export function buildSmoltProduksjonsenheter(
+  byUnit: SmoltUnitCountExtended[],
+  mortalityByUnit: SmoltMortalityUnitExtended[],
+  overallWeightGram: number,
+): SubmitSmoltReportInput['produksjonsenheter'] {
+  return byUnit.map((unit) => {
+    const mortalityUnit = mortalityByUnit.find((m) => m.unitId === unit.unitId);
+    return {
+      karId: unit.karId || unit.unitName || unit.unitId,
+      artskode: unit.speciesCode || 'SAL',
+      snittvektGram: unit.avgWeightG || overallWeightGram || 0,
+      beholdningVedMaanedsslutt: unit.quantity,
+      antallAvlivet: mortalityUnit?.euthanized || 0,
+      antallSelvdod: mortalityUnit?.naturalDeaths || 0,
+      antallFlyttetEksternt: mortalityUnit?.externalTransfers || 0,
+    };
+  });
 }
 
 interface SmoltFormData {
@@ -80,8 +123,20 @@ interface SmoltFormData {
 // ============================================================================
 
 function getMonthLabel(month: number, year: number): string {
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   return `${monthNames[month]} ${year}`;
 }
 
@@ -195,9 +250,17 @@ interface FishCountsStepProps {
   formData: SmoltFormData;
   onChange: (data: Partial<SmoltFormData>) => void;
   tanks: Tank[];
+  prefillUnits?: SmoltPrefillUnit[];
+  unitsMeta?: ReportFieldMeta;
 }
 
-const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tanks }) => {
+const FishCountsStep: React.FC<FishCountsStepProps> = ({
+  formData,
+  onChange,
+  tanks,
+  prefillUnits,
+  unitsMeta,
+}) => {
   const addUnit = () => {
     const newUnit: SmoltUnitCountExtended = {
       unitId: `unit-${Date.now()}`,
@@ -218,39 +281,26 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
   };
 
   const loadFromSystem = () => {
-    if (tanks.length === 0) return;
+    // Server-assembled draft is the source (plan Phase 1b): per-tank stock,
+    // average weight and species come from the batch/tank SSoTs; the local
+    // tank list only resolves display ids/types for the form rows.
+    if (!prefillUnits || prefillUnits.length === 0) return;
 
-    const byUnit: SmoltUnitCountExtended[] = tanks
-      .filter((t) => t.batchMetrics?.pieces && t.batchMetrics.pieces > 0)
-      .map((tank) => ({
-        unitId: tank.id,
-        unitName: tank.name,
-        unitType: mapTankType(tank),
-        quantity: tank.batchMetrics?.pieces || 0,
-        avgWeightG: tank.batchMetrics?.avgWeight || 0,
-        stage: deriveStage(tank),
-        speciesCode: tank.batchMetrics?.speciesCode || 'SAL',
-      }));
-
-    if (byUnit.length === 0) {
-      // If no tanks have batch data, load all tanks with zero counts
-      const allUnits: SmoltUnitCountExtended[] = tanks.map((tank) => ({
-        unitId: tank.id,
-        unitName: tank.name,
-        unitType: mapTankType(tank),
-        quantity: 0,
-        avgWeightG: 0,
-        stage: deriveStage(tank),
-        speciesCode: tank.batchMetrics?.speciesCode || 'SAL',
-      }));
-      onChange({
-        fishCounts: {
-          byUnit: allUnits,
-          total: 0,
-        },
-      });
-      return;
-    }
+    const byUnit: SmoltUnitCountExtended[] = prefillUnits.map((unit) => {
+      const tank = tanks.find((t) => t.code === unit.karId || t.name === unit.karId);
+      return {
+        unitId: tank?.id ?? unit.karId,
+        unitName: tank?.name ?? unit.karId,
+        unitType: tank ? mapTankType(tank) : 'tank',
+        quantity: unit.beholdningVedMånedsslutt,
+        avgWeightG: unit.snittvektGram,
+        stage: tank ? deriveStage(tank) : undefined,
+        speciesCode: unit.artskode || 'SAL',
+        // Preserve the assembler's regulatory karId (do not re-derive from the
+        // resolved tank display name at submission).
+        karId: unit.karId,
+      };
+    });
 
     onChange({
       fishCounts: {
@@ -262,7 +312,7 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
 
   const updateUnit = (index: number, updates: Partial<SmoltUnitCountExtended>) => {
     const byUnit = formData.fishCounts.byUnit.map((u, i) =>
-      i === index ? { ...u, ...updates } : u
+      i === index ? { ...u, ...updates } : u,
     );
     onChange({
       fishCounts: {
@@ -290,18 +340,28 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Fish Counts by Unit</h4>
-          <p className="text-xs text-gray-500">Record fish in each production unit (Mattilsynet: produksjonsenhet)</p>
+          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            Fish Counts by Unit
+            {unitsMeta && <ProvenanceBadge meta={unitsMeta} />}
+          </h4>
+          <p className="text-xs text-gray-500">
+            Record fish in each production unit (Mattilsynet: produksjonsenhet)
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          {tanks.length > 0 && (
+          {prefillUnits && prefillUnits.length > 0 && (
             <button
               type="button"
               onClick={loadFromSystem}
               className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
               </svg>
               Load from System
             </button>
@@ -328,13 +388,23 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
 
       {formData.fishCounts.byUnit.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+          <svg
+            className="w-12 h-12 mx-auto text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
+            />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No units added</p>
           <p className="text-xs text-gray-400">
-            {tanks.length > 0
-              ? 'Click "Load from System" to auto-populate from tanks, or "Add Unit" manually'
+            {prefillUnits && prefillUnits.length > 0
+              ? 'Click "Load from System" to auto-populate from batch records, or "Add Unit" manually'
               : 'Click "Add Unit" to record fish in tanks/raceways'}
           </p>
         </div>
@@ -355,7 +425,12 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                     className="text-red-500 hover:text-red-700"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -378,7 +453,10 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                                 quantity: tank.batchMetrics?.pieces || unit.quantity,
                                 avgWeightG: tank.batchMetrics?.avgWeight || unit.avgWeightG,
                                 stage: deriveStage(tank),
-                                speciesCode: tank.batchMetrics?.speciesCode || (unit as SmoltUnitCountExtended).speciesCode || 'SAL',
+                                speciesCode:
+                                  tank.batchMetrics?.speciesCode ||
+                                  (unit as SmoltUnitCountExtended).speciesCode ||
+                                  'SAL',
                               });
                             }
                           }
@@ -388,7 +466,10 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                         <option value="__manual__">-- Manual entry --</option>
                         {tanks.map((t) => (
                           <option key={t.id} value={t.id}>
-                            {t.name} {t.batchMetrics?.pieces ? `(${formatNumber(t.batchMetrics.pieces)} fish)` : ''}
+                            {t.name}{' '}
+                            {t.batchMetrics?.pieces
+                              ? `(${formatNumber(t.batchMetrics.pieces)} fish)`
+                              : ''}
                           </option>
                         ))}
                       </select>
@@ -415,7 +496,11 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                     <label className="block text-xs text-gray-500 mb-1">Type</label>
                     <select
                       value={unit.unitType}
-                      onChange={(e) => updateUnit(index, { unitType: e.target.value as 'tank' | 'raceway' | 'pond' })}
+                      onChange={(e) =>
+                        updateUnit(index, {
+                          unitType: e.target.value as 'tank' | 'raceway' | 'pond',
+                        })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     >
                       <option value="tank">Tank</option>
@@ -424,7 +509,9 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Species Code (artskode)</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Species Code (artskode)
+                    </label>
                     <select
                       value={(unit as SmoltUnitCountExtended).speciesCode || 'SAL'}
                       onChange={(e) => updateUnit(index, { speciesCode: e.target.value })}
@@ -443,7 +530,9 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                     <label className="block text-xs text-gray-500 mb-1">Stage</label>
                     <select
                       value={unit.stage}
-                      onChange={(e) => updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })}
+                      onChange={(e) =>
+                        updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                     >
                       <option value="fry">Fry</option>
@@ -457,7 +546,9 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                       type="number"
                       min="0"
                       value={unit.quantity || ''}
-                      onChange={(e) => updateUnit(index, { quantity: parseInt(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                       placeholder="0"
                     />
@@ -469,7 +560,9 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tan
                       min="0"
                       step="0.1"
                       value={unit.avgWeightG || ''}
-                      onChange={(e) => updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                       placeholder="0"
                     />
@@ -548,13 +641,16 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
   }, [formData.fishCounts.byUnit.length]);
 
   const totalEuthanized = formData.mortalityRates.byUnit.reduce(
-    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).euthanized || 0), 0
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).euthanized || 0),
+    0,
   );
   const totalNaturalDeaths = formData.mortalityRates.byUnit.reduce(
-    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).naturalDeaths || 0), 0
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).naturalDeaths || 0),
+    0,
   );
   const totalExternalTransfers = formData.mortalityRates.byUnit.reduce(
-    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).externalTransfers || 0), 0
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).externalTransfers || 0),
+    0,
   );
 
   return (
@@ -562,7 +658,8 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
       <div>
         <h4 className="text-sm font-medium text-gray-700">Mortality and Transfers by Unit</h4>
         <p className="text-xs text-gray-500">
-          Mattilsynet requires separate counts for euthanized (avlivet) and natural deaths (selvdod), plus external transfers
+          Mattilsynet requires separate counts for euthanized (avlivet) and natural deaths
+          (selvdod), plus external transfers
         </p>
       </div>
 
@@ -570,7 +667,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
           <div className="text-xs text-red-600 font-medium">Overall Mortality</div>
-          <div className="text-xl font-bold text-red-700">{formData.mortalityRates.overall.toFixed(2)}%</div>
+          <div className="text-xl font-bold text-red-700">
+            {formData.mortalityRates.overall.toFixed(2)}%
+          </div>
         </div>
         <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
           <div className="text-xs text-orange-600 font-medium">Euthanized (avlivet)</div>
@@ -582,7 +681,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
         </div>
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <div className="text-xs text-blue-600 font-medium">External Transfers</div>
-          <div className="text-xl font-bold text-blue-700">{formatNumber(totalExternalTransfers)}</div>
+          <div className="text-xl font-bold text-blue-700">
+            {formatNumber(totalExternalTransfers)}
+          </div>
         </div>
       </div>
 
@@ -610,21 +711,23 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                   </div>
                   <div className="text-right">
                     <span className="text-xs text-gray-500">Rate: </span>
-                    <span className={`font-medium text-sm ${mort.rate > 1 ? 'text-red-600' : 'text-gray-700'}`}>
+                    <span
+                      className={`font-medium text-sm ${mort.rate > 1 ? 'text-red-600' : 'text-gray-700'}`}
+                    >
                       {mort.rate.toFixed(2)}%
                     </span>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      Euthanized (avlivet)
-                    </label>
+                    <label className="block text-xs text-gray-500 mb-1">Euthanized (avlivet)</label>
                     <input
                       type="number"
                       min="0"
                       value={ext.euthanized || ''}
-                      onChange={(e) => updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                       placeholder="0"
                     />
@@ -637,7 +740,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                       type="number"
                       min="0"
                       value={ext.naturalDeaths || ''}
-                      onChange={(e) => updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                       placeholder="0"
                     />
@@ -649,14 +754,14 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      External Transfers
-                    </label>
+                    <label className="block text-xs text-gray-500 mb-1">External Transfers</label>
                     <input
                       type="number"
                       min="0"
                       value={ext.externalTransfers || ''}
-                      onChange={(e) => updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
+                      }
                       className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
                       placeholder="0"
                     />
@@ -687,13 +792,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
   // Totals for mortality breakdown
   const totalEuthanized = formData.mortalityRates.byUnit.reduce(
-    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).euthanized || 0), 0
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).euthanized || 0),
+    0,
   );
   const totalNaturalDeaths = formData.mortalityRates.byUnit.reduce(
-    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).naturalDeaths || 0), 0
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).naturalDeaths || 0),
+    0,
   );
   const totalExternalTransfers = formData.mortalityRates.byUnit.reduce(
-    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).externalTransfers || 0), 0
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).externalTransfers || 0),
+    0,
   );
 
   return (
@@ -704,11 +812,13 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         <p className="text-sm text-blue-600 mt-1">
           {siteName} - {getMonthLabel(formData.month, formData.year)}
         </p>
-        <span className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
-          formData.facilityType === 'land_based'
-            ? 'bg-blue-100 text-blue-700'
-            : 'bg-cyan-100 text-cyan-700'
-        }`}>
+        <span
+          className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
+            formData.facilityType === 'land_based'
+              ? 'bg-blue-100 text-blue-700'
+              : 'bg-cyan-100 text-cyan-700'
+          }`}
+        >
           {formData.facilityType === 'land_based' ? 'Land Based Facility' : 'Freshwater Facility'}
         </span>
       </div>
@@ -716,22 +826,30 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{formatNumber(formData.fishCounts.total)}</div>
+          <div className="text-2xl font-bold text-blue-600">
+            {formatNumber(formData.fishCounts.total)}
+          </div>
           <div className="text-xs text-gray-500">Total Fish</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{formData.averageWeights.overall.toFixed(1)}g</div>
+          <div className="text-2xl font-bold text-green-600">
+            {formData.averageWeights.overall.toFixed(1)}g
+          </div>
           <div className="text-xs text-gray-500">Avg Weight</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{formData.mortalityRates.overall.toFixed(2)}%</div>
+          <div className="text-2xl font-bold text-red-600">
+            {formData.mortalityRates.overall.toFixed(2)}%
+          </div>
           <div className="text-xs text-gray-500">Mortality Rate</div>
         </div>
       </div>
 
       {/* Mortality Breakdown (Mattilsynet) */}
       <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Mortality Breakdown (Mattilsynet)</h5>
+        <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+          Mortality Breakdown (Mattilsynet)
+        </h5>
         <div className="grid grid-cols-3 gap-4">
           <div className="text-center p-2 bg-orange-50 rounded">
             <div className="text-lg font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
@@ -742,7 +860,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             <div className="text-xs text-gray-500">Natural Deaths (selvdod)</div>
           </div>
           <div className="text-center p-2 bg-blue-50 rounded">
-            <div className="text-lg font-bold text-blue-700">{formatNumber(totalExternalTransfers)}</div>
+            <div className="text-lg font-bold text-blue-700">
+              {formatNumber(totalExternalTransfers)}
+            </div>
             <div className="text-xs text-gray-500">External Transfers</div>
           </div>
         </div>
@@ -781,23 +901,39 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
               <div className="col-span-2 text-right">Mort %</div>
             </div>
             {formData.fishCounts.byUnit.map((unit, i) => {
-              const mort = formData.mortalityRates.byUnit[i] as SmoltMortalityUnitExtended | undefined;
+              const mort = formData.mortalityRates.byUnit[i] as
+                | SmoltMortalityUnitExtended
+                | undefined;
               const ext = unit as SmoltUnitCountExtended;
               return (
                 <div key={i} className="grid grid-cols-12 gap-2 text-sm items-center">
-                  <div className="col-span-3 text-gray-700 truncate">{unit.unitName || `Unit ${i + 1}`}</div>
+                  <div className="col-span-3 text-gray-700 truncate">
+                    {unit.unitName || `Unit ${i + 1}`}
+                  </div>
                   <div className="col-span-1">
                     <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
                       {ext.speciesCode || 'SAL'}
                     </span>
                   </div>
-                  <div className="col-span-2 text-right font-medium text-gray-900">{formatNumber(unit.quantity)}</div>
-                  <div className="col-span-1 text-right text-gray-500">{unit.avgWeightG.toFixed(1)}</div>
-                  <div className="col-span-1 text-right text-orange-600">{mort?.euthanized || 0}</div>
-                  <div className="col-span-1 text-right text-red-600">{mort?.naturalDeaths || 0}</div>
-                  <div className="col-span-1 text-right text-blue-600">{mort?.externalTransfers || 0}</div>
+                  <div className="col-span-2 text-right font-medium text-gray-900">
+                    {formatNumber(unit.quantity)}
+                  </div>
+                  <div className="col-span-1 text-right text-gray-500">
+                    {unit.avgWeightG.toFixed(1)}
+                  </div>
+                  <div className="col-span-1 text-right text-orange-600">
+                    {mort?.euthanized || 0}
+                  </div>
+                  <div className="col-span-1 text-right text-red-600">
+                    {mort?.naturalDeaths || 0}
+                  </div>
+                  <div className="col-span-1 text-right text-blue-600">
+                    {mort?.externalTransfers || 0}
+                  </div>
                   <div className="col-span-2 text-right">
-                    <span className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-red-600' : 'text-gray-700'}`}>
+                    <span
+                      className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-red-600' : 'text-gray-700'}`}
+                    >
                       {(mort?.rate || 0).toFixed(2)}%
                     </span>
                   </div>
@@ -811,9 +947,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Submission Notice */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-600">
-          By submitting this report, you confirm that the data is accurate and complete.
-          This report will be submitted to the Norwegian Food Safety Authority (Mattilsynet)
-          via the settefisk API endpoint.
+          By submitting this report, you confirm that the data is accurate and complete. This report
+          will be submitted to the Norwegian Food Safety Authority (Mattilsynet) via the settefisk
+          API endpoint.
         </p>
       </div>
     </div>
@@ -840,6 +976,19 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
   const clientRef = useStableClientReference();
   const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
     useEffectiveReportSite(siteId);
+
+  // Server-assembled draft (plan Phase 1b): per-unit stock, weights, species
+  // and the month's mortality/cull splits computed from the operational SSoTs.
+  const prefillPeriod = useMemo(() => {
+    const seed = getInitialFormData();
+    return { year: seed.year, month: seed.month + 1 };
+  }, []);
+  const { data: prefill } = useReportPrefill<{ produksjonsenheter: SmoltPrefillUnit[] }>(
+    'SMOLT',
+    effectiveSiteId,
+    prefillPeriod,
+  );
+  const unitsMeta = findFieldMeta(prefill?.fields, '/produksjonsenheter');
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
   // Form handlers
@@ -867,18 +1016,11 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         kontaktperson: identity.kontaktperson,
         rapporteringsmaaned: toBackendReportMonth(formData.month),
         rapporteringsaar: formData.year,
-        produksjonsenheter: formData.fishCounts.byUnit.map(unit => {
-          const mortalityUnit = formData.mortalityRates.byUnit.find(m => m.unitId === unit.unitId);
-          return {
-            karId: unit.unitName || unit.unitId,
-            artskode: (unit as SmoltUnitCountExtended).speciesCode || 'SAL',
-            snittvektGram: formData.averageWeights.overall || 0,
-            beholdningVedMaanedsslutt: unit.quantity,
-            antallAvlivet: (mortalityUnit as SmoltMortalityUnitExtended)?.euthanized || 0,
-            antallSelvdod: (mortalityUnit as SmoltMortalityUnitExtended)?.naturalDeaths || 0,
-            antallFlyttetEksternt: (mortalityUnit as SmoltMortalityUnitExtended)?.externalTransfers || 0,
-          };
-        }),
+        produksjonsenheter: buildSmoltProduksjonsenheter(
+          formData.fishCounts.byUnit,
+          formData.mortalityRates.byUnit,
+          formData.averageWeights.overall || 0,
+        ),
       };
 
       const result = await submitSmoltMutation.mutateAsync(input);
@@ -911,7 +1053,7 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
           <BasicInfoStep
             formData={formData}
             onChange={handleFormChange}
-            siteName={"Default Smolt Facility"}
+            siteName={'Default Smolt Facility'}
           />
         ),
       },
@@ -919,7 +1061,15 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         id: 'fish-counts',
         title: 'Fish Counts',
         description: 'Fish by production unit',
-        content: <FishCountsStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
+        content: (
+          <FishCountsStep
+            formData={formData}
+            onChange={handleFormChange}
+            tanks={tanks}
+            prefillUnits={prefill?.draftPayload.produksjonsenheter}
+            unitsMeta={unitsMeta}
+          />
+        ),
         isValid: () => formData.fishCounts.byUnit.length > 0 && formData.fishCounts.total > 0,
       },
       {
@@ -932,10 +1082,10 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={"Default Smolt Facility"} />,
+        content: <ReviewStep formData={formData} siteName={'Default Smolt Facility'} />,
       },
     ],
-    [formData, handleFormChange, tanks]
+    [formData, handleFormChange, tanks],
   );
 
   return (
@@ -958,7 +1108,12 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
             </svg>
             New Report
           </button>

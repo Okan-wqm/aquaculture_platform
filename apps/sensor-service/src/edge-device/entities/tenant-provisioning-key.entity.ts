@@ -26,7 +26,13 @@ export class TenantProvisioningKey {
   @Index()
   tenantId!: string;
 
-  @Field()
+  /**
+   * SENSOR-MEDIUM-001: stored at rest as the SHA-256 hex digest of the raw
+   * key, never the plaintext. It carries NO `@Field()` on purpose — the digest
+   * must never be selectable over GraphQL (it is useless to a client and its
+   * exposure only invites confusion with the real secret). The plaintext key is
+   * surfaced exactly once, at creation, via the `TenantKeyResponse` DTO.
+   */
   @Column({ name: 'key_token', length: 64, unique: true })
   keyToken!: string;
 

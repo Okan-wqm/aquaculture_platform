@@ -24,7 +24,7 @@ import { Message } from './message.entity';
 export class MessageAttachment {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant identifier — backfilled from parent message in
@@ -32,45 +32,45 @@ export class MessageAttachment {
    * for the tenant_isolation_policy RLS predicate (ADR-011).
    */
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Column({ type: 'varchar', length: 512 })
-  storageKey: string;
+  storageKey!: string;
 
   @Field()
   @Column({ type: 'varchar', length: 255 })
-  originalFilename: string;
+  originalFilename!: string;
 
   @Field()
   @Column({ type: 'varchar', length: 127 })
-  mimeType: string;
+  mimeType!: string;
 
   @Field()
   @Column({ type: 'bigint' })
-  fileSize: number;
+  fileSize!: number;
 
   @Field(() => Number, { nullable: true })
   @Column({ type: 'integer', nullable: true })
-  width: number | null;
+  width!: number | null;
 
   @Field(() => Number, { nullable: true })
   @Column({ type: 'integer', nullable: true })
-  height: number | null;
+  height!: number | null;
 
   @Field(() => Float, { nullable: true })
   // DecimalTransformer: durationSeconds for audio/video attachments displayed in UI and used in
   // media processing time estimates. String arithmetic corrupts duration calculations.
   @Column({ type: 'numeric', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  durationSeconds: number | null;
+  durationSeconds!: number | null;
 
   @Column({ type: 'varchar', length: 512, nullable: true })
-  thumbnailKey: string | null;
+  thumbnailKey!: string | null;
 
   // `downloadUrl` and `thumbnailUrl` are NOT declared here (tier-1 make-it-impossible,
   // MSG-CRITICAL-052). They are computed presigned URLs with no backing column; they
@@ -79,7 +79,7 @@ export class MessageAttachment {
   // had no resolver and silently returned null for every attachment.
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   // Soft-delete: attachment records must align with message soft-delete lifecycle.
   // When a message is soft-deleted, its attachments should also be soft-deleted (not physically removed)
@@ -103,5 +103,5 @@ export class MessageAttachment {
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  message: Message;
+  message!: Message;
 }

@@ -17,12 +17,12 @@ import { MonitoringFrequency } from '../entities/water-quality-param-equipment.e
 export class BulkMapParamsEquipmentInput {
   @Field(() => ID, { description: 'Target equipment' })
   @IsUUID()
-  equipmentId: string;
+  equipmentId!: string;
 
   @Field(() => [ID], { description: 'Parameter config IDs to map' })
   @IsArray()
   @IsUUID('4', { each: true })
-  parameterConfigIds: string[];
+  parameterConfigIds!: string[];
 
   @Field(() => MonitoringFrequency, { nullable: true, description: 'Default monitoring frequency for all mappings' })
   @IsOptional()

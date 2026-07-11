@@ -12,6 +12,10 @@ import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
+import {
+  applyPermissionOverrides,
+  parsePermissionOverrides,
+} from '../../tenant/services/permission-overrides.util';
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
@@ -573,9 +577,12 @@ export class TokenService {
       // THIS user's tenant contribute, so a cross-tenant role_id can never leak
       // another tenant's resource permissions (stronger than the old per-schema
       // boundary, which the migration removed).
-      const rows: Array<{ resource_permissions: string[] | null }> = await this.dataSource.query(
+      const rows: Array<{
+        resource_permissions: string[] | null;
+        permission_overrides: unknown;
+      }> = await this.dataSource.query(
         `
-        SELECT trp.resource_permissions
+        SELECT trp.resource_permissions, ura.permission_overrides
         FROM "auth"."user_role_assignments" ura
         JOIN "auth"."tenant_roles" tr ON ura.role_id = tr.id
         JOIN "auth"."tenant_role_permissions" trp ON ura.role_id = trp.role_id
@@ -586,16 +593,27 @@ export class TokenService {
         [user.id, user.tenantId],
       );
 
-      const permissionSet = new Set<string>();
+      // auth.user_role_assignments has a UNIQUE index on user_id alone, so a user
+      // holds AT MOST one active assignment → at most one row here. Accumulate the
+      // role's base resource_permissions, then fold that assignment's per-user
+      // overrides (grants/revokes) through the shared SSoT util so the JWT
+      // `resourcePermissions` claim equals EXACTLY what the effective-permissions
+      // read path (TenantUserManagementService) and the tenant-admin UI compute.
+      // BEFORE: overrides were never selected here, so a per-user grant/revoke had
+      // zero runtime effect — the guard enforced only the role's base set.
+      // (SUPER_ADMIN / TENANT_ADMIN already short-circuited to [] above.)
+      const roleBaseSet = new Set<string>();
+      let overrides = { grants: [] as string[], revokes: [] as string[] };
       for (const row of rows) {
         if (Array.isArray(row.resource_permissions)) {
           for (const perm of row.resource_permissions) {
-            permissionSet.add(perm);
+            roleBaseSet.add(perm);
           }
         }
+        overrides = parsePermissionOverrides(row.permission_overrides);
       }
 
-      permissions = Array.from(permissionSet);
+      permissions = applyPermissionOverrides(Array.from(roleBaseSet), overrides);
     } catch (error) {
       // PERF-HIGH-001 (a): log-and-rethrow — preserve the diagnostic breadcrumb
       // (which user/tenant) for operators, then FAIL LOUD so generateTokens

@@ -8,3 +8,5 @@ export * from './list-available-tanks.query';
 export * from './generate-batch-number.query';
 export * from './get-batch-performance.query';
 export * from './get-batch-history.query';
+export * from './get-mortality-by-cause.query';
+export * from './get-transfers-summary.query';

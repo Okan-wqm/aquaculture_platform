@@ -69,6 +69,10 @@ import { PayrollAudit } from './hr/entities/payroll-audit.entity';
 import { Payroll } from './hr/entities/payroll.entity';
 import { HRModule } from './hr/hr.module';
 import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.handler';
+import { HrFinanceModule } from './finance/hr-finance.module';
+import { HrFinanceCategory } from './finance/entities/hr-finance-category.entity';
+import { HrFinanceEntry } from './finance/entities/hr-finance-entry.entity';
+import { PayrollCostSettings } from './finance/entities/payroll-cost-settings.entity';
 import { HrOutboxModule } from './hr-outbox.module';
 import { LeaveBalance } from './leave/entities/leave-balance.entity';
 import { LeaveRequest } from './leave/entities/leave-request.entity';
@@ -173,6 +177,9 @@ interface ApolloGraphQLContext {
             PerformanceReview,
             Goal,
             EmployeeKPI,
+            HrFinanceCategory,
+            HrFinanceEntry,
+            PayrollCostSettings,
           ],
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
@@ -292,6 +299,9 @@ interface ApolloGraphQLContext {
     // 2026-04-14) — single source of truth for all consumer services.
     PlatformJwtModule,
     HRModule,
+    // HR finance tab: labour-cost read model + manual HR expense ledger +
+    // tenant currency projection from the farm finance_settings SSoT.
+    HrFinanceModule,
     LeaveModule,
     AttendanceModule,
     TrainingModule,

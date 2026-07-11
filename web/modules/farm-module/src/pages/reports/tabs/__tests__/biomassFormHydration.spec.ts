@@ -169,3 +169,48 @@ describe('hydrateFormFromPayload', () => {
     expect(form.feedLoadedFromSystem).toBe(false);
   });
 });
+
+describe('server-prefill cause labels (Phase 1 — one mapper for drafts + prefill)', () => {
+  it('maps internal enum causes to the Title Case labels the cause grid uses', () => {
+    const prefillPayload: BiomassReportPayload = {
+      ...payload,
+      mortality: {
+        totalCount: 150,
+        byCause: [
+          { cause: 'disease', count: 120 },
+          { cause: 'water_quality', count: 30 },
+        ],
+        details: [
+          {
+            date: '2026-06-03',
+            cause: 'water_quality',
+            speciesCode: 'SAL',
+            count: 30,
+          },
+        ],
+      },
+    };
+
+    const form = hydrateFormFromPayload(prefillPayload, 5, 2026);
+
+    expect(form.mortality.byCause).toEqual([
+      { cause: 'Disease', count: 120 },
+      { cause: 'Water Quality', count: 30 },
+    ]);
+    expect(form.mortality.details[0]?.cause).toBe('Water Quality');
+  });
+
+  it('is idempotent for causes persisted as labels by older drafts', () => {
+    const labeled: BiomassReportPayload = {
+      ...payload,
+      mortality: {
+        totalCount: 5,
+        byCause: [{ cause: 'Water Quality', count: 5 }],
+        details: [],
+      },
+    };
+
+    const form = hydrateFormFromPayload(labeled, 5, 2026);
+    expect(form.mortality.byCause).toEqual([{ cause: 'Water Quality', count: 5 }]);
+  });
+});

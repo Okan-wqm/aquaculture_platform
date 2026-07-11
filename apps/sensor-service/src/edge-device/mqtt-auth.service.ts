@@ -7,7 +7,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
+import { DeviceDirectoryService } from './device-directory.service';
 import { EdgeDevice } from './entities/edge-device.entity';
 
 const execFileAsync = promisify(execFile);
@@ -61,13 +63,31 @@ export class MqttAuthService implements OnModuleInit {
   private readonly TENANT_CACHE_TTL_MS = 300_000; // 5 minutes
   private static readonly TENANT_CACHE_MAX_SIZE = 10_000;
 
+  // SENSOR-MEDIUM-004: negative-result cache for cross-schema device lookups.
+  // A lookup that misses BOTH the O(1) directory and the fallback UNION-ALL scan
+  // is recorded here (keyed `${column}:${value}`) for a short window, so a flood
+  // of the same unknown identifier is not re-scanned across every tenant schema.
+  // It lives in findDeviceAcrossSchemas so EVERY public entry point benefits —
+  // the unauthenticated verifyDeviceCredentials (MQTT CONNECT) and the ACL
+  // own-device check, not just getDeviceTenantId. Short TTL so a freshly
+  // provisioned device becomes resolvable quickly; bounded with LRU eviction so
+  // the flood cannot itself grow memory unboundedly.
+  private readonly negativeLookupCache = new Map<string, number>(); // `${column}:${value}` → expiresAt
+  private readonly NEGATIVE_LOOKUP_CACHE_TTL_MS = 30_000; // 30 seconds
+  private static readonly NEGATIVE_LOOKUP_CACHE_MAX_SIZE = 10_000;
+
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
     private readonly dataSource: DataSource,
+    private readonly deviceDirectory: DeviceDirectoryService,
   ) {
-    this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'file') as 'http' | 'file';
+    // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
+    // at only 101 PBKDF2 iterations (Mosquitto password_file parser limit),
+    // orders of magnitude below OWASP guidance; HTTP mode uses 600k. Secure by
+    // default (Tier-2) — legacy file mode must now be opted into explicitly.
+    this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'http') as 'http' | 'file';
 
     // File-based settings
     this.passwordFilePath = this.configService.get<string>(
@@ -88,6 +108,22 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
+    // SENSOR-LOW-008: fail closed on weak legacy file mode in production. The
+    // 101-iteration file-mode hash is unacceptable for a production trust
+    // boundary; starting in it must be an explicit, audited operator decision
+    // (MQTT_ALLOW_LEGACY_FILE_MODE=true) during a migration window, never a
+    // silent default.
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    const legacyFileModeAllowed =
+      this.configService.get<string>('MQTT_ALLOW_LEGACY_FILE_MODE') === 'true';
+    if (isProduction && this.authMode === 'file' && !legacyFileModeAllowed) {
+      throw new Error(
+        'SECURITY: MQTT_AUTH_MODE=file uses 101 PBKDF2 iterations and is refused in ' +
+          'production. Use the DB-backed HTTP backend (MQTT_AUTH_MODE=http), or set ' +
+          'MQTT_ALLOW_LEGACY_FILE_MODE=true to opt into the legacy mode for a migration window.',
+      );
+    }
+
     this.logger.log(`MQTT Authentication Service initialized (mode: ${this.authMode})`);
 
     if (this.authMode === 'file' && this.fileAuthEnabled) {
@@ -163,16 +199,19 @@ export class MqttAuthService implements OnModuleInit {
    * @param acc - Access type: 1=read, 2=write/publish, 4=subscribe (MOSQ_ACL_SUBSCRIBE)
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
-    // acc=4 (MOSQ_ACL_SUBSCRIBE) is the pattern-level subscribe check.
-    // Allow all subscribes — actual message delivery is separately gated by acc=1 (READ).
-    if (acc === 4) {
-      return true;
-    }
-
-    // Service accounts: per-topic-pattern grants scoped to tenants
+    // Service accounts: per-topic-pattern grants scoped to tenants. Handled
+    // first so their intentional wildcard subscribe patterns still work.
     if (this.serviceAccountNames.has(username)) {
       return this.checkServiceAccountAccess(username, topic, acc);
     }
+
+    // SENSOR-MEDIUM-005: subscribe (acc=4) is NO LONGER blanket-allowed for
+    // device accounts. It flows through the same tenant-topic verification as
+    // read (acc=1), so a device can only subscribe within its own
+    // `tenants/{ownTenant}/devices/{ownDevice}/...` namespace. An over-broad
+    // or cross-tenant filter (e.g. `tenants/+/devices/#`) fails the concrete
+    // tenant/device match below and is denied — enforcement no longer depends
+    // solely on the broker re-running the per-message read ACL.
 
     // $SYS/ topics: deny for all non-service accounts
     if (topic.startsWith('$SYS/')) {
@@ -220,15 +259,28 @@ export class MqttAuthService implements OnModuleInit {
     }
 
     // Legacy edge topics: edge/{device_username}/...
-    // D04 SEC-M01: These topics lack tenant enforcement — log deprecation warning
+    // SENSOR-MEDIUM-006: these topics carry no tenant namespace. They are now
+    // DENIED by default and only permitted during a migration window when
+    // MQTT_LEGACY_EDGE_TOPICS_ENABLED=true (never in production). Once every
+    // device is on tenants/{tenantId}/devices/{deviceCode}/... the flag (and
+    // this branch) are removed.
     if (topic.startsWith('edge/')) {
+      const legacyEnabled =
+        this.configService.get('MQTT_LEGACY_EDGE_TOPICS_ENABLED') === 'true' &&
+        this.configService.get('NODE_ENV') !== 'production';
+      if (!legacyEnabled) {
+        this.logger.warn(
+          `[DENIED] Legacy edge/ topic ${topic} for ${username} — tenant-unscoped ` +
+          'topics are disabled. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
+        );
+        return false;
+      }
       const legacyMatch = topic.match(/^edge\/([^/]+)\//);
       const allowed = legacyMatch !== null && legacyMatch[1] === username;
       if (allowed) {
         this.logger.warn(
-          `[DEPRECATED] ACL granted on legacy topic ${topic} for ${username}. ` +
-          'Legacy edge/ topics lack tenant enforcement and will be removed in a future release. ' +
-          'Migrate device to tenant-prefixed topic: tenants/{tenantId}/devices/{deviceCode}/...',
+          `[DEPRECATED] ACL granted on legacy topic ${topic} for ${username} during ` +
+          'the migration window. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
         );
       }
       return allowed;
@@ -311,11 +363,13 @@ export class MqttAuthService implements OnModuleInit {
       return cached.tenantId;
     }
 
+    // SENSOR-MEDIUM-004: the negative-result cache now lives one level down in
+    // findDeviceAcrossSchemas, so an unknown-username flood is bounded here AND
+    // on the unauthenticated auth/own-device paths.
     const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
 
     if (!device?.tenantId) {
-      // Remove stale cache entry if device no longer exists
-      this.tenantIdCache.delete(username);
+      this.tenantIdCache.delete(username); // drop any stale positive entry
       return null;
     }
 
@@ -340,6 +394,10 @@ export class MqttAuthService implements OnModuleInit {
    */
   invalidateTenantCache(username: string): void {
     this.tenantIdCache.delete(username);
+    // Also clear any negative entry so a just-provisioned/revoked device is
+    // re-resolved immediately rather than waiting out the negative TTL
+    // (SENSOR-MEDIUM-004). The lookup key is column-qualified.
+    this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -347,11 +405,74 @@ export class MqttAuthService implements OnModuleInit {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Find a device across all tenant schemas by a given column.
-   * Devices are stored in tenant-specific schemas (tenant_*), not the default
-   * search_path. This builds a UNION ALL query across all tenant schemas.
+   * Resolve a device by a public identifier without tenant context.
+   *
+   * SENSOR-MEDIUM-004: consult the O(1) sensor.edge_device_directory first and,
+   * on a hit, issue a single targeted query against the owning tenant's
+   * edge_devices. Only a directory miss (or a stale entry) falls back to the
+   * O(number-of-tenants) UNION-ALL scan, which then backfills the directory so
+   * the next lookup is O(1). This removes the per-request cross-schema fan-out
+   * that the un-rate-limited MQTT-auth path could be driven into as a DoS.
    */
   private async findDeviceAcrossSchemas(
+    column: 'mqtt_client_id' | 'id',
+    value: string,
+  ): Promise<EdgeDevice | null> {
+    // SENSOR-MEDIUM-004: short-circuit recently-confirmed-absent identifiers so a
+    // flood of the same unknown value (auth CONNECT, ACL, own-device) does not
+    // re-scan every tenant schema. Bounds the DoS on the unauthenticated path.
+    const negativeKey = `${column}:${value}`;
+    const now = Date.now();
+    const negativeExpiry = this.negativeLookupCache.get(negativeKey);
+    if (negativeExpiry !== undefined) {
+      if (now < negativeExpiry) {
+        return null;
+      }
+      this.negativeLookupCache.delete(negativeKey);
+    }
+
+    const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
+    if (tenantId) {
+      const schema = getTenantSchemaName(tenantId);
+      const rows = await this.dataSource.query(
+        `SELECT * FROM "${schema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
+        [value],
+      );
+      if (rows && rows.length > 0) {
+        return this.mapRowToEdgeDevice(rows[0]);
+      }
+      // Directory pointed at a tenant that no longer holds the row (moved /
+      // deleted): fall through to the authoritative scan.
+    }
+
+    const device = await this.scanDeviceAcrossSchemas(column, value);
+    if (device) {
+      await this.deviceDirectory.backfill({
+        deviceId: device.id,
+        deviceCode: device.deviceCode,
+        mqttClientId: device.mqttClientId ?? null,
+        tenantId: device.tenantId,
+      });
+      return device;
+    }
+
+    // Confirmed absent by both the directory and the scan: record a bounded,
+    // short-lived negative so repeated lookups of this identifier stay O(1).
+    if (this.negativeLookupCache.size >= MqttAuthService.NEGATIVE_LOOKUP_CACHE_MAX_SIZE) {
+      const oldest = this.negativeLookupCache.keys().next().value;
+      if (oldest !== undefined) {
+        this.negativeLookupCache.delete(oldest);
+      }
+    }
+    this.negativeLookupCache.set(negativeKey, now + this.NEGATIVE_LOOKUP_CACHE_TTL_MS);
+    return null;
+  }
+
+  /**
+   * Authoritative fallback: UNION-ALL scan of edge_devices across every tenant
+   * schema. Used only when the directory misses.
+   */
+  private async scanDeviceAcrossSchemas(
     column: 'mqtt_client_id' | 'id',
     value: string,
   ): Promise<EdgeDevice | null> {
@@ -414,8 +535,11 @@ export class MqttAuthService implements OnModuleInit {
   /**
    * Hash a password using PBKDF2-SHA512 (Mosquitto $7$ format).
    * Format: $7$iterations$base64salt$base64hash
+   *
+   * SENSOR-LOW-008: the default is the OWASP-grade HTTP-mode count; the weak
+   * 101-iteration file-mode value must be passed explicitly by the legacy path.
    */
-  hashPassword(password: string, iterations: number = MqttAuthService.FILE_MODE_ITERATIONS): string {
+  hashPassword(password: string, iterations: number = MqttAuthService.HTTP_MODE_ITERATIONS): string {
     const salt = randomBytes(12);
     const keyLength = 24;
     const derivedKey = pbkdf2Sync(password, salt, iterations, keyLength, 'sha512');
@@ -465,6 +589,11 @@ export class MqttAuthService implements OnModuleInit {
    * In file mode: writes to Mosquitto password file.
    */
   async addDeviceCredentials(username: string, passwordHash: string): Promise<boolean> {
+    // SENSOR-MEDIUM-004: a device just gained credentials — drop any negative
+    // lookup entry so its first CONNECT resolves immediately instead of being
+    // rejected for the remainder of the negative TTL.
+    this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
+
     if (this.authMode === 'http') {
       // In HTTP mode, credentials are stored in edge_devices table
       // Mosquitto verifies via HTTP callbacks to /mqtt/auth

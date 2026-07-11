@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Channel, Message } from '@/types/messaging';
+import { messagesFamilyKey } from '@/utils/messaging-query-keys';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,8 @@ function getChannelDisplayName(channel: Channel): string {
     if (other?.user) {
       const parts = [other.user.firstName, other.user.lastName].filter(Boolean);
       if (parts.length > 0) return parts.join(' ');
-      if (other.user.email) return other.user.email.split('@')[0] ?? 'DM';
+      // email is not available on a PublicUserProfile (never crosses federation).
+      return 'Direct Message';
     }
   }
   return 'Unnamed Channel';
@@ -119,7 +121,7 @@ export function ForwardModal({
       // Invalidate message queries for the target channel. invalidateQueries
       // returns a Promise; we intentionally fire-and-forget the refetch here, so
       // mark it void to satisfy no-floating-promises without blocking onClose.
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages') });
+      void queryClient.invalidateQueries({ queryKey: messagesFamilyKey(tenantId) });
       void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       onClose();
     },

@@ -28,8 +28,14 @@ import { FeedInventory } from '../../entities/feed-inventory.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { Site } from '../../../site/entities/site.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+/** Typed partial-mock helper (repo pattern — keeps mocks type-safe without a blanket cast). */
+function mock<T>(impl: Partial<T>): T {
+  return impl as T;
+}
 
 interface HarnessOpts {
   feed?: Partial<Feed> | null;
@@ -84,6 +90,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     return undefined;
   });
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
+  const financeSettings = mock<FinanceSettingsService>({
+    getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
+  });
 
   const handler = new AddFeedInventoryHandler(
     inventoryRepository as unknown as Repository<FeedInventory>,
@@ -91,6 +100,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     siteRepository as unknown as Repository<Site>,
     dataSource as DataSource,
     outboxPublisher,
+    financeSettings,
   );
 
   return { handler, enqueue, commit, rollback, managerFindOne };

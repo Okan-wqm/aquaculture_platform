@@ -56,7 +56,7 @@ export class MaintenanceScheduleInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
+  frequency!: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -78,11 +78,11 @@ export class MaintenanceScheduleInput {
 export class CreateEquipmentInput {
   @Field(() => ID)
   @IsUUID()
-  departmentId: string;
+  departmentId!: string;
 
   @Field(() => [ID], { description: 'Systems this equipment serves (many-to-many)' })
   @IsUUID(undefined, { each: true })
-  systemIds: string[];
+  systemIds!: string[];
 
   @Field(() => ID, { nullable: true, description: 'Parent equipment for nested hierarchy' })
   @IsOptional()
@@ -91,21 +91,21 @@ export class CreateEquipmentInput {
 
   @Field(() => ID)
   @IsUUID()
-  equipmentTypeId: string;
+  equipmentTypeId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   @IsOptional()

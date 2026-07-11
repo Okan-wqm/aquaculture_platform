@@ -34,12 +34,12 @@ import type { Site } from '../../site/entities/site.entity';
 export class ChemicalSite {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // CHEMICAL İLİŞKİSİ
@@ -48,11 +48,11 @@ export class ChemicalSite {
   @Field()
   @Column('uuid')
   @Index()
-  chemicalId: string;
+  chemicalId!: string;
 
   @ManyToOne(() => Chemical, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'chemicalId' })
-  chemical: Chemical;
+  chemical!: Chemical;
 
   // -------------------------------------------------------------------------
   // SITE İLİŞKİSİ
@@ -61,7 +61,7 @@ export class ChemicalSite {
   @Field()
   @Column('uuid')
   @Index()
-  siteId: string;
+  siteId!: string;
 
   @ManyToOne('Site', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
@@ -73,7 +73,7 @@ export class ChemicalSite {
 
   @Field()
   @Column({ default: true })
-  isApproved: boolean;
+  isApproved!: boolean;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -89,7 +89,7 @@ export class ChemicalSite {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

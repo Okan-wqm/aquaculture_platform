@@ -10,13 +10,13 @@ import { DepartmentResponse } from '../../department/dto/department.response';
 @ObjectType()
 export class SystemResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => ID)
-  siteId: string;
+  siteId!: string;
 
   @Field(() => SiteResponse, { nullable: true })
   site?: SiteResponse;
@@ -37,16 +37,16 @@ export class SystemResponse {
   childSystems?: SystemResponse[];
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field(() => SystemType)
-  type: SystemType;
+  type!: SystemType;
 
   @Field(() => SystemStatus)
-  status: SystemStatus;
+  status!: SystemStatus;
 
   @Field({ nullable: true })
   description?: string;
@@ -61,7 +61,7 @@ export class SystemResponse {
   tankCount?: number;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field(() => ID, { nullable: true })
   createdBy?: string;
@@ -70,10 +70,10 @@ export class SystemResponse {
   updatedBy?: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()

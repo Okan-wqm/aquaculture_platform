@@ -3,14 +3,90 @@
  * Lists disease outbreaks and provides quick-entry modal for immediate reporting
  * Connected to Health Events system with tank context and urgency indicators
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useRegulatorySettings, useSubmitDiseaseOutbreak } from '../../../hooks/useRegulatory';
+import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { DiseaseOutbreakReport } from '../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
 import { DiseaseOutbreakModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { ProvenanceBadge } from '../components/common';
+
+/** Data portion of the server-assembled disease varsling (see DiseaseReportAssembler). */
+interface DiseasePrefillPayload {
+  healthEventId: string | null;
+  eventDate: string | null;
+  diseaseName: string;
+  pathogenCategory: string | null;
+  affectedPercentage: number | null;
+  diseaseCategory: string;
+  confirmation: string;
+  affectedCount: number | null;
+  description: string | null;
+}
+
+/**
+ * Review-and-approve card (RPT-011): the disease varsling assembles from the
+ * site's latest disease_outbreak health event (interim source, FARM-MEDIUM-152).
+ * The disease name, affected percentage and pathogen category render READ-ONLY
+ * with provenance; the regulator's A/C/F list category, confirmation and
+ * affected count stay required manual entries (surfaced here via their badges).
+ */
+export const DiseaseAssembledReview: React.FC<{
+  prefill?: ReportPrefill<DiseasePrefillPayload>;
+}> = ({ prefill }) => {
+  if (!prefill) return null;
+  const p = prefill.draftPayload;
+  const meta = (path: string): ReturnType<typeof findFieldMeta> => findFieldMeta(prefill.fields, path);
+
+  if (!p.healthEventId) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        No disease-outbreak health event on record for this site. Record it in Fish Health before
+        filing the disease varsling — the report assembles from the health event.
+      </div>
+    );
+  }
+
+  const rows: Array<{ label: string; path: string; value: React.ReactNode }> = [
+    { label: 'Event date', path: '/eventDate', value: p.eventDate },
+    { label: 'Disease name', path: '/diseaseName', value: p.diseaseName || '—' },
+    { label: 'Pathogen category', path: '/pathogenCategory', value: p.pathogenCategory || '—' },
+    { label: 'Affected %', path: '/affectedPercentage', value: p.affectedPercentage ?? '—' },
+    { label: 'Disease list (A/C/F)', path: '/diseaseCategory', value: p.diseaseCategory || '—' },
+    { label: 'Confirmation', path: '/confirmation', value: p.confirmation || '—' },
+    { label: 'Affected count', path: '/affectedCount', value: p.affectedCount ?? '—' },
+  ];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h3 className="text-sm font-medium text-gray-900 mb-1">
+        Assembled from the latest health event
+      </h3>
+      <p className="text-xs text-gray-500 mb-3">
+        Disease name, affected percentage and pathogen category come from the health event —
+        read-only here; corrections go to Fish Health.
+      </p>
+      <dl className="divide-y divide-gray-100">
+        {rows.map((row) => {
+          const m = meta(row.path);
+          return (
+            <div key={row.path} className="py-2 flex items-center justify-between gap-2">
+              <dt className="flex items-center gap-2 text-sm text-gray-700">
+                <span>{row.label}</span>
+                {m && <ProvenanceBadge meta={m} />}
+              </dt>
+              <dd className="text-sm font-medium text-gray-900 text-right">{row.value}</dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+};
 
 // ============================================================================
 // Types
@@ -74,6 +150,16 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   const submitDiseaseOutbreak = useSubmitDiseaseOutbreak();
   const clientRef = useStableClientReference();
 
+  // Event-triggered varsling; the period is nominal (the assembler reads the
+  // site's latest disease_outbreak health event).
+  const { effectiveSiteId } = useEffectiveReportSite(siteId);
+  const prefillPeriod = useMemo(() => ({ year: new Date().getFullYear() }), []);
+  const { data: prefill } = useReportPrefill<DiseasePrefillPayload>(
+    'DISEASE_OUTBREAK',
+    effectiveSiteId,
+    prefillPeriod,
+  );
+
   const handleCreateReport = () => {
     setShowHealthEventLink(false);
     setIsModalOpen(true);
@@ -103,8 +189,9 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
       reportedBy: identity.kontaktperson.navn,
       diseaseCategory: data.disease?.category ?? 'F',
       diseaseName: data.disease?.name ?? 'Unknown disease',
+      // GraphQL enum WIRE name (uppercase key) — lowercase fails enum coercion.
       confirmation:
-        data.disease?.suspectedOrConfirmed === 'lab_confirmed' ? 'confirmed' : 'suspected',
+        data.disease?.suspectedOrConfirmed === 'lab_confirmed' ? 'CONFIRMED' : 'SUSPECTED',
       affectedCount: data.affectedPopulation?.estimatedCount ?? 0,
       affectedPercentage: data.affectedPopulation?.percentage ?? 0,
       clinicalSigns: data.clinicalSigns ?? [],
@@ -163,6 +250,8 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
       <DiseaseInfoPanel onCreateReport={handleCreateReport} />
 
       {/* Submission History */}
+      <DiseaseAssembledReview prefill={prefill} />
+
       <SubmissionHistorySection reportType="DISEASE_OUTBREAK" siteId={siteId} />
 
       {/* Modal */}

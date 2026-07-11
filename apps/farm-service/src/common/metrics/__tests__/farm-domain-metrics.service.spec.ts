@@ -144,6 +144,37 @@ describe('FarmDomainMetricsService', () => {
     expect(dump).not.toContain('abcdef12');
   });
 
+  it('records regulatory submission outcomes by report_type + outcome, no tenant label (OBS-HIGH-001)', async () => {
+    service.incRegulatorySubmission({
+      reportType: 'SEA_LICE',
+      outcome: 'submitted',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+    });
+    service.incRegulatorySubmission({ reportType: 'SMOLT', outcome: 'failed' });
+    service.incRegulatorySubmission({ reportType: 'ESCAPE', outcome: 'queued' });
+
+    const dump = await service.getMetrics();
+    expect(dump).toContain('farm_regulatory_submission_total');
+    expect(dump).toContain('report_type="SEA_LICE",outcome="submitted"');
+    expect(dump).toContain('report_type="SMOLT",outcome="failed"');
+    expect(dump).toContain('report_type="ESCAPE",outcome="queued"');
+    // Label discipline: no tenant on the series.
+    expect(dump).not.toContain('11111111');
+  });
+
+  it('records regulatory cron runs + a heartbeat gauge by job + outcome (OBS-HIGH-002)', async () => {
+    service.recordRegulatoryCronRun({ job: 'regulatory-retry-sweep', outcome: 'success' });
+    service.recordRegulatoryCronRun({ job: 'regulatory-deadline-sweep', outcome: 'skipped_locked' });
+
+    const dump = await service.getMetrics();
+    expect(dump).toContain('farm_regulatory_cron_runs_total');
+    expect(dump).toContain('job="regulatory-retry-sweep",outcome="success"');
+    expect(dump).toContain('job="regulatory-deadline-sweep",outcome="skipped_locked"');
+    // The heartbeat gauge carries a fresh unix timestamp per job.
+    expect(dump).toContain('farm_regulatory_cron_last_run_timestamp_seconds');
+    expect(dump).toMatch(/farm_regulatory_cron_last_run_timestamp_seconds\{job="regulatory-retry-sweep"\}\s+\d/);
+  });
+
   it('exposes the correct Prometheus content-type', () => {
     expect(service.getContentType()).toMatch(/^text\/plain/);
   });

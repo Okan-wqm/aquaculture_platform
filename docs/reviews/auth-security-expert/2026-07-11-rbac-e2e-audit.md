@@ -59,3 +59,15 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** Deny-by-default must be structural — an ungated authorization surface must fail the build, not depend on a reviewer remembering to update an allowlist.
 
 **Fix:** The invariant now enumerates the resolver's ACTUAL own methods and partitions them into gated (carries `@RequireTenantPermission`) vs an explicit, reviewed private-helper allowlist. Any ungated method that is not a listed helper fails the test, so a forgotten new operation cannot ship open; the capability map is additionally checked both ways (every operation mapped, no stale entries).
+
+## RBAC-MEDIUM-002
+
+**Title:** `TenantRoleService` carried duplicate, unaudited, unguarded role-lifecycle methods (`assignRoleToUser` / `removeRoleFromUser` / `setDefaultRole`) with no production callers — a latent trap: a future wiring to them would silently reintroduce the horizontal-escalation and audit-gap holes the live `TenantUserManagementService` paths close.
+
+**Layer:** 2 (duplicate / divergent state-transition paths)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts`
+
+**Rule violated:** Dead code that contradicts the current SSoT (the live assignment paths carry `assertRoleGrantAuthority`, capability-authority validation, and fail-closed audit) must be removed, not left as a latent re-introduction vector.
+
+**Fix:** Deleted the three dead methods and their tests. The single SSoT for assignment/revocation is `TenantUserManagementService` (`assignUserRole`/`updateUserRole`/`revokeUserRole`); default-role setting is handled by `updateRole(isDefault)`.

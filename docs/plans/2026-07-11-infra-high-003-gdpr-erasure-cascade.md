@@ -35,6 +35,16 @@ The `tests/invariants/tenant-erasure-ssot.spec.ts` invariant cross-locks union �
 2. Erase the deletable tenant-column tables (`event_streams`, `snapshots`, `projection_checkpoints`, `projection_rebuilds`) via `source-schema-tenant-column` mode.
 3. **`stored_events` crypto-shred** (the hard part): envelope-encrypt the PII-bearing payload with a per-tenant data key (DEK) wrapped by a KEK; store ciphertext + key reference only; on `TenantErasureRequested`, destroy the tenant DEK so the ciphertext becomes unrecoverable (the immutable row remains, satisfying event-sourcing AND erasure). Requires: a per-tenant DEK store + lifecycle, write-path encryption in the append pipeline, read-path/upcaster decryption, and a shred step in the erasure executor (a new mode or a service-local handler). Design + STRIDE threat-model review required before implementation.
 
+## PREREQUISITE DISCOVERY — suspected systemic erasure-proof publish-grant gap (verify first)
+
+While scoping the config NATS grants, a likely **latent bug in the EXISTING erasure infrastructure** surfaced and MUST be resolved before (or alongside) config/event-store onboarding, because it dictates the correct grant set:
+
+- The per-service `OutboxWorker` publishes via the **service's own** `IEventBus.publish()` (own mTLS cert). So a `TenantDataErased`/`TenantDataErasureFailed`/`TenantErasureBlocked` proof event enqueued by the shared `TenantErasureTargetExecutor` is published under the **target service's** cert.
+- In `infrastructure/nats/services.yaml`, **only `farm_service`** carries `events.*.TenantDataErased` / `…ErasureFailed` / `…ErasureBlocked` publish grants (farm builds those event literals in its own `src`, so the `nats-invariants` publish-coverage scanner flagged it). The other erasure targets — `billing`, `notification`, `ai`, `alert`, `hydroponics` (and presumably `hr`, `messaging`, `sensor`) — have NO such grant, because the event literal lives in `libs/backend-common` (the executor), a **blind spot** in the per-service-src publish-coverage scan.
+- Consequence (HIGH-confidence, verify with `infra:up` + a real erasure run): under NATS `verify_and_map`, those services' outbox workers would get a **Permissions Violation** publishing the proof event → the proof never reaches the orchestrator → the tenant-erasure cascade cannot confirm completion for those services. This is the ORPHAN-HIGH-317 failure class, one layer down.
+
+**Implication for this work:** do NOT blindly mirror a template for config's grants — the templates disagree (farm has the grant; the rest do not). The dedicated PR must first (a) confirm the gap end-to-end, (b) fix `nats-invariants` publish-coverage to follow `TenantErasureTargetModule.forService` wiring (not just per-service src literals) + backfill the missing grants for ALL erasure targets, THEN (c) add config/event-store with the correct grants. Recommend logging this as its own finding (ORPHAN-HIGH) since it affects live GDPR-proof completeness independent of config/event-store.
+
 ## Environment preconditions
 
 - This checkout has been **shared with another active session** (a concurrent `git checkout` clobbered uncommitted work once during the 2026-07-11 session). Minting a NATS cert regenerates the **shared** `nats.conf` — a half-applied regen risks every service's NATS auth. Execute in a stable/exclusive checkout.

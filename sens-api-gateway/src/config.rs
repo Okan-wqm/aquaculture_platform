@@ -1863,6 +1863,16 @@ pub struct KeystoreConfig {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub acceptance_path: Option<std::path::PathBuf>,
 
+    /// Acceptance-ceremony ed25519 verifying key, 64-char hex
+    /// (EDGE-HIGH-011). The acceptance token is signed by the
+    /// central PLATFORM_KEY_CEREMONY authority (ADR-018 §5); this is
+    /// the trust anchor that keeps the weaker FileBacked master-key
+    /// tier unavailable unless the ceremony signed off. REQUIRED in
+    /// FileBacked mode — boot fails closed when absent (see the
+    /// keystore coherence rule in validate_faz2_security_coherence).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub acceptance_pubkey_hex: Option<String>,
+
     /// Argon2id memory cost (KiB). Default: 65536 (64 MiB).
     /// Must be >= 19456 (OWASP 2024 floor).
     #[serde(default = "default_argon2_memory_kib")]
@@ -1894,6 +1904,7 @@ impl Default for KeystoreConfig {
             passphrase_path: None,
             salt_path: None,
             acceptance_path: None,
+            acceptance_pubkey_hex: None,
             argon2_memory_kib: default_argon2_memory_kib(),
             argon2_iterations: default_argon2_iterations(),
             argon2_parallelism: default_argon2_parallelism(),

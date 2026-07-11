@@ -569,6 +569,11 @@ path = "tests/invariants/deploy_verify_strict.rs"
 name = "legacy_command_signature_gate"
 path = "tests/invariants/legacy_command_signature_gate.rs"
 
+# EDGE-HIGH-011 — keystore acceptance verify is not stubbed open.
+[[test]]
+name = "keystore_acceptance_verify"
+path = "tests/invariants/keystore_acceptance_verify.rs"
+
 # Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
 [[test]]
 name = "process_hardening"

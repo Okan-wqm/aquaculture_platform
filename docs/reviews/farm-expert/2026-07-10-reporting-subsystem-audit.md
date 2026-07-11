@@ -376,14 +376,20 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   `status ≠ cancelled`), but the write-path divergence over-counts removals for any consumer that reads
   the `tank_operations('harvest')` ledger (e.g. `TankCountReconcileService.LEDGER_SQL` Option B1). Fix
   routes to farm-expert (owner + deadline tracked).
-- **Direct REST submit trusts client-supplied org/lokalitet** instead of deriving them server-side
-  like the draft path does (auth-security SEC-HIGH-001).
-- **`regulatory_report_drafts` has no RLS** (its sibling `regulatory_reports` does) and the draft
-  service reads via a plain repository outside `runInTenantRead` (multi-tenant REG-HIGH-002).
-- **No max-attempt / dead-letter** — chronic TRANSIENT failures (incl. 401/403) retry forever,
-  surfaced to no operator (job-queue PRODUCT-JOB-HIGH-001, observability OBS-HIGH-002).
-- **Biomass draft in the "due" list has a broken Mattilsynet Approve & Submit** and is a duplicate of
-  the `biomass_reports` Altinn state machine (farm-expert FARM-HIGH-004).
+- **Direct REST submit trusting client-supplied org/lokalitet** is FIXED (SEC-HIGH-001 → FARM-HIGH-173:
+  `assertTenantOwnsIdentity` verifies every declared (org, lokalitet) pair against
+  `getEffectiveSiteLocalityMappings` + `getEffectiveOrganisationNumber` before persist, so the REST
+  path derives identity server-side like the draft path).
+- **`regulatory_report_drafts` RLS** is FIXED (REG-HIGH-002 → FARM-HIGH-178: migration `1804500000000`
+  applies the same FORCE-RLS tenant policy `regulatory_reports` carries, fanned out to farm + every
+  tenant schema, and the draft reads run in the tenant boundary).
+- **Max-attempt / dead-letter** is FIXED (PRODUCT-JOB-HIGH-001 / OBS-HIGH-002 → FARM-HIGH-175:
+  `MAX_TRANSIENT_ATTEMPTS=12` ceiling; on exhaustion the TRANSIENT path escalates through
+  `markPermanentFailure` to a terminal PERMANENT + outbox failure event, so a chronic auth misconfig
+  no longer retries forever unseen).
+- **Biomass draft's broken Approve & Submit + duplicate lifecycle** is FIXED (FARM-HIGH-004 →
+  FARM-HIGH-176: BIOMASS is removed from `monthlyJobs`, so no BIOMASS draft enters the REST pipeline;
+  biomass keeps its own `biomass_reports` + Altinn READY→CONFIRMED_SUBMITTED state machine).
 - **Point-in-time stock reconstruction** is FIXED (FARM-HIGH-182): `StockReconstructionService`
   replays each batch's period-end count from source records —
   `initialQuantity − Σ mortality_records − Σ tank_operations(cull) − Σ harvest_records(status≠cancelled)`,
@@ -398,10 +404,13 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   as-of-date weight, closed-batch membership, and the negative-gap fail-closed). While here, a related
   over-report was fixed: the assembler's `querySlaughter` summed `harvest_records` with no status
   filter, counting cancelled harvests into the regulatory slaughter section — now `status ≠ cancelled`.
-- **Settefisk CTEs are not site-scoped** → whole-tenant mortality scans re-run once per site
-  (performance PERF-HIGH-002).
-- **Daily deadline sweep + auto-submit load every draft ever created** then filter in JS
-  (performance PERF-HIGH-003, job-queue PRODUCT-JOB-MEDIUM-003).
+- **Settefisk CTEs not site-scoped** is FIXED (PERF-HIGH-002 → FARM-HIGH-177: each CTE joins a
+  `site_tanks` CTE on the source `tankId`, so the mortality/cull/external-out aggregations use the
+  `(tankId, recordDate/operationDate)` index instead of a whole-tenant scan per site).
+- **Daily deadline sweep loading every draft ever created** is FIXED (PERF-HIGH-003 /
+  PRODUCT-JOB-MEDIUM-003 → FARM-HIGH-174: `listDeadlineCandidates` pushes
+  `status NOT IN (SUBMITTED, DISMISSED) AND dueAt IS NOT NULL` into SQL, so the sweep and the deadline
+  view never load — then discard — the tenant's full terminal-draft history).
 - **No farm-module code-splitting / bundle budget** is FIXED (PERF-HIGH-004 -> FARM-HIGH-196: every
   page-level route in Module.tsx is React.lazy code-split behind one Suspense boundary; vite gains a 600kB chunk budget).
 - **Each multi-read assembler sub-query opened its own tenant boundary** is FIXED (PERF-HIGH-005 -> FARM-HIGH-195: lakselus/rensefisk/biomass now share ONE runInTenantRead across their direct reads; single-read assemblers already did).

@@ -146,9 +146,19 @@ carry their `(tenantId, dateColumn)` indexes.
 `financeBatchTotals` returns the top-N batches by cost (`MAX_BATCH_ROWS` = 25) and
 rolls the remainder into an "Other" row.
 
-> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`), scoped FE
-> invalidation (`PERF-005`), single-UNION aggregation (`PERF-009`) and finance p99
-> SLO (`PERF-008`) remain in progress on the hardening branch.
+> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`),
+> single-UNION aggregation (`PERF-009`) and finance p99 SLO (`PERF-008`) remain
+> in progress on the hardening branch. Scoped FE invalidation landed in Wave 3b
+> (`PERF-MEDIUM-008`).
+
+### PERF-MEDIUM-008 — mutations invalidated the whole finance surface (Wave 3b)
+Root cause: every finance mutation invalidated the tenant-scoped `['finance']`
+prefix, so a single row edit refetched the categories catalogue, settings, ledger,
+summary and batch totals together. Scoped fix in `useFinance.ts`: entry mutations
+invalidate only the aggregates that move (`ledger`, `summary`, `batchTotals`);
+category mutations additionally invalidate the `categories` catalogue; settings
+mutations invalidate `settings` plus the currency-dependent aggregates. No mutation
+over-refetches a query it cannot affect.
 
 ## Wave 4 — derived site attribution (follow-up, implemented)
 

@@ -236,7 +236,24 @@ export function useFinanceSettings() {
 // prefix on success (declare domain segments; the tenant prefix is added).
 // ============================================================================
 
-const INVALIDATE_FINANCE: ReadonlyArray<readonly unknown[]> = [['finance']];
+// Scoped invalidation — a mutation refetches only the queries it actually
+// affects, not the entire finance surface (PERF-005). Entry mutations move the
+// ledger + aggregates; category mutations also move the catalogue; a settings
+// change (currency/fiscal year) moves everything that renders in that currency.
+const AGG_KEYS = [
+  ['finance', 'ledger'],
+  ['finance', 'summary'],
+  ['finance', 'batchTotals'],
+] as const;
+const INVALIDATE_ENTRIES: ReadonlyArray<readonly unknown[]> = AGG_KEYS;
+const INVALIDATE_CATEGORIES: ReadonlyArray<readonly unknown[]> = [
+  ['finance', 'categories'],
+  ...AGG_KEYS,
+];
+const INVALIDATE_SETTINGS: ReadonlyArray<readonly unknown[]> = [
+  ['finance', 'settings'],
+  ...AGG_KEYS,
+];
 
 export function useCreateFinanceEntry() {
   return useTenantMutation(
@@ -247,7 +264,7 @@ export function useCreateFinanceEntry() {
       );
       return data.createFinanceEntry;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_ENTRIES },
   );
 }
 
@@ -260,7 +277,7 @@ export function useUpdateFinanceEntry() {
       );
       return data.updateFinanceEntry;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_ENTRIES },
   );
 }
 
@@ -273,7 +290,7 @@ export function useDeleteFinanceEntry() {
       );
       return data.deleteFinanceEntry;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_ENTRIES },
   );
 }
 
@@ -286,7 +303,7 @@ export function useCreateFinanceCategory() {
       );
       return data.createFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -299,7 +316,7 @@ export function useUpdateFinanceCategory() {
       );
       return data.updateFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -312,7 +329,7 @@ export function useArchiveFinanceCategory() {
       );
       return data.archiveFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -325,7 +342,7 @@ export function useRestoreFinanceCategory() {
       );
       return data.restoreFinanceCategory;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_CATEGORIES },
   );
 }
 
@@ -338,6 +355,6 @@ export function useUpdateFinanceSettings() {
       );
       return data.updateFinanceSettings;
     },
-    { invalidate: INVALIDATE_FINANCE },
+    { invalidate: INVALIDATE_SETTINGS },
   );
 }

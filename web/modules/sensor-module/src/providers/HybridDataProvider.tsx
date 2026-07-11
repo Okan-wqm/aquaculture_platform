@@ -287,21 +287,18 @@ export function HybridDataProviderInner({
 
   // ── IDataProvider implementation ──────────────────────────────────────────
 
-  const subscribeToTags = useCallback((tagIds: string[]): void => {
-    // Route live-destined tags to the subscription manager.
+  const subscribeToTags = useCallback((componentId: string, tagIds: string[]): void => {
+    // Route live-destined tags to the subscription manager under the consumer's
+    // own id (simulation tags need no subscription). Ref-counting across
+    // consumers is the manager's job.
     const liveTags = tagIds.filter((id) => getTagSource(id) === 'live');
     if (liveTags.length > 0) {
-      subManagerRef.current!.subscribe('__hybrid_provider__', liveTags);
+      subManagerRef.current!.subscribe(componentId, liveTags);
     }
-    // Simulation tags need no subscription.
   }, [getTagSource]);
 
-  const unsubscribeFromTags = useCallback((tagIds: string[]): void => {
-    const currentLive = new Set(subManagerRef.current!.getActiveSubscriptions());
-    for (const id of tagIds) {
-      currentLive.delete(id);
-    }
-    subManagerRef.current!.subscribe('__hybrid_provider__', Array.from(currentLive));
+  const unsubscribeFromTags = useCallback((componentId: string): void => {
+    subManagerRef.current!.unsubscribe(componentId);
   }, []);
 
   const writeTagValue = useCallback(

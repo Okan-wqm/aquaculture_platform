@@ -46,10 +46,15 @@ export interface DeviceStatusChange {
  *   - HybridDataProvider     (mixes simulation and live)
  */
 export interface IDataProvider {
-  /** Subscribe to live tag value updates. */
-  subscribeToTags(tagIds: string[]): void;
-  /** Unsubscribe from tag value updates. */
-  unsubscribeFromTags(tagIds: string[]): void;
+  /**
+   * Subscribe a component to live tag value updates. `componentId` MUST be
+   * stable+unique per consumer (e.g. React.useId) so the ref-counting manager
+   * tracks each consumer's set independently — a shared id makes concurrent
+   * consumers stomp each other's subscriptions (SENSOR-HIGH-040).
+   */
+  subscribeToTags(componentId: string, tagIds: string[]): void;
+  /** Unsubscribe a component (by the same id) from all its tag updates. */
+  unsubscribeFromTags(componentId: string): void;
   /** Write a value to a tag (operator action). */
   writeTagValue(tagId: string, value: unknown): Promise<void>;
   /** Get current cached value of a tag. */

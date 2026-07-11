@@ -17481,6 +17481,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/finance/query-handlers/get-hr-personnel-table.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/finance/resolvers/hr-finance.resolver.ts",
       "prettier_managed": true
     },
@@ -52254,10 +52260,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8563,
+  "file_count": 8564,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8388,
-  "managed_file_list_sha256": "a08966b2d32c467090fc8f9b66582b6bd7bed2d3ea9cfd02169ee1569912fab7",
+  "managed_count": 8389,
+  "managed_file_list_sha256": "6db53551a5ade392b00b04d16c000a5ac657cdbd9c3d709495cf7c363cba8fdc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -14,8 +14,15 @@ import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Args, Context, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
-import { AuditLog, Role, Roles } from '@aquaculture/backend-common/decorators';
-import { RolesGuard } from '@aquaculture/backend-common/guards';
+import {
+  AuditLog,
+  RequireTenantPermission,
+  Role,
+  Roles,
+  hasResourcePermission,
+  type ResourcePermissionUser,
+} from '@aquaculture/backend-common/decorators';
+import { RolesGuard, TenantPermissionGuard } from '@aquaculture/backend-common/guards';
 
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import {
@@ -35,7 +42,7 @@ import {
   UpdateHrFinanceEntryInput,
   UpdatePayrollCostSettingsInput,
 } from '../dto/hr-finance-inputs.dto';
-import { HrFinanceSummary, HrLabourCost } from '../dto/hr-finance-outputs.dto';
+import { HrFinanceSummary, HrLabourCost, HrPersonnelTable } from '../dto/hr-finance-outputs.dto';
 import { HrFinanceCategory } from '../entities/hr-finance-category.entity';
 import { HrFinanceEntry } from '../entities/hr-finance-entry.entity';
 import { PayrollCostSettings } from '../entities/payroll-cost-settings.entity';
@@ -44,15 +51,23 @@ import {
   GetHrFinanceEntriesQuery,
   GetHrFinanceSummaryQuery,
   GetHrLabourCostQuery,
+  GetHrPersonnelTableQuery,
   GetPayrollCostSettingsQuery,
 } from '../queries/hr-finance.queries';
 import { HrFinanceGranularity } from '../query-handlers/get-hr-finance-summary.handler';
 
 interface GraphQLContext {
-  req: { user?: { sub: string; tenantId: string } };
+  req: { user?: ({ sub: string; tenantId: string } & ResourcePermissionUser) | undefined };
 }
 
 const MAX_ENTRY_PAGE = 200;
+
+/**
+ * Salary-visibility capability (HR-MEDIUM-005). SUPER_ADMIN / TENANT_ADMIN
+ * bypass; any other role sees salary only if the tenant admin granted this
+ * permission to it — the tenant decides who sees pay, not a hardcoded role.
+ */
+const VIEW_SALARY_PERMISSION = 'hr_finance:view_salary';
 
 @UseGuards(GqlAuthGuard)
 @Resolver(() => HrFinanceEntry)
@@ -82,9 +97,27 @@ export class HrFinanceResolver {
   // Queries
   // ==========================================================================
 
-  @Query(() => HrLabourCost, { name: 'hrLabourCost' })
+  /**
+   * Headcount-only workforce projection — MANAGER + ADMIN, no salary permission
+   * needed. The Personnel Table renders from this so a manager without
+   * `hr_finance:view_salary` still sees headcounts (HR-MEDIUM-005).
+   */
+  @Query(() => HrPersonnelTable, { name: 'hrPersonnelTable' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async hrPersonnelTable(@Context() ctx: GraphQLContext): Promise<HrPersonnelTable> {
+    return this.queryBus.execute(new GetHrPersonnelTableQuery(this.getTenantId(ctx)));
+  }
+
+  /**
+   * Salary-bearing labour-cost snapshot. Gated by `hr_finance:view_salary`
+   * (TenantPermissionGuard) so a MODULE_MANAGER reaches it only when the tenant
+   * admin granted the capability; TENANT_ADMIN / SUPER_ADMIN bypass.
+   */
+  @Query(() => HrLabourCost, { name: 'hrLabourCost' })
+  @UseGuards(RolesGuard, TenantPermissionGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission(VIEW_SALARY_PERMISSION)
   async hrLabourCost(
     @Context() ctx: GraphQLContext,
     @Args('year', { type: () => Int, nullable: true }) year?: number,
@@ -106,8 +139,11 @@ export class HrFinanceResolver {
     })
     granularity: HrFinanceGranularity,
   ): Promise<HrFinanceSummary> {
+    // Expenses + series are MANAGER-visible; per-department SALARY is withheld
+    // unless the caller holds `hr_finance:view_salary` (HR-MEDIUM-005).
+    const includeSalary = hasResourcePermission(ctx.req.user, VIEW_SALARY_PERMISSION);
     return this.queryBus.execute(
-      new GetHrFinanceSummaryQuery(this.getTenantId(ctx), from, to, granularity),
+      new GetHrFinanceSummaryQuery(this.getTenantId(ctx), from, to, granularity, includeSalary),
     );
   }
 

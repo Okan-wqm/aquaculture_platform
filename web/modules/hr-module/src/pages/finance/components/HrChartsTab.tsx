@@ -25,9 +25,11 @@ const EXPENSE_COLOR = '#d97706'; // amber-600
 
 interface HrChartsTabProps {
   period: { from: string; to: string; granularity: HrFinanceGranularity };
+  /** Whether the caller may see salary/payroll figures (HR-MEDIUM-005). */
+  canViewSalary: boolean;
 }
 
-export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period }) => {
+export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period, canViewSalary }) => {
   const summaryQuery = useHrFinanceSummary(period.from, period.to, period.granularity);
 
   if (summaryQuery.isLoading) {
@@ -43,14 +45,16 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period }) => {
       year: '2-digit',
       month: 'short',
     }),
-    Payroll: bucket.payrollGross,
+    // payrollGross is null when the caller lacks the salary permission — the
+    // Payroll series is hidden entirely in that case (not plotted as 0).
+    Payroll: bucket.payrollGross ?? 0,
     Expenses: bucket.hrExpenses,
   }));
 
   const departmentData = summary.byDepartment
     .slice(0, 15)
-    // A small-cell-suppressed department salary (HR-HIGH-001) arrives as null;
-    // the bar chart plots 0 for it (no salary bar) rather than a fabricated value.
+    // A suppressed department salary (HR-HIGH-001 small cell OR HR-MEDIUM-005 no
+    // permission) arrives as null; the Salary bar is hidden rather than 0-plotted.
     .map((d) => ({ name: d.departmentName, Salary: d.annualSalaryTotal ?? 0, Expenses: d.hrExpenses }));
 
   return (
@@ -66,7 +70,9 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period }) => {
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip />
             <Legend />
-            <Line type="monotone" dataKey="Payroll" stroke={PAYROLL_COLOR} strokeWidth={2} dot={false} />
+            {canViewSalary && (
+              <Line type="monotone" dataKey="Payroll" stroke={PAYROLL_COLOR} strokeWidth={2} dot={false} />
+            )}
             <Line type="monotone" dataKey="Expenses" stroke={EXPENSE_COLOR} strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -92,7 +98,9 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period }) => {
               <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12 }} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="Salary" fill={PAYROLL_COLOR} radius={[0, 4, 4, 0]} barSize={12} />
+              {canViewSalary && (
+                <Bar dataKey="Salary" fill={PAYROLL_COLOR} radius={[0, 4, 4, 0]} barSize={12} />
+              )}
               <Bar dataKey="Expenses" fill={EXPENSE_COLOR} radius={[0, 4, 4, 0]} barSize={12} />
             </BarChart>
           </ResponsiveContainer>

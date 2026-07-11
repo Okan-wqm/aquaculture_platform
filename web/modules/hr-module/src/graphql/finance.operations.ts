@@ -43,6 +43,19 @@ const PAYROLL_COST_SETTINGS_FIELDS = `
 // QUERIES
 // ============================================================================
 
+export const GET_HR_PERSONNEL_TABLE = `
+  query GetHrPersonnelTable {
+    hrPersonnelTable {
+      rows {
+        category
+        headcount
+      }
+      totalHeadcount
+      unclassifiedCount
+    }
+  }
+`;
+
 export const GET_HR_LABOUR_COST = `
   query GetHrLabourCost($year: Int) {
     hrLabourCost(year: $year) {

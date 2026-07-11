@@ -86,6 +86,23 @@ describe('mergeDepartmentCosts', () => {
     expect(ops?.annualSalaryTotal).toBe(360000);
   });
 
+  it('withholds ALL department salary when the caller lacks the salary permission (includeSalary=false)', () => {
+    const result = mergeDepartmentCosts(
+      [
+        { departmentHrId: 'd1', departmentName: 'Ops', headcount: 8, monthlySalaryTotal: 40000 },
+        { departmentHrId: 'd2', departmentName: 'Lab', headcount: 6, monthlySalaryTotal: 30000 },
+      ],
+      [{ departmentHrId: 'd1', departmentName: 'Ops', total: 500 }],
+      false, // includeSalary
+    );
+
+    // Even large departments have salary withheld; headcount + expenses remain.
+    expect(result.every((r) => r.salarySuppressed)).toBe(true);
+    expect(result.every((r) => r.annualSalaryTotal === null)).toBe(true);
+    expect(result.find((r) => r.departmentHrId === 'd1')?.headcount).toBe(8);
+    expect(result.find((r) => r.departmentHrId === 'd1')?.hrExpenses).toBe(500);
+  });
+
   it('sorts by annual salary descending, treating suppressed salary as lowest', () => {
     const result = mergeDepartmentCosts(
       [

@@ -10,6 +10,36 @@ import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
 
 import { LaborCategory } from '../../hr/entities/employee.entity';
 
+/**
+ * Headcount-only projection of the workforce, with NO salary (HR-MEDIUM-005).
+ * A MODULE_MANAGER always sees this; the salary-bearing `hrLabourCost` is gated
+ * by the tenant-assignable `hr_finance:view_salary` permission. Keeping the two
+ * read models separate makes the salary boundary a guard verdict, not a field
+ * the manager query happens not to select.
+ */
+@ObjectType()
+export class HrPersonnelRow {
+  /** Null = unclassified employees (no laborCategory assigned yet). */
+  @Field(() => LaborCategory, { nullable: true })
+  category?: LaborCategory | null;
+
+  @Field(() => Int)
+  headcount!: number;
+}
+
+@ObjectType()
+export class HrPersonnelTable {
+  @Field(() => [HrPersonnelRow])
+  rows!: HrPersonnelRow[];
+
+  @Field(() => Int)
+  totalHeadcount!: number;
+
+  /** Employees without a laborCategory — surface a classify-me warning. */
+  @Field(() => Int)
+  unclassifiedCount!: number;
+}
+
 @ObjectType()
 export class HrLabourCostRow {
   /** Null = unclassified employees (no laborCategory assigned yet). */
@@ -81,9 +111,13 @@ export class HrFinanceTimeBucket {
   @Field()
   bucketStart!: Date;
 
-  /** Gross pay from payroll records (approved/processing/paid). */
-  @Field(() => Float)
-  payrollGross!: number;
+  /**
+   * Gross pay from payroll records (approved/processing/paid). Null when the
+   * caller lacks `hr_finance:view_salary` (HR-MEDIUM-005) — aggregate payroll is
+   * salary-sensitive, so the trend withholds it while expenses stay visible.
+   */
+  @Field(() => Float, { nullable: true })
+  payrollGross!: number | null;
 
   /** Manual HR expense entries. */
   @Field(() => Float)

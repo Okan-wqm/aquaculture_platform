@@ -74,15 +74,19 @@ export interface DepartmentExpenseRow {
 export function mergeDepartmentCosts(
   salaryRows: readonly DepartmentSalaryRow[],
   expenseRows: readonly DepartmentExpenseRow[],
+  includeSalary = true,
 ): HrDepartmentCost[] {
   const keyOf = (id: string | null): string => id ?? 'none';
   const merged = new Map<string, HrDepartmentCost>();
 
   for (const row of salaryRows) {
     const annualSalaryTotal = Math.round(row.monthlySalaryTotal * MONTHS_PER_YEAR * 100) / 100;
+    // Withhold salary entirely if the caller lacks the salary permission
+    // (HR-MEDIUM-005), else per-cell small-cell suppression (HR-HIGH-001).
     // HrFinanceSummary publishes no grand salary total, so per-cell suppression
     // (no complementary pass) is sufficient to protect a small department.
-    const salarySuppressed = row.headcount > 0 && row.headcount < SMALL_CELL_MIN_HEADCOUNT;
+    const salarySuppressed =
+      !includeSalary || (row.headcount > 0 && row.headcount < SMALL_CELL_MIN_HEADCOUNT);
     merged.set(keyOf(row.departmentHrId), {
       departmentHrId: row.departmentHrId,
       departmentName: row.departmentName,
@@ -125,7 +129,7 @@ export class GetHrFinanceSummaryHandler
   ) {}
 
   async execute(query: GetHrFinanceSummaryQuery): Promise<HrFinanceSummary> {
-    const { tenantId, from, to, granularity } = query;
+    const { tenantId, from, to, granularity, includeSalary } = query;
     const truncUnit = GRANULARITY_SQL[granularity];
 
     return runInTenantRead(this.dataSource, 'hr', tenantId, async (queryRunner) => {
@@ -155,8 +159,10 @@ export class GetHrFinanceSummaryHandler
         [tenantId, from, to],
       )) as Array<{ bucket: Date; total: string }>;
 
-      const buckets = new Map<string, HrFinanceTimeBucket>();
-      const bucketFor = (raw: Date): HrFinanceTimeBucket => {
+      // Internal accumulator keeps payrollGross a plain number; the output series
+      // below nulls it when the caller lacks the salary permission.
+      const buckets = new Map<string, { bucketStart: Date; payrollGross: number; hrExpenses: number }>();
+      const bucketFor = (raw: Date): { bucketStart: Date; payrollGross: number; hrExpenses: number } => {
         const iso = new Date(raw).toISOString();
         let bucket = buckets.get(iso);
         if (!bucket) {
@@ -225,13 +231,18 @@ export class GetHrFinanceSummaryHandler
           departmentName: row.departmentName,
           total: Number(row.total),
         })),
+        includeSalary,
       );
+
+      const series = [...buckets.values()]
+        .sort((a, b) => a.bucketStart.getTime() - b.bucketStart.getTime())
+        // Aggregate payroll is salary-sensitive: withhold it (null) unless the
+        // caller holds `hr_finance:view_salary` (HR-MEDIUM-005). Expenses stay.
+        .map((bucket) => ({ ...bucket, payrollGross: includeSalary ? bucket.payrollGross : null }));
 
       return {
         currency: settings.defaultCurrency,
-        series: [...buckets.values()].sort(
-          (a, b) => a.bucketStart.getTime() - b.bucketStart.getTime(),
-        ),
+        series,
         byDepartment,
       };
     });

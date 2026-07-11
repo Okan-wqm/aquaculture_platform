@@ -13,6 +13,7 @@ import {
   GET_HR_FINANCE_ENTRIES,
   GET_HR_FINANCE_SUMMARY,
   GET_HR_LABOUR_COST,
+  GET_HR_PERSONNEL_TABLE,
   GET_PAYROLL_COST_SETTINGS,
   UPDATE_HR_FINANCE_CATEGORY,
   UPDATE_HR_FINANCE_ENTRY,
@@ -25,6 +26,17 @@ import {
 
 export type LaborCategory = 'manager' | 'technical' | 'unskilled';
 export type HrFinanceGranularity = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
+
+export interface HrPersonnelRow {
+  category: LaborCategory | null;
+  headcount: number;
+}
+
+export interface HrPersonnelTable {
+  rows: HrPersonnelRow[];
+  totalHeadcount: number;
+  unclassifiedCount: number;
+}
 
 export interface HrLabourCostRow {
   category: LaborCategory | null;
@@ -53,7 +65,8 @@ export interface HrLabourCost {
 
 export interface HrFinanceTimeBucket {
   bucketStart: string;
-  payrollGross: number;
+  /** null when the caller lacks `hr_finance:view_salary` (HR-MEDIUM-005). */
+  payrollGross: number | null;
   hrExpenses: number;
 }
 
@@ -140,13 +153,32 @@ export interface UpdatePayrollCostSettingsInput {
 // Query hooks
 // ============================================================================
 
-export function useHrLabourCost(year: number) {
-  return useTenantQuery(['hrFinance', 'labourCost', year], async () => {
-    const data = await graphqlClient.request<{ hrLabourCost: HrLabourCost }>(GET_HR_LABOUR_COST, {
-      year,
-    });
-    return data.hrLabourCost;
+/** Headcount-only workforce projection — always available to MANAGER + ADMIN. */
+export function useHrPersonnelTable() {
+  return useTenantQuery(['hrFinance', 'personnelTable'], async () => {
+    const data = await graphqlClient.request<{ hrPersonnelTable: HrPersonnelTable }>(
+      GET_HR_PERSONNEL_TABLE,
+    );
+    return data.hrPersonnelTable;
   });
+}
+
+/**
+ * Salary-bearing labour-cost snapshot. Gated by `hr_finance:view_salary`
+ * (HR-MEDIUM-005) — pass `enabled: canViewSalary` so a role without the
+ * capability never fires the request (which the backend would 403).
+ */
+export function useHrLabourCost(year: number, enabled = true) {
+  return useTenantQuery(
+    ['hrFinance', 'labourCost', year],
+    async () => {
+      const data = await graphqlClient.request<{ hrLabourCost: HrLabourCost }>(GET_HR_LABOUR_COST, {
+        year,
+      });
+      return data.hrLabourCost;
+    },
+    { enabled },
+  );
 }
 
 export function useHrFinanceSummary(from: string, to: string, granularity: HrFinanceGranularity) {

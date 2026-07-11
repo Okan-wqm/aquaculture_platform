@@ -247,11 +247,9 @@ joins salaries and expenses on the single key, so each expense is attributed exa
 once and an expense-only department surfaces instead of vanishing. Unit-tested.
 
 ### HR-MEDIUM-005 — no aggregate-only tier (MODULE_MANAGER sees salary, not just headcount)
-The MANAGER+ADMIN finance gate is the **established, documented** design (managers run
-payroll), so this is intent-dependent, not a matrix violation. The actual disclosure
-risk it implied — small cells leaking individuals — is closed by HR-HIGH-003. Splitting
-the read model into a headcount-only tier (MANAGER) and a salary tier (TENANT_ADMIN) is
-a product decision, tracked below rather than guessed at.
+Resolved in **Wave 7** by making salary visibility a tenant-configurable RBAC
+capability rather than a hardcoded role boundary (per the product decision: the tenant
+admin decides who sees pay). See the Wave 7 section.
 
 ### HR-LOW-001 — backfill `lead`/`chief` precedence misclassifies technical leads
 The `laborCategory` backfill ran the MANAGER pattern (`…|lead|chief|…`) before the
@@ -261,6 +259,31 @@ migration already ran in production (immutable), so the fix is a conservative,
 idempotent corrective migration that reclassifies `manager` rows whose position matches
 a craft noun but **no** genuine management token → `technical`; the shared classifier
 ordering is corrected so any future use is right. Analytics-only, no payroll/tax effect.
+
+## Wave 7 — HR salary visibility as a tenant-configurable RBAC capability (HR-MEDIUM-005, implemented)
+
+Rather than hardcode "manager sees / admin doesn't", salary visibility is now a
+granular permission the tenant admin assigns. Root-cause architectural fix wired into
+the platform's existing tenant-RBAC system (`@RequireTenantPermission` +
+`TenantPermissionGuard` + tenant-role editor):
+
+- **New capability** `hr_finance:view_salary` added to the RBAC catalogue SSoT
+  (`PERMISSION_CATEGORIES` in `tenant-role.service.ts`) — the tenant-admin role editor,
+  token minting, and the guard all pick it up automatically. SUPER/TENANT_ADMIN bypass;
+  any other role sees salary only if the tenant admin grants it.
+- **Read model split by sensitivity (tier-1, make-it-impossible):** a new headcount-only
+  `hrPersonnelTable` query (MANAGER+ADMIN, no salary) backs the Personnel Table, while
+  the salary-bearing `hrLabourCost` is guarded by `hr_finance:view_salary`. The
+  `hrFinanceSummary` withholds per-department salary **and** the aggregate `payrollGross`
+  trend unless the caller holds the capability (expenses + headcount stay visible).
+- **Frontend** mirrors it with `useAuth().hasPermission('hr_finance:view_salary')`: the
+  Salaries/Labour-Cost tabs show a "salary is restricted" panel and the charts hide the
+  payroll/salary series for a manager without the grant — the Personnel Table and
+  expenses remain. `useHrLabourCost` is `enabled` only when permitted (no 403 fetch).
+
+This closes the finding coherently with the payroll-manager design: a manager who runs
+payroll can be granted `hr_finance:view_salary`; one who shouldn't see pay is not — the
+tenant decides, and small-cell suppression (HR-HIGH-003) still applies on top.
 
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 

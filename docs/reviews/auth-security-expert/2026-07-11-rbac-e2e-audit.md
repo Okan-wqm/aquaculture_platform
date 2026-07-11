@@ -269,3 +269,16 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** No orphaned inferior duplicates of live components reachable through a barrel; one SSoT per constant.
 
 **Fix:** Deleted both orphaned modals; the barrel now exports only `RoleCard`/`RoleBadge` with a note that the dialogs live inline in the page (do not recreate without a real second consumer). The page's inline `ROLE_COLORS` copy was replaced with the `lib/constants` MED-18 SSoT import, collapsing three copies to one.
+
+## RBAC-LOW-004
+
+**Title:** token.service.ts (and its spec) cited the centralized-role-tables topology migration by BARE timestamp "1800500000000" — but auth-service's own migration directory contains a DIFFERENT `1800500000000-AddRefreshTokenFamilyId`, so a reader resolving the citation inside the owning service lands on the wrong migration; the topology migration actually lives in admin-api (`1800500000000-TenantProvisioningTopology`).
+
+**Layer:** 3 (documentation accuracy / cross-service citation)
+**Evidence:**
+- `apps/auth-service/src/modules/authentication/services/token.service.ts`
+- `apps/auth-service/src/modules/authentication/services/token.service.spec.ts`
+
+**Rule violated:** A cross-service migration citation must name the migration and its owning service unambiguously; a bare timestamp that collides with a same-timestamp local migration is a wrong citation.
+
+**Fix:** Both comments now cite "admin-api's `1800500000000-TenantProvisioningTopology`" and explicitly disambiguate from auth-service's same-timestamp `AddRefreshTokenFamilyId`. (The tenant-role.service citation flagged in the plan no longer exists — removed by the earlier RBAC refactors.)

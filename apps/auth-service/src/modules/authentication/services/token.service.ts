@@ -567,7 +567,9 @@ export class TokenService {
 
     let permissions: string[];
     try {
-      // CENTRALIZED auth-schema role tables: the 1800500000000 topology migration
+      // CENTRALIZED auth-schema role tables: admin-api's
+      // `1800500000000-TenantProvisioningTopology` migration (NOT auth-service's
+      // own 1800500000000-AddRefreshTokenFamilyId, which shares the timestamp)
       // moved user_role_assignments / tenant_role_permissions / tenant_roles out of
       // per-tenant schemas into `auth` and DROPs the tenant copies (post-condition
       // RAISEs if any remain). This query targets auth.* with PARAMETER-BOUND

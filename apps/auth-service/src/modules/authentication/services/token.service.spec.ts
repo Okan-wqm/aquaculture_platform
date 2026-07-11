@@ -430,9 +430,9 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   // (D) getUserResourcePermissions — auth-schema tenant-scoped repoint + fail-loud.
   describe('getUserResourcePermissions (auth.* tenant-scoped + PERF-HIGH-001 fail-loud)', () => {
     it('queries centralized auth.* with NO per-tenant schema interpolation (crafted tenantId is bound, not concatenated)', async () => {
-      // Post-1800500000000 the role tables live in `auth`; tenantId is a bound
-      // parameter ($2), so even a malformed value can never reach a schema name
-      // or the SQL text.
+      // Post admin-api `1800500000000-TenantProvisioningTopology` the role
+      // tables live in `auth`; tenantId is a bound parameter ($2), so even a
+      // malformed value can never reach a schema name or the SQL text.
       const malicious = 'zz; DROP TABLE users;----------------';
       service = await createService({
         query: buildQueryRouter({ resourcePermissions: [] }),

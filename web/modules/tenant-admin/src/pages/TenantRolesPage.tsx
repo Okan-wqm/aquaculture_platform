@@ -17,7 +17,7 @@ import {
   Star,
   Palette,
 } from 'lucide-react';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
 import { RoleCard as SharedRoleCard } from '../components/roles/RoleCard';
 import { useFocusTrap } from '../hooks';
@@ -515,9 +515,16 @@ const RoleCard = SharedRoleCard;
 // ============================================================================
 
 const TenantRolesPage: React.FC = () => {
-  // SEC-007: Check if current user has TENANT_ADMIN privileges for CRUD actions
-  const { hasRoleOrHigher } = useAuthContext();
-  const canManageRoles = hasRoleOrHigher('TENANT_ADMIN');
+  // RBAC-HIGH-004 (FE-HIGH-001): gate each control on the SAME granular capability
+  // the backend enforces (@RequireTenantPermission), not the coarse TENANT_ADMIN
+  // role. Admins bypass inside hasResourcePermission, so this is strictly a
+  // superset — but it also lets a delegate holding roles:create/edit/delete use
+  // the controls, which the previous role check silently blocked (the delegation
+  // feature was inert on this screen).
+  const { hasPermission } = useAuth();
+  const canCreateRoles = hasPermission('roles:create');
+  const canEditRoles = hasPermission('roles:edit');
+  const canDeleteRoles = hasPermission('roles:delete');
 
   // State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -630,8 +637,8 @@ const TenantRolesPage: React.FC = () => {
           >
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
-          {/* SEC-007: Only TENANT_ADMIN+ can seed/create roles */}
-          {canManageRoles && (
+          {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
+          {canCreateRoles && (
             <>
               {roles.length === 0 && (
                 <button
@@ -685,8 +692,8 @@ const TenantRolesPage: React.FC = () => {
             <RoleCard
               key={role.id}
               role={role}
-              onEdit={canManageRoles ? handleOpenEdit : undefined}
-              onDelete={canManageRoles ? handleDeleteRole : undefined}
+              onEdit={canEditRoles ? handleOpenEdit : undefined}
+              onDelete={canDeleteRoles ? handleDeleteRole : undefined}
             />
           ))}
         </div>
@@ -701,8 +708,8 @@ const TenantRolesPage: React.FC = () => {
             Create custom roles to manage user permissions. You can also seed
             default roles to get started quickly.
           </p>
-          {/* SEC-007: Only TENANT_ADMIN+ can seed/create roles */}
-          {canManageRoles && (
+          {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
+          {canCreateRoles && (
             <div className="mt-6 flex items-center justify-center gap-3">
               <button
                 onClick={handleSeedRoles}

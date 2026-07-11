@@ -137,3 +137,18 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** An authorization decorator's name must reflect what it actually enforces; a misleading name is a latent authorization defect.
 
 **Fix:** Replaced all 30 `@AllowTenantAdmin()` usages (users/messaging/announcement/ticket controllers) with the existing, behaviorally-identical `@PlatformAdminOnly()`, deleted the `AllowTenantAdmin` alias, and corrected the stale "TENANT_ADMIN can…" comments. Pure behavior-preserving rename — the admin-api boundary is platform-admin (SUPER_ADMIN) only, and the name now says so.
+
+## RBAC-HIGH-004
+
+**Title:** The tenant-admin frontend gated its role/user CRUD controls on the coarse `hasRoleOrHigher('TENANT_ADMIN')` role check while the backend authorizes each action on a granular capability (`roles:create/edit/delete`, `users:invite/edit_permissions/deactivate`) — so a delegate granted a specific capability reached the page (route gated on `*:view`) but saw NO controls. The delegation feature PR #923 shipped was inert on these screens; only a full TENANT_ADMIN could act. (FE-HIGH-001.)
+
+**Layer:** 3 (capability SSoT / FE gating)
+**Evidence:**
+- `web/modules/tenant-admin/src/pages/TenantRolesPage.tsx`
+- `web/modules/tenant-admin/src/pages/TenantUsers.tsx`
+- `web/modules/tenant-admin/src/components/users/UserListSection.tsx`
+- `web/modules/tenant-admin/src/components/users/BulkActions.tsx`
+
+**Rule violated:** FE control visibility must gate on the SAME capability the backend enforces, via the shared capability SSoT (`hasResourcePermission`) — not a divergent role check.
+
+**Fix:** `TenantRolesPage` now gates seed/create on `roles:create`, edit on `roles:edit`, delete on `roles:delete`; `TenantUsers` gates Add on `users:invite`, row-edit on `users:edit_permissions`, and bulk/row-delete on `users:deactivate` (threaded into `UserListSection`/`BulkActions` as per-action props). All via `useAuth().hasPermission`, whose `hasResourcePermission` bypasses for SUPER_ADMIN/TENANT_ADMIN exactly like the backend — so admins are unaffected and delegates now see precisely the controls their capabilities authorize. (The backend shared read-queries `tenantUsers`/`myTenant`/`tenantStats` still carry `@TenantAdminOrHigher()`; migrating those to capability gates — so a delegate can also LOAD the data — is tracked as the FE-delegatable-vs-backend-query parity item, separate from this control-gating fix.)

@@ -76,7 +76,6 @@ const MAX_LEDGER_OFFSET = 5_000;
  * outgrows even the cached path, signalling the materialized-rollup escalation.
  */
 const FINANCE_CACHE_TTL_SECONDS = 300;
-const FINANCE_CACHE_PREFIXES = ['finance:summary', 'finance:batchTotals'] as const;
 
 @Resolver(() => FinanceExpenseEntry)
 @UseGuards(GqlAuthGuard)
@@ -190,7 +189,7 @@ export class FinanceResolver {
     description: 'Book a manual finance entry (expense or revenue).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async createFinanceEntry(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -203,7 +202,7 @@ export class FinanceResolver {
     description: 'Update a manual finance entry. Derived lines are edited at their source record.',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async updateFinanceEntry(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -217,7 +216,7 @@ export class FinanceResolver {
     description: 'Soft-delete a manual finance entry.',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async deleteFinanceEntry(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -230,7 +229,7 @@ export class FinanceResolver {
     description: 'Create a user-defined finance category (dynamic taxonomy — data, not DDL).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async createFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -243,7 +242,7 @@ export class FinanceResolver {
     description: 'Rename / reorder a finance category (activation state is admin-gated).',
   })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async updateFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -260,7 +259,7 @@ export class FinanceResolver {
       'Archive a finance category (derived-bound and computed categories cannot be archived).',
   })
   @Roles(Role.TENANT_ADMIN)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async archiveFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -273,7 +272,7 @@ export class FinanceResolver {
     description: 'Reactivate an archived finance category.',
   })
   @Roles(Role.TENANT_ADMIN)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async restoreFinanceCategory(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
@@ -286,7 +285,7 @@ export class FinanceResolver {
     description: 'Update tenant finance settings (default currency SSoT, fiscal year start).',
   })
   @Roles(Role.TENANT_ADMIN)
-  @CacheEvict({ prefixes: FINANCE_CACHE_PREFIXES })
+  @CacheEvict({ prefixes: ['finance:summary', 'finance:batchTotals'] })
   async updateFinanceSettings(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },

@@ -386,7 +386,7 @@ the batch when any stocking has no recorded weight, instead of claiming a fabric
 gutted (FARM-MEDIUM-007); CSV/formula injection in both CSV exporters is FIXED (SEC-MEDIUM-002 →
 FARM-MEDIUM-183: backend csvCell + frontend csvEscape single-quote-prefix a cell whose first char is
 a `= + - @` / tab / CR formula trigger, numbers excepted, RFC-4180 quoting preserved);
-KEK dev-fallback gated only on `NODE_ENV==='production'` (SEC-MEDIUM-003); regulator error bodies +
+KEK dev-fallback gated only on `NODE_ENV==='production'` is FIXED (SEC-MEDIUM-003 -> FARM-MEDIUM-190: the encrypted-column transformer's dev fallback now requires NODE_ENV explicitly 'development'/'test'; production/staging/unset fail closed); regulator error bodies +
 PII logged via string interpolation that bypasses `maskPii` is FIXED (SEC-MEDIUM-004 / OBS-MEDIUM-003
 → FARM-MEDIUM-184: Mattilsynet submit + Maskinporten token/discovery + resolver-test paths route
 every error body / thrown error through `maskAndTruncatePii` before logging, including the thrown

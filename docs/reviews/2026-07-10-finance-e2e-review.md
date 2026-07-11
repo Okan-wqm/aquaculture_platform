@@ -130,6 +130,26 @@ finance-only fix — a finance-only string scalar would fork the shared money
 primitive. Finance keeps `@Field(Float)` and ships only the exact-aggregation fix
 above; `DATA-MEDIUM-009` stays OPEN, re-parented to the platform effort.
 
+## Wave 3 — performance bounds & indexes (follow-up, implemented)
+
+### PERF-MEDIUM-005 — MAINTENANCE derived date had no index
+Added expression index `idx_work_orders_tenant_effective_cost_date` on
+`(tenantId, COALESCE(completedAt, createdAt))` (migration `1804800000000`) so the
+work_orders range scan is index-driven. The feeding/harvest/health sources already
+carry their `(tenantId, dateColumn)` indexes.
+
+### PERF-MEDIUM-006 — unbounded time-series buckets
+`clampGranularity` auto-coarsens the granularity so the series never exceeds
+`MAX_SERIES_BUCKETS` (400) — bounded server work + payload regardless of range.
+
+### PERF-MEDIUM-007 — unbounded per-batch rows
+`financeBatchTotals` returns the top-N batches by cost (`MAX_BATCH_ROWS` = 25) and
+rolls the remainder into an "Other" row.
+
+> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`), scoped FE
+> invalidation (`PERF-005`), single-UNION aggregation (`PERF-009`) and finance p99
+> SLO (`PERF-008`) remain in progress on the hardening branch.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

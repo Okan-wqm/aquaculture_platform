@@ -53,6 +53,50 @@ const GRANULARITY_SQL: Record<FinanceGranularity, string> = {
   [FinanceGranularity.YEAR]: 'year',
 };
 
+/** Coarsest-to-finest order + approximate days/bucket, for bucket bounding. */
+const GRANULARITY_DAYS: Array<[FinanceGranularity, number]> = [
+  [FinanceGranularity.DAY, 1],
+  [FinanceGranularity.WEEK, 7],
+  [FinanceGranularity.MONTH, 30],
+  [FinanceGranularity.YEAR, 365],
+];
+
+/**
+ * Upper bound on time-series buckets. A DAY granularity over multiple years
+ * would emit ~1000+ buckets, each triggering a computed-rule pass and bloating
+ * the payload. Beyond this the granularity is auto-coarsened to the next step.
+ */
+const MAX_SERIES_BUCKETS = 400;
+
+/** Top-N per-batch rows returned; the remainder is rolled into an "Other" row. */
+const MAX_BATCH_ROWS = 25;
+/** Synthetic batchId for the aggregated tail in the per-batch chart. */
+const OTHER_BATCH_ID = 'other';
+
+/**
+ * Auto-coarsen the requested granularity so the series can never exceed
+ * MAX_SERIES_BUCKETS — bounded server work and payload regardless of range.
+ */
+const clampGranularity = (
+  range: { from: Date; to: Date },
+  requested: FinanceGranularity,
+): FinanceGranularity => {
+  const spanDays = Math.max(
+    1,
+    (range.to.getTime() - range.from.getTime()) / 86_400_000,
+  );
+  let chosen = requested;
+  for (const [gran, days] of GRANULARITY_DAYS) {
+    if (days < (GRANULARITY_DAYS.find(([g]) => g === requested)?.[1] ?? 1)) continue;
+    if (spanDays / days <= MAX_SERIES_BUCKETS) {
+      chosen = gran;
+      break;
+    }
+    chosen = gran;
+  }
+  return chosen;
+};
+
 export enum FinanceLineOrigin {
   MANUAL = 'MANUAL',
   DERIVED = 'DERIVED',
@@ -202,7 +246,8 @@ export class FinanceLedgerQueryService {
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
       const currency = await this.settingsService.getDefaultCurrencyInTx(manager, tenantId);
-      const truncUnit = GRANULARITY_SQL[granularity];
+      // Auto-coarsen so a wide range can't explode into thousands of buckets.
+      const truncUnit = GRANULARITY_SQL[clampGranularity(range, granularity)];
 
       // categoryId → booked total; (bucketKey|categoryId) → bucket totals.
       // bucketKey is a canonical UTC `YYYY-MM-DD` string computed in SQL, so
@@ -374,13 +419,27 @@ export class FinanceLedgerQueryService {
         }
       }
 
-      return [...totals.entries()]
-        .map(([batchId, bucket]) => ({
-          batchId,
-          totalExpense: toMoney(bucket.expense),
-          totalRevenue: toMoney(bucket.revenue),
-        }))
-        .sort((a, b) => b.totalExpense - a.totalExpense);
+      const ranked = [...totals.entries()]
+        .map(([batchId, bucket]) => ({ batchId, expense: bucket.expense, revenue: bucket.revenue }))
+        .sort((a, b) => b.expense.comparedTo(a.expense));
+
+      // Bound the payload: top-N batches by cost, remainder rolled into "Other".
+      const head = ranked.slice(0, MAX_BATCH_ROWS).map((r) => ({
+        batchId: r.batchId,
+        totalExpense: toMoney(r.expense),
+        totalRevenue: toMoney(r.revenue),
+      }));
+      const tail = ranked.slice(MAX_BATCH_ROWS);
+      if (tail.length > 0) {
+        const otherExpense = tail.reduce((s, r) => s.plus(r.expense), new Decimal(0));
+        const otherRevenue = tail.reduce((s, r) => s.plus(r.revenue), new Decimal(0));
+        head.push({
+          batchId: OTHER_BATCH_ID,
+          totalExpense: toMoney(otherExpense),
+          totalRevenue: toMoney(otherRevenue),
+        });
+      }
+      return head;
     });
   }
 

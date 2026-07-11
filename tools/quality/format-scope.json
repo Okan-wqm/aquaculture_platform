@@ -9009,6 +9009,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1804800000000-AddWorkOrderEffectiveCostDateIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -52230,10 +52236,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8559,
+  "file_count": 8560,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8384,
-  "managed_file_list_sha256": "5c883c573eb70bb229e968f1a4ba598e0e2c0b94a21e6f07d4bd3c6dea6fe15a",
+  "managed_count": 8385,
+  "managed_file_list_sha256": "731d5f173115d05c1633b1d1b5e28112d30d436635009d9f43de52afb9fb75d9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

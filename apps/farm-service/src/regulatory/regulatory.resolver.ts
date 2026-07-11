@@ -10,7 +10,7 @@
  * @module Regulatory/Resolvers
  */
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
-import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
 import {
@@ -193,6 +193,39 @@ export class RegulatoryResolver {
       throw new UnauthorizedException('User context required');
     }
     return userId;
+  }
+
+  /**
+   * SEC-HIGH-001: the direct REST submit path takes organisasjonsnummer +
+   * lokalitetsnummer from the client. Verify each declared (org, lokalitet) pair
+   * is a real tenant-owned site (the draft path already derives them server-side),
+   * so an operator cannot attribute a legally-binding government filing to an org
+   * or lokalitet that is not a configured site of their tenant. Fail closed.
+   */
+  private async assertTenantOwnsIdentity(
+    tenantId: string,
+    identities: Array<{ organisasjonsnummer: string; lokalitetsnummer: number }>,
+  ): Promise<void> {
+    const mappings = await this.settingsService.getEffectiveSiteLocalityMappings(tenantId);
+    for (const { organisasjonsnummer, lokalitetsnummer } of identities) {
+      const ownedSiteId = Object.entries(mappings).find(
+        ([, lokalitet]) => lokalitet === lokalitetsnummer,
+      )?.[0];
+      if (!ownedSiteId) {
+        throw new BadRequestException(
+          `lokalitetsnummer ${lokalitetsnummer} is not a configured site for this tenant`,
+        );
+      }
+      const expectedOrg = await this.settingsService.getEffectiveOrganisationNumber(
+        tenantId,
+        ownedSiteId,
+      );
+      if (expectedOrg && organisasjonsnummer !== expectedOrg) {
+        throw new BadRequestException(
+          `organisasjonsnummer does not match the tenant configuration for lokalitet ${lokalitetsnummer}`,
+        );
+      }
+    }
   }
 
   /**
@@ -449,6 +482,9 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Sea Lice report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+    ]);
 
     // Transform GraphQL input to API payload
     const payload: SeaLicePayload = {
@@ -577,6 +613,9 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Cleaner Fish report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+    ]);
 
     // Transform GraphQL input to API payload
     const payload: CleanerFishPayload = {
@@ -650,6 +689,9 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Smolt report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+    ]);
 
     // Transform GraphQL input to API payload
     const payload: SmoltPayload = {
@@ -705,6 +747,13 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Planned Slaughter report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+      ...input.planlagteLokaliteter.map((l) => ({
+        organisasjonsnummer: l.organisasjonsnummer,
+        lokalitetsnummer: l.lokalitetsnummer,
+      })),
+    ]);
 
     // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
     const payload: PlannedSlaughterPayload = {
@@ -766,6 +815,13 @@ export class RegulatoryResolver {
     const tenantId = this.getTenantId(ctx);
     const userId = this.getUserId(ctx);
     this.logger.log(`Submitting Executed Slaughter report: ${input.klientReferanse}`);
+    await this.assertTenantOwnsIdentity(tenantId, [
+      { organisasjonsnummer: input.organisasjonsnummer, lokalitetsnummer: input.lokalitetsnummer },
+      ...input.utforteLokaliteter.map((l) => ({
+        organisasjonsnummer: l.organisasjonsnummer,
+        lokalitetsnummer: l.lokalitetsnummer,
+      })),
+    ]);
 
     // Transform GraphQL input to API payload - ALIGNED WITH OFFICIAL SCHEMA
     const payload: ExecutedSlaughterPayload = {

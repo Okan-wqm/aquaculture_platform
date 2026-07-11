@@ -191,6 +191,16 @@ the scheduler silently created no planned-slaughter draft and `reportPrefill(SLA
   per-tenant, fail-closed, timed breaker on each boundary; gate the retry/auto-submit sweeps through
   it; add jitter + single-flight token acquisition.
 
+### FARM-HIGH-173 — direct REST submit trusted client-supplied regulatory identity
+
+The five REST submit mutations took `organisasjonsnummer` + `lokalitetsnummer` straight from the
+GraphQL client and never verified them against the tenant's configured sites/org (the draft path
+derives them server-side), so an operator could attribute a legally-binding filing to any org/lokalitet
+the tenant credential could reach. Fixed: `assertTenantOwnsIdentity` verifies every declared
+(org, lokalitet) pair against the tenant's effective site-locality mappings + org number and rejects a
+foreign lokalitet or mismatched org (BadRequestException) before any persistence or submission, on all
+five mutations (top-level + nested slakt localities).
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`

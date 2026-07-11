@@ -34,23 +34,7 @@ import {
   type PanelPermissions,
 } from '../hooks/useTenantRoles';
 import { logError } from '../utils/error-handling';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const ROLE_COLORS = [
-  { value: '#6366F1', label: 'Indigo' },
-  { value: '#8B5CF6', label: 'Purple' },
-  { value: '#EC4899', label: 'Pink' },
-  { value: '#EF4444', label: 'Red' },
-  { value: '#F97316', label: 'Orange' },
-  { value: '#EAB308', label: 'Yellow' },
-  { value: '#22C55E', label: 'Green' },
-  { value: '#14B8A6', label: 'Teal' },
-  { value: '#0EA5E9', label: 'Sky' },
-  { value: '#6B7280', label: 'Gray' },
-];
+import { ROLE_COLORS } from '../lib/constants';
 
 // ============================================================================
 // Sub-Components

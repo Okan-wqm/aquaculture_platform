@@ -242,3 +242,30 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** A rendered control must perform its advertised action; dead controls are removed, not shipped.
 
 **Fix:** Removed the button (and the now-unused icon import), with an in-place note that reintroduction requires a real export path AND a capability gate.
+
+## RBAC-MEDIUM-007
+
+**Title:** The permission editor's category select-all was a click-only `<span role="checkbox">` NESTED inside the accordion-expand `<button>` — invalid interactive-inside-interactive (WCAG 4.1.2 name/role/value) and unreachable by keyboard (WCAG 2.1.1): no tabindex, no key handler, so a keyboard user could not toggle a category's permissions at all; the resource-row select-all was a real button but carried no checkbox semantics (no role/aria-checked/accessible name).
+
+**Layer:** 3 (accessibility / valid interactive structure)
+**Evidence:**
+- `web/modules/tenant-admin/src/components/permissions/PermissionCheckboxGroup.tsx`
+
+**Rule violated:** Interactive controls must not nest inside other interactive controls; every stateful control must expose real keyboard operability and correct role/state semantics, not a mouse-only visual imitation.
+
+**Fix:** The category header is now a plain container with two SIBLING buttons: a real `<button role="checkbox" aria-checked disabled …>` select-all (Tab reaches it; Space/Enter toggle natively; disabled in readOnly) and a separate expand/collapse button owning `aria-expanded`/`aria-controls`. The resource-row select-all gained `role="checkbox"`, `aria-checked` (true/mixed/false), and an accessible name. Pinned by `PermissionCheckboxGroup.spec.tsx` (real button with checkbox semantics; structural no-nesting invariant; keyboard Space toggles the whole category; toggling does not collapse the accordion; mixed state; readOnly disables).
+
+## RBAC-MEDIUM-008
+
+**Title:** Orphaned duplicate `RoleModal.tsx`/`DeleteRoleModal.tsx` in `components/roles/` were exported from the barrel as the "roles components" surface but had ZERO importers — the live dialogs are the inline copies in TenantRolesPage — and the orphaned copies lacked the focus trap and `useId` ARIA wiring the live ones have, so any future importer would silently ship the inferior-a11y variant; `ROLE_COLORS` additionally existed in THREE places (lib/constants MED-18 SSoT, the page inline, the orphaned modal).
+
+**Layer:** 3 (dead duplicate / latent trap)
+**Evidence:**
+- `web/modules/tenant-admin/src/components/roles/RoleModal.tsx` (deleted)
+- `web/modules/tenant-admin/src/components/roles/DeleteRoleModal.tsx` (deleted)
+- `web/modules/tenant-admin/src/components/roles/index.ts`
+- `web/modules/tenant-admin/src/pages/TenantRolesPage.tsx`
+
+**Rule violated:** No orphaned inferior duplicates of live components reachable through a barrel; one SSoT per constant.
+
+**Fix:** Deleted both orphaned modals; the barrel now exports only `RoleCard`/`RoleBadge` with a note that the dialogs live inline in the page (do not recreate without a real second consumer). The page's inline `ROLE_COLORS` copy was replaced with the `lib/constants` MED-18 SSoT import, collapsing three copies to one.

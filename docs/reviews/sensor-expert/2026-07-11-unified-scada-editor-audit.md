@@ -97,3 +97,17 @@ record. Remediation is phased in
 - **Description:** Per-widget `controlPermissions` / PIN / security level are enforced only in the browser (`RuntimeInput.handlePinConfirm` compares `pinInput !== config.pin`), and `config.pin` is stored plaintext in `packageData`, which any authenticated tenant member can read via the `scadaPackage(s)` GraphQL query (`mapScadaPackageToType` returns `packageData` wholesale). The gateway `TAG_WRITE` handler never loads or enforces `controlPermissions`.
 - **Impact:** The "supervisor + PIN" restriction has zero server-side effect; the PIN is readable by any operator; the gate is bypassable via devtools or a direct socket write.
 - **Status:** OPEN — NOT fixed this session. A redaction-only slice is unsafe: removing the plaintext `pin` from the read path makes the current client-side check pass on an empty PIN, weakening the gate. The correct fix is a feature: store a salted `pinHash` (never plaintext) with a migration for existing pins; verify the PIN server-side at `TAG_WRITE` via a challenge/response WS message pair; enforce the per-widget/tag `controlPermissions` (required role / security level) at the gateway (which is now tenant+registry gated by SENSOR-CRITICAL-005). Owner: auth-security-expert. The WS tenant+role+registry gate (CRITICAL-004/005) is the primary control now in place; this is the per-widget control-security layer on top.
+
+### [SENSOR-HIGH-037] Multiple SCADA packages can link to one process; adoption is arbitrary and orphans the rest
+- **File:** `apps/sensor-service/src/process/entities/scada-package.entity.ts`, `apps/sensor-service/src/database/migrations/1806000000000-ScadaPackageProcessUnique.ts`
+- **Category:** Data integrity
+- **Description:** `scada_packages.process_id` had no uniqueness, so duplicate-process / failed-then-retried saves could leave several packages sharing a `process_id`; reload adopted `linkedPackages[0]` (arbitrary) and later saves orphaned the rest.
+- **Impact:** A process could have several linked packages; only one was ever adopted/written, the others silently diverged.
+- **Recommendation:** A partial unique index `UNIQUE (tenant_id, process_id) WHERE process_id IS NOT NULL`, preceded by a dedup that keeps the newest package per process and unlinks the rest.
+
+### [SENSOR-MEDIUM-016] Unified editor device selection is local-only and lost on save
+- **File:** `web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx`, `web/modules/sensor-module/src/store/scada/projectSlice.ts`
+- **Category:** Data loss / workflow
+- **Description:** The toolbar device selector wrote a local `useState`, never the scada store, so `meta.edgeDeviceId` serialized as null and the choice was lost on save; the tag browser and ST autocomplete saw no device.
+- **Impact:** The chosen deploy/target device was not persisted and did not rehydrate on reload.
+- **Recommendation:** Bind the selector to the store's `targetDeviceId`/`setTargetDeviceId` (which round-trips via `meta.edgeDeviceId`) and mark the store dirty on change.

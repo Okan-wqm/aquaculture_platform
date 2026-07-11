@@ -208,9 +208,12 @@ const UnifiedEditorPage: React.FC = () => {
   useEffect(() => { canvasNodesRef.current = canvasNodes; }, [canvasNodes]);
   useEffect(() => { canvasEdgesRef.current = canvasEdges; }, [canvasEdges]);
 
-  // Device selector
+  // Device selector — the deploy target lives in the scada store so it
+  // serializes to meta.edgeDeviceId and rehydrates on load (a local useState
+  // never reached the store, so the choice was lost on save — UI-006).
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
-  const [targetDeviceId, setTargetDeviceId] = useState<string | null>(null);
+  const targetDeviceId = useScadaPackageStore((s) => s.targetDeviceId);
+  const setTargetDeviceId = useScadaPackageStore((s) => s.setTargetDeviceId);
   const { data: deviceConnection } = useEdgeDevices({ limit: 50 });
   const devices = deviceConnection?.items || [];
   const selectedDevice = useMemo(

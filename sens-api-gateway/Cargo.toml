@@ -564,6 +564,11 @@ path = "tests/invariants/app_state_wired.rs"
 name = "deploy_verify_strict"
 path = "tests/invariants/deploy_verify_strict.rs"
 
+# EDGE-CRITICAL-003 — legacy command dispatch enforces LegacyPolicy.
+[[test]]
+name = "legacy_command_signature_gate"
+path = "tests/invariants/legacy_command_signature_gate.rs"
+
 # Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
 [[test]]
 name = "process_hardening"

@@ -134,8 +134,26 @@ impl super::CommandHandler {
                 ) {
                     envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
                         // Legacy path — CommandMessage parse.
-                        match serde_json::from_slice(&message.payload) {
-                            Ok(cmd) => cmd,
+                        match serde_json::from_slice::<CommandMessage>(&message.payload) {
+                            Ok(cmd) => {
+                                // EDGE-CRITICAL-003: the legacy JSON path
+                                // carries no signature. Enforce the catalog
+                                // LegacyPolicy against signature_mode so an
+                                // unsigned mutating command cannot bypass
+                                // Enforcing (this arm previously dispatched
+                                // with zero signature check).
+                                if let Err(reason) = super::catalog::legacy_command_permitted(
+                                    &cmd.command,
+                                    signature_mode,
+                                ) {
+                                    warn!(
+                                        "Rejecting unsigned legacy command '{}': {}",
+                                        cmd.command, reason
+                                    );
+                                    return Ok(());
+                                }
+                                cmd
+                            }
                             Err(e) => {
                                 warn!(
                                     "Failed to parse command (neither envelope nor legacy): {}",
@@ -171,12 +189,29 @@ impl super::CommandHandler {
                 // tenant_id unavailable (provisioning
                 // incomplete) — envelope verify can't run
                 // (Gate 5 tenant binding requires it). Fall
-                // back to legacy parse unconditionally until
-                // provisioning completes. This matches pre-
-                // Batch-63 behavior for pre-provisioning
-                // bootstrap commands.
-                match serde_json::from_slice(&message.payload) {
-                    Ok(cmd) => cmd,
+                // back to legacy parse until provisioning
+                // completes. This matches pre-Batch-63 behavior
+                // for pre-provisioning bootstrap commands.
+                match serde_json::from_slice::<CommandMessage>(&message.payload) {
+                    Ok(cmd) => {
+                        // EDGE-CRITICAL-003: even pre-provisioning the
+                        // unsigned legacy path must honor the
+                        // LegacyPolicy — an un-provisioned device must
+                        // not run unsigned mutating commands in
+                        // Enforcing. Bootstrap commands (ping/get_info =
+                        // AllowUnsignedInEnforcing) still pass.
+                        if let Err(reason) = super::catalog::legacy_command_permitted(
+                            &cmd.command,
+                            signature_mode,
+                        ) {
+                            warn!(
+                                "Rejecting unsigned legacy command '{}' (pre-provisioning): {}",
+                                cmd.command, reason
+                            );
+                            return Ok(());
+                        }
+                        cmd
+                    }
                     Err(e) => {
                         warn!("Failed to parse command: {}", e);
                         return Ok(());

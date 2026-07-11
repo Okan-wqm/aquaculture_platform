@@ -906,6 +906,50 @@ pub(crate) fn legacy_policy_for_command(cmd: &str) -> LegacyPolicy {
         .unwrap_or(LegacyPolicy::DenyUnsignedInEnforcing)
 }
 
+/// Decide whether an UNSIGNED legacy `CommandMessage` (the
+/// envelope-adapter `NotEnvelopeFormat` path) may execute under the
+/// active `signature_mode`. Returns `Err(reason)` when the command
+/// must be rejected.
+///
+/// EDGE-CRITICAL-003: before this wiring the legacy dispatch arm
+/// executed with zero signature/mode/legacy-policy check, so an
+/// unsigned mutating command (`write_modbus`/`set_output`/…) bypassed
+/// `SignatureMode::Enforcing` entirely. The legacy JSON path carries
+/// no signature, so this mirrors `verify_envelope` Gate 7 for the
+/// unsigned case:
+///
+/// - `Disabled` — HC-1 auth-off: accept everything (matches the
+///   envelope path's `(Disabled, _, _) => {}`).
+/// - `DenyUnsignedInEnforcing` — rejected in Enforcing; accepted in
+///   Permissive (the caller logs it, mirroring the envelope posture).
+/// - `DenyAlways` — never permitted on the unsigned path outside
+///   Disabled.
+/// - `AllowUnsignedInEnforcing` — catalog-anonymous (ping/get_info);
+///   always permitted.
+pub(crate) fn legacy_command_permitted(
+    cmd: &str,
+    mode: crate::command_envelope::envelope::SignatureMode,
+) -> Result<(), &'static str> {
+    use crate::command_envelope::envelope::SignatureMode;
+    // Signature system explicitly off — the envelope path also
+    // accepts everything under Disabled (HC-1 backward compat).
+    if matches!(mode, SignatureMode::Disabled) {
+        return Ok(());
+    }
+    match legacy_policy_for_command(cmd) {
+        LegacyPolicy::AllowUnsignedInEnforcing => Ok(()),
+        LegacyPolicy::DenyUnsignedInEnforcing => match mode {
+            SignatureMode::Enforcing => {
+                Err("unsigned legacy command rejected in signature_mode=enforcing")
+            }
+            // Permissive (Disabled already returned above): accept,
+            // caller logs — mirrors the envelope Permissive posture.
+            _ => Ok(()),
+        },
+        LegacyPolicy::DenyAlways => Err("command is never permitted on the unsigned legacy path"),
+    }
+}
+
 pub(crate) fn handler_name_for_command(cmd: &str) -> Option<&'static str> {
     entry_for_command(cmd).and_then(|entry| entry.handler_name)
 }
@@ -988,6 +1032,59 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn legacy_command_permitted_enforces_signature_mode() {
+        use crate::command_envelope::envelope::SignatureMode;
+
+        // Representative commands by policy, discovered from the
+        // catalog so the test does not hardcode wire names.
+        let mut anon = "";
+        let mut mutating = "";
+        for e in COMMAND_CATALOG {
+            if anon.is_empty()
+                && matches!(e.legacy_policy, LegacyPolicy::AllowUnsignedInEnforcing)
+            {
+                anon = e.wire_name;
+            }
+            if mutating.is_empty()
+                && matches!(e.legacy_policy, LegacyPolicy::DenyUnsignedInEnforcing)
+            {
+                mutating = e.wire_name;
+            }
+        }
+        assert!(
+            !anon.is_empty() && !mutating.is_empty(),
+            "catalog must have both an anonymous and a deny-unsigned command"
+        );
+
+        // EDGE-CRITICAL-003: the core gate — an unsigned mutating
+        // command is REJECTED in Enforcing (previously it dispatched
+        // with no signature check at all).
+        assert!(legacy_command_permitted(mutating, SignatureMode::Enforcing).is_err());
+        // Permissive accepts (caller logs), mirroring the envelope path.
+        assert!(legacy_command_permitted(mutating, SignatureMode::Permissive).is_ok());
+        // Disabled = auth off (HC-1): accepted.
+        assert!(legacy_command_permitted(mutating, SignatureMode::Disabled).is_ok());
+
+        // Anonymous bootstrap commands (ping/get_info) run unsigned in
+        // every mode.
+        for mode in [
+            SignatureMode::Disabled,
+            SignatureMode::Permissive,
+            SignatureMode::Enforcing,
+        ] {
+            assert!(
+                legacy_command_permitted(anon, mode).is_ok(),
+                "anonymous command must run unsigned in {:?}",
+                mode
+            );
+        }
+
+        // Unknown commands fail closed (DenyUnsignedInEnforcing
+        // default) → rejected in Enforcing.
+        assert!(legacy_command_permitted("totally_unknown_cmd_xyz", SignatureMode::Enforcing).is_err());
     }
 
     #[test]

@@ -1077,6 +1077,15 @@ const UnifiedEditorPage: React.FC = () => {
             if (!scadaPackageId) {
               return { success: false, message: 'Önce HMI paketini kaydedin.' };
             }
+            // Dirty-gate: deploy ships the SERVER's saved package, so deploying
+            // with unsaved HMI edits would silently push the stale version
+            // (SENSOR-HIGH-044). Refuse until the package is saved.
+            if (scadaDirty) {
+              return {
+                success: false,
+                message: 'Kaydedilmemiş HMI değişiklikleri var — önce kaydedin, sonra dağıtın.',
+              };
+            }
             return deployPkg.mutateAsync({ packageId: scadaPackageId, deviceId });
           }}
         />

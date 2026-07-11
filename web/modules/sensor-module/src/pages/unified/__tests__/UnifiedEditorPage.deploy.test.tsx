@@ -290,6 +290,26 @@ describe('UnifiedEditorPage — 6b consolidation', () => {
     expect(spies.deployScada).not.toHaveBeenCalled();
   });
 
+  it('(dirty-gate) SCADA deploy is blocked when the HMI package has unsaved changes', async () => {
+    spies.linkedPackages = [
+      { id: 'pkg-1', processId: 'proc-1', packageData: { meta: { schemaVersion: 2, packageName: 'HMI' }, screens: [{ id: 's1', name: 'Main', isDefault: true }] } },
+    ];
+    render(<UnifiedEditorPage />);
+    await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText('Deploy'));
+    fireEvent.click(screen.getByText(/SCADA Paketi/));
+    await screen.findByTestId('deploy-dialog-purple');
+
+    act(() => useScadaPackageStore.setState({ isDirty: true }));
+
+    fireEvent.click(screen.getByTestId('deploy-confirm-purple'));
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-result-purple').textContent).toMatch(/Kaydedilmemiş/),
+    );
+    expect(spies.deployScada).not.toHaveBeenCalled();
+  });
+
   it('(b) Deploy menu opens the automation-program modal (6c parity)', async () => {
     render(<UnifiedEditorPage />);
     await waitFor(() => expect(spies.getProcess).toHaveBeenCalled());

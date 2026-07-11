@@ -71,3 +71,15 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** Dead code that contradicts the current SSoT (the live assignment paths carry `assertRoleGrantAuthority`, capability-authority validation, and fail-closed audit) must be removed, not left as a latent re-introduction vector.
 
 **Fix:** Deleted the three dead methods and their tests. The single SSoT for assignment/revocation is `TenantUserManagementService` (`assignUserRole`/`updateUserRole`/`revokeUserRole`); default-role setting is handled by `updateRole(isDefault)`.
+
+## RBAC-MEDIUM-003
+
+**Title:** `permissionOverrides.grants`/`revokes` had no length or per-item bound at the validation boundary, so an abusive payload could inflate the request (and downstream the JWT `resourcePermissions` claim + gateway assertion header).
+
+**Layer:** 3 (make-it-detectable / input validation)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/dto/tenant-role.dto.ts`
+
+**Rule violated:** Untrusted array/string inputs must be size-bounded at the validation boundary, independent of downstream semantic checks.
+
+**Fix:** Added `@ArrayMaxSize(256)` and per-item `@MaxLength(128)` to both override arrays. `CapabilityAuthorityService` already rejects any capability outside the finite catalogue (which structurally bounds the number of DISTINCT stored capabilities); these bounds are defense-in-depth that reject an oversized payload before it reaches the authority check.

@@ -239,6 +239,29 @@ filter protected it. Fixed: migration 1804500000000 applies the same tenant RLS 
 farm + every tenant schema, postCondition asserts relforcerowsecurity), so the boundary holds at the
 row level regardless of query shape.
 
+### FARM-HIGH-179 (COMPLIANCE-HIGH-003) — tenant erasure hard-deleted statutory-retention records
+
+The GDPR Art 17 tenant-erasure cascade (`TenantErasureService.executeErasure`) deletes every
+tenant-scoped table returned by `resolveTenantScopedEntities()`. Both `regulatory_reports` (the
+persisted Mattilsynet REST submissions) and `biomass_reports` (the Fiskeridirektoratet FD-0001 /
+Altinn filings) carry a `tenantId` column and were therefore hard-deleted — destroying the
+government-filed legal record that Norwegian aquaculture law requires be retained under the Art
+17(3)(b) legal-obligation carve-out (the `CreateRegulatoryReports` `down()` literally says "never
+drop — the legal audit trail"). Only `farm_audit_logs` was special-cased for retention.
+
+Fixed: a `STATUTORY_RETENTION_POLICY` SSoT map (`regulatory_reports → [submittedBy]`,
+`biomass_reports → [generatedBy, submittedBy, confirmedBy]`) now drives the cascade. Listed tables
+are skipped by the DELETE pass and routed through `anonymiseRetainedRecords`, which hashes the
+operator-identifying UUID columns in place (the same stable SHA-256 16-char prefix
+`farm_audit_logs` uses) — honouring Art 17 for the personal identifiers while preserving the
+legally-required record. The retention outcome (`retainedRowsByTable` + `retainedRowsAnonymised`)
+is persisted on `tenant_erasure_audit` (migration 1804600000000, `@SourceOnlyMigration`) and
+reconstructed on an `ALREADY_PURGED` replay so `matchedRecordCount` stays byte-identical;
+`matchedRecordCount` counts retained rows while `deletedRowsByTable` does not, so the matched-minus-
+deleted gap IS the auditable evidence of what was lawfully kept. Note by design: the retained
+record's `payload` JSONB (the filed report itself) is preserved intact — scrubbing content out of a
+filed regulatory report would corrupt the legal artifact the carve-out exists to protect.
+
 ## OPEN — HIGH (tracked)
 
 - **Slaughter drafts can never be submitted** — `buildWirePayload` never wraps `arter`/`ukeplanPerArt`
@@ -249,8 +272,6 @@ row level regardless of query shape.
 - **A SUBMITTED report can be silently overwritten** — `regulatory-report-store.upsert` resets an
   accepted row to PENDING and nulls the receipt with no terminal-state guard and no DB immutability
   trigger (compliance COMPLIANCE-HIGH-002, job-queue PRODUCT-JOB-MEDIUM-002).
-- **Tenant erasure deletes government-filed records under statutory retention** and cannot scrub a
-  single worker's PII embedded in a filed report (compliance COMPLIANCE-HIGH-003).
 - **Direct REST submit trusts client-supplied org/lokalitet** instead of deriving them server-side
   like the draft path does (auth-security SEC-HIGH-001).
 - **`regulatory_report_drafts` has no RLS** (its sibling `regulatory_reports` does) and the draft

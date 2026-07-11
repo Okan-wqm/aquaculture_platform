@@ -44,6 +44,7 @@ import { DropSiteLocalityMappingsJsonb1804200000000 } from './1804200000000-Drop
 import { DropHarvestQualityGrade1804300000000 } from './1804300000000-DropHarvestQualityGrade';
 import { DropOrphanQualityGradeEnum1804400000000 } from './1804400000000-DropOrphanQualityGradeEnum';
 import { ApplyRlsToRegulatoryReportDrafts1804500000000 } from './1804500000000-ApplyRlsToRegulatoryReportDrafts';
+import { AddTenantErasureRetainedColumns1804600000000 } from './1804600000000-AddTenantErasureRetainedColumns';
 
 /**
  * Canonical farm-service migration class list.
@@ -100,4 +101,5 @@ export const FARM_MIGRATIONS = [
   DropHarvestQualityGrade1804300000000,
   DropOrphanQualityGradeEnum1804400000000,
   ApplyRlsToRegulatoryReportDrafts1804500000000,
+  AddTenantErasureRetainedColumns1804600000000,
 ] as const;

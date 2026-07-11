@@ -168,6 +168,17 @@ The chart `bucketLabel` now formats the (UTC-midnight) bucket start in `timeZone
 locales. The Expenses tab delete now routes through the shared accessible
 `ConfirmModal` (danger variant) instead of `window.confirm`.
 
+## Wave 5b — frontend role-gating (follow-up, implemented)
+
+### FE-HIGH-060 — no frontend role-gating for the finance surface
+The 8 farm finance mutations are now in the shared FE permission-matrix
+(`web/shared-ui/src/authz/permission-matrix.ts`), parity-locked to the backend
+matrix by `permission-matrix.parity.spec`. Every farm finance action button
+(add/edit/delete entry, category create/rename/archive/restore, settings save) is
+gated by `useCanMutate(...)`, so a role that would 403 on the backend never sees
+the button. Residual (`FE-MEDIUM-062`, tracked): shell nav role-filtering,
+`requiredRoles` on the `/finance` routes, and hr-module finance button gating.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

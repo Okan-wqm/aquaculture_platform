@@ -7,7 +7,7 @@
  * records, batch detail, maintenance, health, harvest), preserving the
  * single source of truth.
  */
-import { ConfirmModal } from '@aquaculture/shared-ui';
+import { ConfirmModal, useCanMutate } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -60,6 +60,9 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
   });
   const deleteEntry = useDeleteFinanceEntry();
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const canCreate = useCanMutate('createFinanceEntry');
+  const canUpdate = useCanMutate('updateFinanceEntry');
+  const canDelete = useCanMutate('deleteFinanceEntry');
 
   const items = (ledgerQuery.data ?? []).filter(
     (item) => originFilter === 'ALL' || item.origin === originFilter,
@@ -86,12 +89,14 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
             <option value="DERIVED">Auto (from records)</option>
           </select>
         </div>
+        {canCreate && (
         <button
           onClick={() => setModalState({ open: true })}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
         >
           + Add expense
         </button>
+        )}
       </div>
 
       {ledgerQuery.isLoading && (
@@ -166,18 +171,25 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
                     <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
                       {item.editable ? (
                         <span className="space-x-3">
-                          <button
-                            onClick={() => setModalState({ open: true, entry: item })}
-                            className="font-medium text-blue-600 hover:text-blue-800"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => setPendingDelete(item.id)}
-                            className="font-medium text-red-600 hover:text-red-800"
-                          >
-                            Delete
-                          </button>
+                          {canUpdate && (
+                            <button
+                              onClick={() => setModalState({ open: true, entry: item })}
+                              className="font-medium text-blue-600 hover:text-blue-800"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={() => setPendingDelete(item.id)}
+                              className="font-medium text-red-600 hover:text-red-800"
+                            >
+                              Delete
+                            </button>
+                          )}
+                          {!canUpdate && !canDelete && (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
                         </span>
                       ) : (
                         <Link

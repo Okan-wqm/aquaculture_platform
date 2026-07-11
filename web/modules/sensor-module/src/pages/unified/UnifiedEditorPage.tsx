@@ -58,8 +58,9 @@ import { EquipmentPanel } from '../../components/process-editor/panels/Equipment
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
 import ModeTabBar from '../../components/unified-editor/ModeTabBar';
 import { UnifiedPropertiesPanel } from '../../components/unified-editor/UnifiedPropertiesPanel';
+import { HmiPropertiesPanel } from '../../components/unified-editor/HmiPropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
-import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
+import { UnifiedLeftPanel } from '../../components/scada-builder/UnifiedLeftPanel';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
 import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
@@ -458,9 +459,8 @@ const UnifiedEditorPage: React.FC = () => {
     [],
   );
 
-  // HMI widget drops are handled natively by the real <ScreenCanvas> (6b) —
-  // the legacy iframe-overlay drop path (parseWidgetDropData / addOverlayNode)
-  // is retired.
+  // HMI widget drops are handled natively by the real <ScreenCanvas> (6b);
+  // the legacy iframe-overlay drop path has been removed.
 
   // Zoom & delete
   const handleZoomIn = () => sendToCanvas('zoomIn');
@@ -795,31 +795,34 @@ const UnifiedEditorPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel */}
+        {/* Left Panel. HMI mounts the full builder left panel (palette + FUXA
+            browser + scene tree + layers + search) which owns its own width +
+            border; other modes share the fixed 256px wrapper. */}
         {leftPanelVisible && (
-          <div className="w-64 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
-            {mode === 'pid' && (
-              <EquipmentPanel onDragStart={handleEquipmentDragStart} />
-            )}
-            {mode === 'hmi' && (
-              <WidgetPalette />
-            )}
-            {mode === 'plc' && (
-              <div className="p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">PLC Blocks</h3>
-                <p className="text-xs text-gray-500">Function blocks - coming soon</p>
-              </div>
-            )}
-            {mode === 'runtime' && (
-              <LiveTagsPanel />
-            )}
-            {mode === 'debug' && (
-              <div className="p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Debug</h3>
-                <p className="text-xs text-gray-500">Watch variables - coming soon</p>
-              </div>
-            )}
-          </div>
+          mode === 'hmi' ? (
+            <UnifiedLeftPanel />
+          ) : (
+            <div className="w-64 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
+              {mode === 'pid' && (
+                <EquipmentPanel onDragStart={handleEquipmentDragStart} />
+              )}
+              {mode === 'plc' && (
+                <div className="p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">PLC Blocks</h3>
+                  <p className="text-xs text-gray-500">Function blocks - coming soon</p>
+                </div>
+              )}
+              {mode === 'runtime' && (
+                <LiveTagsPanel />
+              )}
+              {mode === 'debug' && (
+                <div className="p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Debug</h3>
+                  <p className="text-xs text-gray-500">Watch variables - coming soon</p>
+                </div>
+              )}
+            </div>
+          )
         )}
 
         {/* Center - Canvas + Bottom Panel */}
@@ -930,6 +933,8 @@ const UnifiedEditorPage: React.FC = () => {
                   )}
                 </div>
               </>
+            ) : mode === 'hmi' ? (
+              <HmiPropertiesPanel />
             ) : (
               <UnifiedPropertiesPanel />
             )}

@@ -92,6 +92,9 @@ vi.mock('../../../components/unified-editor/ModeTabBar', () => ({
 vi.mock('../../../components/unified-editor/UnifiedPropertiesPanel', () => ({
   UnifiedPropertiesPanel: () => <div data-testid="properties-panel" />,
 }));
+vi.mock('../../../components/unified-editor/HmiPropertiesPanel', () => ({
+  HmiPropertiesPanel: () => <div data-testid="hmi-properties-panel" />,
+}));
 vi.mock('../../../components/process-editor/panels/AttachmentsPanel', () => ({
   AttachmentsPanel: () => <div data-testid="attachments-panel" />,
 }));
@@ -106,8 +109,8 @@ vi.mock('../../../components/unified-editor/ScreenManager', () => ({
 vi.mock('../../../components/unified-editor/StEditorPanel', () => ({
   default: () => <div data-testid="st-editor" />,
 }));
-vi.mock('../../../components/scada-builder/WidgetPalette', () => ({
-  WidgetPalette: () => <div data-testid="widget-palette" />,
+vi.mock('../../../components/scada-builder/UnifiedLeftPanel', () => ({
+  UnifiedLeftPanel: () => <div data-testid="unified-left-panel" />,
 }));
 vi.mock('../../../components/scada-builder/ScreenCanvas', () => ({
   ScreenCanvas: ({ isPreview }: { isPreview?: boolean }) => (

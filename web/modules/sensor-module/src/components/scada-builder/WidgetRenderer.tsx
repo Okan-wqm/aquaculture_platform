@@ -42,7 +42,7 @@ export interface WidgetRendererProps {
 /*  Lazy map — each entry resolves to a default-exported React.FC      */
 /* ------------------------------------------------------------------ */
 
-const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<WidgetRendererProps>>> = {
+export const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<WidgetRendererProps>>> = {
   gauge:               React.lazy(() => import('./widget-renderers/GaugeRenderer')),
   numericDisplay:      React.lazy(() => import('./widget-renderers/NumericDisplayRenderer')),
   statusIndicator:     React.lazy(() => import('./widget-renderers/StatusIndicatorRenderer')),

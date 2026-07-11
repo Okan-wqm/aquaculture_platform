@@ -53,6 +53,9 @@ vi.mock('../../../components/unified-editor/ModeTabBar', () => ({ default: () =>
 vi.mock('../../../components/unified-editor/UnifiedPropertiesPanel', () => ({
   UnifiedPropertiesPanel: () => <div />,
 }));
+vi.mock('../../../components/unified-editor/HmiPropertiesPanel', () => ({
+  HmiPropertiesPanel: () => <div />,
+}));
 vi.mock('../../../components/process-editor/panels/AttachmentsPanel', () => ({
   AttachmentsPanel: () => <div />,
 }));
@@ -61,7 +64,7 @@ vi.mock('../../../components/process-editor/WidgetConfigModal', () => ({
 }));
 vi.mock('../../../components/unified-editor/ScreenManager', () => ({ default: () => <div /> }));
 vi.mock('../../../components/unified-editor/StEditorPanel', () => ({ default: () => <div /> }));
-vi.mock('../../../components/scada-builder/WidgetPalette', () => ({ WidgetPalette: () => <div /> }));
+vi.mock('../../../components/scada-builder/UnifiedLeftPanel', () => ({ UnifiedLeftPanel: () => <div /> }));
 vi.mock('../../../components/scada-builder/ScreenCanvas', () => ({ ScreenCanvas: () => <div /> }));
 vi.mock('../../../components/scada-builder/StableModeProvider', () => ({
   StableModeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,

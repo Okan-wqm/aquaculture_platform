@@ -166,11 +166,110 @@ export interface FinanceSummaryShape {
   series: TimeBucketShape[];
 }
 
-interface DerivedAggRow {
-  /** Canonical UTC bucket key `YYYY-MM-DD` (null in batch-grouped mode). */
+/** Whitelisted `date_trunc` units — the ONLY strings ever interpolated into SQL. */
+const VALID_TRUNC_UNITS: ReadonlySet<string> = new Set(Object.values(GRANULARITY_SQL));
+
+/** One derived-cost source resolved to its table + system category for a UNION branch. */
+interface DerivedBranchSpec {
+  /** Real (metadata) table name; search_path routes it to the tenant schema. */
+  table: string;
+  alias: string;
+  amountExpr: string;
+  dateExpr: string;
+  baseWhere: string;
+  /** Resolved system-category id this source books under (bound, never interpolated). */
+  categoryId: string;
+  /** batch dimension expression — required for the per-batch aggregation. */
+  batchIdExpr: string | null;
+}
+
+/** A grouped aggregation row from the single-UNION query (keys match the SELECT aliases). */
+interface UnionAggRow {
   bucket: string | null;
-  batchId: string | null;
+  batch_id: string | null;
+  category_id: string;
   total: string;
+}
+
+/**
+ * Build the finance *summary* aggregation as ONE `UNION ALL` query instead of
+ * 1 manual + N derived round-trips (PERF-009). Manual entries and every derived
+ * source project the same `(bucket, category_id, total)` shape and are summed in
+ * a single DB round-trip. Positional params are shared: `$1`=tenantId, `$2`=from,
+ * `$3`=to across all branches; each derived branch appends its resolved category
+ * id (bound, never interpolated). Column/date/amount fragments come only from the
+ * developer-authored DERIVED_COST_SOURCES registry, and `truncUnit` is asserted
+ * against the enum whitelist — so no API input ever reaches the SQL string.
+ */
+export function buildSummaryAggregationQuery(
+  tenantId: string,
+  from: Date,
+  to: Date,
+  truncUnit: string,
+  derived: readonly DerivedBranchSpec[],
+): { sql: string; params: unknown[] } {
+  if (!VALID_TRUNC_UNITS.has(truncUnit)) {
+    throw new Error(`Illegal date_trunc unit: ${truncUnit}`);
+  }
+  const params: unknown[] = [tenantId, from, to];
+  const branches: string[] = [
+    `SELECT to_char(date_trunc('${truncUnit}', e."entryDate"), 'YYYY-MM-DD') AS bucket, ` +
+      `NULL::text AS batch_id, e."categoryId"::text AS category_id, SUM(e."amount") AS total ` +
+      `FROM finance_expense_entries e ` +
+      `WHERE e."tenantId" = $1 AND e."isDeleted" = false ` +
+      `AND e."entryDate" >= $2 AND e."entryDate" <= $3 ` +
+      `GROUP BY bucket, e."categoryId"`,
+  ];
+  for (const d of derived) {
+    params.push(d.categoryId);
+    const catRef = `$${params.length}`;
+    branches.push(
+      `SELECT to_char(date_trunc('${truncUnit}', ${d.dateExpr} AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS bucket, ` +
+        `NULL::text AS batch_id, ${catRef}::text AS category_id, SUM(${d.amountExpr}) AS total ` +
+        `FROM ${d.table} ${d.alias} ` +
+        `WHERE ${d.baseWhere} AND ${d.alias}."tenantId" = $1 ` +
+        `AND ${d.dateExpr} >= $2 AND ${d.dateExpr} <= $3 ` +
+        `GROUP BY bucket`,
+    );
+  }
+  return { sql: branches.join(' UNION ALL '), params };
+}
+
+/**
+ * Build the per-*batch* aggregation as ONE `UNION ALL` query (PERF-009). Only
+ * derived sources that carry a batch dimension contribute; manual entries with a
+ * non-null batch are always included. Shared params: `$1`=tenantId, `$2`=from,
+ * `$3`=to; each derived branch appends its resolved category id.
+ */
+export function buildBatchAggregationQuery(
+  tenantId: string,
+  from: Date,
+  to: Date,
+  derived: readonly DerivedBranchSpec[],
+): { sql: string; params: unknown[] } {
+  const params: unknown[] = [tenantId, from, to];
+  const branches: string[] = [
+    `SELECT NULL::text AS bucket, e."batchId"::text AS batch_id, ` +
+      `e."categoryId"::text AS category_id, SUM(e."amount") AS total ` +
+      `FROM finance_expense_entries e ` +
+      `WHERE e."tenantId" = $1 AND e."isDeleted" = false AND e."batchId" IS NOT NULL ` +
+      `AND e."entryDate" >= $2 AND e."entryDate" <= $3 ` +
+      `GROUP BY e."batchId", e."categoryId"`,
+  ];
+  for (const d of derived) {
+    if (!d.batchIdExpr) continue;
+    params.push(d.categoryId);
+    const catRef = `$${params.length}`;
+    branches.push(
+      `SELECT NULL::text AS bucket, ${d.batchIdExpr}::text AS batch_id, ` +
+        `${catRef}::text AS category_id, SUM(${d.amountExpr}) AS total ` +
+        `FROM ${d.table} ${d.alias} ` +
+        `WHERE ${d.baseWhere} AND ${d.alias}."tenantId" = $1 ` +
+        `AND ${d.dateExpr} >= $2 AND ${d.dateExpr} <= $3 ` +
+        `GROUP BY ${d.batchIdExpr}`,
+    );
+  }
+  return { sql: branches.join(' UNION ALL '), params };
 }
 
 /**
@@ -268,34 +367,21 @@ export class FinanceLedgerQueryService {
         perCategory.set(categoryId, (perCategory.get(categoryId) ?? new Decimal(0)).plus(amount));
       };
 
-      // Manual entries: one grouped query. entryDate is a DATE (tz-free), so
-      // to_char is deterministic.
-      const manualRows = (await manager
-        .createQueryBuilder(FinanceExpenseEntry, 'e')
-        .select(`to_char(date_trunc('${truncUnit}', e."entryDate"), 'YYYY-MM-DD')`, 'bucket')
-        .addSelect('e."categoryId"', 'categoryId')
-        .addSelect('SUM(e."amount")', 'total')
-        .where('e."tenantId" = :tenantId', { tenantId })
-        .andWhere('e."isDeleted" = false')
-        .andWhere('e."entryDate" >= :from', { from: range.from })
-        .andWhere('e."entryDate" <= :to', { to: range.to })
-        .groupBy('bucket')
-        .addGroupBy('e."categoryId"')
-        .getRawMany<{ bucket: string; categoryId: string; total: string }>());
-
-      for (const row of manualRows) {
-        record(row.categoryId, row.bucket, new Decimal(row.total));
-      }
-
-      // Derived sources: one grouped query per source.
-      for (const source of DERIVED_COST_SOURCES) {
-        const category = byCode.get(source.systemCode);
-        if (!category) continue;
-        const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, truncUnit, null);
-        for (const row of rows) {
-          if (row.bucket === null) continue;
-          record(category.id, row.bucket, new Decimal(row.total));
-        }
+      // Manual entries + every derived source aggregated in ONE round-trip
+      // (PERF-009). entryDate is a DATE (tz-free); derived timestamptz columns are
+      // normalized to UTC before truncation, so both land in the same bucket key.
+      const derivedBranches = this.derivedBranchSpecs(byCode);
+      const { sql, params } = buildSummaryAggregationQuery(
+        tenantId,
+        range.from,
+        range.to,
+        truncUnit,
+        derivedBranches,
+      );
+      const rows = (await manager.query(sql, params)) as UnionAggRow[];
+      for (const row of rows) {
+        if (row.bucket === null) continue;
+        record(row.category_id, row.bucket, new Decimal(row.total));
       }
 
       // Computed categories — per whole period AND per bucket. Evaluated
@@ -389,34 +475,15 @@ export class FinanceLedgerQueryService {
         totals.set(batchId, bucket);
       };
 
-      const manualRows = (await manager
-        .createQueryBuilder(FinanceExpenseEntry, 'e')
-        .select('e."batchId"', 'batchId')
-        .addSelect('e."categoryId"', 'categoryId')
-        .addSelect('SUM(e."amount")', 'total')
-        .where('e."tenantId" = :tenantId', { tenantId })
-        .andWhere('e."isDeleted" = false')
-        .andWhere('e."batchId" IS NOT NULL')
-        .andWhere('e."entryDate" >= :from', { from: range.from })
-        .andWhere('e."entryDate" <= :to', { to: range.to })
-        .groupBy('e."batchId"')
-        .addGroupBy('e."categoryId"')
-        .getRawMany<{ batchId: string; categoryId: string; total: string }>());
+      // Manual + batch-bearing derived sources in ONE round-trip (PERF-009).
+      const derivedBranches = this.derivedBranchSpecs(byCode);
+      const { sql, params } = buildBatchAggregationQuery(tenantId, range.from, range.to, derivedBranches);
+      const rows = (await manager.query(sql, params)) as UnionAggRow[];
 
       const kindOf = new Map(categories.map((c) => [c.id, c.kind]));
-      for (const row of manualRows) {
-        record(row.batchId, kindOf.get(row.categoryId) ?? FinanceCategoryKind.EXPENSE, new Decimal(row.total));
-      }
-
-      for (const source of DERIVED_COST_SOURCES) {
-        if (!source.batchIdExpr) continue;
-        const category = byCode.get(source.systemCode);
-        if (!category) continue;
-        const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, null, source.batchIdExpr);
-        for (const row of rows) {
-          if (!row.batchId) continue;
-          record(row.batchId, source.kind, new Decimal(row.total));
-        }
+      for (const row of rows) {
+        if (!row.batch_id) continue;
+        record(row.batch_id, kindOf.get(row.category_id) ?? FinanceCategoryKind.EXPENSE, new Decimal(row.total));
       }
 
       const ranked = [...totals.entries()]
@@ -594,41 +661,26 @@ export class FinanceLedgerQueryService {
   }
 
   /**
-   * Grouped aggregate over one derived source. Groups by time bucket
-   * when `truncUnit` is set, by batch when `batchExpr` is set.
+   * Resolve every derived-cost source that has a seeded system category into a
+   * UNION branch spec (real table name from entity metadata, resolved category
+   * id). Sources whose category is not seeded for this tenant are skipped — the
+   * same behaviour as the previous per-source loop's `if (!category) continue`.
    */
-  private async aggregateDerivedSource(
-    manager: EntityManager,
-    tenantId: string,
-    source: DerivedCostSource,
-    range: { from: Date; to: Date },
-    truncUnit: string | null,
-    batchExpr: string | null,
-  ): Promise<DerivedAggRow[]> {
-    const qb = manager
-      .createQueryBuilder(source.entity, source.alias)
-      .select(`SUM(${source.amountExpr})`, 'total')
-      .where(source.baseWhere)
-      .andWhere(`${source.alias}."tenantId" = :tenantId`, { tenantId })
-      .andWhere(`${source.dateExpr} >= :from`, { from: range.from })
-      .andWhere(`${source.dateExpr} <= :to`, { to: range.to });
-
-    if (truncUnit) {
-      // Normalize the timestamptz to UTC wall-clock before truncating so the
-      // bucket key matches the manual (DATE) side regardless of session tz.
-      qb.addSelect(
-        `to_char(date_trunc('${truncUnit}', ${source.dateExpr} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
-        'bucket',
-      ).groupBy('bucket');
-    } else {
-      qb.addSelect('NULL::text', 'bucket');
+  private derivedBranchSpecs(byCode: Map<string, FinanceCategory>): DerivedBranchSpec[] {
+    const specs: DerivedBranchSpec[] = [];
+    for (const source of DERIVED_COST_SOURCES) {
+      const category = byCode.get(source.systemCode);
+      if (!category) continue;
+      specs.push({
+        table: this.dataSource.getMetadata(source.entity).tableName,
+        alias: source.alias,
+        amountExpr: source.amountExpr,
+        dateExpr: source.dateExpr,
+        baseWhere: source.baseWhere,
+        categoryId: category.id,
+        batchIdExpr: source.batchIdExpr,
+      });
     }
-    if (batchExpr) {
-      qb.addSelect(batchExpr, 'batchId').addGroupBy(batchExpr);
-    } else {
-      // Constant select — legal alongside aggregates without GROUP BY.
-      qb.addSelect('NULL::uuid', 'batchId');
-    }
-    return qb.getRawMany<DerivedAggRow>();
+    return specs;
   }
 }

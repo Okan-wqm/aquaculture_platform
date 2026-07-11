@@ -10629,6 +10629,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-aggregation-union.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/__tests__/finance-category-seed.service.spec.ts",
       "prettier_managed": true
     },
@@ -52236,10 +52242,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8560,
+  "file_count": 8561,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8385,
-  "managed_file_list_sha256": "731d5f173115d05c1633b1d1b5e28112d30d436635009d9f43de52afb9fb75d9",
+  "managed_count": 8386,
+  "managed_file_list_sha256": "7b05ced2b7e93421df5ccbcd6f787770623af1bf54dd198c9c322347a585c0d6",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

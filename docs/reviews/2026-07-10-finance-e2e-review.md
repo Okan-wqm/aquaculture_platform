@@ -146,10 +146,10 @@ carry their `(tenantId, dateColumn)` indexes.
 `financeBatchTotals` returns the top-N batches by cost (`MAX_BATCH_ROWS` = 25) and
 rolls the remainder into an "Other" row.
 
-> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`),
-> single-UNION aggregation (`PERF-009`) and finance p99 SLO (`PERF-008`) remain
-> in progress on the hardening branch. Scoped FE invalidation landed in Wave 3b
-> (`PERF-MEDIUM-008`).
+> The per-tenant materialized rollup / query cache (`PERF-HIGH-004`) and finance
+> p99 SLO (`PERF-008`) remain in progress on the hardening branch. Scoped FE
+> invalidation landed in Wave 3b (`PERF-MEDIUM-008`); the single-UNION
+> aggregation landed in Wave 3c (`PERF-MEDIUM-009`).
 
 ### PERF-MEDIUM-008 — mutations invalidated the whole finance surface (Wave 3b)
 Root cause: every finance mutation invalidated the tenant-scoped `['finance']`
@@ -159,6 +159,18 @@ invalidate only the aggregates that move (`ledger`, `summary`, `batchTotals`);
 category mutations additionally invalidate the `categories` catalogue; settings
 mutations invalidate `settings` plus the currency-dependent aggregates. No mutation
 over-refetches a query it cannot affect.
+
+### PERF-MEDIUM-009 — N+1 aggregation round-trips per summary/batch load (Wave 3c)
+Root cause: `financeSummary` ran one grouped query for manual entries plus one more
+per derived source (feed/fingerlings/maintenance/treatment/harvest×2) — up to seven
+sequential DB round-trips per load; `financeBatchTotals` did the same. Fix: two pure
+builders (`buildSummaryAggregationQuery`, `buildBatchAggregationQuery`) compose the
+manual branch and every derived source into ONE `UNION ALL` query. Positional params
+are shared (`$1`=tenantId, `$2`=from, `$3`=to across all branches) and each derived
+branch appends its resolved category id as a bound param; the `date_trunc` unit is
+asserted against the enum whitelist, so no API input ever reaches the SQL. The
+per-source `await` loop and `aggregateDerivedSource` are removed. Result is identical
+(same grouping keys, same Decimal accumulation), one round-trip instead of N.
 
 ## Wave 4 — derived site attribution (follow-up, implemented)
 

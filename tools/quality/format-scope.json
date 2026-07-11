@@ -7432,6 +7432,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/resolvers/batch-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/resolvers/batch-feed-assignment.resolver.ts",
       "prettier_managed": true
     },
@@ -52308,10 +52314,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8572,
+  "file_count": 8573,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8397,
-  "managed_file_list_sha256": "475df6cb034d37fbe498a92e72349c19dedcf2cf21f981b9c960aca6e4753331",
+  "managed_count": 8398,
+  "managed_file_list_sha256": "d00df90505acce48746019ec53fed7ce13f55924646e75bcb84d9090899793a1",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

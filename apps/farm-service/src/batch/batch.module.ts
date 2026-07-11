@@ -54,6 +54,7 @@ import { TankBatch } from './entities/tank-batch.entity';
 import { TankOperation } from './entities/tank-operation.entity';
 import { BatchCommandHandlers } from './handlers';
 import { BatchQueryHandlers } from './query-handlers';
+import { BatchDecimalResolvers } from './resolvers/batch-decimal.resolver';
 import { BatchResolvers } from './resolvers';
 import { BatchCostCalculatorService } from './services/batch-cost-calculator.service';
 import { BatchDomainService } from './services/batch-domain.service';
@@ -137,6 +138,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,
+    ...BatchDecimalResolvers,
   ],
   exports: [
     TypeOrmModule,

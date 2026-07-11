@@ -20,7 +20,7 @@
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 
 import {
   IKKE_MEDIKAMENTELL_TYPES,
@@ -107,15 +107,21 @@ export class LakselusReportAssembler {
     week: number,
   ): Promise<AssembledDraft<LakselusPrefillPayload>> {
     const { fromDate, toDate } = isoWeekRange(year, week);
-    const [temperature, counts, treatments] = await Promise.all([
+    // PERF-HIGH-005: both DB reads share ONE tenant-read boundary instead of
+    // opening a separate connect→pin→assert→commit→release round-trip each.
+    // The temperature service owns its own boundary, so it runs in parallel.
+    const [temperature, dbReads] = await Promise.all([
       // Period temperature over the REPORT week — not wall-clock "now" — so a
       // draft assembled after the week (scheduler rollover / backfill) carries
       // the week's temperature. Aggregated from the sensor daily rollup or the
       // week's manual measurements.
       this.waterTemperature.getPeriodTemperature(tenantId, siteId, fromDate, toDate),
-      this.queryLiceCounts(tenantId, siteId, year, week),
-      this.queryTreatments(tenantId, siteId, fromDate, toDate),
+      runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
+        counts: await this.queryLiceCounts(qr, tenantId, siteId, year, week),
+        treatments: await this.queryTreatments(qr, tenantId, siteId, fromDate, toDate),
+      })),
     ]);
+    const { counts, treatments } = dbReads;
 
     const fields: ReportFieldMeta[] = [];
     if (temperature) {
@@ -315,42 +321,40 @@ export class LakselusReportAssembler {
   }
 
   private async queryLiceCounts(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     year: number,
     week: number,
   ): Promise<LiceCountRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.query(
-        `SELECT "adultFemaleLice", "mobileLice", "attachedLice", "fishSampled", "countDate"::text AS "countDate"
-           FROM lice_counts
-          WHERE "tenantId" = $1
-            AND "siteId" = $2
-            AND "reportingYear" = $3
-            AND "reportingWeek" = $4`,
-        [tenantId, siteId, year, week],
-      );
-    });
+    return qr.query(
+      `SELECT "adultFemaleLice", "mobileLice", "attachedLice", "fishSampled", "countDate"::text AS "countDate"
+         FROM lice_counts
+        WHERE "tenantId" = $1
+          AND "siteId" = $2
+          AND "reportingYear" = $3
+          AND "reportingWeek" = $4`,
+      [tenantId, siteId, year, week],
+    );
   }
 
   private async queryTreatments(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     fromDate: string,
     toDate: string,
   ): Promise<TreatmentRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.query(
-        `SELECT id, category, method, "virkestoffType",
-                "styrkeVerdi", "styrkeEnhet", "mengdeVerdi", "mengdeEnhet",
-                "wholeSite", "pensCount", "appliedAt", beskrivelse
-           FROM treatment_applications
-          WHERE "tenantId" = $1
-            AND "siteId" = $2
-            AND "appliedAt"::date BETWEEN $3 AND $4
-          ORDER BY "appliedAt"`,
-        [tenantId, siteId, fromDate, toDate],
-      );
-    });
+    return qr.query(
+      `SELECT id, category, method, "virkestoffType",
+              "styrkeVerdi", "styrkeEnhet", "mengdeVerdi", "mengdeEnhet",
+              "wholeSite", "pensCount", "appliedAt", beskrivelse
+         FROM treatment_applications
+        WHERE "tenantId" = $1
+          AND "siteId" = $2
+          AND "appliedAt"::date BETWEEN $3 AND $4
+        ORDER BY "appliedAt"`,
+      [tenantId, siteId, fromDate, toDate],
+    );
   }
 }

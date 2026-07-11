@@ -21,7 +21,7 @@ import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryBus } from '@platform/cqrs';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 
 import { BiomassCalculatorService } from '../../batch/services/biomass-calculator.service';
 import {
@@ -74,21 +74,26 @@ export class BiomassReportAssembler {
   ): Promise<AssembledDraft<BiomassReportPayload>> {
     const { fromDate, toDate } = monthRange(reportYear, reportMonth);
 
-    const [siteBiomass, mortality, transfers, feed, stockingRows, slaughterRows] =
-      await Promise.all([
-        this.biomassCalculator.getSiteBiomassReport(siteId, tenantId),
-        this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
-          new GetMortalityByCauseQuery(tenantId, siteId, fromDate, toDate),
-        ),
-        this.queryBus.execute<GetTransfersSummaryQuery, TransfersSummaryResult>(
-          new GetTransfersSummaryQuery(tenantId, siteId, fromDate, toDate),
-        ),
-        this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
-          new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
-        ),
-        this.queryStockings(tenantId, siteId, fromDate, toDate),
-        this.querySlaughter(tenantId, siteId, fromDate, toDate),
-      ]);
+    // PERF-HIGH-005: the two direct DB reads (stockings + slaughter) share ONE
+    // tenant-read boundary; the calculator and the three CQRS queries own their
+    // own boundaries and run in parallel.
+    const [siteBiomass, mortality, transfers, feed, directReads] = await Promise.all([
+      this.biomassCalculator.getSiteBiomassReport(siteId, tenantId),
+      this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
+        new GetMortalityByCauseQuery(tenantId, siteId, fromDate, toDate),
+      ),
+      this.queryBus.execute<GetTransfersSummaryQuery, TransfersSummaryResult>(
+        new GetTransfersSummaryQuery(tenantId, siteId, fromDate, toDate),
+      ),
+      this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
+        new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
+      ),
+      runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
+        stockingRows: await this.queryStockings(qr, tenantId, siteId, fromDate, toDate),
+        slaughterRows: await this.querySlaughter(qr, tenantId, siteId, fromDate, toDate),
+      })),
+    ]);
+    const { stockingRows, slaughterRows } = directReads;
 
     // COMPLIANCE-MEDIUM-005: a stocking whose batch has no recorded avg weight
     // must NOT be silently rendered as 0 kg tagged RECORDS — the biomass is
@@ -225,16 +230,16 @@ export class BiomassReportAssembler {
   }
 
   private async queryStockings(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     fromDate: string,
     toDate: string,
   ): Promise<StockingRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      // A batch counts as stocked into the site when any tank allocation
-      // (primary or combined-batch detail) points at a tank under the site.
-      return queryRunner.query(
-        `SELECT DISTINCT b."stockedAt"::date::text AS date,
+    // A batch counts as stocked into the site when any tank allocation
+    // (primary or combined-batch detail) points at a tank under the site.
+    return qr.query(
+      `SELECT DISTINCT b."stockedAt"::date::text AS date,
                 COALESCE(s."officialCode", s.code) AS "speciesCode",
                 b."supplierBatchNumber" AS supplier,
                 b."initialQuantity"::bigint AS "fishCount",
@@ -264,20 +269,19 @@ export class BiomassReportAssembler {
               )
             )
           ORDER BY date`,
-        [tenantId, siteId, fromDate, toDate],
-      );
-    });
+      [tenantId, siteId, fromDate, toDate],
+    );
   }
 
   private async querySlaughter(
+    qr: QueryRunner,
     tenantId: string,
     siteId: string,
     fromDate: string,
     toDate: string,
   ): Promise<SlaughterRow[]> {
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      return queryRunner.query(
-        `SELECT hr."harvestDate"::date::text AS date,
+    return qr.query(
+      `SELECT hr."harvestDate"::date::text AS date,
                 COALESCE(s."officialCode", s.code) AS "speciesCode",
                 SUM(hr."quantityHarvested")::bigint AS quantity,
                 SUM(hr."totalBiomass")::numeric AS "biomassKg",
@@ -291,8 +295,7 @@ export class BiomassReportAssembler {
             AND hr."harvestDate"::date BETWEEN $3 AND $4
           GROUP BY hr."harvestDate"::date, s.code, s."officialCode"
           ORDER BY date`,
-        [tenantId, siteId, fromDate, toDate],
-      );
-    });
+      [tenantId, siteId, fromDate, toDate],
+    );
   }
 }

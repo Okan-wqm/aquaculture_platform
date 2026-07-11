@@ -375,7 +375,7 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   (performance PERF-HIGH-003, job-queue PRODUCT-JOB-MEDIUM-003).
 - **No farm-module code-splitting / bundle budget** — the whole reporting UI ships eagerly
   (performance PERF-HIGH-004).
-- **Each assembler sub-query opens its own ~6-round-trip tenant boundary** (performance PERF-HIGH-005).
+- **Each multi-read assembler sub-query opened its own tenant boundary** is FIXED (PERF-HIGH-005 -> FARM-HIGH-195: lakselus/rensefisk/biomass now share ONE runInTenantRead across their direct reads; single-read assemblers already did).
 
 ## OPEN — MEDIUM / LOW (tracked)
 

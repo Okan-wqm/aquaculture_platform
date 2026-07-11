@@ -5,6 +5,7 @@
  * single `hrLabourCost` snapshot so the numbers never drift between
  * views. Charts and the manual HR expense ledger complete the surface.
  */
+import { useAuth } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -29,6 +30,10 @@ const TABS: Array<{ id: TabId; name: string }> = [
 ];
 
 const HRFinancePage: React.FC = () => {
+  const { hasAnyRole } = useAuth();
+  // Labour-cost / salary reads are MANAGER+ADMIN-gated on the backend; guard the
+  // route so a lower role never reaches the finance surface (buttons included).
+  const canView = hasAnyRole(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as TabId | null;
   const activeTab: TabId = tabParam && VALID_TABS.includes(tabParam) ? tabParam : DEFAULT_TAB;
@@ -57,6 +62,19 @@ const HRFinancePage: React.FC = () => {
       return next;
     });
   };
+
+  if (!canView) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div role="alert" className="max-w-md rounded-md bg-white p-8 text-center shadow">
+          <h2 className="text-lg font-semibold text-gray-900">Finance is restricted</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            You need a manager or admin role to view the HR finance tab.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">

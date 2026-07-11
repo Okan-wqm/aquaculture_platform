@@ -176,8 +176,16 @@ The 8 farm finance mutations are now in the shared FE permission-matrix
 matrix by `permission-matrix.parity.spec`. Every farm finance action button
 (add/edit/delete entry, category create/rename/archive/restore, settings save) is
 gated by `useCanMutate(...)`, so a role that would 403 on the backend never sees
-the button. Residual (`FE-MEDIUM-062`, tracked): shell nav role-filtering,
-`requiredRoles` on the `/finance` routes, and hr-module finance button gating.
+the button. Residual completed in Wave 5c (`FE-MEDIUM-062`).
+
+### FE-MEDIUM-062 — nav role-filter + route guards
+The shell finance nav entries (`/sites/finance`, `/hr/finance`) now carry
+`requiredRoles: [SUPER_ADMIN, TENANT_ADMIN, MODULE_MANAGER]` and the Sidebar is
+wired with the current user's role, so lower roles no longer see the finance link.
+Both the farm `FinancePage` and hr `HRFinancePage` guard the whole route with
+`useAuth().hasAnyRole(...)`, showing an explicit "restricted" message on a direct
+URL visit — which also gates every HR finance button (unauthorized users never
+reach them). Matches the backend MANAGER+ADMIN read gate.
 
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 

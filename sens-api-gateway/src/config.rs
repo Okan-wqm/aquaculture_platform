@@ -3679,6 +3679,41 @@ impl AgentConfig {
             );
         }
 
+        // EDGE-HIGH-010: release builds MUST NOT run a fail-open
+        // command-authentication or TLS-pinning posture.
+        // `signature_mode=disabled` accepts any command with no
+        // signature check (FR1/FR2) and `mtls.mode=legacy` makes
+        // cert pinning log-only (FR4). Both are intentional
+        // debug/dev-rollout defaults (HC-1 / Batch-27 backward
+        // compat) — the enums keep those `#[default]`s so debug
+        // builds and staged rollouts still work — but shipping them
+        // in a RELEASE build silently disables the controls the
+        // product asserts. Fail closed; mirror the api_url release
+        // gate above. Operators stage a rollout via a debug build or
+        // an explicit `permissive`/`warn` step, never Disabled/Legacy
+        // in release.
+        #[cfg(not(debug_assertions))]
+        {
+            if matches!(
+                self.signature_mode,
+                crate::command_envelope::envelope::SignatureMode::Disabled
+            ) {
+                anyhow::bail!(
+                    "Config coherence: signature_mode=disabled is not allowed in release \
+                     builds (unsigned commands accepted — IEC 62443 FR1/FR2). Set \
+                     signature_mode to `permissive` or `enforcing`; use a debug build for \
+                     local development."
+                );
+            }
+            if matches!(self.mtls.mode, crate::mtls::MtlsMode::Legacy) {
+                anyhow::bail!(
+                    "Config coherence: mtls.mode=legacy is not allowed in release builds \
+                     (cert pinning is log-only — IEC 62443 FR4). Set mtls.mode to `warn` \
+                     or `strict`; use a debug build for local development."
+                );
+            }
+        }
+
         // Rule 2: max_command_skew_secs should be reasonable
         // relative to max_command_age_secs. A skew larger than
         // age would mean the agent accepts future-dated

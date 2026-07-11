@@ -41,15 +41,30 @@ const PER_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
 // ============================================================================
 
 /// Describes a single actuator output that must be driven to safe-state.
+///
+/// Each variant carries its per-actuator fail-safe value (EDGE-HIGH-012),
+/// resolved from config at registry-build time. A uniform de-energise is
+/// wrong for life-support outputs (an aerator/O2 injector must fail-ON,
+/// not OFF); operators express the correct polarity via
+/// `modbus.registers[].safe_state_value` / `gpio[].safe_state_level`,
+/// defaulting to de-energise when unset.
 #[derive(Debug, Clone)]
 pub enum OutputTag {
-    /// Modbus coil (digital output): device name + coil address
-    ModbusCoil { device_name: String, address: u16 },
-    /// Modbus holding register (analog output): device name + register address
-    ModbusRegister { device_name: String, address: u16 },
-    /// GPIO output pin
-    GpioPin { pin: u8 },
-    /// I2C DAC or relay board: device name + register + zero-value payload
+    /// Modbus coil (digital output): device name + coil address + fail-safe level
+    ModbusCoil {
+        device_name: String,
+        address: u16,
+        safe_value: bool,
+    },
+    /// Modbus holding register (analog output): device name + address + fail-safe value
+    ModbusRegister {
+        device_name: String,
+        address: u16,
+        safe_value: u16,
+    },
+    /// GPIO output pin + fail-safe level
+    GpioPin { pin: u8, safe_level: bool },
+    /// I2C DAC or relay board: device name + register + safe-value payload
     I2cOutput {
         device_name: String,
         register: u8,
@@ -197,18 +212,24 @@ impl SafeStateManager {
             let reg_type = reg.register_type.to_lowercase();
             match reg_type.as_str() {
                 "coil" => {
+                    // EDGE-HIGH-012: non-zero safe_state_value = energise
+                    // (fail-ON, e.g. life-support aeration); default OFF.
                     outputs.push(OutputTag::ModbusCoil {
                         device_name: device.name.clone(),
                         address: reg.address,
+                        safe_value: reg.safe_state_value.map(|v| v != 0).unwrap_or(false),
                     });
                 }
                 "holding" => {
                     // Only holding registers on write-enabled devices are
                     // considered outputs.  Input/discrete registers are
                     // read-only by Modbus spec.
+                    // EDGE-HIGH-012: safe_state_value = raw fail-safe
+                    // register value; default 0.
                     outputs.push(OutputTag::ModbusRegister {
                         device_name: device.name.clone(),
                         address: reg.address,
+                        safe_value: reg.safe_state_value.unwrap_or(0),
                     });
                 }
                 _ => {
@@ -222,7 +243,11 @@ impl SafeStateManager {
     fn collect_gpio_outputs(gpio: &GpioConfig, outputs: &mut Vec<OutputTag>) {
         let dir = gpio.direction.to_lowercase();
         if dir == "output" || dir == "out" {
-            outputs.push(OutputTag::GpioPin { pin: gpio.pin });
+            // EDGE-HIGH-012: safe_state_level = fail-safe level; default LOW.
+            outputs.push(OutputTag::GpioPin {
+                pin: gpio.pin,
+                safe_level: gpio.safe_state_level.unwrap_or(false),
+            });
         }
     }
 
@@ -237,28 +262,35 @@ impl SafeStateManager {
             OutputTag::ModbusCoil {
                 device_name,
                 address,
+                safe_value,
             } => {
                 let handle = modbus.ok_or_else(|| {
                     anyhow::anyhow!("Modbus handle unavailable for coil safe-state")
                 })?;
-                // LIFE-SAFETY: DO safe value = false (de-energise relay)
-                handle.write_coil(device_name, *address, false).await
+                // LIFE-SAFETY: per-actuator fail-safe level (EDGE-HIGH-012);
+                // default false (de-energise) when unclassified.
+                handle.write_coil(device_name, *address, *safe_value).await
             }
             OutputTag::ModbusRegister {
                 device_name,
                 address,
+                safe_value,
             } => {
                 let handle = modbus.ok_or_else(|| {
                     anyhow::anyhow!("Modbus handle unavailable for register safe-state")
                 })?;
-                // LIFE-SAFETY: AO safe value = 0 (zero output)
-                handle.write_register(device_name, *address, 0).await
+                // LIFE-SAFETY: per-actuator fail-safe value (EDGE-HIGH-012);
+                // default 0 when unclassified.
+                handle
+                    .write_register(device_name, *address, *safe_value)
+                    .await
             }
-            OutputTag::GpioPin { pin } => {
+            OutputTag::GpioPin { pin, safe_level } => {
                 let handle = gpio
                     .ok_or_else(|| anyhow::anyhow!("GPIO handle unavailable for pin safe-state"))?;
-                // LIFE-SAFETY: GPIO output safe value = false (LOW)
-                handle.write_pin(*pin, false).await
+                // LIFE-SAFETY: per-actuator fail-safe level (EDGE-HIGH-012);
+                // default false (LOW) when unclassified.
+                handle.write_pin(*pin, *safe_level).await
             }
             OutputTag::I2cOutput {
                 device_name,
@@ -333,6 +365,7 @@ registers:
             pull: "none".to_string(),
             invert: false,
             debounce_ms: None,
+            safe_state_level: None,
         }
     }
 
@@ -344,7 +377,95 @@ registers:
             pull: "up".to_string(),
             invert: false,
             debounce_ms: Some(50),
+            safe_state_level: None,
         }
+    }
+
+    /// EDGE-HIGH-012: the resolved fail-safe value follows the
+    /// per-actuator config — a life-support coil/GPIO fails ON, an
+    /// unclassified output defaults to de-energise, and a holding
+    /// register uses its configured fail-safe value.
+    #[test]
+    fn safe_state_polarity_honors_config() {
+        let yaml = r#"
+name: "test_dev"
+connection_type: tcp
+address: "127.0.0.1:502"
+slave_id: 1
+registers:
+  - name: aerator_relay
+    address: 100
+    register_type: coil
+    data_type: u16
+    safe_state_value: 1
+  - name: unclassified_coil
+    address: 101
+    register_type: coil
+    data_type: u16
+  - name: dose_setpoint
+    address: 200
+    register_type: holding
+    data_type: u16
+    safe_state_value: 2048
+"#;
+        let mut device: ModbusDeviceConfig = serde_yaml::from_str(yaml).expect("parse device");
+        device.security.allow_writes = true;
+
+        let gpio_on = GpioConfig {
+            name: "life_support_pump".to_string(),
+            pin: 17,
+            direction: "output".to_string(),
+            pull: "none".to_string(),
+            invert: false,
+            debounce_ms: None,
+            safe_state_level: Some(true),
+        };
+
+        let config = test_config(vec![device], vec![gpio_on]);
+        let mgr = SafeStateManager::from_config(&config);
+
+        let mut aerator_on = false;
+        let mut unclassified_off = false;
+        let mut holding_val = None;
+        let mut gpio_high = false;
+        for tag in &mgr.outputs {
+            match tag {
+                OutputTag::ModbusCoil {
+                    address, safe_value, ..
+                } => {
+                    if *address == 100 {
+                        aerator_on = *safe_value;
+                    }
+                    if *address == 101 {
+                        unclassified_off = !*safe_value;
+                    }
+                }
+                OutputTag::ModbusRegister {
+                    address, safe_value, ..
+                } => {
+                    if *address == 200 {
+                        holding_val = Some(*safe_value);
+                    }
+                }
+                OutputTag::GpioPin { pin, safe_level } => {
+                    if *pin == 17 {
+                        gpio_high = *safe_level;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(aerator_on, "life-support coil must fail-ON (safe_state_value=1)");
+        assert!(
+            unclassified_off,
+            "unclassified coil must default to de-energise (OFF)"
+        );
+        assert_eq!(
+            holding_val,
+            Some(2048),
+            "holding register must use its configured fail-safe value"
+        );
+        assert!(gpio_high, "GPIO fail-ON must drive the pin HIGH");
     }
 
     #[test]

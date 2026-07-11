@@ -2805,6 +2805,15 @@ pub struct ModbusRegisterConfig {
 
     /// Poll interval in milliseconds (overrides device default)
     pub poll_interval_ms: Option<u64>,
+
+    /// Fail-safe value driven on safe-state (EDGE-HIGH-012). For a
+    /// `coil` output, non-zero = energize (e.g. a life-support aerator
+    /// that must fail-ON, not de-energize to OFF); for a `holding`
+    /// output, the raw register value. `None` defaults to de-energize
+    /// (coil=false / register=0), preserving the pre-EDGE-HIGH-012
+    /// behavior for unclassified outputs.
+    #[serde(default)]
+    pub safe_state_value: Option<u16>,
 }
 
 /// GPIO pin configuration
@@ -2829,6 +2838,12 @@ pub struct GpioConfig {
 
     /// Debounce time in milliseconds (input only)
     pub debounce_ms: Option<u64>,
+
+    /// Fail-safe level driven on safe-state (EDGE-HIGH-012).
+    /// `Some(true)` = HIGH (fail-ON), `Some(false)` = LOW. `None`
+    /// defaults to LOW, preserving pre-EDGE-HIGH-012 behavior.
+    #[serde(default)]
+    pub safe_state_level: Option<bool>,
 }
 
 // Default value functions

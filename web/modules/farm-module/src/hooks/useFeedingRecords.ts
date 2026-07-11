@@ -75,7 +75,9 @@ export interface FeedingRecord {
   feedingMethod: FeedingMethod;
   equipmentId?: string;
   feedingDurationMinutes?: number;
+  /** @deprecated Float — use `feedCostDecimal` (exact decimal string, ADR-0004). */
   feedCost?: number;
+  feedCostDecimal?: string | null;
   currency?: string;
   fedBy: string;
   verifiedBy?: string;
@@ -101,8 +103,12 @@ export interface FeedInventory {
   manufacturingDate?: string;
   expiryDate?: string;
   receivedDate?: string;
+  /** @deprecated Float — use `unitPricePerKgDecimal` (exact decimal string, ADR-0004). */
   unitPricePerKg?: number;
+  unitPricePerKgDecimal?: string | null;
+  /** @deprecated Float — use `totalValueDecimal` (exact decimal string, ADR-0004). */
   totalValue?: number;
+  totalValueDecimal?: string | null;
   currency?: string;
   storageLocation?: string;
   notes?: string;
@@ -156,7 +162,9 @@ export interface FeedingSummaryResponse {
   variancePercent: number;
   totalFeedings: number;
   avgFeedingKg: number;
+  /** @deprecated Float — use `totalCostDecimal` (exact decimal string, ADR-0004). */
   totalCost: number;
+  totalCostDecimal: string;
   currency?: string;
   byFeedType: FeedTypeSummary[];
 }

@@ -2,6 +2,14 @@ import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenExce
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { CapabilityAuthorityService } from './capability-authority';
+import { PERMISSION_CATEGORIES, panelPermissionsToResourceArray } from './permission-catalogue';
+
+// Re-export the catalogue SSoT so existing importers (tenant-role.resolver,
+// permission-catalogue.spec) keep their import path. The definition now lives in
+// permission-catalogue.ts so CapabilityAuthorityService can share it with no cycle.
+export { PERMISSION_CATEGORIES };
+
 /**
  * Default tenant roles seed data
  */
@@ -225,114 +233,6 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
   },
 };
 
-/**
- * Permission Categories for UI
- */
-export const PERMISSION_CATEGORIES = {
-  farm: {
-    name: 'Farm Management',
-    resources: {
-      sites: { name: 'Sites', actions: ['view', 'create', 'edit', 'delete'] },
-      departments: { name: 'Departments', actions: ['view', 'create', 'edit', 'delete'] },
-      systems: { name: 'Systems', actions: ['view', 'create', 'edit', 'delete'] },
-      tanks: { name: 'Tanks', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-      ponds: { name: 'Ponds', actions: ['view', 'create', 'edit', 'delete'] },
-      equipment: { name: 'Equipment', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-    },
-  },
-  batch: {
-    name: 'Batch & Production',
-    resources: {
-      batches: { name: 'Batches', actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'] },
-      species: { name: 'Species', actions: ['view', 'create', 'edit', 'delete'] },
-      mortality: { name: 'Mortality Records', actions: ['view', 'record'] },
-      growth: { name: 'Growth Measurements', actions: ['view', 'record', 'analyze'] },
-      harvest: { name: 'Harvest', actions: ['view', 'plan', 'record'] },
-    },
-  },
-  operations: {
-    name: 'Operations',
-    resources: {
-      feeding: { name: 'Feeding', actions: ['view', 'record', 'manage_schedules', 'manage_inventory'] },
-      sensors: { name: 'Sensors', actions: ['view', 'configure', 'calibrate', 'manage_alerts'] },
-      maintenance: { name: 'Maintenance', actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'] },
-      water_quality: { name: 'Water Quality', actions: ['view', 'record'] },
-    },
-  },
-  hr: {
-    name: 'HR & Administration',
-    resources: {
-      employees: { name: 'Employees', actions: ['view', 'create', 'edit', 'delete'] },
-      attendance: { name: 'Attendance', actions: ['view', 'manage'] },
-      leave: { name: 'Leave Management', actions: ['view', 'approve'] },
-      shifts: { name: 'Shifts', actions: ['view', 'create', 'edit', 'delete'] },
-    },
-  },
-  reports: {
-    name: 'Reports & Analytics',
-    resources: {
-      dashboard: { name: 'Dashboard', actions: ['view', 'analytics'] },
-      reports: { name: 'Reports', actions: ['view', 'export', 'create_custom'] },
-    },
-  },
-  admin: {
-    name: 'Settings & User Management',
-    resources: {
-      settings: { name: 'Settings', actions: ['view', 'edit'] },
-      users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
-      roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
-    },
-  },
-  // Messaging + AI capabilities (Faz 7). Resource keys are globally unique
-  // (the wire permission is `${resourceKey}:${action}`, so keys must not collide
-  // with any above — e.g. AI settings is `ai_settings`, not `settings`). Adding
-  // them here is the SSoT change: the tenant-admin role editor (permissionCategories
-  // query, data-driven), token-mint resolution, and TenantPermissionGuard all
-  // pick them up automatically — no parallel catalogue.
-  messaging: {
-    name: 'Messaging',
-    resources: {
-      channels: {
-        name: 'Channels',
-        // create_group is the WhatsApp-like group-creation capability
-        // (MSG-MEDIUM-070); create_dm the 1:1; manage covers rename/members.
-        actions: ['view', 'create_group', 'create_dm', 'manage'],
-      },
-      messages: { name: 'Messages', actions: ['send'] },
-    },
-  },
-  ai: {
-    name: 'AI Assistant',
-    resources: {
-      ai_assistant: { name: 'AI Chat', actions: ['use'] },
-      // AI settings = the tenant BYOK keys / provider / model (Faz 1).
-      ai_settings: { name: 'AI Settings', actions: ['view', 'manage'] },
-      // Persona tiers — which AI persona a member may drive (AISAFETY-MEDIUM-013).
-      ai_personas: {
-        name: 'AI Personas',
-        actions: ['operator', 'manager', 'expert', 'supervisor'],
-      },
-    },
-  },
-};
-
-/**
- * Helper to convert panel permissions to resource:action array
- */
-function panelPermissionsToResourceArray(panel: Record<string, Record<string, Record<string, boolean>>>): string[] {
-  const result: string[] = [];
-  for (const resources of Object.values(panel)) {
-    for (const [resource, actions] of Object.entries(resources)) {
-      for (const [action, enabled] of Object.entries(actions)) {
-        if (enabled) {
-          result.push(`${resource}:${action}`);
-        }
-      }
-    }
-  }
-  return result;
-}
-
 export interface TenantRoleWithDetails {
   id: string;
   name: string;
@@ -360,6 +260,7 @@ export class TenantRoleService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly capabilityAuthority: CapabilityAuthorityService,
   ) {}
 
   /**
@@ -484,6 +385,19 @@ export class TenantRoleService {
     },
     createdBy: string,
   ): Promise<TenantRoleWithDetails> {
+    // SECURITY (RBAC-C2): validate the requested capabilities BEFORE opening the
+    // transaction. `panelPermissionsToResourceArray` flattens the panel matrix to
+    // `resource:action` strings; the authority check rejects any capability outside
+    // the catalogue AND — for a non-admin delegate holding `roles:create` — any
+    // capability the actor does not themselves hold. A TENANT_ADMIN/SUPER_ADMIN
+    // author may grant any catalogue capability. The branded return value is the
+    // only value the permission INSERT below accepts.
+    const actorAuthority = await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy);
+    const grantableResourcePermissions = this.capabilityAuthority.assertGrantableResourcePermissions(
+      panelPermissionsToResourceArray(input.panelPermissions),
+      actorAuthority,
+    );
+
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -538,16 +452,17 @@ export class TenantRoleService {
 
       // Create role permissions within the same transaction. tenant_role_permissions
       // has no tenantId column; ownership is transitive via the role_id of the
-      // tenant-owned role inserted above in the same SERIALIZABLE tx.
-      const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
-
+      // tenant-owned role inserted above in the same SERIALIZABLE tx. The
+      // resource_permissions written are the AUTHORITY-VALIDATED set (branded),
+      // not a re-flattening of the raw input — so an unvalidated capability can
+      // never reach this column.
       await queryRunner.query(
         `
         INSERT INTO "auth"."tenant_role_permissions" (
           role_id, panel_permissions, resource_permissions, created_at, updated_at
         ) VALUES ($1, $2, $3, NOW(), NOW())
         `,
-        [roleId, JSON.stringify(input.panelPermissions), resourcePermissions],
+        [roleId, JSON.stringify(input.panelPermissions), [...grantableResourcePermissions]],
       );
 
       await queryRunner.commitTransaction();
@@ -591,8 +506,21 @@ export class TenantRoleService {
       isDefault?: boolean;
       panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
     },
-    _updatedBy: string,
+    updatedBy: string,
   ): Promise<TenantRoleWithDetails> {
+    // SECURITY (RBAC-C2): if the permission matrix is being rewritten, validate
+    // the new capabilities against the catalogue + the editor's own authority
+    // BEFORE the transaction. A non-admin delegate with `roles:edit` therefore
+    // cannot rewrite a role (their own, or a seeded one) to include capabilities
+    // they do not hold — the escalation-by-role-authoring vector. Resolved once
+    // here; the branded result is the only value the permission UPDATE accepts.
+    const grantableResourcePermissions = input.panelPermissions
+      ? this.capabilityAuthority.assertGrantableResourcePermissions(
+          panelPermissionsToResourceArray(input.panelPermissions),
+          await this.capabilityAuthority.resolveActorAuthority(tenantId, updatedBy),
+        )
+      : null;
+
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -697,9 +625,7 @@ export class TenantRoleService {
       // Update permissions within the same transaction. tenant_role_permissions
       // has no tenantId column, so ownership is laundered through a write-side
       // join on tenant_roles (ORPHAN-CRITICAL-100).
-      if (input.panelPermissions) {
-        const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
-
+      if (input.panelPermissions && grantableResourcePermissions) {
         await queryRunner.query(
           `
           UPDATE "auth"."tenant_role_permissions" trp
@@ -707,7 +633,7 @@ export class TenantRoleService {
           FROM "auth"."tenant_roles" tr
           WHERE trp.role_id = tr.id AND trp.role_id = $3 AND tr."tenantId" = $4
           `,
-          [JSON.stringify(input.panelPermissions), resourcePermissions, roleId, tenantId],
+          [JSON.stringify(input.panelPermissions), [...grantableResourcePermissions], roleId, tenantId],
         );
       }
 

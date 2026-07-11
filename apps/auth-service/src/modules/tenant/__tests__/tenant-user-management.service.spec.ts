@@ -21,6 +21,7 @@ import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publ
 import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+import { CapabilityAuthorityService, ActorAuthority } from '../services/capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from '../services/tenant-role.service';
 import { TenantUserManagementService } from '../services/tenant-user-management.service';
 import { UserLifecycleService } from '../services/user-lifecycle.service';
@@ -135,6 +136,15 @@ describe('TenantUserManagementService', () => {
     createUser: jest.Mock;
     deleteUser: jest.Mock;
   };
+  // SECURITY (RBAC-C1/C2): the write-time grant-authority SSoT. Default mock
+  // behaves as a tenant admin (may grant anything, pass-through overrides); tests
+  // exercising delegate containment override resolveActorAuthority / the asserts.
+  let mockCapabilityAuthority: {
+    resolveActorAuthority: jest.Mock;
+    assertGrantableOverrides: jest.Mock;
+    assertGrantableResourcePermissions: jest.Mock;
+    emptyOverrides: jest.Mock;
+  };
 
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
@@ -201,6 +211,17 @@ describe('TenantUserManagementService', () => {
       deleteUser: jest.fn().mockResolvedValue(true),
     };
 
+    const adminAuthority: ActorAuthority = { isTenantAdmin: true, effective: new Set<string>() };
+    mockCapabilityAuthority = {
+      resolveActorAuthority: jest.fn().mockResolvedValue(adminAuthority),
+      assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
+        grants: o?.grants ?? [],
+        revokes: o?.revokes ?? [],
+      })),
+      assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
+      emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantUserManagementService,
@@ -219,6 +240,7 @@ describe('TenantUserManagementService', () => {
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
+        { provide: CapabilityAuthorityService, useValue: mockCapabilityAuthority },
       ],
     }).compile();
 
@@ -597,6 +619,11 @@ describe('TenantUserManagementService', () => {
       mockDataSource.query.mockResolvedValueOnce([
         { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
       ]); // existing
+      // RBAC-C1: the override-only path now resolves the ceiling role (the user's
+      // current role) so the authority guard runs even with no role change.
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: ROLE_ID }),
+      );
       mockAuditLogService.log.mockRejectedValueOnce(new Error('Audit DB down'));
 
       await expect(
@@ -607,6 +634,33 @@ describe('TenantUserManagementService', () => {
           ADMIN_USER_ID,
         ),
       ).rejects.toThrow('Audit DB down');
+    });
+
+    it('RBAC-C1: an override-ONLY update runs the grant-authority validator and a rejection aborts before any write', async () => {
+      // The escalation was: updateUserRole with ONLY permissionOverrides skipped
+      // the authority guard, letting a delegate self-grant anything. Now the
+      // override grants are validated unconditionally; a rejection must abort
+      // before the transaction.
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
+      ]); // existing
+      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails({ id: ROLE_ID }));
+      mockCapabilityAuthority.assertGrantableOverrides.mockImplementation(() => {
+        throw new ForbiddenException('You cannot grant capabilities you do not hold: roles:delete.');
+      });
+
+      await expect(
+        service.updateUserRole(
+          TENANT_ID,
+          USER_ID,
+          { permissionOverrides: { grants: ['roles:delete'], revokes: [] } },
+          ADMIN_USER_ID,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      // The validator was consulted, and no assignment write happened.
+      expect(mockCapabilityAuthority.assertGrantableOverrides).toHaveBeenCalled();
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
 
     // ------------------------------------------------------------------

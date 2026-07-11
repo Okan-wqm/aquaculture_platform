@@ -20,6 +20,7 @@ import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
 import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
 import { TenantResolver } from './resolvers/tenant.resolver';
+import { CapabilityAuthorityService } from './services/capability-authority';
 import { MobileSettingsService } from './services/mobile-settings.service';
 import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
@@ -52,6 +53,9 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
   providers: [
     TenantService,
     TenantAdminService,
+    // SECURITY (RBAC-C1/C2): write-time grant-authority SSoT injected by
+    // TenantRoleService / TenantUserManagementService / UserLifecycleService.
+    CapabilityAuthorityService,
     TenantRoleService,
     TenantUserManagementService,
     UserLifecycleService,

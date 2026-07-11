@@ -25,6 +25,7 @@ import { User, AccessType } from '../../authentication/entities/user.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
 import { Tenant } from '../entities/tenant.entity';
 
+import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 
 /**
@@ -111,6 +112,11 @@ export class UserLifecycleService {
     // first needs createUser to become transactional.)
     private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
+    // SECURITY (RBAC-C1/C2): write-time grant-authority SSoT. createUser was a
+    // grant path with NO authority check — a delegate with `users:invite` could
+    // spawn a user carrying arbitrary override grants. All grants now route
+    // through the shared validator.
+    private readonly capabilityAuthority: CapabilityAuthorityService,
   ) {}
 
   /**
@@ -160,6 +166,15 @@ export class UserLifecycleService {
     if (!role) {
       throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
     }
+
+    // SECURITY (RBAC-C1/C2): validate the initial override grants against the
+    // catalogue + the creator's own authority BEFORE creating the user. A
+    // non-admin creator (holding `users:invite`) cannot seed a new user with
+    // capabilities they do not themselves hold.
+    const validatedOverrides = this.capabilityAuthority.assertGrantableOverrides(
+      input.permissionOverrides,
+      await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy),
+    );
 
     // Generate invitation token if not providing password
     // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
@@ -219,7 +234,7 @@ export class UserLifecycleService {
       savedUser.id,
       input.roleId,
       role,
-      input.permissionOverrides || { grants: [], revokes: [] },
+      validatedOverrides,
       createdBy,
     );
 
@@ -983,7 +998,9 @@ export class UserLifecycleService {
     userId: string,
     roleId: string,
     role: TenantRoleWithDetails,
-    permissionOverrides: { grants: string[]; revokes: string[] },
+    // SECURITY (RBAC-C1/C2): accepts only a validated (branded) override set, so
+    // this INSERT cannot persist an unauthorized grant. Callers validate first.
+    permissionOverrides: ValidatedOverrideSet,
     assignedBy: string,
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
@@ -1008,7 +1025,7 @@ export class UserLifecycleService {
       [
         userId,
         roleId,
-        JSON.stringify(permissionOverrides),
+        CapabilityAuthorityService.serializeOverrides(permissionOverrides),
         expiresAt || null,
         assignedBy,
         tenantId,
@@ -1038,7 +1055,8 @@ export class UserLifecycleService {
       roleColor: role.color,
       roleIcon: role.icon,
       roleLevel: role.level,
-      permissionOverrides,
+      // Strip the internal validation brand from the client-facing result.
+      permissionOverrides: { grants: permissionOverrides.grants, revokes: permissionOverrides.revokes },
       panelPermissions: role.permissions?.panelPermissions || {},
       resourcePermissions: role.permissions?.resourcePermissions || [],
       effectivePermissions,

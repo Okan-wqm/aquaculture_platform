@@ -9,6 +9,7 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { CapabilityAuthorityService } from '../services/capability-authority';
 import { TenantRoleService } from '../services/tenant-role.service';
 
 // ============================================================================
@@ -78,6 +79,24 @@ describe('TenantRoleService', () => {
       providers: [
         TenantRoleService,
         { provide: DataSource, useValue: mockDataSource },
+        {
+          // Default: an admin author who may grant any catalogue capability;
+          // the validator passes the derived resource permissions through. Tests
+          // that exercise delegate containment override these mocks.
+          provide: CapabilityAuthorityService,
+          useValue: {
+            resolveActorAuthority: jest.fn().mockResolvedValue({
+              isTenantAdmin: true,
+              effective: new Set<string>(),
+            }),
+            assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
+            assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
+              grants: o?.grants ?? [],
+              revokes: o?.revokes ?? [],
+            })),
+            emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
+          },
+        },
       ],
     }).compile();
 

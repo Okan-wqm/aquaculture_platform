@@ -26,6 +26,7 @@ import {
   applyPermissionOverrides,
   parsePermissionOverrides as parsePermissionOverridesSSoT,
 } from './permission-overrides.util';
+import { CapabilityAuthorityService, ValidatedOverrideSet } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -134,6 +135,12 @@ export class TenantUserManagementService {
     // of that pipeline, which drifted — createTenantUser is a delegation
     // facade so exactly one creation path exists (SSoT).
     private readonly userLifecycleService: UserLifecycleService,
+    // SECURITY (RBAC-C1/C2): the single write-time grant-authority SSoT. Every
+    // path here that writes permission_overrides routes the grants through it so
+    // a delegate cannot grant capabilities they do not hold or outside the
+    // catalogue. The branded ValidatedOverrideSet it returns is the only value
+    // createRoleAssignment accepts.
+    private readonly capabilityAuthority: CapabilityAuthorityService,
   ) {}
 
   /**
@@ -353,7 +360,9 @@ export class TenantUserManagementService {
           userId,
           input.roleId,
           newRole,
-          { grants: [], revokes: [] },
+          // No per-user overrides on the create-on-assign branch — a validated
+          // empty set (nothing to authorize).
+          this.capabilityAuthority.emptyOverrides(),
           updatedBy,
           undefined,
         );
@@ -559,6 +568,14 @@ export class TenantUserManagementService {
     // SECURITY (SEC-MEDIUM-001): self-target + upward-escalation guard.
     await this.assertRoleGrantAuthority(tenantId, assignedBy, userId, role);
 
+    // SECURITY (RBAC-C1/C2): validate the per-user override grants against the
+    // catalogue AND the assigner's own authority. A non-admin assigner cannot
+    // attach a grant they do not themselves hold.
+    const validatedOverrides = this.capabilityAuthority.assertGrantableOverrides(
+      input.permissionOverrides,
+      await this.capabilityAuthority.resolveActorAuthority(tenantId, assignedBy),
+    );
+
     // Check if user already has an active role assignment. ORPHAN-CRITICAL-100:
     // keyed to user_id (the table has UNIQUE(user_id)) and laundered through the
     // tenant_roles JOIN (tr."tenantId" = $2) so the conflict check cannot leak a
@@ -585,7 +602,7 @@ export class TenantUserManagementService {
       userId,
       input.roleId,
       role,
-      input.permissionOverrides || { grants: [], revokes: [] },
+      validatedOverrides,
       assignedBy,
       input.expiresAt,
     );
@@ -647,10 +664,32 @@ export class TenantUserManagementService {
       if (!newRole) {
         throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
       }
-      // SECURITY (SEC-MEDIUM-001): self-target + upward-escalation guard on
-      // the role-CHANGE path (only when the role itself is changing).
-      await this.assertRoleGrantAuthority(tenantId, updatedBy, userId, newRole);
     }
+
+    // SECURITY (RBAC-C1): the self-target + level-ceiling guard MUST run on EVERY
+    // update, not only when the role id changes. It was previously gated behind
+    // `if (roleId changed)`, so an override-only update (permissionOverrides with
+    // no/unchanged roleId) SKIPPED it — the exact path a delegate holding
+    // `users:edit_permissions` used to self-grant arbitrary capabilities. Measure
+    // the ceiling against the incoming role if it is changing, else the user's
+    // current role.
+    const ceilingRole = newRole ?? (await this.tenantRoleService.getRoleById(tenantId, existing.role_id));
+    if (!ceilingRole) {
+      throw new NotFoundException(`No active role assignment found for user ${userId}`);
+    }
+    await this.assertRoleGrantAuthority(tenantId, updatedBy, userId, ceilingRole);
+
+    // SECURITY (RBAC-C1/C2): validate the override grants against the catalogue +
+    // the editor's own authority. Combined with the self-target block above, an
+    // override-only self-grant now (a) cannot target self and (b) can only carry
+    // capabilities the editor already holds — the escalation is closed on both axes.
+    const validatedOverrides =
+      input.permissionOverrides !== undefined
+        ? this.capabilityAuthority.assertGrantableOverrides(
+            input.permissionOverrides,
+            await this.capabilityAuthority.resolveActorAuthority(tenantId, updatedBy),
+          )
+        : undefined;
 
     // Build update query
     const updates: string[] = [];
@@ -662,9 +701,9 @@ export class TenantUserManagementService {
       values.push(input.roleId);
     }
 
-    if (input.permissionOverrides !== undefined) {
+    if (validatedOverrides !== undefined) {
       updates.push(`permission_overrides = $${paramIndex++}`);
-      values.push(JSON.stringify(input.permissionOverrides));
+      values.push(CapabilityAuthorityService.serializeOverrides(validatedOverrides));
     }
 
     if (input.expiresAt !== undefined) {
@@ -995,7 +1034,11 @@ export class TenantUserManagementService {
     userId: string,
     roleId: string,
     role: TenantRoleWithDetails,
-    permissionOverrides: { grants: string[]; revokes: string[] },
+    // SECURITY (RBAC-C1/C2): only a ValidatedOverrideSet (produced solely by
+    // CapabilityAuthorityService) is accepted here, so this INSERT path — the
+    // single write sink for user_role_assignments — cannot persist an
+    // unvalidated / over-privileged grant. Callers MUST validate first.
+    permissionOverrides: ValidatedOverrideSet,
     assignedBy: string,
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
@@ -1036,7 +1079,14 @@ export class TenantUserManagementService {
               updated_at = NOW()
         RETURNING id
         `,
-          [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy, tenantId],
+          [
+            userId,
+            roleId,
+            CapabilityAuthorityService.serializeOverrides(permissionOverrides),
+            expiresAt || null,
+            assignedBy,
+            tenantId,
+          ],
         ),
       );
 
@@ -1087,7 +1137,8 @@ export class TenantUserManagementService {
       roleColor: role.color,
       roleIcon: role.icon,
       roleLevel: role.level,
-      permissionOverrides,
+      // Strip the internal validation brand from the client-facing result.
+      permissionOverrides: { grants: permissionOverrides.grants, revokes: permissionOverrides.revokes },
       panelPermissions: role.permissions?.panelPermissions || {},
       resourcePermissions: role.permissions?.resourcePermissions || [],
       effectivePermissions,

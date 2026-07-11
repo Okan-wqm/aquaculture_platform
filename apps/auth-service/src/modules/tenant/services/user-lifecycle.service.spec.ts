@@ -20,6 +20,7 @@ import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
+import { CapabilityAuthorityService } from './capability-authority';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -223,6 +224,23 @@ describe('UserLifecycleService', () => {
           useValue: new BestEffortEventPublisher(mockEventBus),
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        {
+          // RBAC-C1/C2: default mock behaves as an admin creator (grants pass
+          // through). createUser now routes override grants through this SSoT.
+          provide: CapabilityAuthorityService,
+          useValue: {
+            resolveActorAuthority: jest.fn().mockResolvedValue({
+              isTenantAdmin: true,
+              effective: new Set<string>(),
+            }),
+            assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
+              grants: o?.grants ?? [],
+              revokes: o?.revokes ?? [],
+            })),
+            assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
+            emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
+          },
+        },
       ],
     }).compile();
 

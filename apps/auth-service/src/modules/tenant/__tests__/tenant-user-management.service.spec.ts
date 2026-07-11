@@ -8,7 +8,6 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -888,51 +887,16 @@ describe('TenantUserManagementService', () => {
   // ==========================================================================
 
   describe('deleteTenantUser', () => {
-    it('SEC-MEDIUM-002: soft-delete, role revoke, and audit commit ATOMICALLY', async () => {
-      userRepository.findOne
-        .mockResolvedValueOnce(createMockUser({ role: Role.MODULE_USER })) // target
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, email: 'admin@t.com', role: Role.TENANT_ADMIN })); // admin lookup
-
+    it('RBAC-HIGH-002: delegates to the single deletion SSoT (UserLifecycleService.deleteUser)', async () => {
+      // The deletion logic (soft-delete + role revoke + refresh-token revoke +
+      // access-token revoke + fail-closed audit) lives in ONE place and is tested
+      // there; this facade must NOT re-implement it (that divergent copy skipped
+      // refresh-token revocation). Assert pure delegation, no local transaction.
       const result = await service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
       expect(result).toBe(true);
-      expect(mockDataSource.transaction).toHaveBeenCalled();
-      // FINDING #5: the soft-delete audit is manager-threaded (2nd arg).
-      expect(mockAuditLogService.log).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'USER_DELETED',
-          entityType: 'User',
-          entityId: USER_ID,
-        }),
-        expect.anything(),
-      );
-    });
-
-    it('rejects self-deletion', async () => {
-      await expect(
-        service.deleteTenantUser(TENANT_ID, USER_ID, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      expect(mockUserLifecycleService.deleteUser).toHaveBeenCalledWith(TENANT_ID, USER_ID, ADMIN_USER_ID);
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
-    });
-
-    it('refuses to delete another TENANT_ADMIN', async () => {
-      userRepository.findOne.mockResolvedValueOnce(createMockUser({ role: Role.TENANT_ADMIN }));
-
-      await expect(
-        service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(ForbiddenException);
-      expect(mockDataSource.transaction).not.toHaveBeenCalled();
-    });
-
-    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the soft-delete (fail-closed)', async () => {
-      userRepository.findOne
-        .mockResolvedValueOnce(createMockUser({ role: Role.MODULE_USER })) // target
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN })); // admin lookup
-      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
-
-      await expect(
-        service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow('audit DB down');
     });
   });
 

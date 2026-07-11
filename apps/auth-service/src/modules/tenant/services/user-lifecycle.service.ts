@@ -3,12 +3,17 @@ import * as crypto from 'crypto';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
+  USER_TOKEN_REVOCATION,
+  IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
+import {
   Injectable,
   Logger,
   NotFoundException,
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
@@ -117,6 +122,10 @@ export class UserLifecycleService {
     // spawn a user carrying arbitrary override grants. All grants now route
     // through the shared validator.
     private readonly capabilityAuthority: CapabilityAuthorityService,
+    // SECURITY (RBAC-HIGH-002): deleting a user must lock out their live access
+    // token too, not just their refresh tokens.
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
   /**
@@ -384,6 +393,11 @@ export class UserLifecycleService {
         manager,
       );
     });
+
+    // RBAC-HIGH-001 / RBAC-HIGH-002: the refresh tokens are revoked in-tx above,
+    // but the user's LIVE access token stays valid until its TTL. Revoke it too
+    // so a deleted user is locked out on their next request, fleet-wide.
+    await this.userTokenRevocation.revokeUserTokens(userId);
 
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);

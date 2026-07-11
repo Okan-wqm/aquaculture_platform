@@ -98,3 +98,16 @@ This file records the two write-time authority findings closed by the P0 remedia
 **Rule violated:** A reduction of a user's effective permissions must be enforceable promptly and fleet-wide, not deferred to natural token expiry; the key contract for user-level revocation must be a single SSoT shared by writer and reader.
 
 **Fix (architectural SSoT):** Introduced a canonical `UserTokenRevocationService` in backend-common that OWNS the `user_blacklist:{userId}` key contract (`userBlacklistKey` builder + `revokeUserTokens`/`isTokenValid`, Redis-backed with in-memory fallback). The auth-service RBAC write paths (`assignUserRole`/`updateUserRole`/`revokeUserRole`/`updateTenantUser` role change, and `updateRole` fanned out to every active holder) call `revokeUserTokens` after a committed change, so the user's live tokens are rejected by the gateway's EXISTING enforcement on their next request — forcing a refresh that re-mints with current permissions, fleet-wide via Redis. The gateway reader now uses the same `userBlacklistKey` builder, eliminating the duplicated key string (partial SEC-LOW-001 consolidation).
+
+## RBAC-HIGH-002
+
+**Title:** `deleteTenantUser` (the live resolver deletion path) carried a divergent copy of the deletion logic that did NOT revoke refresh tokens — despite its docstring claiming it did — so a "deleted" user could still mint fresh access tokens. The complete, fail-closed SSoT (`UserLifecycleService.deleteUser`, which DOES revoke refresh tokens) existed but had zero production callers.
+
+**Layer:** 2 (duplicate deletion path / token lifecycle)
+**Evidence:**
+- `apps/auth-service/src/modules/tenant/services/tenant-user-management.service.ts`
+- `apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts`
+
+**Rule violated:** One deletion SSoT; a destructive lifecycle action must revoke ALL of the user's credentials (refresh AND access tokens), not silently skip a class of them.
+
+**Fix:** `deleteTenantUser` now delegates to `UserLifecycleService.deleteUser` (mirroring how `createTenantUser` delegates to `createUser`), and the duplicate body was deleted. `deleteUser` additionally revokes the user's live access token via the RBAC-HIGH-001 primitive, so a deleted user is locked out on their next request rather than at token expiry.

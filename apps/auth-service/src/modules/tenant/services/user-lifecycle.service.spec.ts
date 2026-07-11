@@ -1,4 +1,5 @@
 import { Role } from '@aquaculture/backend-common/decorators';
+import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
   ForbiddenException,
@@ -144,8 +145,13 @@ describe('UserLifecycleService', () => {
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock<Promise<void>, [UserInvitedEvent]> };
   let mockAuditLogService: { log: jest.Mock };
+  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
 
   beforeEach(async () => {
+    mockUserTokenRevocation = {
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+      isTokenValid: jest.fn().mockResolvedValue(true),
+    };
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
@@ -240,6 +246,12 @@ describe('UserLifecycleService', () => {
             assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
             emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
           },
+        },
+        {
+          // RBAC-HIGH-001/002: user-token-revocation mock (deleteUser revokes the
+          // deleted user's live access token too).
+          provide: USER_TOKEN_REVOCATION,
+          useValue: mockUserTokenRevocation,
         },
       ],
     }).compile();
@@ -551,6 +563,10 @@ describe('UserLifecycleService', () => {
           revokedReason: expect.stringContaining('deleted') as string,
         }),
       );
+
+      // 3. RBAC-HIGH-002: the deleted user's LIVE access token is revoked too, so
+      // they are locked out on their next request (not just at token expiry).
+      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
     });
 
     it('should prevent self-deletion', async () => {

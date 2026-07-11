@@ -7,7 +7,6 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
-  BadRequestException,
   Inject,
 } from '@nestjs/common';
 import {
@@ -404,81 +403,14 @@ export class TenantUserManagementService {
     userId: string,
     deletedBy: string,
   ): Promise<boolean> {
-    // SECURITY: Prevent self-deletion
-    if (deletedBy === userId) {
-      throw new BadRequestException('Cannot delete your own account');
-    }
-
-    // Validate user exists and belongs to tenant
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-    });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
-    }
-
-    // SECURITY: Cannot delete another TENANT_ADMIN
-    if (user.role === Role.TENANT_ADMIN) {
-      throw new ForbiddenException('Cannot delete a tenant admin user');
-    }
-
-    // SECURITY: the admin lookup that supplies performedByEmail is pinned to the
-    // acting tenant (ORPHAN-CRITICAL-100): a cross-tenant deletedBy id cannot
-    // surface another tenant's admin email into this tenant's audit row.
-    const admin = await this.userRepository.findOne({ where: { id: deletedBy, tenantId } });
-
-    // SECURITY (SEC-MEDIUM-002): the soft-delete, role revocation, and audit
-    // row commit ATOMICALLY. Previously the user was deactivated and roles
-    // revoked first, then the audit ran in a swallowed try/catch (fail-OPEN) —
-    // a user deletion could persist with no audit evidence (SOC 2 CC6.1), and a
-    // swallowed role-revoke failure could leave a "deleted" user with live role
-    // assignments. A throwing audit OR a failed role revoke now rolls back the
-    // whole soft-delete (fail-CLOSED): no deletion persists without both the
-    // role revocation and its audit trail. The audit log call is passed
-    // `manager` so it writes on the SAME transaction connection (FINDING #5).
-    await this.dataSource.transaction(async (manager) => {
-      // 1. Deactivate the user
-      user.isActive = false;
-      await manager.save(user);
-
-      // 2. Revoke role assignments. ORPHAN-CRITICAL-100: user_role_assignments
-      // has no tenantId column, so the write launders ownership through the
-      // tenant_roles JOIN (tr."tenantId" = $2) — only assignments whose role
-      // belongs to this tenant are deactivated. GROUND-TRUTH: no updated_by
-      // column on this table; the deleting actor is recorded in the USER_DELETED
-      // audit row (performedBy) written in step 3 below.
-      await manager.query(
-        `UPDATE "auth"."user_role_assignments" ura
-         SET is_active = false, updated_at = NOW()
-         FROM "auth"."tenant_roles" tr
-         WHERE ura.user_id = $1 AND ura.is_active = true AND tr.id = ura.role_id AND tr."tenantId" = $2`,
-        [userId, tenantId],
-      );
-
-      // 3. SECURITY AUDIT: Log user deletion (BULGU-016)
-      await this.auditLogService.log(
-        {
-          tenantId,
-          performedBy: deletedBy,
-          performedByEmail: admin?.email,
-          action: 'USER_DELETED',
-          entityType: 'User',
-          entityId: userId,
-          details: {
-            targetEmail: user.email,
-            targetRole: user.role,
-            timestamp: new Date().toISOString(),
-          },
-          severity: AuditLogSeverity.WARNING,
-        },
-        manager,
-      );
-    });
-
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}`);
-
-    return true;
+    // RBAC-HIGH-002: delegate to the single deletion SSoT. This method previously
+    // carried a divergent copy of the deletion logic that did NOT revoke refresh
+    // tokens (its docstring claimed it did) — a "deleted" user could still mint
+    // fresh access tokens. UserLifecycleService.deleteUser is the complete,
+    // fail-closed path (deactivate + role revoke + refresh-token revoke +
+    // access-token revoke + audit, all atomic), exactly as createTenantUser
+    // delegates to createUser. One deletion path, no drift.
+    return this.userLifecycleService.deleteUser(tenantId, userId, deletedBy);
   }
 
   /**

@@ -17,6 +17,7 @@ import { LegalHoldService } from './services/legal-hold.service';
 import { LegalHoldGuard } from './services/legal-hold.guard';
 import { ComplianceAuditService } from './services/compliance-audit.service';
 import { DataExportService } from './services/data-export.service';
+import { AttachmentObjectPurgeService } from './services/attachment-object-purge.service';
 
 // Command handlers
 import { SetRetentionPolicyHandler } from './commands/set-retention-policy.handler';
@@ -62,6 +63,7 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
     LegalHoldGuard,
     ComplianceAuditService,
     DataExportService,
+    AttachmentObjectPurgeService,
 
     // CQRS handlers
     ...CommandHandlers,
@@ -82,6 +84,7 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
     ComplianceAuditService,
     RetentionPolicyService,
     DataExportService,
+    AttachmentObjectPurgeService,
   ],
 })
 export class ComplianceModule {}

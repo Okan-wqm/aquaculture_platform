@@ -23,7 +23,7 @@ export class UpdateAutoRuleInput {
   @Field(() => ID)
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

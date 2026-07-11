@@ -223,6 +223,27 @@ export const PLATFORM_EVENT_REGISTRY = {
     backendOnly: true,
     retention: 'sensor-lifecycle-ledger',
   },
+  FinanceSettingsUpdated: {
+    // Tenant currency SSoT propagation: farm-service owns finance_settings
+    // (the per-tenant default currency); hr-service projects defaultCurrency
+    // into hr_payroll_cost_settings so both finance tabs report in one
+    // currency without a second tenant-editable source. Other Finance*
+    // events (entry/category lifecycle in finance-events.ts) are not
+    // registered here until a consumer exists — same posture as the other
+    // single-service domain events (FeedingRecorded, PayrollProcessed, …).
+    type: 'FinanceSettingsUpdated',
+    kind: 'event',
+    subject: 'events.{tenantId}.FinanceSettingsUpdated',
+    producer: 'farm-service',
+    consumers: ['hr-service'],
+    schema: 'libs/event-contracts/src/finance-events.ts#FinanceSettingsUpdatedEvent',
+    fixture: 'libs/event-contracts/fixtures/finance-settings-updated.json',
+    acl: { publish: ['farm-service'], subscribe: ['hr-service'] },
+    piiClass: 'financial',
+    durability: 'outbox',
+    backendOnly: true,
+    retention: 'finance-settings-ledger',
+  },
   SensorDeprovisioned: {
     type: 'SensorDeprovisioned',
     kind: 'event',

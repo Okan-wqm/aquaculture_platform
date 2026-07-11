@@ -5,6 +5,7 @@ import { AuditModule } from '../../audit/audit.module';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { TenantModule } from '../tenant/tenant.module';
 
+import { AuthCredentialNatsHandler } from './controllers/auth-credential-nats.handler';
 import { AuthPublicNatsHandler } from './controllers/auth-public-nats.handler';
 import { InternalAuthController } from './controllers/internal-auth.controller';
 import { ActionToken } from './entities/action-token.entity';
@@ -20,7 +21,7 @@ import { AuthResolver } from './resolvers/auth.resolver';
 import { MfaResolver } from './resolvers/mfa.resolver';
 import { NotificationPreferencesResolver } from './resolvers/notification-preferences.resolver';
 import { WebAuthnResolver } from './resolvers/webauthn.resolver';
-import { UserFederationResolver } from './resolvers/user-federation.resolver';
+import { PublicUserProfileFederationResolver } from './resolvers/user-federation.resolver';
 import { AccountService } from './services/account.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
@@ -44,7 +45,7 @@ import { WebAuthnService } from './services/webauthn.service';
     // mobile-feature read path) so TokenService can fold it into the JWT mint.
     TenantModule,
   ],
-  controllers: [InternalAuthController, AuthPublicNatsHandler],
+  controllers: [InternalAuthController, AuthPublicNatsHandler, AuthCredentialNatsHandler],
   providers: [
     AccountService,
     TokenService,
@@ -56,7 +57,7 @@ import { WebAuthnService } from './services/webauthn.service';
     MfaResolver,
     NotificationPreferencesResolver,
     WebAuthnResolver,
-    UserFederationResolver,
+    PublicUserProfileFederationResolver,
     JwtAuthGuard,
   ],
   exports: [AccountService, AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],

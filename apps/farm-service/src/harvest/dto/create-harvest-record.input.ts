@@ -22,19 +22,19 @@ import {
 } from 'class-validator';
 
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
-import { QualityGrade } from '../entities/harvest-record.entity';
+import { QualityClass } from '../entities/harvest-record.entity';
 
 @InputType()
 export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Batch ID' })
   @IsNotEmpty()
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => ID, { description: 'Tank ID' })
   @IsNotEmpty()
   @IsUUID()
-  tankId: string;
+  tankId!: string;
 
   @Field(() => ID, { nullable: true, description: 'Pond ID (alternative to tank)' })
   @IsOptional()
@@ -46,7 +46,7 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @IsNumber()
   @IsPositive()
   @Min(1)
-  quantityHarvested: number;
+  quantityHarvested!: number;
 
   @Field(() => Float, { description: 'Average weight in grams' })
   @IsNotEmpty()
@@ -54,24 +54,25 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @IsPositive()
   @Min(0.01)
   @Max(100000)
-  averageWeight: number;
+  averageWeight!: number;
 
   @Field(() => Float, { description: 'Total biomass in kg' })
   @IsNotEmpty()
   @IsNumber()
   @IsPositive()
   @Min(0.01)
-  totalBiomass: number;
+  totalBiomass!: number;
 
-  @Field(() => QualityGrade, { description: 'Quality grade of harvested fish' })
-  @IsNotEmpty()
-  @IsEnum(QualityGrade)
-  qualityGrade: QualityGrade;
+  @Field(() => QualityClass, {
+    description: 'Norwegian quality class (kvalitetsklasse) — the stored SSoT.',
+  })
+  @IsEnum(QualityClass)
+  qualityClass!: QualityClass;
 
   @Field({ description: 'Harvest date (ISO 8601 format)' })
   @IsNotEmpty()
   @IsDateString()
-  harvestDate: string;
+  harvestDate!: string;
 
   @Field(() => HarvestMethod, { nullable: true, description: 'Harvest method used' })
   @IsOptional()

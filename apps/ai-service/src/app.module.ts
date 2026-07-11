@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { join } from 'path';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -75,6 +76,7 @@ import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
 import { WaterChemistryToolsModule } from './tools/water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from './tools/sensor-config/sensor-config-tools.module';
+import { FarmToolsModule } from './tools/farm/farm-tools.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { AgentConfigModule } from './tenant-config/agent-config.module';
 import { AuditModule } from './audit/audit.module';
@@ -158,6 +160,10 @@ type QueryComplexityOperationContext = {
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
           autoSchemaFile: {
+            // Emit the federated SDL to the registry-canonical artifact path so
+            // the supergraph build + validate-registry pick up the ai subgraph
+            // (must match gatewaySubgraph('ai').schemaArtifactPath in the catalog).
+            path: join(process.cwd(), 'dist/graphql/subgraphs/ai.graphql'),
             federation: 2,
           },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
@@ -246,9 +252,19 @@ type QueryComplexityOperationContext = {
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
-      }),
+      // Build the connection from the platform-standard discrete vars
+      // (REDIS_HOST/PORT/PASSWORD/DB) that compose provides and the cost
+      // services already read — NOT a REDIS_URL that nothing sets, which
+      // silently fell back to redis://localhost:6379 and ECONNREFUSED'd in
+      // every container (the redis service is reachable as host `redis`).
+      useFactory: (configService: ConfigService) => {
+        const host = configService.get<string>('REDIS_HOST', 'localhost');
+        const port = configService.get<number>('REDIS_PORT', 6379);
+        const password = configService.get<string>('REDIS_PASSWORD');
+        const db = configService.get<number>('REDIS_DB', 0);
+        const auth = password ? `:${encodeURIComponent(password)}@` : '';
+        return { url: `redis://${auth}${host}:${port}/${db}` };
+      },
     }),
     // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.
     ThrottlerModule,
@@ -256,6 +272,7 @@ type QueryComplexityOperationContext = {
     ToolRegistryModule,
     WaterChemistryToolsModule,
     SensorConfigToolsModule,
+    FarmToolsModule,
     // Feature modules
     HealthModule,
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics

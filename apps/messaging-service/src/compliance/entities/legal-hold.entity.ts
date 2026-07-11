@@ -25,15 +25,15 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
 export class LegalHold {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  channelId: string | null;
+  channelId!: string | null;
 
   /**
    * Reference to the specific legal matter or regulatory request that
@@ -43,7 +43,7 @@ export class LegalHold {
    */
   @Field()
   @Column({ type: 'uuid' })
-  legalMatterId: string;
+  legalMatterId!: string;
 
   /**
    * Human-readable description of the legal matter (e.g., case number,
@@ -51,11 +51,11 @@ export class LegalHold {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  legalMatterDescription: string | null;
+  legalMatterDescription!: string | null;
 
   @Field()
   @Column({ type: 'text' })
-  reason: string;
+  reason!: string;
 
   /**
    * User or system entity that requested the hold (may differ from startedBy
@@ -63,19 +63,19 @@ export class LegalHold {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  requestedBy: string | null;
+  requestedBy!: string | null;
 
   @Field()
   @Column({ type: 'uuid' })
-  startedBy: string;
+  startedBy!: string;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  startedAt: Date;
+  startedAt!: Date;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  releasedBy: string | null;
+  releasedBy!: string | null;
 
   /**
    * The SECOND SUPER_ADMIN that countersigned the release (dual-approver
@@ -88,7 +88,7 @@ export class LegalHold {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  releasedByApprover: string | null;
+  releasedByApprover!: string | null;
 
   /**
    * Free-text justification recorded at release time. Required to be
@@ -98,11 +98,11 @@ export class LegalHold {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  releaseReason: string | null;
+  releaseReason!: string | null;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  releasedAt: Date | null;
+  releasedAt!: Date | null;
 
   /**
    * Optional expiration date for the hold. After this date, the hold should
@@ -111,9 +111,9 @@ export class LegalHold {
    */
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  expiresAt: Date | null;
+  expiresAt!: Date | null;
 
   @Field()
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 }

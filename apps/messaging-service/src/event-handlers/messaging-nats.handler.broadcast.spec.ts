@@ -2,6 +2,7 @@ import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { Test } from '@nestjs/testing';
 
 import { ChannelMember } from '../channel/entities/channel-member.entity';
+import { AttachmentObjectPurgeService } from '../compliance/services/attachment-object-purge.service';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { Message } from '../message/entities/message.entity';
 import { MediaService } from '../message/services/media.service';
@@ -65,6 +66,7 @@ describe('MessagingNatsHandler.getMessageForBroadcast', () => {
         { provide: LegalHoldService, useValue: {} },
         { provide: MediaService, useValue: { generateDownloadUrl } },
         { provide: REDIS_CLIENT, useValue: {} },
+        { provide: AttachmentObjectPurgeService, useValue: { purgeObjects: jest.fn() } },
       ],
     }).compile();
 

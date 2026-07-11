@@ -42,17 +42,17 @@ export class UsedMaterialInput {
   @Field()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field(() => Float)
   @IsNumber()
   @Min(0.01)
-  quantity: number;
+  quantity!: number;
 
   @Field()
   @IsString()
   @MaxLength(20)
-  unit: string;
+  unit!: string;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -74,7 +74,7 @@ export class UsedMaterialInput {
 export class LaborRecordInput {
   @Field(() => ID)
   @IsUUID()
-  userId: string;
+  userId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -84,7 +84,7 @@ export class LaborRecordInput {
 
   @Field()
   @IsDateString()
-  startTime: string;
+  startTime!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -116,7 +116,7 @@ export class LaborRecordInput {
 export class UpdateChecklistItemInput {
   @Field()
   @IsString()
-  id: string;
+  id!: string;
 
   @Field(() => Boolean, { nullable: true })
   @IsOptional()
@@ -136,7 +136,7 @@ export class UpdateChecklistItemInput {
 export class UpdateWorkOrderInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -251,7 +251,7 @@ export class UpdateWorkOrderInput {
 export class StartWorkOrderInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -271,7 +271,7 @@ export class StartWorkOrderInput {
 export class CompleteWorkOrderInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -298,7 +298,7 @@ export class CompleteWorkOrderInput {
 export class VerifyWorkOrderInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -307,7 +307,7 @@ export class VerifyWorkOrderInput {
 
   @Field(() => Boolean, { defaultValue: true })
   @IsBoolean()
-  approved: boolean;
+  approved!: boolean;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -322,7 +322,7 @@ export class VerifyWorkOrderInput {
 export class ApproveWorkOrderInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()

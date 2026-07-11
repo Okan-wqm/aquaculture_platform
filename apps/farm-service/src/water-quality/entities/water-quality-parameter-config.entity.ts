@@ -102,12 +102,12 @@ export type SpeciesLimits = Record<string, SpeciesLimitEntry>;
 export class WaterQualityParameterConfig {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // PARAMETER IDENTITY
@@ -115,15 +115,15 @@ export class WaterQualityParameterConfig {
 
   @Field({ description: 'Machine-readable code, e.g. temperature, dissolved_oxygen' })
   @Column({ type: 'varchar', length: 50 })
-  code: string;
+  code!: string;
 
   @Field({ description: 'Display name' })
   @Column({ type: 'varchar', length: 100 })
-  name: string;
+  name!: string;
 
   @Field({ description: 'Measurement unit, e.g. °C, mg/L, NTU' })
   @Column({ type: 'varchar', length: 30 })
-  unit: string;
+  unit!: string;
 
   @Field(() => ParameterDataType, { description: 'Value data type' })
   @Column({
@@ -131,11 +131,11 @@ export class WaterQualityParameterConfig {
     enum: ParameterDataType,
     default: ParameterDataType.NUMBER,
   })
-  dataType: ParameterDataType;
+  dataType!: ParameterDataType;
 
   @Field(() => Int, { description: 'Decimal places for number values' })
   @Column({ type: 'smallint', default: 2 })
-  precision: number;
+  precision!: number;
 
   @Field(() => ParameterGroup, { description: 'Parameter group' })
   @Column({
@@ -143,7 +143,7 @@ export class WaterQualityParameterConfig {
     enum: ParameterGroup,
     default: ParameterGroup.BASIC,
   })
-  group: ParameterGroup;
+  group!: ParameterGroup;
 
   // -------------------------------------------------------------------------
   // THRESHOLD LIMITS
@@ -195,7 +195,7 @@ export class WaterQualityParameterConfig {
 
   @Field({ description: 'Chart line/bar color (hex)' })
   @Column({ type: 'varchar', length: 9, default: '#3b82f6' })
-  chartColor: string;
+  chartColor!: string;
 
   @Field({ nullable: true, description: 'Icon identifier' })
   @Column({ type: 'varchar', length: 50, nullable: true })
@@ -203,19 +203,19 @@ export class WaterQualityParameterConfig {
 
   @Field(() => Int, { description: 'Display ordering' })
   @Column({ type: 'smallint', default: 0 })
-  displayOrder: number;
+  displayOrder!: number;
 
   @Field({ description: 'Visible in UI lists and charts' })
   @Column({ default: true })
-  isVisible: boolean;
+  isVisible!: boolean;
 
   @Field({ description: 'Required during measurement entry' })
   @Column({ default: false })
-  isRequired: boolean;
+  isRequired!: boolean;
 
   @Field({ description: 'Parameter is active and available for use' })
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true, description: 'Chart Y-axis group (left or right)' })
   @Column({ type: 'varchar', length: 20, nullable: true, default: 'left' })
@@ -223,7 +223,7 @@ export class WaterQualityParameterConfig {
 
   @Field({ description: 'Show in quick-access measurement panel' })
   @Column({ default: false })
-  isQuickAccess: boolean;
+  isQuickAccess!: boolean;
 
   @Field({ nullable: true, description: 'Source template identifier if provisioned from template' })
   @Column({ type: 'varchar', length: 50, nullable: true })
@@ -235,9 +235,9 @@ export class WaterQualityParameterConfig {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

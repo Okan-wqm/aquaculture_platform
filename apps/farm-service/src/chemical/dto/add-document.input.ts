@@ -23,31 +23,31 @@ export class AddChemicalDocumentInput {
   @Field(() => ID)
   @IsUUID()
   @IsNotEmpty()
-  chemicalId: string;
+  chemicalId!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
   @MaxLength(36)
-  documentId: string;
+  documentId!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
-  documentName: string;
+  documentName!: string;
 
   @Field(() => ChemicalDocumentType)
   @IsEnum(ChemicalDocumentType)
-  documentType: ChemicalDocumentType;
+  documentType!: ChemicalDocumentType;
 
   @Field()
   @IsString()
   @IsNotEmpty()
-  url: string;
+  url!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
-  uploadedAt: string;
+  uploadedAt!: string;
 }

@@ -57,13 +57,13 @@ export class CreateSparePartInput {
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MaxLength(100)
-  partNumber: string;
+  partNumber!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -95,27 +95,27 @@ export class CreateSparePartInput {
   @Field(() => Int, { defaultValue: 0 })
   @IsNumber()
   @Min(0)
-  quantity: number;
+  quantity!: number;
 
   @Field(() => Int, { defaultValue: 0 })
   @IsNumber()
   @Min(0)
-  minStock: number;
+  minStock!: number;
 
   @Field(() => Int, { defaultValue: 0 })
   @IsNumber()
   @Min(0)
-  maxStock: number;
+  maxStock!: number;
 
   @Field(() => Int, { defaultValue: 0 })
   @IsNumber()
   @Min(0)
-  reorderPoint: number;
+  reorderPoint!: number;
 
   @Field({ defaultValue: 'piece' })
   @IsString()
   @MaxLength(20)
-  unit: string;
+  unit!: string;
 
   @Field(() => StorageLocationInput, { nullable: true })
   @IsOptional()
@@ -132,7 +132,7 @@ export class CreateSparePartInput {
   @Field({ defaultValue: 'TRY' })
   @IsString()
   @MaxLength(3)
-  currency: string;
+  currency!: string;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -153,7 +153,7 @@ export class CreateSparePartInput {
 export class UpdateSparePartInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -271,15 +271,15 @@ export class UpdateSparePartInput {
 export class StockMovementInput {
   @Field(() => ID)
   @IsUUID()
-  sparePartId: string;
+  sparePartId!: string;
 
   @Field(() => Int)
   @IsNumber()
-  quantity: number;
+  quantity!: number;
 
   @Field({ description: 'in | out | adjustment' })
   @IsString()
-  movementType: 'in' | 'out' | 'adjustment';
+  movementType!: 'in' | 'out' | 'adjustment';
 
   @Field({ nullable: true })
   @IsOptional()

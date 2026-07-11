@@ -59,6 +59,18 @@ export type WithdrawalBlockSurface = 'close_batch' | 'harvest_record' | 'harvest
 export type BackdateContext = 'feeding' | 'growth' | 'mortality' | 'harvest';
 export type SetupLegacyContract = 'graphql' | 'rest_upload' | 'path_document' | 'document_id';
 
+/**
+ * OBS-HIGH-001 — terminal outcome of a regulatory submission attempt. A
+ * Mattilsynet REST call the regulator accepted (`submitted`), a call it
+ * rejected or that failed in transport (`failed`), or a varsling report
+ * committed to the outbox for urgent dispatch (`queued`). Before this metric
+ * a rejection returned GraphQL-200 and counted as success everywhere.
+ */
+export type RegulatorySubmissionOutcome = 'submitted' | 'failed' | 'queued';
+
+/** OBS-HIGH-002 — terminal outcome of a scheduled regulatory cron job run. */
+export type RegulatoryCronOutcome = 'success' | 'error' | 'skipped_locked';
+
 @Injectable()
 export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FarmDomainMetricsService.name);
@@ -71,6 +83,10 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private backdateRejections!: client.Counter;
   private setupLegacyWrites!: client.Counter;
   private setupLegacyReads!: client.Counter;
+  private waterTemperatureReadFailures!: client.Counter;
+  private regulatorySubmissions!: client.Counter;
+  private regulatoryCronRuns!: client.Counter;
+  private regulatoryCronLastRun!: client.Gauge;
 
   constructor() {
     this.registry = new client.Registry();
@@ -238,6 +254,78 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       labelNames: ['surface', 'operation', 'contract'],
       registers: [this.registry],
     });
+
+    // 2026-07-06 incident: a temperature-source infrastructure failure (the
+    // live case: missing grant on sensor_temperature_latest) used to abort
+    // batchMetrics and daily feeding wholesale. The WaterTemperatureService
+    // bulkhead degrades the failed source to null — this counter is the LOUD
+    // half of that degradation (alert on rate > 0).
+    this.waterTemperatureReadFailures = new client.Counter({
+      name: 'farm_water_temperature_read_failures_total',
+      help: 'WaterTemperatureService per-source read failures degraded to null by the bulkhead',
+      labelNames: ['source'],
+      registers: [this.registry],
+    });
+
+    // OBS-HIGH-001: RED rate+errors for the government-submission pipeline.
+    // Before this a Mattilsynet rejection returned GraphQL-200 and was
+    // invisible; the failed-vs-total ratio is what the operator alert watches.
+    this.regulatorySubmissions = new client.Counter({
+      name: 'farm_regulatory_submission_total',
+      help: 'Regulatory report submission outcomes by report type and terminal outcome',
+      labelNames: ['report_type', 'outcome'],
+      registers: [this.registry],
+    });
+
+    // OBS-HIGH-002: cron execution visibility + heartbeat for the regulatory
+    // scheduler jobs (weekly/monthly rollover, deadline sweep, retry sweep).
+    this.regulatoryCronRuns = new client.Counter({
+      name: 'farm_regulatory_cron_runs_total',
+      help: 'Regulatory scheduler job runs by job name and outcome',
+      labelNames: ['job', 'outcome'],
+      registers: [this.registry],
+    });
+
+    this.regulatoryCronLastRun = new client.Gauge({
+      name: 'farm_regulatory_cron_last_run_timestamp_seconds',
+      help: 'Unix timestamp of the last run of each regulatory scheduler job (heartbeat)',
+      labelNames: ['job'],
+      registers: [this.registry],
+    });
+  }
+
+  /** One temperature source failed and was degraded to null by the bulkhead. */
+  recordWaterTemperatureReadFailure(params: { source: 'sensor' | 'manual' }): void {
+    this.waterTemperatureReadFailures.inc({ source: params.source });
+  }
+
+  /**
+   * OBS-HIGH-001 — record the terminal outcome of a regulatory submission at
+   * the persistence choke point (markSubmitted / applyFailure / recordQueued).
+   * `report_type` is a bounded enum (8 values); no tenant label, per the
+   * class-level label discipline. This is the RED rate+errors signal the
+   * government-submission pipeline previously lacked — a rejection used to
+   * count as success everywhere.
+   */
+  incRegulatorySubmission(params: {
+    reportType: string;
+    outcome: RegulatorySubmissionOutcome;
+    tenantId?: string;
+  }): void {
+    this.regulatorySubmissions.inc({
+      report_type: params.reportType,
+      outcome: params.outcome,
+    });
+  }
+
+  /**
+   * OBS-HIGH-002 — record that a scheduled regulatory cron job ran, with its
+   * outcome, AND stamp the last-run wall-clock so an alert can fire when a job
+   * stops running entirely (heartbeat). `job` is a bounded set of job names.
+   */
+  recordRegulatoryCronRun(params: { job: string; outcome: RegulatoryCronOutcome }): void {
+    this.regulatoryCronRuns.inc({ job: params.job, outcome: params.outcome });
+    this.regulatoryCronLastRun.set({ job: params.job }, Date.now() / 1000);
   }
 
 }

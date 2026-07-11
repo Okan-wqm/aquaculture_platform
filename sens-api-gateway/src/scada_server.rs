@@ -508,6 +508,60 @@ impl ScadaState {
         self.inner.package.read().await.clone()
     }
 
+    /// Restore the process sink to "no process": clear the in-memory
+    /// definition, drop the persisted file, and broadcast the empty
+    /// state. Used by `cmd_deploy_bundle`'s apply-phase rollback to undo
+    /// a process applied on a device that had none before the bundle
+    /// (the pre-image was `None`). Errors surface so the caller can
+    /// downgrade a `rolled_back` ack to `failed` when the restore itself
+    /// faults (operator must intervene).
+    pub async fn clear_process(&self) -> Result<(), String> {
+        let path = Path::new(SCADA_DIR).join("process.json");
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("Failed to remove {}: {}", path.display(), e)),
+        }
+
+        let msg = serde_json::json!({ "type": "setProcess", "data": serde_json::Value::Null });
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = self.inner.broadcast_tx.send(json);
+        }
+
+        *self.inner.process.write().await = None;
+        Ok(())
+    }
+
+    /// Restore the package sink to "no package": clear the in-memory
+    /// definition, drop the persisted file, empty the alarm rule set, and
+    /// broadcast the empty state. Counterpart of `clear_process` for the
+    /// bundle rollback's `None` pre-image case. The SQLite version history
+    /// is intentionally left intact (append-only audit trail).
+    pub async fn clear_package(&self) -> Result<(), String> {
+        let path = Path::new(SCADA_DIR).join("package.json");
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("Failed to remove {}: {}", path.display(), e)),
+        }
+
+        // A cleared package has no alarm rules; drop the active set so a
+        // rolled-back device does not keep evaluating rules from the
+        // failed bundle.
+        {
+            let mut alarm_engine = self.inner.alarm_engine.lock().await;
+            alarm_engine.update_rules(Vec::new());
+        }
+
+        let msg = serde_json::json!({ "type": "setPackage", "data": serde_json::Value::Null });
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = self.inner.broadcast_tx.send(json);
+        }
+
+        *self.inner.package.write().await = None;
+        Ok(())
+    }
+
     /// Get display active status
     pub async fn is_display_active(&self) -> bool {
         *self.inner.display_active.read().await

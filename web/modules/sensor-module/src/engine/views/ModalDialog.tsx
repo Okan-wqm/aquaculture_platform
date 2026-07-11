@@ -6,7 +6,7 @@
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
 import ScadaViewport from './ScadaViewport';
 import type { OverlayEntry } from './types';
@@ -16,9 +16,9 @@ interface ModalDialogProps {
 }
 
 export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
-  const screens = useScadaStore((s) => s.screens);
-  const closeOverlay = useScadaStore((s) => s.closeOverlay);
-  const simTagValues = useScadaStore((s) => s.simTagValues);
+  const screens = useScadaPackageStore((s) => s.screens);
+  const closeOverlay = useScadaPackageStore((s) => s.closeOverlay);
+  const simTagValues = useScadaPackageStore((s) => s.simTagValues);
 
   const screen = useMemo(
     () => screens.find((s) => s.id === overlay.screenId),

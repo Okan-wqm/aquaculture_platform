@@ -32,7 +32,7 @@ import {
 } from '../../../types/scada-transform.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
-import { useScadaPackageStore } from '../../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../../store/scada';
 import type { SimTagValue } from '../../../store/scada/types';
 // FIX: useScadaRuntime throw eder — doğrudan context kullanarak Rules of Hooks ihlalini önlüyoruz
 // FIX: useScadaRuntime throws — use context directly to prevent Rules of Hooks violation

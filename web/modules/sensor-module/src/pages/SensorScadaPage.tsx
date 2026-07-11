@@ -23,7 +23,8 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
-import { useScadaStore, type ScadaProcess } from '../store/scadaStore';
+import { useScadaViewerStore, type ScadaProcess } from '../store/scadaViewerStore';
+import { isLegacyScadaViewerEnabled } from '../config/featureFlags';
 import { useSensorList } from '../hooks/useSensorList';
 import { useActiveProcesses } from '../hooks/useProcess';
 import { ScadaViewer } from '../components/scada/ScadaViewer';
@@ -136,7 +137,7 @@ const SensorScadaPage: React.FC = () => {
     setProcesses,
     setIsLiveMode,
     setSelectedProcessId,
-  } = useScadaStore();
+  } = useScadaViewerStore();
 
   // Trend panel state
   const [isTrendOpen, setIsTrendOpen] = useState(false);
@@ -238,7 +239,7 @@ const SensorScadaPage: React.FC = () => {
             <LayoutGrid className="w-4 h-4" />
           </Link>
           <Link
-            to="/sensor/process/new"
+            to="/sensor/unified-editor/new"
             className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs bg-cyan-600 hover:bg-cyan-700 rounded-md transition-colors"
           >
             <PlusCircle className="w-3.5 h-3.5" />
@@ -251,7 +252,27 @@ const SensorScadaPage: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* SCADA Viewer */}
         <div className="flex-1 relative">
-          {selectedProcess ? (
+          {!isLegacyScadaViewerEnabled() ? (
+            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+              <div className="text-center max-w-md">
+                <Layers className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-700 mb-2">
+                  Bu görünüm emekliye ayrıldı
+                </h2>
+                <p className="text-gray-500 mb-6">
+                  Eski iframe SCADA görüntüleyici kaldırılıyor. HMI tasarımı ve canlı
+                  çalışma için SCADA Paketleri&apos;ni kullanın.
+                </p>
+                <Link
+                  to="/sensor/scada-packages"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  SCADA Paketleri
+                </Link>
+              </div>
+            </div>
+          ) : selectedProcess ? (
             <ScadaViewer className="w-full h-full" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-50">
@@ -267,7 +288,7 @@ const SensorScadaPage: React.FC = () => {
                 {/* BUG-005: ProcessSelector already in header toolbar — only show the "new process" link here */}
                 <div className="flex items-center justify-center gap-3">
                   <Link
-                    to="/sensor/process/new"
+                    to="/sensor/unified-editor/new"
                     className="flex items-center gap-2 px-4 py-2 text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
                   >
                     <PlusCircle className="w-4 h-4" />

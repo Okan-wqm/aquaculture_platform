@@ -6,7 +6,7 @@ import { createOverlayHandler } from './events/handlers/OverlayHandler';
 import { createTagWriteHandler } from './events/handlers/TagWriteHandler';
 import { createSetPropertyHandler } from './events/handlers/SetPropertyHandler';
 import { createCloseDialogHandler } from './events/handlers/CloseDialogHandler';
-import { useScadaStore } from '../store/scada';
+import { useScadaPackageStore } from '../store/scada';
 import { AnimationStyles } from './animation/AnimationStyles';
 import { ThemeProvider } from './theme/ThemeProvider';
 
@@ -21,9 +21,9 @@ export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children
   const tagBus = useMemo(() => new TagValueBus(), []);
   const eventBus = useMemo(() => new WidgetEventBus(), []);
 
-  const setActiveScreen = useScadaStore((s) => s.setActiveScreen);
-  const openOverlay = useScadaStore((s) => s.openOverlay);
-  const updateWidget = useScadaStore((s) => s.updateWidget);
+  const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
+  const openOverlay = useScadaPackageStore((s) => s.openOverlay);
+  const updateWidget = useScadaPackageStore((s) => s.updateWidget);
 
   // Register action handlers
   useEffect(() => {
@@ -38,7 +38,7 @@ export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children
     unsubs.push(
       eventBus.register(
         'closeDialog',
-        createCloseDialogHandler(() => useScadaStore.getState()),
+        createCloseDialogHandler(() => useScadaPackageStore.getState()),
       ),
     );
 
@@ -46,7 +46,7 @@ export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children
   }, [eventBus, tagBus, setActiveScreen, openOverlay, updateWidget]);
 
   // Bridge: simulation store tag values -> TagValueBus
-  const simTagValues = useScadaStore((s) => s.simTagValues);
+  const simTagValues = useScadaPackageStore((s) => s.simTagValues);
   useEffect(() => {
     tagBus.publishBatch(simTagValues);
   }, [tagBus, simTagValues]);

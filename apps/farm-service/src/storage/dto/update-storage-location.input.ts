@@ -7,7 +7,7 @@ import { StorageLocationType } from '../entities/storage-location.entity';
 export class UpdateStorageLocationInput extends PartialType(CreateStorageLocationInput) {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()

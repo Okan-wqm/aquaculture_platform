@@ -85,7 +85,9 @@ export interface MessageUser {
   id: string;
   firstName?: string | null;
   lastName?: string | null;
-  email?: string | null;
+  // email intentionally absent: a message sender / channel member is a
+  // PublicUserProfile (display-only) — email never crosses the federated
+  // reference. Use firstName/lastName for names.
   displayName?: string | null;
   profileImageUrl?: string | null;
   avatarUrl?: string | null;

@@ -132,11 +132,11 @@ export interface TankSpecifications {
 @Index(['tenantId', 'isVisibleInSensor'])
 export class Equipment {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // Ekipman Department'a VEYA SubSystem'e bağlı olabilir
   @Column('uuid', { nullable: true })
@@ -181,17 +181,17 @@ export class Equipment {
   // -------------------------------------------------------------------------
 
   @Column('uuid')
-  equipmentTypeId: string;
+  equipmentTypeId!: string;
 
   @ManyToOne(() => EquipmentType)
   @JoinColumn({ name: 'equipmentTypeId' })
-  equipmentType: EquipmentType;
+  equipmentType!: EquipmentType;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ length: 50 })
-  code: string;
+  code!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
@@ -225,14 +225,14 @@ export class Equipment {
   purchasePrice?: number;
 
   @Column({ length: 3, default: 'TRY' })
-  currency: string;
+  currency!: string;
 
   @Column({
     type: 'enum',
     enum: EquipmentStatus,
     default: EquipmentStatus.OPERATIONAL,
   })
-  status: EquipmentStatus;
+  status!: EquipmentStatus;
 
   @Column({ type: 'jsonb', nullable: true })
   location?: EquipmentLocation;
@@ -252,7 +252,7 @@ export class Equipment {
   supplierId?: string;
 
   @Column({ type: 'int', default: 0 })
-  subEquipmentCount: number;
+  subEquipmentCount!: number;
 
   @Column({
     type: 'decimal',
@@ -268,11 +268,11 @@ export class Equipment {
 
   // Tank-specific denormalized fields
   @Column({ default: false })
-  isTank: boolean;
+  isTank!: boolean;
 
   // Sensor Module visibility flag
   @Column({ default: false })
-  isVisibleInSensor: boolean;
+  isVisibleInSensor!: boolean;
 
   /**
    * Linked temperature sensor (sensor-service `sensors.id`) — set when a tank/
@@ -306,11 +306,11 @@ export class Equipment {
   currentCount?: number; // Mevcut adet - tank için
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // Soft delete fields
   @Column({ default: false })
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Column({ type: 'timestamptz', nullable: true })
   deletedAt?: Date;
@@ -319,10 +319,10 @@ export class Equipment {
   deletedBy?: string;
 
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column('uuid', { nullable: true })
   createdBy?: string;
@@ -331,7 +331,7 @@ export class Equipment {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // LIFECYCLE HOOKS

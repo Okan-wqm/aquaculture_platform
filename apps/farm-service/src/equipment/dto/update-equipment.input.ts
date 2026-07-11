@@ -10,7 +10,7 @@ import { EquipmentStatus } from '../entities/equipment.entity';
 export class UpdateEquipmentInput extends PartialType(CreateEquipmentInput) {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   // Override inherited required fields to make them optional for partial updates
   @Field(() => String, { nullable: true })

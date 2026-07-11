@@ -28,7 +28,6 @@ import { MessageAnalysis } from './entities/message-analysis.entity';
 import { MessageEntityReference } from './entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './entities/embeddings-metadata.entity';
-import { TenantAiSetting } from './entities/tenant-ai-setting.entity';
 import { UserAiConsent } from './entities/user-ai-consent.entity';
 import { Message } from '../message/entities/message.entity';
 import { Channel } from '../channel/entities/channel.entity';
@@ -94,7 +93,6 @@ const services = [
       // ADR-015 follow-up: AI privacy consent tables registered for
       // repository injection in AiPrivacyService (replaces prior
       // raw-SQL queries that drifted on table + column names).
-      TenantAiSetting,
       UserAiConsent,
       Message,
       Channel,

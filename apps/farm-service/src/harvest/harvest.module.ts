@@ -27,11 +27,14 @@ import { TankOperation } from '../batch/entities/tank-operation.entity';
 import { TankBatchModule } from '../batch/tank-batch.module';
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
+// FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
+import { FinanceModule } from '../finance/finance.module';
 import { FishHealthModule } from '../fish-health/fish-health.module';
 import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
 import { Tank } from '../tank/entities/tank.entity';
 
 import { HarvestPlan } from './entities/harvest-plan.entity';
+import { GetHarvestOverviewResponder } from './responders/get-harvest-overview.responder';
 import { HarvestRecord } from './entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
 import { DeleteHarvestRecordHandler } from './handlers/delete-harvest-record.handler';
@@ -66,6 +69,7 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
     FishHealthModule,
     BackdatePolicyModule,
     FarmStockModule,
+    FinanceModule,
     ConfigModule,
     // create/delete-harvest route their tank-batch decrement through the SSoT
     // writer (applyBatchDelta, ORPHAN-HIGH-272). It lives in TankBatchModule so
@@ -73,6 +77,7 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
     // boot ("can't resolve TankBatchService"). Guarded by harvest.module.di.spec.ts.
     TankBatchModule,
   ],
+  controllers: [GetHarvestOverviewResponder],
   providers: [
     // Services
     HarvestPlanService,

@@ -10,17 +10,26 @@ import { Chemical, ChemicalStatus } from '../entities/chemical.entity';
 import { ChemicalSite } from '../entities/chemical-site.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
 import { Site } from '../../site/entities/site.entity';
+import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 @CommandHandler(CreateChemicalCommand)
 export class CreateChemicalHandler implements ICommandHandler<CreateChemicalCommand, Chemical> {
   private readonly logger = new Logger(CreateChemicalHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly financeSettings: FinanceSettingsService,
+  ) {}
 
   async execute(command: CreateChemicalCommand): Promise<Chemical> {
     const { input, tenantId, userId } = command;
 
     this.logger.log(`Creating chemical "${input.name}" for tenant ${tenantId}`);
+
+    // Currency SSoT (FARM-HIGH-151): tenant default resolved from
+    // finance_settings, never a hardcoded literal — so chemicals book in
+    // the same currency as the rest of the tenant's finance ledger.
+    const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const chemicalRepo = tenantManagerRepo(queryRunner.manager, Chemical, tenantId);
@@ -91,7 +100,7 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
           uploadedBy: userId,
         })),
         unitPrice: input.unitPrice,
-        currency: input.currency ?? 'TRY',
+        currency: input.currency ?? defaultCurrency,
         notes: input.notes,
         isActive: true,
         createdBy: userId,

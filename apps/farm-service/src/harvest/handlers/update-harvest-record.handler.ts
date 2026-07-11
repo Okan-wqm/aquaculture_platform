@@ -23,7 +23,8 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type HarvestRecordUpdatedEvent,
 } from '@platform/event-contracts';
@@ -35,7 +36,6 @@ const UPDATABLE_FIELDS = [
   'quantityHarvested',
   'totalBiomass',
   'averageWeight',
-  'qualityGrade',
   'method',
   'productForm',
   'totalRevenue',
@@ -49,7 +49,9 @@ const UPDATABLE_FIELDS = [
 
 @Injectable()
 @CommandHandler(UpdateHarvestRecordCommand)
-export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvestRecordCommand, HarvestRecord> {
+export class UpdateHarvestRecordHandler
+  implements ICommandHandler<UpdateHarvestRecordCommand, HarvestRecord>
+{
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -85,6 +87,13 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
           changedFields.push(field);
           (harvestRecord as unknown as Record<string, unknown>)[field] = incoming;
         }
+      }
+
+      // quality_class is the sole stored quality taxonomy (RPT-007). The
+      // qualityGrade output field is a read-only derived alias — never persisted.
+      if (data.qualityClass !== undefined) {
+        harvestRecord.qualityClass = data.qualityClass;
+        changedFields.push('qualityClass');
       }
 
       const saved = await queryRunner.manager.save(HarvestRecord, harvestRecord);

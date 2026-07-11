@@ -69,52 +69,52 @@ export class SparePartListResponse extends StandardPaginatedResponse(SparePart) 
 @ObjectType()
 export class LowStockAlertResponse {
   @Field(() => SparePart)
-  sparePart: SparePart;
+  sparePart!: SparePart;
 
   @Field(() => Int)
-  currentQuantity: number;
+  currentQuantity!: number;
 
   @Field(() => Int)
-  minStock: number;
+  minStock!: number;
 
   @Field(() => Int)
-  reorderPoint: number;
+  reorderPoint!: number;
 
   @Field(() => Int)
-  deficit: number;
+  deficit!: number;
 }
 
 @ObjectType()
 export class StockSummaryResponse {
   @Field(() => Int)
-  totalParts: number;
+  totalParts!: number;
 
   @Field(() => Float)
-  totalValue: number;
+  totalValue!: number;
 
   @Field(() => Int)
-  lowStockCount: number;
+  lowStockCount!: number;
 
   @Field(() => Int)
-  outOfStockCount: number;
+  outOfStockCount!: number;
 
   @Field(() => Int)
-  inStockCount: number;
+  inStockCount!: number;
 
   @Field(() => Int)
-  onOrderCount: number;
+  onOrderCount!: number;
 
   @Field(() => Int)
-  discontinuedCount: number;
+  discontinuedCount!: number;
 }
 
 @ObjectType()
 export class DeleteSparePartResponse {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   message?: string;
@@ -123,10 +123,10 @@ export class DeleteSparePartResponse {
 @InputType('BulkStockInItemInput')
 export class BulkStockInItemInput {
   @Field(() => ID)
-  sparePartId: string;
+  sparePartId!: string;
 
   @Field(() => Int)
-  quantity: number;
+  quantity!: number;
 
   @Field({ nullable: true })
   notes?: string;

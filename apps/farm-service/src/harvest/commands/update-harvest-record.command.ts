@@ -5,7 +5,7 @@
  *
  * @module Harvest/Commands
  */
-import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
+import { HarvestRecordStatus, QualityClass } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 export interface UpdateHarvestRecordData {
@@ -13,7 +13,8 @@ export interface UpdateHarvestRecordData {
   quantityHarvested?: number;
   totalBiomass?: number;
   averageWeight?: number;
-  qualityGrade?: QualityGrade;
+  /** Norwegian quality class — the stored SSoT (RPT-007). */
+  qualityClass?: QualityClass;
   method?: HarvestMethod;
   productForm?: ProductForm;
   totalRevenue?: number;

@@ -176,3 +176,68 @@ spec:
               without operator replay. Inspect the lastError on the dead
               outbox rows and the downstream NATS subject.
             runbook_url: "https://wiki.internal/runbooks/farm-outbox-backlog"
+
+    # ========================================================================
+    # Regulatory (Mattilsynet / Fiskeridirektoratet) submission pipeline
+    #   farm_regulatory_submission_total{report_type,outcome} (counter),
+    #   farm_regulatory_cron_runs_total{job,outcome} (counter) +
+    #   farm_regulatory_cron_last_run_timestamp_seconds{job} (gauge heartbeat)
+    #   — all emitted by farm-domain-metrics.service.ts (OBS-HIGH-001/002).
+    #   Before these, a Mattilsynet rejection returned GraphQL-200 and counted
+    #   as success everywhere, and a wedged scheduler was invisible.
+    # ========================================================================
+    - name: aquaculture.farm.regulatory
+      rules:
+        - alert: FarmRegulatorySubmissionFailuresElevated
+          # Government filings are low-volume, so an absolute count is the right
+          # sensitivity: 3+ FAILED transitions in an hour is a pattern (broken
+          # Maskinporten auth, schema drift, a stuck report) an operator must
+          # act on — not a single recovered TRANSIENT blip.
+          expr: |
+            sum(increase(farm_regulatory_submission_total{namespace="aquaculture",app="farm-service",outcome="failed"}[1h])) >= 3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Regulatory submission failures elevated"
+            description: >-
+              farm-service recorded {{ $value }} FAILED regulatory submission
+              transitions in the last hour. A Mattilsynet rejection or transport
+              failure no longer hides behind a GraphQL-200 — check
+              farm_regulatory_submission_total by report_type and the failed
+              regulatory_reports rows (feilmelding, failureClass).
+            runbook_url: "https://wiki.internal/runbooks/farm-regulatory-submission"
+
+        - alert: FarmRegulatoryRetrySweepStalled
+          # The retry sweep runs every 30 minutes; no heartbeat for 90 minutes
+          # means the regulatory scheduler is wedged and FAILED+TRANSIENT reports
+          # are no longer being replayed.
+          expr: |
+            time() - max(farm_regulatory_cron_last_run_timestamp_seconds{namespace="aquaculture",app="farm-service",job="regulatory-retry-sweep"}) > 5400
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Regulatory retry sweep has not run in 90 minutes"
+            description: >-
+              The regulatory-retry-sweep cron (30-minute cadence) has not stamped
+              a heartbeat for over 90 minutes. TRANSIENT-failed regulatory reports
+              are not being replayed. Check the farm-service scheduler and the
+              advisory-lock holder.
+            runbook_url: "https://wiki.internal/runbooks/farm-regulatory-submission"
+
+        - alert: FarmRegulatoryCronErrored
+          # An outcome=error run means the job itself aborted (e.g. tenant
+          # discovery failed) — distinct from an absorbed per-tenant failure.
+          expr: |
+            sum(increase(farm_regulatory_cron_runs_total{namespace="aquaculture",app="farm-service",outcome="error"}[15m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A regulatory scheduler job aborted"
+            description: >-
+              A regulatory scheduler job run aborted (outcome=error) in the last
+              15 minutes — the whole run broke, not just one tenant. Check the
+              farm-service scheduler logs for the aborting job.
+            runbook_url: "https://wiki.internal/runbooks/farm-regulatory-submission"

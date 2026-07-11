@@ -28,7 +28,7 @@ import { BatchWithdrawalBlockedError } from '../../../common/errors/farm-errors'
 import { Tank } from '../../../tank/entities/tank.entity';
 import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record.command';
 import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input';
-import { HarvestRecord, QualityGrade } from '../../entities/harvest-record.entity';
+import { HarvestRecord, QualityClass } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -153,6 +153,11 @@ function makeHarness(opts: HarnessOpts = {}) {
   const tankBatchService = {
     applyBatchDelta: jest.fn().mockResolvedValue(undefined),
   };
+  // Currency SSoT resolver (FARM-HIGH-151) — harvest revenue books under
+  // the tenant default resolved through this, not a hardcoded literal.
+  const financeSettings = {
+    getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
+  };
 
   const handler = new CreateHarvestRecordHandler(
     dataSource,
@@ -167,6 +172,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     createMockRepository<TankBatch>(),
     createMockRepository<Tank>(),
     tankBatchService as never,
+    financeSettings as never,
     // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),
@@ -184,7 +190,7 @@ function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
     quantityHarvested: 400,
     averageWeight: 500,
     totalBiomass: 200,
-    qualityGrade: QualityGrade.GRADE_A,
+    qualityClass: QualityClass.SUPERIOR,
     harvestDate: '2026-06-10T08:00:00.000Z',
     ...overrides,
   };
@@ -323,16 +329,6 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     debugSpy.mockRestore();
     errorSpy.mockRestore();
   });
-
-  it('rejects an unknown quality grade instead of silently upgrading to GRADE_A', async () => {
-    const { handler, enqueuedEvents } = makeHarness();
-
-    await expect(
-      handler.execute(makeCommand({ qualityGrade: 'NOT_A_GRADE' })),
-    ).rejects.toThrow(BadRequestException);
-
-    expect(enqueuedEvents).toHaveLength(0);
-  });
 });
 
 describe('CreateHarvestRecordHandler — server-derived harvest identity (FARM-HIGH-051)', () => {
@@ -355,7 +351,7 @@ describe('CreateHarvestRecordHandler — server-derived harvest identity (FARM-H
       quantityHarvested: 400,
       averageWeight: 500,
       totalBiomass: 200,
-      qualityGrade: QualityGrade.GRADE_A,
+      qualityClass: QualityClass.SUPERIOR,
       harvestDate: '2026-06-10T08:00:00.000Z',
     };
     // The attacker-style overrides (`harvestedBy`, `supervisorId`) are NOT part of

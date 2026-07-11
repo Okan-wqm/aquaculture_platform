@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Search, Box } from 'lucide-react';
-import { useScadaStore } from '../../store/scada';
+import { useScadaPackageStore } from '../../store/scada';
 
 export const WidgetSearchPanel: React.FC = () => {
-  const screens = useScadaStore((s) => s.screens);
-  const activeScreenId = useScadaStore((s) => s.activeScreenId);
-  const selectedWidgetId = useScadaStore((s) => s.selectedWidgetId);
-  const setActiveScreen = useScadaStore((s) => s.setActiveScreen);
-  const setSelectedWidget = useScadaStore((s) => s.setSelectedWidget);
+  const screens = useScadaPackageStore((s) => s.screens);
+  const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
+  const selectedWidgetId = useScadaPackageStore((s) => s.selectedWidgetId);
+  const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
+  const setSelectedWidget = useScadaPackageStore((s) => s.setSelectedWidget);
   const [searchText, setSearchText] = useState('');
 
   const results = useMemo(() => {

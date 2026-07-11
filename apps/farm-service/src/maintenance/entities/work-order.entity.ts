@@ -196,12 +196,12 @@ export interface RelatedAsset {
 export class WorkOrder {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -210,11 +210,11 @@ export class WorkOrder {
   @Field()
   @Column({ length: 50 })
   @Index()
-  workOrderCode: string;             // WO-2024-00001
+  workOrderCode!: string;             // WO-2024-00001
 
   @Field()
   @Column({ length: 200 })
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -227,7 +227,7 @@ export class WorkOrder {
     default: WorkOrderType.CORRECTIVE,
   })
   @Index()
-  type: WorkOrderType;
+  type!: WorkOrderType;
 
   @Field(() => WorkOrderStatus)
   @Column({
@@ -236,7 +236,7 @@ export class WorkOrder {
     default: WorkOrderStatus.DRAFT,
   })
   @Index()
-  status: WorkOrderStatus;
+  status!: WorkOrderStatus;
 
   @Field(() => WorkOrderPriority)
   @Column({
@@ -245,7 +245,7 @@ export class WorkOrder {
     default: WorkOrderPriority.MEDIUM,
   })
   @Index()
-  priority: WorkOrderPriority;
+  priority!: WorkOrderPriority;
 
   // -------------------------------------------------------------------------
   // İLİŞKİLİ VARLIK
@@ -318,7 +318,7 @@ export class WorkOrder {
 
   @Field()
   @Column('uuid')
-  createdBy: string;
+  createdBy!: string;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -378,7 +378,7 @@ export class WorkOrder {
 
   @Field()
   @Column({ default: false })
-  isRecurring: boolean;              // Tekrarlayan mı
+  isRecurring!: boolean;              // Tekrarlayan mı
 
   // -------------------------------------------------------------------------
   // TAMAMLAMA
@@ -434,11 +434,11 @@ export class WorkOrder {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

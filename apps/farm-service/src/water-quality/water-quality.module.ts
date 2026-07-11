@@ -21,7 +21,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
+import { GetWaterQualityOverviewResponder } from './responders/get-water-quality-overview.responder';
 import { SensorTemperatureLatest } from './entities/sensor-temperature-latest.entity';
+import { SensorTemperatureDaily } from './entities/sensor-temperature-daily.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
 import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
 
@@ -67,6 +69,7 @@ import { SpeciesModule } from '../species/species.module';
 import { FeedModule } from '../feed/feed.module';
 import { RegulatoryModule } from '../regulatory/regulatory.module';
 import { EquipmentModule } from '../equipment/equipment.module';
+import { FinanceModule } from '../finance/finance.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -89,6 +92,7 @@ const CommandHandlers = [
       Tank,
       Equipment,
       SensorTemperatureLatest,
+      SensorTemperatureDaily,
     ]),
     // Onboarding handler fans out to sibling seeders. Each source
     // module re-exports its seeder service so the handler can
@@ -98,7 +102,9 @@ const CommandHandlers = [
     FeedModule,
     RegulatoryModule,
     EquipmentModule,
+    FinanceModule,
   ],
+  controllers: [GetWaterQualityOverviewResponder],
   providers: [
     WaterQualityService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.

@@ -28,6 +28,12 @@
 // `impl CommandHandler { ... cmd_X ... }` block):
 mod apply_signed_manifest;
 mod audit_emit;
+// Faz 5 two-phase release-bundle apply (verify → staged ack →
+// atomic apply → confirmed/failed). Verification core is a pure
+// function so "broken checksum applies nothing" is testable.
+// pub(crate): contract_fixtures_tests runs the shared fixture
+// through the full verify pipeline.
+pub(crate) mod bundle_deploy;
 pub(crate) mod catalog;
 mod cert_pinning;
 mod confirm_slot;

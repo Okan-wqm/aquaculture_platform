@@ -69,7 +69,6 @@ import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
-import { AiRoutesModule } from './routes/v2/ai.routes';
 import { MarineRoutesModule } from './routes/marine.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
 import { UploadModule } from './upload/upload.module';
@@ -447,8 +446,9 @@ function positiveIntConfig(
     // WebSocket module for real-time sensor data
     WebSocketModule,
 
-    // AI service proxy routes (chat, conversations)
-    AiRoutesModule,
+    // AI chat is no longer a REST proxy — it rides the AiChatGateway socket.io
+    // bridge (WebSocketModule) over NATS request.ai.chat, and AI settings are a
+    // federated GraphQL subgraph (ai-service). The hand-rolled proxy is deleted.
 
     // Backend-owned marine data REST gateway. Browser code talks to this
     // route only; gateway signs the internal farm-service request.

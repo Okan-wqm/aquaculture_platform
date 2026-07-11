@@ -693,6 +693,28 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::ProgramDeployApplied,
         AuditAction::ProgramDeployRequested
     ),
+    // A release bundle is the transactional grouping of the SAME artifacts
+    // deploy_process / deploy_scada_package / deploy_program apply, so it takes
+    // the identical DeployProgram permission class and ProgramDeploy audit
+    // taxonomy as its sibling deploy_scada_package (both are integrity-gated by
+    // a REQUIRED ed25519 manifest signature + tenant binding + per-artifact
+    // checksum + verify-before-apply staging). EDGE-HIGH-003: cmd_deploy_bundle
+    // had a dispatch arm (dispatch_lifecycle.rs) but no catalog entry, so every
+    // catalog lookup fell through to its .unwrap_or fallback — resolving the
+    // command to the SafeStateTrigger permission (wrong RBAC class for a deploy)
+    // and, critically, to NO audit action (audit_action_for_command returns None
+    // for an uncataloged command), so a bundle apply left no ProgramDeploy audit
+    // record. This entry gives deploy_bundle the same permission + audit + legacy
+    // policy as the parts it groups.
+    entry!(
+        "deploy_bundle",
+        "cmd_deploy_bundle",
+        PermissionResolver::Static(StaticPermission::DeployProgram),
+        LegacyPolicy::DenyUnsignedInEnforcing,
+        false,
+        AuditAction::ProgramDeployApplied,
+        AuditAction::ProgramDeployRequested
+    ),
     entry!(
         "display_on",
         "cmd_display_on",
@@ -817,6 +839,7 @@ pub(crate) const MUTATING_WIRE_NAMES: &[&str] = &[
     "delete_bytecode_program",
     "delete_script",
     "deploy_auto",
+    "deploy_bundle",
     "deploy_bytecode_program",
     "deploy_process",
     "deploy_program",
@@ -1017,5 +1040,37 @@ mod tests {
     fn refresh_license_uses_license_permission() {
         let p = permission_for_command("refresh_license", &Value::Null);
         assert!(matches!(p, Some(Permission::ManageLicense)));
+    }
+
+    /// EDGE-HIGH-003 regression: cmd_deploy_bundle has a dispatch arm but for a
+    /// while had no catalog entry, so the command resolved through the .unwrap_or
+    /// fallbacks — SafeStateTrigger permission (wrong RBAC class) and NO audit
+    /// action (a bundle apply left no ProgramDeploy audit record). It must now
+    /// resolve to exactly the same permission + audit + legacy policy as the
+    /// sibling deploy_scada_package whose artifacts it groups.
+    #[test]
+    fn deploy_bundle_resolves_like_deploy_scada_package() {
+        let bundle = entry_for_command("deploy_bundle").expect("deploy_bundle must be cataloged");
+        let scada =
+            entry_for_command("deploy_scada_package").expect("deploy_scada_package cataloged");
+
+        // Deploy permission class (DeployProgram), not the SafeStateTrigger fallback.
+        assert!(matches!(
+            permission_for_command("deploy_bundle", &Value::Null),
+            Some(Permission::DeployProgram)
+        ));
+        // Audit taxonomy present and identical to the parts it groups.
+        assert_eq!(bundle.audit_success, scada.audit_success);
+        assert_eq!(bundle.audit_failure, scada.audit_failure);
+        assert_eq!(
+            audit_action_for_command("deploy_bundle", true),
+            Some(AuditAction::ProgramDeployApplied)
+        );
+        // Same signature-enforcement floor as its parts.
+        assert_eq!(bundle.legacy_policy, scada.legacy_policy);
+        assert_eq!(
+            legacy_policy_for_command("deploy_bundle"),
+            LegacyPolicy::DenyUnsignedInEnforcing
+        );
     }
 }

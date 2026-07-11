@@ -50,6 +50,23 @@ export enum PersonnelCategory {
   HYBRID = 'hybrid',
 }
 
+/**
+ * Workforce category for labour-cost analytics (Personnel Table /
+ * Labour Cost read models). Structured — the free-text `position`
+ * field cannot answer "how many managers / technicians / unskilled
+ * workers?". NULL = unclassified; surfaced as an explicit bucket with
+ * a UI call-to-action rather than silently miscounted.
+ *
+ *  - MANAGER    — management staff
+ *  - TECHNICAL  — technicians / biologists / water-quality experts
+ *  - UNSKILLED  — unskilled labour
+ */
+export enum LaborCategory {
+  MANAGER = 'manager',
+  TECHNICAL = 'technical',
+  UNSKILLED = 'unskilled',
+}
+
 // Import shared WorkAreaType enum
 import { WorkAreaType } from '../../common/enums';
 
@@ -57,6 +74,7 @@ registerEnumType(EmployeeStatus, { name: 'EmployeeStatus' });
 registerEnumType(EmploymentType, { name: 'EmploymentType' });
 registerEnumType(Department, { name: 'HRDepartment' });
 registerEnumType(PersonnelCategory, { name: 'PersonnelCategory' });
+registerEnumType(LaborCategory, { name: 'LaborCategory' });
 // WorkAreaType is registered in common/enums.ts
 
 @ObjectType()
@@ -230,6 +248,20 @@ export class Employee {
   @Field()
   @Column()
   position!: string;
+
+  /**
+   * Structured workforce category (migration 1801600000000 auto-maps
+   * existing rows from position/department text; editable in the
+   * employee form). NULL renders as UNCLASSIFIED in finance read models.
+   */
+  @Field(() => LaborCategory, { nullable: true })
+  @Column({
+    type: 'enum',
+    enum: LaborCategory,
+    enumName: 'employees_laborcategory_enum',
+    nullable: true,
+  })
+  laborCategory?: LaborCategory | null;
 
   @Field(() => Date)
   @Column({ type: 'date' })

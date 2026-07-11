@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { X, Maximize2, MoreVertical } from 'lucide-react';
-import { SensorReading } from '../../../store/scadaStore';
+import { SensorReading } from '../../../store/scadaViewerStore';
 import { GaugeWidget } from './GaugeWidget';
 import { NumericWidget } from './NumericWidget';
 import { SparklineWidget } from './SparklineWidget';

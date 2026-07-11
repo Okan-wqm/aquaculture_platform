@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { CurrentUser, RequireTenantPermission } from '@aquaculture/backend-common/decorators';
 import GraphQLJSON from 'graphql-type-json';
 
 import { User } from '../../authentication/entities/user.entity';
@@ -82,7 +82,7 @@ export class TenantRoleResolver {
   /**
    * Get all roles for current tenant
    */
-  @TenantAdminOrHigher()
+  @RequireTenantPermission('roles:view')
   @Query(() => [TenantRole])
   async tenantRoles(
     @CurrentUser('tenantId') tenantId: string,
@@ -96,7 +96,7 @@ export class TenantRoleResolver {
   /**
    * Get a single role by ID
    */
-  @TenantAdminOrHigher()
+  @RequireTenantPermission('roles:view')
   @Query(() => TenantRole, { nullable: true })
   async tenantRole(
     @Args('roleId', { type: () => ID }) roleId: string,
@@ -112,7 +112,7 @@ export class TenantRoleResolver {
   /**
    * Get the default role for new users
    */
-  @TenantAdminOrHigher()
+  @RequireTenantPermission('roles:view')
   @Query(() => TenantRole, { nullable: true })
   async defaultTenantRole(
     @CurrentUser('tenantId') tenantId: string,
@@ -126,7 +126,7 @@ export class TenantRoleResolver {
   /**
    * Get permission categories for UI
    */
-  @TenantAdminOrHigher()
+  @RequireTenantPermission('roles:view')
   @Query(() => [PermissionCategory])
   async permissionCategories(): Promise<PermissionCategory[]> {
     const categories = this.tenantRoleService.getPermissionCategories();
@@ -149,7 +149,7 @@ export class TenantRoleResolver {
    * Create a new role
    * SECURITY: Only TENANT_ADMIN can create roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('roles:create')
   @Mutation(() => TenantRole)
   async createTenantRole(
     @Args('input') input: CreateTenantRoleInput,
@@ -190,7 +190,7 @@ export class TenantRoleResolver {
    * Update an existing role
    * SECURITY: Only TENANT_ADMIN can update roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('roles:edit')
   @Mutation(() => TenantRole)
   async updateTenantRole(
     @Args('roleId', { type: () => ID }) roleId: string,
@@ -230,7 +230,7 @@ export class TenantRoleResolver {
    * Delete a role
    * SECURITY: Only TENANT_ADMIN can delete roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('roles:delete')
   @Mutation(() => Boolean)
   async deleteTenantRole(
     @Args('roleId', { type: () => ID }) roleId: string,
@@ -249,7 +249,7 @@ export class TenantRoleResolver {
    * Seed default roles (for initial setup or reset)
    * SECURITY: Only TENANT_ADMIN can seed roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('roles:create')
   @Mutation(() => [TenantRole])
   async seedTenantRoles(
     @CurrentUser('tenantId') tenantId: string,
@@ -271,7 +271,7 @@ export class TenantRoleResolver {
    * Create a new user within the tenant and assign initial role
    * SECURITY: Only TENANT_ADMIN can create users
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:invite')
   @Mutation(() => CreatedTenantUserResult)
   async createTenantUser(
     @Args('input') input: CreateTenantUserInput,
@@ -324,7 +324,7 @@ export class TenantRoleResolver {
    * Update a tenant user's profile (firstName, lastName) and/or role assignment
    * SECURITY: Only TENANT_ADMIN can update users
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:edit_permissions')
   @Mutation(() => User)
   async updateTenantUser(
     @Args('userId', { type: () => ID }) targetUserId: string,
@@ -362,7 +362,7 @@ export class TenantRoleResolver {
    * Deactivates the user, revokes role assignments and refresh tokens.
    * SECURITY: Only TENANT_ADMIN can delete users
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:deactivate')
   @Mutation(() => Boolean)
   async deleteTenantUser(
     @Args('userId', { type: () => ID }) targetUserId: string,
@@ -385,7 +385,7 @@ export class TenantRoleResolver {
    * Assign a role to an existing user
    * SECURITY: Only TENANT_ADMIN can assign roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:edit_permissions')
   @Mutation(() => UserRoleAssignment)
   async assignUserRole(
     @Args('userId', { type: () => ID }) targetUserId: string,
@@ -417,7 +417,7 @@ export class TenantRoleResolver {
    * Update a user's role assignment
    * SECURITY: Only TENANT_ADMIN can update role assignments
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:edit_permissions')
   @Mutation(() => UserRoleAssignment)
   async updateUserRole(
     @Args('userId', { type: () => ID }) targetUserId: string,
@@ -450,7 +450,7 @@ export class TenantRoleResolver {
    * Revoke a user's role (soft delete or hard delete)
    * SECURITY: Only TENANT_ADMIN can revoke roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:edit_permissions')
   @Mutation(() => Boolean)
   async revokeUserRole(
     @Args('input') input: RevokeUserRoleInput,
@@ -474,7 +474,7 @@ export class TenantRoleResolver {
    * Bulk assign a role to multiple users
    * SECURITY: Only TENANT_ADMIN can bulk assign roles
    */
-  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @RequireTenantPermission('users:edit_permissions')
   @Mutation(() => BulkAssignResult)
   async bulkAssignUserRole(
     @Args('input') input: BulkAssignRoleInput,
@@ -506,7 +506,7 @@ export class TenantRoleResolver {
   /**
    * Get a user's effective permissions (role + overrides)
    */
-  @TenantAdminOrHigher()
+  @RequireTenantPermission('users:view')
   @Query(() => EffectivePermissions)
   async getUserEffectivePermissions(
     @Args('userId', { type: () => ID }) targetUserId: string,

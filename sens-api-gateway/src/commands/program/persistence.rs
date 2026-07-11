@@ -105,4 +105,38 @@ impl CommandHandler {
         debug!(path = ?self.program_state_path, "Program state saved (atomic)");
         Ok(())
     }
+
+    /// Restore the program sink to a captured pre-image.
+    ///
+    /// Used by `cmd_deploy_bundle`'s apply-phase rollback to undo a
+    /// program that was applied earlier in a bundle which then failed on
+    /// a later artifact. Rewrites the persisted state file and
+    /// re-materialises the prior program's script in storage so the
+    /// running engine (which reloads from `ProgramState`) and the
+    /// persisted state agree. When the pre-image had no program (the
+    /// device was program-less before the bundle) it writes the empty
+    /// state, leaving the failed bundle's now-unreferenced script in
+    /// storage as a benign orphan — the engine runs from state, not from
+    /// storage. Operates at the same persistence layer as
+    /// `deploy_program_locked`'s own rollback-on-persist-failure path.
+    ///
+    /// Errors surface so the caller can downgrade a `rolled_back` ack to
+    /// `failed` when the restore itself faults (operator intervenes).
+    ///
+    /// Only the `scada-display` bundle handler calls this; gated so the
+    /// default (feature-off) build stays warning-clean.
+    #[cfg(feature = "scada-display")]
+    pub(in crate::commands) async fn restore_program_state(
+        &self,
+        prior: &ProgramState,
+    ) -> Result<(), String> {
+        if let Some(program) = prior.program.as_ref() {
+            self.script_storage
+                .add_script(program.script.clone())
+                .await
+                .map_err(|e| format!("Failed to restore program script: {}", e))?;
+        }
+        self.save_program_state(prior)
+            .map_err(|e| format!("Failed to restore program state: {}", e))
+    }
 }

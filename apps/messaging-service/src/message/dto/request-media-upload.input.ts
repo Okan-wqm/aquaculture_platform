@@ -11,17 +11,17 @@ const MAX_FILE_SIZE = 26_214_400;
 export class RequestMediaUploadInput {
   @Field(() => ID, { description: 'Channel the file belongs to' })
   @IsUUID()
-  channelId: string;
+  channelId!: string;
 
   @Field(() => String, { description: 'Original filename' })
   @IsString()
   @MaxLength(255)
-  filename: string;
+  filename!: string;
 
   @Field(() => String, { description: 'MIME type of the file' })
   @IsString()
   @MaxLength(127)
-  mimeType: string;
+  mimeType!: string;
 
   @Field(() => Int, {
     description: 'File size in bytes (max 25 MB = 26214400)',
@@ -29,5 +29,5 @@ export class RequestMediaUploadInput {
   @IsInt()
   @Min(1)
   @Max(MAX_FILE_SIZE)
-  fileSize: number;
+  fileSize!: number;
 }

@@ -9,6 +9,7 @@
  */
 import { ConflictException } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
+import { PayrollCostSettingsService } from '../../../finance/services/payroll-cost-settings.service';
 import { DataSource, QueryRunner, EntityManager, Repository } from 'typeorm';
 // CRITICAL-002 fix migrated CreateEmployeeHandler from EventBus.publish()
 // (post-commit, fire-and-forget) to OutboxPublisher.enqueue() (transactional
@@ -122,6 +123,12 @@ describe('CreateEmployeeHandler', () => {
   let handler: CreateEmployeeHandler;
   let mockDataSource: Partial<DataSource>;
   let mockOutboxPublisher: Partial<OutboxPublisher>;
+  // Currency SSoT double — resolves the tenant default currency the
+  // handler books when the input omits one. Typed as a Partial so the
+  // double stays assignable without a cast.
+  const mockPayrollCostSettings: Partial<PayrollCostSettingsService> = {
+    getDefaultCurrencyInTx: jest.fn().mockResolvedValue('NOK'),
+  };
 
   const tenantId = 'tenant-uuid-001';
   const userId = 'admin-user-001';
@@ -136,7 +143,7 @@ describe('CreateEmployeeHandler', () => {
     const { mockQR } = buildMockQueryRunner({ saveResult: savedEmployee });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher, mockPayrollCostSettings as PayrollCostSettingsService);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
     const result = await handler.execute(command);
 
@@ -161,7 +168,7 @@ describe('CreateEmployeeHandler', () => {
     mockEmployeeRepo.findOne.mockResolvedValue(buildMockEmployee());
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher, mockPayrollCostSettings as PayrollCostSettingsService);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow(ConflictException);
@@ -174,7 +181,7 @@ describe('CreateEmployeeHandler', () => {
     const { mockQR } = buildMockQueryRunner({ shouldFailSave: true });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher, mockPayrollCostSettings as PayrollCostSettingsService);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow();
@@ -187,7 +194,7 @@ describe('CreateEmployeeHandler', () => {
     mockEmployeeRepo.findOne.mockResolvedValue(buildMockEmployee());
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher, mockPayrollCostSettings as PayrollCostSettingsService);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow(ConflictException);
@@ -198,7 +205,7 @@ describe('CreateEmployeeHandler', () => {
     mockEmployeeRepo.findOne.mockResolvedValue(buildMockEmployee()); // trigger ConflictException
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher, mockPayrollCostSettings as PayrollCostSettingsService);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow();

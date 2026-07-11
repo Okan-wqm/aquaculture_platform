@@ -25,29 +25,29 @@ import { Type } from 'class-transformer';
 export class FeedAssignmentEntryInput {
   @Field(() => ID, { description: 'Feed ID' })
   @IsUUID()
-  feedId: string;
+  feedId!: string;
 
   @Field({ description: 'Feed code (for display)' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
-  feedCode: string;
+  feedCode!: string;
 
   @Field({ description: 'Feed name (for display)' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
-  feedName: string;
+  feedName!: string;
 
   @Field(() => Float, { description: 'Minimum fish weight in grams' })
   @IsNumber()
   @Min(0)
-  minWeightG: number;
+  minWeightG!: number;
 
   @Field(() => Float, { description: 'Maximum fish weight in grams' })
   @IsNumber()
   @Min(0)
-  maxWeightG: number;
+  maxWeightG!: number;
 
   @Field(() => Int, { description: 'Priority for overlapping ranges (lower = higher priority)', defaultValue: 1 })
   @IsOptional()
@@ -64,13 +64,13 @@ export class FeedAssignmentEntryInput {
 export class AssignFeedsToBatchInput {
   @Field(() => ID, { description: 'Batch ID to assign feeds to' })
   @IsUUID()
-  batchId: string;
+  batchId!: string;
 
   @Field(() => [FeedAssignmentEntryInput], { description: 'List of feed assignments with weight ranges' })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => FeedAssignmentEntryInput)
-  feedAssignments: FeedAssignmentEntryInput[];
+  feedAssignments!: FeedAssignmentEntryInput[];
 
   @Field({ nullable: true, description: 'Optional notes' })
   @IsOptional()
@@ -86,7 +86,7 @@ export class AssignFeedsToBatchInput {
 export class UpdateBatchFeedAssignmentInput {
   @Field(() => ID, { description: 'Feed assignment ID to update' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field(() => [FeedAssignmentEntryInput], { nullable: true, description: 'New list of feed assignments' })
   @IsOptional()

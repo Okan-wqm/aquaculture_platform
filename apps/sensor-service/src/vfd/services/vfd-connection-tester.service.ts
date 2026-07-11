@@ -1,4 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 import {
   createVfdAdapter,
@@ -40,7 +44,8 @@ export class VfdConnectionTesterService {
 
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
-    private readonly registerMappingService: VfdRegisterMappingService
+    private readonly registerMappingService: VfdRegisterMappingService,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {}
 
   /**
@@ -64,8 +69,26 @@ export class VfdConnectionTesterService {
     }
 
     try {
-      // Test the connection
-      const result = await adapter.testConnection(input.configuration);
+      // SVD-HIGH-003: wrap the VFD link test in the canonical circuit
+      // breaker so a chronically-unreachable drive sheds load instead of
+      // hanging the test path. Keyed per-(host) so one dead drive does not
+      // trip another's breaker. fail-closed — a tripped breaker surfaces as
+      // a failed connection test, exactly the existing unreachable-drive UX.
+      const host = String(
+        (input.configuration.host as string | undefined) ??
+          (input.configuration.ipAddress as string | undefined) ??
+          'unknown',
+      );
+      const result = await this.circuitBreaker.execute<ConnectionTestResult>({
+        serviceName: `vfd-link:${input.protocol}:${host}`,
+        tenantId: '*',
+        options: { ...DEFAULT_BREAKER_OPTIONS, failureMode: 'fail-closed' },
+        fn: async () => adapter.testConnection(input.configuration),
+        fallback: () => ({
+          success: false,
+          error: 'VFD link circuit open — drive repeatedly unreachable',
+        }),
+      });
 
       // If brand is specified and test was successful, try to read some parameters
       let parameters: Record<string, number> | undefined;

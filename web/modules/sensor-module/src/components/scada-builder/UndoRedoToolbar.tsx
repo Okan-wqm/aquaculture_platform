@@ -5,7 +5,7 @@
 import React from 'react';
 import { Undo2, Redo2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 
 export const UndoRedoToolbar: React.FC = () => {
   const { undoStack, redoStack, undo, redo, canUndo, canRedo } = useScadaPackageStore(

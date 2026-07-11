@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 
 import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
+import { EdgeDevice } from '../../edge-device/entities/edge-device.entity';
+import { VfdDevice } from '../../vfd/entities/vfd-device.entity';
 import { DeviceGroup, DeviceGroupType } from '../entities/device-group.entity';
 import { DeviceGroupMember, DeviceMemberType } from '../entities/device-group-member.entity';
 
@@ -68,7 +70,56 @@ export class DeviceGroupService {
     private readonly memberRepository: Repository<DeviceGroupMember>,
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
+    @InjectRepository(EdgeDevice)
+    private readonly edgeDeviceRepository: Repository<EdgeDevice>,
+    @InjectRepository(VfdDevice)
+    private readonly vfdDeviceRepository: Repository<VfdDevice>,
   ) {}
+
+  /**
+   * SENSOR-MEDIUM-007: verify every selected member's deviceId belongs to the
+   * caller's tenant before it is persisted as a group member. Without this a
+   * TENANT_ADMIN could store references to another tenant's (or guessed)
+   * device UUIDs — a tenant-boundary violation that becomes a data leak the
+   * moment any member resolver does an id-only lookup.
+   */
+  private async assertMembersOwnedByTenant(
+    members: AddMemberInput[],
+    tenantId: string,
+  ): Promise<void> {
+    const idsByType = new Map<DeviceMemberType, Set<string>>();
+    for (const m of members) {
+      if (!idsByType.has(m.deviceType)) idsByType.set(m.deviceType, new Set());
+      idsByType.get(m.deviceType)!.add(m.deviceId);
+    }
+
+    for (const [deviceType, idSet] of idsByType) {
+      const ids = [...idSet];
+      let foundCount: number;
+      switch (deviceType) {
+        case DeviceMemberType.SENSOR:
+          foundCount = await this.sensorRepository.count({ where: { id: In(ids), tenantId } });
+          break;
+        case DeviceMemberType.EDGE_DEVICE:
+          foundCount = await this.edgeDeviceRepository.count({ where: { id: In(ids), tenantId } });
+          break;
+        case DeviceMemberType.VFD_DEVICE:
+          foundCount = await this.vfdDeviceRepository.count({ where: { id: In(ids), tenantId } });
+          break;
+        default:
+          // Unsupported member type (e.g. PLC_CONNECTION) — reject rather than
+          // silently trusting an unvalidated device reference.
+          throw new BadRequestException(
+            `Unsupported device member type for ownership validation: ${deviceType}`,
+          );
+      }
+      if (foundCount !== ids.length) {
+        throw new BadRequestException(
+          `One or more ${deviceType} members do not belong to this tenant`,
+        );
+      }
+    }
+  }
 
   /**
    * Create a new device group
@@ -192,6 +243,9 @@ export class DeviceGroupService {
     if (members.length === 0) {
       return [];
     }
+
+    // SENSOR-MEDIUM-007: every member device must belong to this tenant.
+    await this.assertMembersOwnedByTenant(members, tenantId);
 
     const entities = members.map((m) =>
       this.memberRepository.create({
@@ -341,6 +395,9 @@ export class DeviceGroupService {
     if (members.length === 0) {
       return [];
     }
+
+    // SENSOR-MEDIUM-007: every member device must belong to this tenant.
+    await this.assertMembersOwnedByTenant(members, tenantId);
 
     // Remove each device from all groups belonging to this tenant only (not cross-tenant)
     const tenantGroups = await this.groupRepository.find({ where: { tenantId }, select: ['id'] });

@@ -56,11 +56,11 @@ registerEnumType(AutoRuleTrigger, {
 export class AutoRule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -68,7 +68,7 @@ export class AutoRule {
 
   @Field()
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -83,11 +83,11 @@ export class AutoRule {
     type: 'enum',
     enum: AutoRuleTrigger,
   })
-  trigger: AutoRuleTrigger;
+  trigger!: AutoRuleTrigger;
 
   @Field()
   @Column({ type: 'text' })
-  triggerCondition: string;
+  triggerCondition!: string;
 
   // -------------------------------------------------------------------------
   // OLUŞTURULACAK GÖREV BİLGİLERİ
@@ -95,7 +95,7 @@ export class AutoRule {
 
   @Field()
   @Column({ length: 255 })
-  taskTitle: string;
+  taskTitle!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -106,14 +106,14 @@ export class AutoRule {
     type: 'enum',
     enum: TaskCategory,
   })
-  taskCategory: TaskCategory;
+  taskCategory!: TaskCategory;
 
   @Field(() => TaskPriority)
   @Column({
     type: 'enum',
     enum: TaskPriority,
   })
-  taskPriority: TaskPriority;
+  taskPriority!: TaskPriority;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -125,7 +125,7 @@ export class AutoRule {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -133,7 +133,7 @@ export class AutoRule {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  triggerCount: number;
+  triggerCount!: number;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -141,11 +141,11 @@ export class AutoRule {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @DeleteDateColumn({ type: 'timestamptz' })

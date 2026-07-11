@@ -23,6 +23,9 @@ export * from './alert-events';
 export * from './notification-events';
 export * from './notification-commands';
 export * from './hr-events';
+// Tenant-internal operational finance (farm OPEX/revenue + HR labour cost).
+// NOT platform SaaS billing — that stays in billing-events.ts.
+export * from './finance-events';
 export * from './billing-events';
 export * from './billing-admin-commands';
 export * from './ai-events';
@@ -61,6 +64,7 @@ export * from './upcasters';
 
 // Runtime JSON Schema validators for trust-boundary crossing (H-3)
 export * from './auth-user-queries';
+export * from './auth-credential-queries';
 export * from './schemas';
 
 // Re-export all domain union types for convenience
@@ -72,6 +76,7 @@ import type { BillingEvent } from './billing-events';
 import type { ComplianceEvent } from './compliance-events';
 import type { EdgeDeviceEvent } from './edge-device-events';
 import type { FarmEvent } from './farm-events';
+import type { FinanceEvent } from './finance-events';
 import type { HREvent } from './hr-events';
 import type { MessagingEvent } from './messaging-events';
 import type { NotificationEvent } from './notification-events';
@@ -94,6 +99,7 @@ export type AnyPlatformEvent =
   | AlertEvent
   | NotificationEvent
   | HREvent
+  | FinanceEvent
   | BillingEvent
   | AIEvent
   | TaskEvent

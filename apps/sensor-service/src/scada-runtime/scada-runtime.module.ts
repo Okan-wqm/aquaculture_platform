@@ -29,6 +29,8 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { JwtModule } from '@nestjs/jwt';
 
+import { ProcessModule } from '../process/process.module';
+
 import { ScadaRuntimeGateway } from './scada-runtime.gateway';
 import { TagManagerService } from './services/tag-manager.service';
 import { AlarmEngineService } from './services/alarm-engine.service';
@@ -92,6 +94,10 @@ if (SchedulerService) optionalProviders.push(SchedulerService as Provider);
     // EventEmitterModule powers the SCADA_TAG_WRITE_EVENT internal bus.
     // forRoot() is idempotent when called multiple times in a process.
     EventEmitterModule.forRoot(),
+
+    // Faz 6: TagResolutionService (exported by ProcessModule) validates
+    // socket subscribe keys against the tenant's unified_tags registry.
+    ProcessModule,
   ],
   providers: [
     ScadaRuntimeGateway,

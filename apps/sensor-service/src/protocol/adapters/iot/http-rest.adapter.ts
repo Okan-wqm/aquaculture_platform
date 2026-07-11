@@ -18,6 +18,7 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 /**
  * HTTP REST Configuration
@@ -92,6 +93,15 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
    * to the Rust crate's tower-style breaker without behavioural
    * change.
    */
+  /**
+   * SVD-CRIT-001: SsrfValidatorService is dependency-free and stateless, so
+   * it is instantiated directly rather than injected — protocol adapters are
+   * also constructed outside the Nest DI container in some code paths, and a
+   * field initializer keeps the SSRF guard present regardless of how the
+   * adapter is created.
+   */
+  private readonly ssrfValidator = new SsrfValidatorService();
+
   constructor(private readonly circuitBreaker: CircuitBreakerService) {
     super();
   }
@@ -221,6 +231,16 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         failureMode: 'fail-open-degraded',
       },
       fn: async () => {
+        // SVD-CRIT-001: the destination is fully operator-controlled
+        // (baseUrl + endpoint from protocolConfiguration). Resolve + validate
+        // BEFORE connecting so a hostname cannot point at cloud-metadata,
+        // loopback, or an internal service. DNS is pinned pre-connect to
+        // close the rebinding window; redirects are refused (safe URL could
+        // 30x into an internal one). We enforce the http/https protocol
+        // allowlist explicitly but use validateHost (not validateUrl) so
+        // legitimate vendor REST endpoints on non-standard ports still work
+        // — the load-bearing SSRF control is the IP denylist, not the port.
+        await this.assertSafeHttpTarget(url.toString());
         const controller = new AbortController();
         const timeoutId = setTimeout(
           () => controller.abort(),
@@ -229,6 +249,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         try {
           const response = await fetch(url.toString(), {
             ...fetchOptions,
+            ...this.ssrfValidator.getSafeFetchOptions(),
             signal: controller.signal,
           });
           if (!response.ok) {
@@ -281,6 +302,35 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     }
   }
 
+  /**
+   * SVD-CRIT-001 guard: enforce the http/https protocol allowlist, then run
+   * the shared SSRF host validation (DNS-pre-resolve + private/metadata IP
+   * denylist). Throws if the target is unsafe. Kept as one helper so both
+   * the data fetch and the OAuth2 token fetch share the exact same policy.
+   */
+  private async assertSafeHttpTarget(rawUrl: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      throw new Error('Blocked unsafe request target: invalid URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(
+        `Blocked unsafe request target: protocol "${parsed.protocol}" not allowed (http/https only)`,
+      );
+    }
+    const port = parsed.port
+      ? parseInt(parsed.port, 10)
+      : parsed.protocol === 'https:'
+        ? 443
+        : 80;
+    const verdict = await this.ssrfValidator.validateHost(parsed.hostname, port);
+    if (!verdict.safe) {
+      throw new Error(`Blocked unsafe request target: ${verdict.reason}`);
+    }
+  }
+
   private async getOAuth2Token(config: HttpRestConfiguration): Promise<string | null> {
     const cacheKey = `${config.oauth2TokenUrl}_${config.oauth2ClientId}`;
     const cached = this.oauth2Tokens.get(cacheKey);
@@ -315,18 +365,24 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
           ...DEFAULT_BREAKER_OPTIONS,
           failureMode: 'fail-closed',
         },
-        fn: async () => fetch(tokenUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            grant_type: 'client_credentials',
-            client_id: clientId,
-            client_secret: clientSecret,
-            scope,
-          }).toString(),
-        }),
+        fn: async () => {
+          // SVD-CRIT-001: oauth2TokenUrl is operator-supplied — same SSRF
+          // guard as the data fetch above.
+          await this.assertSafeHttpTarget(tokenUrl);
+          return fetch(tokenUrl, {
+            method: 'POST',
+            ...this.ssrfValidator.getSafeFetchOptions(),
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              grant_type: 'client_credentials',
+              client_id: clientId,
+              client_secret: clientSecret,
+              scope,
+            }).toString(),
+          });
+        },
       });
 
       if (!response.ok) {

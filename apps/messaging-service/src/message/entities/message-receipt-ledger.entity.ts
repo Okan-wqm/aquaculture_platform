@@ -30,42 +30,42 @@ import { ReceiptStatus } from './message-receipt.entity';
 @Index('idx_message_receipt_ledger_user_status', ['userId', 'status'])
 export class MessageReceiptLedger {
   @PrimaryColumn({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @PrimaryColumn({ type: 'uuid' })
-  messageId: string;
+  messageId!: string;
 
   @PrimaryColumn({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Column({ type: 'timestamptz' })
-  messageCreatedAt: Date;
+  messageCreatedAt!: Date;
 
   @Column({ type: 'uuid', default: () => 'gen_random_uuid()' })
-  receiptId: string;
+  receiptId!: string;
 
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
-  receiptCreatedAt: Date;
+  receiptCreatedAt!: Date;
 
   @Column({ type: 'varchar', length: 20, default: ReceiptStatus.DELIVERED })
-  status: ReceiptStatus;
+  status!: ReceiptStatus;
 
   @Column({ type: 'timestamptz', nullable: true })
-  deliveredAt: Date | null;
+  deliveredAt!: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true })
-  readAt: Date | null;
+  readAt!: Date | null;
 
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @ManyToOne(() => Message, { onDelete: 'RESTRICT', onUpdate: 'NO ACTION' })
   @JoinColumn([
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
-  message: Message;
+  message!: Message;
 }

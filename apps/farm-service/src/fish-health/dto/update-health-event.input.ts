@@ -43,7 +43,7 @@ import {
 export class UpdateHealthEventInput {
   @Field(() => ID, { description: 'Health Event ID' })
   @IsUUID()
-  id: string;
+  id!: string;
 
   // -------------------------------------------------------------------------
   // LOCATION REFERENCES

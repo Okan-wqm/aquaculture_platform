@@ -261,7 +261,6 @@ const MESSAGING_TABLES: Array<[string, string]> = [
   ['message_entity_references', 'messaging'],
   ['knowledge_entries', 'messaging'],
   ['embeddings_metadata', 'messaging'],
-  ['tenant_ai_settings', 'messaging'],
   ['user_ai_consents', 'messaging'],
 ];
 

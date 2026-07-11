@@ -64,6 +64,12 @@ export default defineConfig(({ mode }) => {
           __dirname,
           '../../../libs/sensor-automation-types/src/index.ts',
         ),
+        // Browser-safe barrel only (types + TagRef grammar + upcasters);
+        // the /validators subpath is backend-only and must NOT be aliased here.
+        '@platform/sensor-contracts': resolve(
+          __dirname,
+          '../../../libs/sensor-contracts/src/index.ts',
+        ),
       },
       dedupe: ['react', 'react-dom', '@xyflow/react'],
     },

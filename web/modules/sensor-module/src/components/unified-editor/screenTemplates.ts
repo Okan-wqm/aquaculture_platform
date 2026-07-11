@@ -3,7 +3,7 @@
  *
  * Templates provide pre-configured widget layouts for common screen types.
  */
-import type { ScreenType, ScreenWidget } from '../../store/scadaPackageStore';
+import type { ScreenType, ScreenWidget } from '../../store/scada';
 
 export interface ScreenTemplate {
   id: string;

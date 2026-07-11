@@ -379,6 +379,8 @@ export function createMockDataSource(queryRunner: MockQueryRunner) {
   return {
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
     getRepository: jest.fn(),
+    // Connection-level raw query (e.g. tenant-schema enumeration). Defaults to [].
+    query: jest.fn().mockResolvedValue([]),
     transaction: jest.fn(
       async (cb: (manager: MockQueryRunnerManager) => Promise<unknown>) =>
         cb(queryRunner.manager),

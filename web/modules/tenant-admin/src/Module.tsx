@@ -14,7 +14,7 @@ import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 // Route Guard (LOW-15: extracted to own component for reuse / unit testing)
-import { RequireTenantAdmin } from './components/common/RequireTenantAdmin';
+import { RequireTenantAdmin, RequireTenantCapability } from './components/common/RequireTenantAdmin';
 
 // Error Boundary
 import { PageErrorBoundary } from './components/ErrorBoundary';
@@ -67,37 +67,44 @@ const TenantAdminModule: React.FC = () => {
     <RequireTenantAdmin>
       <Suspense fallback={<PageLoadingFallback />}>
         <Routes>
-          {/* Dashboard - default route */}
-          <Route index element={<PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary>} />
+          {/*
+           * Per-page capability gates (MT-HIGH-060). TENANT_ADMIN bypasses every
+           * gate; a delegate reaches only the pages their tenant role grants.
+           * Delegatable pages carry a `capability`; all others are `adminOnly`,
+           * so a delegate who entered the panel with e.g. `users:view` still
+           * cannot open billing/database/audit/etc. (backend enforces too).
+           */}
+          {/* Dashboard - default route (admin-only) */}
+          <Route index element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* User Management */}
-          <Route path="users" element={<PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary>} />
+          {/* User Management — delegatable */}
+          <Route path="users" element={<RequireTenantCapability capability="users:view"><PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Module Management */}
-          <Route path="modules" element={<PageErrorBoundary pageName="Modules"><TenantModules /></PageErrorBoundary>} />
+          {/* Roles & Permissions — delegatable */}
+          <Route path="roles" element={<RequireTenantCapability capability="roles:view"><PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Communication */}
-          <Route path="messages" element={<PageErrorBoundary pageName="Messages"><TenantMessagesPage /></PageErrorBoundary>} />
-          <Route path="support" element={<PageErrorBoundary pageName="Support"><TenantSupportPage /></PageErrorBoundary>} />
-          <Route path="announcements" element={<PageErrorBoundary pageName="Announcements"><TenantAnnouncementsPage /></PageErrorBoundary>} />
+          {/* Tenant Settings — delegatable */}
+          <Route path="settings" element={<RequireTenantCapability capability="settings:view"><PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Tenant Settings */}
-          <Route path="settings" element={<PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary>} />
+          {/* Module Management (admin-only) */}
+          <Route path="modules" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Modules"><TenantModules /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Edge Devices */}
-          <Route path="devices" element={<PageErrorBoundary pageName="Edge Devices"><EdgeDevicesPage /></PageErrorBoundary>} />
-          <Route path="devices/:deviceId" element={<PageErrorBoundary pageName="Device Detail"><EdgeDeviceDetailPage /></PageErrorBoundary>} />
+          {/* Communication (admin-only) */}
+          <Route path="messages" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Messages"><TenantMessagesPage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="support" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Support"><TenantSupportPage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="announcements" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Announcements"><TenantAnnouncementsPage /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Database View */}
-          <Route path="database" element={<PageErrorBoundary pageName="Database"><TenantDatabase /></PageErrorBoundary>} />
+          {/* Edge Devices (admin-only) */}
+          <Route path="devices" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Edge Devices"><EdgeDevicesPage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="devices/:deviceId" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Device Detail"><EdgeDeviceDetailPage /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Roles & Permissions */}
-          <Route path="roles" element={<PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary>} />
+          {/* Database View (admin-only) */}
+          <Route path="database" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Database"><TenantDatabase /></PageErrorBoundary></RequireTenantCapability>} />
 
-          {/* Wave 4 Enterprise Pages */}
-          <Route path="audit-log" element={<PageErrorBoundary pageName="Audit Log"><TenantAuditLogPage /></PageErrorBoundary>} />
-          <Route path="billing" element={<PageErrorBoundary pageName="Billing"><TenantBillingPage /></PageErrorBoundary>} />
-          <Route path="activity" element={<PageErrorBoundary pageName="Activity"><TenantActivityPage /></PageErrorBoundary>} />
+          {/* Wave 4 Enterprise Pages (admin-only) */}
+          <Route path="audit-log" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Audit Log"><TenantAuditLogPage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="billing" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Billing"><TenantBillingPage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="activity" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Activity"><TenantActivityPage /></PageErrorBoundary></RequireTenantCapability>} />
 
           {/* Catch-all redirect to dashboard */}
           <Route path="*" element={<Navigate to="/tenant" replace />} />

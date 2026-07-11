@@ -5,7 +5,7 @@
  *
  * @module Harvest/Queries
  */
-import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
+import { HarvestRecordStatus, QualityClass, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 export interface HarvestFilterCriteria {
@@ -17,6 +17,10 @@ export interface HarvestFilterCriteria {
   siteId?: string;
   status?: HarvestRecordStatus;
   statuses?: HarvestRecordStatus[];
+  /** Stored quality taxonomy (SSoT). */
+  qualityClass?: QualityClass;
+  qualityClasses?: QualityClass[];
+  /** DEPRECATED display grade — mapped onto qualityClass at query time. */
   qualityGrade?: QualityGrade;
   qualityGrades?: QualityGrade[];
   method?: HarvestMethod;

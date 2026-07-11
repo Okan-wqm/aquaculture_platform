@@ -31,7 +31,7 @@ import {
 import {
   WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES,
 } from '../../constants/scada-widget-sizes';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 import type { EquipmentSubType } from '../../types/scada-widget.types';
 
 import type { FuxaWidgetCatalogEntry } from './fuxa-bridge/catalog';

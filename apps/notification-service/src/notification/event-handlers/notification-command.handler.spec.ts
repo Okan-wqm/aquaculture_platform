@@ -184,6 +184,10 @@ describe('NotificationCommandHandler', () => {
           userId: 'user-1',
         },
         badge: 3,
+        // MSG-CRITICAL-056: the chat push is data-only so the AquaMobil FCM SW is
+        // the sole presenter and its shared-device userId gate cannot be bypassed
+        // by FCM SDK auto-display.
+        dataOnly: true,
       }),
     );
     const [firstDispatchCall] = dispatcher.dispatchCommandNotification.mock

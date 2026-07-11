@@ -1,11 +1,11 @@
 import { InputType, Field, ID } from '@nestjs/graphql';
-import { IsUUID, IsOptional, IsString, IsEmail, MaxLength } from 'class-validator';
+import { IsBoolean, IsUUID, IsOptional, IsString, IsEmail, MaxLength } from 'class-validator';
 
 @InputType()
 export class UpdateWorkerInput {
   @Field(() => ID)
   @IsUUID()
-  id: string;
+  id!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -35,4 +35,15 @@ export class UpdateWorkerInput {
   @IsString()
   @MaxLength(100)
   position?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  isVeterinarian?: boolean;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  veterinaryLicenseNumber?: string;
 }

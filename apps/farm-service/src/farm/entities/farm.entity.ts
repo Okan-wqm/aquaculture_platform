@@ -20,10 +20,10 @@ import type { Pond } from './pond.entity';
 @ObjectType('Location')
 export class Location {
   @Field(() => Float)
-  lat: number;
+  lat!: number;
 
   @Field(() => Float)
-  lng: number;
+  lng!: number;
 }
 
 /**
@@ -38,20 +38,20 @@ export class Location {
 export class Farm {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field(() => Location)
   @Column('jsonb')
-  location: Location;
+  location!: Location;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -92,18 +92,18 @@ export class Farm {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

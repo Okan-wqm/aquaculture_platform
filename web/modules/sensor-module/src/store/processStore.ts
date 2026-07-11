@@ -2,6 +2,7 @@
  * Zustand store for Process Editor state management
  */
 
+import { HOST_SOURCE } from '../canvas-contract';
 import { create } from 'zustand';
 import {
   Node,
@@ -557,7 +558,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     const iframe = document.querySelector('iframe[title="Process Editor Canvas"]') as HTMLIFrameElement;
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
-        { type: 'updateEdgeData', data: { edgeId, data }, source: 'process-editor-host' },
+        { type: 'updateEdgeData', data: { edgeId, data }, source: HOST_SOURCE },
         window.location.origin
       );
     }
@@ -709,7 +710,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     const iframe = document.querySelector('iframe[title="Process Editor Canvas"]') as HTMLIFrameElement;
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
-        { type: 'highlightNode', data: nodeId, source: 'process-editor-host' },
+        { type: 'highlightNode', data: nodeId, source: HOST_SOURCE },
         window.location.origin
       );
     }
@@ -720,7 +721,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     const iframe = document.querySelector('iframe[title="Process Editor Canvas"]') as HTMLIFrameElement;
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
-        { type: 'updateNodeData', data: { nodeId, data }, source: 'process-editor-host' },
+        { type: 'updateNodeData', data: { nodeId, data }, source: HOST_SOURCE },
         window.location.origin
       );
     }

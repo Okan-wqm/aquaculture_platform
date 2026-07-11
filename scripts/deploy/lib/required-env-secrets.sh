@@ -99,6 +99,12 @@ generate_service_identity_signing_kid() {
 #   CONFIG_ENCRYPTION_KEY   — config-service AES master key
 #                             (configuration/services/encryption.service.ts
 #                             fail-closed in production without it).
+#   AI_TENANT_SECRET_ENCRYPTION_KEY — ai-service AES-256-GCM key for per-tenant
+#                             BYOK AI credentials at rest (agent-config.entity.ts
+#                             createEncryptedColumnTransformer). Required :? by
+#                             ai-service; the transformer accepts a 64-hex key as
+#                             32 bytes. MUST stay stable — rotating it makes every
+#                             stored tenant AI key undecryptable.
 REQUIRED_ENV_SECRETS=(
   "POSTGRES_PASSWORD:openssl rand -base64 32"
   "REDIS_PASSWORD:openssl rand -base64 32"
@@ -108,6 +114,7 @@ REQUIRED_ENV_SECRETS=(
   "SERVICE_IDENTITY_KEYRING:generate_service_identity_keyring"
   "SERVICE_IDENTITY_SIGNING_KID:generate_service_identity_signing_kid"
   "CONFIG_ENCRYPTION_KEY:openssl rand -hex 32"
+  "AI_TENANT_SECRET_ENCRYPTION_KEY:openssl rand -hex 32"
 )
 
 # Convenience helper: extract just the names, for preflight checks.

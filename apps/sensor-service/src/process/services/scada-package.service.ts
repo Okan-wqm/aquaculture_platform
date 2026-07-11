@@ -1,14 +1,31 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
+import {
+  formatValidationErrors,
+  validateCommandEnvelope,
+  validateDeployScadaPackageParams,
+  validateScadaPackageDocV2,
+} from '@platform/sensor-contracts/validators';
 
 import { AutomationService } from '../../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../../automation/entities/program-variable.entity';
+import { ArtifactService, canonicalJsonStringify } from '../../deploy-artifact/artifact.service';
+import { DeploySigningService } from '../../deploy-artifact/deploy-signing.service';
+import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
+import {
+  ReleaseBundleArtifactRef,
+  ReleaseBundleManifest,
+} from '../../release-bundle/entities/release-bundle.entity';
+import { ReleaseBundleService } from '../../release-bundle/release-bundle.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 
 import {
@@ -20,6 +37,7 @@ import { ProcessPaginationInput } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
+import { TagResolutionService } from './tag-resolution.service';
 
 @Injectable()
 export class ScadaPackageService {
@@ -51,6 +69,46 @@ export class ScadaPackageService {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Save-time trust boundary (ScadaPackageDocV2): upcast whatever the
+   * client sent to the current document contract, then validate it against
+   * the canonical JSON Schema. Returns the upcasted document — the stored
+   * row is always V2, so read paths only upcast legacy pre-Faz2 rows.
+   */
+  private async upcastAndValidatePackageData(
+    data: Record<string, unknown>,
+    tenantId: string,
+  ): Promise<Record<string, unknown>> {
+    const deviceCode = await this.resolveDeviceCode(
+      (data.meta as Record<string, unknown> | undefined)?.edgeDeviceId,
+      tenantId,
+    );
+    const doc = upcastScadaPackageDoc(data, deviceCode ? { deviceCode } : undefined);
+    if (!validateScadaPackageDocV2(doc)) {
+      throw new BadRequestException(
+        `packageData failed ScadaPackageDocV2 validation: ${formatValidationErrors(validateScadaPackageDocV2)}`,
+      );
+    }
+    return doc;
+  }
+
+  /** Best-effort edgeDeviceId → deviceCode lookup for TagRef promotion. */
+  private async resolveDeviceCode(
+    edgeDeviceId: unknown,
+    tenantId: string,
+  ): Promise<string | undefined> {
+    if (typeof edgeDeviceId !== 'string' || !edgeDeviceId || !this.edgeDeviceService) {
+      return undefined;
+    }
+    try {
+      const device = await this.edgeDeviceService.findByIdOrFail(edgeDeviceId, tenantId);
+      return device.deviceCode;
+    } catch {
+      // Unknown/foreign device: legacy local names simply stay unpromoted.
+      return undefined;
     }
   }
 
@@ -99,7 +157,45 @@ export class ScadaPackageService {
     @Optional()
     @InjectRepository(ProgramVariable)
     private readonly programVariableRepo: Repository<ProgramVariable> | null,
+    @Optional()
+    @Inject(TagResolutionService)
+    private readonly tagResolutionService: TagResolutionService | null,
+    @Optional()
+    @Inject(ArtifactService)
+    private readonly artifactService: ArtifactService | null,
+    @Optional()
+    @Inject(DeploySigningService)
+    private readonly deploySigningService: DeploySigningService | null,
+    @Optional()
+    @Inject(ReleaseBundleService)
+    private readonly releaseBundleService: ReleaseBundleService | null,
+    @Optional()
+    @Inject(OutboxPublisher)
+    private readonly outboxPublisher: OutboxPublisher | null,
   ) {}
+
+  /**
+   * Collect the tag-name strings widgets bind to (`config.tagName`, legacy
+   * `config.tag`) from every screen in the package document.
+   */
+  private collectWidgetTagNames(data: Record<string, unknown>): string[] {
+    const names = new Set<string>();
+    const screens = Array.isArray(data.screens) ? data.screens : [];
+    for (const screen of screens) {
+      const widgets = (screen as { widgets?: unknown[] })?.widgets;
+      if (!Array.isArray(widgets)) continue;
+      for (const widget of widgets) {
+        const config = (widget as { config?: Record<string, unknown> })?.config;
+        for (const key of ['tagName', 'tag'] as const) {
+          const value = config?.[key];
+          if (typeof value === 'string' && value.length > 0) {
+            names.add(value);
+          }
+        }
+      }
+    }
+    return [...names];
+  }
 
   async createScadaPackage(
     input: CreateScadaPackageInput,
@@ -110,6 +206,7 @@ export class ScadaPackageService {
 
     this.validatePackageDataSize(input.packageData);
     this.validatePackageDataStructure(input.packageData);
+    const packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
 
     if (input.processId) {
       const process = await this.processRepository.findOne({
@@ -124,6 +221,7 @@ export class ScadaPackageService {
 
     const pkg = this.scadaPackageRepository.create({
       ...input,
+      packageData,
       tenantId,
       status: ScadaPackageStatus.DRAFT,
       version: 1,
@@ -155,12 +253,12 @@ export class ScadaPackageService {
     if (input.packageData !== undefined) {
       this.validatePackageDataSize(input.packageData);
       this.validatePackageDataStructure(input.packageData);
+      pkg.packageData = await this.upcastAndValidatePackageData(input.packageData, tenantId);
     }
 
     if (input.name !== undefined) pkg.name = input.name;
     if (input.description !== undefined) pkg.description = input.description;
     if (input.processId !== undefined) pkg.processId = input.processId;
-    if (input.packageData !== undefined) pkg.packageData = input.packageData;
     if (input.status !== undefined) pkg.status = input.status;
 
     pkg.version = pkg.version + 1;
@@ -169,9 +267,106 @@ export class ScadaPackageService {
     return this.scadaPackageRepository.save(pkg);
   }
 
+  /**
+   * Backfill legacy (pre-Faz2) SCADA package documents to the canonical
+   * ScadaPackageDocV2 (Faz 6 / 6d). Every row whose `meta.schemaVersion` is not
+   * exactly 2 is upcast — reusing the SAME `upcastScadaPackageDoc` + deviceCode
+   * resolution the save/read boundaries use, so the `tagName → tagRef`
+   * promotion is applied identically — validated against the canonical schema,
+   * then rewritten in place. Idempotent: rows already at V2 are skipped, so a
+   * re-run migrates 0. A row that fails V2 validation is left UNTOUCHED and
+   * counted, never partially written. `dryRun` reports what would change
+   * without writing a single row.
+   *
+   * Scoped to the caller's tenant (the search_path fences the query); run once
+   * per tenant for a platform-wide backfill. The deploy version is deliberately
+   * NOT bumped — a schema migration is not a user edit — and `updatedBy` is
+   * stamped `system-backfill` so the provenance is auditable. The read-path
+   * upcast in `getScadaPackage` stays as a defensive net until this backfill is
+   * verified across production.
+   */
+  async backfillPackageDocsToV2(
+    tenantId: string,
+    options?: { dryRun?: boolean },
+  ): Promise<{ scanned: number; migrated: number; skipped: number; failed: number; dryRun: boolean }> {
+    const dryRun = options?.dryRun ?? false;
+    // Enumerate candidate ids only. The authoritative read + write happens
+    // under a row lock inside a per-row transaction (below), so a user edit
+    // concurrent with the backfill cannot be lost: `save(pkg)` writes the
+    // whole entity by primary key with no version check (ScadaPackage.version
+    // is a manual counter, not a TypeORM @VersionColumn), so a blind
+    // read-here / save-later would clobber an edit landing in that window.
+    const ids = (await this.scadaPackageRepository.find({ where: { tenantId } })).map((p) => p.id);
+
+    let migrated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+      const outcome = await this.scadaPackageRepository.manager.transaction(
+        async (manager): Promise<'migrated' | 'skipped' | 'failed'> => {
+          const pkg = await manager.findOne(ScadaPackage, {
+            where: { id, tenantId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          // Deleted between enumeration and lock acquisition.
+          if (!pkg) return 'skipped';
+
+          const meta = pkg.packageData?.meta as Record<string, unknown> | undefined;
+          if (Number(meta?.schemaVersion) === 2) return 'skipped';
+
+          // Per-row fenced: a single malformed legacy row is counted and left
+          // untouched, never aborting the rest of the tenant's migration.
+          let doc: Record<string, unknown>;
+          try {
+            const deviceCode = await this.resolveDeviceCode(meta?.edgeDeviceId, tenantId);
+            doc = upcastScadaPackageDoc(pkg.packageData, deviceCode ? { deviceCode } : undefined);
+            if (!validateScadaPackageDocV2(doc)) {
+              this.logger.warn(
+                `Backfill left package ${pkg.id} unchanged: failed ScadaPackageDocV2 validation (${formatValidationErrors(validateScadaPackageDocV2)})`,
+              );
+              return 'failed';
+            }
+          } catch (error) {
+            this.logger.warn(`Backfill left package ${pkg.id} unchanged: ${(error as Error).message}`);
+            return 'failed';
+          }
+
+          if (dryRun) return 'migrated';
+
+          pkg.packageData = doc;
+          pkg.updatedBy = 'system-backfill';
+          await manager.save(pkg);
+          return 'migrated';
+        },
+      );
+
+      if (outcome === 'migrated') migrated += 1;
+      else if (outcome === 'skipped') skipped += 1;
+      else failed += 1;
+    }
+
+    this.logger.log(
+      `SCADA packageData backfill for tenant ${tenantId}: scanned=${ids.length} migrated=${migrated} skipped=${skipped} failed=${failed} dryRun=${dryRun}`,
+    );
+
+    return { scanned: ids.length, migrated, skipped, failed, dryRun };
+  }
+
   async getScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
-    return pkg ? this.sanitizePackageData(pkg) : null;
+    if (!pkg) return null;
+    // Upcast-on-read: legacy pre-Faz2 rows come back as V2 documents (no
+    // validation throw on read — reads must never break on old data).
+    const deviceCode = await this.resolveDeviceCode(
+      (pkg.packageData?.meta as Record<string, unknown> | undefined)?.edgeDeviceId,
+      tenantId,
+    );
+    pkg.packageData = upcastScadaPackageDoc(
+      pkg.packageData,
+      deviceCode ? { deviceCode } : undefined,
+    );
+    return this.sanitizePackageData(pkg);
   }
 
   async listScadaPackages(
@@ -206,6 +401,25 @@ export class ScadaPackageService {
 
     const sanitizedItems = items.map((item) => this.sanitizePackageData(item));
     return createStandardPaginatedResult(sanitizedItems, total, page, limit);
+  }
+
+  /**
+   * Flip a package to PUBLISHED — called by the bundle-ack path when the
+   * edge CONFIRMS the atomic apply (Faz 5). The single-command deploy
+   * path still flips on publish; the bundle path only flips on device
+   * confirmation, so PUBLISHED means "running on the device", not
+   * "left the broker".
+   */
+  async markPackagePublished(packageId: string, tenantId: string): Promise<void> {
+    const pkg = await this.scadaPackageRepository.findOne({
+      where: { id: packageId, tenantId },
+    });
+    if (!pkg) {
+      this.logger.warn(`Cannot mark package ${packageId} PUBLISHED — not found`);
+      return;
+    }
+    pkg.status = ScadaPackageStatus.PUBLISHED;
+    await this.scadaPackageRepository.save(pkg);
   }
 
   async deleteScadaPackage(id: string, tenantId: string): Promise<boolean> {
@@ -243,18 +457,77 @@ export class ScadaPackageService {
     // Validate automation bindings before deploying (TASK 2)
     await this.validateAutomationBindings(pkg);
 
+    // Deploy always ships the CURRENT document contract: legacy rows that
+    // were saved before Faz 2 upcast here (deploy reads the repo directly,
+    // bypassing getScadaPackage's read-path upcast).
+    const packageDoc = upcastScadaPackageDoc(pkg.packageData, {
+      deviceCode: device.deviceCode,
+    });
+
+    // Tag SSoT raporu (Faz 1, warn-only): widget tag bağlamalarını
+    // `${deviceCode}/${tagName}` olarak registry'ye karşı çöz; çözülemeyenleri
+    // logla. Bloklamaz — Faz 4 bunu deploy gate'ine çevirir.
+    if (this.tagResolutionService) {
+      const tagNames = this.collectWidgetTagNames(packageDoc);
+      if (tagNames.length > 0) {
+        const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
+        const resolution = await this.tagResolutionService.resolve(tenantId, refs);
+        if (resolution.unresolved.length > 0) {
+          this.logger.warn(
+            `deploy_scada_package ${packageId}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
+          );
+        }
+      }
+    }
+
     const commandId = randomUUID();
 
+    // Content-addressed snapshot (Faz 3): the CANONICAL package content is
+    // archived (volatile envelope fields like deployedAt stay out so
+    // identical content dedupes to one artifact). Rollback = republish by
+    // artifact id with a fresh envelope.
+    let artifact = null;
+    if (this.artifactService) {
+      try {
+        artifact = await this.artifactService.snapshot(tenantId, {
+          artifactType: DeployArtifactType.SCADA_PACKAGE,
+          content: packageDoc,
+          schemaVersion: packageDoc.meta.schemaVersion,
+          sourceEntityId: pkg.id,
+          sourceEntityVersion: pkg.version,
+          createdBy: userId,
+        });
+      } catch (snapshotError) {
+        this.logger.error(
+          `Failed to snapshot SCADA package artifact: ${(snapshotError as Error).message}`,
+        );
+      }
+    }
+
+    // Faz 4: ed25519 signature over tenant + artifact sha256 under domain
+    // tag `scada-pkg-v1` — verified by the edge against
+    // firmware_signing_pubkey before applying the package.
+    const signature =
+      artifact && this.deploySigningService
+        ? this.deploySigningService.signDeployArtifact(
+            'scada-package',
+            tenantId,
+            artifact.contentSha256,
+          )
+        : null;
+
     const packagePayload = {
-      ...pkg.packageData,
+      ...packageDoc,
       meta: {
-        ...((pkg.packageData.meta ?? {}) as Record<string, unknown>),
+        ...packageDoc.meta,
         // Server-side fields MUST come last to prevent client override
         version: pkg.version,
         packageVersion: `${pkg.version}.0.0`,
         deployedBy: userId || 'system',
         deployedAt: new Date().toISOString(),
         edgeDeviceId: device.id,
+        ...(artifact ? { artifactSha256: artifact.contentSha256 } : {}),
+        ...(signature ? { signature } : {}),
       },
     };
 
@@ -268,6 +541,19 @@ export class ScadaPackageService {
       timestamp: new Date().toISOString(),
     };
 
+    // Publish-boundary contract validation (Faz 4): the shipped payload must
+    // match the canonical schemas the Rust agent is parity-tested against.
+    if (!validateDeployScadaPackageParams(packagePayload)) {
+      throw new BadRequestException(
+        `deploy_scada_package payload violates the canonical contract: ${formatValidationErrors(validateDeployScadaPackageParams)}`,
+      );
+    }
+    if (!validateCommandEnvelope(payload)) {
+      throw new BadRequestException(
+        `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
+      );
+    }
+
     // Create SCADA deploy log entry before sending MQTT (TASK 1)
     if (this.scadaDeployLogService) {
       try {
@@ -278,6 +564,8 @@ export class ScadaPackageService {
           commandId,
           version: pkg.version,
           deployedBy: userId,
+          artifactId: artifact?.id,
+          checksumSha256: artifact?.contentSha256,
         });
       } catch (logError) {
         this.logger.error(`Failed to create SCADA deploy log: ${(logError as Error).message}`);
@@ -298,6 +586,109 @@ export class ScadaPackageService {
       const msg = (error as Error).message;
       this.logger.error(`Failed to deploy SCADA package: ${msg}`);
       return { success: false, message: `Failed to deploy: ${msg}` };
+    }
+  }
+
+  /**
+   * REAL rollback (Faz 3): republish a previously-shipped artifact snapshot
+   * verbatim. Unlike the edge's single previous-version slot, any retained
+   * artifact can be restored, any number of times.
+   */
+  async rollbackScadaPackageDeploy(
+    artifactId: string,
+    deviceId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.artifactService) {
+      throw new BadRequestException('Artifact service not available');
+    }
+    const artifact = await this.artifactService.getById(tenantId, artifactId);
+    if (artifact.artifactType !== DeployArtifactType.SCADA_PACKAGE) {
+      throw new BadRequestException(
+        `Artifact ${artifactId} is a ${artifact.artifactType}, not a SCADA package`,
+      );
+    }
+
+    if (!this.edgeDeviceService) {
+      throw new BadRequestException('Edge device service not available');
+    }
+    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    if (!device.isOnline) {
+      return { success: false, message: 'Device is offline — cannot roll back' };
+    }
+    if (!this.mqttClient) {
+      throw new BadRequestException('MQTT service not available');
+    }
+    if (!this.mqttClient.isConnectedToBroker()) {
+      throw new BadRequestException('Not connected to MQTT broker');
+    }
+
+    const commandId = randomUUID();
+    const version = artifact.sourceEntityVersion ?? 0;
+    // Rollback republishes signed content: same artifact sha256, same
+    // domain tag — the edge cannot distinguish (nor needs to) a rollback
+    // from a fresh deploy at the signature layer.
+    const signature = this.deploySigningService
+      ? this.deploySigningService.signDeployArtifact(
+          'scada-package',
+          tenantId,
+          artifact.contentSha256,
+        )
+      : null;
+    const payload = {
+      commandId,
+      command: 'deploy_scada_package',
+      params: {
+        ...artifact.content,
+        meta: {
+          ...((artifact.content.meta ?? {}) as Record<string, unknown>),
+          version,
+          packageVersion: `${version}.0.0`,
+          deployedBy: userId || 'system',
+          deployedAt: new Date().toISOString(),
+          edgeDeviceId: device.id,
+          artifactSha256: artifact.contentSha256,
+          rollback: true,
+          ...(signature ? { signature } : {}),
+        },
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          packageId: artifact.sourceEntityId,
+          deviceId: device.id,
+          commandId,
+          version,
+          deployedBy: userId,
+          artifactId: artifact.id,
+          checksumSha256: artifact.contentSha256,
+          rolledBackTo: artifact.sourceEntityVersion,
+        });
+      } catch (logError) {
+        this.logger.error(
+          `Failed to create rollback deploy log: ${(logError as Error).message}`,
+        );
+      }
+    }
+
+    try {
+      await this.mqttClient.publish(
+        `tenants/${tenantId}/devices/${device.id}/commands`,
+        payload,
+      );
+      this.logger.log(
+        `Rolled back device ${device.deviceCode} to SCADA artifact ${artifact.id} (v${version}, command: ${commandId})`,
+      );
+      return { success: true, message: `Rollback to artifact v${version} sent` };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to publish rollback: ${msg}`);
+      return { success: false, message: `Failed to roll back: ${msg}` };
     }
   }
 
@@ -443,18 +834,28 @@ export class ScadaPackageService {
   }
 
   // ==========================================================================
-  // Unified Deploy: SCADA + Automation (TASK 3)
+  // Unified Deploy: SCADA + Automation — release-bundle builder (Faz 5)
   // ==========================================================================
 
   /**
-   * Deploy a SCADA package together with its bound automation programs.
+   * Deploy a SCADA package together with its bound automation programs as
+   * ONE two-phase release bundle (enterprise plan Faz 5).
    *
-   * Order of operations:
-   *   1. Validate the SCADA package and its automation bindings
-   *   2. Deploy each referenced automation program (must be running before SCADA reads variables)
-   *   3. Deploy the SCADA package
+   * The pre-Faz-5 shape published N+1 independent fire-and-forget commands
+   * (programs first, then the package) — a crash or broker outage between
+   * them left the device half-deployed with no record of it. Now:
    *
-   * If any automation deployment fails, the SCADA package is NOT deployed.
+   *   1. Each program + the package is snapshotted as a content-addressed
+   *      artifact and staged into a signed manifest.
+   *   2. The `release_bundles` PENDING row and the `DeployBundleRequested`
+   *      outbox event commit in ONE transaction — a crash cannot lose the
+   *      dispatch, and the dispatch cannot precede the commit.
+   *   3. The edge verifies the manifest signature + every artifact
+   *      checksum, then applies everything atomically under its deploy
+   *      lock and acks staged → confirmed (or failed with nothing applied).
+   *
+   * Bundles are ALWAYS signed — the builder refuses to run without the
+   * signing key rather than shipping an unsigned bundle.
    */
   async deployScadaWithAutomation(
     packageId: string,
@@ -466,90 +867,246 @@ export class ScadaPackageService {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
 
-    // Determine which programs to deploy
+    // Determine which programs ride the bundle
     const meta = pkg.packageData.meta as Record<string, unknown> | undefined;
     const bindings: AutomationBinding[] | undefined = meta?.automationBindings as AutomationBinding[] | undefined;
     const programIds = programIdOverrides && programIdOverrides.length > 0
       ? programIdOverrides
       : [...new Set((bindings || []).map((b) => b.programId).filter(Boolean))];
 
+    // Bundle pipeline preconditions — fail loudly with the exact remedy.
+    if (!this.edgeDeviceService) {
+      throw new BadRequestException('Edge device service not available');
+    }
+    if (!this.artifactService) {
+      throw new BadRequestException(
+        'Artifact service not available — bundle deploys require the content-addressed store',
+      );
+    }
+    const releaseBundleService = this.releaseBundleService;
+    const outboxPublisher = this.outboxPublisher;
+    if (!releaseBundleService || !outboxPublisher) {
+      throw new BadRequestException(
+        'Release-bundle pipeline not available (ReleaseBundleModule / outbox not wired)',
+      );
+    }
+    const deploySigningService = this.deploySigningService;
+    if (!deploySigningService?.isConfigured) {
+      throw new BadRequestException(
+        'Bundle deploys require deploy signing — set SENSOR_DEPLOY_SIGNING_KEY_SEED_HEX (unsigned bundles do not exist)',
+      );
+    }
+    const automationService = this.automationService;
+    if (programIds.length > 0 && !automationService) {
+      throw new BadRequestException(
+        'AutomationService not available — cannot bundle automation programs',
+      );
+    }
+
+    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    if (!device.isOnline) {
+      return {
+        success: false,
+        message: 'Device is offline — cannot deploy release bundle',
+        automationResults: [],
+      };
+    }
+
     const automationResults: AutomationDeployStepResult[] = [];
+    const artifactRefs: ReleaseBundleArtifactRef[] = [];
 
-    // Step 1: Deploy automation programs (if any)
-    if (programIds.length > 0) {
-      if (!this.automationService) {
-        throw new BadRequestException(
-          'AutomationService not available — cannot deploy automation programs',
+    // Step 1: stage automation programs into the bundle (programs lead so
+    // they are running before SCADA reads their variables — same ordering
+    // contract as before, now enforced by manifest order + edge apply).
+    for (const programId of programIds) {
+      if (!automationService) break;
+      try {
+        const prep = await automationService.prepareProgramBundleArtifact(
+          programId,
+          deviceId,
+          tenantId,
+          userId || 'system',
         );
-      }
-
-      for (const programId of programIds) {
-        try {
-          const result = await this.automationService.deployProgram(
-            programId,
-            deviceId,
-            tenantId,
-            userId || 'system',
-          );
-          automationResults.push({
-            programId,
-            success: result.success,
-            message: result.message,
-            commandId: result.commandId,
-          });
-
-          if (!result.success) {
-            // Abort: if an automation program fails to deploy, do not deploy SCADA
-            return {
-              success: false,
-              message: `Automation program ${programId} deployment failed: ${result.message}. SCADA deployment aborted.`,
-              automationResults,
-            };
-          }
-        } catch (error) {
-          const errMsg = (error as Error).message;
-          automationResults.push({
-            programId,
-            success: false,
-            message: errMsg,
-          });
-          return {
-            success: false,
-            message: `Automation program ${programId} deployment error: ${errMsg}. SCADA deployment aborted.`,
-            automationResults,
-          };
-        }
+        artifactRefs.push({
+          artifactId: prep.artifactId,
+          kind: DeployArtifactType.AUTOMATION_PROGRAM,
+          sha256: prep.sha256,
+          sourceEntityId: programId,
+          logCommandId: prep.logCommandId,
+          version: prep.version,
+        });
+        automationResults.push({
+          programId,
+          success: true,
+          message: 'Staged into release bundle',
+          commandId: prep.logCommandId,
+        });
+      } catch (error) {
+        const errMsg = (error as Error).message;
+        automationResults.push({ programId, success: false, message: errMsg });
+        return {
+          success: false,
+          message: `Automation program ${programId} staging failed: ${errMsg}. Bundle aborted — nothing published.`,
+          automationResults,
+        };
       }
     }
 
-    // Step 2: Deploy SCADA package (validation happens inside deployScadaPackageToEdge)
+    // Step 2: stage the SCADA package artifact
+    let packageRef: ReleaseBundleArtifactRef;
     try {
-      const scadaResult = await this.deployScadaPackageToEdge(packageId, deviceId, tenantId, userId);
-      return {
-        success: scadaResult.success,
-        message: scadaResult.success
-          ? `Deployed ${programIds.length} automation program(s) and SCADA package successfully`
-          : scadaResult.message,
-        automationResults,
-        scadaResult: {
-          packageId,
-          success: scadaResult.success,
-          message: scadaResult.message,
-        },
-      };
+      packageRef = await this.prepareScadaPackageBundleArtifact(pkg, device, tenantId, userId);
+      artifactRefs.push(packageRef);
     } catch (error) {
       const errMsg = (error as Error).message;
       return {
         success: false,
-        message: `SCADA deployment failed: ${errMsg}`,
+        message: `SCADA package staging failed: ${errMsg}. Bundle aborted — nothing published.`,
         automationResults,
-        scadaResult: {
-          packageId,
-          success: false,
-          message: errMsg,
-        },
+        scadaResult: { packageId, success: false, message: errMsg },
       };
     }
+
+    // Step 3: signed manifest + transactional PENDING row + outbox event
+    const bundleId = randomUUID();
+    const commandId = randomUUID();
+    const previous = await releaseBundleService.findLastConfirmed(tenantId, device.id);
+    const manifest: ReleaseBundleManifest = { bundleId, artifacts: artifactRefs };
+    const manifestSha256 = createHash('sha256')
+      .update(canonicalJsonStringify(manifest))
+      .digest('hex');
+    const signature = deploySigningService.signDeployArtifact(
+      'bundle',
+      tenantId,
+      manifestSha256,
+    );
+    if (!signature) {
+      throw new BadRequestException(
+        'Deploy signing became unavailable while building the bundle',
+      );
+    }
+
+    await this.scadaPackageRepository.manager.transaction(async (manager) => {
+      await releaseBundleService.createPending(
+        tenantId,
+        {
+          bundleId,
+          deviceId: device.id,
+          commandId,
+          manifest,
+          manifestSha256,
+          signature,
+          previousBundleId: previous?.id,
+          createdBy: userId,
+        },
+        manager,
+      );
+      await outboxPublisher.enqueue(
+        {
+          ...createBaseEvent('DeployBundleRequested', tenantId),
+          bundleId,
+          deviceId: device.id,
+          commandId,
+        },
+        manager,
+        { aggregateId: bundleId },
+      );
+    });
+
+    this.logger.log(
+      `Release bundle ${bundleId} committed for device ${device.deviceCode} ` +
+        `(${artifactRefs.length} artifact(s), command ${commandId}) — outbox will dispatch`,
+    );
+
+    return {
+      success: true,
+      message:
+        `Release bundle ${bundleId} queued for ${device.deviceCode}: ` +
+        `${programIds.length} program(s) + SCADA package. ` +
+        'The edge acks staged → confirmed; package status flips to PUBLISHED on confirmation.',
+      automationResults,
+      scadaResult: {
+        packageId,
+        success: true,
+        message: `Staged into release bundle (artifact ${packageRef.artifactId})`,
+      },
+    };
+  }
+
+  /**
+   * Snapshot + validate + log the SCADA package for a bundle — everything
+   * `deployScadaPackageToEdge` does EXCEPT the MQTT publish and the
+   * premature PUBLISHED flip (the package becomes PUBLISHED only when the
+   * edge CONFIRMS the bundle).
+   */
+  private async prepareScadaPackageBundleArtifact(
+    pkg: ScadaPackage,
+    device: { id: string; deviceCode: string },
+    tenantId: string,
+    userId?: string,
+  ): Promise<ReleaseBundleArtifactRef> {
+    if (!this.artifactService) {
+      throw new BadRequestException(
+        'Artifact service not available — bundle deploys require the content-addressed store',
+      );
+    }
+
+    await this.validateAutomationBindings(pkg);
+
+    const packageDoc = upcastScadaPackageDoc(pkg.packageData, {
+      deviceCode: device.deviceCode,
+    });
+    if (!validateScadaPackageDocV2(packageDoc)) {
+      throw new BadRequestException(
+        `packageData failed ScadaPackageDocV2 validation: ${formatValidationErrors(validateScadaPackageDocV2)}`,
+      );
+    }
+
+    // Tag SSoT warn report — same coverage as the single-command path.
+    if (this.tagResolutionService) {
+      const tagNames = this.collectWidgetTagNames(packageDoc);
+      if (tagNames.length > 0) {
+        const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
+        const resolution = await this.tagResolutionService.resolve(tenantId, refs);
+        if (resolution.unresolved.length > 0) {
+          this.logger.warn(
+            `bundle package ${pkg.id}: ${resolution.unresolved.length}/${refs.length} widget tag binding registry'de çözülemedi: ${JSON.stringify(resolution.unresolved)}`,
+          );
+        }
+      }
+    }
+
+    const artifact = await this.artifactService.snapshot(tenantId, {
+      artifactType: DeployArtifactType.SCADA_PACKAGE,
+      content: packageDoc,
+      schemaVersion: packageDoc.meta.schemaVersion,
+      sourceEntityId: pkg.id,
+      sourceEntityVersion: pkg.version,
+      createdBy: userId,
+    });
+
+    const logCommandId = randomUUID();
+    if (this.scadaDeployLogService) {
+      await this.scadaDeployLogService.createLog({
+        tenantId,
+        packageId: pkg.id,
+        deviceId: device.id,
+        commandId: logCommandId,
+        version: pkg.version,
+        deployedBy: userId,
+        artifactId: artifact.id,
+        checksumSha256: artifact.contentSha256,
+      });
+    }
+
+    return {
+      artifactId: artifact.id,
+      kind: DeployArtifactType.SCADA_PACKAGE,
+      sha256: artifact.contentSha256,
+      sourceEntityId: pkg.id,
+      logCommandId,
+      version: pkg.version,
+    };
   }
 }
 

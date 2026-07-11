@@ -8,7 +8,7 @@
 import React, { useMemo } from 'react';
 import { Bookmark, Trash2, Plus } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore } from '../../store/scada';
 
 export const WidgetTemplatePanel: React.FC = () => {
   const { widgetTemplates, activeScreenId, deleteTemplate, applyTemplate } =

@@ -85,12 +85,12 @@ registerEnumType(TransferReason, {
 export class BatchLocation {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -99,11 +99,11 @@ export class BatchLocation {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: Batch;
+  batch!: Batch;
 
   // -------------------------------------------------------------------------
   // LOKASYON BİLGİLERİ
@@ -114,7 +114,7 @@ export class BatchLocation {
     type: 'enum',
     enum: LocationType,
   })
-  locationType: LocationType;
+  locationType!: LocationType;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -139,11 +139,11 @@ export class BatchLocation {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  quantity: number;                // Bu lokasyondaki adet
+  quantity!: number;                // Bu lokasyondaki adet
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
-  biomass: number;                 // Bu lokasyondaki biomass (kg)
+  biomass!: number;                 // Bu lokasyondaki biomass (kg)
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -155,7 +155,7 @@ export class BatchLocation {
 
   @Field()
   @Column({ type: 'timestamptz' })
-  movedAt: Date;                   // Bu lokasyona taşınma tarihi
+  movedAt!: Date;                   // Bu lokasyona taşınma tarihi
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -180,7 +180,7 @@ export class BatchLocation {
   @Field()
   @Column({ default: true })
   @Index()
-  isCurrentLocation: boolean;      // Mevcut aktif lokasyon mu?
+  isCurrentLocation!: boolean;      // Mevcut aktif lokasyon mu?
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -196,11 +196,11 @@ export class BatchLocation {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS

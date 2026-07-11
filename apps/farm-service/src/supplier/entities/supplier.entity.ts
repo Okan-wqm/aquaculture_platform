@@ -87,12 +87,12 @@ export interface SupplierAddress {
 export class Supplier {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -100,7 +100,7 @@ export class Supplier {
 
   @Field()
   @Column({ length: 200 })
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ length: 20, nullable: true })
@@ -112,7 +112,7 @@ export class Supplier {
     enum: SupplierType,
     default: SupplierType.OTHER,
   })
-  type: SupplierType;                  // Ana tip
+  type!: SupplierType;                  // Ana tip
 
   /**
    * Çoklu tip desteği: ['fry', 'feed']
@@ -195,12 +195,12 @@ export class Supplier {
     enum: SupplierStatus,
     default: SupplierStatus.ACTIVE,
   })
-  status: SupplierStatus;
+  status!: SupplierStatus;
 
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -212,11 +212,11 @@ export class Supplier {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -227,7 +227,7 @@ export class Supplier {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -236,7 +236,7 @@ export class Supplier {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

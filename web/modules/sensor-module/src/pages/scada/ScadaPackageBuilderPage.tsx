@@ -22,10 +22,11 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useScadaPackageStore, type ScadaPackageJSON } from '../../store/scadaPackageStore';
+import { useScadaPackageStore, type ScadaPackageJSON } from '../../store/scada';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { PropertiesPanel } from '../../components/scada-builder/PropertiesPanel';
-import { DeployScadaDialog } from '../../components/scada-builder/DeployScadaDialog';
+import { DeployToEdgeDialog } from '../../components/deploy/DeployToEdgeDialog';
+import { ScadaPackagePreview } from '../../components/deploy/ScadaPackagePreview';
 import ScreenTabBar from '../../components/scada-builder/ScreenTabBar';
 import { ScreenBreadcrumb } from '../../components/scada-builder/ScreenBreadcrumb';
 import { UnifiedLeftPanel } from '../../components/scada-builder/UnifiedLeftPanel';
@@ -41,6 +42,7 @@ import {
   useScadaPackageById,
   useCreateScadaPackage,
   useUpdateScadaPackage,
+  useDeployScadaPackage,
 } from '../../hooks/useScadaPackage';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
@@ -201,6 +203,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   // Mutations
   const createMutation = useCreateScadaPackage();
   const updateMutation = useUpdateScadaPackage();
+  const deployMutation = useDeployScadaPackage();
 
   // Edge devices for target device selector
   const { data: deviceConnection } = useEdgeDevices({ limit: 50 });
@@ -391,20 +394,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
           {/* Canvas — single stable instance, data provider switches internally
                to prevent unmount/remount that would destroy ReactFlow drag positions */}
           <div className="flex-1 flex flex-col">
-            <StableModeProvider
-              mode={mode}
-              deviceCode={selectedDevice?.deviceCode ?? null}
-            >
-              <ScreenCanvas
-                isPreview={mode !== 'edit'}
-                deviceCode={
-                  mode === 'simulation'
-                    ? '__sim__'
-                    : mode === 'preview' && selectedDevice?.deviceCode
-                      ? selectedDevice.deviceCode
-                      : undefined
-                }
-              />
+            <StableModeProvider mode={mode}>
+              <ScreenCanvas isPreview={mode !== 'edit'} />
             </StableModeProvider>
           </div>
         </div>
@@ -472,12 +463,17 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
       {/* Deploy Dialog */}
       {showDeployDialog && effectivePackageId && (
-        <DeployScadaDialog
-          packageId={effectivePackageId}
-          packageName={packageName}
-          packageData={toScadaPackageJSON()}
+        <DeployToEdgeDialog
+          title="Deploy SCADA Package"
+          artifactLabel="SCADA Package"
+          artifactName={packageName}
+          accent="purple"
+          preview={<ScadaPackagePreview packageData={toScadaPackageJSON()} />}
           isOpen={showDeployDialog}
           onClose={() => setShowDeployDialog(false)}
+          onDeploy={(deviceId) =>
+            deployMutation.mutateAsync({ packageId: effectivePackageId, deviceId })
+          }
         />
       )}
 

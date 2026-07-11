@@ -7,18 +7,8 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { IsBoolean } from 'class-validator';
 
-/**
- * Input for updating tenant-level AI analysis setting.
- * Only TENANT_ADMIN can toggle this.
- */
-@InputType()
-export class UpdateTenantAiSettingInput {
-  @Field(() => Boolean, {
-    description: 'Enable or disable AI analysis for the entire tenant',
-  })
-  @IsBoolean()
-  enabled: boolean;
-}
+// UpdateTenantAiSettingInput removed — tenant AI enablement is owned by ai-service
+// (updateAiProviderSettings.isEnabled); messaging keeps only user-level consent.
 
 /**
  * Input for updating user-level AI analysis consent.
@@ -30,5 +20,5 @@ export class UpdateUserAiConsentInput {
     description: 'User opt-in consent for AI analysis of their messages',
   })
   @IsBoolean()
-  consent: boolean;
+  consent!: boolean;
 }

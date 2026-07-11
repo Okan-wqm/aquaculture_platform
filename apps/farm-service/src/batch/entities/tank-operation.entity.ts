@@ -85,12 +85,12 @@ export interface PostOperationState {
 export class TankOperation {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TANK İLİŞKİSİ
@@ -99,7 +99,7 @@ export class TankOperation {
   @Field()
   @Column('uuid')
   @Index()
-  tankId: string;
+  tankId!: string;
 
   @ManyToOne('Tank', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tankId' })
@@ -130,11 +130,11 @@ export class TankOperation {
   @Field()
   @Column('uuid')
   @Index()
-  batchId: string;
+  batchId!: string;
 
   @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: Batch;
+  batch!: Batch;
 
   // Denormalized batch number for quick access
   @Field({ nullable: true })
@@ -150,15 +150,15 @@ export class TankOperation {
     type: 'enum',
     enum: OperationType,
   })
-  operationType: OperationType;
+  operationType!: OperationType;
 
   @Field()
   @Column({ type: 'date' })
-  operationDate: Date;
+  operationDate!: Date;
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  quantity: number;                        // İşlem adedi
+  quantity!: number;                        // İşlem adedi
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
@@ -246,7 +246,7 @@ export class TankOperation {
    */
   @Field({ nullable: true })
   @Column({ type: 'boolean', default: false })
-  isCleanerFishOperation: boolean;
+  isCleanerFishOperation!: boolean;
 
   /**
    * Cleaner fish türü (Lumpfish, Ballan Wrasse, vb.)
@@ -288,15 +288,15 @@ export class TankOperation {
 
   @Field()
   @Column('uuid')
-  performedBy: string;                     // İşlemi yapan kullanıcı
+  performedBy!: string;                     // İşlemi yapan kullanıcı
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -304,7 +304,7 @@ export class TankOperation {
 
   @Field()
   @Column({ default: false })
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

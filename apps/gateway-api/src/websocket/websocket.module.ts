@@ -13,6 +13,7 @@ import { MessagingGateway } from './messaging.gateway';
 import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
 import { FarmGateway } from './farm.gateway';
 import { FarmNatsBridgeService } from './farm-nats-bridge.service';
+import { AiChatGateway } from './ai-chat.gateway';
 
 @Module({
   imports: [
@@ -40,12 +41,16 @@ import { FarmNatsBridgeService } from './farm-nats-bridge.service';
     // forwards to FarmGateway → tenant-scoped Socket.IO rooms.
     FarmGateway,
     FarmNatsBridgeService,
+    // AI assistant real-time gateway (/ai namespace) — forwards ai:chat over
+    // NATS request.ai.chat to ai-service, replacing the hand-rolled REST proxy.
+    AiChatGateway,
   ],
   exports: [
     SensorReadingsGateway,
     STLanguageGateway,
     MessagingGateway,
     FarmGateway,
+    AiChatGateway,
   ],
 })
  

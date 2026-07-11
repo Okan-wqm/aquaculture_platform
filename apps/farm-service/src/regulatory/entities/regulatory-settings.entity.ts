@@ -54,11 +54,11 @@ export interface CompanyAddress {
 export class RegulatorySettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'uuid', name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   // ==========================================================================
   // Company Information
@@ -105,7 +105,7 @@ export class RegulatorySettings {
   /** Maskinporten environment: 'TEST' or 'PRODUCTION' */
   @Field({ nullable: true })
   @Column({ name: 'maskinporten_environment', length: 20, default: 'TEST' })
-  maskinportenEnvironment: string;
+  maskinportenEnvironment!: string;
 
   // ==========================================================================
   // Default Contact for Reports
@@ -123,23 +123,29 @@ export class RegulatorySettings {
   @Column({ name: 'default_contact_phone', length: 50, nullable: true })
   defaultContactPhone?: string;
 
+  // Site → lokalitetsnummer is an intrinsic Site attribute now
+  // (sites.lokalitetsnummer, RPT-015 — the SSoT). The legacy
+  // regulatory_settings.site_locality_mappings jsonb is dropped by
+  // DropSiteLocalityMappingsJsonb1804200000000 (Phase 4 dedup); the effective
+  // map is read from site rows via getEffectiveSiteLocalityMappings.
+
+  // Slaughter approval number moved to the slaughter_facilities catalog
+  // (SSoT — CreateSlaughterFacilities1803450000000); the legacy
+  // regulatory_settings.slaughter_approval_number column is dropped by
+  // DropRegulatorySettingsSlaughterApprovalNumber1804100000000 (Phase 4 dedup).
+
   // ==========================================================================
-  // Site to Lokalitetsnummer Mappings (for Mattilsynet reports)
+  // Automated submission (opt-in per report type — user decision, RPT-003)
   // ==========================================================================
 
-  /** Mapping of Site ID to Lokalitetsnummer (e.g., { "site-uuid": 12345 }) */
+  /**
+   * Per-report-type auto-submit opt-in, keyed by ReportPrefillType value, e.g.
+   * `{ "SEA_LICE": true }`. Absent/false → the scheduler assembles the draft
+   * but leaves submission to operator approval.
+   */
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ name: 'site_locality_mappings', type: 'jsonb', default: '{}' })
-  siteLocalityMappings: Record<string, number>;
-
-  // ==========================================================================
-  // Slaughter Facility
-  // ==========================================================================
-
-  /** Slaughter approval number for Slakterapport */
-  @Field({ nullable: true })
-  @Column({ name: 'slaughter_approval_number', length: 50, nullable: true })
-  slaughterApprovalNumber?: string;
+  @Column({ name: 'auto_submit_policies', type: 'jsonb', default: '{}' })
+  autoSubmitPolicies!: Record<string, boolean>;
 
   // ==========================================================================
   // Metadata
@@ -147,9 +153,9 @@ export class RegulatorySettings {
 
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

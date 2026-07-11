@@ -31333,6 +31333,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-07-06-tenant-schema-grant-incident.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -34472,6 +34478,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-privileges.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-schema-privileges.ts",
       "prettier_managed": true
     },
     {
@@ -52410,10 +52428,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8589,
+  "file_count": 8592,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8414,
-  "managed_file_list_sha256": "fe386601dde7580ad76049bc2322960c4f46c257eab35a42a302450d9cd5f364",
+  "managed_count": 8417,
+  "managed_file_list_sha256": "a5ebd6eeaeb1b6ff1641087098025bc0ba485e63ec2b925bd7bf2cdbbd49079e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

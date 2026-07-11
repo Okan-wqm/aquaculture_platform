@@ -51,6 +51,7 @@ Allowed truth buckets:
 | `FARM-CRITICAL-168`  | OPEN           | —            | farm-expert  | already-fixed-needs-close |
 | `FARM-CRITICAL-169`  | OPEN           | —            | data-expert  | already-fixed-needs-close |
 | `FARM-CRITICAL-171`  | OPEN           | —            | infra-expert | already-fixed-needs-close |
+| `INFRA-CRITICAL-039` | OPEN           | —            | infra-expert | already-fixed-needs-close |
 
 ## Mutation Rules
 

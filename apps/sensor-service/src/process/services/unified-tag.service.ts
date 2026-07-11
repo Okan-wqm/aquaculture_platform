@@ -193,7 +193,6 @@ export class UnifiedTagService {
       : [];
     const existingFqnMap = new Map(existingTags.map(t => [t.fqn, t]));
 
-    const tags: UnifiedTag[] = [...existingTags];
     const newTags: UnifiedTag[] = [];
 
     for (const io of ioConfigs) {
@@ -226,11 +225,27 @@ export class UnifiedTagService {
     }
 
     if (newTags.length > 0) {
-      const saved = await this.tagRepository.save(newTags);
-      tags.push(...saved);
+      // ON CONFLICT DO NOTHING: a concurrent discovery of the same device (or a
+      // re-run) races on the unique (tenantId, fqn) index. A plain bulk save
+      // throws 23505 and rolls back the WHOLE batch; orIgnore skips only the
+      // rows another transaction already created, so discovery is idempotent
+      // and concurrent-safe (BE-004).
+      await this.tagRepository
+        .createQueryBuilder()
+        .insert()
+        .into(UnifiedTag)
+        .values(newTags)
+        .orIgnore()
+        .execute();
     }
 
-    const createdCount = newTags.length;
+    // Re-read the full set by fqn so the result reflects rows persisted here AND
+    // any that a concurrent discovery won the insert race for (our orIgnore then
+    // skipped). This is also what gives the newly-inserted rows their ids.
+    const tags = fqns.length > 0
+      ? await this.tagRepository.find({ where: { tenantId, fqn: In(fqns) } })
+      : [];
+    const createdCount = Math.max(0, tags.length - existingTags.length);
     this.logger.log(`Discovered ${discoveredCount} I/O configs, created ${createdCount} new tags`);
     return { discoveredCount, createdCount, tags };
   }

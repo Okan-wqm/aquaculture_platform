@@ -326,6 +326,15 @@ export class ProcessService {
     // 1. Process'i yükle
     const process = await this.getProcessOrFail(processId, tenantId);
 
+    // A soft-deleted (ARCHIVED) process must never be pushed to a device —
+    // deploy runs physical hardware, so a deleted process reaching the edge is
+    // a state-machine violation, not a recoverable warning.
+    if (process.status === ProcessStatus.ARCHIVED) {
+      throw new BadRequestException(
+        `Process ${processId} is archived (deleted) and cannot be deployed`,
+      );
+    }
+
     // 2. Edge device service kontrolü
     if (!this.edgeDeviceService) {
       throw new BadRequestException('Edge device service not available');

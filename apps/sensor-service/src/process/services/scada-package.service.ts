@@ -431,6 +431,21 @@ export class ScadaPackageService {
     return true;
   }
 
+  /**
+   * A package that has been soft-deleted (ARCHIVED) must never be pushed to a
+   * device. Deploy is the moment the package starts running physical hardware,
+   * so an archived (deleted) package reaching the edge is a state-machine
+   * violation, not a recoverable warning. Every device-push entrypoint guards
+   * on this before touching the broker.
+   */
+  private assertPackageDeployable(pkg: ScadaPackage): void {
+    if (pkg.status === ScadaPackageStatus.ARCHIVED) {
+      throw new BadRequestException(
+        `ScadaPackage ${pkg.id} is archived (deleted) and cannot be deployed`,
+      );
+    }
+  }
+
   async deployScadaPackageToEdge(
     packageId: string,
     deviceId: string,
@@ -439,6 +454,7 @@ export class ScadaPackageService {
   ): Promise<{ success: boolean; message: string }> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
+    this.assertPackageDeployable(pkg);
 
     if (!this.edgeDeviceService) {
       throw new BadRequestException('Edge device service not available');
@@ -867,6 +883,7 @@ export class ScadaPackageService {
   ): Promise<UnifiedDeployResult> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
+    this.assertPackageDeployable(pkg);
 
     // Determine which programs ride the bundle
     const meta = pkg.packageData.meta as Record<string, unknown> | undefined;

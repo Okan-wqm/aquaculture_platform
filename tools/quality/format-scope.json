@@ -29389,6 +29389,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-07-11-adr-0004-money-wire-representation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/recommendations/auth-security-expert/2026-04-06-guard-di-security-recommendations.md",
       "prettier_managed": true
     },
@@ -52224,10 +52230,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8558,
+  "file_count": 8559,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8383,
-  "managed_file_list_sha256": "ff78fa2e6ca63a54090ad6b6f71b3f557e19dfb07947ea9252e2bd456e4b4147",
+  "managed_count": 8384,
+  "managed_file_list_sha256": "5c883c573eb70bb229e968f1a4ba598e0e2c0b94a21e6f07d4bd3c6dea6fe15a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

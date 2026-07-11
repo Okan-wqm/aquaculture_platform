@@ -17,6 +17,7 @@
  * covers it exhaustively.
  */
 import { Injectable } from '@nestjs/common';
+import Decimal from 'decimal.js';
 
 import {
   FinanceCategory,
@@ -26,7 +27,8 @@ import {
 export interface ComputedCategoryValue {
   categoryId: string;
   code: string | null;
-  value: number;
+  /** Exact monetary value (2dp, HALF_EVEN) — never an IEEE-754 float. */
+  value: Decimal;
 }
 
 /** A computed-rule percentage is only meaningful in the half-open range (0, 100]. */
@@ -47,22 +49,25 @@ export class ComputedRuleEvaluator {
    * non-self-referential and lets two computed categories in one scope
    * never feed each other.
    *
+   * All arithmetic is Decimal (HALF_EVEN, 2dp) — no IEEE-754 float, so the
+   * 5% line never drifts by a fraction of a cent.
+   *
    * @param categories all categories (any scope, mixed computed + regular)
-   * @param baseTotals categoryId → booked total for the queried period
+   * @param baseTotals categoryId → exact booked total for the queried period
    *                   (manual + derived; computed categories absent)
    * @param scope      the scope to evaluate; only its categories participate
    * @returns value per computed category IN `scope`, rounded to 2 decimals
    */
   evaluate(
     categories: readonly FinanceCategory[],
-    baseTotals: ReadonlyMap<string, number>,
+    baseTotals: ReadonlyMap<string, Decimal>,
     scope: FinanceCategoryScope,
   ): ComputedCategoryValue[] {
     const scoped = categories.filter((c) => c.scope === scope);
 
     const nonComputedTotal = scoped
       .filter((c) => !c.computedRule)
-      .reduce((sum, c) => sum + (baseTotals.get(c.id) ?? 0), 0);
+      .reduce((sum, c) => sum.plus(baseTotals.get(c.id) ?? 0), new Decimal(0));
 
     return scoped
       .filter((c): c is FinanceCategory & { computedRule: NonNullable<FinanceCategory['computedRule']> } =>
@@ -73,11 +78,14 @@ export class ComputedRuleEvaluator {
       .filter((c) => isValidPercent(c.computedRule.percent))
       .map((category) => {
         const { percent } = category.computedRule;
-        const raw = (nonComputedTotal * percent) / 100;
+        const value = nonComputedTotal
+          .mul(percent)
+          .div(100)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_EVEN);
         return {
           categoryId: category.id,
           code: category.code ?? null,
-          value: Math.round(raw * 100) / 100,
+          value,
         };
       });
   }

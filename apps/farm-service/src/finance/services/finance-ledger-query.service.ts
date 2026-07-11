@@ -24,6 +24,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
+import Decimal from 'decimal.js';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 import {
@@ -128,7 +129,17 @@ interface DerivedAggRow {
   total: string;
 }
 
-const round2 = (value: number): number => Math.round(value * 100) / 100;
+/**
+ * Money rounding SSoT for the read model: exact 2dp HALF_EVEN via Decimal,
+ * converted to a JS number only at the GraphQL boundary. All accumulation
+ * upstream is Decimal, so no IEEE-754 float drift enters the totals.
+ */
+const toMoney = (value: Decimal): number =>
+  value.toDecimalPlaces(2, Decimal.ROUND_HALF_EVEN).toNumber();
+
+/** Exact 2dp rounding of a single source amount string (derived line items). */
+const round2 = (value: string | number): number =>
+  toMoney(new Decimal(value));
 
 @Injectable()
 export class FinanceLedgerQueryService {
@@ -197,17 +208,19 @@ export class FinanceLedgerQueryService {
       // bucketKey is a canonical UTC `YYYY-MM-DD` string computed in SQL, so
       // manual (DATE) and derived (timestamptz) columns land in the SAME
       // bucket regardless of the DB session timezone (no Date round-trip).
-      const categoryTotals = new Map<string, number>();
-      const bucketTotals = new Map<string, Map<string, number>>();
+      // Exact Decimal accumulation — SQL SUM over numeric(15,2) is exact, and
+      // the JS-side merge across sources/buckets stays exact (no float drift).
+      const categoryTotals = new Map<string, Decimal>();
+      const bucketTotals = new Map<string, Map<string, Decimal>>();
 
-      const record = (categoryId: string, bucketKey: string, amount: number): void => {
-        categoryTotals.set(categoryId, (categoryTotals.get(categoryId) ?? 0) + amount);
+      const record = (categoryId: string, bucketKey: string, amount: Decimal): void => {
+        categoryTotals.set(categoryId, (categoryTotals.get(categoryId) ?? new Decimal(0)).plus(amount));
         let perCategory = bucketTotals.get(bucketKey);
         if (!perCategory) {
-          perCategory = new Map<string, number>();
+          perCategory = new Map<string, Decimal>();
           bucketTotals.set(bucketKey, perCategory);
         }
-        perCategory.set(categoryId, (perCategory.get(categoryId) ?? 0) + amount);
+        perCategory.set(categoryId, (perCategory.get(categoryId) ?? new Decimal(0)).plus(amount));
       };
 
       // Manual entries: one grouped query. entryDate is a DATE (tz-free), so
@@ -226,7 +239,7 @@ export class FinanceLedgerQueryService {
         .getRawMany<{ bucket: string; categoryId: string; total: string }>());
 
       for (const row of manualRows) {
-        record(row.categoryId, row.bucket, Number(row.total));
+        record(row.categoryId, row.bucket, new Decimal(row.total));
       }
 
       // Derived sources: one grouped query per source.
@@ -236,7 +249,7 @@ export class FinanceLedgerQueryService {
         const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, truncUnit, null);
         for (const row of rows) {
           if (row.bucket === null) continue;
-          record(category.id, row.bucket, Number(row.total));
+          record(category.id, row.bucket, new Decimal(row.total));
         }
       }
 
@@ -258,7 +271,7 @@ export class FinanceLedgerQueryService {
       // Fold into the response shape.
       const kindOf = new Map(categories.map((c) => [c.id, c.kind]));
       const byCategory: CategoryTotalShape[] = categories
-        .filter((c) => c.isActive || (categoryTotals.get(c.id) ?? 0) > 0)
+        .filter((c) => c.isActive || (categoryTotals.get(c.id) ?? new Decimal(0)).gt(0))
         .map((c) => ({
           categoryId: c.id,
           categoryCode: c.code ?? null,
@@ -267,46 +280,42 @@ export class FinanceLedgerQueryService {
           kind: c.kind,
           isComputed: Boolean(c.computedRule),
           isDerived: Boolean(c.code && DERIVED_COST_SOURCES.some((s) => s.systemCode === c.code)),
-          total: round2(categoryTotals.get(c.id) ?? 0),
+          total: toMoney(categoryTotals.get(c.id) ?? new Decimal(0)),
         }))
         .sort((a, b) => b.total - a.total);
 
       const series: TimeBucketShape[] = [...bucketTotals.entries()]
         .map(([bucketKey, perCategory]) => {
-          let totalExpense = 0;
-          let totalRevenue = 0;
+          let totalExpense = new Decimal(0);
+          let totalRevenue = new Decimal(0);
           for (const [categoryId, total] of perCategory.entries()) {
             if (kindOf.get(categoryId) === FinanceCategoryKind.REVENUE) {
-              totalRevenue += total;
+              totalRevenue = totalRevenue.plus(total);
             } else {
-              totalExpense += total;
+              totalExpense = totalExpense.plus(total);
             }
           }
           return {
             // Canonical UTC midnight for the bucket key — no local-tz drift.
             bucketStart: new Date(`${bucketKey}T00:00:00.000Z`),
-            totalExpense: round2(totalExpense),
-            totalRevenue: round2(totalRevenue),
+            totalExpense: toMoney(totalExpense),
+            totalRevenue: toMoney(totalRevenue),
           };
         })
         .sort((a, b) => a.bucketStart.getTime() - b.bucketStart.getTime());
 
-      const totalExpense = round2(
-        byCategory
-          .filter((c) => c.kind === FinanceCategoryKind.EXPENSE)
-          .reduce((sum, c) => sum + c.total, 0),
-      );
-      const totalRevenue = round2(
-        byCategory
-          .filter((c) => c.kind === FinanceCategoryKind.REVENUE)
-          .reduce((sum, c) => sum + c.total, 0),
-      );
+      const sumByKind = (kind: FinanceCategoryKind): Decimal =>
+        categories
+          .filter((c) => c.kind === kind)
+          .reduce((sum, c) => sum.plus(categoryTotals.get(c.id) ?? 0), new Decimal(0));
+      const expenseTotal = sumByKind(FinanceCategoryKind.EXPENSE);
+      const revenueTotal = sumByKind(FinanceCategoryKind.REVENUE);
 
       return {
         currency,
-        totalExpense,
-        totalRevenue,
-        netResult: round2(totalRevenue - totalExpense),
+        totalExpense: toMoney(expenseTotal),
+        totalRevenue: toMoney(revenueTotal),
+        netResult: toMoney(revenueTotal.minus(expenseTotal)),
         byCategory,
         series,
       };
@@ -324,13 +333,13 @@ export class FinanceLedgerQueryService {
       const categories = await this.loadCategories(manager, tenantId);
       const byCode = this.categoriesByCode(categories);
 
-      const totals = new Map<string, { expense: number; revenue: number }>();
-      const record = (batchId: string, kind: FinanceCategoryKind, amount: number): void => {
-        const bucket = totals.get(batchId) ?? { expense: 0, revenue: 0 };
+      const totals = new Map<string, { expense: Decimal; revenue: Decimal }>();
+      const record = (batchId: string, kind: FinanceCategoryKind, amount: Decimal): void => {
+        const bucket = totals.get(batchId) ?? { expense: new Decimal(0), revenue: new Decimal(0) };
         if (kind === FinanceCategoryKind.REVENUE) {
-          bucket.revenue += amount;
+          bucket.revenue = bucket.revenue.plus(amount);
         } else {
-          bucket.expense += amount;
+          bucket.expense = bucket.expense.plus(amount);
         }
         totals.set(batchId, bucket);
       };
@@ -351,7 +360,7 @@ export class FinanceLedgerQueryService {
 
       const kindOf = new Map(categories.map((c) => [c.id, c.kind]));
       for (const row of manualRows) {
-        record(row.batchId, kindOf.get(row.categoryId) ?? FinanceCategoryKind.EXPENSE, Number(row.total));
+        record(row.batchId, kindOf.get(row.categoryId) ?? FinanceCategoryKind.EXPENSE, new Decimal(row.total));
       }
 
       for (const source of DERIVED_COST_SOURCES) {
@@ -361,15 +370,15 @@ export class FinanceLedgerQueryService {
         const rows = await this.aggregateDerivedSource(manager, tenantId, source, range, null, source.batchIdExpr);
         for (const row of rows) {
           if (!row.batchId) continue;
-          record(row.batchId, source.kind, Number(row.total));
+          record(row.batchId, source.kind, new Decimal(row.total));
         }
       }
 
       return [...totals.entries()]
         .map(([batchId, bucket]) => ({
           batchId,
-          totalExpense: round2(bucket.expense),
-          totalRevenue: round2(bucket.revenue),
+          totalExpense: toMoney(bucket.expense),
+          totalRevenue: toMoney(bucket.revenue),
         }))
         .sort((a, b) => b.totalExpense - a.totalExpense);
     });
@@ -501,7 +510,7 @@ export class FinanceLedgerQueryService {
           categoryCode: category.code ?? null,
           categoryName: category.name,
           kind: source.kind,
-          amount: round2(Number(row.amount)),
+          amount: round2(row.amount),
           currency: row.currency ?? defaultCurrency,
           entryDate: new Date(row.entryDate),
           batchId: row.batchId,

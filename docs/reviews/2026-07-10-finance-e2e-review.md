@@ -111,6 +111,25 @@ Every HR finance mutation (entry/category CRUD, restore, payroll cost settings)
 now carries `@AuditLog`, so the platform audit interceptor captures them like the
 rest of hr-service.
 
+## Wave 2 — exact Money aggregation (follow-up, implemented)
+
+### FARM-MEDIUM-165 — finance read-model accumulated money in IEEE-754 float
+The ledger query and computed-rule evaluator summed `Number(row.total)` in JS
+floats and rounded HALF_UP via `Math.round`, drifting fractions of a cent across
+sources/buckets. Both now accumulate in **Decimal.js** and round **HALF_EVEN**
+(the platform `Money` VO SSoT), converting to a JS number only at the GraphQL
+boundary. `SUM(numeric(15,2))` was already exact; this closes the JS-side drift.
+
+**Wire scalar (`DATA-MEDIUM-009`) — ruled a platform decision.** Whether finance
+money should cross GraphQL as a string/Decimal scalar instead of `Float` was
+routed to architectural-arbiter (ADR-0004,
+`docs/recommendations/architectural-arbiter/2026-07-11-adr-0004-money-wire-representation.md`).
+Verdict: it is a **platform-wide Shared-Kernel** change (billing-expert primary +
+data-expert co-owner, ~65 money fields + ~115 `formatCurrency` call sites), NOT a
+finance-only fix — a finance-only string scalar would fork the shared money
+primitive. Finance keeps `@Field(Float)` and ships only the exact-aggregation fix
+above; `DATA-MEDIUM-009` stays OPEN, re-parented to the platform effort.
+
 ## Tracked debt (owner + deadline — NOT fixed this cycle)
 
 ### PERF-HIGH-004 — no rollup/cache; derived aggregation re-scans high-frequency source tables per load

@@ -6233,3 +6233,25 @@ Once ORPHAN-MEDIUM-324's `infra_ledger_read` policy is deployed on `auth.audit_l
 **Remediation (this PR, Tier-1/2):** added `IMPERSONATION_SESSION_SECRET_FIELDS` (SSoT) + `SafeImpersonationSession` type + `toSafeImpersonationSession()` mapper in the entity file; every read path (`getSession`, `getActiveSessions`, `querySessions`, `getAuditSummary.recentSessions`) now returns the safe view, so a token can never leave the service on a read. The start path returns the safe view plus ONLY the raw impersonation token (revealed once to the initiator), never the stored plaintext session token. Pinned by `services/__tests__/impersonation.service.token-redaction.spec.ts`.
 **Validation:** token-redaction spec 4/4; admin-api impersonation suite 120/120; admin-api type-check clean.
 **Owner:** admin-expert. **Deadline:** closed by this PR's merge.
+
+## ORPHAN-HIGH-343 — VFD runtime control commands had no durable audit record — RESOLVED (this PR)
+
+**Discovered:** 2026-07-11 (Lane-D db-audit, `db-audit-sensor` partition — DB-SENSOR-HIGH-003).
+**Evidence:** `apps/sensor-service/src/vfd/services/vfd-command.service.ts` `executeCommand` (START/STOP/SET_FREQUENCY/EMERGENCY_STOP/…) fired `adapter.writeControlWord`/`writeSpeedReference` and returned a result; the only trace was `logger.log`. No INSERT — an actuator command against industrial equipment left no durable who/when/what/result, a forensic + IEC 62443 gap. A parameter-programming audit (`vfd_parameter_audit_logs`) existed but NOT for runtime commands (which do not mutate the `vfd_devices` row, so `@Auditable()` row-CRUD does not see them).
+**Root cause:** the runtime command path was never given an audit ledger, unlike the parameter path.
+**Remediation (this PR):** new immutable cross-tenant `vfd_command_audit_logs` audit ledger (`entities/vfd-command-audit-log.entity.ts` declares `schema:'sensor'` + `1807000000000-CreateVfdCommandAuditLog`, registered in `MODULE_SCHEMAS['sensor'].infrastructureTables` — one table discriminated by `tenant_id`, the platform convention for audit ledgers, enforced by entity-schema-declaration + tenant-fanout-entity-parity invariants). `executeCommand` now takes a `VfdCommandActor` and writes an audit row (who/email/command/value/success/error/latency/source) on success AND failure; the write is best-effort (`recordCommandAudit` never throws) so an audit-store outage can never block an actuator command — critically EMERGENCY_STOP. The 7 command mutations capture `@CurrentUser`, and a `vfdCommandAuditLog(vfdDeviceId)` query surfaces the trail (parity — not write-only). Pinned by `services/__tests__/vfd-command.audit.spec.ts` (5/5).
+**Follow-on:** the SCADA operator TAG_WRITE surface is tracked separately — [[ORPHAN-HIGH-344]].
+**Owner:** sensor-expert. **Deadline:** closed by this PR's merge.
+
+## ORPHAN-HIGH-344 — SCADA operator tag-writes still have no durable command audit — OPEN (owner+deadline+ID tracked)
+
+**Discovered:** 2026-07-11 (second surface of DB-SENSOR-HIGH-003).
+**Evidence:** `apps/sensor-service/src/scada-runtime/scada-runtime.gateway.ts:384-433` — the operator `TAG_WRITE` handler is role-checked then calls `tagManager.writeTagValue(...)` with only a `logger.debug`; no durable command record. Unlike the VFD command service (ORPHAN-HIGH-343), the SCADA gateway is a WebSocket gateway with no persistence layer wired in.
+**Why deferred:** giving the SCADA gateway a durable command audit needs a persistence dependency added to the (currently DB-less, and dormant — see ORPHAN-HIGH-340) SCADA runtime; it is a distinct wiring change from the VFD command audit and lands cleanest alongside the SCADA runtime multi-tenant activation work. The VFD path — the live actuator surface — is fully closed. **Owner:** sensor-expert. **Deadline:** 2026-09-30.
+
+## ORPHAN-MEDIUM-345 — vfd-command.service.spec asserts throw where the service returns a failure result (stale test drift) — OPEN
+
+**Discovered:** 2026-07-11 (while adding the VFD command audit; these 9 failures are PRE-EXISTING — confirmed by a baseline run with the audit change stashed: 9 failed / 10 passed both before and after).
+**Evidence:** `apps/sensor-service/src/vfd/services/__tests__/vfd-command.service.spec.ts` — 9 tests (e.g. "should handle connection error", "should reject SET_FREQUENCY without value", "should throw if device is not connected") assert `.rejects.toThrow()`, but `executeCommand` intentionally CATCHES and RETURNS a `{ success: false, error }` result (the resolver forwards it to GraphQL). The tests are stale against the service's actual return-failure contract.
+**Root cause:** the spec was written against an earlier throw-based contract; the service moved to returning failure results without updating the spec.
+**Why not fixed here:** deciding throw-vs-return is a VFD command API-contract question unrelated to the audit feature; folding it into a security fix would conflate concerns. **Owner:** sensor-expert. **Deadline:** 2026-08-31.

@@ -117,6 +117,9 @@ export const PROTECTED_TABLES = [
   // "protected-tables-guard" in its exception, but the table was never added
   // to this SSoT — the gap the infrastructure-ledger-ssot invariant surfaced.
   'sensor.sensor_audit_logs',
+  // DB-SENSOR-HIGH-003: immutable VFD runtime control-command audit ledger
+  // (append-only trigger + REVOKE UPDATE,DELETE in 1807000000000).
+  'sensor.vfd_command_audit_logs',
 
   // ── Auth audit (SOC 2 CC7.2 detective control) ──
   'auth.audit_logs',

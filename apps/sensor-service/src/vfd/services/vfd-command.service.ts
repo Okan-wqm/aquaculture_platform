@@ -1,4 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import {
   createVfdAdapter,
@@ -6,6 +8,7 @@ import {
   VfdConnectionHandle,
 } from '../adapters';
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
+import { VfdCommandAuditLog } from '../entities/vfd-command-audit-log.entity';
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
 
@@ -18,6 +21,16 @@ import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 export interface VfdCommandInput {
   command: VfdCommandType;
   value?: number; // For SET_FREQUENCY, SET_SPEED, SET_TORQUE
+}
+
+/**
+ * Who dispatched a command — captured on the audit record (DB-SENSOR-HIGH-003).
+ * Optional so internal/system callers (automation) can pass a system identity.
+ */
+export interface VfdCommandActor {
+  userId: string;
+  email?: string;
+  source?: string; // 'operator' (default) | 'automation' | 'system'
 }
 
 /**
@@ -55,7 +68,9 @@ export class VfdCommandService {
 
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
-    private readonly registerMappingService: VfdRegisterMappingService
+    private readonly registerMappingService: VfdRegisterMappingService,
+    @InjectRepository(VfdCommandAuditLog)
+    private readonly commandAuditRepo: Repository<VfdCommandAuditLog>
   ) {}
 
   /**
@@ -64,7 +79,8 @@ export class VfdCommandService {
   async executeCommand(
     deviceId: string,
     tenantId: string,
-    commandInput: VfdCommandInput
+    commandInput: VfdCommandInput,
+    actor?: VfdCommandActor
   ): Promise<VfdCommandExecutionResult> {
     const device = await this.vfdDeviceService.findById(deviceId, tenantId);
 
@@ -80,6 +96,7 @@ export class VfdCommandService {
       (commandInput.value !== undefined ? ` with value ${commandInput.value}` : '')
     );
 
+    let executionResult: VfdCommandExecutionResult;
     try {
       // Get or create connection
       const { adapter, handle } = await this.getOrCreateConnection(device);
@@ -134,7 +151,7 @@ export class VfdCommandService {
           throw new BadRequestException(`Unknown command: ${commandInput.command}`);
       }
 
-      return {
+      executionResult = {
         success: result.success,
         command: commandInput.command,
         value: commandInput.value,
@@ -148,7 +165,7 @@ export class VfdCommandService {
         error
       );
 
-      return {
+      executionResult = {
         success: false,
         command: commandInput.command,
         value: commandInput.value,
@@ -156,6 +173,66 @@ export class VfdCommandService {
         executedAt: new Date(),
       };
     }
+
+    // DB-SENSOR-HIGH-003: every dispatched actuator command leaves a durable,
+    // immutable audit record (success AND failure). Best-effort: a command —
+    // especially EMERGENCY_STOP — must never be blocked by an audit-store
+    // outage, so an audit-write failure is logged loudly but does not change
+    // the command result.
+    await this.recordCommandAudit(deviceId, tenantId, commandInput, executionResult, actor);
+
+    return executionResult;
+  }
+
+  /**
+   * Persist an immutable audit row for a dispatched VFD control command.
+   * Never throws — audit durability must not gate industrial actuation.
+   */
+  private async recordCommandAudit(
+    deviceId: string,
+    tenantId: string,
+    commandInput: VfdCommandInput,
+    result: VfdCommandExecutionResult,
+    actor?: VfdCommandActor
+  ): Promise<void> {
+    try {
+      await this.commandAuditRepo.save(
+        this.commandAuditRepo.create({
+          tenantId,
+          vfdDeviceId: deviceId,
+          command: commandInput.command,
+          value: commandInput.value,
+          success: result.success,
+          error: result.error,
+          performedBy: actor?.userId ?? 'system',
+          performedByEmail: actor?.email,
+          source: actor?.source ?? 'operator',
+          latencyMs: result.latencyMs,
+        })
+      );
+    } catch (auditError) {
+      this.logger.error(
+        `AUDIT GAP: failed to persist command audit for ${commandInput.command} on device ${deviceId} ` +
+          `(command result success=${result.success}) — ${(auditError as Error).message}`
+      );
+    }
+  }
+
+  /**
+   * Read the immutable command-audit trail for a device (tenant-scoped),
+   * newest first. Surfaces the audit log to the product (parity — the table is
+   * not write-only).
+   */
+  async getCommandAuditLog(
+    deviceId: string,
+    tenantId: string,
+    limit = 100
+  ): Promise<VfdCommandAuditLog[]> {
+    return this.commandAuditRepo.find({
+      where: { vfdDeviceId: deviceId, tenantId },
+      order: { timestamp: 'DESC' },
+      take: Math.min(Math.max(limit, 1), 500),
+    });
   }
 
   /**

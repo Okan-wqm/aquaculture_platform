@@ -225,7 +225,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // search_path, so they cannot be per-tenant clones — they live once in
     // `sensor` and carry a mandatory tenant_id discriminator (added by
     // 1806000000000-ScadaTenantIsolation), exactly like edge_device_directory.
-    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
+    infrastructureTables: ['migrations', 'sensor_audit_logs', 'sensor_outbox', 'vfd_register_mappings', 'edge_device_directory', 'scada_alarms', 'scada_alarm_chronicle', 'scada_tag_history', 'vfd_command_audit_logs', ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -247,6 +247,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_change_set_items',
       'vfd_automation_rules',
       'vfd_parameter_audit_logs',
+      // DB-SENSOR-HIGH-003: vfd_command_audit_logs is a CROSS-TENANT audit ledger
+      // (declares schema:'sensor', tenant_id-discriminated) — see
+      // infrastructureTables above, NOT this per-tenant clone list.
 
       // Dashboard & Edge devices
       'dashboard_layouts',

@@ -14001,6 +14001,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/resolvers/storage-decimal.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/services/lot-mix.service.ts",
       "prettier_managed": true
     },
@@ -52314,10 +52320,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8573,
+  "file_count": 8574,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8398,
-  "managed_file_list_sha256": "d00df90505acce48746019ec53fed7ce13f55924646e75bcb84d9090899793a1",
+  "managed_count": 8399,
+  "managed_file_list_sha256": "9f55dda84dba4e50442e38fcfd02ecb64f4e2af003f02d0068b03ab3f3782423",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -25,6 +25,7 @@ import { FinanceModule } from '../finance/finance.module';
 
 import { StorageResolver } from './storage.resolver';
 import { InventoryCountResponseResolver } from './resolvers/inventory-count-response.resolver';
+import { StorageDecimalResolvers } from './resolvers/storage-decimal.resolver';
 
 import { CreateStorageLocationHandler } from './handlers/create-storage-location.handler';
 import { UpdateStorageLocationHandler } from './handlers/update-storage-location.handler';
@@ -109,6 +110,7 @@ const QueryHandlers = [
   providers: [
     StorageResolver,
     InventoryCountResponseResolver,
+    ...StorageDecimalResolvers,
     LotMixService,
     // StockMovementService holds the inventory-mutation core that
     // RecordStockMovementHandler (here) and the feeding callers both use.

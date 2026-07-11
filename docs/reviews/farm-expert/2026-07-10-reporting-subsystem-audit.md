@@ -129,14 +129,14 @@ follow-up.
 
 ### FARM-HIGH-160 — disease varsling assembler regression (non-existent column + missing status filter)
 
-The FARM-HIGH-155 fix scoped the disease site through `tb."batchId" = he."batchId"`, but
+The FARM-HIGH-203 fix scoped the disease site through `tb."batchId" = he."batchId"`, but
 `tank_batches` has **no** `batchId` column (real columns: `primaryBatchId` + the `batchDetails`
 jsonb), so `DISEASE_OUTBREAK` prefill still threw Postgres `42703`, and the SQL-pinning spec locked
 the wrong column in. It also did not exclude `resolved`/`cancelled` outbreaks, so a closed event
 could be offered for a legally-immediate varsling. Fixed: the `primaryBatchId` + `batchDetails`
 jsonb `EXISTS` pattern (mirroring `BiomassReportAssembler.queryStockings`) plus
 `he.status NOT IN ('resolved','cancelled')`; the spec now pins the real columns. Durable guard is
-the real-DB assembler harness (FARM-MEDIUM-157).
+the real-DB assembler harness (FARM-MEDIUM-212).
 
 ### FARM-HIGH-159 — planned-slaughter assembler two fatal SQL errors
 
@@ -471,7 +471,7 @@ varsling QUEUED shown as "Submitted" with the internal event id as a fake "Matti
 (CONTRACT-MEDIUM-004); no DB CHECK constraints on welfare 0–3 / lice non-negative is FIXED (DATA-LOW-007 -> FARM-LOW-191: migration adds welfare score 0-3, lice non-negative, and positive fishSampled CHECKs, fanned out + presence/duplicate guarded);
 lossy relocation-before-drop migrations with no backup step (DATA-MEDIUM-005/006); duplicate parallel
 submission systems (manual wizard vs assembled draft) per report type (farm-expert FARM-MEDIUM-009);
-inconsistent artskode regex is FIXED (FARM-LOW-011/FARM-MEDIUM-158 -> FARM-MEDIUM-194: one OFFICIAL_ARTSKODE_PATTERN /^[A-Z]{3}$/ SSoT shared by escape + settefisk, dropping the loose {2,5} fork); non-atomic
+inconsistent artskode regex is FIXED (FARM-LOW-011/FARM-MEDIUM-213 -> FARM-MEDIUM-194: one OFFICIAL_ARTSKODE_PATTERN /^[A-Z]{3}$/ SSoT shared by escape + settefisk, dropping the loose {2,5} fork); non-atomic
 attemptCount RMW + operator/sweep race is FIXED (PRODUCT-JOB-MEDIUM-001 -> FARM-MEDIUM-192: applyFailure/markSubmitted take a pessimistic_write row lock so the RMW serialises); deterministic
 backoff without jitter / token single-flight + LRU / breaker-blind-to-5xx is FIXED (FARM-MEDIUM-172:
 `computeNextAttempt` now full-jitters the delay uniformly in [0, cap] so a failure cohort decorrelates

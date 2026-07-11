@@ -99,7 +99,7 @@ type-check and no spec imports the DTO); `tsc` is the gate that caught it. Fix: 
 the import. Sibling DTOs (`update-site.input.ts`, `site-contact.input.ts`) already import what
 they use.
 
-## FARM-HIGH-151 — the three varsling report types had no server-side assembly (plan Phase 4, umbrella)
+## FARM-HIGH-202 — the three varsling report types had no server-side assembly (plan Phase 4, umbrella)
 
 Escape (rømming), welfare and disease are event-triggered varsling reports; unlike the period-based
 REST types they had no assembler, so every field was manual. Phase 4 lands
@@ -132,7 +132,7 @@ The provenance badges carry a `sourceQuery` string, but it does not map cleanly 
 deep-link from a RECORDS badge to its source record needs a deliberate sourceQuery→route UX design
 first. Until then corrections are routed by prose ("corrections go to Fish Health").
 
-## FARM-HIGH-155 — disease assembler queried non-existent health_events columns + dropped batch-scoped outbreaks (pre-merge review)
+## FARM-HIGH-203 — disease assembler queried non-existent health_events columns + dropped batch-scoped outbreaks (pre-merge review)
 
 The disease assembler selected `he.diagnosis` and `he."affectedPercent"` — neither is a column on
 `health_events` (real: `diseaseName`; the percentage is nested in the `affectedPopulation` jsonb) —
@@ -150,16 +150,16 @@ only by `s.code` — `officialCode` is neither grouped nor functionally dependen
 `s.code`, so Postgres rejects it with `42803`, 500-ing the monthly biomass slaughter section. Fix:
 add `s."officialCode"` to the GROUP BY (unchanged cardinality since `(tenantId, code)` is unique).
 
-## FARM-MEDIUM-157 — report assemblers have no real-database integration coverage (systemic root)
+## FARM-MEDIUM-212 — report assemblers have no real-database integration coverage (systemic root)
 
-The assembler London specs mock `queryRunner.query`, so raw-SQL column-name drift (FARM-HIGH-155) and
+The assembler London specs mock `queryRunner.query`, so raw-SQL column-name drift (FARM-HIGH-203) and
 GROUP BY aggregation errors (FARM-MEDIUM-156) are invisible to the unit suite and only surface at
 runtime. Interim detectable guard landed: the disease spec captures the emitted SQL and pins the real
 columns / batch-scoped EXISTS / tiebreak. Durable close: a `bootPostgresContainer` harness (pattern:
 `apps/farm-service/src/__tests__/e2e/*.postgres.spec.ts`) that runs each assembler against a migrated
 schema with seeded rows.
 
-## FARM-MEDIUM-158 — artskode COALESCE can launder an internal species code into the official FAO field
+## FARM-MEDIUM-213 — artskode COALESCE can launder an internal species code into the official FAO field
 
 Across the assembler family, artskode is sourced as `COALESCE(s."officialCode", s.code)`; when
 `officialCode` is unset an internal code that passes the format gate is surfaced as the official

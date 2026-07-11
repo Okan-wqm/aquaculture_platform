@@ -5315,7 +5315,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/billing-service/src/billing/billing-decimal.resolvers.ts",
+      "path": "apps/billing-service/src/billing/billing-decimal.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -52311,7 +52311,7 @@
   "file_count": 8572,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 8397,
-  "managed_file_list_sha256": "746e0b5e8ca0f492fd7bbcd4bfa6fb9f0502103488e4b2d88e15abc3dd3bc8b9",
+  "managed_file_list_sha256": "475df6cb034d37fbe498a92e72349c19dedcf2cf21f981b9c960aca6e4753331",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

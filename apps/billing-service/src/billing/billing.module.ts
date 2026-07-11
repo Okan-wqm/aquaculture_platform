@@ -11,7 +11,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { BillingDecimalResolvers } from './billing-decimal.resolvers';
+import { BillingDecimalResolvers } from './billing-decimal.resolver';
 import { BillingSchedulerService } from './billing-scheduler.service';
 import { BillingResolver } from './billing.resolver';
 import { StripeWebhookController } from './controllers/stripe-webhook.controller';

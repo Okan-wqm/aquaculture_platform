@@ -5,7 +5,7 @@
  * `Decimal` scalar), NOT as a lossy IEEE-754 `Float`. During the additive
  * coexistence window each deprecated `Float` money field keeps a parallel
  * `*Decimal` sibling, populated by a `@ResolveField` in
- * `billing-decimal.resolvers.ts`.
+ * `billing-decimal.resolver.ts`.
  *
  * # Why this lives in tests/invariants/
  *
@@ -35,7 +35,7 @@ function read(rel: string): string {
   return readFileSync(resolve(REPO_ROOT, rel), 'utf8');
 }
 
-const RESOLVERS_PATH = 'apps/billing-service/src/billing/billing-decimal.resolvers.ts';
+const RESOLVERS_PATH = 'apps/billing-service/src/billing/billing-decimal.resolver.ts';
 const FE_OPS_PATH = 'web/modules/tenant-admin/src/graphql/billing-queries.ts';
 
 /** Schema-reachable billing money @ObjectType → the `*Decimal` fields it must expose. */

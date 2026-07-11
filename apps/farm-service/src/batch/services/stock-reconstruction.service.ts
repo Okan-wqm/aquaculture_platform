@@ -2,36 +2,50 @@
  * StockReconstructionService (FARM-HIGH-182) — point-in-time standing stock.
  *
  * The live biomass path (BiomassCalculatorService.getSiteBiomassReport) reads
- * `batches_v2.currentQuantity`, which is only faithful for the current /
- * just-closed period. A regulatory biomass report for a materially historical
- * month needs the standing stock AS IT WAS at that month-end — reconstructed
- * from source records, not approximated by today's inventory.
+ * `batches_v2.currentQuantity` attributed to a site by CURRENT `tank_batches`
+ * occupancy, faithful only for the current / just-closed period. A regulatory
+ * biomass report for a materially historical month needs the standing stock AS
+ * IT WAS at that month-end — reconstructed from source records.
  *
- * REPLAY RECIPE (per-BATCH axis — mirrors `batches_v2.currentQuantity`
- * semantics exactly, so a reconstructed period-end number is computed the SAME
- * way the live report computes the current number, just as-of a past date):
+ * REPLAY AXIS — PER (site tank, batch), NOT per batch. An earlier per-batch draft
+ * attributed a batch's GLOBAL count to every site it ever touched, which
+ * double-counted a batch transferred across sites and pulled cleaner-fish into
+ * the production beholdning (re-review FARM-HIGH-001/002). Fish live in a TANK;
+ * the tank belongs to a site; so the standing stock at a site is the sum over its
+ * tanks of what each tank holds at T:
  *
- *   qty(batch, T) = initialQuantity
- *                 − Σ mortality_records.count          (recordDate  ≤ T)
- *                 − Σ tank_operations.quantity CULL     (operationDate ≤ T, not deleted)
- *                 − Σ harvest_records.quantityHarvested (harvestDate ≤ T, status ≠ cancelled)
+ *   qty(tank, batch, T) =
+ *       Σ tank_allocations.quantity  [initial_stocking|split|transfer_in|transfer_out]  (SIGNED, allocationDate ≤ T)
+ *     − Σ mortality_records.count             (recordDate  ≤ T, this tank)
+ *     − Σ tank_operations.quantity CULL       (operationDate ≤ T, not deleted, this tank)
+ *     − Σ harvest_records.quantityHarvested   (harvestDate  ≤ T, status ≠ cancelled, this tank)
  *
- * DOUBLE-COUNT AVOIDANCE (the core hazard): mortality and harvest each write TWO
- * tables in one transaction (mortality_records + tank_operations('mortality');
- * harvest_records + tank_operations('harvest')). Each physical event is replayed
- * from EXACTLY ONE ledger — mortality from mortality_records, harvest from
- * harvest_records, cull from tank_operations (its only home) — never summing the
- * mirror. Transfers are batch-internal (the live handler leaves currentQuantity
- * unchanged on transfer), so they are ignored at the batch axis. Harvest is
- * filtered `status ≠ cancelled` because a cancelled harvest reverses the live
- * mirror but leaves its tank_operations mirror row un-reversed. This is the exact
- * split TankCountReconcileService verified against live data (FARM-HIGH-112).
+ * This is the TankCountReconcileService.LEDGER_SQL formula (verified against live
+ * data, FARM-HIGH-112) with a `≤ T` filter, EXCEPT harvest is sourced from
+ * harvest_records filtered `status ≠ cancelled` rather than the un-reversed
+ * `tank_operations('harvest')` mirror (FARM-HIGH-198). A transfer moves fish
+ * between tanks via the signed allocation legs, so a batch that left a site nets
+ * to zero there and appears only at its destination site — counted once.
  *
- * FAIL-CLOSED: reconstruction is only trustworthy when every in-stock batch has a
- * known baseline and weight and never replays negative. If a batch has no
- * initial quantity, reconstructs below zero (a ledger gap), or has stock but no
- * recorded weight at T, `complete=false` and the caller keeps its MANUAL_REQUIRED
- * fallback — a wrong regulatory number is worse than an honest "verify manually".
+ * SCOPE — production only. Cleaner-fish stock is not in `tank_allocations` (its
+ * moves are `cleaner_*` operations / `cleanerFishDetails`) and its removals are
+ * `cleaner_*` op types, so the production allocation + `mortality|cull|harvest`
+ * removal set excludes it structurally; a `batchType = 'production'` filter makes
+ * that explicit.
+ *
+ * DOUBLE-COUNT AVOIDANCE: mortality and harvest each double-write a
+ * `tank_operations` mirror in the same transaction. Each physical event is
+ * replayed from EXACTLY ONE ledger — mortality from mortality_records, harvest
+ * from harvest_records, cull from tank_operations (its only home) — never the
+ * mirror; transfers only from tank_allocations. Every event counts once.
+ *
+ * FAIL-CLOSED: only a provably-complete replay yields a RECORDS number. A
+ * (tank, batch) with no positive-inflow allocation row (initial stocking predates
+ * the allocation ledger, FARM-HIGH-112), a negative net (a ledger gap), an
+ * un-attributable removal (a mortality/harvest row with NULL tankId that cannot
+ * be placed on a tank), or stock with no recorded weight at T → `complete=false`
+ * and the caller keeps its blocking MANUAL_REQUIRED. A wrong regulatory number is
+ * worse than an honest "verify manually".
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
@@ -59,19 +73,23 @@ export interface ReconstructedSiteStock {
   speciesBreakdown: ReconstructedSpeciesStock[];
 }
 
-/** One batch's replay inputs at the period end, straight from the ledgers. */
-interface BatchReconstructionRow {
+/** One (tank, batch) pair's replay inputs at the period end, from the ledgers. */
+interface TankBatchReconstructionRow {
+  tankId: string;
   batchId: string;
   speciesId: string;
   speciesName: string;
   speciesCode: string;
-  // int4 comes back from node-postgres as a JS number; the removal SUMs and the
-  // weight are ::text-cast in SQL so they arrive as strings. `fold` handles both
-  // via `== null` + `Number(...)`.
-  initialQuantity: number | string | null;
+  // All numeric aggregates are ::text-cast in SQL so they arrive as strings;
+  // `fold` coerces with Number(...) and guards NULL weight with `== null`.
+  inflowSigned: string;
+  /** Count of positive-inflow allocation rows (initial_stocking|split|transfer_in). */
+  inflowRows: string;
   mortality: string;
   cull: string;
   harvest: string;
+  /** Removals for this batch that carry a NULL tankId and cannot be placed on a tank. */
+  unattributableRemovals: string;
   avgWeightG: string | null;
 }
 
@@ -84,13 +102,19 @@ interface SpeciesAccumulator {
 }
 
 /**
- * Per-batch replay SQL ($1 tenantId, $2 siteId, $3 periodEndDate). Exported so
- * the CI Postgres integration spec runs the EXACT query the service runs — no
- * drift between a hand-copied test query and production. Membership is the union
- * of current tank_batches occupancy (live parity) and any historical inflow /
- * operation on a site tank up to T, so a batch present at the site then but now
- * closed is still counted. Removals come from the single SSoT per event type
- * (mortality_records, tank_operations CULL, harvest_records status≠cancelled).
+ * Per-(site tank, batch) replay SQL ($1 tenantId, $2 siteId, $3 periodEndDate).
+ * Exported so the CI Postgres integration spec runs the EXACT query the service
+ * runs — no drift between a hand-copied test query and production.
+ *
+ * A (tank, batch) pair is in scope when it has ANY production allocation or
+ * mortality/cull/harvest removal on a site tank up to T (so a batch whose initial
+ * stocking predates the allocation ledger still surfaces — and fails closed on
+ * inflowRows=0 rather than being silently dropped). Inflows come from signed
+ * `tank_allocations`; removals from the single SSoT per event type
+ * (mortality_records, tank_operations CULL, harvest_records status≠cancelled),
+ * scoped to the tank. `unattributableRemovals` counts this batch's mortality /
+ * harvest rows with a NULL tankId — they cannot be placed on a tank, so the fold
+ * fails the batch closed rather than silently ignoring a removal.
  */
 export const BATCH_RECONSTRUCTION_SQL = `WITH site_tanks AS (
     SELECT t.id AS tank_id
@@ -98,66 +122,72 @@ export const BATCH_RECONSTRUCTION_SQL = `WITH site_tanks AS (
       JOIN departments d ON d.id = t."departmentId"
      WHERE t."tenantId" = $1 AND d."siteId" = $2
   ),
-  site_batches AS (
-    SELECT b.id AS batch_id
-      FROM batches_v2 b
-     WHERE b."tenantId" = $1
-       AND b."stockedAt"::date <= $3
-       AND (
-         EXISTS (
-           SELECT 1 FROM tank_batches tb
-           JOIN site_tanks st ON st.tank_id = tb."tankId"
-           WHERE tb."tenantId" = b."tenantId"
-             AND (
-               tb."primaryBatchId" = b.id
-               OR EXISTS (
-                 SELECT 1 FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) bd
-                  WHERE bd->>'batchId' = b.id::text
-               )
-             )
-         )
-         OR EXISTS (
-           SELECT 1 FROM tank_allocations ta
-           JOIN site_tanks st ON st.tank_id = ta."tankId"
-           WHERE ta."tenantId" = b."tenantId"
-             AND ta."batchId" = b.id
-             AND ta."allocationType" IN ('initial_stocking', 'split', 'transfer_in')
-             AND ta."allocationDate"::date <= $3
-         )
-         OR EXISTS (
-           SELECT 1 FROM tank_operations o
-           JOIN site_tanks st ON st.tank_id = o."tankId"
-           WHERE o."tenantId" = b."tenantId"
-             AND o."batchId" = b.id
-             AND o."operationDate"::date <= $3
-         )
-       )
+  alloc AS (
+    SELECT ta."tankId" AS tank_id, ta."batchId" AS batch_id,
+           SUM(ta.quantity) AS inflow_signed,
+           COUNT(*) FILTER (
+             WHERE ta."allocationType" IN ('initial_stocking', 'split', 'transfer_in')
+           ) AS inflow_rows
+      FROM tank_allocations ta
+      JOIN site_tanks st ON st.tank_id = ta."tankId"
+     WHERE ta."tenantId" = $1
+       AND (ta."isDeleted" IS NULL OR ta."isDeleted" = false)
+       AND ta."allocationType" IN ('initial_stocking', 'split', 'transfer_in', 'transfer_out')
+       AND ta."allocationDate"::date <= $3
+     GROUP BY ta."tankId", ta."batchId"
   ),
   mort AS (
-    SELECT mr."batchId" AS batch_id, COALESCE(SUM(mr.count), 0) AS removed
+    SELECT mr."tankId" AS tank_id, mr."batchId" AS batch_id, COALESCE(SUM(mr.count), 0) AS removed
       FROM mortality_records mr
+      JOIN site_tanks st ON st.tank_id = mr."tankId"
      WHERE mr."tenantId" = $1 AND mr."recordDate"::date <= $3
-     GROUP BY mr."batchId"
+     GROUP BY mr."tankId", mr."batchId"
   ),
   cull AS (
-    SELECT o."batchId" AS batch_id, COALESCE(SUM(o.quantity), 0) AS removed
+    SELECT o."tankId" AS tank_id, o."batchId" AS batch_id, COALESCE(SUM(o.quantity), 0) AS removed
       FROM tank_operations o
+      JOIN site_tanks st ON st.tank_id = o."tankId"
      WHERE o."tenantId" = $1
        AND o."operationType" = 'cull'
        AND (o."isDeleted" IS NULL OR o."isDeleted" = false)
        AND o."operationDate"::date <= $3
-     GROUP BY o."batchId"
+     GROUP BY o."tankId", o."batchId"
   ),
   harv AS (
-    SELECT hr."batchId" AS batch_id, COALESCE(SUM(hr."quantityHarvested"), 0) AS removed
+    SELECT hr."tankId" AS tank_id, hr."batchId" AS batch_id,
+           COALESCE(SUM(hr."quantityHarvested"), 0) AS removed
       FROM harvest_records hr
+      JOIN site_tanks st ON st.tank_id = hr."tankId"
      WHERE hr."tenantId" = $1
        AND hr."harvestDate"::date <= $3
        AND hr.status <> 'cancelled'
-     GROUP BY hr."batchId"
+     GROUP BY hr."tankId", hr."batchId"
+  ),
+  unattr AS (
+    -- Mortality / harvest rows for a batch that carry NO tankId: they cannot be
+    -- apportioned to a tank, so any resident row of that batch fails closed.
+    SELECT batch_id, SUM(n) AS n FROM (
+      SELECT mr."batchId" AS batch_id, COUNT(*) AS n
+        FROM mortality_records mr
+       WHERE mr."tenantId" = $1 AND mr."recordDate"::date <= $3 AND mr."tankId" IS NULL
+       GROUP BY mr."batchId"
+      UNION ALL
+      SELECT hr."batchId" AS batch_id, COUNT(*) AS n
+        FROM harvest_records hr
+       WHERE hr."tenantId" = $1 AND hr."harvestDate"::date <= $3
+         AND hr.status <> 'cancelled' AND hr."tankId" IS NULL
+       GROUP BY hr."batchId"
+    ) u
+    GROUP BY batch_id
+  ),
+  pairs AS (
+    SELECT tank_id, batch_id FROM alloc
+    UNION SELECT tank_id, batch_id FROM mort
+    UNION SELECT tank_id, batch_id FROM cull
+    UNION SELECT tank_id, batch_id FROM harv
   ),
   latest_meas AS (
-    -- DATA-LOW-001: measurementDate is day-granular, so two same-day samplings
+    -- FARM-LOW-199: measurementDate is day-granular, so two same-day samplings
     -- tie on it. createdAt (timestamptz) breaks the tie by true recency and id
     -- makes it fully deterministic, so the picked weight — and thus the reported
     -- biomass — is reproducible across replicas / after a VACUUM.
@@ -166,23 +196,28 @@ export const BATCH_RECONSTRUCTION_SQL = `WITH site_tanks AS (
      WHERE m."tenantId" = $1 AND m."measurementDate"::date <= $3
      ORDER BY m."batchId", m."measurementDate" DESC, m."createdAt" DESC, m.id DESC
   )
-  SELECT b.id AS "batchId",
+  SELECT p.tank_id AS "tankId",
+         p.batch_id AS "batchId",
          b."speciesId" AS "speciesId",
          s.name AS "speciesName",
          COALESCE(s."officialCode", s.code) AS "speciesCode",
-         b."initialQuantity" AS "initialQuantity",
+         COALESCE(a.inflow_signed, 0)::text AS "inflowSigned",
+         COALESCE(a.inflow_rows, 0)::text AS "inflowRows",
          COALESCE(mort.removed, 0)::text AS mortality,
          COALESCE(cull.removed, 0)::text AS cull,
          COALESCE(harv.removed, 0)::text AS harvest,
+         COALESCE(un.n, 0)::text AS "unattributableRemovals",
          COALESCE(lm.avg_w, (b.weight->'initial'->>'avgWeight')::numeric)::text AS "avgWeightG"
-    FROM site_batches sb
-    JOIN batches_v2 b ON b.id = sb.batch_id
+    FROM pairs p
+    JOIN batches_v2 b ON b.id = p.batch_id AND b."batchType" = 'production'
     JOIN species s ON s.id = b."speciesId"
-    LEFT JOIN mort ON mort.batch_id = b.id
-    LEFT JOIN cull ON cull.batch_id = b.id
-    LEFT JOIN harv ON harv.batch_id = b.id
-    LEFT JOIN latest_meas lm ON lm.batch_id = b.id
-   ORDER BY b.id`;
+    LEFT JOIN alloc a ON a.tank_id = p.tank_id AND a.batch_id = p.batch_id
+    LEFT JOIN mort ON mort.tank_id = p.tank_id AND mort.batch_id = p.batch_id
+    LEFT JOIN cull ON cull.tank_id = p.tank_id AND cull.batch_id = p.batch_id
+    LEFT JOIN harv ON harv.tank_id = p.tank_id AND harv.batch_id = p.batch_id
+    LEFT JOIN unattr un ON un.batch_id = p.batch_id
+    LEFT JOIN latest_meas lm ON lm.batch_id = p.batch_id
+   ORDER BY p.tank_id, p.batch_id`;
 
 @Injectable()
 export class StockReconstructionService {
@@ -210,12 +245,15 @@ export class StockReconstructionService {
   }
 
   /**
-   * Fold per-batch ledger rows into a site total, fail-closed. A batch that
-   * reconstructs to 0 is genuinely emptied by the period end (harvested/culled
-   * out) and is skipped, NOT treated as a gap. A missing baseline, a negative
-   * reconstruction, or stock without a weight aborts the whole reconstruction.
+   * Fold per-(tank, batch) ledger rows into a site total, fail-closed. A pair that
+   * nets to 0 is genuinely emptied by the period end (transferred / harvested /
+   * culled out) and is skipped, NOT a gap. A pair with no positive-inflow
+   * allocation row, a negative net, an un-attributable (NULL-tank) removal on its
+   * batch, or stock without a recorded weight aborts the whole reconstruction —
+   * the caller then keeps its blocking MANUAL_REQUIRED. Quantities are summed per
+   * SPECIES across the site's tank/batch pairs.
    */
-  static fold(rows: BatchReconstructionRow[]): ReconstructedSiteStock {
+  static fold(rows: TankBatchReconstructionRow[]): ReconstructedSiteStock {
     const empty: ReconstructedSiteStock = {
       complete: false,
       totalQuantity: 0,
@@ -225,36 +263,45 @@ export class StockReconstructionService {
     };
 
     const bySpecies = new Map<string, SpeciesAccumulator>();
-    let batchCount = 0;
+    const batchesInStock = new Set<string>();
 
     for (const row of rows) {
-      if (row.initialQuantity == null) {
-        return { ...empty, incompleteReason: `batch ${row.batchId} has no recorded initial quantity` };
+      if (Number(row.unattributableRemovals) > 0) {
+        return {
+          ...empty,
+          incompleteReason: `batch ${row.batchId} has a mortality/harvest record with no tank — it cannot be attributed to a site tank`,
+        };
+      }
+      if (Number(row.inflowRows) === 0) {
+        return {
+          ...empty,
+          incompleteReason: `batch ${row.batchId} has no stocking/transfer-in allocation into tank ${row.tankId} — its inflow ledger is incomplete for this period`,
+        };
       }
       const qty =
-        Number(row.initialQuantity) -
+        Number(row.inflowSigned) -
         Number(row.mortality) -
         Number(row.cull) -
         Number(row.harvest);
       if (qty < 0) {
         return {
           ...empty,
-          incompleteReason: `batch ${row.batchId} reconstructs to a negative quantity (${qty}) — the source ledger is incomplete for this period`,
+          incompleteReason: `tank ${row.tankId} / batch ${row.batchId} reconstructs to a negative quantity (${qty}) — the source ledger is incomplete for this period`,
         };
       }
       if (qty === 0) {
-        // Fully removed by the period end — correctly out of stock, not a gap.
+        // Emptied by the period end (all fish removed or transferred out) — not a gap.
         continue;
       }
       const avgWeightG = row.avgWeightG == null ? null : Number(row.avgWeightG);
       if (avgWeightG == null || avgWeightG <= 0) {
         return {
           ...empty,
-          incompleteReason: `batch ${row.batchId} held ${qty} fish at the period end but has no recorded weight then`,
+          incompleteReason: `batch ${row.batchId} held ${qty} fish in tank ${row.tankId} at the period end but has no recorded weight then`,
         };
       }
 
-      batchCount += 1;
+      batchesInStock.add(row.batchId);
       const acc = bySpecies.get(row.speciesId) ?? {
         speciesId: row.speciesId,
         speciesName: row.speciesName,
@@ -282,24 +329,18 @@ export class StockReconstructionService {
       complete: true,
       totalQuantity: speciesBreakdown.reduce((sum, s) => sum + s.quantity, 0),
       totalBiomassKg: Math.round(speciesBreakdown.reduce((sum, s) => sum + s.biomassKg, 0) * 100) / 100,
-      batchCount,
+      batchCount: batchesInStock.size,
       speciesBreakdown,
     };
   }
 
-  /**
-   * Per-batch replay inputs for every batch that was present at the site by the
-   * period end. Membership is the union of current tank_batches occupancy (live
-   * parity) and any historical inflow/operation on a site tank up to T — so a
-   * batch that was at the site then but is now closed/removed is still counted.
-   * Removals come from the single SSoT per event type (see class docblock).
-   */
+  /** Per-(site tank, batch) replay inputs at the period end. See class docblock. */
   private async queryBatchReconstruction(
     qr: QueryRunner,
     tenantId: string,
     siteId: string,
     periodEndDate: string,
-  ): Promise<BatchReconstructionRow[]> {
+  ): Promise<TankBatchReconstructionRow[]> {
     return qr.query(BATCH_RECONSTRUCTION_SQL, [tenantId, siteId, periodEndDate]);
   }
 }

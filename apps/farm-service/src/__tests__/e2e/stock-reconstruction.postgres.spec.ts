@@ -1,12 +1,13 @@
 /**
  * FARM-HIGH-182 — point-in-time standing-stock reconstruction, verified against
  * real Postgres (the finding's blocker #1: "no live DB to verify complex
- * reconstruction SQL"). This runs the EXACT production query
- * (BATCH_RECONSTRUCTION_SQL) + fold against a seeded ledger and asserts the
- * period-end numbers, the anti-double-count (mortality/harvest mirror rows in
- * tank_operations must NOT inflate the removal), the cancelled-harvest exclusion,
- * the as-of-date weight selection, and closed-batch membership. Runs in CI (needs
- * Docker Postgres); skipped in the sandbox.
+ * reconstruction SQL"). Runs the EXACT production query (BATCH_RECONSTRUCTION_SQL)
+ * + fold against a seeded ledger and asserts the period-end numbers, the
+ * anti-double-count (mortality/harvest mirror rows in tank_operations must NOT
+ * inflate the removal), the cancelled-harvest exclusion, the as-of-date weight,
+ * the CROSS-SITE transfer (counted once at the destination, re-review FARM-HIGH-001),
+ * the cleaner-fish exclusion (re-review FARM-HIGH-002), and the fail-closed guards.
+ * Runs in CI (needs Docker Postgres); skipped in the sandbox.
  *
  * The tables are MINIMAL stand-ins (only the columns the query reads) so the test
  * needs no enums / RLS / full migrations — the query joins them by name exactly
@@ -25,6 +26,40 @@ jest.setTimeout(120_000);
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
+// Sites / departments / tanks / species / batches.
+const S1 = '11111111-1111-4111-8111-111111111111';
+const SA = 'a1111111-1111-4111-8111-111111111111';
+const SB = 'b1111111-1111-4111-8111-111111111111';
+const SC = 'c1111111-1111-4111-8111-111111111111';
+const S3 = '33333333-3333-4333-8333-333333333333';
+const S4 = '44444444-4444-4444-8444-444444444444';
+const S5 = '55555555-5555-4555-8555-555555555555';
+
+const D1 = 'd1111111-1111-4111-8111-111111111111';
+const DA = 'daaaaaaa-1111-4111-8111-111111111111';
+const DB = 'dbbbbbbb-1111-4111-8111-111111111111';
+const DC = 'dccccccc-1111-4111-8111-111111111111';
+const D3 = 'd3333333-3333-4333-8333-333333333333';
+const D4 = 'd4444444-4444-4444-8444-444444444444';
+const D5 = 'd5555555-5555-4555-8555-555555555555';
+
+const T1 = 'e1111111-1111-4111-8111-111111111111';
+const TA = 'eaaaaaaa-1111-4111-8111-111111111111';
+const TB = 'ebbbbbbb-1111-4111-8111-111111111111';
+const TC = 'eccccccc-1111-4111-8111-111111111111';
+const T3 = 'e3333333-3333-4333-8333-333333333333';
+const T4 = 'e4444444-4444-4444-8444-444444444444';
+const T5 = 'e5555555-5555-4555-8555-555555555555';
+
+const SP = 'f0000000-0000-4000-8000-000000000001';
+const B = 'ba000000-0000-4000-8000-00000000000b';
+const BT = 'ba000000-0000-4000-8000-0000000000a7';
+const BP = 'ba000000-0000-4000-8000-0000000000b8';
+const BC = 'ba000000-0000-4000-8000-0000000000c9';
+const B4 = 'ba000000-0000-4000-8000-000000000004';
+const B5 = 'ba000000-0000-4000-8000-000000000005';
+const B6 = 'ba000000-0000-4000-8000-000000000006';
+
 describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
   let pg: HarnessContext | undefined;
 
@@ -42,22 +77,19 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
     await pg.dataSource.query('CREATE SCHEMA farm');
     await pg.dataSource.query('SET search_path TO farm, public');
 
-    // Minimal stand-in tables (only the columns BATCH_RECONSTRUCTION_SQL reads).
     await pg.dataSource.query(`
       CREATE TABLE farm.departments ("id" uuid PRIMARY KEY, "siteId" uuid NOT NULL);
       CREATE TABLE farm.tanks ("id" uuid PRIMARY KEY, "tenantId" uuid NOT NULL, "departmentId" uuid NOT NULL);
       CREATE TABLE farm.species ("id" uuid PRIMARY KEY, "name" text NOT NULL, "code" text NOT NULL, "officialCode" text);
       CREATE TABLE farm.batches_v2 (
         "id" uuid PRIMARY KEY, "tenantId" uuid NOT NULL, "speciesId" uuid NOT NULL,
-        "initialQuantity" int, "stockedAt" date NOT NULL, "weight" jsonb NOT NULL DEFAULT '{}'::jsonb
-      );
-      CREATE TABLE farm.tank_batches (
-        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "tankId" uuid NOT NULL,
-        "primaryBatchId" uuid, "batchDetails" jsonb
+        "batchType" text NOT NULL DEFAULT 'production',
+        "weight" jsonb NOT NULL DEFAULT '{}'::jsonb
       );
       CREATE TABLE farm.tank_allocations (
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "tankId" uuid NOT NULL,
-        "batchId" uuid NOT NULL, "allocationType" text NOT NULL, "allocationDate" date NOT NULL
+        "batchId" uuid NOT NULL, "allocationType" text NOT NULL, "allocationDate" date NOT NULL,
+        "quantity" int NOT NULL, "isDeleted" boolean DEFAULT false
       );
       CREATE TABLE farm.tank_operations (
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "tankId" uuid NOT NULL,
@@ -74,111 +106,127 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
       );
       CREATE TABLE farm.growth_measurements (
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "batchId" uuid NOT NULL,
-        "averageWeight" numeric NOT NULL, "measurementDate" date NOT NULL
+        "averageWeight" numeric NOT NULL, "measurementDate" date NOT NULL, "createdAt" timestamptz NOT NULL DEFAULT now()
       );
     `);
 
-    const SITE1 = '11111111-1111-4111-8111-111111111111';
-    const SITE2 = '22222222-2222-4222-8222-222222222222';
-    const SITE3 = '33333333-3333-4333-8333-333333333333';
-    const DEP1 = 'd1111111-1111-4111-8111-111111111111';
-    const DEP2 = 'd2222222-2222-4222-8222-222222222222';
-    const DEP3 = 'd3333333-3333-4333-8333-333333333333';
-    const TK1 = 'c1111111-1111-4111-8111-111111111111';
-    const TK2 = 'c2222222-2222-4222-8222-222222222222';
-    const TK3 = 'c3333333-3333-4333-8333-333333333333';
-    const SP = 'e0000000-0000-4000-8000-000000000001';
-    const B = 'ba000000-0000-4000-8000-00000000000b';
-    const B3 = 'ba000000-0000-4000-8000-000000000003';
-    const B4 = 'ba000000-0000-4000-8000-000000000004';
-
-    await pg.dataSource.query(`INSERT INTO farm.departments VALUES ($1,$2),($3,$4),($5,$6)`, [
-      DEP1, SITE1, DEP2, SITE2, DEP3, SITE3,
-    ]);
     await pg.dataSource.query(
-      `INSERT INTO farm.tanks VALUES ($1,$7,$4),($2,$7,$5),($3,$7,$6)`,
-      [TK1, TK2, TK3, DEP1, DEP2, DEP3, TENANT],
+      `INSERT INTO farm.departments VALUES ($1,$2),($3,$4),($5,$6),($7,$8),($9,$10),($11,$12),($13,$14)`,
+      [D1, S1, DA, SA, DB, SB, DC, SC, D3, S3, D4, S4, D5, S5],
+    );
+    await pg.dataSource.query(
+      `INSERT INTO farm.tanks VALUES ($1,$15,$8),($2,$15,$9),($3,$15,$10),($4,$15,$11),($5,$15,$12),($6,$15,$13),($7,$15,$14)`,
+      [T1, TA, TB, TC, T3, T4, T5, D1, DA, DB, DC, D3, D4, D5, TENANT],
     );
     await pg.dataSource.query(`INSERT INTO farm.species VALUES ($1,'Atlantic salmon','SAL','SAL')`, [SP]);
 
-    // Batch B — full lifecycle in SITE1 via tank_batches membership.
+    const prodBatch = (id: string, w: number): Promise<unknown> =>
+      pg!.dataSource.query(
+        `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,'production',$4::jsonb)`,
+        [id, TENANT, SP, JSON.stringify({ initial: { avgWeight: w } })],
+      );
+
+    // ── Batch B — full lifecycle in SITE1/T1 ─────────────────────────────
+    await prodBatch(B, 50);
     await pg.dataSource.query(
-      `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,10000,'2026-01-05','{"initial":{"avgWeight":50}}'::jsonb)`,
-      [B, TENANT, SP],
+      `INSERT INTO farm.tank_allocations ("tenantId","tankId","batchId","allocationType","allocationDate","quantity")
+       VALUES ($1,$2,$3,'initial_stocking','2026-01-05',10000)`,
+      [TENANT, T1, B],
     );
-    await pg.dataSource.query(
-      `INSERT INTO farm.tank_batches ("tenantId","tankId","primaryBatchId") VALUES ($1,$2,$3)`,
-      [TENANT, TK1, B],
-    );
-    // Two measurements: 300g @ Feb 10, 450g @ Apr 10.
     await pg.dataSource.query(
       `INSERT INTO farm.growth_measurements ("tenantId","batchId","averageWeight","measurementDate")
        VALUES ($1,$2,300,'2026-02-10'),($1,$2,450,'2026-04-10')`,
       [TENANT, B],
     );
-    // Mortality 500 @ Feb 15, 300 @ May 20 — in mortality_records (SSoT) AND mirrored in tank_operations.
     await pg.dataSource.query(
       `INSERT INTO farm.mortality_records ("tenantId","batchId","tankId","count","recordDate")
        VALUES ($1,$2,$3,500,'2026-02-15'),($1,$2,$3,300,'2026-05-20')`,
-      [TENANT, B, TK1],
+      [TENANT, B, T1],
     );
+    // mortality mirror in tank_operations — must be ignored (no double-count).
     await pg.dataSource.query(
       `INSERT INTO farm.tank_operations ("tenantId","tankId","batchId","operationType","operationDate","quantity")
-       VALUES ($1,$2,$3,'mortality','2026-02-15',500),($1,$2,$3,'mortality','2026-05-20',300)`,
-      [TENANT, TK1, B],
+       VALUES ($1,$2,$3,'mortality','2026-02-15',500),($1,$2,$3,'mortality','2026-05-20',300),
+              ($1,$2,$3,'cull','2026-03-01',200),
+              ($1,$2,$3,'harvest','2026-04-25',2000),($1,$2,$3,'harvest','2026-05-10',1000)`,
+      [TENANT, T1, B],
     );
-    // Cull 200 @ Mar 1 — ONLY in tank_operations.
-    await pg.dataSource.query(
-      `INSERT INTO farm.tank_operations ("tenantId","tankId","batchId","operationType","operationDate","quantity")
-       VALUES ($1,$2,$3,'cull','2026-03-01',200)`,
-      [TENANT, TK1, B],
-    );
-    // Harvest 2000 @ Apr 25 (active) + 1000 @ May 10 (CANCELLED) — in harvest_records AND mirrored in tank_operations.
     await pg.dataSource.query(
       `INSERT INTO farm.harvest_records ("tenantId","batchId","tankId","quantityHarvested","harvestDate","status")
        VALUES ($1,$2,$3,2000,'2026-04-25','completed'),($1,$2,$3,1000,'2026-05-10','cancelled')`,
-      [TENANT, B, TK1],
-    );
-    await pg.dataSource.query(
-      `INSERT INTO farm.tank_operations ("tenantId","tankId","batchId","operationType","operationDate","quantity")
-       VALUES ($1,$2,$3,'harvest','2026-04-25',2000),($1,$2,$3,'harvest','2026-05-10',1000)`,
-      [TENANT, TK1, B],
+      [TENANT, B, T1],
     );
 
-    // Batch B3 — SITE2, NO tank_batch row; membership only via a tank_operation on the site tank (closed-batch case).
+    // ── Batch BT — cross-site transfer SA/TA → SB/TB on Mar 15 ────────────
+    await prodBatch(BT, 200);
     await pg.dataSource.query(
-      `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,4000,'2026-01-03','{"initial":{"avgWeight":100}}'::jsonb)`,
-      [B3, TENANT, SP],
+      `INSERT INTO farm.tank_allocations ("tenantId","tankId","batchId","allocationType","allocationDate","quantity")
+       VALUES ($1,$2,$3,'initial_stocking','2026-01-10',5000),
+              ($1,$2,$3,'transfer_out','2026-03-15',-5000),
+              ($1,$4,$3,'transfer_in','2026-03-15',5000)`,
+      [TENANT, TA, BT, TB],
+    );
+
+    // ── SITE_C — production BP + cleaner-fish BC (BC must be excluded) ────
+    await prodBatch(BP, 100);
+    await pg.dataSource.query(
+      `INSERT INTO farm.tank_allocations ("tenantId","tankId","batchId","allocationType","allocationDate","quantity")
+       VALUES ($1,$2,$3,'initial_stocking','2026-01-08',3000)`,
+      [TENANT, TC, BP],
+    );
+    // BC is a cleaner-fish batch; even given a production-shaped allocation + mortality
+    // it must be excluded by the batchType='production' filter.
+    await pg.dataSource.query(
+      `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,'cleaner_fish','{"initial":{"avgWeight":30}}'::jsonb)`,
+      [BC, TENANT, SP],
     );
     await pg.dataSource.query(
-      `INSERT INTO farm.tank_operations ("tenantId","tankId","batchId","operationType","operationDate","quantity")
-       VALUES ($1,$2,$3,'mortality','2026-02-01',1000)`,
-      [TENANT, TK2, B3],
+      `INSERT INTO farm.tank_allocations ("tenantId","tankId","batchId","allocationType","allocationDate","quantity")
+       VALUES ($1,$2,$3,'initial_stocking','2026-01-08',900)`,
+      [TENANT, TC, BC],
     );
     await pg.dataSource.query(
       `INSERT INTO farm.mortality_records ("tenantId","batchId","tankId","count","recordDate")
-       VALUES ($1,$2,$3,1000,'2026-02-01')`,
-      [TENANT, B3, TK2],
+       VALUES ($1,$2,$3,50,'2026-02-01')`,
+      [TENANT, BC, TC],
     );
 
-    // Batch B4 — SITE3, removals exceed initial by the period end (a ledger gap) → fail closed.
+    // ── Fail-closed fixtures ─────────────────────────────────────────────
+    // S3: removals exceed inflow → negative.
+    await prodBatch(B4, 100);
     await pg.dataSource.query(
-      `INSERT INTO farm.batches_v2 VALUES ($1,$2,$3,1000,'2026-01-02','{"initial":{"avgWeight":100}}'::jsonb)`,
-      [B4, TENANT, SP],
-    );
-    await pg.dataSource.query(
-      `INSERT INTO farm.tank_batches ("tenantId","tankId","primaryBatchId") VALUES ($1,$2,$3)`,
-      [TENANT, TK3, B4],
+      `INSERT INTO farm.tank_allocations ("tenantId","tankId","batchId","allocationType","allocationDate","quantity")
+       VALUES ($1,$2,$3,'initial_stocking','2026-01-02',1000)`,
+      [TENANT, T3, B4],
     );
     await pg.dataSource.query(
       `INSERT INTO farm.mortality_records ("tenantId","batchId","tankId","count","recordDate")
        VALUES ($1,$2,$3,900,'2026-02-05')`,
-      [TENANT, B4, TK3],
+      [TENANT, B4, T3],
     );
     await pg.dataSource.query(
       `INSERT INTO farm.harvest_records ("tenantId","batchId","tankId","quantityHarvested","harvestDate","status")
        VALUES ($1,$2,$3,500,'2026-02-06','completed')`,
-      [TENANT, B4, TK3],
+      [TENANT, B4, T3],
+    );
+    // S4: batch has a removal on a site tank but NO stocking allocation (pre-fix gap).
+    await prodBatch(B5, 100);
+    await pg.dataSource.query(
+      `INSERT INTO farm.mortality_records ("tenantId","batchId","tankId","count","recordDate")
+       VALUES ($1,$2,$3,100,'2026-02-03')`,
+      [TENANT, B5, T4],
+    );
+    // S5: an un-attributable harvest (NULL tankId) on a resident batch.
+    await prodBatch(B6, 100);
+    await pg.dataSource.query(
+      `INSERT INTO farm.tank_allocations ("tenantId","tankId","batchId","allocationType","allocationDate","quantity")
+       VALUES ($1,$2,$3,'initial_stocking','2026-01-01',2000)`,
+      [TENANT, T5, B6],
+    );
+    await pg.dataSource.query(
+      `INSERT INTO farm.harvest_records ("tenantId","batchId","tankId","quantityHarvested","harvestDate","status")
+       VALUES ($1,$2,NULL,500,'2026-02-10','completed')`,
+      [TENANT, B6],
     );
   });
 
@@ -186,53 +234,67 @@ describe('StockReconstructionService period-end replay (FARM-HIGH-182)', () => {
     await shutdownHarness(pg);
   });
 
-  const SITE1 = '11111111-1111-4111-8111-111111111111';
-  const SITE2 = '22222222-2222-4222-8222-222222222222';
-  const SITE3 = '33333333-3333-4333-8333-333333333333';
-
-  it('is empty (complete) for a period before the batch was stocked', async () => {
-    const r = await reconstruct(SITE1, '2026-01-01');
+  it('is empty (complete) for a period before any allocation into the site', async () => {
+    const r = await reconstruct(S1, '2026-01-01');
     expect(r.complete).toBe(true);
     expect(r.totalQuantity).toBe(0);
   });
 
   it('reconstructs Feb month-end WITHOUT double-counting the tank_operations mortality mirror', async () => {
-    const r = await reconstruct(SITE1, '2026-02-28');
+    const r = await reconstruct(S1, '2026-02-28');
     expect(r.complete).toBe(true);
-    // 10000 − mortality 500 = 9500 (the mirrored tank_operations('mortality') row is NOT added).
-    expect(r.totalQuantity).toBe(9500);
-    // Latest measurement ≤ Feb 28 is 300 g → 9500 × 300 / 1000 = 2850 kg.
-    expect(r.totalBiomassKg).toBe(2850);
+    expect(r.totalQuantity).toBe(9500); // 10000 − 500 (mirror not added)
+    expect(r.totalBiomassKg).toBe(2850); // 9500 × 300 / 1000
     expect(r.speciesBreakdown[0]?.avgWeightG).toBe(300);
   });
 
   it('reconstructs Apr month-end with cull + active harvest at the as-of weight', async () => {
-    const r = await reconstruct(SITE1, '2026-04-30');
-    // 10000 − 500 (mort) − 200 (cull) − 2000 (harvest) = 7300.
-    expect(r.totalQuantity).toBe(7300);
-    // Latest measurement ≤ Apr 30 is 450 g → 7300 × 450 / 1000 = 3285 kg.
-    expect(r.totalBiomassKg).toBe(3285);
+    const r = await reconstruct(S1, '2026-04-30');
+    expect(r.totalQuantity).toBe(7300); // 10000 − 500 − 200 − 2000
+    expect(r.totalBiomassKg).toBe(3285); // 7300 × 450 / 1000
   });
 
   it('EXCLUDES a cancelled harvest at May month-end (no double removal)', async () => {
-    const r = await reconstruct(SITE1, '2026-05-31');
-    // 10000 − (500+300 mort) − 200 cull − 2000 harvest = 7000.
-    // The 1000 CANCELLED harvest is NOT removed (else it would be 6000).
-    expect(r.totalQuantity).toBe(7000);
+    const r = await reconstruct(S1, '2026-05-31');
+    expect(r.totalQuantity).toBe(7000); // 10000 − 800 − 200 − 2000 (1000 cancelled NOT removed)
   });
 
-  it('counts a batch whose only site link is a historical tank_operation (closed-batch membership)', async () => {
-    const r = await reconstruct(SITE2, '2026-02-28');
+  it('counts a cross-site-transferred batch ONCE at its destination, zero at the origin', async () => {
+    // Before the Mar 15 transfer the fish are at site A.
+    const before = await reconstruct(SA, '2026-02-28');
+    expect(before.totalQuantity).toBe(5000);
+    // After the transfer: gone from A (nets to 0), present at B — counted once.
+    const originAfter = await reconstruct(SA, '2026-04-30');
+    expect(originAfter.complete).toBe(true);
+    expect(originAfter.totalQuantity).toBe(0);
+    const destAfter = await reconstruct(SB, '2026-04-30');
+    expect(destAfter.complete).toBe(true);
+    expect(destAfter.totalQuantity).toBe(5000);
+    expect(destAfter.totalBiomassKg).toBe(1000); // 5000 × 200 / 1000
+  });
+
+  it('EXCLUDES cleaner-fish batches from the production beholdning', async () => {
+    const r = await reconstruct(SC, '2026-02-28');
     expect(r.complete).toBe(true);
-    // 4000 − 1000 mortality = 3000 (membership resolved via the operations branch,
-    // not tank_batches). The mortality mirror is again not double-counted.
+    // Only the production batch BP (3000); the cleaner batch BC is filtered out.
     expect(r.totalQuantity).toBe(3000);
   });
 
-  it('FAILS CLOSED for a site whose ledger drives a batch negative', async () => {
-    const r = await reconstruct(SITE3, '2026-02-28');
-    // 1000 − 900 mort − 500 harvest = −400 → incomplete, never a fabricated number.
+  it('FAILS CLOSED when the ledger drives a tank/batch negative', async () => {
+    const r = await reconstruct(S3, '2026-02-28');
     expect(r.complete).toBe(false);
     expect(r.incompleteReason).toMatch(/negative quantity/);
+  });
+
+  it('FAILS CLOSED when a resident batch has no stocking allocation (pre-fix gap)', async () => {
+    const r = await reconstruct(S4, '2026-02-28');
+    expect(r.complete).toBe(false);
+    expect(r.incompleteReason).toMatch(/no stocking\/transfer-in allocation/);
+  });
+
+  it('FAILS CLOSED on an un-attributable (NULL-tank) harvest', async () => {
+    const r = await reconstruct(S5, '2026-02-28');
+    expect(r.complete).toBe(false);
+    expect(r.incompleteReason).toMatch(/no tank/);
   });
 });

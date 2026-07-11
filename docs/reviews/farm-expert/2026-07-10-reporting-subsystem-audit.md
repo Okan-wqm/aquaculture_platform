@@ -373,6 +373,21 @@ exercising the trigger behavior against real Postgres (runs in CI, not this sand
   cross-tenant leak, columns match, casts fold safely) with one determinism LOW — **FARM-LOW-199** is
   FIXED: `latest_meas`'s `DISTINCT ON` tie-break over the day-granular `measurementDate` now appends
   `createdAt DESC, id DESC`, so the picked weight (and reported biomass) is reproducible.
+- **farm-expert** re-reviewed the FARM-HIGH-182 reconstruction and confirmed the maskinporten
+  single-flight/LRU, the 5xx breaker, and the jitter/dead-letter changes are correct, but found the
+  reconstruction's first draft filed a WRONG beholdning in two cases — both now FIXED by rewriting it
+  from a per-batch to a **per-(site tank, batch) point-in-time replay**:
+  - **FARM-HIGH-200** — an ever-touched batch-global attribution counted a cross-site-transferred
+    batch in full at BOTH sites. The replay now takes inflows from signed `tank_allocations`
+    (transfer_out/transfer_in legs), so a batch nets to zero at its origin and is counted once at its
+    destination.
+  - **FARM-HIGH-201** — cleaner-fish batches leaked into the production beholdning. The replay now
+    sources only production allocations + `mortality|cull|harvest` removals (cleaner uses `cleaner_*`)
+    and adds an explicit `batchType='production'` filter.
+  The rewrite also sources harvest from `harvest_records (status≠cancelled)` rather than the un-reversed
+  `tank_operations('harvest')` mirror (avoids the FARM-HIGH-198 divergence), and fails closed on a
+  missing stocking allocation, a negative net, or an un-attributable (NULL-tank) removal. The CI
+  postgres spec asserts the cross-site, cleaner-fish, and each fail-closed case.
 
 ## OPEN — HIGH (tracked)
 
